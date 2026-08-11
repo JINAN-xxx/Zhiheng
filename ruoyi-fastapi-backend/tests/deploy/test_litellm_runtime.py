@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -65,3 +66,19 @@ def test_litellm_local_environment_is_ignored() -> None:
         'LITELLM_SALT_KEY',
     ):
         assert f'{key}=' in env_example
+
+
+def test_init_env_generates_private_idempotent_secrets(tmp_path: Path) -> None:
+    target = tmp_path / '.env'
+    script = DEPLOYMENT_ROOT / 'init-env.sh'
+
+    subprocess.run([str(script), str(target)], check=True)
+    first_content = target.read_text(encoding='utf-8')
+    subprocess.run([str(script), str(target)], check=True)
+
+    assert target.read_text(encoding='utf-8') == first_content
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert 'LITELLM_DB_PASSWORD=' in first_content
+    assert 'LITELLM_REDIS_PASSWORD=' in first_content
+    assert 'LITELLM_MASTER_KEY=sk-' in first_content
+    assert 'LITELLM_SALT_KEY=sk-' in first_content
