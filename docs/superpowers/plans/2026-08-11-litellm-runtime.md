@@ -159,7 +159,9 @@ services:
     volumes:
       - litellm-redis-data:/data
     healthcheck:
-      test: [CMD-SHELL, REDISCLI_AUTH="$${LITELLM_REDIS_PASSWORD}" redis-cli ping]
+      test:
+        - CMD-SHELL
+        - REDISCLI_AUTH="$${LITELLM_REDIS_PASSWORD}" redis-cli ping
       interval: 5s
       timeout: 5s
       retries: 30
@@ -170,14 +172,16 @@ services:
     container_name: litellm-proxy
     restart: unless-stopped
     init: true
-    env_file: .env
     environment:
       DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?set LITELLM_SALT_KEY in .env}
       LITELLM_MODE: PRODUCTION
       STORE_MODEL_IN_DB: "True"
       DISABLE_SCHEMA_UPDATE: "false"
       LITELLM_REDIS_HOST: litellm-redis
       LITELLM_REDIS_PORT: "6379"
+      LITELLM_REDIS_PASSWORD: ${LITELLM_REDIS_PASSWORD:?set LITELLM_REDIS_PASSWORD in .env}
     command: [--config, /app/config.yaml, --port, "4000", --num_workers, "1"]
     volumes:
       - ./config.yaml:/app/config.yaml:ro
@@ -189,7 +193,9 @@ services:
       litellm-redis:
         condition: service_healthy
     healthcheck:
-      test: [CMD-SHELL, python -c "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"
       interval: 10s
       timeout: 5s
       retries: 30
