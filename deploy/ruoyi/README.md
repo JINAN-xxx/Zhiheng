@@ -16,7 +16,9 @@ RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owne
 docker compose -f docker-compose.pg.yml up -d --build
 ```
 
-初始化脚本会在仓库根 `.env` 中生成 `RUOYI_DB_PASSWORD`，并把文件权限设为 `0600`。脚本可以重复执行；检测到 `public.sys_user` 后不会再次导入包含删表语句的基线 SQL。
+初始化脚本会在仓库根 `.env` 中生成 `RUOYI_DB_PASSWORD`，并把文件权限设为 `0600`。基线 SQL 和 `public.ruoyi_bootstrap_state` 完成标记在同一个事务中写入，任意语句失败都会整体回滚。脚本可以重复执行；检测到完成标记后不会再次导入包含删表语句的基线 SQL。
+
+如果数据库已经包含业务表、但没有完成标记，脚本会拒绝继续，以免覆盖不完整或外部创建的 schema。此时需要先备份并人工确认数据库状态，不要绕过检查直接重跑基线。
 
 ## 安全边界
 

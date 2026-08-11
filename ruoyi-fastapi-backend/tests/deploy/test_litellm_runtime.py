@@ -47,8 +47,12 @@ if [ "${1:-}" = 'inspect' ]; then
     exit 0
 fi
 case "$*" in
-    *to_regclass*)
-        printf '%s\n' "${FAKE_SCHEMA_RESULT:-}"
+    *ruoyi_bootstrap_state*)
+        printf '%s\n' "${FAKE_BOOTSTRAP_STATE:-}"
+        exit 0
+        ;;
+    *pg_catalog.pg_tables*)
+        printf '%s\n' "${FAKE_PUBLIC_TABLE_COUNT:-0}"
         exit 0
         ;;
 esac
@@ -56,6 +60,11 @@ case " $* " in
     *' exec -i '*)
         printf 'STDIN\n' >> "$FAKE_DOCKER_CAPTURE"
         cat >> "$FAKE_DOCKER_CAPTURE"
+        case " $* " in
+            *--single-transaction*)
+                [ "${FAKE_IMPORT_FAIL:-0}" != '1' ] || exit 1
+                ;;
+        esac
         ;;
 esac
 """,
@@ -178,6 +187,17 @@ def test_ruoyi_compose_reuses_litellm_postgres_with_separate_credentials() -> No
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
 
 
+def test_ruoyi_compose_restarts_services_and_waits_for_backend_health() -> None:
+    """Docker 重启后平台自动恢复，前端只在后端可用后启动。"""
+    services = load_repository_yaml('docker-compose.pg.yml')['services']
+
+    assert {service['restart'] for service in services.values()} == {'unless-stopped'}
+    assert services['ruoyi-backend-pg']['healthcheck']
+    assert services['ruoyi-frontend']['depends_on'] == {
+        'ruoyi-backend-pg': {'condition': 'service_healthy'}
+    }
+
+
 def test_ruoyi_backend_mounts_frontend_plugin_sources_read_only() -> None:
     """插件启动校验可读取前端源码，但后端不能修改宿主机文件。"""
     compose = load_repository_yaml('docker-compose.pg.yml')
@@ -190,7 +210,9 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     """已有 RuoYi 表时，初始化器不得重复导入破坏性基线 SQL。"""
     script = (REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh').read_text(encoding='utf-8')
 
-    assert "to_regclass('public.sys_user')" in script
+    assert 'ruoyi_bootstrap_state' in script
+    assert '--single-transaction' in script
+    assert "to_regclass('public.sys_user')" not in script
     assert 'ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql' in script
     assert 'RUOYI_DB_PASSWORD' in script
     assert 'LITELLM_DB_PASSWORD' not in script
@@ -211,7 +233,7 @@ def test_shared_postgres_initializer_generates_private_password_without_leaking(
         env=environment,
     )
     first_content = platform_environment.read_text(encoding='utf-8')
-    environment['FAKE_SCHEMA_RESULT'] = 'sys_user'
+    environment['FAKE_BOOTSTRAP_STATE'] = 'complete'
     second = subprocess.run(
         [str(script), str(platform_environment)],
         check=True,
@@ -229,10 +251,10 @@ def test_shared_postgres_initializer_generates_private_password_without_leaking(
     assert capture_path.read_text(encoding='utf-8').count('drop table if exists sys_dept;') == 1
 
 
-def test_shared_postgres_initializer_skips_seed_when_schema_exists(tmp_path: Path) -> None:
-    """检测到核心表后，仅同步角色密码，不重复导入基线数据。"""
+def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp_path: Path) -> None:
+    """检测到专用完成标记后，仅同步角色密码，不重复导入基线数据。"""
     environment, capture_path = make_shared_postgres_test_environment(tmp_path)
-    environment['FAKE_SCHEMA_RESULT'] = 'sys_user'
+    environment['FAKE_BOOTSTRAP_STATE'] = 'complete'
     platform_environment = tmp_path / '.env'
     platform_environment.write_text(
         'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n'
@@ -250,8 +272,58 @@ def test_shared_postgres_initializer_skips_seed_when_schema_exists(tmp_path: Pat
     )
 
     captured = capture_path.read_text(encoding='utf-8')
-    assert "to_regclass('public.sys_user')" in captured
+    assert 'ruoyi_bootstrap_state' in captured
     assert 'drop table if exists sys_dept;' not in captured
+
+
+def test_shared_postgres_initializer_fails_atomically_without_reporting_ready(tmp_path: Path) -> None:
+    """基线导入失败时使用单事务回滚，且不得误报数据库 ready。"""
+    environment, capture_path = make_shared_postgres_test_environment(tmp_path)
+    environment['FAKE_IMPORT_FAIL'] = '1'
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
+        encoding='utf-8',
+    )
+    script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
+
+    result = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    captured = capture_path.read_text(encoding='utf-8')
+    assert result.returncode != 0
+    assert '--single-transaction' in captured
+    assert 'ruoyi_bootstrap_state' in captured
+    assert 'RuoYi shared PostgreSQL is ready.' not in result.stdout
+
+
+def test_shared_postgres_initializer_refuses_unknown_existing_schema(tmp_path: Path) -> None:
+    """无完成标记但已有表时拒绝执行含 DROP TABLE 的基线。"""
+    environment, capture_path = make_shared_postgres_test_environment(tmp_path)
+    environment['FAKE_PUBLIC_TABLE_COUNT'] = '1'
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
+        encoding='utf-8',
+    )
+    script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
+
+    result = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert 'without a completed bootstrap marker' in result.stderr
+    assert 'drop table if exists sys_dept;' not in capture_path.read_text(encoding='utf-8')
 
 
 def test_platform_environment_templates_contain_no_runtime_secret() -> None:

@@ -9,6 +9,7 @@ postgres_container=${RUOYI_SHARED_POSTGRES_CONTAINER:-litellm-db}
 docker_command=${DOCKER_COMMAND:-docker}
 database_name=ruoyi-fastapi
 database_user=ruoyi
+bootstrap_marker=ruoyi_bootstrap_state
 temporary_file=
 
 cleanup() {
@@ -85,21 +86,42 @@ SQL
     fail "Failed to create or update the RuoYi database role."
 fi
 
-schema_table=$(
+bootstrap_state=$(
     $docker_command exec "$postgres_container" \
         psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
-        "select to_regclass('public.sys_user');" 2>/dev/null
+        "select case when to_regclass('public.$bootstrap_marker') is null then '' else 'complete' end;"
 ) || fail "Failed to inspect the RuoYi database schema."
 
-if [ "$schema_table" != 'sys_user' ] && [ "$schema_table" != 'public.sys_user' ]; then
-    if ! $docker_command exec -i "$postgres_container" \
-        psql -v ON_ERROR_STOP=1 -U "$database_user" -d "$database_name" \
-        < "$database_sql" >/dev/null 2>&1; then
+if [ "$bootstrap_state" != 'complete' ]; then
+    public_table_count=$(
+        $docker_command exec "$postgres_container" \
+            psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
+            "select count(*) from pg_catalog.pg_tables where schemaname = 'public';"
+    ) || fail "Failed to inspect existing RuoYi database tables."
+    case "$public_table_count" in
+        ''|*[!0-9]*) fail "Shared PostgreSQL returned an invalid public table count." ;;
+    esac
+    [ "$public_table_count" -eq 0 ] || \
+        fail "RuoYi database has tables without a completed bootstrap marker; refusing destructive baseline import."
+
+    if ! {
+        cat "$database_sql"
+        cat <<'SQL'
+
+CREATE TABLE public.ruoyi_bootstrap_state (
+    marker_id smallint PRIMARY KEY CHECK (marker_id = 1),
+    completed_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO public.ruoyi_bootstrap_state (marker_id) VALUES (1);
+SQL
+    } | $docker_command exec -i "$postgres_container" \
+        psql -v ON_ERROR_STOP=1 --single-transaction \
+        -U "$database_user" -d "$database_name" >/dev/null; then
         fail "Failed to import the RuoYi PostgreSQL baseline."
     fi
     printf '%s\n' 'RuoYi PostgreSQL baseline imported.'
 else
-    printf '%s\n' 'RuoYi PostgreSQL baseline already exists; import skipped.'
+    printf '%s\n' 'RuoYi PostgreSQL bootstrap marker exists; import skipped.'
 fi
 
 printf '%s\n' 'RuoYi shared PostgreSQL is ready.'
