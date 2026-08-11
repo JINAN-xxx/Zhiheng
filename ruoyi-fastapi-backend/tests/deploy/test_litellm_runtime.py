@@ -111,8 +111,34 @@ def test_ruoyi_backend_joins_external_litellm_network_with_runtime_only_credenti
     assert backend['environment']['LITELLM_BASE_URL'] == 'http://litellm-proxy:4000'
     assert backend['environment']['LITELLM_RUNTIME_KEY'].startswith('${LITELLM_RUNTIME_KEY:')
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
-    assert services['ruoyi-pg']['networks'] == ['ruoyi-network']
     assert services['ruoyi-redis']['networks'] == ['ruoyi-network']
+
+
+def test_ruoyi_compose_reuses_litellm_postgres_with_separate_credentials() -> None:
+    """RuoYi 复用 PostgreSQL 实例，但只持有自己的数据库凭据。"""
+    compose = load_repository_yaml('docker-compose.pg.yml')
+    services = compose['services']
+    backend = services['ruoyi-backend-pg']
+
+    assert set(services) == {'ruoyi-frontend', 'ruoyi-backend-pg', 'ruoyi-redis'}
+    assert backend['depends_on'] == {'ruoyi-redis': {'condition': 'service_healthy'}}
+    assert backend['environment']['DB_HOST'] == 'litellm-db'
+    assert backend['environment']['DB_PORT'] == '5432'
+    assert backend['environment']['DB_USERNAME'] == 'ruoyi'
+    assert backend['environment']['DB_DATABASE'] == 'ruoyi-fastapi'
+    assert backend['environment']['DB_PASSWORD'].startswith('${RUOYI_DB_PASSWORD:')
+    assert 'LITELLM_DB_PASSWORD' not in backend['environment']
+    assert 'LITELLM_MASTER_KEY' not in backend['environment']
+
+
+def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
+    """已有 RuoYi 表时，初始化器不得重复导入破坏性基线 SQL。"""
+    script = (REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh').read_text(encoding='utf-8')
+
+    assert "to_regclass('public.sys_user')" in script
+    assert 'ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql' in script
+    assert 'RUOYI_DB_PASSWORD' in script
+    assert 'LITELLM_DB_PASSWORD' not in script
 
 
 def test_platform_environment_templates_contain_no_runtime_secret() -> None:
