@@ -26,6 +26,7 @@ EXPECTED_AI_PERMISSIONS = {
     'ai:model:remove',
     'ai:model:query',
     'ai:chat:list',
+    'ai:runtime:query',
 }
 EXPECTED_AI_PYTHON_DEPENDENCIES = [
     'agno==2.8.6',
@@ -34,6 +35,7 @@ EXPECTED_AI_PYTHON_DEPENDENCIES = [
     'cohere==7.0.8',
     'google-genai==2.16.0',
     'groq==1.6.0',
+    'httpx==0.28.1',
     'litellm==1.94.0',
     'llama-api-client==0.6.0',
     'mistralai==2.8.0',
@@ -71,7 +73,10 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(BACKEND_ROOT / 'plugins' / 'ai' / 'plugin.yaml')
 
     assert plugin.manifest.id == 'ai'
+    assert plugin.manifest.version == '0.2.0'
     assert plugin.manifest.backend.module == 'plugins.ai'
+    assert plugin.manifest.backend.hooks.on_startup == 'plugins.ai.hooks:on_startup'
+    assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.ai.hooks:on_shutdown'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/postgresql/001_init.sql',
@@ -115,8 +120,8 @@ def test_ai_plugin_runtime_paths_exist() -> None:
             PluginModel(
                 pluginId='ai',
                 pluginName='AI 管理',
-                version='0.1.0',
-                installedVersion='0.1.0',
+                version='0.2.0',
+                installedVersion='0.2.0',
                 enabled='0',
                 status='installed',
             )

@@ -1,7 +1,7 @@
 manifestVersion: 1
 id: ai
 name: AI 管理
-version: 0.1.0
+version: 0.2.0
 description: AI 模型管理与智能对话插件。
 
 metadata:
@@ -14,6 +14,9 @@ metadata:
 
 backend:
   module: plugins.ai
+  hooks:
+    onStartup: plugins.ai.hooks:on_startup
+    onShutdown: plugins.ai.hooks:on_shutdown
   routers:
     autoScan: true
   migrations:
@@ -71,6 +74,8 @@ permissions:
     name: 查询模型
   - code: ai:chat:list
     name: AI 对话
+  - code: ai:runtime:query
+    name: Runtime 诊断
 
 dependencies:
   python:
@@ -80,6 +85,7 @@ dependencies:
     - cohere==7.0.8
     - google-genai==2.16.0
     - groq==1.6.0
+    - httpx==0.28.1
     - litellm==1.94.0
     - llama-api-client==0.6.0
     - mistralai==2.8.0
