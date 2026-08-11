@@ -25,36 +25,19 @@ services:
     ports:
       - "19099:9099"
     environment:
+      DB_HOST: litellm-db
+      DB_PORT: "5432"
+      DB_USERNAME: ruoyi
+      DB_PASSWORD: "${RUOYI_DB_PASSWORD:?run deploy/ruoyi/init-shared-postgres.sh first}"
+      DB_DATABASE: ruoyi-fastapi
       LITELLM_BASE_URL: http://litellm-proxy:4000
       LITELLM_RUNTIME_KEY: "${LITELLM_RUNTIME_KEY:?set LITELLM_RUNTIME_KEY in repository .env}"
     depends_on:
-      ruoyi-pg:
-        condition: service_healthy
       ruoyi-redis:
         condition: service_healthy
     networks:
       - ruoyi-network
       - litellm-network
-
-  # PostgreSQL服务
-  ruoyi-pg:
-    image: postgres:14
-    container_name: ruoyi-pg
-    environment:
-      POSTGRES_PASSWORD: root
-      POSTGRES_DB: ruoyi-fastapi
-      POSTGRES_INITDB_ARGS: --encoding=UTF8 --lc-collate=C --lc-ctype=C
-    ports:
-      - "15432:5432"
-    volumes:
-      - ./ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql:/docker-entrypoint-initdb.d/ruoyi-fastapi-pg.sql
-    networks:
-      - ruoyi-network
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-      interval: 5s
-      timeout: 10s
-      retries: 30
 
   # Redis服务
   ruoyi-redis:

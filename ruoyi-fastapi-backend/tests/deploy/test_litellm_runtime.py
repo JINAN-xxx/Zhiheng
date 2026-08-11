@@ -264,6 +264,17 @@ def test_platform_environment_templates_contain_no_runtime_secret() -> None:
         assert read_environment_value(environment_path, 'LITELLM_VERIFY_SSL') == 'true'
 
 
+def test_dockerpg_environment_targets_shared_postgres_without_committed_password() -> None:
+    """镜像内模板与 Compose 使用同一数据库地址，但不固化运行密码。"""
+    environment_path = REPOSITORY_ROOT / 'ruoyi-fastapi-backend/.env.dockerpg'
+
+    assert read_environment_value(environment_path, 'DB_HOST') == 'litellm-db'
+    assert read_environment_value(environment_path, 'DB_PORT') == '5432'
+    assert read_environment_value(environment_path, 'DB_USERNAME') == 'ruoyi'
+    assert read_environment_value(environment_path, 'DB_PASSWORD') == ''
+    assert read_environment_value(environment_path, 'DB_DATABASE') == 'ruoyi-fastapi'
+
+
 def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path: Path) -> None:
     """Runtime Key 只生成一次、安全落盘，且不出现在命令输出中。"""
     fake_bin = tmp_path / 'bin'
