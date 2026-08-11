@@ -29,6 +29,53 @@ def read_environment_value(path: Path, key: str) -> str:
     raise AssertionError(f'{path} 缺少 {key}')
 
 
+def make_shared_postgres_test_environment(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    """创建可观察 stdin、但不接触真实容器的命令环境。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    capture_path = tmp_path / 'docker-capture'
+    fake_docker = fake_bin / 'docker'
+    fake_docker.write_text(
+        """#!/bin/sh
+set -eu
+printf 'CALL\n' >> "$FAKE_DOCKER_CAPTURE"
+for argument in "$@"; do
+    printf '[%s]\n' "$argument" >> "$FAKE_DOCKER_CAPTURE"
+done
+if [ "${1:-}" = 'inspect' ]; then
+    printf 'true\n'
+    exit 0
+fi
+case "$*" in
+    *to_regclass*)
+        printf '%s\n' "${FAKE_SCHEMA_RESULT:-}"
+        exit 0
+        ;;
+esac
+case " $* " in
+    *' exec -i '*)
+        printf 'STDIN\n' >> "$FAKE_DOCKER_CAPTURE"
+        cat >> "$FAKE_DOCKER_CAPTURE"
+        ;;
+esac
+""",
+        encoding='utf-8',
+    )
+    fake_docker.chmod(0o755)
+    fake_openssl = fake_bin / 'openssl'
+    fake_openssl.write_text(
+        "#!/bin/sh\nprintf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef'\n",
+        encoding='utf-8',
+    )
+    fake_openssl.chmod(0o755)
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_DOCKER_CAPTURE': str(capture_path),
+    }
+    return environment, capture_path
+
+
 def test_litellm_compose_uses_pinned_local_images_and_private_data_services() -> None:
     compose = load_yaml('compose.yaml')
     services = compose['services']
@@ -139,6 +186,64 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     assert 'ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql' in script
     assert 'RUOYI_DB_PASSWORD' in script
     assert 'LITELLM_DB_PASSWORD' not in script
+
+
+def test_shared_postgres_initializer_generates_private_password_without_leaking(tmp_path: Path) -> None:
+    """初始化器保留平台配置、私密落盘密码，且不向日志输出密码。"""
+    environment, capture_path = make_shared_postgres_test_environment(tmp_path)
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text('LITELLM_RUNTIME_KEY=sk-runtime-test\n', encoding='utf-8')
+    script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
+
+    first = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    first_content = platform_environment.read_text(encoding='utf-8')
+    environment['FAKE_SCHEMA_RESULT'] = 'sys_user'
+    second = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    password = '0123456789abcdef0123456789abcdef0123456789abcdef'
+    assert platform_environment.read_text(encoding='utf-8') == first_content
+    assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
+    assert 'LITELLM_RUNTIME_KEY=sk-runtime-test' in first_content
+    assert f'RUOYI_DB_PASSWORD={password}' in first_content
+    assert password not in first.stdout + first.stderr + second.stdout + second.stderr
+    assert capture_path.read_text(encoding='utf-8').count('drop table if exists sys_dept;') == 1
+
+
+def test_shared_postgres_initializer_skips_seed_when_schema_exists(tmp_path: Path) -> None:
+    """检测到核心表后，仅同步角色密码，不重复导入基线数据。"""
+    environment, capture_path = make_shared_postgres_test_environment(tmp_path)
+    environment['FAKE_SCHEMA_RESULT'] = 'sys_user'
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n'
+        'LITELLM_RUNTIME_KEY=sk-runtime-test\n',
+        encoding='utf-8',
+    )
+    script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
+
+    subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    captured = capture_path.read_text(encoding='utf-8')
+    assert "to_regclass('public.sys_user')" in captured
+    assert 'drop table if exists sys_dept;' not in captured
 
 
 def test_platform_environment_templates_contain_no_runtime_secret() -> None:
