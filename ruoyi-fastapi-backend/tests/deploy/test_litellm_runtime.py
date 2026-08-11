@@ -275,6 +275,14 @@ def test_dockerpg_environment_targets_shared_postgres_without_committed_password
     assert read_environment_value(environment_path, 'DB_DATABASE') == 'ruoyi-fastapi'
 
 
+def test_postgres_image_build_tolerates_slow_package_mirror() -> None:
+    """首次镜像构建允许国内 PyPI 镜像出现短暂读取停顿。"""
+    dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-backend/Dockerfile.pg').read_text(encoding='utf-8')
+
+    assert '--timeout 120' in dockerfile
+    assert '--retries 5' in dockerfile
+
+
 def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path: Path) -> None:
     """Runtime Key 只生成一次、安全落盘，且不出现在命令输出中。"""
     fake_bin = tmp_path / 'bin'
