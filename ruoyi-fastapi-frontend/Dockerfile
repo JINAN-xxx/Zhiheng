@@ -12,6 +12,7 @@ RUN npm config set registry https://registry.npmmirror.com
 RUN npm install
 
 # 执行docker构建命令
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build:docker
 
 # 运行阶段

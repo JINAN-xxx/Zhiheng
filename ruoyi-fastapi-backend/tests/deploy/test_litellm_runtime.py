@@ -283,6 +283,13 @@ def test_postgres_image_build_tolerates_slow_package_mirror() -> None:
     assert '--retries 5' in dockerfile
 
 
+def test_frontend_image_build_has_enough_v8_heap() -> None:
+    """完整前端打包不受 Node 默认约 2 GiB 堆上限约束。"""
+    dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-frontend/Dockerfile').read_text(encoding='utf-8')
+
+    assert 'NODE_OPTIONS=--max-old-space-size=4096' in dockerfile
+
+
 def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path: Path) -> None:
     """Runtime Key 只生成一次、安全落盘，且不出现在命令输出中。"""
     fake_bin = tmp_path / 'bin'
