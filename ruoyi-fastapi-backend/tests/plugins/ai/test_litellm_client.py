@@ -120,6 +120,20 @@ async def test_liveliness_does_not_require_runtime_key() -> None:
 
 
 @pytest.mark.asyncio
+async def test_liveliness_normalizes_litellm_json_string_response() -> None:
+    """LiteLLM v1.95 的 JSON 字符串存活响应被规范化为内部对象。"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json="I'm alive!")
+
+    client = build_client(handler, runtime_key='')
+    try:
+        assert await client.check_liveliness() == {'status': "I'm alive!"}
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_authenticated_calls_fail_fast_when_runtime_key_missing() -> None:
     """Runtime Key 缺失时不向网络发出认证请求。"""
     transport_called = False

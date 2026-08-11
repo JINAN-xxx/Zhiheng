@@ -37,7 +37,7 @@ class LiteLLMRuntimeClient:
 
     async def check_liveliness(self) -> Mapping[str, object]:
         """检查 LiteLLM Proxy 进程是否存活。"""
-        return await self._request_json('GET', '/health/liveliness', authenticated=False)
+        return await self._request_json('GET', '/health/liveliness', authenticated=False, allow_string=True)
 
     async def list_models(self) -> Mapping[str, object]:
         """获取当前 Runtime Key 可访问的模型。"""
@@ -96,6 +96,7 @@ class LiteLLMRuntimeClient:
         *,
         payload: Mapping[str, object] | None = None,
         authenticated: bool = True,
+        allow_string: bool = False,
     ) -> Mapping[str, object]:
         try:
             response = await self._client.request(
@@ -114,6 +115,8 @@ class LiteLLMRuntimeClient:
             result = response.json()
         except ValueError as exc:
             raise LiteLLMUpstreamError from exc
+        if allow_string and isinstance(result, str):
+            return {'status': result}
         if not isinstance(result, Mapping):
             raise LiteLLMUpstreamError
         return result
