@@ -24,6 +24,8 @@ services:
     container_name: ruoyi-backend-pg
     ports:
       - "19099:9099"
+    volumes:
+      - ./ruoyi-fastapi-frontend:/frontend:ro
     environment:
       DB_HOST: litellm-db
       DB_PORT: "5432"

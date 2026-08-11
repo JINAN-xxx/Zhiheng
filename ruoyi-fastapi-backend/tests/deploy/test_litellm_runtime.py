@@ -178,6 +178,14 @@ def test_ruoyi_compose_reuses_litellm_postgres_with_separate_credentials() -> No
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
 
 
+def test_ruoyi_backend_mounts_frontend_plugin_sources_read_only() -> None:
+    """插件启动校验可读取前端源码，但后端不能修改宿主机文件。"""
+    compose = load_repository_yaml('docker-compose.pg.yml')
+    backend = compose['services']['ruoyi-backend-pg']
+
+    assert './ruoyi-fastapi-frontend:/frontend:ro' in backend['volumes']
+
+
 def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     """已有 RuoYi 表时，初始化器不得重复导入破坏性基线 SQL。"""
     script = (REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh').read_text(encoding='utf-8')
