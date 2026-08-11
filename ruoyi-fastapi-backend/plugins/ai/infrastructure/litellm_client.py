@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 
 import httpx
 
@@ -50,6 +50,25 @@ class LiteLLMRuntimeClient:
     async def create_embedding(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         """调用 OpenAI 兼容 Embeddings 接口。"""
         return await self._request_json('POST', '/v1/embeddings', payload=payload)
+
+    async def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]:
+        """调用 Chat Completions 并原样转发上游 SSE 字节。"""
+        request_payload = dict(payload)
+        request_payload['stream'] = True
+        try:
+            async with self._client.stream(
+                'POST',
+                '/v1/chat/completions',
+                json=request_payload,
+                headers=self._build_headers(authenticated=True),
+            ) as response:
+                self._raise_for_status(response)
+                async for chunk in response.aiter_raw():
+                    yield chunk
+        except httpx.TimeoutException as exc:
+            raise LiteLLMTimeoutError from exc
+        except httpx.RequestError as exc:
+            raise LiteLLMUnavailableError from exc
 
     async def aclose(self) -> None:
         """关闭当前 Worker 的 HTTP 连接池。"""
