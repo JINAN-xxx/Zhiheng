@@ -291,6 +291,20 @@ def test_postgres_image_build_tolerates_slow_package_mirror() -> None:
     assert '--retries 5' in dockerfile
 
 
+def test_postgres_image_includes_default_ai_plugin_python_dependencies() -> None:
+    """后端镜像重建后仍满足默认启用 AI 插件的 Python 依赖。"""
+    manifest = load_repository_yaml('ruoyi-fastapi-backend/plugins/ai/plugin.yaml')
+    requirements = {
+        line.strip()
+        for line in (REPOSITORY_ROOT / 'ruoyi-fastapi-backend/requirements-pg.txt')
+        .read_text(encoding='utf-8')
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith('#')
+    }
+
+    assert set(manifest['dependencies']['python']) <= requirements
+
+
 def test_frontend_image_build_has_enough_v8_heap() -> None:
     """完整前端打包不受 Node 默认约 2 GiB 堆上限约束。"""
     dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-frontend/Dockerfile').read_text(encoding='utf-8')
