@@ -20,6 +20,22 @@ docker compose --env-file .env -f compose.yaml ps
 
 三个服务都应显示为 `healthy`。首次启动需要初始化数据库，LiteLLM Proxy 可能需要等待几十秒。
 
+LiteLLM 健康后，为 RuoYi Backend 创建独立的 Runtime Key：
+
+```bash
+./init-platform-runtime-key.sh
+```
+
+脚本使用部署侧 Master Key 创建别名为 `platform-runtime` 的 `llm_api` Virtual Key，并写入仓库根目录未提交的 `.env`。脚本不会输出 Key；已有非空 Runtime Key 时会直接保留，不会重复创建。
+
+随后在仓库根目录启动 RuoYi PostgreSQL 版本：
+
+```bash
+docker compose -f docker-compose.pg.yml up -d
+```
+
+RuoYi Backend 通过外部 `litellm-network` 访问 `http://litellm-proxy:4000`。两个 Compose 项目生命周期独立，启动 RuoYi 前应先确保 LiteLLM 三个容器健康。
+
 ## 访问
 
 - 管理界面：<http://127.0.0.1:14000/ui/>
@@ -78,5 +94,6 @@ docker compose --env-file .env -f compose.yaml down --volumes
 
 - Proxy 只绑定 `127.0.0.1:14000`，PostgreSQL 和 Redis 不暴露宿主机端口。
 - `.env` 已被 Git 忽略，不要提交或通过日志输出其中的值。
+- RuoYi Backend 只持有 `LITELLM_RUNTIME_KEY`，不要把 `LITELLM_MASTER_KEY` 注入 Platform 容器。
 - 数据库中已有加密配置后，不要修改 `LITELLM_SALT_KEY`，否则原有 Provider 凭据可能无法解密。
 - 需要从其他主机访问时，应通过平台网关或带 TLS 的反向代理转发，不要直接暴露数据库或 Redis。

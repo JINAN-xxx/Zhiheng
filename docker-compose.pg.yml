@@ -24,6 +24,9 @@ services:
     container_name: ruoyi-backend-pg
     ports:
       - "19099:9099"
+    environment:
+      LITELLM_BASE_URL: http://litellm-proxy:4000
+      LITELLM_RUNTIME_KEY: "${LITELLM_RUNTIME_KEY:?set LITELLM_RUNTIME_KEY in repository .env}"
     depends_on:
       ruoyi-pg:
         condition: service_healthy
@@ -31,6 +34,7 @@ services:
         condition: service_healthy
     networks:
       - ruoyi-network
+      - litellm-network
 
   # PostgreSQL服务
   ruoyi-pg:
@@ -71,3 +75,6 @@ networks:
   ruoyi-network:
     name: ruoyi-network
     driver: bridge
+  litellm-network:
+    external: true
+    name: litellm-network

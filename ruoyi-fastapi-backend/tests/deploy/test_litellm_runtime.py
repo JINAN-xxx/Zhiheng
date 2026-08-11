@@ -1,16 +1,32 @@
+import os
 import subprocess
 from pathlib import Path
 
 import yaml
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DEPLOYMENT_ROOT = REPOSITORY_ROOT / 'deploy' / 'litellm'
+FILE_MODE_MASK = 0o777
+PRIVATE_FILE_MODE = 0o600
 
 
 def load_yaml(name: str) -> dict[str, object]:
     with (DEPLOYMENT_ROOT / name).open(encoding='utf-8') as file:
         return yaml.safe_load(file)
+
+
+def load_repository_yaml(name: str) -> dict[str, object]:
+    with (REPOSITORY_ROOT / name).open(encoding='utf-8') as file:
+        return yaml.safe_load(file)
+
+
+def read_environment_value(path: Path, key: str) -> str:
+    """读取仓库环境模板中的简单 KEY = VALUE 配置。"""
+    for line in path.read_text(encoding='utf-8').splitlines():
+        name, separator, value = line.partition('=')
+        if separator and name.strip() == key:
+            return value.strip().strip('\'"')
+    raise AssertionError(f'{path} 缺少 {key}')
 
 
 def test_litellm_compose_uses_pinned_local_images_and_private_data_services() -> None:
@@ -77,8 +93,101 @@ def test_init_env_generates_private_idempotent_secrets(tmp_path: Path) -> None:
     subprocess.run([str(script), str(target)], check=True)
 
     assert target.read_text(encoding='utf-8') == first_content
-    assert target.stat().st_mode & 0o777 == 0o600
+    assert target.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
     assert 'LITELLM_DB_PASSWORD=' in first_content
     assert 'LITELLM_REDIS_PASSWORD=' in first_content
     assert 'LITELLM_MASTER_KEY=sk-' in first_content
     assert 'LITELLM_SALT_KEY=sk-' in first_content
+
+
+def test_ruoyi_backend_joins_external_litellm_network_with_runtime_only_credentials() -> None:
+    """RuoYi Backend 通过外部网络访问 Proxy，且不持有 Master Key。"""
+    compose = load_repository_yaml('docker-compose.pg.yml')
+    services = compose['services']
+    backend = services['ruoyi-backend-pg']
+
+    assert set(backend['networks']) == {'ruoyi-network', 'litellm-network'}
+    assert compose['networks']['litellm-network'] == {'external': True, 'name': 'litellm-network'}
+    assert backend['environment']['LITELLM_BASE_URL'] == 'http://litellm-proxy:4000'
+    assert backend['environment']['LITELLM_RUNTIME_KEY'].startswith('${LITELLM_RUNTIME_KEY:')
+    assert 'LITELLM_MASTER_KEY' not in backend['environment']
+    assert services['ruoyi-pg']['networks'] == ['ruoyi-network']
+    assert services['ruoyi-redis']['networks'] == ['ruoyi-network']
+
+
+def test_platform_environment_templates_contain_no_runtime_secret() -> None:
+    """受控环境模板只提供非敏感 LiteLLM 配置。"""
+    backend_root = REPOSITORY_ROOT / 'ruoyi-fastapi-backend'
+    expected_base_urls = {
+        '.env.dev': 'http://127.0.0.1:14000',
+        '.env.prod': 'http://127.0.0.1:14000',
+        '.env.dockerpg': 'http://litellm-proxy:4000',
+    }
+
+    for name, expected_base_url in expected_base_urls.items():
+        environment_path = backend_root / name
+        assert read_environment_value(environment_path, 'LITELLM_BASE_URL') == expected_base_url
+        assert read_environment_value(environment_path, 'LITELLM_RUNTIME_KEY') == ''
+        assert read_environment_value(environment_path, 'LITELLM_CONNECT_TIMEOUT_SECONDS') == '5'
+        assert read_environment_value(environment_path, 'LITELLM_REQUEST_TIMEOUT_SECONDS') == '600'
+        assert read_environment_value(environment_path, 'LITELLM_VERIFY_SSL') == 'true'
+
+
+def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path: Path) -> None:
+    """Runtime Key 只生成一次、安全落盘，且不出现在命令输出中。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    fake_curl = fake_bin / 'curl'
+    capture_path = tmp_path / 'curl-arguments'
+    fake_curl.write_text(
+        """#!/bin/sh
+set -eu
+printf '%s\n' CALL "$@" >> "$FAKE_CURL_CAPTURE"
+printf '%s\n' '{"key":"sk-runtime-test"}'
+""",
+        encoding='utf-8',
+    )
+    fake_curl.chmod(0o755)
+
+    deploy_environment = tmp_path / 'litellm.env'
+    deploy_environment.write_text(
+        'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_PORT=14000\n',
+        encoding='utf-8',
+    )
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text('EXISTING_SETTING=kept\nLITELLM_RUNTIME_KEY=\n', encoding='utf-8')
+    script = DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_CURL_CAPTURE': str(capture_path),
+        'LITELLM_DEPLOY_ENV_FILE': str(deploy_environment),
+    }
+
+    first = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    first_content = platform_environment.read_text(encoding='utf-8')
+    second = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert platform_environment.read_text(encoding='utf-8') == first_content
+    assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
+    assert 'EXISTING_SETTING=kept' in first_content
+    assert 'LITELLM_RUNTIME_KEY=sk-runtime-test' in first_content
+    assert capture_path.read_text(encoding='utf-8').count('CALL') == 1
+    captured_arguments = capture_path.read_text(encoding='utf-8')
+    assert 'Authorization: Bearer sk-master-test' in captured_arguments
+    assert '{"key_alias":"platform-runtime","key_type":"llm_api","models":[]}' in captured_arguments
+    combined_output = first.stdout + first.stderr + second.stdout + second.stderr
+    assert 'sk-runtime-test' not in combined_output
+    assert 'sk-master-test' not in combined_output
