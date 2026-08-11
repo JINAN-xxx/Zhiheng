@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . .
 
 # 安装依赖
-RUN pip install --no-cache-dir --timeout 120 --retries 5 \
+RUN pip install --no-cache-dir --timeout 600 --retries 5 \
     -r requirements-pg.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 暴露端口

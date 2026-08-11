@@ -287,7 +287,7 @@ def test_postgres_image_build_tolerates_slow_package_mirror() -> None:
     """首次镜像构建允许国内 PyPI 镜像出现短暂读取停顿。"""
     dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-backend/Dockerfile.pg').read_text(encoding='utf-8')
 
-    assert '--timeout 120' in dockerfile
+    assert '--timeout 600' in dockerfile
     assert '--retries 5' in dockerfile
 
 
