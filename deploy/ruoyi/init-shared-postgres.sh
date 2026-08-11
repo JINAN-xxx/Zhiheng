@@ -86,11 +86,19 @@ SQL
     fail "Failed to create or update the RuoYi database role."
 fi
 
-bootstrap_state=$(
+bootstrap_relation=$(
     $docker_command exec "$postgres_container" \
         psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
-        "select case when to_regclass('public.$bootstrap_marker') is null then '' else 'complete' end;"
+        "select to_regclass('public.$bootstrap_marker');"
 ) || fail "Failed to inspect the RuoYi database schema."
+bootstrap_state=
+if [ "$bootstrap_relation" = "$bootstrap_marker" ] || [ "$bootstrap_relation" = "public.$bootstrap_marker" ]; then
+    bootstrap_state=$(
+        $docker_command exec "$postgres_container" \
+            psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
+            "select case when exists (select 1 from public.$bootstrap_marker WHERE marker_id = 1) then 'complete' else '' end;"
+    ) || fail "Failed to validate the RuoYi database bootstrap marker."
+fi
 
 if [ "$bootstrap_state" != 'complete' ]; then
     public_table_count=$(

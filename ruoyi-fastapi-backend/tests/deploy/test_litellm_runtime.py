@@ -47,7 +47,13 @@ if [ "${1:-}" = 'inspect' ]; then
     exit 0
 fi
 case "$*" in
-    *ruoyi_bootstrap_state*)
+    *to_regclass*ruoyi_bootstrap_state*)
+        if [ -n "${FAKE_BOOTSTRAP_STATE:-}" ]; then
+            printf '%s\n' 'public.ruoyi_bootstrap_state'
+        fi
+        exit 0
+        ;;
+    *'from public.ruoyi_bootstrap_state'*)
         printf '%s\n' "${FAKE_BOOTSTRAP_STATE:-}"
         exit 0
         ;;
@@ -211,6 +217,7 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     script = (REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh').read_text(encoding='utf-8')
 
     assert 'ruoyi_bootstrap_state' in script
+    assert 'WHERE marker_id = 1' in script
     assert '--single-transaction' in script
     assert "to_regclass('public.sys_user')" not in script
     assert 'ruoyi-fastapi-backend/sql/ruoyi-fastapi-pg.sql' in script
