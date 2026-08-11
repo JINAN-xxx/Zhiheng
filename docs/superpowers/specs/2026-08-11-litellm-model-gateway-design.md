@@ -1,5 +1,7 @@
 # RuoYi LiteLLM 模型网关设计
 
+> **已被替代：** 本规格错误地将 LiteLLM 视为模型业务主数据源，并将旧 Agno 聊天排除在本期迁移之外。请勿据此实施。有效规格为 [2026-08-11-model-service-v01a-design.md](./2026-08-11-model-service-v01a-design.md)。
+
 ## 背景
 
 LiteLLM Proxy、PostgreSQL 和 Redis 已经完成独立部署，RuoYi Backend 也已通过内部 Docker 网络使用 Runtime Key 访问 LiteLLM。当前 RuoYi 的“模型管理”页面仍然管理 `ai_models` 业务表，并由 Agno 对话链路直接读取 Provider API Key；它不是 LiteLLM 的控制面。
