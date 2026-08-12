@@ -1,8 +1,10 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
+
+from plugins.ai.domain.resource_id import validate_resource_id
 
 ModelType = Literal['chat', 'embedding']
 LifecycleStatus = Literal['draft', 'active', 'disabled']
@@ -20,13 +22,23 @@ ModelCode = Annotated[
 DisplayName = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=100)]
 PositiveInteger = Annotated[int, Field(strict=True, gt=0)]
 ResourceIdentifier = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=255)]
+ModelResourceId = Annotated[
+    str,
+    StringConstraints(strict=True),
+    AfterValidator(lambda value: validate_resource_id(value, 'mdl')),
+]
+BindingResourceId = Annotated[
+    str,
+    StringConstraints(strict=True),
+    AfterValidator(lambda value: validate_resource_id(value, 'bnd')),
+]
 
 
 class _StrictRequestModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True,
+        validate_by_alias=True,
+        validate_by_name=False,
         extra='forbid',
     )
 
@@ -34,7 +46,8 @@ class _StrictRequestModel(BaseModel):
 class _ResponseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
-        populate_by_name=True,
+        validate_by_alias=True,
+        validate_by_name=True,
         from_attributes=True,
         extra='ignore',
     )
@@ -57,6 +70,25 @@ class ModelDefaultParametersModel(_StrictRequestModel):
 
 class EngineMetadataModel(_StrictRequestModel):
     """本阶段不允许 Platform API 写入未定义的引擎元数据。"""
+
+
+class _ModelCapabilitiesResponseModel(_ResponseModel):
+    vision: bool = Field(default=False, strict=True)
+    reasoning: bool = Field(default=False, strict=True)
+    tools: bool = Field(default=False, strict=True)
+    streaming: bool = Field(default=False, strict=True)
+
+
+class _ModelDefaultParametersResponseModel(_ResponseModel):
+    temperature: float | None = Field(default=None, strict=True, ge=0, le=2)
+    top_p: float | None = Field(default=None, strict=True, ge=0, le=1)
+    max_tokens: PositiveInteger | None = None
+    presence_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
+    frequency_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
+
+
+class _EngineMetadataResponseModel(_ResponseModel):
+    """响应侧非敏感引擎元数据。"""
 
 
 class ModelCatalogCreateModel(_StrictRequestModel):
@@ -96,14 +128,14 @@ class ResourceBindingUpsertModel(_StrictRequestModel):
 
 
 class PlatformModelModel(_ResponseModel):
-    model_id: str
+    model_id: ModelResourceId
     model_code: ModelCode
     display_name: DisplayName
     model_type: ModelType
-    capabilities: ModelCapabilitiesModel
+    capabilities: _ModelCapabilitiesResponseModel
     context_window: PositiveInteger | None = None
     max_output_tokens: PositiveInteger | None = None
-    default_parameters: ModelDefaultParametersModel
+    default_parameters: _ModelDefaultParametersResponseModel
     lifecycle_status: LifecycleStatus
     published_at: datetime | None = None
     create_by: str
@@ -113,11 +145,11 @@ class PlatformModelModel(_ResponseModel):
 
 
 class ResourceBindingModel(_ResponseModel):
-    binding_id: str
-    resource_id: str
+    binding_id: BindingResourceId
+    resource_id: ModelResourceId
     engine_resource_id: ResourceIdentifier
     binding_status: BindingStatus
-    engine_metadata: EngineMetadataModel
+    engine_metadata: _EngineMetadataResponseModel
     version: PositiveInteger
     create_time: datetime
     update_time: datetime

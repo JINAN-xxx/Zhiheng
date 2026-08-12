@@ -1,7 +1,8 @@
 import re
-from uuid import uuid4
+from uuid import RFC_4122, UUID, uuid4
 
 ALLOWED_RESOURCE_PREFIXES = frozenset({'mdl', 'bnd', 'ses', 'msg', 'run'})
+UUID4_VERSION = 4
 
 
 def _validate_prefix(prefix: str) -> None:
@@ -22,6 +23,11 @@ def validate_resource_id(value: str, prefix: str) -> str:
     if not isinstance(value, str):
         raise TypeError('资源 ID 必须是字符串')
     _validate_prefix(prefix)
-    if re.fullmatch(rf'{re.escape(prefix)}_[0-9a-f]{{32}}', value) is None:
+    match = re.fullmatch(rf'{re.escape(prefix)}_([0-9a-f]{{32}})', value)
+    if match is None:
         raise ValueError('资源 ID 格式无效')
+    uuid_hex = match.group(1)
+    parsed_uuid = UUID(hex=uuid_hex)
+    if parsed_uuid.hex != uuid_hex or parsed_uuid.version != UUID4_VERSION or parsed_uuid.variant != RFC_4122:
+        raise ValueError('资源 ID 必须使用 RFC 4122 UUID4')
     return value

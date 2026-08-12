@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import new_resource_id, validate_resource_id
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
+    EngineMetadataModel,
     ModelCapabilitiesModel,
     ModelCatalogCreateModel,
     ModelCatalogPageQueryModel,
@@ -22,6 +23,10 @@ GENERATED_ID_SAMPLE_SIZE = 100
 TOP_P = 0.95
 QUERY_PAGE_NUM = 2
 QUERY_PAGE_SIZE = 50
+VALID_UUID4_HEX = '123e4567e89b42d3a456426614174000'
+SECOND_VALID_UUID4_HEX = '987e4567e89b42d3a456426614174111'
+UUID1_HEX = '123e4567e89b12d3a456426614174000'
+NCS_VARIANT_HEX = '123e4567e89b42d37456426614174000'
 
 
 @pytest.mark.parametrize('prefix', RESOURCE_PREFIXES)
@@ -53,7 +58,7 @@ def test_resource_id_generation_rejects_non_string_prefix(prefix: object) -> Non
 @pytest.mark.parametrize(
     ('value', 'prefix'),
     (
-        ('run_' + 'a' * 32, 'mdl'),
+        ('run_' + VALID_UUID4_HEX, 'mdl'),
         ('mdl_' + 'A' * 32, 'mdl'),
         ('mdl_' + 'a' * 31, 'mdl'),
         ('mdl_' + 'a' * 33, 'mdl'),
@@ -66,13 +71,19 @@ def test_resource_id_validation_rejects_wrong_type_case_length_or_format(value: 
         validate_resource_id(value, prefix)
 
 
+@pytest.mark.parametrize('uuid_hex', (UUID1_HEX, NCS_VARIANT_HEX))
+def test_resource_id_validation_rejects_non_uuid4_or_non_rfc_4122_values(uuid_hex: str) -> None:
+    with pytest.raises(ValueError):
+        validate_resource_id(f'mdl_{uuid_hex}', 'mdl')
+
+
 @pytest.mark.parametrize(
     ('value', 'prefix'),
     (
         (None, 'mdl'),
         (1, 'mdl'),
-        ('mdl_' + 'a' * 32, None),
-        ('mdl_' + 'a' * 32, 1),
+        ('mdl_' + VALID_UUID4_HEX, None),
+        ('mdl_' + VALID_UUID4_HEX, 1),
     ),
 )
 def test_resource_id_validation_rejects_non_string_arguments(value: object, prefix: object) -> None:
@@ -157,6 +168,69 @@ def test_model_catalog_create_accepts_camel_case_and_serializes_nested_models_as
     assert request.capabilities.reasoning is True
     assert request.default_parameters.top_p == TOP_P
     assert request.model_dump(by_alias=True) == _valid_create_payload()
+
+
+@pytest.mark.parametrize(
+    'payload',
+    (
+        {
+            'model_code': 'company.reasoning-v1',
+            'displayName': '企业推理模型',
+            'modelType': 'chat',
+        },
+        {
+            'modelCode': 'company.reasoning-v1',
+            'display_name': '企业推理模型',
+            'modelType': 'chat',
+        },
+        {
+            'modelCode': 'company.reasoning-v1',
+            'displayName': '企业推理模型',
+            'model_type': 'chat',
+        },
+        {
+            'modelCode': 'company.reasoning-v1',
+            'displayName': '企业推理模型',
+            'modelType': 'chat',
+            'defaultParameters': {'top_p': TOP_P},
+        },
+    ),
+)
+def test_model_catalog_create_rejects_snake_case_request_fields(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        ModelCatalogCreateModel.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ('model_type', 'payload'),
+    (
+        (ModelCatalogUpdateModel, {'display_name': '更新后的名称'}),
+        (ModelCatalogPageQueryModel, {'page_num': QUERY_PAGE_NUM}),
+        (ResourceBindingUpsertModel, {'engine_resource_id': 'company-reasoning'}),
+        (ModelCapabilitiesModel, {'vision': True, 'reasoning_mode': True}),
+        (ModelDefaultParametersModel, {'top_p': TOP_P}),
+    ),
+)
+def test_all_request_models_reject_snake_case_fields(model_type: type, payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        model_type.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    'model_type',
+    (
+        ModelCatalogCreateModel,
+        ModelCatalogUpdateModel,
+        ModelCatalogPageQueryModel,
+        ResourceBindingUpsertModel,
+        ModelCapabilitiesModel,
+        ModelDefaultParametersModel,
+        EngineMetadataModel,
+    ),
+)
+def test_all_request_models_validate_by_camel_case_alias_only(model_type: type) -> None:
+    assert model_type.model_config['validate_by_alias'] is True
+    assert model_type.model_config['validate_by_name'] is False
 
 
 @pytest.mark.parametrize('field', ('apiKey', 'baseUrl', 'litellmModelId', 'engineType', 'provider'))
@@ -326,7 +400,7 @@ def test_resource_binding_upsert_requires_strict_positive_expected_version(field
 
 def test_platform_model_response_is_from_attributes_and_does_not_expose_runtime_credentials() -> None:
     class CatalogRecord:
-        model_id = 'mdl_' + 'a' * 32
+        model_id = 'mdl_' + VALID_UUID4_HEX
         model_code = 'company.reasoning-v1'
         display_name = '企业推理模型'
         model_type = 'chat'
@@ -356,15 +430,15 @@ def test_platform_model_detail_serializes_binding_with_entity_field_names() -> N
     detail = PlatformModelDetailModel.model_validate(
         {
             **_valid_create_payload(),
-            'modelId': 'mdl_' + 'a' * 32,
+            'modelId': 'mdl_' + VALID_UUID4_HEX,
             'lifecycleStatus': 'draft',
             'createBy': 'admin',
             'createTime': '2026-08-12T09:00:00',
             'updateBy': 'admin',
             'updateTime': '2026-08-12T09:00:00',
             'binding': {
-                'bindingId': 'bnd_' + 'b' * 32,
-                'resourceId': 'mdl_' + 'a' * 32,
+                'bindingId': 'bnd_' + SECOND_VALID_UUID4_HEX,
+                'resourceId': 'mdl_' + VALID_UUID4_HEX,
                 'engineResourceId': 'company-reasoning',
                 'bindingStatus': 'active',
                 'engineMetadata': {},
@@ -381,3 +455,61 @@ def test_platform_model_detail_serializes_binding_with_entity_field_names() -> N
     assert data['binding']['engineMetadata'] == {}
     assert data['binding']['version'] == 1
     assert {'apiKey', 'baseUrl', 'litellmModelId', 'engineType'}.isdisjoint(data['binding'])
+
+
+@pytest.mark.parametrize(
+    'model_id',
+    (
+        'bnd_' + VALID_UUID4_HEX,
+        'mdl_' + UUID1_HEX,
+        'mdl_' + NCS_VARIANT_HEX,
+        'mdl_' + 'a' * 32,
+    ),
+)
+def test_platform_model_response_rejects_invalid_model_resource_id(model_id: str) -> None:
+    payload = {
+        **_valid_create_payload(),
+        'modelId': model_id,
+        'lifecycleStatus': 'draft',
+        'createBy': 'admin',
+        'createTime': '2026-08-12T09:00:00',
+        'updateBy': 'admin',
+        'updateTime': '2026-08-12T09:00:00',
+    }
+
+    with pytest.raises(ValidationError):
+        PlatformModelModel.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ('binding_id', 'resource_id'),
+    (
+        ('mdl_' + SECOND_VALID_UUID4_HEX, 'mdl_' + VALID_UUID4_HEX),
+        ('bnd_' + UUID1_HEX, 'mdl_' + VALID_UUID4_HEX),
+        ('bnd_' + SECOND_VALID_UUID4_HEX, 'bnd_' + VALID_UUID4_HEX),
+        ('bnd_' + SECOND_VALID_UUID4_HEX, 'mdl_' + NCS_VARIANT_HEX),
+    ),
+)
+def test_platform_model_detail_rejects_invalid_binding_resource_ids(binding_id: str, resource_id: str) -> None:
+    payload = {
+        **_valid_create_payload(),
+        'modelId': 'mdl_' + VALID_UUID4_HEX,
+        'lifecycleStatus': 'draft',
+        'createBy': 'admin',
+        'createTime': '2026-08-12T09:00:00',
+        'updateBy': 'admin',
+        'updateTime': '2026-08-12T09:00:00',
+        'binding': {
+            'bindingId': binding_id,
+            'resourceId': resource_id,
+            'engineResourceId': 'company-reasoning',
+            'bindingStatus': 'active',
+            'engineMetadata': {},
+            'version': 1,
+            'createTime': '2026-08-12T09:00:00',
+            'updateTime': '2026-08-12T09:00:00',
+        },
+    }
+
+    with pytest.raises(ValidationError):
+        PlatformModelDetailModel.model_validate(payload)
