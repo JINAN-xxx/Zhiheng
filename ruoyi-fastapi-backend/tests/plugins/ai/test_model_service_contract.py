@@ -1,4 +1,7 @@
+import pickle
 import re
+import traceback
+from copy import copy, deepcopy
 from datetime import datetime
 from typing import Annotated
 
@@ -7,6 +10,7 @@ from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from plugins.ai.domain import model_service_errors
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import new_resource_id, validate_resource_id
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
@@ -29,6 +33,8 @@ QUERY_PAGE_SIZE = 50
 MAX_ENGINE_RESOURCE_ID_LENGTH = 255
 HTTP_OK = 200
 HTTP_UNPROCESSABLE_CONTENT = 422
+HTTP_NOT_FOUND = 404
+MODEL_SERVICE_ERROR_COUNT = 10
 VALID_UUID4_HEX = '123e4567e89b42d3a456426614174000'
 SECOND_VALID_UUID4_HEX = '987e4567e89b42d3a456426614174111'
 UUID1_HEX = '123e4567e89b12d3a456426614174000'
@@ -123,6 +129,8 @@ def test_model_service_errors_have_stable_public_contract(
     assert error.code == code
     assert error.public_message
     assert error.public_dict() == {'code': code, 'message': error.public_message}
+    assert error.__cause__ is None
+    assert error.__context__ is None
 
 
 def test_model_service_error_not_found_uses_platform_message() -> None:
@@ -153,29 +161,94 @@ def test_model_service_error_rejects_direct_construction_with_untrusted_details(
     assert sensitive_message not in str(raised.value)
 
 
-def test_model_service_error_rejects_unknown_internal_mapping() -> None:
-    with pytest.raises(ValueError):
-        ModelServiceError._create('Authorization: Bearer secret')
+def test_model_service_error_contract_mapping_is_read_only() -> None:
+    assert len(ModelServiceError._ERRORS) == MODEL_SERVICE_ERROR_COUNT
+    with pytest.raises(TypeError):
+        ModelServiceError._ERRORS['forged'] = (200, 'FORGED', 'Authorization: Bearer secret')
+    with pytest.raises(TypeError):
+        ModelServiceError._ERRORS['not_found'] = (200, 'FORGED', 'Authorization: Bearer secret')
+    with pytest.raises(TypeError):
+        del ModelServiceError._ERRORS['not_found']
 
 
-def test_model_service_error_safe_chaining_does_not_expose_upstream_details() -> None:
-    upstream = RuntimeError('Authorization: Bearer secret at https://runtime.internal upstream_body')
+def test_replacing_model_service_error_mapping_does_not_change_fixed_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        ModelServiceError,
+        '_ERRORS',
+        {'not_found': (200, 'FORGED', 'Authorization: Bearer secret')},
+    )
 
-    try:
-        raise ModelServiceError.runtime_error() from upstream
-    except ModelServiceError as error:
-        error_fields = set(error.__dict__)
-        chained_cause = error.__cause__
-        serialized_public_state = repr(
-            (error.__dict__, error.args, str(error), repr(error), error.public_dict())
-        ).lower()
+    error = ModelServiceError.not_found()
 
-    assert error_fields == {'status_code', 'code', 'public_message'}
-    assert chained_cause is upstream
+    assert error.status_code == HTTP_NOT_FOUND
+    assert error.public_dict() == {'code': 'MODEL_NOT_FOUND', 'message': '平台模型不存在'}
+
+
+def test_model_service_error_has_no_dynamic_category_constructor() -> None:
+    assert not hasattr(ModelServiceError, '_create')
+
+    with pytest.raises(TypeError):
+        ModelServiceError('forged')
+
+
+def test_model_service_error_cannot_be_subclassed_to_override_constructor_or_contract() -> None:
+    with pytest.raises(TypeError):
+
+        class ForgedModelServiceError(ModelServiceError):
+            _ERRORS = {'forged': (200, 'FORGED', 'Authorization: Bearer secret')}
+
+            def __init__(self) -> None:
+                Exception.__init__(self, 'Authorization: Bearer secret')
+
+
+@pytest.mark.parametrize(
+    'operation',
+    (
+        copy,
+        deepcopy,
+        lambda error: pickle.loads(pickle.dumps(error)),
+    ),
+)
+def test_model_service_error_copy_and_pickle_restore_only_fixed_contract(operation: object) -> None:
+    original = ModelServiceError.provider_rate_limited()
+    restored = operation(original)
+
+    assert restored is not original
+    assert type(restored) is ModelServiceError
+    assert restored.public_dict() == original.public_dict()
+    assert vars(restored) == vars(original)
+    assert restored.__cause__ is None
+    assert restored.__context__ is None
+
+
+@pytest.mark.asyncio
+async def test_model_service_error_translation_drops_sensitive_async_upstream_exception_chain() -> None:
+    async def fail_with_sensitive_upstream() -> None:
+        raise RuntimeError('Authorization: Bearer secret at https://runtime.internal upstream_body')
+
+    with pytest.raises(ModelServiceError) as raised:
+        await model_service_errors.call_with_model_service_error(
+            fail_with_sensitive_upstream,
+            ModelServiceError.runtime_error,
+        )
+
+    error = raised.value
+    serialized_public_state = repr(
+        (error.__dict__, error.args, str(error), repr(error), error.public_dict())
+    ).lower()
+    formatted_traceback = ''.join(traceback.format_exception(type(error), error, error.__traceback__)).lower()
+
+    assert set(error.__dict__) == {'status_code', 'code', 'public_message'}
+    assert error.__cause__ is None
+    assert error.__context__ is None
     assert 'authorization' not in serialized_public_state
     assert 'secret' not in serialized_public_state
     assert 'https://' not in serialized_public_state
     assert 'upstream_body' not in serialized_public_state
+    assert 'authorization' not in formatted_traceback
+    assert 'secret' not in formatted_traceback
+    assert 'https://' not in formatted_traceback
+    assert 'upstream_body' not in formatted_traceback
 
 
 def _valid_create_payload() -> dict[str, object]:
@@ -508,6 +581,22 @@ def test_resource_binding_upsert_rejects_engine_resource_id_over_maximum_length(
         ResourceBindingUpsertModel.model_validate(
             {'engineResourceId': 'm' * (MAX_ENGINE_RESOURCE_ID_LENGTH + 1)}
         )
+
+
+@pytest.mark.parametrize(
+    'engine_resource_id',
+    (
+        'model\x00alias',
+        'model\nalias',
+        'model\ralias',
+        'model\talias',
+        'model\x1falias',
+        'model\x7falias',
+    ),
+)
+def test_resource_binding_upsert_rejects_control_characters(engine_resource_id: str) -> None:
+    with pytest.raises(ValidationError):
+        ResourceBindingUpsertModel.model_validate({'engineResourceId': engine_resource_id})
 
 
 @pytest.mark.parametrize('field', ('expectedVersion',))

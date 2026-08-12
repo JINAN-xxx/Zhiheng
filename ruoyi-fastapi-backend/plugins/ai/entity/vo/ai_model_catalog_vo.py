@@ -9,6 +9,8 @@ from plugins.ai.domain.resource_id import validate_resource_id
 ModelType = Literal['chat', 'embedding']
 LifecycleStatus = Literal['draft', 'active', 'disabled']
 BindingStatus = Literal['active', 'disabled']
+CONTROL_CHARACTER_LIMIT = 32
+DELETE_CHARACTER_CODE_POINT = 127
 
 ModelCode = Annotated[
     str,
@@ -21,10 +23,6 @@ ModelCode = Annotated[
 ]
 DisplayName = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=100)]
 PositiveInteger = Annotated[int, Field(strict=True, gt=0)]
-ResourceIdentifier = Annotated[
-    str,
-    StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=255),
-]
 ModelResourceId = Annotated[
     str,
     StringConstraints(strict=True),
@@ -48,6 +46,22 @@ def _parse_http_query_integer(value: object) -> int:
 
 
 HttpQueryInteger = Annotated[int, BeforeValidator(_parse_http_query_integer)]
+
+
+def _reject_control_characters(value: str) -> str:
+    if any(
+        ord(character) < CONTROL_CHARACTER_LIMIT or ord(character) == DELETE_CHARACTER_CODE_POINT
+        for character in value
+    ):
+        raise ValueError('引擎资源标识不能包含控制字符')
+    return value
+
+
+ResourceIdentifier = Annotated[
+    str,
+    StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=255),
+    AfterValidator(_reject_control_characters),
+]
 
 
 class _StrictRequestModel(BaseModel):
