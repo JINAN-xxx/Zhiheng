@@ -35,6 +35,7 @@ HTTP_OK = 200
 HTTP_UNPROCESSABLE_CONTENT = 422
 HTTP_NOT_FOUND = 404
 MODEL_SERVICE_ERROR_COUNT = 10
+RUNTIME_AUTH_FAILED_INDEX = 6
 VALID_UUID4_HEX = '123e4567e89b42d3a456426614174000'
 SECOND_VALID_UUID4_HEX = '987e4567e89b42d3a456426614174111'
 UUID1_HEX = '123e4567e89b12d3a456426614174000'
@@ -144,7 +145,9 @@ def test_model_service_error_does_not_retain_upstream_details() -> None:
     error = ModelServiceError.runtime_auth_failed()
     serialized_state = repr((error.__dict__, error.args, error.public_dict())).lower()
 
-    assert set(error.__dict__) == {'status_code', 'code', 'public_message'}
+    assert vars(error) == {}
+    assert error.args == ()
+    assert object.__getattribute__(error, '_kind_index') == RUNTIME_AUTH_FAILED_INDEX
     assert 'https://' not in serialized_state
     assert 'authorization' not in serialized_state
     assert 'api_key' not in serialized_state
@@ -184,11 +187,23 @@ def test_replacing_model_service_error_mapping_does_not_change_fixed_factory(mon
     assert error.public_dict() == {'code': 'MODEL_NOT_FOUND', 'message': '平台模型不存在'}
 
 
+def test_replacing_module_error_contracts_does_not_change_fixed_factory(monkeypatch: pytest.MonkeyPatch) -> None:
+    forged_contracts = ((200, 'FORGED', 'Authorization: Bearer secret'),)
+    monkeypatch.setattr(model_service_errors, '_FIXED_ERROR_CONTRACTS', forged_contracts)
+    monkeypatch.setattr(model_service_errors, '_ERROR_VIEW', {'not_found': forged_contracts[0]})
+
+    error = ModelServiceError.not_found()
+
+    assert error.status_code == HTTP_NOT_FOUND
+    assert error.public_dict() == {'code': 'MODEL_NOT_FOUND', 'message': '平台模型不存在'}
+
+
 def test_model_service_error_has_no_dynamic_category_constructor() -> None:
     assert not hasattr(ModelServiceError, '_create')
 
-    with pytest.raises(TypeError):
-        ModelServiceError('forged')
+    for dynamic_category in ('forged', 0, 9, -1, 10):
+        with pytest.raises(TypeError):
+            ModelServiceError(dynamic_category)
 
 
 def test_model_service_error_cannot_be_subclassed_to_override_constructor_or_contract() -> None:
@@ -199,6 +214,40 @@ def test_model_service_error_cannot_be_subclassed_to_override_constructor_or_con
 
             def __init__(self) -> None:
                 Exception.__init__(self, 'Authorization: Bearer secret')
+
+
+@pytest.mark.parametrize(
+    ('attribute', 'value'),
+    (
+        ('status_code', 200),
+        ('code', 'FORGED'),
+        ('public_message', 'Authorization: Bearer secret'),
+        ('args', ('Authorization: Bearer secret',)),
+        ('_kind_index', 99),
+    ),
+)
+def test_model_service_error_rejects_attribute_mutation(attribute: str, value: object) -> None:
+    error = ModelServiceError.runtime_error()
+
+    with pytest.raises((AttributeError, TypeError)):
+        setattr(error, attribute, value)
+
+
+@pytest.mark.parametrize('attribute', ('status_code', 'code', 'public_message', 'args', '_kind_index'))
+def test_model_service_error_rejects_attribute_deletion(attribute: str) -> None:
+    error = ModelServiceError.runtime_error()
+
+    with pytest.raises((AttributeError, TypeError)):
+        delattr(error, attribute)
+
+
+def test_low_level_model_service_error_without_trusted_index_cannot_render() -> None:
+    forged = Exception.__new__(ModelServiceError)
+    Exception.__init__(forged, 'Authorization: Bearer secret at https://runtime.internal upstream_body')
+
+    for operation in (str, repr, lambda error: error.public_dict()):
+        with pytest.raises(TypeError):
+            operation(forged)
 
 
 @pytest.mark.parametrize(
@@ -238,7 +287,8 @@ async def test_model_service_error_translation_drops_sensitive_async_upstream_ex
     ).lower()
     formatted_traceback = ''.join(traceback.format_exception(type(error), error, error.__traceback__)).lower()
 
-    assert set(error.__dict__) == {'status_code', 'code', 'public_message'}
+    assert vars(error) == {}
+    assert error.args == ()
     assert error.__cause__ is None
     assert error.__context__ is None
     assert 'authorization' not in serialized_public_state
@@ -249,6 +299,34 @@ async def test_model_service_error_translation_drops_sensitive_async_upstream_ex
     assert 'secret' not in formatted_traceback
     assert 'https://' not in formatted_traceback
     assert 'upstream_body' not in formatted_traceback
+
+
+@pytest.mark.asyncio
+async def test_model_service_error_helper_rebuilds_polluted_exact_instance() -> None:
+    async def fail_with_sensitive_upstream() -> None:
+        raise RuntimeError('Authorization: Bearer upstream-secret at https://runtime.internal upstream_body')
+
+    forged = Exception.__new__(ModelServiceError)
+    object.__setattr__(forged, '_kind_index', 9)
+    Exception.__init__(forged, 'Authorization: Bearer forged-secret at https://forged.internal body')
+    forged.__dict__.update(code='FORGED', public_message='Authorization: Bearer forged-secret')
+
+    with pytest.raises(ModelServiceError) as raised:
+        await model_service_errors.call_with_model_service_error(fail_with_sensitive_upstream, lambda: forged)
+
+    error = raised.value
+    serialized_error = repr((vars(error), error.args, str(error), repr(error), error.public_dict())).lower()
+
+    assert error is not forged
+    assert vars(error) == {}
+    assert error.args == ()
+    assert error.public_dict() == {'code': 'MODEL_RUNTIME_ERROR', 'message': '模型运行时调用失败'}
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert 'authorization' not in serialized_error
+    assert 'secret' not in serialized_error
+    assert 'https://' not in serialized_error
+    assert 'body' not in serialized_error
 
 
 def _valid_create_payload() -> dict[str, object]:
@@ -592,6 +670,10 @@ def test_resource_binding_upsert_rejects_engine_resource_id_over_maximum_length(
         'model\talias',
         'model\x1falias',
         'model\x7falias',
+        'model\x80alias',
+        'model\x85alias',
+        'model\u2028alias',
+        'model\u2029alias',
     ),
 )
 def test_resource_binding_upsert_rejects_control_characters(engine_resource_id: str) -> None:

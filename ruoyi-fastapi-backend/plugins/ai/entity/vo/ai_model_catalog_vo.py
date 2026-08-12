@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -9,8 +10,7 @@ from plugins.ai.domain.resource_id import validate_resource_id
 ModelType = Literal['chat', 'embedding']
 LifecycleStatus = Literal['draft', 'active', 'disabled']
 BindingStatus = Literal['active', 'disabled']
-CONTROL_CHARACTER_LIMIT = 32
-DELETE_CHARACTER_CODE_POINT = 127
+FORBIDDEN_RESOURCE_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
 
 ModelCode = Annotated[
     str,
@@ -49,10 +49,7 @@ HttpQueryInteger = Annotated[int, BeforeValidator(_parse_http_query_integer)]
 
 
 def _reject_control_characters(value: str) -> str:
-    if any(
-        ord(character) < CONTROL_CHARACTER_LIMIT or ord(character) == DELETE_CHARACTER_CODE_POINT
-        for character in value
-    ):
+    if any(unicodedata.category(character) in FORBIDDEN_RESOURCE_ID_CATEGORIES for character in value):
         raise ValueError('引擎资源标识不能包含控制字符')
     return value
 

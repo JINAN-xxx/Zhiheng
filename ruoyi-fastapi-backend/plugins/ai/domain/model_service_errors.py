@@ -1,97 +1,149 @@
 from collections.abc import Awaitable, Callable
-from enum import Enum
 from types import MappingProxyType
 from typing import ClassVar, NoReturn, TypeVar
 
-
-class _ModelErrorKind(Enum):
-    NOT_FOUND = (404, 'MODEL_NOT_FOUND', '平台模型不存在')
-    DISABLED = (409, 'MODEL_DISABLED', '平台模型未发布或已停用')
-    BINDING_MISSING = (503, 'MODEL_BINDING_MISSING', '平台模型缺少有效的运行时绑定')
-    RUNTIME_MISCONFIGURED = (503, 'MODEL_RUNTIME_MISCONFIGURED', '模型运行时尚未完成配置')
-    RUNTIME_UNAVAILABLE = (503, 'MODEL_RUNTIME_UNAVAILABLE', '模型运行时当前不可用')
-    RUNTIME_TIMEOUT = (504, 'MODEL_RUNTIME_TIMEOUT', '模型运行时请求超时')
-    RUNTIME_AUTH_FAILED = (502, 'MODEL_RUNTIME_AUTH_FAILED', '模型运行时内部认证失败')
-    PROVIDER_AUTH_FAILED = (502, 'MODEL_PROVIDER_AUTH_FAILED', '模型服务商认证失败')
-    PROVIDER_RATE_LIMITED = (502, 'MODEL_PROVIDER_RATE_LIMITED', '模型服务商请求受限')
-    RUNTIME_ERROR = (502, 'MODEL_RUNTIME_ERROR', '模型运行时调用失败')
-
-
-_ERROR_VIEW = MappingProxyType(
-    {
-        kind.name.lower(): kind.value
-        for kind in _ModelErrorKind
-    }
+_FIXED_ERROR_CONTRACTS = (
+    (404, 'MODEL_NOT_FOUND', '平台模型不存在'),
+    (409, 'MODEL_DISABLED', '平台模型未发布或已停用'),
+    (503, 'MODEL_BINDING_MISSING', '平台模型缺少有效的运行时绑定'),
+    (503, 'MODEL_RUNTIME_MISCONFIGURED', '模型运行时尚未完成配置'),
+    (503, 'MODEL_RUNTIME_UNAVAILABLE', '模型运行时当前不可用'),
+    (504, 'MODEL_RUNTIME_TIMEOUT', '模型运行时请求超时'),
+    (502, 'MODEL_RUNTIME_AUTH_FAILED', '模型运行时内部认证失败'),
+    (502, 'MODEL_PROVIDER_AUTH_FAILED', '模型服务商认证失败'),
+    (502, 'MODEL_PROVIDER_RATE_LIMITED', '模型服务商请求受限'),
+    (502, 'MODEL_RUNTIME_ERROR', '模型运行时调用失败'),
 )
-_KIND_BY_CODE = MappingProxyType({kind.value[1]: kind for kind in _ModelErrorKind})
+_ERROR_NAMES = (
+    'not_found',
+    'disabled',
+    'binding_missing',
+    'runtime_misconfigured',
+    'runtime_unavailable',
+    'runtime_timeout',
+    'runtime_auth_failed',
+    'provider_auth_failed',
+    'provider_rate_limited',
+    'runtime_error',
+)
+_ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _FIXED_ERROR_CONTRACTS, strict=True)))
+_CONSTRUCTION_TOKEN = object()
 
 
-def _restore_model_service_error(kind: _ModelErrorKind) -> 'ModelServiceError':
-    return ModelServiceError(kind)
+def _contract_for_index(
+    kind_index: object,
+    contracts: tuple[tuple[int, str, str], ...] = _FIXED_ERROR_CONTRACTS,
+) -> tuple[int, str, str]:
+    if type(kind_index) is not int or not 0 <= kind_index < len(contracts):
+        raise TypeError('无效的模型服务错误分类')
+    return contracts[kind_index]
+
+
+def _trusted_index(error: 'ModelServiceError') -> int:
+    try:
+        kind_index = object.__getattribute__(error, '_kind_index')
+    except AttributeError:
+        raise TypeError('无效的模型服务错误实例') from None
+    _contract_for_index(kind_index)
+    return kind_index
+
+
+def _restore_model_service_error(kind_index: int) -> 'ModelServiceError':
+    return _new_model_service_error(kind_index)
+
+
+def _new_model_service_error(
+    kind_index: int,
+    token: object = _CONSTRUCTION_TOKEN,
+) -> 'ModelServiceError':
+    return ModelServiceError(kind_index, token)
 
 
 class ModelServiceError(Exception):
     """Model Service 对外稳定且脱敏的领域错误。"""
 
+    __slots__ = ('_kind_index',)
     _ERRORS: ClassVar = _ERROR_VIEW
 
     def __init_subclass__(cls, **kwargs: object) -> NoReturn:
         raise TypeError('ModelServiceError 不允许继承')
 
-    def __init__(self, kind: _ModelErrorKind) -> None:
-        if type(kind) is not _ModelErrorKind:
+    def __init__(self, kind_index: int, token: object | None = None) -> None:
+        if token is not _CONSTRUCTION_TOKEN:
             raise TypeError('ModelServiceError 只能通过固定工厂创建')
-        status_code, code, public_message = kind.value
-        self.status_code = status_code
-        self.code = code
-        self.public_message = public_message
-        super().__init__(public_message)
+        _contract_for_index(kind_index)
+        object.__setattr__(self, '_kind_index', kind_index)
+        object.__setattr__(self, 'args', ())
 
-    def __reduce__(self) -> tuple[Callable[[_ModelErrorKind], 'ModelServiceError'], tuple[_ModelErrorKind]]:
-        return _restore_model_service_error, (_KIND_BY_CODE[self.code],)
+    def __setattr__(self, name: str, value: object) -> NoReturn:
+        raise AttributeError('ModelServiceError 实例不可修改')
+
+    def __delattr__(self, name: str) -> NoReturn:
+        raise AttributeError('ModelServiceError 实例不可修改')
+
+    @property
+    def status_code(self) -> int:
+        return _contract_for_index(_trusted_index(self))[0]
+
+    @property
+    def code(self) -> str:
+        return _contract_for_index(_trusted_index(self))[1]
+
+    @property
+    def public_message(self) -> str:
+        return _contract_for_index(_trusted_index(self))[2]
+
+    def __str__(self) -> str:
+        return self.public_message
+
+    def __repr__(self) -> str:
+        return f'ModelServiceError(code={self.code!r}, message={self.public_message!r})'
+
+    def __reduce__(self) -> tuple[Callable[[int], 'ModelServiceError'], tuple[int]]:
+        return _restore_model_service_error, (_trusted_index(self),)
 
     def public_dict(self) -> dict[str, str]:
         return {'code': self.code, 'message': self.public_message}
 
-    @classmethod
-    def not_found(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.NOT_FOUND)
+    @staticmethod
+    def not_found() -> 'ModelServiceError':
+        return _new_model_service_error(0)
 
-    @classmethod
-    def disabled(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.DISABLED)
+    @staticmethod
+    def disabled() -> 'ModelServiceError':
+        return _new_model_service_error(1)
 
-    @classmethod
-    def binding_missing(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.BINDING_MISSING)
+    @staticmethod
+    def binding_missing() -> 'ModelServiceError':
+        return _new_model_service_error(2)
 
-    @classmethod
-    def runtime_misconfigured(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.RUNTIME_MISCONFIGURED)
+    @staticmethod
+    def runtime_misconfigured() -> 'ModelServiceError':
+        return _new_model_service_error(3)
 
-    @classmethod
-    def runtime_unavailable(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.RUNTIME_UNAVAILABLE)
+    @staticmethod
+    def runtime_unavailable() -> 'ModelServiceError':
+        return _new_model_service_error(4)
 
-    @classmethod
-    def runtime_timeout(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.RUNTIME_TIMEOUT)
+    @staticmethod
+    def runtime_timeout() -> 'ModelServiceError':
+        return _new_model_service_error(5)
 
-    @classmethod
-    def runtime_auth_failed(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.RUNTIME_AUTH_FAILED)
+    @staticmethod
+    def runtime_auth_failed() -> 'ModelServiceError':
+        return _new_model_service_error(6)
 
-    @classmethod
-    def provider_auth_failed(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.PROVIDER_AUTH_FAILED)
+    @staticmethod
+    def provider_auth_failed() -> 'ModelServiceError':
+        return _new_model_service_error(7)
 
-    @classmethod
-    def provider_rate_limited(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.PROVIDER_RATE_LIMITED)
+    @staticmethod
+    def provider_rate_limited() -> 'ModelServiceError':
+        return _new_model_service_error(8)
 
-    @classmethod
-    def runtime_error(cls) -> 'ModelServiceError':
-        return ModelServiceError(_ModelErrorKind.RUNTIME_ERROR)
+    @staticmethod
+    def runtime_error() -> 'ModelServiceError':
+        return _new_model_service_error(9)
 
 
 ResultT = TypeVar('ResultT')
@@ -108,11 +160,11 @@ async def call_with_model_service_error(
     operation: Callable[[], Awaitable[ResultT]],
     error_factory: Callable[[], ModelServiceError],
 ) -> ResultT:
-    """执行上游调用并在异常上下文外抛出脱敏领域错误。"""
+    """执行上游调用并在异常上下文外抛出规范化领域错误。"""
     failed, result = await _operation_failed(operation)
     if failed:
-        error = error_factory()
-        if type(error) is not ModelServiceError:
+        candidate = error_factory()
+        if type(candidate) is not ModelServiceError:
             raise TypeError('错误工厂必须返回固定的 ModelServiceError')
-        raise error
+        raise _new_model_service_error(_trusted_index(candidate))
     return result  # type: ignore[return-value]
