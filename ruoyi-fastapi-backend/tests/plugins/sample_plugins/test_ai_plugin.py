@@ -73,13 +73,15 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(BACKEND_ROOT / 'plugins' / 'ai' / 'plugin.yaml')
 
     assert plugin.manifest.id == 'ai'
-    assert plugin.manifest.version == '0.2.0'
+    assert plugin.manifest.version == '0.3.0'
     assert plugin.manifest.backend.module == 'plugins.ai'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.ai.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.ai.hooks:on_shutdown'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
+        'migrations/mysql/002_model_service_foundation.sql',
         'migrations/postgresql/001_init.sql',
+        'migrations/postgresql/002_model_service_foundation.sql',
     ]
     assert plugin.manifest.backend.seeds == [
         'seeds/mysql/ai_provider_type.sql',
@@ -120,8 +122,8 @@ def test_ai_plugin_runtime_paths_exist() -> None:
             PluginModel(
                 pluginId='ai',
                 pluginName='AI 管理',
-                version='0.2.0',
-                installedVersion='0.2.0',
+                version='0.3.0',
+                installedVersion='0.3.0',
                 enabled='0',
                 status='installed',
             )
