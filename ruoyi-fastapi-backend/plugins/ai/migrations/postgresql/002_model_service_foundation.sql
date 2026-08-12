@@ -1,7 +1,7 @@
 -- ----------------------------
 -- Platform模型目录表
 -- ----------------------------
-create table ai_model_catalog (
+create table if not exists ai_model_catalog (
   model_id             varchar(36)   not null,
   model_code           varchar(100)  not null,
   display_name         varchar(100)  not null,
@@ -30,7 +30,7 @@ comment on table ai_model_catalog is 'Platform模型目录表';
 -- ----------------------------
 -- Platform资源绑定表
 -- ----------------------------
-create table ai_resource_binding (
+create table if not exists ai_resource_binding (
   binding_id           varchar(36)   not null,
   resource_type        varchar(32)   not null,
   resource_id          varchar(36)   not null,
@@ -47,6 +47,10 @@ create table ai_resource_binding (
   constraint uk_ai_resource_binding_resource unique (resource_type, resource_id),
   constraint ck_ai_resource_binding_status
     check (binding_status in ('active', 'disabled')),
+  constraint ck_ai_resource_binding_resource_type
+    check (resource_type = 'model'),
+  constraint ck_ai_resource_binding_engine_type
+    check (engine_type = 'litellm'),
   constraint ck_ai_resource_binding_version
     check (version > 0),
   constraint fk_ai_resource_binding_model
@@ -54,5 +58,5 @@ create table ai_resource_binding (
 );
 comment on table ai_resource_binding is 'Platform资源绑定表';
 
-create index idx_ai_model_catalog_lifecycle on ai_model_catalog (lifecycle_status);
-create index idx_ai_resource_binding_engine on ai_resource_binding (engine_type, engine_resource_id);
+create index if not exists idx_ai_model_catalog_lifecycle on ai_model_catalog (lifecycle_status);
+create index if not exists idx_ai_resource_binding_engine on ai_resource_binding (engine_type, engine_resource_id);

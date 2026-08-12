@@ -1,7 +1,7 @@
 -- ----------------------------
 -- Platform模型目录表
 -- ----------------------------
-create table ai_model_catalog (
+create table if not exists ai_model_catalog (
   model_id             varchar(36)   not null comment '平台模型ID',
   model_code           varchar(100)  not null comment '平台模型编码',
   display_name         varchar(100)  not null comment '模型展示名称',
@@ -23,13 +23,14 @@ create table ai_model_catalog (
   constraint ck_ai_model_catalog_context_window
     check (context_window is null or context_window > 0),
   constraint ck_ai_model_catalog_max_output_tokens
-    check (max_output_tokens is null or max_output_tokens > 0)
+    check (max_output_tokens is null or max_output_tokens > 0),
+  index idx_ai_model_catalog_lifecycle (lifecycle_status)
 ) engine=innodb comment = 'Platform模型目录表';
 
 -- ----------------------------
 -- Platform资源绑定表
 -- ----------------------------
-create table ai_resource_binding (
+create table if not exists ai_resource_binding (
   binding_id           varchar(36)   not null comment '绑定ID',
   resource_type        varchar(32)   not null comment '资源类型',
   resource_id          varchar(36)   not null comment '平台资源ID',
@@ -46,11 +47,13 @@ create table ai_resource_binding (
   constraint uk_ai_resource_binding_resource unique (resource_type, resource_id),
   constraint ck_ai_resource_binding_status
     check (binding_status in ('active', 'disabled')),
+  constraint ck_ai_resource_binding_resource_type
+    check (resource_type = 'model'),
+  constraint ck_ai_resource_binding_engine_type
+    check (engine_type = 'litellm'),
   constraint ck_ai_resource_binding_version
     check (version > 0),
   constraint fk_ai_resource_binding_model
-    foreign key (resource_id) references ai_model_catalog (model_id) on delete restrict
+    foreign key (resource_id) references ai_model_catalog (model_id) on delete restrict,
+  index idx_ai_resource_binding_engine (engine_type, engine_resource_id)
 ) engine=innodb comment = 'Platform资源绑定表';
-
-create index idx_ai_model_catalog_lifecycle on ai_model_catalog (lifecycle_status);
-create index idx_ai_resource_binding_engine on ai_resource_binding (engine_type, engine_resource_id);
