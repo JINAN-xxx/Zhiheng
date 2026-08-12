@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 from plugins.ai.domain.resource_id import validate_resource_id
@@ -109,6 +109,17 @@ class ModelCatalogUpdateModel(_StrictRequestModel):
     context_window: PositiveInteger | None = None
     max_output_tokens: PositiveInteger | None = None
     default_parameters: ModelDefaultParametersModel | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def reject_explicit_null_for_non_nullable_fields(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        non_nullable_aliases = ('modelCode', 'displayName', 'modelType', 'capabilities', 'defaultParameters')
+        null_fields = [field for field in non_nullable_aliases if field in value and value[field] is None]
+        if null_fields:
+            raise ValueError(f'{", ".join(null_fields)} 不允许为 null')
+        return value
 
 
 class ModelCatalogPageQueryModel(_StrictRequestModel):

@@ -370,6 +370,28 @@ def test_model_catalog_update_and_page_query_are_strict_camel_case_models() -> N
         ModelCatalogPageQueryModel.model_validate({'pageSize': 101})
 
 
+@pytest.mark.parametrize(
+    'field',
+    ('modelCode', 'displayName', 'modelType', 'capabilities', 'defaultParameters'),
+)
+def test_model_catalog_update_rejects_explicit_null_for_non_nullable_fields(field: str) -> None:
+    with pytest.raises(ValidationError):
+        ModelCatalogUpdateModel.model_validate({field: None})
+
+
+@pytest.mark.parametrize('field', ('contextWindow', 'maxOutputTokens'))
+def test_model_catalog_update_accepts_explicit_null_for_clearable_limits(field: str) -> None:
+    update = ModelCatalogUpdateModel.model_validate({field: None})
+
+    assert update.model_dump(by_alias=True, exclude_unset=True) == {field: None}
+
+
+def test_model_catalog_update_keeps_empty_patch_semantics() -> None:
+    update = ModelCatalogUpdateModel.model_validate({})
+
+    assert update.model_dump(by_alias=True, exclude_unset=True) == {}
+
+
 def test_resource_binding_upsert_uses_engine_alias_without_accepting_engine_type() -> None:
     binding = ResourceBindingUpsertModel.model_validate(
         {
