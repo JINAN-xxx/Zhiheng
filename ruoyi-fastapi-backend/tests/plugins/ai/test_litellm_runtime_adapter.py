@@ -58,7 +58,7 @@ class FakeRuntimeClient:
             raise self.error
         return self.models_response
 
-    async def create_chat_completion(self, payload: Mapping[str, object]) -> Mapping[str, object]:
+    async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult:
         self.chat_payloads.append(payload)
         if self.error is not None:
             raise self.error

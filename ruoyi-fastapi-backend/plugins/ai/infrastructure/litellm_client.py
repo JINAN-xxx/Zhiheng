@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 
@@ -30,6 +31,7 @@ _PROVIDER_RATE_LIMIT_CATEGORIES = frozenset(
     }
 )
 HTTP_TOO_MANY_REQUESTS = 429
+MAX_ERROR_BODY_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -98,7 +100,7 @@ class LiteLLMRuntimeClient:
                 json=request_payload,
                 headers=self._build_headers(authenticated=True),
             ) as response:
-                self._raise_for_status(response)
+                await self._raise_for_stream_status(response)
                 async for chunk in response.aiter_raw():
                     yield chunk
         except httpx.TimeoutException as exc:
@@ -195,11 +197,52 @@ class LiteLLMRuntimeClient:
         raise LiteLLMUpstreamError
 
     @staticmethod
+    async def _raise_for_stream_status(response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        if response.status_code in {401, 403}:
+            raise LiteLLMAuthenticationError
+        if response.status_code == HTTP_TOO_MANY_REQUESTS:
+            raise LiteLLMProviderRateLimitError
+
+        content_length = response.headers.get('content-length')
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_ERROR_BODY_BYTES:
+                    raise LiteLLMUpstreamError
+            except ValueError:
+                raise LiteLLMUpstreamError from None
+
+        body = bytearray()
+        async for chunk in response.aiter_bytes():
+            if len(body) + len(chunk) > MAX_ERROR_BODY_BYTES:
+                raise LiteLLMUpstreamError
+            body.extend(chunk)
+        categories = LiteLLMRuntimeClient._provider_error_categories_from_bytes(bytes(body))
+        if categories.intersection(_PROVIDER_AUTH_CATEGORIES):
+            raise LiteLLMProviderAuthenticationError
+        if categories.intersection(_PROVIDER_RATE_LIMIT_CATEGORIES):
+            raise LiteLLMProviderRateLimitError
+        raise LiteLLMUpstreamError
+
+    @staticmethod
     def _provider_error_categories(response: httpx.Response) -> frozenset[str]:
         try:
             payload = response.json()
         except ValueError:
             return frozenset()
+        return LiteLLMRuntimeClient._provider_error_categories_from_payload(payload)
+
+    @staticmethod
+    def _provider_error_categories_from_bytes(body: bytes) -> frozenset[str]:
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return frozenset()
+        return LiteLLMRuntimeClient._provider_error_categories_from_payload(payload)
+
+    @staticmethod
+    def _provider_error_categories_from_payload(payload: object) -> frozenset[str]:
         if not isinstance(payload, Mapping):
             return frozenset()
         error = payload.get('error')

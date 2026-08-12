@@ -8,8 +8,11 @@ from plugins.ai.config import LiteLLMSettings
 from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient
 from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMAuthenticationError,
+    LiteLLMProviderAuthenticationError,
+    LiteLLMProviderRateLimitError,
     LiteLLMTimeoutError,
     LiteLLMUnavailableError,
+    LiteLLMUpstreamError,
 )
 
 
@@ -25,8 +28,10 @@ class RecordingStream(httpx.AsyncByteStream):
         self.chunks = chunks
         self.read_error = read_error
         self.closed = False
+        self.iterated = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
+        self.iterated = True
         for chunk in self.chunks:
             yield chunk
         if self.read_error is not None:
@@ -86,6 +91,7 @@ async def test_stream_rejects_auth_error_before_first_chunk_and_closes_upstream(
         await client.aclose()
 
     assert upstream.closed is True
+    assert upstream.iterated is False
     assert 'private-upstream-body' not in str(exc_info.value)
 
 
@@ -141,3 +147,58 @@ async def test_stream_connect_error_is_mapped() -> None:
             await anext(stream)
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('error_type_name', 'expected_error'),
+    (
+        ('AuthenticationError', LiteLLMProviderAuthenticationError),
+        ('RateLimitError', LiteLLMProviderRateLimitError),
+    ),
+)
+async def test_stream_structured_provider_error_is_classified_without_leaking_body(
+    error_type_name: str,
+    expected_error: type[Exception],
+) -> None:
+    secret = 'provider-secret-at-https://provider.internal'
+    body = json.dumps({'error': {'type': error_type_name, 'message': secret}}).encode()
+    upstream = RecordingStream([body])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers={'content-type': 'application/json'})
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(expected_error) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert secret not in repr((str(raised.value), vars(raised.value), raised.value.args))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('use_content_length', (True, False))
+async def test_stream_oversized_error_body_falls_back_to_generic_error(
+    use_content_length: bool,
+) -> None:
+    body = b'x' * (64 * 1024 + 1)
+    upstream = RecordingStream([body])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        headers = {'content-length': str(len(body))} if use_content_length else {}
+        return httpx.Response(500, stream=upstream, headers=headers)
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(LiteLLMUpstreamError):
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert upstream.iterated is not use_content_length
