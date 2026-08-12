@@ -1,7 +1,7 @@
 import inspect
 import json
 import traceback
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
 import httpx
 import pytest
@@ -20,6 +20,7 @@ from plugins.ai.infrastructure.litellm_errors import (
 )
 
 Handler = Callable[[httpx.Request], Awaitable[httpx.Response]]
+SENSITIVE_DETAIL = 'Authorization: Bearer runtime-secret at https://proxy.internal private-body'
 
 
 def build_client(handler: Handler, *, runtime_key: str = 'runtime-secret') -> LiteLLMRuntimeClient:
@@ -29,6 +30,49 @@ def build_client(handler: Handler, *, runtime_key: str = 'runtime-secret') -> Li
         LITELLM_RUNTIME_KEY=runtime_key,
     )
     return LiteLLMRuntimeClient(settings, transport=httpx.MockTransport(handler))
+
+
+def assert_sanitized_internal_error(error: Exception) -> None:
+    serialized = repr(
+        (
+            str(error),
+            repr(error),
+            vars(error),
+            error.args,
+            error.__cause__,
+            error.__context__,
+            ''.join(traceback.format_exception(error)),
+        )
+    ).lower()
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert 'authorization' not in serialized
+    assert 'runtime-secret' not in serialized
+    assert 'proxy.internal' not in serialized
+    assert 'private-body' not in serialized
+
+
+class RecordingResponseStream(httpx.AsyncByteStream):
+    def __init__(
+        self,
+        chunks: Sequence[bytes],
+        *,
+        read_error: Exception | None = None,
+    ) -> None:
+        self.chunks = chunks
+        self.read_error = read_error
+        self.iteration_count = 0
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            self.iteration_count += 1
+            yield chunk
+        if self.read_error is not None:
+            raise self.read_error
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -329,15 +373,17 @@ async def test_transport_errors_have_stable_mappings(
 
     async def handler(request: httpx.Request) -> httpx.Response:
         if error_kind == 'timeout':
-            raise httpx.ReadTimeout('read timed out', request=request)
-        raise httpx.ConnectError('connection failed', request=request)
+            raise httpx.ReadTimeout(SENSITIVE_DETAIL, request=request)
+        raise httpx.ConnectError(SENSITIVE_DETAIL, request=request)
 
     client = build_client(handler)
     try:
-        with pytest.raises(error_type):
+        with pytest.raises(error_type) as raised:
             await client.list_models()
     finally:
         await client.aclose()
+
+    assert_sanitized_internal_error(raised.value)
 
 
 @pytest.mark.asyncio
@@ -353,3 +399,123 @@ async def test_successful_non_object_json_is_rejected() -> None:
             await client.list_models()
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_error_does_not_retain_raw_response_or_decode_context() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=SENSITIVE_DETAIL)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMUpstreamError) as raised:
+            await client.list_models()
+    finally:
+        await client.aclose()
+
+    assert_sanitized_internal_error(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_success_response_is_fully_read_and_closed_before_return() -> None:
+    upstream = RecordingResponseStream([b'{"data":', b'[{"id":"company-chat"}]}'])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=upstream)
+
+    client = build_client(handler)
+    try:
+        assert await client.list_models() == {'data': [{'id': 'company-chat'}]}
+    finally:
+        await client.aclose()
+
+    assert upstream.iteration_count == len(upstream.chunks)
+    assert upstream.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('headers', 'expected_iterations'),
+    (
+        ({'content-length': str(64 * 1024 + 1)}, 0),
+        ({'content-length': '-1'}, 0),
+        ({'content-length': SENSITIVE_DETAIL}, 0),
+        ({'content-encoding': 'gzip'}, 0),
+    ),
+)
+async def test_non_stream_error_rejects_unsafe_body_without_reading(
+    headers: dict[str, str],
+    expected_iterations: int,
+) -> None:
+    upstream = RecordingResponseStream([SENSITIVE_DETAIL.encode()])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers=headers)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMUpstreamError) as raised:
+            await client.list_models()
+    finally:
+        await client.aclose()
+
+    assert upstream.iteration_count == expected_iterations
+    assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_non_stream_error_stops_reading_when_chunk_limit_is_exceeded() -> None:
+    upstream = RecordingResponseStream([b'x' * (32 * 1024), b'y' * (32 * 1024 + 1), b'must-not-read'])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMUpstreamError):
+            await client.list_models()
+    finally:
+        await client.aclose()
+
+    assert upstream.iteration_count == len(upstream.chunks) - 1
+    assert upstream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_non_stream_small_structured_error_is_still_classified_and_closed() -> None:
+    upstream = RecordingResponseStream(
+        [json.dumps({'error': {'type': 'AuthenticationError', 'message': SENSITIVE_DETAIL}}).encode()]
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers={'content-type': 'application/json'})
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMProviderAuthenticationError) as raised:
+            await client.create_chat_completion({'model': 'company-chat', 'messages': []})
+    finally:
+        await client.aclose()
+
+    assert upstream.iteration_count == 1
+    assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_non_stream_success_read_timeout_is_sanitized_and_response_is_closed() -> None:
+    upstream = RecordingResponseStream([], read_error=httpx.ReadTimeout(SENSITIVE_DETAIL))
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=upstream)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMTimeoutError) as raised:
+            await client.list_models()
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import traceback
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import FrozenInstanceError
@@ -9,7 +10,13 @@ import httpx
 import pytest
 
 from plugins.ai.config import LiteLLMSettings
-from plugins.ai.domain.model_runtime import ModelChatRequest, ModelMessage, ModelStreamEvent, ModelUsage
+from plugins.ai.domain.model_runtime import (
+    ModelChatRequest,
+    ModelMessage,
+    ModelRuntimeEngine,
+    ModelStreamEvent,
+    ModelUsage,
+)
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient, RuntimeChatResult
 from plugins.ai.infrastructure.litellm_errors import (
@@ -27,6 +34,7 @@ CACHE_DETAIL_READ_TOKENS = 5
 CACHE_DETAIL_WRITE_TOKENS = 2
 CACHE_FALLBACK_READ_TOKENS = 7
 CACHE_FALLBACK_WRITE_TOKENS = 4
+SENSITIVE_DETAIL = 'Authorization: Bearer runtime-secret at https://proxy.internal private-body'
 
 
 class FakeRuntimeClient:
@@ -37,6 +45,8 @@ class FakeRuntimeClient:
         models_response: Mapping[str, object] | None = None,
         stream_chunks: tuple[bytes, ...] = (),
         error: Exception | None = None,
+        stream_construct_error: Exception | None = None,
+        stream_close_error: Exception | None = None,
     ) -> None:
         self.chat_response = (
             chat_response
@@ -49,6 +59,9 @@ class FakeRuntimeClient:
         self.models_response = models_response if models_response is not None else {'data': []}
         self.stream_chunks = stream_chunks
         self.error = error
+        self.stream_construct_error = stream_construct_error
+        self.stream_close_error = stream_close_error
+        self.closed = False
         self.chat_payloads: list[Mapping[str, object]] = []
         self.stream_payloads: list[Mapping[str, object]] = []
         self.last_stream: RecordingByteStream | None = None
@@ -66,14 +79,30 @@ class FakeRuntimeClient:
 
     def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]:
         self.stream_payloads.append(payload)
-        self.last_stream = RecordingByteStream(self.stream_chunks, error=self.error)
+        if self.stream_construct_error is not None:
+            raise self.stream_construct_error
+        self.last_stream = RecordingByteStream(
+            self.stream_chunks,
+            error=self.error,
+            close_error=self.stream_close_error,
+        )
         return self.last_stream
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class RecordingByteStream:
-    def __init__(self, chunks: tuple[bytes, ...], *, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        chunks: tuple[bytes, ...],
+        *,
+        error: Exception | None = None,
+        close_error: Exception | None = None,
+    ) -> None:
         self._chunks = iter(chunks)
         self._error = error
+        self._close_error = close_error
         self.closed = False
 
     def __aiter__(self) -> 'RecordingByteStream':
@@ -89,6 +118,8 @@ class RecordingByteStream:
 
     async def aclose(self) -> None:
         self.closed = True
+        if self._close_error is not None:
+            raise self._close_error
 
 
 def test_model_chat_request_takes_an_immutable_snapshot_of_nested_inputs() -> None:
@@ -194,6 +225,19 @@ def test_model_stream_event_takes_bytes_snapshot() -> None:
         event.data = b'other'
 
 
+def test_model_runtime_engine_protocol_declares_async_close() -> None:
+    assert inspect.iscoroutinefunction(ModelRuntimeEngine.aclose)
+
+
+@pytest.mark.asyncio
+async def test_adapter_close_delegates_to_runtime_client() -> None:
+    client = FakeRuntimeClient()
+
+    await LiteLLMRuntimeAdapter(client).aclose()
+
+    assert client.closed is True
+
+
 @pytest.mark.asyncio
 async def test_real_runtime_client_headers_are_normalized_by_adapter() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -234,7 +278,7 @@ async def test_invalid_runtime_cost_header_maps_to_domain_error(invalid_cost: st
             ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
         )
 
-    assert raised.value.code == 'MODEL_RUNTIME_ERROR'
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_ERROR')
 
 
 async def _async_result(value: RuntimeChatResult) -> RuntimeChatResult:
@@ -387,6 +431,50 @@ async def test_usage_cache_tokens_fall_back_to_stable_top_level_fields() -> None
 
 
 @pytest.mark.asyncio
+async def test_usage_treats_explicit_null_details_as_empty_objects() -> None:
+    client = FakeRuntimeClient(
+        chat_response={
+            'choices': [{'message': {'content': 'answer'}}],
+            'usage': {
+                'prompt_tokens': 3,
+                'completion_tokens': 2,
+                'completion_tokens_details': None,
+                'prompt_tokens_details': None,
+                'cache_read_input_tokens': CACHE_FALLBACK_READ_TOKENS,
+                'cache_creation_input_tokens': CACHE_FALLBACK_WRITE_TOKENS,
+            },
+        }
+    )
+
+    response = await LiteLLMRuntimeAdapter(client).chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    assert response.usage.reasoning_tokens == 0
+    assert response.usage.cache_read_tokens == CACHE_FALLBACK_READ_TOKENS
+    assert response.usage.cache_write_tokens == CACHE_FALLBACK_WRITE_TOKENS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field', ('completion_tokens_details', 'prompt_tokens_details'))
+@pytest.mark.parametrize('invalid_details', ('not-an-object', []))
+async def test_usage_rejects_non_mapping_non_null_details(field: str, invalid_details: object) -> None:
+    client = FakeRuntimeClient(
+        chat_response={
+            'choices': [{'message': {'content': 'answer'}}],
+            'usage': {field: invalid_details},
+        }
+    )
+
+    with pytest.raises(ModelServiceError) as raised:
+        await LiteLLMRuntimeAdapter(client).chat(
+            ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+        )
+
+    assert raised.value.code == 'MODEL_RUNTIME_ERROR'
+
+
+@pytest.mark.asyncio
 async def test_chat_uses_stable_defaults_for_missing_optional_response_fields() -> None:
     adapter = LiteLLMRuntimeAdapter(FakeRuntimeClient())
 
@@ -447,6 +535,26 @@ async def test_list_model_ids_returns_only_trimmed_unique_nonempty_string_ids() 
     )
 
     assert await LiteLLMRuntimeAdapter(client).list_model_ids() == {'company-chat', 'embedding-v1'}
+
+
+@pytest.mark.asyncio
+async def test_list_model_ids_ignores_unicode_control_and_line_separator_characters() -> None:
+    invalid_ids = (
+        '\x00company-chat',
+        'company-chat\x00',
+        'company\x00-chat',
+        '\ncompany-chat',
+        'company\nchat',
+        '\x85company-chat',
+        'company\x85chat',
+        '\u2028company-chat',
+        'company\u2028chat',
+        '\u2029company-chat',
+        'company\u2029chat',
+    )
+    client = FakeRuntimeClient(models_response={'data': [{'id': value} for value in (*invalid_ids, ' valid-chat ')]})
+
+    assert await LiteLLMRuntimeAdapter(client).list_model_ids() == {'valid-chat'}
 
 
 @pytest.mark.asyncio
@@ -512,6 +620,63 @@ async def test_stream_chat_does_not_map_cancellation_to_domain_error() -> None:
 
     assert client.last_stream is not None
     assert client.last_stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_maps_synchronous_stream_construction_error() -> None:
+    client = FakeRuntimeClient(stream_construct_error=LiteLLMUnavailableError(SENSITIVE_DETAIL))
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    with pytest.raises(ModelServiceError) as raised:
+        await anext(stream)
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_UNAVAILABLE')
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_maps_close_error_after_normal_completion() -> None:
+    client = FakeRuntimeClient(stream_close_error=LiteLLMTimeoutError(SENSITIVE_DETAIL))
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    with pytest.raises(ModelServiceError) as raised:
+        await anext(stream)
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_TIMEOUT')
+
+
+@pytest.mark.asyncio
+async def test_stream_close_error_does_not_replace_active_runtime_error() -> None:
+    original_error = LiteLLMUnavailableError(SENSITIVE_DETAIL)
+    client = FakeRuntimeClient(
+        error=original_error,
+        stream_close_error=LiteLLMTimeoutError('close-secret'),
+    )
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    with pytest.raises(ModelServiceError) as raised:
+        await anext(stream)
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_UNAVAILABLE')
+
+
+@pytest.mark.asyncio
+async def test_stream_close_error_does_not_replace_active_cancellation() -> None:
+    client = FakeRuntimeClient(
+        error=asyncio.CancelledError(),
+        stream_close_error=LiteLLMTimeoutError('close-secret'),
+    )
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await anext(stream)
 
 
 ERROR_MAPPINGS = (

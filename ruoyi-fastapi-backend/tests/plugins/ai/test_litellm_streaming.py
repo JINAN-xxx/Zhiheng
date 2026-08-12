@@ -1,4 +1,5 @@
 import json
+import traceback
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
@@ -14,6 +15,8 @@ from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMUnavailableError,
     LiteLLMUpstreamError,
 )
+
+SENSITIVE_DETAIL = 'Authorization: Bearer runtime-secret at https://proxy.internal private-body'
 
 
 class RecordingStream(httpx.AsyncByteStream):
@@ -48,6 +51,26 @@ def build_stream_client(handler: object) -> LiteLLMRuntimeClient:
         LITELLM_RUNTIME_KEY='runtime-secret',
     )
     return LiteLLMRuntimeClient(settings, transport=httpx.MockTransport(handler))
+
+
+def assert_sanitized_internal_error(error: Exception) -> None:
+    serialized = repr(
+        (
+            str(error),
+            repr(error),
+            vars(error),
+            error.args,
+            error.__cause__,
+            error.__context__,
+            ''.join(traceback.format_exception(error)),
+        )
+    ).lower()
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert 'authorization' not in serialized
+    assert 'runtime-secret' not in serialized
+    assert 'proxy.internal' not in serialized
+    assert 'private-body' not in serialized
 
 
 @pytest.mark.asyncio
@@ -117,7 +140,7 @@ async def test_closing_downstream_generator_closes_upstream_response() -> None:
 @pytest.mark.asyncio
 async def test_stream_read_timeout_is_mapped_and_closes_upstream() -> None:
     """流建立后的读取超时映射为网关超时并释放响应。"""
-    upstream = RecordingStream([], read_error=httpx.ReadTimeout('read timed out'))
+    upstream = RecordingStream([], read_error=httpx.ReadTimeout(SENSITIVE_DETAIL))
 
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, stream=upstream)
@@ -125,12 +148,13 @@ async def test_stream_read_timeout_is_mapped_and_closes_upstream() -> None:
     client = build_stream_client(handler)
     stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
     try:
-        with pytest.raises(LiteLLMTimeoutError):
+        with pytest.raises(LiteLLMTimeoutError) as raised:
             await anext(stream)
     finally:
         await client.aclose()
 
     assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)
 
 
 @pytest.mark.asyncio
@@ -138,15 +162,17 @@ async def test_stream_connect_error_is_mapped() -> None:
     """流建立前的连接故障映射为 Runtime 不可用。"""
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError('connection failed', request=request)
+        raise httpx.ConnectError(SENSITIVE_DETAIL, request=request)
 
     client = build_stream_client(handler)
     stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
     try:
-        with pytest.raises(LiteLLMUnavailableError):
+        with pytest.raises(LiteLLMUnavailableError) as raised:
             await anext(stream)
     finally:
         await client.aclose()
+
+    assert_sanitized_internal_error(raised.value)
 
 
 @pytest.mark.asyncio
@@ -202,3 +228,61 @@ async def test_stream_oversized_error_body_falls_back_to_generic_error(
 
     assert upstream.closed is True
     assert upstream.iterated is not use_content_length
+
+
+@pytest.mark.asyncio
+async def test_stream_invalid_json_error_is_sanitized() -> None:
+    upstream = RecordingStream([SENSITIVE_DETAIL.encode()])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers={'content-type': 'application/json'})
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(LiteLLMUpstreamError) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_invalid_content_length_is_sanitized() -> None:
+    upstream = RecordingStream([b'not-read'])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers={'content-length': SENSITIVE_DETAIL})
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(LiteLLMUpstreamError) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.iterated is False
+    assert upstream.closed is True
+    assert_sanitized_internal_error(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_compressed_error_is_not_decompressed_or_consumed() -> None:
+    upstream = RecordingStream([b'compressed-private-body'])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, stream=upstream, headers={'content-encoding': 'gzip'})
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(LiteLLMUpstreamError):
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.iterated is False
+    assert upstream.closed is True

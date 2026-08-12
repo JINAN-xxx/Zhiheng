@@ -8,6 +8,7 @@ from middlewares.trace_middleware.ctx import TraceCtx
 from plugins.ai.config import LiteLLMSettings
 from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMAuthenticationError,
+    LiteLLMError,
     LiteLLMMisconfiguredError,
     LiteLLMProviderAuthenticationError,
     LiteLLMProviderRateLimitError,
@@ -93,6 +94,7 @@ class LiteLLMRuntimeClient:
         """调用 Chat Completions 并原样转发上游 SSE 字节。"""
         request_payload = dict(payload)
         request_payload['stream'] = True
+        failure: type[LiteLLMError] | None = None
         try:
             async with self._client.stream(
                 'POST',
@@ -100,13 +102,15 @@ class LiteLLMRuntimeClient:
                 json=request_payload,
                 headers=self._build_headers(authenticated=True),
             ) as response:
-                await self._raise_for_stream_status(response)
+                await self._raise_for_error_status(response)
                 async for chunk in response.aiter_raw():
                     yield chunk
-        except httpx.TimeoutException as exc:
-            raise LiteLLMTimeoutError from exc
-        except httpx.RequestError as exc:
-            raise LiteLLMUnavailableError from exc
+        except httpx.TimeoutException:
+            failure = LiteLLMTimeoutError
+        except httpx.RequestError:
+            failure = LiteLLMUnavailableError
+        if failure is not None:
+            raise failure
 
     async def aclose(self) -> None:
         """关闭当前 Worker 的 HTTP 连接池。"""
@@ -137,10 +141,14 @@ class LiteLLMRuntimeClient:
         allow_string: bool = False,
     ) -> Mapping[str, object]:
         response = await self._request(method, path, payload=payload, authenticated=authenticated)
+        invalid_json = False
         try:
             result = response.json()
-        except ValueError as exc:
-            raise LiteLLMUpstreamError from exc
+        except ValueError:
+            invalid_json = True
+            result = None
+        if invalid_json:
+            raise LiteLLMUpstreamError
         if allow_string and isinstance(result, str):
             return {'status': result}
         if allow_string:
@@ -157,39 +165,54 @@ class LiteLLMRuntimeClient:
         payload: Mapping[str, object] | None = None,
         authenticated: bool = True,
     ) -> httpx.Response:
+        failure: type[LiteLLMError] | None = None
+        response: httpx.Response | None = None
         try:
-            response = await self._client.request(
+            async with self._client.stream(
                 method,
                 path,
                 json=dict(payload) if payload is not None else None,
                 headers=self._build_headers(authenticated=authenticated),
-            )
-        except httpx.TimeoutException as exc:
-            raise LiteLLMTimeoutError from exc
-        except httpx.RequestError as exc:
-            raise LiteLLMUnavailableError from exc
-        self._raise_for_status(response)
+            ) as response:
+                if response.is_success:
+                    await response.aread()
+                else:
+                    await self._raise_for_error_status(response)
+        except httpx.TimeoutException:
+            failure = LiteLLMTimeoutError
+        except httpx.RequestError:
+            failure = LiteLLMUnavailableError
+        if failure is not None:
+            raise failure
+        if response is None:
+            raise AssertionError('不可达')
         return response
 
     @staticmethod
     def _decode_json_object(response: httpx.Response) -> Mapping[str, object]:
+        invalid_json = False
         try:
             result = response.json()
-        except ValueError as exc:
-            raise LiteLLMUpstreamError from exc
+        except ValueError:
+            invalid_json = True
+            result = None
+        if invalid_json:
+            raise LiteLLMUpstreamError
         if not isinstance(result, Mapping):
             raise LiteLLMUpstreamError
         return result
 
     @staticmethod
-    def _raise_for_status(response: httpx.Response) -> None:
+    async def _raise_for_error_status(response: httpx.Response) -> None:
         if response.is_success:
             return
         if response.status_code in {401, 403}:
             raise LiteLLMAuthenticationError
         if response.status_code == HTTP_TOO_MANY_REQUESTS:
             raise LiteLLMProviderRateLimitError
-        categories = LiteLLMRuntimeClient._provider_error_categories(response)
+
+        body = await LiteLLMRuntimeClient._read_bounded_error_body(response)
+        categories = LiteLLMRuntimeClient._provider_error_categories_from_bytes(body)
         if categories.intersection(_PROVIDER_AUTH_CATEGORIES):
             raise LiteLLMProviderAuthenticationError
         if categories.intersection(_PROVIDER_RATE_LIMIT_CATEGORIES):
@@ -197,41 +220,34 @@ class LiteLLMRuntimeClient:
         raise LiteLLMUpstreamError
 
     @staticmethod
-    async def _raise_for_stream_status(response: httpx.Response) -> None:
-        if response.is_success:
-            return
-        if response.status_code in {401, 403}:
-            raise LiteLLMAuthenticationError
-        if response.status_code == HTTP_TOO_MANY_REQUESTS:
-            raise LiteLLMProviderRateLimitError
+    async def _read_bounded_error_body(response: httpx.Response) -> bytes:
+        content_encoding = response.headers.get('content-encoding', '').strip().casefold()
+        if content_encoding not in {'', 'identity'}:
+            raise LiteLLMUpstreamError
 
         content_length = response.headers.get('content-length')
         if content_length is not None:
+            invalid_content_length = False
             try:
-                if int(content_length) > MAX_ERROR_BODY_BYTES:
-                    raise LiteLLMUpstreamError
+                content_length_value = int(content_length)
             except ValueError:
-                raise LiteLLMUpstreamError from None
-
-        body = bytearray()
-        async for chunk in response.aiter_bytes():
-            if len(body) + len(chunk) > MAX_ERROR_BODY_BYTES:
+                invalid_content_length = True
+                content_length_value = 0
+            if invalid_content_length or content_length_value < 0 or content_length_value > MAX_ERROR_BODY_BYTES:
                 raise LiteLLMUpstreamError
-            body.extend(chunk)
-        categories = LiteLLMRuntimeClient._provider_error_categories_from_bytes(bytes(body))
-        if categories.intersection(_PROVIDER_AUTH_CATEGORIES):
-            raise LiteLLMProviderAuthenticationError
-        if categories.intersection(_PROVIDER_RATE_LIMIT_CATEGORIES):
-            raise LiteLLMProviderRateLimitError
-        raise LiteLLMUpstreamError
 
-    @staticmethod
-    def _provider_error_categories(response: httpx.Response) -> frozenset[str]:
-        try:
-            payload = response.json()
-        except ValueError:
-            return frozenset()
-        return LiteLLMRuntimeClient._provider_error_categories_from_payload(payload)
+        if response.is_stream_consumed:
+            body = response.content
+            if len(body) > MAX_ERROR_BODY_BYTES:
+                raise LiteLLMUpstreamError
+            return body
+
+        streamed_body = bytearray()
+        async for chunk in response.aiter_raw():
+            if len(streamed_body) + len(chunk) > MAX_ERROR_BODY_BYTES:
+                raise LiteLLMUpstreamError
+            streamed_body.extend(chunk)
+        return bytes(streamed_body)
 
     @staticmethod
     def _provider_error_categories_from_bytes(body: bytes) -> frozenset[str]:

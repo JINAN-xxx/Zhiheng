@@ -1,4 +1,5 @@
 import sys
+import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from typing import Protocol, TypeVar
@@ -31,6 +32,7 @@ _ALLOWED_PARAMETERS = frozenset(
         'frequency_penalty',
     }
 )
+_FORBIDDEN_MODEL_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
 _ERROR_FACTORIES: dict[type[LiteLLMError], Callable[[], ModelServiceError]] = {
     LiteLLMMisconfiguredError: ModelServiceError.runtime_misconfigured,
     LiteLLMUnavailableError: ModelServiceError.runtime_unavailable,
@@ -48,6 +50,8 @@ class RuntimeClient(Protocol):
     async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult: ...
 
     def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]: ...
+
+    async def aclose(self) -> None: ...
 
 
 def _thaw(value: object) -> object:
@@ -78,14 +82,19 @@ class LiteLLMRuntimeAdapter:
             model_id = item.get('id')
             if not isinstance(model_id, str):
                 continue
+            if any(unicodedata.category(character) in _FORBIDDEN_MODEL_ID_CATEGORIES for character in model_id):
+                continue
             normalized_id = model_id.strip()
             if normalized_id:
                 model_ids.add(normalized_id)
         return model_ids
 
+    async def aclose(self) -> None:
+        await _call_runtime(self._client.aclose)
+
     async def stream_chat(self, request: ModelChatRequest) -> AsyncIterator[ModelStreamEvent]:
         payload = self._build_chat_payload(request, stream=True)
-        stream = self._client.stream_chat_completion(payload)
+        stream = await _create_runtime_stream(lambda: self._client.stream_chat_completion(payload))
         try:
             while True:
                 completed, chunk = await _next_runtime_chunk(stream)
@@ -96,7 +105,7 @@ class LiteLLMRuntimeAdapter:
             close = getattr(stream, 'aclose', None)
             if close is not None:
                 if sys.exc_info()[0] is None:
-                    await close()
+                    await _call_runtime(close)
                 else:
                     try:
                         await close()
@@ -154,6 +163,10 @@ class LiteLLMRuntimeAdapter:
 
         completion_details = usage.get('completion_tokens_details', {})
         prompt_details = usage.get('prompt_tokens_details', {})
+        if completion_details is None:
+            completion_details = {}
+        if prompt_details is None:
+            prompt_details = {}
         if not isinstance(completion_details, Mapping) or not isinstance(prompt_details, Mapping):
             raise ModelServiceError.runtime_error()
 
@@ -186,10 +199,14 @@ class LiteLLMRuntimeAdapter:
             return None
         if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
             raise ModelServiceError.runtime_error()
+        invalid_cost = False
         try:
             cost = Decimal(str(value))
         except (InvalidOperation, ValueError):
-            raise ModelServiceError.runtime_error() from None
+            invalid_cost = True
+            cost = Decimal(0)
+        if invalid_cost:
+            raise ModelServiceError.runtime_error()
         if not cost.is_finite() or cost < 0:
             raise ModelServiceError.runtime_error()
         return cost
@@ -202,6 +219,14 @@ def _error_factory(error: LiteLLMError) -> Callable[[], ModelServiceError]:
 async def _call_runtime(operation: Callable[[], Awaitable[ResultT]]) -> ResultT:
     try:
         return await operation()
+    except LiteLLMError as error:
+        factory = _error_factory(error)
+    return await call_with_model_service_error(_raise_runtime_failure, factory)
+
+
+async def _create_runtime_stream(operation: Callable[[], AsyncIterator[bytes]]) -> AsyncIterator[bytes]:
+    try:
+        return operation()
     except LiteLLMError as error:
         factory = _error_factory(error)
     return await call_with_model_service_error(_raise_runtime_failure, factory)
