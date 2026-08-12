@@ -1,7 +1,10 @@
 import re
 from datetime import datetime
+from typing import Annotated
 
 import pytest
+from fastapi import FastAPI, Query
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from plugins.ai.domain.model_service_errors import ModelServiceError
@@ -23,6 +26,9 @@ GENERATED_ID_SAMPLE_SIZE = 100
 TOP_P = 0.95
 QUERY_PAGE_NUM = 2
 QUERY_PAGE_SIZE = 50
+MAX_ENGINE_RESOURCE_ID_LENGTH = 255
+HTTP_OK = 200
+HTTP_UNPROCESSABLE_CONTENT = 422
 VALID_UUID4_HEX = '123e4567e89b42d3a456426614174000'
 SECOND_VALID_UUID4_HEX = '987e4567e89b42d3a456426614174111'
 UUID1_HEX = '123e4567e89b12d3a456426614174000'
@@ -136,6 +142,40 @@ def test_model_service_error_does_not_retain_upstream_details() -> None:
     assert 'api_key' not in serialized_state
     assert 'secret' not in serialized_state
     assert 'upstream_body' not in serialized_state
+
+
+def test_model_service_error_rejects_direct_construction_with_untrusted_details() -> None:
+    sensitive_message = 'Authorization: Bearer secret at https://runtime.internal upstream_body'
+
+    with pytest.raises(TypeError) as raised:
+        ModelServiceError(502, 'UNTRUSTED_ERROR', sensitive_message)
+
+    assert sensitive_message not in str(raised.value)
+
+
+def test_model_service_error_rejects_unknown_internal_mapping() -> None:
+    with pytest.raises(ValueError):
+        ModelServiceError._create('Authorization: Bearer secret')
+
+
+def test_model_service_error_safe_chaining_does_not_expose_upstream_details() -> None:
+    upstream = RuntimeError('Authorization: Bearer secret at https://runtime.internal upstream_body')
+
+    try:
+        raise ModelServiceError.runtime_error() from upstream
+    except ModelServiceError as error:
+        error_fields = set(error.__dict__)
+        chained_cause = error.__cause__
+        serialized_public_state = repr(
+            (error.__dict__, error.args, str(error), repr(error), error.public_dict())
+        ).lower()
+
+    assert error_fields == {'status_code', 'code', 'public_message'}
+    assert chained_cause is upstream
+    assert 'authorization' not in serialized_public_state
+    assert 'secret' not in serialized_public_state
+    assert 'https://' not in serialized_public_state
+    assert 'upstream_body' not in serialized_public_state
 
 
 def _valid_create_payload() -> dict[str, object]:
@@ -370,6 +410,42 @@ def test_model_catalog_update_and_page_query_are_strict_camel_case_models() -> N
         ModelCatalogPageQueryModel.model_validate({'pageSize': 101})
 
 
+def test_model_catalog_page_query_accepts_standard_http_query_integer_strings() -> None:
+    app = FastAPI()
+
+    @app.get('/models')
+    async def list_models(query: Annotated[ModelCatalogPageQueryModel, Query()]) -> dict[str, int]:
+        return {'pageNum': query.page_num, 'pageSize': query.page_size}
+
+    response = TestClient(app).get(
+        '/models',
+        params={'pageNum': str(QUERY_PAGE_NUM), 'pageSize': str(QUERY_PAGE_SIZE)},
+    )
+
+    assert response.status_code == HTTP_OK
+    assert response.json() == {'pageNum': QUERY_PAGE_NUM, 'pageSize': QUERY_PAGE_SIZE}
+
+
+@pytest.mark.parametrize('field', ('pageNum', 'pageSize'))
+@pytest.mark.parametrize('value', ('0', '-1', '1.5', 'true', 'not-a-number'))
+def test_model_catalog_page_query_rejects_invalid_http_query_integers(field: str, value: str) -> None:
+    app = FastAPI()
+
+    @app.get('/models')
+    async def list_models(query: Annotated[ModelCatalogPageQueryModel, Query()]) -> dict[str, int]:
+        return {'pageNum': query.page_num, 'pageSize': query.page_size}
+
+    response = TestClient(app).get('/models', params={field: value})
+
+    assert response.status_code == HTTP_UNPROCESSABLE_CONTENT
+
+
+@pytest.mark.parametrize('value', (True, False, 1.5, 0, -1, '1.5', 'true', 'not-a-number'))
+def test_model_catalog_page_query_rejects_non_positive_or_non_integer_python_values(value: object) -> None:
+    with pytest.raises(ValidationError):
+        ModelCatalogPageQueryModel.model_validate({'pageNum': value})
+
+
 @pytest.mark.parametrize(
     'field',
     ('modelCode', 'displayName', 'modelType', 'capabilities', 'defaultParameters'),
@@ -410,6 +486,27 @@ def test_resource_binding_upsert_uses_engine_alias_without_accepting_engine_type
     with pytest.raises(ValidationError):
         ResourceBindingUpsertModel.model_validate(
             {'engineResourceId': 'company-reasoning', 'engineType': 'litellm'}
+        )
+
+
+@pytest.mark.parametrize('engine_resource_id', ('', ' ', '   \t\n'))
+def test_resource_binding_upsert_rejects_blank_engine_resource_id(engine_resource_id: str) -> None:
+    with pytest.raises(ValidationError):
+        ResourceBindingUpsertModel.model_validate({'engineResourceId': engine_resource_id})
+
+
+def test_resource_binding_upsert_strips_engine_resource_id_and_accepts_maximum_length() -> None:
+    engine_resource_id = 'm' * MAX_ENGINE_RESOURCE_ID_LENGTH
+    binding = ResourceBindingUpsertModel.model_validate({'engineResourceId': f'  {engine_resource_id}  '})
+
+    assert binding.engine_resource_id == engine_resource_id
+    assert binding.model_dump(by_alias=True, exclude_unset=True) == {'engineResourceId': engine_resource_id}
+
+
+def test_resource_binding_upsert_rejects_engine_resource_id_over_maximum_length() -> None:
+    with pytest.raises(ValidationError):
+        ResourceBindingUpsertModel.model_validate(
+            {'engineResourceId': 'm' * (MAX_ENGINE_RESOURCE_ID_LENGTH + 1)}
         )
 
 

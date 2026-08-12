@@ -17,15 +17,21 @@ class ModelServiceError(Exception):
         'runtime_error': (502, 'MODEL_RUNTIME_ERROR', '模型运行时调用失败'),
     }
 
-    def __init__(self, status_code: int, code: str, public_message: str) -> None:
-        self.status_code = status_code
-        self.code = code
-        self.public_message = public_message
-        super().__init__(public_message)
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError('ModelServiceError 只能通过固定工厂创建')
 
     @classmethod
     def _create(cls, name: str) -> 'ModelServiceError':
-        return cls(*cls._ERRORS[name])
+        error_contract = cls._ERRORS.get(name)
+        if error_contract is None:
+            raise ValueError('未知的模型服务错误类型') from None
+        status_code, code, public_message = error_contract
+        error = Exception.__new__(cls)
+        error.status_code = status_code
+        error.code = code
+        error.public_message = public_message
+        Exception.__init__(error, public_message)
+        return error
 
     def public_dict(self) -> dict[str, str]:
         return {'code': self.code, 'message': self.public_message}

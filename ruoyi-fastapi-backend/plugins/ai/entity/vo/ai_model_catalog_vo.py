@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
 from pydantic.alias_generators import to_camel
 
 from plugins.ai.domain.resource_id import validate_resource_id
@@ -21,7 +21,10 @@ ModelCode = Annotated[
 ]
 DisplayName = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=100)]
 PositiveInteger = Annotated[int, Field(strict=True, gt=0)]
-ResourceIdentifier = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=255)]
+ResourceIdentifier = Annotated[
+    str,
+    StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=255),
+]
 ModelResourceId = Annotated[
     str,
     StringConstraints(strict=True),
@@ -32,6 +35,19 @@ BindingResourceId = Annotated[
     StringConstraints(strict=True),
     AfterValidator(lambda value: validate_resource_id(value, 'bnd')),
 ]
+
+
+def _parse_http_query_integer(value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError('分页参数必须是整数')
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdecimal():
+        return int(value)
+    raise ValueError('分页参数必须是整数')
+
+
+HttpQueryInteger = Annotated[int, BeforeValidator(_parse_http_query_integer)]
 
 
 class _StrictRequestModel(BaseModel):
@@ -127,8 +143,8 @@ class ModelCatalogPageQueryModel(_StrictRequestModel):
     display_name: Annotated[str, StringConstraints(strict=True, max_length=100)] | None = None
     model_type: ModelType | None = None
     lifecycle_status: LifecycleStatus | None = None
-    page_num: int = Field(default=1, strict=True, ge=1)
-    page_size: int = Field(default=10, strict=True, ge=1, le=100)
+    page_num: HttpQueryInteger = Field(default=1, ge=1)
+    page_size: HttpQueryInteger = Field(default=10, ge=1, le=100)
 
 
 class ResourceBindingUpsertModel(_StrictRequestModel):
