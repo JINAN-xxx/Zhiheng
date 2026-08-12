@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass
 
 import httpx
 
@@ -7,10 +8,35 @@ from plugins.ai.config import LiteLLMSettings
 from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMAuthenticationError,
     LiteLLMMisconfiguredError,
+    LiteLLMProviderAuthenticationError,
+    LiteLLMProviderRateLimitError,
     LiteLLMTimeoutError,
     LiteLLMUnavailableError,
     LiteLLMUpstreamError,
 )
+
+_PROVIDER_AUTH_CATEGORIES = frozenset(
+    {
+        'authenticationerror',
+        'authentication_error',
+        'invalid_api_key',
+    }
+)
+_PROVIDER_RATE_LIMIT_CATEGORIES = frozenset(
+    {
+        'ratelimiterror',
+        'rate_limit_error',
+        'rate_limit_exceeded',
+    }
+)
+HTTP_TOO_MANY_REQUESTS = 429
+
+
+@dataclass(frozen=True)
+class RuntimeChatResult:
+    payload: Mapping[str, object]
+    response_cost: str | None = None
+    request_id: str | None = None
 
 
 class LiteLLMRuntimeClient:
@@ -43,9 +69,19 @@ class LiteLLMRuntimeClient:
         """获取当前 Runtime Key 可访问的模型。"""
         return await self._request_json('GET', '/v1/models')
 
-    async def create_chat_completion(self, payload: Mapping[str, object]) -> Mapping[str, object]:
+    async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult:
         """调用 OpenAI 兼容 Chat Completions 接口。"""
-        return await self._request_json('POST', '/v1/chat/completions', payload=payload)
+        response = await self._request('POST', '/v1/chat/completions', payload=payload)
+        result = self._decode_json_object(response)
+        return RuntimeChatResult(
+            payload=result,
+            response_cost=response.headers.get('x-litellm-response-cost'),
+            request_id=(
+                response.headers.get('x-litellm-call-id')
+                or response.headers.get('x-litellm-request-id')
+                or response.headers.get('request-id')
+            ),
+        )
 
     async def create_embedding(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         """调用 OpenAI 兼容 Embeddings 接口。"""
@@ -98,6 +134,27 @@ class LiteLLMRuntimeClient:
         authenticated: bool = True,
         allow_string: bool = False,
     ) -> Mapping[str, object]:
+        response = await self._request(method, path, payload=payload, authenticated=authenticated)
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise LiteLLMUpstreamError from exc
+        if allow_string and isinstance(result, str):
+            return {'status': result}
+        if allow_string:
+            if not isinstance(result, Mapping):
+                raise LiteLLMUpstreamError
+            return result
+        return self._decode_json_object(response)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: Mapping[str, object] | None = None,
+        authenticated: bool = True,
+    ) -> httpx.Response:
         try:
             response = await self._client.request(
                 method,
@@ -109,14 +166,15 @@ class LiteLLMRuntimeClient:
             raise LiteLLMTimeoutError from exc
         except httpx.RequestError as exc:
             raise LiteLLMUnavailableError from exc
-
         self._raise_for_status(response)
+        return response
+
+    @staticmethod
+    def _decode_json_object(response: httpx.Response) -> Mapping[str, object]:
         try:
             result = response.json()
         except ValueError as exc:
             raise LiteLLMUpstreamError from exc
-        if allow_string and isinstance(result, str):
-            return {'status': result}
         if not isinstance(result, Mapping):
             raise LiteLLMUpstreamError
         return result
@@ -127,4 +185,26 @@ class LiteLLMRuntimeClient:
             return
         if response.status_code in {401, 403}:
             raise LiteLLMAuthenticationError
+        if response.status_code == HTTP_TOO_MANY_REQUESTS:
+            raise LiteLLMProviderRateLimitError
+        categories = LiteLLMRuntimeClient._provider_error_categories(response)
+        if categories.intersection(_PROVIDER_AUTH_CATEGORIES):
+            raise LiteLLMProviderAuthenticationError
+        if categories.intersection(_PROVIDER_RATE_LIMIT_CATEGORIES):
+            raise LiteLLMProviderRateLimitError
         raise LiteLLMUpstreamError
+
+    @staticmethod
+    def _provider_error_categories(response: httpx.Response) -> frozenset[str]:
+        try:
+            payload = response.json()
+        except ValueError:
+            return frozenset()
+        if not isinstance(payload, Mapping):
+            return frozenset()
+        error = payload.get('error')
+        if not isinstance(error, Mapping):
+            return frozenset()
+        return frozenset(
+            value.casefold() for field in ('type', 'code') if isinstance((value := error.get(field)), str) and value
+        )

@@ -42,6 +42,22 @@ class LiteLLMAuthenticationError(LiteLLMError):
     default_message = 'LiteLLM Runtime 内部认证失败'
 
 
+class LiteLLMProviderAuthenticationError(LiteLLMError):
+    """LiteLLM 上游 Provider Credential 被拒绝。"""
+
+    status_code = 502
+    code = 'LITELLM_PROVIDER_AUTHENTICATION_FAILED'
+    default_message = 'LiteLLM Provider 认证失败'
+
+
+class LiteLLMProviderRateLimitError(LiteLLMError):
+    """LiteLLM 上游 Provider 触发限流。"""
+
+    status_code = 502
+    code = 'LITELLM_PROVIDER_RATE_LIMITED'
+    default_message = 'LiteLLM Provider 请求受限'
+
+
 class LiteLLMUpstreamError(LiteLLMError):
     """LiteLLM 或其上游 Provider 返回错误。"""
 

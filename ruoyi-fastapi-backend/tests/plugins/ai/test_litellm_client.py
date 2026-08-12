@@ -1,5 +1,6 @@
 import inspect
 import json
+import traceback
 from collections.abc import Awaitable, Callable
 
 import httpx
@@ -7,10 +8,12 @@ import pytest
 
 from middlewares.trace_middleware.ctx import TraceCtx
 from plugins.ai.config import LiteLLMSettings
-from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient
+from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient, RuntimeChatResult
 from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMAuthenticationError,
     LiteLLMMisconfiguredError,
+    LiteLLMProviderAuthenticationError,
+    LiteLLMProviderRateLimitError,
     LiteLLMTimeoutError,
     LiteLLMUnavailableError,
     LiteLLMUpstreamError,
@@ -90,7 +93,16 @@ async def test_json_methods_forward_openai_compatible_payload(
         assert request.url.path == path
         assert request.headers['authorization'] == 'Bearer runtime-secret'
         assert json.loads(request.content) == payload
-        return httpx.Response(200, json={'id': 'response-1', 'object': 'result'})
+        return httpx.Response(
+            200,
+            json={'id': 'response-1', 'object': 'result'},
+            headers={
+                'x-litellm-response-cost': '0.00125',
+                'x-litellm-call-id': 'runtime-request-1',
+                'authorization': 'Bearer response-secret',
+                'x-private-header': 'must-not-survive',
+            },
+        )
 
     client = build_client(payload_handler)
     method = getattr(client, method_name)
@@ -99,7 +111,16 @@ async def test_json_methods_forward_openai_compatible_payload(
     finally:
         await client.aclose()
 
-    assert result == {'id': 'response-1', 'object': 'result'}
+    if method_name == 'create_chat_completion':
+        assert result == RuntimeChatResult(
+            payload={'id': 'response-1', 'object': 'result'},
+            response_cost='0.00125',
+            request_id='runtime-request-1',
+        )
+        assert 'response-secret' not in repr(result)
+        assert 'must-not-survive' not in repr(result)
+    else:
+        assert result == {'id': 'response-1', 'object': 'result'}
     assert payload == captured_payload
 
 
@@ -165,7 +186,7 @@ def test_public_methods_do_not_allow_authorization_override() -> None:
     (
         (401, LiteLLMAuthenticationError),
         (403, LiteLLMAuthenticationError),
-        (429, LiteLLMUpstreamError),
+        (429, LiteLLMProviderRateLimitError),
         (500, LiteLLMUpstreamError),
     ),
 )
@@ -186,6 +207,110 @@ async def test_upstream_status_is_mapped_without_response_body(
         await client.aclose()
 
     assert 'private-upstream-body' not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('status_code', 'error_field', 'error_value', 'error_type'),
+    (
+        (400, 'type', 'AuthenticationError', LiteLLMProviderAuthenticationError),
+        (500, 'type', 'authentication_error', LiteLLMProviderAuthenticationError),
+        (400, 'code', 'invalid_api_key', LiteLLMProviderAuthenticationError),
+        (500, 'type', 'RateLimitError', LiteLLMProviderRateLimitError),
+        (500, 'type', 'rate_limit_error', LiteLLMProviderRateLimitError),
+        (500, 'code', 'rate_limit_exceeded', LiteLLMProviderRateLimitError),
+    ),
+)
+async def test_structured_provider_error_category_is_mapped_without_retaining_body(
+    status_code: int,
+    error_field: str,
+    error_value: str,
+    error_type: type[Exception],
+) -> None:
+    secret = 'provider-secret-at-https://provider.internal'
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code,
+            json={'error': {error_field: error_value, 'message': secret, 'provider': 'private-provider'}},
+        )
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(error_type) as exc_info:
+            await client.create_chat_completion({'model': 'company-chat', 'messages': []})
+    finally:
+        await client.aclose()
+
+    error = exc_info.value
+    serialized = repr(
+        (
+            str(error),
+            repr(error),
+            vars(error),
+            error.args,
+            error.__cause__,
+            error.__context__,
+            ''.join(traceback.format_exception(error)),
+        )
+    )
+    assert secret not in serialized
+    assert 'private-provider' not in serialized
+
+
+@pytest.mark.asyncio
+async def test_runtime_auth_status_takes_precedence_over_provider_error_body() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            json={'error': {'type': 'RateLimitError', 'message': 'provider-secret'}},
+        )
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMAuthenticationError):
+            await client.list_models()
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_known_provider_code_is_used_when_error_type_is_unknown() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={'error': {'type': 'UnknownProviderFailure', 'code': 'rate_limit_exceeded'}},
+        )
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMProviderRateLimitError):
+            await client.create_chat_completion({'model': 'company-chat', 'messages': []})
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'body',
+    (
+        {'error': {'type': 'UnknownProviderFailure', 'message': 'provider-secret'}},
+        {'error': 'not-an-object'},
+        ['not-an-object'],
+    ),
+)
+async def test_unrecognized_provider_error_stays_sanitized_generic_upstream_error(body: object) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json=body)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMUpstreamError) as exc_info:
+            await client.create_chat_completion({'model': 'company-chat', 'messages': []})
+    finally:
+        await client.aclose()
+
+    assert 'provider-secret' not in repr((str(exc_info.value), vars(exc_info.value), exc_info.value.args))
 
 
 @pytest.mark.asyncio

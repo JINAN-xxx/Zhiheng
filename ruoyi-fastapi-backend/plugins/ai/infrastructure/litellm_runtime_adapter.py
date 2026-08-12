@@ -1,0 +1,227 @@
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from decimal import Decimal, InvalidOperation
+from typing import Protocol, TypeVar
+
+from plugins.ai.domain.model_runtime import (
+    ModelChatRequest,
+    ModelChatResponse,
+    ModelMessage,
+    ModelStreamEvent,
+    ModelUsage,
+)
+from plugins.ai.domain.model_service_errors import ModelServiceError, call_with_model_service_error
+from plugins.ai.infrastructure.litellm_client import RuntimeChatResult
+from plugins.ai.infrastructure.litellm_errors import (
+    LiteLLMAuthenticationError,
+    LiteLLMError,
+    LiteLLMMisconfiguredError,
+    LiteLLMProviderAuthenticationError,
+    LiteLLMProviderRateLimitError,
+    LiteLLMTimeoutError,
+    LiteLLMUnavailableError,
+)
+
+_ALLOWED_PARAMETERS = frozenset(
+    {
+        'temperature',
+        'top_p',
+        'max_tokens',
+        'presence_penalty',
+        'frequency_penalty',
+    }
+)
+_ERROR_FACTORIES: dict[type[LiteLLMError], Callable[[], ModelServiceError]] = {
+    LiteLLMMisconfiguredError: ModelServiceError.runtime_misconfigured,
+    LiteLLMUnavailableError: ModelServiceError.runtime_unavailable,
+    LiteLLMTimeoutError: ModelServiceError.runtime_timeout,
+    LiteLLMAuthenticationError: ModelServiceError.runtime_auth_failed,
+    LiteLLMProviderAuthenticationError: ModelServiceError.provider_auth_failed,
+    LiteLLMProviderRateLimitError: ModelServiceError.provider_rate_limited,
+}
+ResultT = TypeVar('ResultT')
+
+
+class RuntimeClient(Protocol):
+    async def list_models(self) -> Mapping[str, object]: ...
+
+    async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult: ...
+
+    def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]: ...
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+class LiteLLMRuntimeAdapter:
+    def __init__(self, client: RuntimeClient) -> None:
+        self._client = client
+
+    async def chat(self, request: ModelChatRequest) -> ModelChatResponse:
+        payload = self._build_chat_payload(request, stream=False)
+        result = await _call_runtime(lambda: self._client.create_chat_completion(payload))
+        return self._normalize_chat_response(result)
+
+    async def list_model_ids(self) -> set[str]:
+        response = await _call_runtime(self._client.list_models)
+        if 'data' not in response or not isinstance(response['data'], list):
+            raise ModelServiceError.runtime_error()
+        model_ids: set[str] = set()
+        for item in response['data']:
+            if not isinstance(item, Mapping):
+                continue
+            model_id = item.get('id')
+            if not isinstance(model_id, str):
+                continue
+            normalized_id = model_id.strip()
+            if normalized_id:
+                model_ids.add(normalized_id)
+        return model_ids
+
+    async def stream_chat(self, request: ModelChatRequest) -> AsyncIterator[ModelStreamEvent]:
+        payload = self._build_chat_payload(request, stream=True)
+        stream = self._client.stream_chat_completion(payload)
+        try:
+            while True:
+                completed, chunk = await _next_runtime_chunk(stream)
+                if completed:
+                    return
+                yield ModelStreamEvent(data=bytes(chunk))
+        finally:
+            close = getattr(stream, 'aclose', None)
+            if close is not None:
+                if sys.exc_info()[0] is None:
+                    await close()
+                else:
+                    try:
+                        await close()
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def _build_chat_payload(request: ModelChatRequest, *, stream: bool) -> dict[str, object]:
+        unsupported = set(request.parameters).difference(_ALLOWED_PARAMETERS)
+        if unsupported:
+            raise ValueError('不支持的模型参数')
+        messages = [LiteLLMRuntimeAdapter._message_payload(message) for message in request.messages]
+        return {
+            'model': request.engine_model,
+            'messages': messages,
+            **{key: _thaw(value) for key, value in request.parameters.items()},
+            'stream': stream,
+        }
+
+    @staticmethod
+    def _message_payload(message: ModelMessage) -> dict[str, object]:
+        return {'role': message.role, 'content': _thaw(message.content)}
+
+    @staticmethod
+    def _normalize_chat_response(result: RuntimeChatResult) -> ModelChatResponse:
+        response = result.payload
+        choices = response.get('choices')
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], Mapping):
+            raise ModelServiceError.runtime_error()
+        message = choices[0].get('message')
+        if not isinstance(message, Mapping):
+            raise ModelServiceError.runtime_error()
+        text = message.get('content')
+        if not isinstance(text, str):
+            raise ModelServiceError.runtime_error()
+
+        reasoning_value = message.get('reasoning_content', message.get('reasoning'))
+        reasoning = reasoning_value if isinstance(reasoning_value, str) else None
+        request_id_value = result.request_id or response.get('id')
+        request_id = request_id_value if isinstance(request_id_value, str) and request_id_value else None
+        return ModelChatResponse(
+            text=text,
+            reasoning=reasoning,
+            usage=LiteLLMRuntimeAdapter._normalize_usage(response, response_cost=result.response_cost),
+            request_id=request_id,
+        )
+
+    @staticmethod
+    def _normalize_usage(response: Mapping[str, object], *, response_cost: str | None) -> ModelUsage:
+        usage = response.get('usage')
+        if usage is None:
+            usage = {}
+        if not isinstance(usage, Mapping):
+            raise ModelServiceError.runtime_error()
+
+        completion_details = usage.get('completion_tokens_details', {})
+        prompt_details = usage.get('prompt_tokens_details', {})
+        if not isinstance(completion_details, Mapping) or not isinstance(prompt_details, Mapping):
+            raise ModelServiceError.runtime_error()
+
+        hidden_parameters = response.get('_hidden_params', {})
+        if not isinstance(hidden_parameters, Mapping):
+            hidden_parameters = {}
+        cost = LiteLLMRuntimeAdapter._optional_cost(
+            response_cost if response_cost is not None else hidden_parameters.get('response_cost')
+        )
+        cache_read = prompt_details.get('cached_tokens', usage.get('cache_read_input_tokens', 0))
+        cache_write = prompt_details.get('cache_creation_tokens', usage.get('cache_creation_input_tokens', 0))
+        return ModelUsage(
+            input_tokens=LiteLLMRuntimeAdapter._token_count(usage.get('prompt_tokens', 0)),
+            output_tokens=LiteLLMRuntimeAdapter._token_count(usage.get('completion_tokens', 0)),
+            reasoning_tokens=LiteLLMRuntimeAdapter._token_count(completion_details.get('reasoning_tokens', 0)),
+            cache_read_tokens=LiteLLMRuntimeAdapter._token_count(cache_read),
+            cache_write_tokens=LiteLLMRuntimeAdapter._token_count(cache_write),
+            raw_cost=cost,
+        )
+
+    @staticmethod
+    def _token_count(value: object) -> int:
+        if type(value) is not int or value < 0:
+            raise ModelServiceError.runtime_error()
+        return value
+
+    @staticmethod
+    def _optional_cost(value: object) -> Decimal | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
+            raise ModelServiceError.runtime_error()
+        try:
+            cost = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            raise ModelServiceError.runtime_error() from None
+        if not cost.is_finite() or cost < 0:
+            raise ModelServiceError.runtime_error()
+        return cost
+
+
+def _error_factory(error: LiteLLMError) -> Callable[[], ModelServiceError]:
+    return _ERROR_FACTORIES.get(type(error), ModelServiceError.runtime_error)
+
+
+async def _call_runtime(operation: Callable[[], Awaitable[ResultT]]) -> ResultT:
+    try:
+        return await operation()
+    except LiteLLMError as error:
+        factory = _error_factory(error)
+    return await call_with_model_service_error(_raise_runtime_failure, factory)
+
+
+async def _raise_runtime_failure() -> ResultT:
+    raise RuntimeError
+
+
+async def _read_runtime_chunk(stream: AsyncIterator[bytes]) -> tuple[bool, bytes]:
+    try:
+        return False, await anext(stream)
+    except StopAsyncIteration:
+        return True, b''
+
+
+async def _next_runtime_chunk(stream: AsyncIterator[bytes]) -> tuple[bool, bytes]:
+    try:
+        return await _read_runtime_chunk(stream)
+    except LiteLLMError as error:
+        factory = _error_factory(error)
+    await call_with_model_service_error(_raise_runtime_failure, factory)
+    raise AssertionError('不可达')
