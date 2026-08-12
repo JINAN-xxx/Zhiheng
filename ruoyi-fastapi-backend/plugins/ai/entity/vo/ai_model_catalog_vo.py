@@ -48,8 +48,10 @@ def _parse_http_query_integer(value: object) -> int:
 HttpQueryInteger = Annotated[int, BeforeValidator(_parse_http_query_integer)]
 
 
-def _reject_control_characters(value: str) -> str:
-    if any(unicodedata.category(character) in FORBIDDEN_RESOURCE_ID_CATEGORIES for character in value):
+def _reject_control_characters(value: object) -> object:
+    if isinstance(value, str) and any(
+        unicodedata.category(character) in FORBIDDEN_RESOURCE_ID_CATEGORIES for character in value
+    ):
         raise ValueError('引擎资源标识不能包含控制字符')
     return value
 
@@ -57,7 +59,7 @@ def _reject_control_characters(value: str) -> str:
 ResourceIdentifier = Annotated[
     str,
     StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=255),
-    AfterValidator(_reject_control_characters),
+    BeforeValidator(_reject_control_characters),
 ]
 
 

@@ -681,6 +681,26 @@ def test_resource_binding_upsert_rejects_control_characters(engine_resource_id: 
         ResourceBindingUpsertModel.model_validate({'engineResourceId': engine_resource_id})
 
 
+@pytest.mark.parametrize('boundary_character', ('\n', '\x85', '\u2028', '\u2029'))
+@pytest.mark.parametrize('position', ('prefix', 'suffix'))
+def test_resource_binding_upsert_rejects_stripped_forbidden_boundary_characters(
+    boundary_character: str,
+    position: str,
+) -> None:
+    engine_resource_id = (
+        f'{boundary_character}company-model' if position == 'prefix' else f'company-model{boundary_character}'
+    )
+
+    with pytest.raises(ValidationError):
+        ResourceBindingUpsertModel.model_validate({'engineResourceId': engine_resource_id})
+
+
+def test_resource_binding_upsert_keeps_trimming_plain_boundary_spaces() -> None:
+    binding = ResourceBindingUpsertModel.model_validate({'engineResourceId': '  company-model  '})
+
+    assert binding.engine_resource_id == 'company-model'
+
+
 @pytest.mark.parametrize('field', ('expectedVersion',))
 @pytest.mark.parametrize('value', (0, -1, 1.5, '1', True))
 def test_resource_binding_upsert_requires_strict_positive_expected_version(field: str, value: object) -> None:
