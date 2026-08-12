@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from common.vo import PageModel
@@ -31,6 +32,13 @@ class CommitForbiddenAsyncSession(AsyncSession):
 @pytest_asyncio.fixture
 async def database() -> AsyncIterator[tuple[AsyncEngine, CommitForbiddenAsyncSession]]:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+
+    @event.listens_for(engine.sync_engine, 'connect')
+    def enable_foreign_keys(connection: Any, _record: Any) -> None:
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.close()
+
     session_maker = async_sessionmaker(
         bind=engine,
         class_=CommitForbiddenAsyncSession,
@@ -239,6 +247,35 @@ async def test_catalog_non_paginated_query_returns_usable_camel_case_rows(
 
 
 @pytest.mark.asyncio
+async def test_catalog_text_filters_treat_like_wildcards_as_literal_characters(
+    database: tuple[AsyncEngine, CommitForbiddenAsyncSession],
+) -> None:
+    _, session = database
+    models = [
+        _catalog('mdl_00000000000040008000000000000001', 'chat_exact', 'Regular Model'),
+        _catalog('mdl_00000000000040008000000000000002', 'chatXexact', 'Regular Control'),
+        _catalog('mdl_00000000000040008000000000000003', 'percent-target', 'Budget 100% Model'),
+        _catalog('mdl_00000000000040008000000000000004', 'percent-control', 'Budget 100X Model'),
+    ]
+    for model in models:
+        await AiModelCatalogDao.create_model(session, model)
+
+    code_result = await AiModelCatalogDao.list_models(
+        session,
+        ModelCatalogPageQueryModel(modelCode='chat_'),
+        is_page=False,
+    )
+    name_result = await AiModelCatalogDao.list_models(
+        session,
+        ModelCatalogPageQueryModel(displayName='100%'),
+        is_page=False,
+    )
+
+    assert [row['modelCode'] for row in code_result] == ['chat_exact']
+    assert [row['modelCode'] for row in name_result] == ['percent-target']
+
+
+@pytest.mark.asyncio
 async def test_catalog_update_uses_explicit_values_and_delete_is_only_a_database_action(
     database: tuple[AsyncEngine, CommitForbiddenAsyncSession],
 ) -> None:
@@ -314,6 +351,31 @@ async def test_binding_create_and_current_lookup_use_platform_model_resource_key
     assert current.engine_metadata == {'deployment': 'primary'}
     assert isinstance(current.engine_metadata, dict)
     assert not_primary_key_lookup is None
+
+
+@pytest.mark.asyncio
+async def test_bound_draft_requires_resource_binding_delete_before_model_delete(
+    database: tuple[AsyncEngine, CommitForbiddenAsyncSession],
+) -> None:
+    _, session = database
+    model_id = 'mdl_00000000000040008000000000000001'
+    binding_id = 'bnd_00000000000040008000000000000002'
+    await AiModelCatalogDao.create_model(session, _catalog(model_id, 'draft-model', 'Draft Model'))
+    await AiResourceBindingDao.create_binding(session, _binding(binding_id, model_id))
+
+    with pytest.raises(IntegrityError):
+        await AiModelCatalogDao.delete_model(session, model_id)
+    await session.rollback()
+
+    await AiModelCatalogDao.create_model(session, _catalog(model_id, 'draft-model', 'Draft Model'))
+    await AiResourceBindingDao.create_binding(session, _binding(binding_id, model_id))
+
+    assert await AiResourceBindingDao.delete_binding_by_resource(session, binding_id) == 0
+    assert await AiResourceBindingDao.get_current_binding(session, model_id) is not None
+    assert await AiResourceBindingDao.delete_binding_by_resource(session, model_id) == 1
+    assert await AiModelCatalogDao.delete_model(session, model_id) == 1
+    assert await AiResourceBindingDao.get_current_binding(session, model_id) is None
+    assert await AiModelCatalogDao.get_model_by_id(session, model_id) is None
 
 
 @pytest.mark.asyncio

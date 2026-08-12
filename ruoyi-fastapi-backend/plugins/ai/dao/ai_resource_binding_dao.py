@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
@@ -49,6 +49,17 @@ class AiResourceBindingDao:
         await db.flush()
 
         return binding
+
+    @classmethod
+    async def delete_binding_by_resource(cls, db: AsyncSession, model_id: str) -> int:
+        result = await db.execute(
+            delete(AiResourceBinding).where(
+                AiResourceBinding.resource_type == 'model',
+                AiResourceBinding.resource_id == model_id,
+            )
+        )
+
+        return int(result.rowcount or 0)
 
     @classmethod
     async def update_binding_with_version(

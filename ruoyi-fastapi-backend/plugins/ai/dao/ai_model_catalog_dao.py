@@ -54,10 +54,10 @@ class AiModelCatalogDao:
         query = (
             select(AiModelCatalog)
             .where(
-                AiModelCatalog.model_code.like(f'%{query_object.model_code}%')
+                AiModelCatalog.model_code.contains(query_object.model_code, autoescape=True)
                 if query_object.model_code
                 else True,
-                AiModelCatalog.display_name.like(f'%{query_object.display_name}%')
+                AiModelCatalog.display_name.contains(query_object.display_name, autoescape=True)
                 if query_object.display_name
                 else True,
                 AiModelCatalog.model_type == query_object.model_type if query_object.model_type else True,
