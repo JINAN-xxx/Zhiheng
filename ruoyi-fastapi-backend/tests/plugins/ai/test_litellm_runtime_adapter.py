@@ -335,7 +335,7 @@ async def test_chat_rejects_parameters_that_try_to_override_adapter_owned_fields
 
 
 @pytest.mark.asyncio
-async def test_chat_normalizes_text_reasoning_usage_request_id_and_cost() -> None:
+async def test_chat_normalizes_response_and_ignores_untrusted_hidden_cost() -> None:
     client = FakeRuntimeClient(
         chat_response={
             'id': 'chatcmpl-123',
@@ -380,7 +380,7 @@ async def test_chat_normalizes_text_reasoning_usage_request_id_and_cost() -> Non
         reasoning_tokens=3,
         cache_read_tokens=5,
         cache_write_tokens=2,
-        raw_cost=Decimal('0.00125'),
+        raw_cost=None,
     )
     assert not hasattr(response, 'raw_response')
     assert 'must-not-survive' not in repr(response)
@@ -517,6 +517,69 @@ async def test_chat_maps_malformed_response_to_sanitized_runtime_error(
 
 
 @pytest.mark.asyncio
+async def test_chat_malformed_message_traceback_does_not_retain_runtime_result() -> None:
+    secret = 'private-body-message'
+    client = FakeRuntimeClient(chat_response={'choices': [{'message': {'content': {'secret': secret}}}]})
+
+    with pytest.raises(ModelServiceError) as raised:
+        await LiteLLMRuntimeAdapter(client).chat(
+            ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+        )
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_ERROR', forbidden=(secret,))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'result',
+    (
+        RuntimeChatResult(
+            payload={
+                'choices': [{'message': {'content': 'answer'}}],
+                'usage': 'private-body-usage',
+            }
+        ),
+        RuntimeChatResult(
+            payload={'choices': [{'message': {'content': 'answer'}}]},
+            response_cost='private-body-cost',
+        ),
+    ),
+)
+async def test_chat_malformed_usage_or_cost_traceback_does_not_retain_runtime_result(
+    result: RuntimeChatResult,
+) -> None:
+    client = FakeRuntimeClient()
+    client.create_chat_completion = lambda payload: _async_result(result)  # type: ignore[method-assign]
+
+    with pytest.raises(ModelServiceError) as raised:
+        await LiteLLMRuntimeAdapter(client).chat(
+            ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+        )
+
+    _assert_sanitized_domain_error(
+        raised.value,
+        'MODEL_RUNTIME_ERROR',
+        forbidden=('private-body-usage', 'private-body-cost'),
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_ignores_hidden_response_cost_without_trusted_header() -> None:
+    client = FakeRuntimeClient(
+        chat_response={
+            'choices': [{'message': {'content': 'answer'}}],
+            '_hidden_params': {'response_cost': '0.0042'},
+        }
+    )
+
+    response = await LiteLLMRuntimeAdapter(client).chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    assert response.usage.raw_cost is None
+
+
+@pytest.mark.asyncio
 async def test_list_model_ids_returns_only_trimmed_unique_nonempty_string_ids() -> None:
     client = FakeRuntimeClient(
         models_response={
@@ -566,6 +629,17 @@ async def test_list_model_ids_rejects_malformed_top_level_data(response: Mapping
     assert raised.value.code == 'MODEL_RUNTIME_ERROR'
     assert raised.value.__cause__ is None
     assert raised.value.__context__ is None
+
+
+@pytest.mark.asyncio
+async def test_list_model_ids_malformed_traceback_does_not_retain_upstream_payload() -> None:
+    secret = 'private-body-model-list'
+    response = {'data': secret, 'internal': {'authorization': secret}}
+
+    with pytest.raises(ModelServiceError) as raised:
+        await LiteLLMRuntimeAdapter(FakeRuntimeClient(models_response=response)).list_model_ids()
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_ERROR', forbidden=(secret,))
 
 
 @pytest.mark.asyncio
@@ -694,7 +768,12 @@ def _sensitive_error(error_type: type[Exception]) -> Exception:
     return error_type('Authorization: Bearer provider-secret at https://runtime.internal private-body')
 
 
-def _assert_sanitized_domain_error(error: ModelServiceError, expected_code: str) -> None:
+def _assert_sanitized_domain_error(
+    error: ModelServiceError,
+    expected_code: str,
+    *,
+    forbidden: tuple[str, ...] = (),
+) -> None:
     serialized = repr(
         (
             str(error),
@@ -714,6 +793,21 @@ def _assert_sanitized_domain_error(error: ModelServiceError, expected_code: str)
     assert 'provider-secret' not in serialized
     assert 'https://' not in serialized
     assert 'private-body' not in serialized
+    current = error.__traceback__
+    while current is not None:
+        filename = current.tb_frame.f_code.co_filename.replace('\\', '/')
+        if '/plugins/ai/' in filename and '/tests/' not in filename:
+            for value in current.tb_frame.f_locals.values():
+                assert not isinstance(value, RuntimeChatResult)
+                local_repr = repr(value).lower()
+                assert 'authorization' not in local_repr
+                assert 'provider-secret' not in local_repr
+                assert 'https://' not in local_repr
+                assert 'private-body' not in local_repr
+                assert 'RuntimeChatResult(' not in repr(value)
+                for secret in forbidden:
+                    assert secret.lower() not in local_repr
+        current = current.tb_next
 
 
 @pytest.mark.asyncio

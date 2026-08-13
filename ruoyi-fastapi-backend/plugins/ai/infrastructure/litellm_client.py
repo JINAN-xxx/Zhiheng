@@ -1,6 +1,7 @@
 import json
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
+from typing import TypeAlias
 
 import httpx
 
@@ -42,6 +43,23 @@ class RuntimeChatResult:
     request_id: str | None = None
 
 
+LiteLLMFailure: TypeAlias = type[LiteLLMError]
+
+
+@dataclass(frozen=True)
+class _RequestOutcome:
+    failure: LiteLLMFailure | None
+    payload: Mapping[str, object] | None = None
+    response_cost: str | None = None
+    request_id: str | None = None
+
+
+@dataclass(frozen=True)
+class _StreamOutcome:
+    chunk: bytes | None = None
+    failure: LiteLLMFailure | None = None
+
+
 class LiteLLMRuntimeClient:
     """Platform 调用 LiteLLM 数据面的异步 HTTP 客户端。"""
 
@@ -74,43 +92,38 @@ class LiteLLMRuntimeClient:
 
     async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult:
         """调用 OpenAI 兼容 Chat Completions 接口。"""
-        response = await self._request('POST', '/v1/chat/completions', payload=payload)
-        result = self._decode_json_object(response)
+        operation = self._perform_json_request('POST', '/v1/chat/completions', payload=payload)
+        del payload
+        outcome = await operation
+        result = await _unwrap_request_outcome(outcome)
         return RuntimeChatResult(
             payload=result,
-            response_cost=response.headers.get('x-litellm-response-cost'),
-            request_id=(
-                response.headers.get('x-litellm-call-id')
-                or response.headers.get('x-litellm-request-id')
-                or response.headers.get('request-id')
-            ),
+            response_cost=outcome.response_cost,
+            request_id=outcome.request_id,
         )
 
     async def create_embedding(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         """调用 OpenAI 兼容 Embeddings 接口。"""
-        return await self._request_json('POST', '/v1/embeddings', payload=payload)
+        operation = self._request_json('POST', '/v1/embeddings', payload=payload)
+        del payload
+        return await operation
 
     async def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]:
         """调用 Chat Completions 并原样转发上游 SSE 字节。"""
-        request_payload = dict(payload)
-        request_payload['stream'] = True
-        failure: type[LiteLLMError] | None = None
+        stream = self._stream_outcomes(payload)
+        del payload
+        failure: LiteLLMFailure | None = None
         try:
-            async with self._client.stream(
-                'POST',
-                '/v1/chat/completions',
-                json=request_payload,
-                headers=self._build_headers(authenticated=True),
-            ) as response:
-                await self._raise_for_error_status(response)
-                async for chunk in response.aiter_raw():
-                    yield chunk
-        except httpx.TimeoutException:
-            failure = LiteLLMTimeoutError
-        except httpx.RequestError:
-            failure = LiteLLMUnavailableError
+            async for outcome in stream:
+                if outcome.failure is not None:
+                    failure = outcome.failure
+                    break
+                if outcome.chunk is not None:
+                    yield outcome.chunk
+        finally:
+            await stream.aclose()
         if failure is not None:
-            raise failure
+            await _raise_litellm_failure(failure)
 
     async def aclose(self) -> None:
         """关闭当前 Worker 的 HTTP 连接池。"""
@@ -140,33 +153,25 @@ class LiteLLMRuntimeClient:
         authenticated: bool = True,
         allow_string: bool = False,
     ) -> Mapping[str, object]:
-        response = await self._request(method, path, payload=payload, authenticated=authenticated)
-        invalid_json = False
-        try:
-            result = response.json()
-        except ValueError:
-            invalid_json = True
-            result = None
-        if invalid_json:
-            raise LiteLLMUpstreamError
-        if allow_string and isinstance(result, str):
-            return {'status': result}
-        if allow_string:
-            if not isinstance(result, Mapping):
-                raise LiteLLMUpstreamError
-            return result
-        return self._decode_json_object(response)
+        outcome = await self._perform_json_request(
+            method,
+            path,
+            payload=payload,
+            authenticated=authenticated,
+            allow_string=allow_string,
+        )
+        del payload
+        return await _unwrap_request_outcome(outcome)
 
-    async def _request(
+    async def _perform_json_request(
         self,
         method: str,
         path: str,
         *,
         payload: Mapping[str, object] | None = None,
         authenticated: bool = True,
-    ) -> httpx.Response:
-        failure: type[LiteLLMError] | None = None
-        response: httpx.Response | None = None
+        allow_string: bool = False,
+    ) -> _RequestOutcome:
         try:
             async with self._client.stream(
                 method,
@@ -174,56 +179,63 @@ class LiteLLMRuntimeClient:
                 json=dict(payload) if payload is not None else None,
                 headers=self._build_headers(authenticated=authenticated),
             ) as response:
-                if response.is_success:
-                    await response.aread()
-                else:
-                    await self._raise_for_error_status(response)
+                if not response.is_success:
+                    return _RequestOutcome(failure=await self._failure_for_error_response(response))
+                await response.aread()
+                decoded = self._decode_json_mapping(response.content, allow_string=allow_string)
+                if decoded is None:
+                    return _RequestOutcome(failure=LiteLLMUpstreamError)
+                return _RequestOutcome(
+                    failure=None,
+                    payload=decoded,
+                    response_cost=response.headers.get('x-litellm-response-cost'),
+                    request_id=(
+                        response.headers.get('x-litellm-call-id')
+                        or response.headers.get('x-litellm-request-id')
+                        or response.headers.get('request-id')
+                    ),
+                )
         except httpx.TimeoutException:
-            failure = LiteLLMTimeoutError
+            return _RequestOutcome(failure=LiteLLMTimeoutError)
         except httpx.RequestError:
-            failure = LiteLLMUnavailableError
-        if failure is not None:
-            raise failure
-        if response is None:
-            raise AssertionError('不可达')
-        return response
+            return _RequestOutcome(failure=LiteLLMUnavailableError)
+        except LiteLLMError as error:
+            return _RequestOutcome(failure=type(error))
 
     @staticmethod
-    def _decode_json_object(response: httpx.Response) -> Mapping[str, object]:
-        invalid_json = False
+    def _decode_json_mapping(body: bytes, *, allow_string: bool) -> Mapping[str, object] | None:
         try:
-            result = response.json()
-        except ValueError:
-            invalid_json = True
-            result = None
-        if invalid_json:
-            raise LiteLLMUpstreamError
+            result = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if allow_string and isinstance(result, str):
+            return {'status': result}
         if not isinstance(result, Mapping):
-            raise LiteLLMUpstreamError
+            return None
         return result
 
     @staticmethod
-    async def _raise_for_error_status(response: httpx.Response) -> None:
-        if response.is_success:
-            return
+    async def _failure_for_error_response(response: httpx.Response) -> LiteLLMFailure:
         if response.status_code in {401, 403}:
-            raise LiteLLMAuthenticationError
+            return LiteLLMAuthenticationError
         if response.status_code == HTTP_TOO_MANY_REQUESTS:
-            raise LiteLLMProviderRateLimitError
+            return LiteLLMProviderRateLimitError
 
-        body = await LiteLLMRuntimeClient._read_bounded_error_body(response)
+        invalid_body, body = await LiteLLMRuntimeClient._read_bounded_error_body(response)
+        if invalid_body:
+            return LiteLLMUpstreamError
         categories = LiteLLMRuntimeClient._provider_error_categories_from_bytes(body)
         if categories.intersection(_PROVIDER_AUTH_CATEGORIES):
-            raise LiteLLMProviderAuthenticationError
+            return LiteLLMProviderAuthenticationError
         if categories.intersection(_PROVIDER_RATE_LIMIT_CATEGORIES):
-            raise LiteLLMProviderRateLimitError
-        raise LiteLLMUpstreamError
+            return LiteLLMProviderRateLimitError
+        return LiteLLMUpstreamError
 
     @staticmethod
-    async def _read_bounded_error_body(response: httpx.Response) -> bytes:
+    async def _read_bounded_error_body(response: httpx.Response) -> tuple[bool, bytes]:
         content_encoding = response.headers.get('content-encoding', '').strip().casefold()
         if content_encoding not in {'', 'identity'}:
-            raise LiteLLMUpstreamError
+            return True, b''
 
         content_length = response.headers.get('content-length')
         if content_length is not None:
@@ -234,20 +246,45 @@ class LiteLLMRuntimeClient:
                 invalid_content_length = True
                 content_length_value = 0
             if invalid_content_length or content_length_value < 0 or content_length_value > MAX_ERROR_BODY_BYTES:
-                raise LiteLLMUpstreamError
+                return True, b''
 
         if response.is_stream_consumed:
             body = response.content
             if len(body) > MAX_ERROR_BODY_BYTES:
-                raise LiteLLMUpstreamError
-            return body
+                return True, b''
+            return False, body
 
         streamed_body = bytearray()
         async for chunk in response.aiter_raw():
             if len(streamed_body) + len(chunk) > MAX_ERROR_BODY_BYTES:
-                raise LiteLLMUpstreamError
+                return True, b''
             streamed_body.extend(chunk)
-        return bytes(streamed_body)
+        return False, bytes(streamed_body)
+
+    async def _stream_outcomes(self, payload: Mapping[str, object]) -> AsyncIterator[_StreamOutcome]:
+        request_payload = dict(payload)
+        request_payload['stream'] = True
+        failure: LiteLLMFailure | None = None
+        try:
+            async with self._client.stream(
+                'POST',
+                '/v1/chat/completions',
+                json=request_payload,
+                headers=self._build_headers(authenticated=True),
+            ) as response:
+                if response.is_success:
+                    async for chunk in response.aiter_raw():
+                        yield _StreamOutcome(chunk=chunk)
+                else:
+                    failure = await self._failure_for_error_response(response)
+        except httpx.TimeoutException:
+            failure = LiteLLMTimeoutError
+        except httpx.RequestError:
+            failure = LiteLLMUnavailableError
+        except LiteLLMError as error:
+            failure = type(error)
+        if failure is not None:
+            yield _StreamOutcome(failure=failure)
 
     @staticmethod
     def _provider_error_categories_from_bytes(body: bytes) -> frozenset[str]:
@@ -267,3 +304,15 @@ class LiteLLMRuntimeClient:
         return frozenset(
             value.casefold() for field in ('type', 'code') if isinstance((value := error.get(field)), str) and value
         )
+
+
+async def _raise_litellm_failure(failure: LiteLLMFailure) -> None:
+    raise failure
+
+
+async def _unwrap_request_outcome(outcome: _RequestOutcome) -> Mapping[str, object]:
+    if outcome.failure is not None:
+        await _raise_litellm_failure(outcome.failure)
+    if outcome.payload is None:
+        raise AssertionError('不可达')
+    return outcome.payload

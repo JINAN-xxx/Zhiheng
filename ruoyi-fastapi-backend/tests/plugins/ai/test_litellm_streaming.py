@@ -71,6 +71,20 @@ def assert_sanitized_internal_error(error: Exception) -> None:
     assert 'runtime-secret' not in serialized
     assert 'proxy.internal' not in serialized
     assert 'private-body' not in serialized
+    current = error.__traceback__
+    while current is not None:
+        filename = current.tb_frame.f_code.co_filename.replace('\\', '/')
+        if '/plugins/ai/' in filename and '/tests/' not in filename:
+            for value in current.tb_frame.f_locals.values():
+                assert not isinstance(value, (httpx.Request, httpx.Response))
+                local_repr = repr(value).lower()
+                assert 'authorization' not in local_repr
+                assert 'runtime-secret' not in local_repr
+                assert 'proxy.internal' not in local_repr
+                assert 'provider-secret' not in local_repr
+                assert 'provider.internal' not in local_repr
+                assert 'private-body' not in local_repr
+        current = current.tb_next
 
 
 @pytest.mark.asyncio
@@ -204,6 +218,7 @@ async def test_stream_structured_provider_error_is_classified_without_leaking_bo
 
     assert upstream.closed is True
     assert secret not in repr((str(raised.value), vars(raised.value), raised.value.args))
+    assert_sanitized_internal_error(raised.value)
 
 
 @pytest.mark.asyncio

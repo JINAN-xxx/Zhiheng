@@ -69,14 +69,23 @@ class LiteLLMRuntimeAdapter:
     async def chat(self, request: ModelChatRequest) -> ModelChatResponse:
         payload = self._build_chat_payload(request, stream=False)
         result = await _call_runtime(lambda: self._client.create_chat_completion(payload))
-        return self._normalize_chat_response(result)
+        normalized = self._normalize_chat_response(result)
+        del result
+        return await _unwrap_chat_response(normalized)
 
     async def list_model_ids(self) -> set[str]:
         response = await _call_runtime(self._client.list_models)
-        if 'data' not in response or not isinstance(response['data'], list):
-            raise ModelServiceError.runtime_error()
+        model_ids = self._normalize_model_ids(response)
+        del response
+        return await _unwrap_model_ids(model_ids)
+
+    @staticmethod
+    def _normalize_model_ids(response: Mapping[str, object]) -> set[str] | None:
+        data = response.get('data')
+        if not isinstance(data, list):
+            return None
         model_ids: set[str] = set()
-        for item in response['data']:
+        for item in data:
             if not isinstance(item, Mapping):
                 continue
             model_id = item.get('id')
@@ -130,36 +139,34 @@ class LiteLLMRuntimeAdapter:
         return {'role': message.role, 'content': _thaw(message.content)}
 
     @staticmethod
-    def _normalize_chat_response(result: RuntimeChatResult) -> ModelChatResponse:
+    def _normalize_chat_response(result: RuntimeChatResult) -> ModelChatResponse | None:
         response = result.payload
         choices = response.get('choices')
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], Mapping):
-            raise ModelServiceError.runtime_error()
+            return None
         message = choices[0].get('message')
         if not isinstance(message, Mapping):
-            raise ModelServiceError.runtime_error()
+            return None
         text = message.get('content')
         if not isinstance(text, str):
-            raise ModelServiceError.runtime_error()
+            return None
 
+        usage = LiteLLMRuntimeAdapter._normalize_usage(response, response_cost=result.response_cost)
+        if usage is None:
+            return None
         reasoning_value = message.get('reasoning_content', message.get('reasoning'))
         reasoning = reasoning_value if isinstance(reasoning_value, str) else None
         request_id_value = result.request_id or response.get('id')
         request_id = request_id_value if isinstance(request_id_value, str) and request_id_value else None
-        return ModelChatResponse(
-            text=text,
-            reasoning=reasoning,
-            usage=LiteLLMRuntimeAdapter._normalize_usage(response, response_cost=result.response_cost),
-            request_id=request_id,
-        )
+        return ModelChatResponse(text=text, reasoning=reasoning, usage=usage, request_id=request_id)
 
     @staticmethod
-    def _normalize_usage(response: Mapping[str, object], *, response_cost: str | None) -> ModelUsage:
+    def _normalize_usage(response: Mapping[str, object], *, response_cost: str | None) -> ModelUsage | None:
         usage = response.get('usage')
         if usage is None:
             usage = {}
         if not isinstance(usage, Mapping):
-            raise ModelServiceError.runtime_error()
+            return None
 
         completion_details = usage.get('completion_tokens_details', {})
         prompt_details = usage.get('prompt_tokens_details', {})
@@ -168,48 +175,53 @@ class LiteLLMRuntimeAdapter:
         if prompt_details is None:
             prompt_details = {}
         if not isinstance(completion_details, Mapping) or not isinstance(prompt_details, Mapping):
-            raise ModelServiceError.runtime_error()
+            return None
 
-        hidden_parameters = response.get('_hidden_params', {})
-        if not isinstance(hidden_parameters, Mapping):
-            hidden_parameters = {}
-        cost = LiteLLMRuntimeAdapter._optional_cost(
-            response_cost if response_cost is not None else hidden_parameters.get('response_cost')
-        )
+        valid_cost, cost = LiteLLMRuntimeAdapter._optional_cost(response_cost)
         cache_read = prompt_details.get('cached_tokens', usage.get('cache_read_input_tokens', 0))
         cache_write = prompt_details.get('cache_creation_tokens', usage.get('cache_creation_input_tokens', 0))
+        input_tokens = LiteLLMRuntimeAdapter._token_count(usage.get('prompt_tokens', 0))
+        output_tokens = LiteLLMRuntimeAdapter._token_count(usage.get('completion_tokens', 0))
+        reasoning_tokens = LiteLLMRuntimeAdapter._token_count(completion_details.get('reasoning_tokens', 0))
+        cache_read_tokens = LiteLLMRuntimeAdapter._token_count(cache_read)
+        cache_write_tokens = LiteLLMRuntimeAdapter._token_count(cache_write)
+        if (
+            not valid_cost
+            or input_tokens is None
+            or output_tokens is None
+            or reasoning_tokens is None
+            or cache_read_tokens is None
+            or cache_write_tokens is None
+        ):
+            return None
         return ModelUsage(
-            input_tokens=LiteLLMRuntimeAdapter._token_count(usage.get('prompt_tokens', 0)),
-            output_tokens=LiteLLMRuntimeAdapter._token_count(usage.get('completion_tokens', 0)),
-            reasoning_tokens=LiteLLMRuntimeAdapter._token_count(completion_details.get('reasoning_tokens', 0)),
-            cache_read_tokens=LiteLLMRuntimeAdapter._token_count(cache_read),
-            cache_write_tokens=LiteLLMRuntimeAdapter._token_count(cache_write),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reasoning_tokens=reasoning_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
             raw_cost=cost,
         )
 
     @staticmethod
-    def _token_count(value: object) -> int:
+    def _token_count(value: object) -> int | None:
         if type(value) is not int or value < 0:
-            raise ModelServiceError.runtime_error()
+            return None
         return value
 
     @staticmethod
-    def _optional_cost(value: object) -> Decimal | None:
+    def _optional_cost(value: object) -> tuple[bool, Decimal | None]:
         if value is None:
-            return None
+            return True, None
         if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
-            raise ModelServiceError.runtime_error()
-        invalid_cost = False
+            return False, None
         try:
             cost = Decimal(str(value))
         except (InvalidOperation, ValueError):
-            invalid_cost = True
-            cost = Decimal(0)
-        if invalid_cost:
-            raise ModelServiceError.runtime_error()
+            return False, None
         if not cost.is_finite() or cost < 0:
-            raise ModelServiceError.runtime_error()
-        return cost
+            return False, None
+        return True, cost
 
 
 def _error_factory(error: LiteLLMError) -> Callable[[], ModelServiceError]:
@@ -234,6 +246,18 @@ async def _create_runtime_stream(operation: Callable[[], AsyncIterator[bytes]]) 
 
 async def _raise_runtime_failure() -> ResultT:
     raise RuntimeError
+
+
+async def _unwrap_chat_response(response: ModelChatResponse | None) -> ModelChatResponse:
+    if response is None:
+        raise ModelServiceError.runtime_error()
+    return response
+
+
+async def _unwrap_model_ids(model_ids: set[str] | None) -> set[str]:
+    if model_ids is None:
+        raise ModelServiceError.runtime_error()
+    return model_ids
 
 
 async def _read_runtime_chunk(stream: AsyncIterator[bytes]) -> tuple[bool, bytes]:
