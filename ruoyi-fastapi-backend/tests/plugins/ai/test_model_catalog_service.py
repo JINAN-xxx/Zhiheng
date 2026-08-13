@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -29,6 +30,7 @@ NOW = datetime(2026, 8, 13, 9, 30)
 LATER = datetime(2026, 8, 13, 10, 45)
 TWO_CALLS = 2
 THREE_ROLLBACKS = 3
+FOUR_ROLLBACKS = 4
 UPDATED_BINDING_VERSION = 2
 
 
@@ -57,6 +59,31 @@ async def real_database() -> AsyncIterator[tuple[AsyncEngine, async_sessionmaker
         class_=CommitFailingAsyncSession,
         expire_on_commit=True,
     )
+    async with engine.begin() as connection:
+        await connection.run_sync(AiModelCatalog.__table__.create)
+        await connection.run_sync(AiResourceBinding.__table__.create)
+    try:
+        yield engine, session_maker
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def concurrent_service_database(
+    tmp_path: Path,
+) -> AsyncIterator[tuple[AsyncEngine, async_sessionmaker[AsyncSession]]]:
+    database_path = tmp_path / 'model-service-race.db'
+    engine = create_async_engine(f'sqlite+aiosqlite:///{database_path}', connect_args={'timeout': 5})
+
+    @event.listens_for(engine.sync_engine, 'connect')
+    def configure_sqlite(connection: Any, _record: Any) -> None:
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA busy_timeout=5000')
+        cursor.close()
+
+    session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
         await connection.run_sync(AiModelCatalog.__table__.create)
         await connection.run_sync(AiResourceBinding.__table__.create)
@@ -103,6 +130,19 @@ class FakeRuntime:
         return None
 
 
+class BlockingRuntime(FakeRuntime):
+    def __init__(self, model_ids: set[str]) -> None:
+        super().__init__(model_ids)
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def list_model_ids(self) -> set[str]:
+        self.list_calls += 1
+        self.entered.set()
+        await self.release.wait()
+        return set(self.model_ids)
+
+
 class FakeReferenceChecker:
     def __init__(self, has_references: bool = False, events: list[str] | None = None) -> None:
         self.has_references = has_references
@@ -131,6 +171,11 @@ class FakeModelDao:
     @classmethod
     async def get_model_by_id(cls, _db: FakeSession, model_id: str) -> AiModelCatalog | None:
         cls.events.append('get_model_by_id')
+        return cls.models.get(model_id)
+
+    @classmethod
+    async def get_model_for_update(cls, _db: FakeSession, model_id: str) -> AiModelCatalog | None:
+        cls.events.append('get_model_for_update')
         return cls.models.get(model_id)
 
     @classmethod
@@ -181,9 +226,53 @@ class FakeModelDao:
         return 1
 
     @classmethod
+    async def update_unpublished_model(cls, db: FakeSession, model_id: str, values: dict[str, Any]) -> int:
+        model = cls.models.get(model_id)
+        if model is None or model.published_at is not None:
+            cls.events.append('update_unpublished_model')
+            return 0
+        return await cls.update_model(db, model_id, values)
+
+    @classmethod
+    async def publish_model_if_state(
+        cls,
+        db: FakeSession,
+        model_id: str,
+        *,
+        expected_lifecycle_status: str,
+        expected_published_at: datetime | None,
+        values: dict[str, Any],
+    ) -> int:
+        model = cls.models.get(model_id)
+        if (
+            model is None
+            or model.lifecycle_status != expected_lifecycle_status
+            or model.published_at != expected_published_at
+        ):
+            cls.events.append('publish_model_if_state')
+            return 0
+        return await cls.update_model(db, model_id, values)
+
+    @classmethod
+    async def disable_model_if_active(cls, db: FakeSession, model_id: str, values: dict[str, Any]) -> int:
+        model = cls.models.get(model_id)
+        if model is None or model.lifecycle_status != 'active':
+            cls.events.append('disable_model_if_active')
+            return 0
+        return await cls.update_model(db, model_id, values)
+
+    @classmethod
     async def delete_model(cls, _db: FakeSession, model_id: str) -> int:
         cls.events.append('delete_model')
         return int(cls.models.pop(model_id, None) is not None)
+
+    @classmethod
+    async def delete_unpublished_draft(cls, db: FakeSession, model_id: str) -> int:
+        model = cls.models.get(model_id)
+        if model is None or model.lifecycle_status != 'draft' or model.published_at is not None:
+            cls.events.append('delete_unpublished_draft')
+            return 0
+        return await cls.delete_model(db, model_id)
 
 
 class FakeBindingDao:
@@ -200,6 +289,11 @@ class FakeBindingDao:
     @classmethod
     async def get_current_binding(cls, _db: FakeSession, model_id: str) -> AiResourceBinding | None:
         cls.events.append('get_current_binding')
+        return next((binding for binding in cls.bindings.values() if binding.resource_id == model_id), None)
+
+    @classmethod
+    async def get_current_binding_for_update(cls, _db: FakeSession, model_id: str) -> AiResourceBinding | None:
+        cls.events.append('get_current_binding_for_update')
         return next((binding for binding in cls.bindings.values() if binding.resource_id == model_id), None)
 
     @classmethod
@@ -247,6 +341,10 @@ class NonSynchronizingModelDao(FakeModelDao):
         cls.events.append('update_model')
         return int(model_id in cls.models)
 
+    update_unpublished_model = update_model
+    publish_model_if_state = FakeModelDao.publish_model_if_state
+    disable_model_if_active = FakeModelDao.disable_model_if_active
+
 
 class NonSynchronizingBindingDao(FakeBindingDao):
     @classmethod
@@ -261,6 +359,40 @@ class NonSynchronizingBindingDao(FakeBindingDao):
         del expected_version, values
         cls.events.append('update_binding_with_version')
         return int(binding_id in cls.bindings)
+
+
+class LosingStateRaceModelDao(FakeModelDao):
+    @classmethod
+    async def update_unpublished_model(cls, _db: FakeSession, model_id: str, values: dict[str, Any]) -> int:
+        del model_id, values
+        cls.events.append('update_unpublished_model')
+        return 0
+
+    @classmethod
+    async def publish_model_if_state(
+        cls,
+        _db: FakeSession,
+        model_id: str,
+        *,
+        expected_lifecycle_status: str,
+        expected_published_at: datetime | None,
+        values: dict[str, Any],
+    ) -> int:
+        del model_id, expected_lifecycle_status, expected_published_at, values
+        cls.events.append('publish_model_if_state')
+        return 0
+
+    @classmethod
+    async def disable_model_if_active(cls, _db: FakeSession, model_id: str, values: dict[str, Any]) -> int:
+        del model_id, values
+        cls.events.append('disable_model_if_active')
+        return 0
+
+    @classmethod
+    async def delete_unpublished_draft(cls, _db: FakeSession, model_id: str) -> int:
+        del model_id
+        cls.events.append('delete_unpublished_draft')
+        return 0
 
 
 @pytest.fixture(autouse=True)
@@ -503,7 +635,7 @@ async def test_published_at_permanently_prevents_code_change_even_when_disabled(
         )
 
     assert exc_info.value.message == '已发布模型不允许修改模型编码'
-    assert session.rollback_count == 1
+    assert session.rollback_count == TWO_CALLS
 
 
 @pytest.mark.asyncio
@@ -649,7 +781,7 @@ async def test_publish_requires_active_binding_and_runtime_visible_alias() -> No
     assert invisible_exc.value.message == '运行时未发现绑定的模型别名'
     assert runtime.list_calls == 1
     assert FakeModelDao.models[model.model_id].lifecycle_status == 'draft'
-    assert session.rollback_count == THREE_ROLLBACKS
+    assert session.rollback_count == FOUR_ROLLBACKS
 
 
 @pytest.mark.asyncio
@@ -666,9 +798,17 @@ async def test_publish_validates_runtime_before_local_write_and_rolls_back_write
     with pytest.raises(RuntimeError, match='write failed'):
         await service.publish_model(model.model_id, username='publisher', now=LATER)
 
-    assert events.index('update_model') < events.index('rollback')
+    assert events == [
+        'get_model_by_id',
+        'get_current_binding',
+        'rollback',
+        'get_model_for_update',
+        'get_current_binding_for_update',
+        'update_model',
+        'rollback',
+    ]
     assert FakeModelDao.models[model.model_id].lifecycle_status == 'draft'
-    assert session.rollback_count == 1
+    assert session.rollback_count == TWO_CALLS
 
 
 @pytest.mark.asyncio
@@ -689,6 +829,67 @@ async def test_publish_sets_first_timestamp_and_republish_keeps_it_but_revalidat
 
 
 @pytest.mark.asyncio
+async def test_publish_rejects_binding_changed_while_runtime_snapshot_is_validated(
+    concurrent_service_database: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
+) -> None:
+    _, session_maker = concurrent_service_database
+    runtime = BlockingRuntime({'runtime-company-chat'})
+    async with session_maker() as seed_session:
+        seed_service = ModelCatalogService(seed_session, FakeRuntime())
+        model = await _create_model(seed_service)
+        binding = await _create_binding(seed_service, model.model_id)
+
+    async with session_maker() as publish_session, session_maker() as binding_session:
+        publish_service = ModelCatalogService(publish_session, runtime)
+        publish_task = asyncio.create_task(
+            publish_service.publish_model(model.model_id, username='publisher', now=LATER)
+        )
+        await runtime.entered.wait()
+
+        binding_service = ModelCatalogService(binding_session, FakeRuntime())
+        switched = await _create_binding(
+            binding_service,
+            model.model_id,
+            engine_resource_id='runtime-company-chat-v2',
+            expected_version=binding.version,
+            now=LATER,
+        )
+        runtime.release.set()
+
+        with pytest.raises(ServiceException) as exc_info:
+            await publish_task
+
+    assert switched.version == UPDATED_BINDING_VERSION
+    assert exc_info.value.message == '运行时绑定已变化，请重新发布'
+    async with session_maker() as verification_session:
+        detail = await ModelCatalogService(verification_session, FakeRuntime()).get_model(model.model_id)
+    assert detail.lifecycle_status == 'draft'
+    assert detail.published_at is None
+    assert detail.binding is not None
+    assert detail.binding.engine_resource_id == 'runtime-company-chat-v2'
+
+
+@pytest.mark.asyncio
+async def test_upsert_binding_rejects_active_model_until_disabled() -> None:
+    service, session, _ = _service(runtime=FakeRuntime({'runtime-company-chat'}))
+    model = await _create_model(service)
+    binding = await _create_binding(service, model.model_id)
+    await service.publish_model(model.model_id, username='publisher', now=NOW)
+
+    with pytest.raises(ServiceException) as exc_info:
+        await _create_binding(
+            service,
+            model.model_id,
+            engine_resource_id='runtime-company-chat-v2',
+            expected_version=binding.version,
+            now=LATER,
+        )
+
+    assert exc_info.value.message == '已发布模型请先停用再修改运行时绑定'
+    assert session.rollback_count == TWO_CALLS
+
+
+@pytest.mark.asyncio
 async def test_publish_preserves_runtime_domain_error_without_local_state_change() -> None:
     runtime_error = ModelServiceError.runtime_unavailable()
     service, session, _ = _service(runtime=FakeRuntime(error=runtime_error))
@@ -700,7 +901,8 @@ async def test_publish_preserves_runtime_domain_error_without_local_state_change
 
     assert exc_info.value is runtime_error
     assert FakeModelDao.models[model.model_id].lifecycle_status == 'draft'
-    assert session.rollback_count == 1
+    assert session.events[-2:] == ['rollback', 'rollback']
+    assert session.rollback_count == TWO_CALLS
 
 
 @pytest.mark.asyncio
@@ -798,7 +1000,7 @@ async def test_delete_only_never_published_unreferenced_draft_and_orders_writes(
     await service.delete_draft(model.model_id)
 
     assert checker.calls == [model.model_id]
-    assert events == ['get_model_by_id', 'check_references', 'delete_binding', 'delete_model', 'commit']
+    assert events == ['get_model_for_update', 'check_references', 'delete_binding', 'delete_model', 'commit']
     assert session.rollback_count == 0
 
 
@@ -842,7 +1044,7 @@ async def test_delete_rejects_chat_references_before_any_write() -> None:
         await service.delete_draft(model.model_id)
 
     assert exc_info.value.message == '模型已被对话引用，不能删除'
-    assert events == ['get_model_by_id', 'check_references', 'rollback']
+    assert events == ['get_model_for_update', 'check_references', 'rollback']
     assert session.commit_count == 1
     assert session.rollback_count == 1
 
@@ -852,3 +1054,45 @@ async def test_default_reference_checker_is_explicit_and_does_not_query_database
     checker = NoModelReferenceChecker()
 
     assert await checker.has_model_references('mdl_00000000000040008000000000000001') is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('operation_name', ('rename', 'publish', 'disable', 'delete'))
+async def test_conditional_lifecycle_write_race_returns_fixed_conflict_and_rolls_back(
+    operation_name: str,
+) -> None:
+    session = FakeSession()
+    runtime = FakeRuntime({'runtime-company-chat'})
+    service = ModelCatalogService(
+        session,
+        runtime,
+        FakeReferenceChecker(),
+        model_dao=LosingStateRaceModelDao,
+        binding_dao=FakeBindingDao,
+    )
+    model = await _create_model(service)
+    if operation_name in {'publish', 'disable'}:
+        await _create_binding(service, model.model_id)
+    if operation_name == 'disable':
+        FakeModelDao.models[model.model_id].lifecycle_status = 'active'
+        FakeModelDao.models[model.model_id].published_at = NOW
+    rollback_count_before = session.rollback_count
+
+    with pytest.raises(ServiceException) as exc_info:
+        if operation_name == 'rename':
+            await service.update_model(
+                model.model_id,
+                ModelCatalogUpdateModel.model_validate({'modelCode': 'renamed'}),
+                username='editor',
+                now=LATER,
+            )
+        elif operation_name == 'publish':
+            await service.publish_model(model.model_id, username='publisher', now=LATER)
+        elif operation_name == 'disable':
+            await service.disable_model(model.model_id, username='operator', now=LATER)
+        else:
+            await service.delete_draft(model.model_id)
+
+    assert exc_info.value.message == '模型状态已变化，请刷新后重试'
+    expected_rollbacks = TWO_CALLS if operation_name == 'publish' else 1
+    assert session.rollback_count == rollback_count_before + expected_rollbacks

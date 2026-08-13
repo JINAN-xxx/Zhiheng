@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
+from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
@@ -458,3 +459,149 @@ async def test_binding_optimistic_lock_is_one_conditional_update_and_only_one_co
         assert stored.engine_resource_id in {'litellm-gpt-4.1', 'litellm-gpt-5'}
         expected_writer = 'writer-one' if stored.engine_resource_id == 'litellm-gpt-4.1' else 'writer-two'
         assert stored.update_by == expected_writer
+
+
+@pytest.mark.asyncio
+async def test_unpublished_code_update_loses_when_another_session_publishes_first(
+    concurrent_database: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
+) -> None:
+    _, session_maker = concurrent_database
+    model_id = 'mdl_00000000000040008000000000000001'
+    first_publish_time = datetime(2026, 8, 13, 11, 0, 0)
+    async with session_maker() as seed_session:
+        await AiModelCatalogDao.create_model(seed_session, _catalog(model_id, 'draft-model', 'Draft Model'))
+        await seed_session.commit()
+
+    async with session_maker() as stale_editor, session_maker() as publisher:
+        stale = await AiModelCatalogDao.get_model_by_id(stale_editor, model_id)
+        assert stale is not None and stale.published_at is None
+        await stale_editor.rollback()
+
+        published = await AiModelCatalogDao.publish_model_if_state(
+            publisher,
+            model_id,
+            expected_lifecycle_status='draft',
+            expected_published_at=None,
+            values={'lifecycle_status': 'active', 'published_at': first_publish_time},
+        )
+        await publisher.commit()
+        renamed = await AiModelCatalogDao.update_unpublished_model(
+            stale_editor,
+            model_id,
+            {'model_code': 'renamed-after-publish'},
+        )
+        await stale_editor.commit()
+
+    assert published == 1
+    assert renamed == 0
+    async with session_maker() as verification_session:
+        stored = await AiModelCatalogDao.get_model_by_id(verification_session, model_id)
+    assert stored is not None
+    assert stored.model_code == 'draft-model'
+    assert stored.published_at == first_publish_time
+
+
+@pytest.mark.asyncio
+async def test_first_publish_timestamp_is_won_by_one_conditional_writer(
+    concurrent_database: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
+) -> None:
+    _, session_maker = concurrent_database
+    model_id = 'mdl_00000000000040008000000000000001'
+    first_publish_time = datetime(2026, 8, 13, 11, 0, 0)
+    losing_publish_time = datetime(2026, 8, 13, 11, 1, 0)
+    async with session_maker() as seed_session:
+        await AiModelCatalogDao.create_model(seed_session, _catalog(model_id, 'draft-model', 'Draft Model'))
+        await seed_session.commit()
+
+    async with session_maker() as first_publisher, session_maker() as stale_publisher:
+        first = await AiModelCatalogDao.publish_model_if_state(
+            first_publisher,
+            model_id,
+            expected_lifecycle_status='draft',
+            expected_published_at=None,
+            values={'lifecycle_status': 'active', 'published_at': first_publish_time},
+        )
+        await first_publisher.commit()
+        stale = await AiModelCatalogDao.publish_model_if_state(
+            stale_publisher,
+            model_id,
+            expected_lifecycle_status='draft',
+            expected_published_at=None,
+            values={'lifecycle_status': 'active', 'published_at': losing_publish_time},
+        )
+        await stale_publisher.commit()
+
+    assert (first, stale) == (1, 0)
+    async with session_maker() as verification_session:
+        stored = await AiModelCatalogDao.get_model_by_id(verification_session, model_id)
+    assert stored is not None
+    assert stored.published_at == first_publish_time
+
+
+@pytest.mark.asyncio
+async def test_unpublished_draft_delete_loses_when_another_session_publishes_first(
+    concurrent_database: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
+) -> None:
+    _, session_maker = concurrent_database
+    model_id = 'mdl_00000000000040008000000000000001'
+    first_publish_time = datetime(2026, 8, 13, 11, 0, 0)
+    async with session_maker() as seed_session:
+        await AiModelCatalogDao.create_model(seed_session, _catalog(model_id, 'draft-model', 'Draft Model'))
+        await seed_session.commit()
+
+    async with session_maker() as publisher, session_maker() as stale_deleter:
+        published = await AiModelCatalogDao.publish_model_if_state(
+            publisher,
+            model_id,
+            expected_lifecycle_status='draft',
+            expected_published_at=None,
+            values={'lifecycle_status': 'active', 'published_at': first_publish_time},
+        )
+        await publisher.commit()
+        deleted = await AiModelCatalogDao.delete_unpublished_draft(stale_deleter, model_id)
+        await stale_deleter.commit()
+
+    assert published == 1
+    assert deleted == 0
+    async with session_maker() as verification_session:
+        stored = await AiModelCatalogDao.get_model_by_id(verification_session, model_id)
+    assert stored is not None
+    assert stored.lifecycle_status == 'active'
+
+
+class _ScalarResult:
+    def scalars(self) -> '_ScalarResult':
+        return self
+
+    def first(self) -> None:
+        return None
+
+
+class _StatementRecordingSession:
+    def __init__(self) -> None:
+        self.statement: Any = None
+
+    async def execute(self, statement: Any) -> _ScalarResult:
+        self.statement = statement
+        return _ScalarResult()
+
+
+@pytest.mark.asyncio
+async def test_model_and_binding_lock_reads_compile_for_update_on_supported_databases() -> None:
+    model_session = _StatementRecordingSession()
+    binding_session = _StatementRecordingSession()
+
+    await AiModelCatalogDao.get_model_for_update(
+        model_session,  # type: ignore[arg-type]
+        'mdl_00000000000040008000000000000001',
+    )
+    await AiResourceBindingDao.get_current_binding_for_update(
+        binding_session,  # type: ignore[arg-type]
+        'mdl_00000000000040008000000000000001',
+    )
+
+    for dialect in (postgresql.dialect(), mysql.dialect()):
+        model_sql = str(model_session.statement.compile(dialect=dialect)).upper()
+        binding_sql = str(binding_session.statement.compile(dialect=dialect)).upper()
+        assert 'FOR UPDATE' in model_sql
+        assert 'FOR UPDATE' in binding_sql

@@ -44,6 +44,24 @@ class AiResourceBindingDao:
         )
 
     @classmethod
+    async def get_current_binding_for_update(cls, db: AsyncSession, model_id: str) -> AiResourceBinding | None:
+        return (
+            (
+                await db.execute(
+                    select(AiResourceBinding)
+                    .where(
+                        AiResourceBinding.resource_type == 'model',
+                        AiResourceBinding.resource_id == model_id,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+    @classmethod
     async def create_binding(cls, db: AsyncSession, binding: AiResourceBinding) -> AiResourceBinding:
         db.add(binding)
         await db.flush()

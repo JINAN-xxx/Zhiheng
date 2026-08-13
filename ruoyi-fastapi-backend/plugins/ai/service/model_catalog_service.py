@@ -28,10 +28,13 @@ ResultT = TypeVar('ResultT')
 
 MODEL_CODE_CONFLICT = '模型编码已存在'
 MODEL_CODE_IMMUTABLE = '已发布模型不允许修改模型编码'
+BINDING_ACTIVE_MODEL_CONFLICT = '已发布模型请先停用再修改运行时绑定'
 BINDING_CREATE_VERSION_CONFLICT = '新建绑定不允许指定版本号'
 BINDING_UPDATE_VERSION_REQUIRED = '更新绑定必须提供当前版本号'
 BINDING_VERSION_CONFLICT = '绑定版本已变化，请刷新后重试'
+BINDING_PUBLISH_CONFLICT = '运行时绑定已变化，请重新发布'
 RUNTIME_ALIAS_MISSING = '运行时未发现绑定的模型别名'
+MODEL_STATE_CONFLICT = '模型状态已变化，请刷新后重试'
 MODEL_DISABLE_CONFLICT = '仅已发布模型可以停用'
 MODEL_DELETE_CONFLICT = '仅从未发布的草稿可以删除'
 MODEL_REFERENCED = '模型已被对话引用，不能删除'
@@ -128,7 +131,7 @@ class ModelCatalogService:
             return await self._run_without_write(lambda: self._get_model_response(model_id))
 
         async def operation() -> PlatformModelModel:
-            model = await self._require_model(model_id)
+            model = await self._require_locked_model(model_id)
             response_values = PlatformModelModel.model_validate(model).model_dump()
             requested_code = values.get('model_code')
             if requested_code is not None and requested_code != model.model_code:
@@ -138,8 +141,13 @@ class ModelCatalogService:
                 if existing is not None and existing.model_id != model_id:
                     raise ServiceException(message=MODEL_CODE_CONFLICT)
             update_values = {**values, 'update_by': username, 'update_time': now}
-            if await self._model_dao.update_model(self._db, model_id, update_values) != 1:
-                raise ModelServiceError.not_found()
+            update_operation = (
+                self._model_dao.update_unpublished_model
+                if requested_code is not None and requested_code != model.model_code
+                else self._model_dao.update_model
+            )
+            if await update_operation(self._db, model_id, update_values) != 1:
+                raise ServiceException(message=MODEL_STATE_CONFLICT)
             return PlatformModelModel.model_validate({**response_values, **update_values})
 
         return await self._run_write(operation, integrity_conflict=MODEL_CODE_CONFLICT)
@@ -153,8 +161,10 @@ class ModelCatalogService:
         now: datetime,
     ) -> ResourceBindingModel:
         async def operation() -> ResourceBindingModel:
-            await self._require_model(model_id)
-            current = await self._binding_dao.get_current_binding(self._db, model_id)
+            model = await self._require_locked_model(model_id)
+            if model.lifecycle_status == 'active':
+                raise ServiceException(message=BINDING_ACTIVE_MODEL_CONFLICT)
+            current = await self._binding_dao.get_current_binding_for_update(self._db, model_id)
             values = payload.model_dump(exclude={'expected_version'}, mode='python')
             if current is None:
                 if payload.expected_version is not None:
@@ -200,24 +210,45 @@ class ModelCatalogService:
     ) -> PlatformModelModel:
         async def operation() -> PlatformModelModel:
             model = await self._require_model(model_id)
-            response_values = PlatformModelModel.model_validate(model).model_dump()
             binding = await self._binding_dao.get_current_binding(self._db, model_id)
             if binding is None or binding.binding_status != 'active':
                 raise ModelServiceError.binding_missing()
+            model_snapshot = (model.lifecycle_status, model.published_at)
+            binding_snapshot = self._binding_snapshot(binding)
+
+            # Each command owns its transaction; release the read transaction before the network call.
+            await self._db.rollback()
 
             visible_model_ids = await self._runtime.list_model_ids()
-            if binding.engine_resource_id not in visible_model_ids:
+            if binding_snapshot[3] not in visible_model_ids:
                 raise ServiceException(message=RUNTIME_ALIAS_MISSING)
 
+            locked_model = await self._require_locked_model(model_id)
+            if (locked_model.lifecycle_status, locked_model.published_at) != model_snapshot:
+                raise ServiceException(message=MODEL_STATE_CONFLICT)
+            locked_binding = await self._binding_dao.get_current_binding_for_update(self._db, model_id)
+            if locked_binding is None or self._binding_snapshot(locked_binding) != binding_snapshot:
+                raise ServiceException(message=BINDING_PUBLISH_CONFLICT)
+
+            response_values = PlatformModelModel.model_validate(locked_model).model_dump()
             values: dict[str, Any] = {
                 'lifecycle_status': 'active',
                 'update_by': username,
                 'update_time': now,
             }
-            if model.published_at is None:
+            if locked_model.published_at is None:
                 values['published_at'] = now
-            if await self._model_dao.update_model(self._db, model_id, values) != 1:
-                raise ModelServiceError.not_found()
+            if (
+                await self._model_dao.publish_model_if_state(
+                    self._db,
+                    model_id,
+                    expected_lifecycle_status=locked_model.lifecycle_status,
+                    expected_published_at=locked_model.published_at,
+                    values=values,
+                )
+                != 1
+            ):
+                raise ServiceException(message=MODEL_STATE_CONFLICT)
             return PlatformModelModel.model_validate({**response_values, **values})
 
         return await self._run_write(operation)
@@ -230,27 +261,27 @@ class ModelCatalogService:
         now: datetime,
     ) -> PlatformModelModel:
         async def operation() -> PlatformModelModel:
-            model = await self._require_model(model_id)
+            model = await self._require_locked_model(model_id)
             response_values = PlatformModelModel.model_validate(model).model_dump()
             if model.lifecycle_status != 'active':
                 raise ServiceException(message=MODEL_DISABLE_CONFLICT)
             values = {'lifecycle_status': 'disabled', 'update_by': username, 'update_time': now}
-            if await self._model_dao.update_model(self._db, model_id, values) != 1:
-                raise ModelServiceError.not_found()
+            if await self._model_dao.disable_model_if_active(self._db, model_id, values) != 1:
+                raise ServiceException(message=MODEL_STATE_CONFLICT)
             return PlatformModelModel.model_validate({**response_values, **values})
 
         return await self._run_write(operation)
 
     async def delete_draft(self, model_id: str) -> None:
         async def operation() -> None:
-            model = await self._require_model(model_id)
+            model = await self._require_locked_model(model_id)
             if model.lifecycle_status != 'draft' or model.published_at is not None:
                 raise ServiceException(message=MODEL_DELETE_CONFLICT)
             if await self._reference_checker.has_model_references(model_id):
                 raise ServiceException(message=MODEL_REFERENCED)
             await self._binding_dao.delete_binding_by_resource(self._db, model_id)
-            if await self._model_dao.delete_model(self._db, model_id) != 1:
-                raise ModelServiceError.not_found()
+            if await self._model_dao.delete_unpublished_draft(self._db, model_id) != 1:
+                raise ServiceException(message=MODEL_STATE_CONFLICT)
 
         await self._run_write(operation)
 
@@ -262,6 +293,21 @@ class ModelCatalogService:
         if model is None:
             raise ModelServiceError.not_found()
         return model
+
+    async def _require_locked_model(self, model_id: str) -> AiModelCatalog:
+        model = await self._model_dao.get_model_for_update(self._db, model_id)
+        if model is None:
+            raise ModelServiceError.not_found()
+        return model
+
+    @staticmethod
+    def _binding_snapshot(binding: AiResourceBinding) -> tuple[str, int, str, str]:
+        return (
+            binding.binding_id,
+            binding.version,
+            binding.binding_status,
+            binding.engine_resource_id,
+        )
 
     @staticmethod
     def _safe_model_rows(rows: list[Any]) -> list[dict[str, Any]]:
