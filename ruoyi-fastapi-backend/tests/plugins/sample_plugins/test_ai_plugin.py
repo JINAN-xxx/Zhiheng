@@ -27,6 +27,8 @@ EXPECTED_AI_PERMISSIONS = {
     'ai:model:query',
     'ai:chat:list',
     'ai:runtime:query',
+    'ai:model:publish',
+    'ai:model:test',
 }
 EXPECTED_AI_PYTHON_DEPENDENCIES = [
     'agno==2.8.6',
@@ -91,6 +93,8 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     assert plugin.manifest.frontend.menus[0].children[1].component == 'plugin/ai/chat/index'
     assert set(plugin.manifest.permission_codes) == EXPECTED_AI_PERMISSIONS
     assert plugin.manifest.permission_name_map['ai:model:add'] == '新增模型'
+    assert plugin.manifest.permission_name_map['ai:model:publish'] == '发布模型'
+    assert plugin.manifest.permission_name_map['ai:model:test'] == '测试模型连接'
     assert plugin.manifest.dependencies.python == EXPECTED_AI_PYTHON_DEPENDENCIES
     assert plugin.manifest.config.items == []
 

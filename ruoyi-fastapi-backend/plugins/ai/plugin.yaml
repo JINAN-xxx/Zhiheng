@@ -78,6 +78,10 @@ permissions:
     name: AI 对话
   - code: ai:runtime:query
     name: Runtime 诊断
+  - code: ai:model:publish
+    name: 发布模型
+  - code: ai:model:test
+    name: 测试模型连接
 
 dependencies:
   python:
