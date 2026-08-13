@@ -6,12 +6,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from loguru import logger as _logger
+from starlette.status import HTTP_200_OK, HTTP_404_NOT_FOUND, HTTP_500_INTERNAL_SERVER_ERROR
 
-from common.annotation.log_annotation import Log, RequestLogFieldRoot, ResponseLogFieldRoot
+from common.annotation.log_annotation import AuditedHTTPException, Log, RequestLogFieldRoot, ResponseLogFieldRoot
+from common.context import RequestContext
 from common.enums import BusinessType
 from config.env import LogConfig
+from exceptions.exception import ServiceException
+from module_admin.entity.vo.user_vo import CurrentUserModel, UserInfoModel
 from utils.log_util import LoggerInitializer, LogSanitizer, _build_text_assignment_patterns, _build_text_key_pattern
 
 
@@ -388,6 +392,224 @@ def test_get_request_params_decodes_non_utf8_body_without_raising() -> None:
 
     assert params['raw_body'].endswith('abc')
     assert '\ufffd' in params['raw_body']
+
+
+def build_log_wrapper_request() -> Request:
+    """构造无需落审计队列的日志装饰器请求。"""
+
+    async def receive() -> dict:
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    return Request(
+        {
+            'type': 'http',
+            'method': 'POST',
+            'path': '/test',
+            'headers': [(b'referer', b'http://test/docs')],
+            'path_params': {},
+            'query_string': b'',
+            'client': ('127.0.0.1', 12345),
+        },
+        receive=receive,
+    )
+
+
+def build_non_docs_log_wrapper_request() -> Request:
+    """构造不来自 API 文档且没有登录表单的日志请求。"""
+
+    async def receive() -> dict:
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+    return Request(
+        {
+            'type': 'http',
+            'method': 'POST',
+            'path': '/test',
+            'headers': [],
+            'path_params': {},
+            'query_string': b'',
+            'client': ('127.0.0.1', 12345),
+        },
+        receive=receive,
+    )
+
+
+@pytest.mark.asyncio
+async def test_log_wrapper_preserves_http_exception_status_and_detail() -> None:
+    """HTTP 协议异常必须交回 FastAPI，不能被日志装饰器改写成 200。"""
+    expected_detail = {'code': 'MODEL_NOT_FOUND', 'message': '平台模型不存在'}
+
+    @Log(title='测试日志', business_type=BusinessType.OTHER, log_type='login')
+    async def endpoint(request: Request) -> None:
+        del request
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=expected_detail)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await endpoint(build_log_wrapper_request())
+
+    assert exc_info.value.status_code == HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == expected_detail
+
+
+@pytest.mark.asyncio
+async def test_login_log_without_form_data_does_not_replace_http_exception() -> None:
+    """登录型日志缺少表单时不能用内部 AttributeError 覆盖 HTTP 异常。"""
+
+    @Log(title='测试日志', business_type=BusinessType.OTHER, log_type='login')
+    async def endpoint(request: Request) -> None:
+        del request
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail='原样响应')
+
+    with pytest.raises(HTTPException) as exc_info:
+        await endpoint(build_non_docs_log_wrapper_request())
+
+    assert exc_info.value.status_code == HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == '原样响应'
+
+
+@pytest.mark.asyncio
+async def test_log_wrapper_audits_generic_http_exception_without_detail_leak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """通用 HTTP 异常需审计固定摘要，同时原样交回 FastAPI。"""
+    secret = 'unknown-http-detail-secret'
+    operation_logs: list[object] = []
+    current_user = CurrentUserModel(
+        permissions=['*:*:*'],
+        roles=[],
+        user=UserInfoModel(userName='admin', dept=None, role=[]),
+    )
+    user_token = RequestContext.set_current_user(current_user)
+    pattern_token = RequestContext.set_current_exclude_patterns([])
+
+    async def capture_operation_log(_request: Request, operation_log: object, _source: str) -> None:
+        operation_logs.append(operation_log)
+
+    monkeypatch.setattr(
+        'common.annotation.log_annotation.LogQueueService.enqueue_operation_log',
+        capture_operation_log,
+    )
+
+    @Log(
+        title='测试日志',
+        business_type=BusinessType.OTHER,
+        request_log_mode='none',
+        response_log_mode='include',
+        response_include_fields=('code', 'msg'),
+    )
+    async def endpoint(request: Request) -> None:
+        del request
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail={'code': 'UNKNOWN_SECRET_ERROR', 'message': secret, 'payload': {'token': secret}},
+        )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await endpoint(build_log_wrapper_request())
+    finally:
+        RequestContext.reset_current_user(user_token)
+        RequestContext.reset_current_exclude_patterns(pattern_token)
+
+    assert exc_info.value.status_code == HTTP_404_NOT_FOUND
+    assert exc_info.value.detail == {
+        'code': 'UNKNOWN_SECRET_ERROR',
+        'message': secret,
+        'payload': {'token': secret},
+    }
+    assert len(operation_logs) == 1
+    operation_log = operation_logs[0]
+    assert json.loads(operation_log.json_result) == {
+        'mode': 'include',
+        'selected': {'code': 'HTTP_404', 'msg': 'HTTP请求失败'},
+    }
+    assert operation_log.status == 1
+    assert operation_log.error_msg == 'HTTP请求失败'
+    assert secret not in operation_log.oper_param
+    assert secret not in operation_log.json_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('audit_code', 'audit_message'),
+    (
+        ('UNTRUSTED\nCODE', 'audit-secret-' * 100),
+        (123, 'invalid code type'),
+        ('INVALID_MESSAGE_TYPE', None),
+    ),
+)
+async def test_audited_http_exception_rejects_unbounded_or_control_character_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    audit_code: object,
+    audit_message: object,
+) -> None:
+    """审计摘要不可信时降级为固定 HTTP 文案，响应 detail 仍保持原样。"""
+    secret = 'audit-secret-' * 100
+    operation_logs: list[object] = []
+    current_user = CurrentUserModel(
+        permissions=['*:*:*'],
+        roles=[],
+        user=UserInfoModel(userName='admin', dept=None, role=[]),
+    )
+    user_token = RequestContext.set_current_user(current_user)
+    pattern_token = RequestContext.set_current_exclude_patterns([])
+
+    async def capture_operation_log(_request: Request, operation_log: object, _source: str) -> None:
+        operation_logs.append(operation_log)
+
+    monkeypatch.setattr(
+        'common.annotation.log_annotation.LogQueueService.enqueue_operation_log',
+        capture_operation_log,
+    )
+
+    @Log(
+        title='测试日志',
+        business_type=BusinessType.OTHER,
+        request_log_mode='none',
+        response_log_mode='include',
+        response_include_fields=('code', 'msg'),
+    )
+    async def endpoint(request: Request) -> None:
+        del request
+        raise AuditedHTTPException(
+            status_code=HTTP_404_NOT_FOUND,
+            detail={'code': 'PUBLIC_ERROR', 'message': '原样响应'},
+            audit_code=audit_code,
+            audit_message=audit_message,
+        )
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await endpoint(build_log_wrapper_request())
+    finally:
+        RequestContext.reset_current_user(user_token)
+        RequestContext.reset_current_exclude_patterns(pattern_token)
+
+    assert exc_info.value.detail == {'code': 'PUBLIC_ERROR', 'message': '原样响应'}
+    assert len(operation_logs) == 1
+    result = json.loads(operation_logs[0].json_result)
+    assert result == {
+        'mode': 'include',
+        'selected': {'code': 'HTTP_404', 'msg': 'HTTP请求失败'},
+    }
+    assert secret not in operation_logs[0].json_result
+
+
+@pytest.mark.asyncio
+async def test_log_wrapper_keeps_service_exception_response_behavior() -> None:
+    """业务异常继续由日志装饰器转换成项目标准错误响应。"""
+
+    @Log(title='测试日志', business_type=BusinessType.OTHER, log_type='login')
+    async def endpoint(request: Request) -> None:
+        del request
+        raise ServiceException(message='业务校验失败')
+
+    response = await endpoint(build_log_wrapper_request())
+    payload = json.loads(response.body)
+
+    assert response.status_code == HTTP_200_OK
+    assert payload['code'] == HTTP_500_INTERNAL_SERVER_ERROR
+    assert payload['msg'] == '业务校验失败'
 
 
 def test_log_handles_missing_user_agent_without_error() -> None:

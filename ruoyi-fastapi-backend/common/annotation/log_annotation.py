@@ -1,5 +1,6 @@
 import inspect
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
@@ -10,7 +11,7 @@ from typing import Any, Literal, TypeVar
 
 import httpx
 from async_lru import alru_cache
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, ORJSONResponse, UJSONResponse
 from starlette.status import HTTP_200_OK
 from typing_extensions import ParamSpec
@@ -34,6 +35,24 @@ from utils.response_util import ResponseUtil
 
 P = ParamSpec('P')
 R = TypeVar('R')
+_AUDIT_CODE_PATTERN = re.compile(r'^[A-Z][A-Z0-9_]{0,63}$')
+_MAX_AUDIT_MESSAGE_LENGTH = 200
+
+
+class AuditedHTTPException(HTTPException):
+    """携带已知稳定审计摘要的 HTTP 异常；响应 detail 仍由 FastAPI 原样处理。"""
+
+    def __init__(
+        self,
+        status_code: int,
+        detail: Any,
+        *,
+        audit_code: str,
+        audit_message: str,
+    ) -> None:
+        super().__init__(status_code=status_code, detail=detail)
+        self.audit_code = audit_code
+        self.audit_message = audit_message
 
 
 class _LogFieldRoot(str, Enum):
@@ -192,20 +211,7 @@ class Log:
             oper_time = datetime.now()
             # 此处在登录之前向原始函数传递一些登录信息，用于监测在线用户的相关信息
             login_log = self._get_login_log(user_agent, oper_ip, oper_location, oper_time, kwargs)
-            try:
-                # 调用原始函数
-                result = await func(*args, **kwargs)
-            except (LoginException, ServiceWarning) as e:
-                logger.warning(e.message)
-                result = ResponseUtil.failure(data=e.data, msg=e.message)
-            except ServiceException as e:
-                logger.error(e.message)
-                result = ResponseUtil.error(data=e.data, msg=e.message)
-            except FileRangeNotSatisfiableException:
-                raise
-            except Exception as e:
-                logger.exception(e)
-                result = ResponseUtil.error(msg=str(e))
+            result, pending_http_exception = await self._execute_endpoint(func, *args, **kwargs)
             # 获取请求耗时
             cost_time = float(time.perf_counter() - start_time) * 1000
             # 判断请求是否来自api文档
@@ -228,7 +234,11 @@ class Log:
             # 根据日志类型向对应的日志表插入数据
             if self.log_type == 'login':
                 # 登录请求来自于api文档时不记录登录日志，其余情况则记录
-                if request_from_swagger or request_from_redoc:
+                if (
+                    request_from_swagger
+                    or request_from_redoc
+                    or (pending_http_exception is not None and kwargs.get('form_data') is None)
+                ):
                     pass
                 else:
                     user = kwargs.get('form_data')
@@ -241,7 +251,10 @@ class Log:
                         }
                     )
 
-                    await LogQueueService.enqueue_login_log(request, LogininforModel(**login_log), func_path)
+                    await self._enqueue_log_preserving_http_exception(
+                        LogQueueService.enqueue_login_log(request, LogininforModel(**login_log), func_path),
+                        pending_http_exception,
+                    )
             else:
                 current_user = RequestContext.get_current_user()
                 oper_name = current_user.user.user_name
@@ -264,11 +277,38 @@ class Log:
                     operTime=oper_time,
                     costTime=int(cost_time),
                 )
-                await LogQueueService.enqueue_operation_log(request, operation_log, func_path)
+                await self._enqueue_log_preserving_http_exception(
+                    LogQueueService.enqueue_operation_log(request, operation_log, func_path),
+                    pending_http_exception,
+                )
 
+            if pending_http_exception is not None:
+                raise pending_http_exception from None
             return result
 
         return wrapper
+
+    async def _execute_endpoint(
+        self,
+        func: Callable[P, Awaitable[R]],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> tuple[Any, HTTPException | None]:
+        try:
+            return await func(*args, **kwargs), None
+        except (LoginException, ServiceWarning) as error:
+            logger.warning(error.message)
+            return ResponseUtil.failure(data=error.data, msg=error.message), None
+        except ServiceException as error:
+            logger.error(error.message)
+            return ResponseUtil.error(data=error.data, msg=error.message), None
+        except FileRangeNotSatisfiableException:
+            raise
+        except HTTPException as error:
+            return self._http_exception_audit_response(error), error
+        except Exception as error:
+            logger.exception(error)
+            return ResponseUtil.error(msg=str(error)), None
 
     def _get_decorator_func_path(self, func: Callable) -> str:
         """
@@ -968,6 +1008,33 @@ class Log:
             error_msg = self._get_result_message(result_dict)
 
         return status, error_msg
+
+    @staticmethod
+    async def _enqueue_log_preserving_http_exception(
+        operation: Awaitable[None],
+        pending_http_exception: HTTPException | None,
+    ) -> None:
+        try:
+            await operation
+        except Exception:
+            if pending_http_exception is None:
+                raise
+            logger.error('HTTP异常审计日志入队失败')
+
+    @staticmethod
+    def _http_exception_audit_response(error: HTTPException) -> JSONResponse:
+        if (
+            isinstance(error, AuditedHTTPException)
+            and isinstance(error.audit_code, str)
+            and isinstance(error.audit_message, str)
+            and _AUDIT_CODE_PATTERN.fullmatch(error.audit_code)
+            and 0 < len(error.audit_message) <= _MAX_AUDIT_MESSAGE_LENGTH
+            and error.audit_message.isprintable()
+        ):
+            audit_payload = {'code': error.audit_code, 'msg': error.audit_message}
+        else:
+            audit_payload = {'code': f'HTTP_{error.status_code}', 'msg': 'HTTP请求失败'}
+        return JSONResponse(status_code=error.status_code, content=audit_payload)
 
     @staticmethod
     def _get_result_message(result_dict: dict[str, Any]) -> Any:
