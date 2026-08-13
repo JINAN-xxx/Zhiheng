@@ -1,3 +1,4 @@
+import asyncio
 import json
 import traceback
 from collections.abc import AsyncIterator, Sequence
@@ -26,11 +27,14 @@ class RecordingStream(httpx.AsyncByteStream):
         self,
         chunks: Sequence[bytes],
         *,
-        read_error: Exception | None = None,
+        read_error: BaseException | None = None,
+        close_error: Exception | None = None,
     ) -> None:
         self.chunks = chunks
         self.read_error = read_error
+        self.close_error = close_error
         self.closed = False
+        self.close_count = 0
         self.iterated = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -42,6 +46,9 @@ class RecordingStream(httpx.AsyncByteStream):
 
     async def aclose(self) -> None:
         self.closed = True
+        self.close_count += 1
+        if self.close_error is not None:
+            raise self.close_error
 
 
 def build_stream_client(handler: object) -> LiteLLMRuntimeClient:
@@ -149,6 +156,76 @@ async def test_closing_downstream_generator_closes_upstream_response() -> None:
         assert upstream.closed is True
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_closing_downstream_generator_suppresses_upstream_close_request_error() -> None:
+    upstream = RecordingStream(
+        [b'data: first\n\n', b'data: second\n\n'],
+        close_error=httpx.ConnectError(SENSITIVE_DETAIL),
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=upstream)
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        assert await anext(stream) == b'data: first\n\n'
+        await stream.aclose()
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert upstream.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_cancellation_is_not_replaced_by_upstream_close_request_error() -> None:
+    upstream = RecordingStream(
+        [],
+        read_error=asyncio.CancelledError(),
+        close_error=httpx.ConnectError(SENSITIVE_DETAIL),
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=upstream)
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        with pytest.raises(asyncio.CancelledError) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert raised.value.__context__ is None
+    assert upstream.closed is True
+    assert upstream.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_naturally_exhausted_stream_maps_upstream_close_request_error() -> None:
+    upstream = RecordingStream(
+        [b'data: only\n\n'],
+        close_error=httpx.ConnectError(SENSITIVE_DETAIL),
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=upstream)
+
+    client = build_stream_client(handler)
+    stream = client.stream_chat_completion({'model': 'chat-alias', 'messages': []})
+    try:
+        assert await anext(stream) == b'data: only\n\n'
+        with pytest.raises(LiteLLMUnavailableError) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    assert upstream.closed is True
+    assert upstream.close_count == 1
+    assert_sanitized_internal_error(raised.value)
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
@@ -265,26 +266,48 @@ class LiteLLMRuntimeClient:
         request_payload = dict(payload)
         request_payload['stream'] = True
         failure: LiteLLMFailure | None = None
+        response: httpx.Response | None = None
+        interrupted = False
         try:
-            async with self._client.stream(
+            request = self._client.build_request(
                 'POST',
                 '/v1/chat/completions',
                 json=request_payload,
                 headers=self._build_headers(authenticated=True),
-            ) as response:
-                if response.is_success:
-                    async for chunk in response.aiter_raw():
-                        yield _StreamOutcome(chunk=chunk)
-                else:
-                    failure = await self._failure_for_error_response(response)
+            )
+            response = await self._client.send(request, stream=True)
+            if response.is_success:
+                async for chunk in response.aiter_raw():
+                    yield _StreamOutcome(chunk=chunk)
+            else:
+                failure = await self._failure_for_error_response(response)
+        except (GeneratorExit, asyncio.CancelledError):
+            interrupted = True
+            raise
         except httpx.TimeoutException:
             failure = LiteLLMTimeoutError
         except httpx.RequestError:
             failure = LiteLLMUnavailableError
         except LiteLLMError as error:
             failure = type(error)
+        finally:
+            close_failure = await self._close_stream_response(response)
+            if not interrupted and failure is None:
+                failure = close_failure
         if failure is not None:
             yield _StreamOutcome(failure=failure)
+
+    @staticmethod
+    async def _close_stream_response(response: httpx.Response | None) -> LiteLLMFailure | None:
+        if response is None:
+            return None
+        try:
+            await response.aclose()
+        except httpx.TimeoutException:
+            return LiteLLMTimeoutError
+        except httpx.RequestError:
+            return LiteLLMUnavailableError
+        return None
 
     @staticmethod
     def _provider_error_categories_from_bytes(body: bytes) -> frozenset[str]:

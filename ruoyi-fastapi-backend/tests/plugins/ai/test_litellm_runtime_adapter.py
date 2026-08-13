@@ -267,6 +267,36 @@ async def test_real_runtime_client_headers_are_normalized_by_adapter() -> None:
 
 
 @pytest.mark.asyncio
+async def test_real_runtime_client_close_error_maps_to_adapter_domain_error() -> None:
+    class CloseErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b'data: only\n\n'
+
+        async def aclose(self) -> None:
+            raise httpx.ConnectError(SENSITIVE_DETAIL)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=CloseErrorStream())
+
+    settings = LiteLLMSettings(
+        LITELLM_BASE_URL='https://proxy.example.com',
+        LITELLM_RUNTIME_KEY='runtime-secret',
+    )
+    client = LiteLLMRuntimeClient(settings, transport=httpx.MockTransport(handler))
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+    try:
+        assert await anext(stream) == ModelStreamEvent(data=b'data: only\n\n')
+        with pytest.raises(ModelServiceError) as raised:
+            await anext(stream)
+    finally:
+        await client.aclose()
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_UNAVAILABLE')
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('invalid_cost', ('', 'not-a-number', 'NaN', 'Infinity', '-0.1'))
 async def test_invalid_runtime_cost_header_maps_to_domain_error(invalid_cost: str) -> None:
     client = FakeRuntimeClient()
