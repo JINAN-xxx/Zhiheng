@@ -789,6 +789,24 @@ def test_credential_request_validation_does_not_echo_secret_and_copies_input() -
     assert 'private-api-key' not in str(raised.value)
 
 
+@pytest.mark.parametrize(
+    'payload',
+    (
+        {'credentialName': 'ai21-main', 'provider': 'AI21'},
+        {'credentialName': 'ai21-main', 'provider': 'AI21', 'values': {}},
+    ),
+)
+def test_credential_create_requires_at_least_one_value_without_echoing_input(payload: dict[str, object]) -> None:
+    vo, _ = load_contract()
+
+    with pytest.raises(ValidationError) as raised:
+        vo.CredentialCreateModel.model_validate(payload)
+
+    serialized = repr((str(raised.value), raised.value.errors())).lower()
+    assert 'private-api-key' not in serialized
+    assert 'credential-value-secret' not in serialized
+
+
 def test_credential_validation_error_details_do_not_retain_original_values() -> None:
     vo, _ = load_contract()
 
@@ -844,6 +862,41 @@ def test_credential_rotate_payload_cannot_extend_credential_info(
         'credential_info': {'custom_llm_provider': 'openai'},
         'credential_values': {'api_key': 'private-api-key'},
     }
+
+
+def test_credential_create_builder_rejects_empty_values_for_provider_without_required_fields() -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
+        {
+            'items': [
+                {
+                    'provider': 'AI21',
+                    'provider_display_name': 'AI21',
+                    'litellm_provider': 'ai21',
+                    'credential_fields': [
+                        {
+                            'key': 'api_key',
+                            'label': 'API Key',
+                            'required': False,
+                            'field_type': 'password',
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    request = vo.CredentialCreateModel.model_construct(
+        credential_name='ai21-main',
+        provider='AI21',
+        values={},
+    )
+
+    with pytest.raises(ValueError) as raised:
+        adapter_module.LiteLLMManagementAdapter.build_credential_create_payload(request, providers)
+
+    assert str(raised.value) == '凭据字段校验失败'
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
 
 
 def test_credential_rotate_allows_partial_required_field_merge() -> None:
@@ -963,7 +1016,6 @@ def test_multiline_credential_values_reject_unsafe_controls(field_type: str) -> 
 @pytest.mark.parametrize(
     'values',
     (
-        {},
         {'api_key': '   '},
         {'api_key': 'x' * 8193},
         {'api_key': 'private-api-key', 'organization': 'not-an-option'},
@@ -971,7 +1023,7 @@ def test_multiline_credential_values_reject_unsafe_controls(field_type: str) -> 
         {'api_key': 'private-api-key', 'caller_extension': 'private-token'},
     ),
 )
-def test_credential_payload_rejects_missing_invalid_or_unsupported_dynamic_values(
+def test_credential_payload_rejects_invalid_or_unsupported_dynamic_values(
     real_provider_payload: dict[str, object],
     values: dict[str, str],
 ) -> None:

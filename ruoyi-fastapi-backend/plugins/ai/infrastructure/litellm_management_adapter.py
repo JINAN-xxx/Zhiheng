@@ -471,7 +471,11 @@ def _build_credential_payload(
     require_required: bool,
 ) -> _CredentialPayloadOutcome:
     try:
-        if not isinstance(credential_name, str) or _CREDENTIAL_NAME_PATTERN.fullmatch(credential_name) is None:
+        if (
+            not isinstance(credential_name, str)
+            or _CREDENTIAL_NAME_PATTERN.fullmatch(credential_name) is None
+            or not values
+        ):
             return _CredentialPayloadOutcome(payload=None)
         provider = _find_provider(provider_name, providers)
         credential_values = _validated_credential_values(

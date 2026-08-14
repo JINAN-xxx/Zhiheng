@@ -106,6 +106,10 @@ class _CredentialValuesRequestModel(_StrictRequestModel):
         return _validate_secret_values(value)
 
 
+class _CredentialWriteRequestModel(_CredentialValuesRequestModel):
+    values: dict[str, SecretStr] = Field(min_length=1, repr=False)
+
+
 class ProviderFieldModel(_StrictResponseModel):
     field_key: str
     label: str
@@ -133,14 +137,13 @@ class CredentialSummaryModel(_StrictResponseModel):
     updated_at: datetime | None = None
 
 
-class CredentialCreateModel(_CredentialValuesRequestModel):
+class CredentialCreateModel(_CredentialWriteRequestModel):
     credential_name: CredentialName
     provider: SafeIdentifier
 
 
-class CredentialRotateModel(_CredentialValuesRequestModel):
+class CredentialRotateModel(_CredentialWriteRequestModel):
     provider: SafeIdentifier
-    values: dict[str, SecretStr] = Field(min_length=1, repr=False)
 
 
 class DeploymentModel(_StrictResponseModel):
