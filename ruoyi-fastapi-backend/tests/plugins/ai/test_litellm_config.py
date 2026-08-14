@@ -18,6 +18,7 @@ CUSTOM_REQUEST_TIMEOUT_SECONDS = 30
 LITELLM_ENVIRONMENT_KEYS = (
     'LITELLM_BASE_URL',
     'LITELLM_RUNTIME_KEY',
+    'LITELLM_MANAGEMENT_KEY',
     'LITELLM_CONNECT_TIMEOUT_SECONDS',
     'LITELLM_REQUEST_TIMEOUT_SECONDS',
     'LITELLM_VERIFY_SSL',
@@ -38,7 +39,9 @@ def test_litellm_settings_use_safe_local_defaults(monkeypatch: pytest.MonkeyPatc
 
     assert settings.base_url == 'http://127.0.0.1:14000'
     assert settings.runtime_key.get_secret_value() == ''
+    assert settings.management_key.get_secret_value() == ''
     assert settings.configured is False
+    assert settings.management_configured is False
     assert settings.connect_timeout_seconds == DEFAULT_CONNECT_TIMEOUT_SECONDS
     assert settings.request_timeout_seconds == DEFAULT_REQUEST_TIMEOUT_SECONDS
     assert settings.verify_ssl is True
@@ -49,6 +52,7 @@ def test_litellm_settings_read_environment_without_exposing_secret(monkeypatch: 
     clear_litellm_environment(monkeypatch)
     monkeypatch.setenv('LITELLM_BASE_URL', 'https://proxy.example.com/')
     monkeypatch.setenv('LITELLM_RUNTIME_KEY', 'runtime-secret')
+    monkeypatch.setenv('LITELLM_MANAGEMENT_KEY', 'management-secret')
     monkeypatch.setenv('LITELLM_CONNECT_TIMEOUT_SECONDS', '2.5')
     monkeypatch.setenv('LITELLM_REQUEST_TIMEOUT_SECONDS', '30')
     monkeypatch.setenv('LITELLM_VERIFY_SSL', 'false')
@@ -57,11 +61,28 @@ def test_litellm_settings_read_environment_without_exposing_secret(monkeypatch: 
 
     assert settings.base_url == 'https://proxy.example.com'
     assert settings.runtime_key.get_secret_value() == 'runtime-secret'
+    assert settings.management_key.get_secret_value() == 'management-secret'
     assert settings.configured is True
+    assert settings.management_configured is True
     assert settings.connect_timeout_seconds == CUSTOM_CONNECT_TIMEOUT_SECONDS
     assert settings.request_timeout_seconds == CUSTOM_REQUEST_TIMEOUT_SECONDS
     assert settings.verify_ssl is False
     assert 'runtime-secret' not in repr(settings)
+    assert 'management-secret' not in repr(settings)
+
+
+def test_litellm_management_key_supports_validation_alias() -> None:
+    settings = LiteLLMSettings(LITELLM_MANAGEMENT_KEY='management-secret')
+
+    assert settings.management_key.get_secret_value() == 'management-secret'
+    assert settings.management_configured is True
+    assert 'management-secret' not in repr(settings)
+
+
+def test_litellm_blank_management_key_is_not_configured() -> None:
+    settings = LiteLLMSettings(LITELLM_MANAGEMENT_KEY='   ')
+
+    assert settings.management_configured is False
 
 
 @pytest.mark.parametrize(

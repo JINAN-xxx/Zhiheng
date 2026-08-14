@@ -9,6 +9,7 @@ class LiteLLMSettings(BaseSettings):
 
     base_url: str = Field('http://127.0.0.1:14000', validation_alias='LITELLM_BASE_URL')
     runtime_key: SecretStr = Field(SecretStr(''), validation_alias='LITELLM_RUNTIME_KEY')
+    management_key: SecretStr = Field(SecretStr(''), validation_alias='LITELLM_MANAGEMENT_KEY')
     connect_timeout_seconds: float = Field(5, gt=0, validation_alias='LITELLM_CONNECT_TIMEOUT_SECONDS')
     request_timeout_seconds: float = Field(600, gt=0, validation_alias='LITELLM_REQUEST_TIMEOUT_SECONDS')
     verify_ssl: bool = Field(True, validation_alias='LITELLM_VERIFY_SSL')
@@ -29,3 +30,8 @@ class LiteLLMSettings(BaseSettings):
     def configured(self) -> bool:
         """返回 Runtime Key 是否已配置。"""
         return bool(self.runtime_key.get_secret_value().strip())
+
+    @property
+    def management_configured(self) -> bool:
+        """返回 Management Key 是否已配置。"""
+        return bool(self.management_key.get_secret_value().strip())
