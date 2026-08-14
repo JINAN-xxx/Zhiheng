@@ -205,7 +205,7 @@ async def _raise_management_failure(failure: ManagementFailure) -> None:
 
 
 def _encode_path_segment(identifier: str) -> str:
-    return quote(identifier, safe='')
+    return quote(identifier, safe='').replace('.', '%2E')
 
 
 async def _unwrap_request_outcome(outcome: _RequestOutcome) -> Mapping[str, object]:

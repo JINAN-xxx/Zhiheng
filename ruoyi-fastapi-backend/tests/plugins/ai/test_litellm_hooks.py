@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from typing import get_type_hints
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +13,10 @@ EXPECTED_RETRY_CLOSE_CALLS = 2
 
 def test_runtime_state_name_keeps_backward_compatible_export() -> None:
     assert hooks.CLIENT_STATE_NAME == hooks.RUNTIME_CLIENT_STATE_NAME
+
+
+def test_close_helper_uses_structural_async_closable_contract() -> None:
+    assert get_type_hints(hooks._capture_close_error)['client'] is hooks.AsyncClosable
 
 
 class FakeRuntimeClient:

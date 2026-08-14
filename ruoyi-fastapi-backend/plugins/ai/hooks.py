@@ -1,4 +1,5 @@
 import asyncio
+from typing import Protocol
 
 from plugins.ai.config import LiteLLMSettings
 from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient
@@ -8,6 +9,10 @@ from plugins.core.runtime.hooks import PluginHookContext
 RUNTIME_CLIENT_STATE_NAME = 'ai_litellm_runtime_client'
 MANAGEMENT_CLIENT_STATE_NAME = 'ai_litellm_management_client'
 CLIENT_STATE_NAME = RUNTIME_CLIENT_STATE_NAME
+
+
+class AsyncClosable(Protocol):
+    async def aclose(self) -> None: ...
 
 
 async def on_startup(context: PluginHookContext) -> None:
@@ -55,7 +60,7 @@ async def _close_state_client(app_state: object, state_name: str) -> BaseExcepti
     return None
 
 
-async def _capture_close_error(client: object) -> BaseException | None:
+async def _capture_close_error(client: AsyncClosable) -> BaseException | None:
     try:
         await client.aclose()
     except asyncio.CancelledError as error:

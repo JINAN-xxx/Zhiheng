@@ -268,6 +268,49 @@ async def test_dynamic_identifiers_are_encoded_as_single_path_segments(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('method_name', 'path_template'),
+    (
+        ('get_credential', '/credentials/by_name/{identifier}'),
+        ('rotate_credential', '/credentials/{identifier}'),
+        ('delete_credential', '/credentials/{identifier}'),
+        ('update_deployment', '/model/{identifier}/update'),
+    ),
+)
+@pytest.mark.parametrize(
+    ('identifier', 'encoded_identifier'),
+    (
+        ('.', '%2E'),
+        ('..', '%2E%2E'),
+        ('foo.bar', 'foo%2Ebar'),
+    ),
+)
+async def test_dot_identifiers_are_preserved_as_encoded_path_segments(
+    method_name: str,
+    path_template: str,
+    identifier: str,
+    encoded_identifier: str,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        expected_path = path_template.format(identifier=identifier)
+        expected_raw_path = path_template.format(identifier=encoded_identifier).encode()
+        assert request.url.path == expected_path
+        assert request.url.raw_path == expected_raw_path
+        assert not request.url.query
+        return httpx.Response(200, json={})
+
+    client = build_client(handler)
+    try:
+        method = getattr(client, method_name)
+        if method_name in {'rotate_credential', 'update_deployment'}:
+            await method(identifier, {})
+        else:
+            await method(identifier)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_dynamic_identifier_is_not_retained_when_request_fails() -> None:
     identifier = 'private-body/with?token=query-secret'
 
