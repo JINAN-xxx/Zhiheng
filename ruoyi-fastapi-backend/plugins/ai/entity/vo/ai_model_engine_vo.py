@@ -128,7 +128,7 @@ class ProviderModel(_StrictResponseModel):
 class CredentialSummaryModel(_StrictResponseModel):
     credential_name: CredentialName
     provider: str
-    referenced_deployment_count: NonNegativeInteger = 0
+    referenced_deployment_count: NonNegativeInteger | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -140,6 +140,7 @@ class CredentialCreateModel(_CredentialValuesRequestModel):
 
 class CredentialRotateModel(_CredentialValuesRequestModel):
     provider: SafeIdentifier
+    values: dict[str, SecretStr] = Field(min_length=1, repr=False)
 
 
 class DeploymentModel(_StrictResponseModel):
@@ -194,9 +195,21 @@ class DeploymentUpdateModel(_StrictRequestModel):
             return value
         if not value:
             raise ValueError('至少需要一个更新字段')
-        non_nullable = {'modelAlias', 'upstreamModel', 'provider', 'credentialName', 'blocked'}
+        non_nullable = {
+            'modelAlias',
+            'upstreamModel',
+            'provider',
+            'credentialName',
+            'timeout',
+            'streamTimeout',
+            'maxRetries',
+            'rpm',
+            'tpm',
+            'description',
+            'blocked',
+        }
         if any(key in value and value[key] is None for key in non_nullable):
-            raise ValueError('部署标识和状态字段不允许为 null')
+            raise ValueError('部署更新字段不允许为 null')
         return value
 
 

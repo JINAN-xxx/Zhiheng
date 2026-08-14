@@ -488,7 +488,7 @@ def test_credential_list_accepts_bare_list_without_opening_other_normalizers() -
         {
             'credentialName': 'openai-main',
             'provider': 'openai',
-            'referencedDeploymentCount': 0,
+            'referencedDeploymentCount': None,
             'createdAt': None,
             'updatedAt': None,
         }
@@ -535,12 +535,50 @@ def test_real_litellm_credential_shape_extracts_provider_only_from_safe_info() -
         {
             'credentialName': 'bedrock-main',
             'provider': 'bedrock',
-            'referencedDeploymentCount': 0,
+            'referencedDeploymentCount': None,
             'createdAt': None,
             'updatedAt': None,
         }
     ]
     assert_response_is_sanitized([dump_alias(credential) for credential in credentials])
+
+
+@pytest.mark.parametrize('count', (0, 2))
+def test_credential_summary_preserves_explicit_reference_count(count: int) -> None:
+    _, adapter_module = load_contract()
+    payload = {
+        'success': True,
+        'credentials': [
+            {
+                'credential_name': 'openai-main',
+                'credential_info': {'custom_llm_provider': 'openai'},
+                'referenced_deployment_count': count,
+            }
+        ],
+    }
+
+    credential = adapter_module.LiteLLMManagementAdapter.normalize_credentials(payload)[0]
+
+    assert credential.referenced_deployment_count == count
+
+
+@pytest.mark.parametrize('count', (-1, True, 1.5, '2'))
+def test_credential_summary_rejects_invalid_reference_count(count: object) -> None:
+    _, adapter_module = load_contract()
+    payload = {
+        'credentials': [
+            {
+                'credential_name': 'openai-main',
+                'credential_info': {'custom_llm_provider': 'openai'},
+                'referenced_deployment_count': count,
+            }
+        ]
+    }
+
+    with pytest.raises(Exception) as raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_credentials(payload)
+
+    assert_upstream_invalid(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -808,6 +846,53 @@ def test_credential_rotate_payload_cannot_extend_credential_info(
     }
 
 
+def test_credential_rotate_allows_partial_required_field_merge() -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
+        {
+            'items': [
+                {
+                    'provider': 'Oracle',
+                    'provider_display_name': 'Oracle',
+                    'litellm_provider': 'oci',
+                    'credential_fields': [
+                        {
+                            'key': 'oci_user',
+                            'label': 'OCI User',
+                            'required': True,
+                            'field_type': 'text',
+                        },
+                        {
+                            'key': 'oci_key',
+                            'label': 'OCI Key',
+                            'required': True,
+                            'field_type': 'textarea',
+                        },
+                    ],
+                }
+            ]
+        }
+    )
+    secret = '-----BEGIN KEY-----\nprivate-body\n-----END KEY-----\n'
+    request = vo.CredentialRotateModel.model_validate({'provider': 'Oracle', 'values': {'oci_key': secret}})
+
+    payload = adapter_module.LiteLLMManagementAdapter.build_credential_rotate_payload('oci-main', request, providers)
+
+    assert payload == {
+        'credential_name': 'oci-main',
+        'credential_info': {'custom_llm_provider': 'oci'},
+        'credential_values': {'oci_key': secret},
+    }
+
+
+@pytest.mark.parametrize('payload', ({'provider': 'OpenAI'}, {'provider': 'OpenAI', 'values': {}}))
+def test_credential_rotate_requires_at_least_one_value(payload: dict[str, object]) -> None:
+    vo, _ = load_contract()
+
+    with pytest.raises(ValidationError):
+        vo.CredentialRotateModel.model_validate(payload)
+
+
 def test_textarea_credential_payload_preserves_multiline_pem_secret_exactly() -> None:
     vo, adapter_module = load_contract()
     providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
@@ -909,13 +994,16 @@ def test_credential_payload_rejects_missing_invalid_or_unsupported_dynamic_value
         assert value not in serialized
 
 
-def test_deployment_create_payload_is_exact_and_never_accepts_sensitive_extensions() -> None:
+def test_deployment_create_payload_is_exact_and_never_accepts_sensitive_extensions(
+    real_provider_payload: dict[str, object],
+) -> None:
     vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
     request = vo.DeploymentCreateModel.model_validate(
         {
             'modelAlias': 'company-chat',
             'upstreamModel': 'openai/gpt-4.1-mini',
-            'provider': 'openai',
+            'provider': 'OpenAI',
             'credentialName': 'openai-main',
             'timeout': 30.5,
             'streamTimeout': 45,
@@ -926,7 +1014,7 @@ def test_deployment_create_payload_is_exact_and_never_accepts_sensitive_extensio
         }
     )
 
-    payload = adapter_module.LiteLLMManagementAdapter.build_deployment_create_payload(request)
+    payload = adapter_module.LiteLLMManagementAdapter.build_deployment_create_payload(request, providers)
 
     assert payload == {
         'model_name': 'company-chat',
@@ -958,46 +1046,110 @@ def test_deployment_create_payload_is_exact_and_never_accepts_sensitive_extensio
         )
 
 
-def test_deployment_update_payload_preserves_supported_explicit_null_clears() -> None:
-    vo, adapter_module = load_contract()
-    request = vo.DeploymentUpdateModel.model_validate(
-        {
-            'timeout': None,
-            'streamTimeout': None,
-            'maxRetries': None,
-            'rpm': None,
-            'tpm': None,
-            'description': None,
-        }
-    )
+@pytest.mark.parametrize(
+    'field',
+    (
+        'modelAlias',
+        'upstreamModel',
+        'provider',
+        'credentialName',
+        'timeout',
+        'streamTimeout',
+        'maxRetries',
+        'rpm',
+        'tpm',
+        'description',
+        'blocked',
+    ),
+)
+def test_deployment_update_rejects_explicit_null_for_every_supported_field(field: str) -> None:
+    vo, _ = load_contract()
 
-    payload = adapter_module.LiteLLMManagementAdapter.build_deployment_update_payload(request)
+    with pytest.raises(ValidationError) as raised:
+        vo.DeploymentUpdateModel.model_validate({field: None})
 
-    assert payload == {
-        'litellm_params': {
-            'timeout': None,
-            'stream_timeout': None,
-            'max_retries': None,
-            'rpm': None,
-            'tpm': None,
-        },
-        'model_info': {'description': None},
-    }
+    assert '部署更新字段不允许为 null' in str(raised.value)
 
 
 def test_deployment_update_payload_supports_blocked_only_on_patch() -> None:
     vo, adapter_module = load_contract()
     request = vo.DeploymentUpdateModel.model_validate({'blocked': True})
 
-    assert adapter_module.LiteLLMManagementAdapter.build_deployment_update_payload(request) == {'blocked': True}
+    assert adapter_module.LiteLLMManagementAdapter.build_deployment_update_payload(request, ()) == {'blocked': True}
 
 
-@pytest.mark.parametrize('field', ('modelAlias', 'upstreamModel', 'provider', 'credentialName', 'blocked'))
-def test_deployment_update_rejects_null_for_identity_and_boolean_fields(field: str) -> None:
-    vo, _ = load_contract()
+def test_deployment_update_resolves_platform_provider_to_canonical(
+    real_provider_payload: dict[str, object],
+) -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
+    request = vo.DeploymentUpdateModel.model_validate({'provider': 'OpenAI'})
 
-    with pytest.raises(ValidationError):
-        vo.DeploymentUpdateModel.model_validate({field: None})
+    assert adapter_module.LiteLLMManagementAdapter.build_deployment_update_payload(request, providers) == {
+        'litellm_params': {'custom_llm_provider': 'openai'}
+    }
+
+
+@pytest.mark.parametrize('operation', ('create', 'update'))
+@pytest.mark.parametrize('provider_case', ('unknown', 'ambiguous'))
+def test_deployment_payload_rejects_unknown_or_ambiguous_platform_provider(
+    real_provider_payload: dict[str, object],
+    operation: str,
+    provider_case: str,
+) -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
+    provider_name = 'Unknown' if provider_case == 'unknown' else 'OpenAI'
+    if provider_case == 'ambiguous':
+        providers = [*providers, providers[0].model_copy(deep=True)]
+    if operation == 'create':
+        request = vo.DeploymentCreateModel.model_validate(
+            {
+                'modelAlias': 'company-chat',
+                'upstreamModel': 'openai/gpt-4.1-mini',
+                'provider': provider_name,
+                'credentialName': 'openai-main',
+            }
+        )
+        build = adapter_module.LiteLLMManagementAdapter.build_deployment_create_payload
+    else:
+        request = vo.DeploymentUpdateModel.model_validate({'provider': provider_name})
+        build = adapter_module.LiteLLMManagementAdapter.build_deployment_update_payload
+
+    with pytest.raises(ValueError) as raised:
+        build(request, providers)
+
+    assert str(raised.value) == '模型供应商校验失败'
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+    assert provider_name not in str(raised.value)
+
+
+def test_deployment_provider_validation_error_does_not_retain_input_in_traceback(
+    real_provider_payload: dict[str, object],
+) -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
+    request = vo.DeploymentCreateModel.model_validate(
+        {
+            'modelAlias': 'company-chat',
+            'upstreamModel': 'openai/gpt-4.1-mini',
+            'provider': 'private-token',
+            'credentialName': 'openai-main',
+        }
+    )
+
+    with pytest.raises(ValueError) as raised:
+        adapter_module.LiteLLMManagementAdapter.build_deployment_create_payload(request, providers)
+
+    serialized = repr((str(raised.value), raised.value.__cause__, raised.value.__context__)).lower()
+    assert serialized == "('模型供应商校验失败', none, none)"
+    current = raised.value.__traceback__
+    while current is not None:
+        filename = current.tb_frame.f_code.co_filename.replace('\\', '/')
+        if '/plugins/ai/' in filename and '/tests/' not in filename:
+            assert 'private-token' not in repr(current.tb_frame.f_locals).lower()
+        current = current.tb_next
 
 
 @pytest.mark.parametrize(

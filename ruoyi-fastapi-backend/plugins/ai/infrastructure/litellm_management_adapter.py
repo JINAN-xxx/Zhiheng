@@ -131,7 +131,7 @@ class LiteLLMManagementAdapter:
             provider_name=request.provider,
             values=request.values,
             providers=providers,
-            require_required=True,
+            require_required=False,
         )
         del credential_name, request, providers
         if outcome.payload is None:
@@ -139,53 +139,26 @@ class LiteLLMManagementAdapter:
         return cast('dict[str, object]', outcome.payload)
 
     @staticmethod
-    def build_deployment_create_payload(request: DeploymentCreateModel) -> dict[str, object]:
-        litellm_params: dict[str, object] = {
-            'model': request.upstream_model,
-            'custom_llm_provider': request.provider,
-            'litellm_credential_name': request.credential_name,
-        }
-        _set_if_not_none(litellm_params, 'timeout', request.timeout)
-        _set_if_not_none(litellm_params, 'stream_timeout', request.stream_timeout)
-        _set_if_not_none(litellm_params, 'max_retries', request.max_retries)
-        _set_if_not_none(litellm_params, 'rpm', request.rpm)
-        _set_if_not_none(litellm_params, 'tpm', request.tpm)
-        model_info: dict[str, object] = {}
-        _set_if_not_none(model_info, 'description', request.description)
-        return {
-            'model_name': request.model_alias,
-            'litellm_params': litellm_params,
-            'model_info': model_info,
-        }
+    def build_deployment_create_payload(
+        request: DeploymentCreateModel,
+        providers: Sequence[ProviderModel],
+    ) -> dict[str, object]:
+        outcome = _build_deployment_create_payload(request, providers)
+        del request, providers
+        if outcome.payload is None:
+            _raise_deployment_provider_validation_error()
+        return cast('dict[str, object]', outcome.payload)
 
     @staticmethod
-    def build_deployment_update_payload(request: DeploymentUpdateModel) -> dict[str, object]:
-        fields = request.model_fields_set
-        payload: dict[str, object] = {}
-        if 'model_alias' in fields:
-            payload['model_name'] = request.model_alias
-
-        litellm_params: dict[str, object] = {}
-        parameter_fields = (
-            ('upstream_model', 'model'),
-            ('provider', 'custom_llm_provider'),
-            ('credential_name', 'litellm_credential_name'),
-            ('timeout', 'timeout'),
-            ('stream_timeout', 'stream_timeout'),
-            ('max_retries', 'max_retries'),
-            ('rpm', 'rpm'),
-            ('tpm', 'tpm'),
-        )
-        for field_name, upstream_name in parameter_fields:
-            if field_name in fields:
-                litellm_params[upstream_name] = getattr(request, field_name)
-        if litellm_params:
-            payload['litellm_params'] = litellm_params
-        if 'description' in fields:
-            payload['model_info'] = {'description': request.description}
-        if 'blocked' in fields:
-            payload['blocked'] = request.blocked
-        return payload
+    def build_deployment_update_payload(
+        request: DeploymentUpdateModel,
+        providers: Sequence[ProviderModel],
+    ) -> dict[str, object]:
+        outcome = _build_deployment_update_payload(request, providers)
+        del request, providers
+        if outcome.payload is None:
+            _raise_deployment_provider_validation_error()
+        return cast('dict[str, object]', outcome.payload)
 
     @staticmethod
     def build_connection_test_payload(
@@ -197,6 +170,76 @@ class LiteLLMManagementAdapter:
         if outcome.payload is None:
             _raise_credential_validation_error()
         return cast('dict[str, object]', outcome.payload)
+
+
+def _build_deployment_create_payload(
+    request: DeploymentCreateModel,
+    providers: Sequence[ProviderModel],
+) -> _CredentialPayloadOutcome:
+    try:
+        provider = _find_provider(request.provider, providers)
+        if provider is None:
+            return _CredentialPayloadOutcome(payload=None)
+        litellm_params: dict[str, object] = {
+            'model': request.upstream_model,
+            'custom_llm_provider': provider.litellm_provider,
+            'litellm_credential_name': request.credential_name,
+        }
+        _set_if_not_none(litellm_params, 'timeout', request.timeout)
+        _set_if_not_none(litellm_params, 'stream_timeout', request.stream_timeout)
+        _set_if_not_none(litellm_params, 'max_retries', request.max_retries)
+        _set_if_not_none(litellm_params, 'rpm', request.rpm)
+        _set_if_not_none(litellm_params, 'tpm', request.tpm)
+        model_info: dict[str, object] = {}
+        _set_if_not_none(model_info, 'description', request.description)
+        return _CredentialPayloadOutcome(
+            payload={
+                'model_name': request.model_alias,
+                'litellm_params': litellm_params,
+                'model_info': model_info,
+            }
+        )
+    except Exception:
+        return _CredentialPayloadOutcome(payload=None)
+
+
+def _build_deployment_update_payload(
+    request: DeploymentUpdateModel,
+    providers: Sequence[ProviderModel],
+) -> _CredentialPayloadOutcome:
+    try:
+        fields = request.model_fields_set
+        payload: dict[str, object] = {}
+        if 'model_alias' in fields:
+            payload['model_name'] = request.model_alias
+
+        litellm_params: dict[str, object] = {}
+        parameter_fields = (
+            ('upstream_model', 'model'),
+            ('credential_name', 'litellm_credential_name'),
+            ('timeout', 'timeout'),
+            ('stream_timeout', 'stream_timeout'),
+            ('max_retries', 'max_retries'),
+            ('rpm', 'rpm'),
+            ('tpm', 'tpm'),
+        )
+        for field_name, upstream_name in parameter_fields:
+            if field_name in fields:
+                litellm_params[upstream_name] = getattr(request, field_name)
+        if 'provider' in fields:
+            provider = _find_provider(cast('str', request.provider), providers)
+            if provider is None:
+                return _CredentialPayloadOutcome(payload=None)
+            litellm_params['custom_llm_provider'] = provider.litellm_provider
+        if litellm_params:
+            payload['litellm_params'] = litellm_params
+        if 'description' in fields:
+            payload['model_info'] = {'description': request.description}
+        if 'blocked' in fields:
+            payload['blocked'] = request.blocked
+        return _CredentialPayloadOutcome(payload=payload)
+    except Exception:
+        return _CredentialPayloadOutcome(payload=None)
 
 
 def _normalize_provider_fields(payload: object) -> _ParseOutcome[tuple[ProviderModel, ...]]:
@@ -304,8 +347,8 @@ def _normalize_credentials(payload: object) -> _ParseOutcome[tuple[CredentialSum
             provider = _safe_identifier(provider_value)
             if provider is None:
                 return _ParseOutcome(value=None)
-            count = item.get('referenced_deployment_count', item.get('referencedDeploymentCount', 0))
-            if type(count) is not int or count < 0:
+            count = item.get('referenced_deployment_count', item.get('referencedDeploymentCount'))
+            if count is not None and (type(count) is not int or count < 0):
                 return _ParseOutcome(value=None)
             valid_created, created_at = _safe_datetime(item.get('created_at', item.get('createdAt')))
             valid_updated, updated_at = _safe_datetime(item.get('updated_at', item.get('updatedAt')))
@@ -676,3 +719,7 @@ def _raise_upstream_invalid() -> None:
 
 def _raise_credential_validation_error() -> None:
     raise ValueError('凭据字段校验失败') from None
+
+
+def _raise_deployment_provider_validation_error() -> None:
+    raise ValueError('模型供应商校验失败') from None
