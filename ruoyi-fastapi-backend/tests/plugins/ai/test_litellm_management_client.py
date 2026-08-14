@@ -19,6 +19,7 @@ from plugins.ai.infrastructure.litellm_management_errors import (
 )
 
 Handler = Callable[[httpx.Request], Awaitable[httpx.Response]]
+OVERSIZED_ERROR_BODY_BYTES = 64 * 1024 + 1
 SENSITIVE_DETAIL = (
     'Authorization: Bearer management-secret at '
     'https://proxy.internal/credentials?token=query-secret private-body runtime-secret'
@@ -394,51 +395,41 @@ async def test_management_status_and_json_shape_are_normalized(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ('headers', 'expected_iterations'),
+    ('status_code', 'error_type'),
     (
-        ({'content-length': str(64 * 1024 + 1)}, 0),
-        ({'content-length': '-1'}, 0),
-        ({'content-length': SENSITIVE_DETAIL}, 0),
-        ({'content-encoding': 'gzip'}, 0),
+        (401, LiteLLMManagementAuthenticationError),
+        (500, LiteLLMManagementUpstreamError),
     ),
 )
-async def test_management_error_rejects_unsafe_body_without_reading(
+@pytest.mark.parametrize(
+    ('chunks', 'headers'),
+    (
+        ((b'x' * OVERSIZED_ERROR_BODY_BYTES,), {}),
+        ((b'first', b'second', b'must-not-read'), {}),
+        ((SENSITIVE_DETAIL.encode(),), {'content-encoding': 'gzip'}),
+    ),
+)
+async def test_management_error_never_reads_response_body(
+    status_code: int,
+    error_type: type[Exception],
+    chunks: Sequence[bytes],
     headers: Mapping[str, str],
-    expected_iterations: int,
 ) -> None:
-    upstream = RecordingResponseStream([SENSITIVE_DETAIL.encode()])
+    upstream = RecordingResponseStream(chunks)
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, stream=upstream, headers=headers)
+        return httpx.Response(status_code, stream=upstream, headers=headers)
 
     client = build_client(handler)
     try:
-        with pytest.raises(LiteLLMManagementUpstreamError) as raised:
+        with pytest.raises(error_type) as raised:
             await client.list_credentials()
     finally:
         await client.aclose()
 
-    assert upstream.iteration_count == expected_iterations
+    assert upstream.iteration_count == 0
     assert upstream.closed is True
     assert_sanitized_management_error(raised.value)
-
-
-@pytest.mark.asyncio
-async def test_management_error_stops_reading_after_raw_body_limit() -> None:
-    upstream = RecordingResponseStream([b'x' * (32 * 1024), b'y' * (32 * 1024 + 1), b'must-not-read'])
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, stream=upstream)
-
-    client = build_client(handler)
-    try:
-        with pytest.raises(LiteLLMManagementUpstreamError):
-            await client.list_credentials()
-    finally:
-        await client.aclose()
-
-    assert upstream.iteration_count == len(upstream.chunks) - 1
-    assert upstream.closed is True
 
 
 @pytest.mark.asyncio

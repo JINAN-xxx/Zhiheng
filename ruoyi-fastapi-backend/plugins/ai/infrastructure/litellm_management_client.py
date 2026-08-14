@@ -17,7 +17,6 @@ from plugins.ai.infrastructure.litellm_management_errors import (
     LiteLLMManagementUpstreamError,
 )
 
-MAX_ERROR_BODY_BYTES = 64 * 1024
 ManagementFailure: TypeAlias = type[LiteLLMManagementError]
 
 
@@ -168,7 +167,6 @@ class LiteLLMManagementClient:
                 headers=self._build_headers(authenticated=authenticated),
             ) as response:
                 if not response.is_success:
-                    await self._read_bounded_error_body(response)
                     failure = (
                         LiteLLMManagementAuthenticationError
                         if response.status_code in {401, 403}
@@ -200,30 +198,6 @@ class LiteLLMManagementClient:
         if isinstance(result, Mapping):
             return result
         return None
-
-    @staticmethod
-    async def _read_bounded_error_body(response: httpx.Response) -> None:
-        content_encoding = response.headers.get('content-encoding', '').strip().casefold()
-        if content_encoding not in {'', 'identity'}:
-            return
-
-        content_length = response.headers.get('content-length')
-        if content_length is not None:
-            try:
-                content_length_value = int(content_length)
-            except ValueError:
-                return
-            if content_length_value < 0 or content_length_value > MAX_ERROR_BODY_BYTES:
-                return
-
-        if response.is_stream_consumed:
-            return
-
-        bytes_read = 0
-        async for chunk in response.aiter_raw():
-            bytes_read += len(chunk)
-            if bytes_read > MAX_ERROR_BODY_BYTES:
-                return
 
 
 async def _raise_management_failure(failure: ManagementFailure) -> None:
