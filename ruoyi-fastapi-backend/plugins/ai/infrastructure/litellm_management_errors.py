@@ -46,3 +46,10 @@ class LiteLLMManagementUpstreamError(LiteLLMManagementError):
 
     code = 'LITELLM_MANAGEMENT_UPSTREAM_ERROR'
     default_message = 'LiteLLM 管理面上游调用失败'
+
+
+class LiteLLMManagementUpstreamInvalidError(LiteLLMManagementError):
+    """LiteLLM 管理面成功响应不符合受信任的数据契约。"""
+
+    code = 'LITELLM_MANAGEMENT_UPSTREAM_INVALID'
+    default_message = 'LiteLLM 管理面返回了无效数据'
