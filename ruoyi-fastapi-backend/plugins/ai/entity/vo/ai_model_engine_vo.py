@@ -5,8 +5,8 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     SecretStr,
@@ -50,8 +50,8 @@ def _validate_secret_values(value: object) -> dict[str, SecretStr] | _InvalidCre
     return validated
 
 
-def _reject_control_characters(value: str) -> str:
-    if _contains_forbidden_text(value):
+def _reject_control_characters(value: object) -> object:
+    if isinstance(value, str) and _contains_forbidden_text(value):
         raise ValueError('字段不能包含控制字符')
     return value
 
@@ -63,12 +63,12 @@ CredentialName = Annotated[
 SafeIdentifier = Annotated[
     str,
     StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=255),
-    AfterValidator(_reject_control_characters),
+    BeforeValidator(_reject_control_characters),
 ]
 Description = Annotated[
     str,
     StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=2000),
-    AfterValidator(_reject_control_characters),
+    BeforeValidator(_reject_control_characters),
 ]
 PositiveTimeout = Annotated[float, Field(strict=True, gt=0, le=600)]
 RetryCount = Annotated[int, Field(strict=True, ge=0, le=10)]

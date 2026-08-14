@@ -283,7 +283,7 @@ def _normalize_provider_field(raw_field: object) -> ProviderFieldModel | None:
 
 def _normalize_credentials(payload: object) -> _ParseOutcome[tuple[CredentialSummaryModel, ...]]:
     try:
-        items = _extract_items(payload, ('data', 'items', 'credentials'))
+        items = payload if isinstance(payload, list) else _extract_items(payload, ('data', 'items', 'credentials'))
         if items is None:
             return _ParseOutcome(value=None)
         credentials: list[CredentialSummaryModel] = []
@@ -541,10 +541,10 @@ def _contains_forbidden_text(value: str) -> bool:
 
 
 def _safe_text(value: object, *, maximum: int) -> str | None:
-    if not isinstance(value, str):
+    if not isinstance(value, str) or _contains_forbidden_text(value):
         return None
     normalized = value.strip()
-    if not normalized or len(normalized) > maximum or _contains_forbidden_text(normalized):
+    if not normalized or len(normalized) > maximum:
         return None
     return normalized
 
@@ -558,14 +558,18 @@ def _safe_field_placeholder(value: object, *, maximum: int) -> str | None:
         return None
     if not isinstance(value, str):
         return None
+    for index, character in enumerate(value):
+        if character == '\n':
+            continue
+        if character == '\r':
+            if index + 1 < len(value) and value[index + 1] == '\n':
+                continue
+            return None
+        if unicodedata.category(character) in _FORBIDDEN_TEXT_CATEGORIES:
+            return None
     normalized = value.replace('\r\n', '\n').strip()
     if not normalized or len(normalized) > maximum:
         return None
-    for character in normalized:
-        if character == '\n':
-            continue
-        if unicodedata.category(character) in _FORBIDDEN_TEXT_CATEGORIES:
-            return None
     return normalized
 
 

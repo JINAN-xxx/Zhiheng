@@ -257,8 +257,14 @@ def test_real_oracle_provider_allows_and_normalizes_multiline_pem_placeholder() 
 
 
 @pytest.mark.parametrize('forbidden', ('\x00', '\x85', '\u2028', '\u2029', '\r'))
-def test_multiline_field_placeholder_still_rejects_unsafe_controls(forbidden: str) -> None:
+@pytest.mark.parametrize('position', ('prefix', 'suffix', 'both'))
+def test_multiline_field_placeholder_still_rejects_unsafe_controls(forbidden: str, position: str) -> None:
     _, adapter_module = load_contract()
+    placeholder = {
+        'prefix': f'{forbidden}BEGIN END',
+        'suffix': f'BEGIN END{forbidden}',
+        'both': f'{forbidden}BEGIN END{forbidden}',
+    }[position]
     payload = {
         'items': [
             {
@@ -269,7 +275,7 @@ def test_multiline_field_placeholder_still_rejects_unsafe_controls(forbidden: st
                     {
                         'key': 'oci_key',
                         'label': 'OCI Key',
-                        'placeholder': f'BEGIN{forbidden}END',
+                        'placeholder': placeholder,
                         'field_type': 'textarea',
                     }
                 ],
@@ -281,6 +287,64 @@ def test_multiline_field_placeholder_still_rejects_unsafe_controls(forbidden: st
         adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(payload)
 
     assert_upstream_invalid(raised.value)
+
+
+@pytest.mark.parametrize('control', ('\n', '\x85', '\u2028', '\u2029'))
+@pytest.mark.parametrize('position', ('prefix', 'suffix', 'both'))
+def test_upstream_single_line_text_rejects_controls_before_trimming(control: str, position: str) -> None:
+    _, adapter_module = load_contract()
+    display_name = {
+        'prefix': f'{control}Provider',
+        'suffix': f'Provider{control}',
+        'both': f'{control}Provider{control}',
+    }[position]
+    payload = {
+        'items': [
+            {
+                'provider': 'Provider',
+                'provider_display_name': display_name,
+                'litellm_provider': 'provider',
+                'credential_fields': [],
+            }
+        ]
+    }
+
+    with pytest.raises(Exception) as raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(payload)
+
+    assert_upstream_invalid(raised.value)
+
+
+def test_upstream_single_line_text_trims_plain_ascii_spaces() -> None:
+    _, adapter_module = load_contract()
+    payload = {
+        'items': [
+            {
+                'provider': '  Provider  ',
+                'provider_display_name': '  Provider Name  ',
+                'litellm_provider': '  provider  ',
+                'default_model_placeholder': '  provider/model  ',
+                'credential_fields': [
+                    {
+                        'key': 'api_key',
+                        'label': '  API Key  ',
+                        'placeholder': '  enter key  ',
+                        'tooltip': '  Provider key  ',
+                    }
+                ],
+            }
+        ]
+    }
+
+    provider = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(payload)[0]
+
+    assert provider.provider == 'Provider'
+    assert provider.display_name == 'Provider Name'
+    assert provider.litellm_provider == 'provider'
+    assert provider.default_model_placeholder == 'provider/model'
+    assert provider.credential_fields[0].label == 'API Key'
+    assert provider.credential_fields[0].placeholder == 'enter key'
+    assert provider.credential_fields[0].tooltip == 'Provider key'
 
 
 @pytest.mark.parametrize(
@@ -408,6 +472,43 @@ def test_credential_list_accepts_documented_and_real_litellm_top_level_shapes(to
         }
     ]
     assert_response_is_sanitized([dump_alias(credential) for credential in credentials])
+
+
+def test_credential_list_accepts_bare_list_without_opening_other_normalizers() -> None:
+    _, adapter_module = load_contract()
+    item = {
+        'credential_name': 'openai-main',
+        'credential_info': {'custom_llm_provider': 'openai'},
+        'credential_values': {'api_key': 'private-api-key'},
+    }
+
+    credentials = adapter_module.LiteLLMManagementAdapter.normalize_credentials([item])
+
+    assert [dump_alias(credential) for credential in credentials] == [
+        {
+            'credentialName': 'openai-main',
+            'provider': 'openai',
+            'referencedDeploymentCount': 0,
+            'createdAt': None,
+            'updatedAt': None,
+        }
+    ]
+    with pytest.raises(Exception) as provider_raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_provider_fields([item])
+    with pytest.raises(Exception) as deployment_raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_deployments([item])
+    assert_upstream_invalid(provider_raised.value)
+    assert_upstream_invalid(deployment_raised.value)
+
+
+def test_credential_list_rejects_ambiguous_mapping_shapes() -> None:
+    _, adapter_module = load_contract()
+    item = {'credential_name': 'openai-main', 'provider': 'openai'}
+
+    with pytest.raises(Exception) as raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_credentials({'items': [item], 'credentials': [item]})
+
+    assert_upstream_invalid(raised.value)
 
 
 def test_real_litellm_credential_shape_extracts_provider_only_from_safe_info() -> None:
@@ -1067,6 +1168,51 @@ def test_request_identifiers_reject_control_characters(model_type_name: str, pay
 
     with pytest.raises(ValidationError):
         getattr(vo, model_type_name).model_validate(payload)
+
+
+@pytest.mark.parametrize('control', ('\n', '\x85', '\u2028', '\u2029'))
+@pytest.mark.parametrize('position', ('prefix', 'suffix', 'both'))
+@pytest.mark.parametrize('field_name', ('modelAlias', 'description'))
+def test_request_single_line_text_rejects_controls_before_trimming(
+    control: str,
+    position: str,
+    field_name: str,
+) -> None:
+    vo, _ = load_contract()
+    field_value = {
+        'prefix': f'{control}value',
+        'suffix': f'value{control}',
+        'both': f'{control}value{control}',
+    }[position]
+    payload = {
+        'modelAlias': 'company-chat',
+        'upstreamModel': 'openai/model',
+        'provider': 'openai',
+        'credentialName': 'openai-main',
+        field_name: field_value,
+    }
+
+    with pytest.raises(ValidationError):
+        vo.DeploymentCreateModel.model_validate(payload)
+
+
+def test_request_single_line_text_trims_plain_ascii_spaces() -> None:
+    vo, _ = load_contract()
+
+    request = vo.DeploymentCreateModel.model_validate(
+        {
+            'modelAlias': '  company-chat  ',
+            'upstreamModel': '  openai/model  ',
+            'provider': '  openai  ',
+            'credentialName': 'openai-main',
+            'description': '  Primary deployment  ',
+        }
+    )
+
+    assert request.model_alias == 'company-chat'
+    assert request.upstream_model == 'openai/model'
+    assert request.provider == 'openai'
+    assert request.description == 'Primary deployment'
 
 
 def test_connection_dynamic_value_failure_does_not_retain_secret_in_traceback(
