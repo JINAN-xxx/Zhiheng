@@ -140,5 +140,11 @@ class PlatformRunModel(_ResponseModel):
     updated_at: datetime
 
 
+class PlatformSessionDetailModel(_ResponseModel):
+    session: PlatformSessionModel
+    messages: list[PlatformMessageModel] = Field(default_factory=list)
+    runs: list[PlatformRunModel] = Field(default_factory=list)
+
+
 class CancelRunRequestModel(_StrictRequestModel):
     run_id: RunResourceId

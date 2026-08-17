@@ -9,18 +9,26 @@ from types import MappingProxyType
 from typing import Any, ClassVar, NoReturn, Protocol
 from uuid import UUID
 
+from common.vo import PageModel
 from plugins.ai.dao.platform_chat_dao import PlatformChatDao
 from plugins.ai.domain.model_runtime import ModelMessage, ModelStreamEvent
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import new_resource_id
 from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatRun, AiChatSession
-from plugins.ai.entity.vo.ai_platform_chat_vo import PlatformChatRequestModel
+from plugins.ai.entity.vo.ai_platform_chat_vo import (
+    PlatformChatRequestModel,
+    PlatformMessageModel,
+    PlatformRunModel,
+    PlatformSessionDetailModel,
+    PlatformSessionModel,
+)
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError, ChatRuntimeCoordinator
 from plugins.ai.service.model_service import ModelServiceStreamResult, ResolvedModel
 
 _ERROR_CONTRACTS = (
     (404, 'CHAT_SESSION_NOT_FOUND', '对话会话不存在'),
+    (404, 'CHAT_RUN_NOT_FOUND', '对话运行不存在'),
     (409, 'CHAT_SESSION_MODEL_MISMATCH', '对话会话不能切换模型'),
     (409, 'CHAT_IDEMPOTENCY_CONFLICT', '客户端消息已存在且内容不一致'),
     (422, 'CHAT_IMAGE_INVALID', '图片引用无效或不可用'),
@@ -28,6 +36,7 @@ _ERROR_CONTRACTS = (
 )
 _ERROR_NAMES = (
     'session_not_found',
+    'run_not_found',
     'session_model_mismatch',
     'idempotency_conflict',
     'image_invalid',
@@ -108,19 +117,23 @@ class PlatformChatError(Exception):
 
     @staticmethod
     def session_model_mismatch() -> 'PlatformChatError':
-        return _new_chat_error(1)
-
-    @staticmethod
-    def idempotency_conflict() -> 'PlatformChatError':
         return _new_chat_error(2)
 
     @staticmethod
-    def image_invalid() -> 'PlatformChatError':
+    def idempotency_conflict() -> 'PlatformChatError':
         return _new_chat_error(3)
 
     @staticmethod
-    def vision_disabled() -> 'PlatformChatError':
+    def image_invalid() -> 'PlatformChatError':
         return _new_chat_error(4)
+
+    @staticmethod
+    def vision_disabled() -> 'PlatformChatError':
+        return _new_chat_error(5)
+
+    @staticmethod
+    def run_not_found() -> 'PlatformChatError':
+        return _new_chat_error(1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +177,18 @@ class ChatDao(Protocol):
     async def create_run(self, db: object, run: AiChatRun) -> AiChatRun: ...
 
     async def get_latest_run(self, db: object, session_id: str) -> AiChatRun | None: ...
+
+    async def list_sessions(self, db: object, *, user_id: int, page_num: int, page_size: int) -> Any: ...
+
+    async def list_messages(self, db: object, session_id: str) -> list[AiChatMessage]: ...
+
+    async def list_runs(self, db: object, session_id: str) -> list[AiChatRun]: ...
+
+    async def get_owned_session(self, db: object, session_id: str, *, user_id: int) -> AiChatSession | None: ...
+
+    async def get_owned_run(self, db: object, run_id: str, *, user_id: int) -> AiChatRun | None: ...
+
+    async def update_session(self, db: object, session_id: str, *, user_id: int, values: dict[str, Any]) -> int: ...
 
     async def transition_run_status(
         self,
@@ -284,6 +309,68 @@ class PlatformChatService:
         self._id_factory = id_factory
         self._clock = clock
 
+    async def list_sessions(self, user_id: int, *, page_num: int, page_size: int) -> PageModel:
+        try:
+            result = await self._dao.list_sessions(self._db, user_id=user_id, page_num=page_num, page_size=page_size)
+            rows = [PlatformSessionModel.model_validate(row) for row in result.rows]
+            return PageModel(
+                rows=rows,
+                page_num=result.page_num,
+                page_size=result.page_size,
+                total=result.total,
+                has_next=result.has_next,
+            )
+        finally:
+            await self._rollback_if_active()
+
+    async def get_session_detail(self, user_id: int, session_id: str) -> PlatformSessionDetailModel:
+        try:
+            session = await self._dao.get_owned_session(self._db, session_id, user_id=user_id)
+            if session is None:
+                raise PlatformChatError.session_not_found()
+            messages = await self._dao.list_messages(self._db, session_id)
+            runs = await self._dao.list_runs(self._db, session_id)
+            return PlatformSessionDetailModel(
+                session=PlatformSessionModel.model_validate(session),
+                messages=[PlatformMessageModel.model_validate(item) for item in messages],
+                runs=[PlatformRunModel.model_validate(item) for item in runs],
+            )
+        finally:
+            await self._rollback_if_active()
+
+    async def archive_session(self, user_id: int, session_id: str) -> None:
+        try:
+            session = await self._dao.get_owned_session_for_update(self._db, session_id, user_id=user_id)
+            if session is None:
+                raise PlatformChatError.session_not_found()
+            latest = await self._dao.get_latest_run(self._db, session_id)
+            if latest is not None and latest.status in {'pending', 'running'}:
+                raise ChatCoordinationError.session_busy()
+            changed = await self._dao.update_session(
+                self._db,
+                session_id,
+                user_id=user_id,
+                values={'status': 'archived', 'updated_at': self._clock()},
+            )
+            if changed != 1:
+                raise PlatformChatError.session_not_found()
+            await self._commit()
+        except BaseException:
+            await self._rollback_preserving_error()
+            raise
+
+    async def cancel_run(self, user_id: int, run_id: str) -> None:
+        try:
+            run = await self._dao.get_owned_run(self._db, run_id, user_id=user_id)
+            if run is None:
+                raise PlatformChatError.run_not_found()
+            if run.status in {'pending', 'running'}:
+                await self._coordinator.request_cancel(run_id)
+            await self._rollback_if_active()
+        except BaseException:
+            await self._rollback_preserving_error()
+            raise
+
     async def send(self, user_id: int, request: PlatformChatRequestModel) -> PlatformChatStreamResult:
         try:
             return await self._send(user_id, request)
@@ -292,8 +379,10 @@ class PlatformChatService:
             raise
 
     async def _send(self, user_id: int, request: PlatformChatRequestModel) -> PlatformChatStreamResult:
-        session = await self._load_owned_session(user_id, request.session_id)
         resolved = await self._model_service.resolve_model(request.model_id)
+        # ModelService owns the read transaction. Resolve it before session writes so
+        # the Controller can safely inject the request's single clean DB session.
+        session = await self._load_owned_session(user_id, request.session_id)
         if session is not None and session.model_id != resolved.platform_model_id:
             raise PlatformChatError.session_model_mismatch()
         if session is None:

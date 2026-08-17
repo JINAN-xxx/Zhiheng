@@ -77,6 +77,24 @@ class PlatformChatDao:
         )
 
     @classmethod
+    async def list_messages(cls, db: AsyncSession, session_id: str) -> list[AiChatMessage]:
+        result = await db.execute(
+            select(AiChatMessage)
+            .where(AiChatMessage.session_id == session_id)
+            .order_by(AiChatMessage.created_at.asc(), AiChatMessage.message_id.asc())
+        )
+        return list(result.scalars().all())
+
+    @classmethod
+    async def list_runs(cls, db: AsyncSession, session_id: str) -> list[AiChatRun]:
+        result = await db.execute(
+            select(AiChatRun)
+            .where(AiChatRun.session_id == session_id)
+            .order_by(AiChatRun.created_at.asc(), AiChatRun.run_id.asc())
+        )
+        return list(result.scalars().all())
+
+    @classmethod
     async def get_owned_session_for_update(
         cls,
         db: AsyncSession,

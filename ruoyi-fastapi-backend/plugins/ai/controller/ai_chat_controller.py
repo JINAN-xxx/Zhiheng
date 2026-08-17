@@ -1,184 +1,220 @@
-from typing import Annotated
+import json
+from collections.abc import AsyncIterator
+from datetime import datetime
+from typing import Annotated, Any
 
-from fastapi import Body, Path, Request, Response
+from fastapi import Body, Path, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import ColumnElement
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from common.annotation.cache_annotation import ApiCache, ApiCacheEvict
-from common.annotation.log_annotation import Log
-from common.annotation.rate_limit_annotation import ApiRateLimit, ApiRateLimitPreset
-from common.aspect.data_scope import DataScopeDependency
+from common.annotation.log_annotation import AuditedHTTPException, Log
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
-from common.constant import ApiGroup, ApiNamespace
 from common.enums import BusinessType
 from common.router import APIRouterPro
-from common.vo import DataResponseModel, ResponseBaseModel
+from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
 from module_admin.entity.vo.user_vo import CurrentUserModel
-from plugins.ai.entity.do.ai_model_do import AiModels
-from plugins.ai.entity.vo.ai_chat_vo import (
-    AiChatConfigModel,
-    AiChatRequestModel,
-    AiChatSessionBaseModel,
-    AiChatSessionModel,
+from plugins.ai.domain.model_service_errors import ModelServiceError
+from plugins.ai.entity.vo.ai_platform_chat_vo import (
+    CancelRunRequestModel,
+    PlatformChatPreferenceModel,
+    PlatformChatRequestModel,
+    PlatformSessionDetailModel,
+    PlatformSessionModel,
+    PlatformSessionPageQueryModel,
 )
-from plugins.ai.service.ai_chat_service import AiChatService
-from plugins.ai.service.ai_model_service import AiModelService
-from utils.log_util import logger
+from plugins.ai.infrastructure.platform_chat_provider import get_platform_chat_service
+from plugins.ai.service.chat_preferences_service import ChatPreferencesService
+from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError
+from plugins.ai.service.platform_chat_service import PlatformChatError, PlatformChatEvent
 from utils.response_util import ResponseUtil
+
+PLATFORM_SSE_MEDIA_TYPE = 'text/event-stream'
+PLATFORM_SSE_HEADERS = {'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'}
 
 ai_chat_controller = APIRouterPro(
     prefix='/ai/chat',
     order_num=19,
-    tags=['AI管理-AI对话'],
+    tags=['AI管理-平台对话'],
     dependencies=[PreAuthDependency(), UserInterfaceAuthDependency('ai:chat:list')],
 )
 
 
+def _user_id(current_user: CurrentUserModel) -> int:
+    if current_user.user is None or current_user.user.user_id is None:
+        raise AuditedHTTPException(
+            status_code=401,
+            detail={'code': 'CHAT_UNAUTHENTICATED', 'message': '用户未登录'},
+            audit_code='CHAT_UNAUTHENTICATED',
+            audit_message='用户未登录',
+        )
+    return int(current_user.user.user_id)
+
+
+_platform_chat_service = get_platform_chat_service
+
+
+def _public_error(error: PlatformChatError | ChatCoordinationError | ModelServiceError) -> AuditedHTTPException:
+    detail = error.public_dict()
+    return AuditedHTTPException(
+        status_code=error.status_code,
+        detail=detail,
+        audit_code=detail['code'],
+        audit_message=detail['message'],
+    )
+
+
+async def _call(operation: Any) -> Any:
+    try:
+        return await operation
+    except (PlatformChatError, ChatCoordinationError, ModelServiceError) as error:
+        raise _public_error(error) from None
+
+
+def _serialize_platform_event(event: PlatformChatEvent) -> str:
+    payload = json.dumps(dict(event.data), ensure_ascii=False, separators=(',', ':'), sort_keys=True)
+    return f'event: {event.event_type}\ndata: {payload}\n\n'
+
+
+async def _serialize_stream(stream: AsyncIterator[PlatformChatEvent]) -> AsyncIterator[str]:
+    try:
+        async for event in stream:
+            yield _serialize_platform_event(event)
+    finally:
+        await stream.aclose()
+
+
 @ai_chat_controller.post(
     '/send',
-    summary='发送对话消息',
-    description='流式返回对话结果',
+    summary='发送平台对话消息',
     response_class=StreamingResponse,
-    responses={
-        200: {
-            'description': '流式返回对话结果',
-            'content': {
-                'text/event-stream': {},
-            },
-        }
-    },
+    responses={200: {'content': {PLATFORM_SSE_MEDIA_TYPE: {}}}},
 )
-@ApiRateLimit(namespace=ApiNamespace.AI_CHAT_SEND, preset=ApiRateLimitPreset.USER_INTERACTIVE_HIGH_FREQ)
 async def send_chat_message(
     request: Request,
-    chat_req: AiChatRequestModel,
+    chat_req: PlatformChatRequestModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-    data_scope_sql: Annotated[ColumnElement, DataScopeDependency(AiModels)],
 ) -> StreamingResponse:
-    user_id = current_user.user.user_id if current_user and current_user.user else 1
-    if not current_user.user.admin:
-        await AiModelService.check_ai_model_data_scope_services(query_db, chat_req.model_id, data_scope_sql)
-    chat_stream = AiChatService.chat_services(query_db, chat_req, user_id)
-    logger.info(f'用户{user_id}发送对话消息成功')
-
-    return StreamingResponse(content=chat_stream, media_type='text/event-stream')
+    stream = await _call(_platform_chat_service(request, query_db).send(_user_id(current_user), chat_req))
+    return StreamingResponse(
+        _serialize_stream(stream), media_type=PLATFORM_SSE_MEDIA_TYPE, headers=PLATFORM_SSE_HEADERS
+    )
 
 
 @ai_chat_controller.get(
     '/config',
-    summary='获取用户对话配置',
-    description='获取当前用户的AI对话配置',
-    response_model=DataResponseModel[AiChatConfigModel],
+    summary='获取平台对话偏好',
+    response_model=DataResponseModel[PlatformChatPreferenceModel],
 )
-@ApiCache(namespace=ApiNamespace.AI_CHAT_CONFIG)
 async def get_user_chat_config(
-    request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    user_id = current_user.user.user_id
-    ai_chat_config_detail_result = await AiChatService.ai_chat_config_detail_services(query_db, user_id)
-    logger.info(f'获取user_id为{user_id}的对话配置成功')
-
-    return ResponseUtil.success(data=ai_chat_config_detail_result)
+    result = await ChatPreferencesService(query_db).get_preferences(user_id=_user_id(current_user))
+    return ResponseUtil.success(data=result)
 
 
 @ai_chat_controller.put(
     '/config',
-    summary='保存用户对话配置',
-    description='保存当前用户的AI对话配置',
-    response_model=DataResponseModel[AiChatConfigModel],
+    summary='保存平台对话偏好',
+    response_model=DataResponseModel[PlatformChatPreferenceModel],
 )
-@ApiCacheEvict(namespaces=ApiGroup.AI_CHAT_CONFIG_MUTATION)
-@Log(title='AI对话配置管理', business_type=BusinessType.INSERT)
+@Log(
+    title='平台对话偏好',
+    business_type=BusinessType.UPDATE,
+    request_log_mode='none',
+    response_log_mode='none',
+)
 async def save_user_chat_config(
-    request: Request,
-    ai_chat_config: AiChatConfigModel,
+    config: PlatformChatPreferenceModel,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    user_id = current_user.user.user_id if current_user and current_user.user else 1
-    save_ai_chat_config_result = await AiChatService.save_ai_chat_config_services(query_db, user_id, ai_chat_config)
-    logger.info(save_ai_chat_config_result.message)
-
-    return ResponseUtil.success(msg=save_ai_chat_config_result.message)
+    result = await ChatPreferencesService(query_db).update_preferences(
+        user_id=_user_id(current_user), preferences=config, now=datetime.now()
+    )
+    return ResponseUtil.success(data=result)
 
 
 @ai_chat_controller.get(
     '/session/list',
-    summary='获取会话列表',
-    description='获取用户的会话列表',
-    response_model=DataResponseModel[list[AiChatSessionBaseModel]],
+    summary='获取平台对话会话列表',
+    response_model=PageResponseModel[PlatformSessionModel],
 )
 async def get_chat_session_list(
+    query: Annotated[PlatformSessionPageQueryModel, Query()],
     request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await AiChatService.get_chat_session_list_services(current_user.user.user_id)
-    logger.info('获取成功')
+    result = await _call(
+        _platform_chat_service(request, query_db).list_sessions(
+            _user_id(current_user), page_num=query.page_num, page_size=query.page_size
+        )
+    )
+    return ResponseUtil.success(
+        rows=result.rows,
+        dict_content={
+            'pageNum': result.page_num,
+            'pageSize': result.page_size,
+            'total': result.total,
+            'hasNext': result.has_next,
+        },
+    )
 
+
+@ai_chat_controller.get(
+    '/session/{session_id}',
+    summary='获取平台对话会话详情',
+    response_model=DataResponseModel[PlatformSessionDetailModel],
+)
+async def get_chat_session_detail(
+    request: Request,
+    session_id: Annotated[str, Path(description='Platform Session ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await _call(
+        _platform_chat_service(request, query_db).get_session_detail(_user_id(current_user), session_id)
+    )
     return ResponseUtil.success(data=result)
 
 
 @ai_chat_controller.delete(
     '/session/{session_id}',
-    summary='删除会话',
-    description='删除指定会话',
+    summary='归档平台对话会话',
     response_model=ResponseBaseModel,
 )
-@Log(title='AI对话会话管理', business_type=BusinessType.DELETE)
+@Log(title='平台对话会话', business_type=BusinessType.DELETE)
 async def delete_chat_session(
     request: Request,
-    session_id: Annotated[str, Path(description='会话ID')],
+    session_id: Annotated[str, Path(description='Platform Session ID')],
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    delete_chat_session_result = await AiChatService.delete_chat_session_services(
-        session_id,
-        current_user.user.user_id,
-    )
-    logger.info(delete_chat_session_result.message)
-
-    return ResponseUtil.success(msg=delete_chat_session_result.message)
-
-
-@ai_chat_controller.get(
-    '/session/{session_id}',
-    summary='获取会话消息详情',
-    description='获取指定会话的消息详情',
-    response_model=DataResponseModel[AiChatSessionModel],
-)
-async def get_chat_session_detail(
-    request: Request,
-    session_id: Annotated[str, Path(description='会话ID')],
-    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
-) -> Response:
-    chat_session_detail_result = await AiChatService.get_chat_session_detail_services(
-        session_id,
-        current_user.user.user_id,
-    )
-    logger.info(f'获取session_id为{session_id}的信息成功')
-
-    return ResponseUtil.success(data=chat_session_detail_result)
+    await _call(_platform_chat_service(request, query_db).archive_session(_user_id(current_user), session_id))
+    return ResponseUtil.success(msg='会话已归档')
 
 
 @ai_chat_controller.post(
     '/cancel',
-    summary='取消对话',
-    description='取消正在进行的对话',
+    summary='取消平台对话运行',
     response_model=ResponseBaseModel,
 )
-@ApiRateLimit(namespace=ApiNamespace.AI_CHAT_CANCEL, preset=ApiRateLimitPreset.USER_INTERACTIVE_HIGH_FREQ)
 async def cancel_chat_run(
     request: Request,
-    run_id: Annotated[str, Body(embed=True, description='运行ID', alias='runId')],
-    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+    cancel_req: CancelRunRequestModel = Body(...),
+    query_db: Annotated[AsyncSession, DBSessionDependency()] = None,
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()] = None,
 ) -> Response:
-    cancel_result = await AiChatService.cancel_run_services(run_id, current_user.user.user_id)
-    logger.info(cancel_result.message)
-
-    return ResponseUtil.success(msg=cancel_result.message)
+    if query_db is None or current_user is None:
+        raise AuditedHTTPException(
+            status_code=401,
+            detail={'code': 'CHAT_UNAUTHENTICATED', 'message': '用户未登录'},
+            audit_code='CHAT_UNAUTHENTICATED',
+            audit_message='用户未登录',
+        )
+    await _call(_platform_chat_service(request, query_db).cancel_run(_user_id(current_user), cancel_req.run_id))
+    return ResponseUtil.success(msg='取消请求已提交')
