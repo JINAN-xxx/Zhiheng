@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
@@ -119,25 +119,34 @@ class ModelService:
         db: AsyncSession,
         runtime: ModelRuntimeEngine,
         *,
+        session_factory: Callable[[], AsyncSession] | None = None,
         model_dao: type[AiModelCatalogDao] = AiModelCatalogDao,
         binding_dao: type[AiResourceBindingDao] = AiResourceBindingDao,
     ) -> None:
         self._db = db
         self._runtime = runtime
+        self._session_factory = session_factory
         self._model_dao = model_dao
         self._binding_dao = binding_dao
-        self._require_clean_session()
+        if self._session_factory is None:
+            self._require_clean_session()
 
     async def resolve_model(self, model_id: str) -> ResolvedModel:
         validate_resource_id(model_id, 'mdl')
-        self._require_clean_session()
+        if self._session_factory is not None:
+            async with self._session_factory() as db:
+                return await self._resolve_model_in_session(db, model_id)
+        return await self._resolve_model_in_session(self._db, model_id)
+
+    async def _resolve_model_in_session(self, db: AsyncSession, model_id: str) -> ResolvedModel:
+        self._require_clean_session(db)
         try:
-            model = await self._model_dao.get_model_by_id(self._db, model_id)
+            model = await self._model_dao.get_model_by_id(db, model_id)
             if model is None:
                 raise ModelServiceError.not_found()
             if model.lifecycle_status != 'active':
                 raise ModelServiceError.disabled()
-            binding = await self._binding_dao.get_current_binding(self._db, model_id)
+            binding = await self._binding_dao.get_current_binding(db, model_id)
             if binding is None or binding.binding_status != 'active':
                 raise ModelServiceError.binding_missing()
             defaults = self._validate_parameters(model.default_parameters)
@@ -149,10 +158,10 @@ class ModelService:
                 default_parameters=defaults,
             )
         except BaseException:
-            await self._rollback_preserving_active_error()
+            await self._rollback_preserving_active_error(db)
             raise
-        if self._db.in_transaction():
-            await self._db.rollback()
+        if db.in_transaction():
+            await db.rollback()
         return resolved
 
     async def chat(
@@ -217,14 +226,16 @@ class ModelService:
             raise ValueError(_INVALID_PARAMETER_MESSAGE) from None
         return validated.model_dump(exclude_none=True)
 
-    def _require_clean_session(self) -> None:
-        if self._db.in_transaction():
+    def _require_clean_session(self, db: AsyncSession | None = None) -> None:
+        session = self._db if db is None else db
+        if session.in_transaction():
             raise RuntimeError('Model Service 需要独占的只读数据库会话')
 
-    async def _rollback_preserving_active_error(self) -> None:
-        if not self._db.in_transaction():
+    async def _rollback_preserving_active_error(self, db: AsyncSession | None = None) -> None:
+        session = self._db if db is None else db
+        if not session.in_transaction():
             return
         try:
-            await self._db.rollback()
+            await session.rollback()
         except BaseException:
             pass

@@ -1,6 +1,7 @@
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.database import AsyncSessionLocal
 from plugins.ai.infrastructure.model_runtime_provider import get_model_runtime_engine
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatRuntimeCoordinator
@@ -12,7 +13,11 @@ def get_platform_chat_service(request: Request, db: AsyncSession) -> PlatformCha
     """组装当前 Worker 的 Platform Chat Service，不向 Controller 暴露共享客户端。"""
     return PlatformChatService(
         db,
-        model_service=ModelService(db, get_model_runtime_engine(request)),
+        model_service=ModelService(
+            db,
+            get_model_runtime_engine(request),
+            session_factory=AsyncSessionLocal,
+        ),
         coordinator=ChatRuntimeCoordinator(getattr(request.app.state, 'redis', None)),
         preferences=ChatPreferencesService(db),
     )
