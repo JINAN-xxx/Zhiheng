@@ -220,7 +220,7 @@ class FakeRuntime:
 
 class TransactionInspectingRuntime(FakeRuntime):
     def __init__(self, session: AsyncSession) -> None:
-        super().__init__(stream=FakeEventStream((ModelStreamEvent(data=b'only'),)))
+        super().__init__(stream=FakeEventStream((ModelStreamEvent(event_type='content', delta='only'),)))
         self._session = session
         self.chat_transaction_states: list[bool] = []
         self.stream_transaction_states: list[bool] = []
@@ -288,7 +288,7 @@ class CoordinatedAsyncGenerator:
         try:
             self.read_started.set()
             await self.release_read.wait()
-            yield ModelStreamEvent(data=b'first')
+            yield ModelStreamEvent(event_type='content', delta='first')
             await asyncio.Future()
         finally:
             self.finalized.set()
@@ -588,7 +588,7 @@ async def test_stream_releases_real_read_transaction_before_return_and_consumpti
 
         assert runtime.stream_transaction_states == [False]
         assert session.in_transaction() is False
-        assert [event async for event in result] == [ModelStreamEvent(data=b'only')]
+        assert [event async for event in result] == [ModelStreamEvent(event_type='content', delta='only')]
         assert session.in_transaction() is False
 
 
@@ -730,8 +730,8 @@ async def test_chat_preserves_cancellation() -> None:
 async def test_stream_chat_returns_snapshot_and_delegates_engine_neutral_events() -> None:
     source_stream = FakeEventStream(
         (
-            ModelStreamEvent(data=b'data: first\n\n'),
-            ModelStreamEvent(data=b'data: [DONE]\n\n'),
+            ModelStreamEvent(event_type='content', delta='first'),
+            ModelStreamEvent(event_type='done'),
         )
     )
     runtime = FakeRuntime(stream=source_stream)
@@ -750,8 +750,8 @@ async def test_stream_chat_returns_snapshot_and_delegates_engine_neutral_events(
     assert result.engine_type == 'litellm'
     assert result.engine_model_snapshot == ENGINE_MODEL
     assert events == [
-        ModelStreamEvent(data=b'data: first\n\n'),
-        ModelStreamEvent(data=b'data: [DONE]\n\n'),
+        ModelStreamEvent(event_type='content', delta='first'),
+        ModelStreamEvent(event_type='done'),
     ]
     assert len(runtime.stream_requests) == 1
     assert dict(runtime.stream_requests[0].parameters) == {
@@ -765,13 +765,16 @@ async def test_stream_chat_returns_snapshot_and_delegates_engine_neutral_events(
 @pytest.mark.asyncio
 async def test_stream_result_early_aclose_closes_only_current_stream() -> None:
     source_stream = FakeEventStream(
-        (ModelStreamEvent(data=b'first'), ModelStreamEvent(data=b'second')),
+        (
+            ModelStreamEvent(event_type='content', delta='first'),
+            ModelStreamEvent(event_type='content', delta='second'),
+        ),
     )
     runtime = FakeRuntime(stream=source_stream)
     service, _ = _service(runtime)
     result = await service.stream_chat(MODEL_ID, _messages())
 
-    assert await anext(result) == ModelStreamEvent(data=b'first')
+    assert await anext(result) == ModelStreamEvent(event_type='content', delta='first')
     await result.aclose()
 
     assert source_stream.close_count == 1
@@ -798,7 +801,7 @@ async def test_stream_concurrent_aclose_waits_for_pending_read_then_finalizes_ge
     assert coordinated.finalized.is_set() is False
 
     coordinated.release_read.set()
-    assert await pending_read == ModelStreamEvent(data=b'first')
+    assert await pending_read == ModelStreamEvent(event_type='content', delta='first')
     await pending_close
 
     assert coordinated.finalized.is_set() is True
@@ -826,12 +829,12 @@ async def test_stream_close_failure_can_be_retried() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_result_normal_completion_closes_current_stream_once() -> None:
-    source_stream = FakeEventStream((ModelStreamEvent(data=b'only'),))
+    source_stream = FakeEventStream((ModelStreamEvent(event_type='content', delta='only'),))
     runtime = FakeRuntime(stream=source_stream)
     service, _ = _service(runtime)
     result = await service.stream_chat(MODEL_ID, _messages())
 
-    assert [event async for event in result] == [ModelStreamEvent(data=b'only')]
+    assert [event async for event in result] == [ModelStreamEvent(event_type='content', delta='only')]
 
     assert source_stream.close_count == 1
     assert runtime.close_count == 0

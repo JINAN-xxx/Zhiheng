@@ -214,15 +214,33 @@ def test_model_usage_rejects_invalid_token_counts_and_cost(kwargs: dict[str, obj
         ModelUsage(**kwargs)
 
 
-def test_model_stream_event_takes_bytes_snapshot() -> None:
-    source = bytearray(b'original')
+def test_model_stream_event_uses_typed_immutable_payloads() -> None:
+    event = ModelStreamEvent(event_type='content', delta='original')
 
-    event = ModelStreamEvent(data=source)
-    source[:] = b'mutated!'
-
-    assert event.data == b'original'
+    assert event.event_type == 'content'
+    assert event.delta == 'original'
     with pytest.raises(FrozenInstanceError):
-        event.data = b'other'
+        event.delta = 'other'
+
+    assert ModelStreamEvent(event_type='meta', request_id='call-1').request_id == 'call-1'
+    assert ModelStreamEvent(event_type='usage', usage=ModelUsage(input_tokens=1)).usage == ModelUsage(input_tokens=1)
+    assert ModelStreamEvent(event_type='done').event_type == 'done'
+
+
+@pytest.mark.parametrize(
+    'kwargs',
+    (
+        {'event_type': 'raw', 'delta': 'value'},
+        {'event_type': 'content'},
+        {'event_type': 'reasoning', 'delta': ''},
+        {'event_type': 'meta', 'request_id': ''},
+        {'event_type': 'usage'},
+        {'event_type': 'done', 'delta': 'extra'},
+    ),
+)
+def test_model_stream_event_rejects_mismatched_payload(kwargs: dict[str, object]) -> None:
+    with pytest.raises((TypeError, ValueError)):
+        ModelStreamEvent(**kwargs)
 
 
 def test_model_runtime_engine_protocol_declares_async_close() -> None:
@@ -270,7 +288,7 @@ async def test_real_runtime_client_headers_are_normalized_by_adapter() -> None:
 async def test_real_runtime_client_close_error_maps_to_adapter_domain_error() -> None:
     class CloseErrorStream(httpx.AsyncByteStream):
         async def __aiter__(self) -> AsyncIterator[bytes]:
-            yield b'data: only\n\n'
+            yield b'data: {"choices":[{"delta":{"content":"only"}}]}\n\n'
 
         async def aclose(self) -> None:
             raise httpx.ConnectError(SENSITIVE_DETAIL)
@@ -287,7 +305,7 @@ async def test_real_runtime_client_close_error_maps_to_adapter_domain_error() ->
         ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
     )
     try:
-        assert await anext(stream) == ModelStreamEvent(data=b'data: only\n\n')
+        assert await anext(stream) == ModelStreamEvent(event_type='content', delta='only')
         with pytest.raises(ModelServiceError) as raised:
             await anext(stream)
     finally:
@@ -673,8 +691,20 @@ async def test_list_model_ids_malformed_traceback_does_not_retain_upstream_paylo
 
 
 @pytest.mark.asyncio
-async def test_stream_chat_delegates_bytes_as_engine_neutral_events_and_controls_stream_flag() -> None:
-    client = FakeRuntimeClient(stream_chunks=(b'data: one\n\n', b'data: [DONE]\n\n'))
+async def test_stream_chat_normalizes_litellm_sse_and_controls_usage_flag() -> None:
+    client = FakeRuntimeClient(
+        stream_chunks=(
+            (
+                b'data: {"id":"call-1","choices":[{"delta":{"reasoning_content":"plan",'
+                b'"reasoning":"fallback","content":"hello"}}]}\n\n'
+                b'data: {"usage":{"prompt_tokens":3,"completion_tokens":4,'
+                b'"completion_tokens_details":{"reasoning_tokens":2},'
+                b'"prompt_tokens_details":{"cached_tokens":1,"cache_creation_tokens":1},'
+                b'"cost":"0.125"},"choices":[]}\n\n'
+                b'data: [DONE]\n\n'
+            ),
+        )
+    )
     adapter = LiteLLMRuntimeAdapter(client)
     request = ModelChatRequest(
         engine_model='company-chat',
@@ -684,13 +714,30 @@ async def test_stream_chat_delegates_bytes_as_engine_neutral_events_and_controls
 
     events = [event async for event in adapter.stream_chat(request)]
 
-    assert events == [ModelStreamEvent(data=b'data: one\n\n'), ModelStreamEvent(data=b'data: [DONE]\n\n')]
+    assert events == [
+        ModelStreamEvent(event_type='meta', request_id='call-1'),
+        ModelStreamEvent(event_type='reasoning', delta='plan'),
+        ModelStreamEvent(event_type='content', delta='hello'),
+        ModelStreamEvent(
+            event_type='usage',
+            usage=ModelUsage(
+                input_tokens=3,
+                output_tokens=4,
+                reasoning_tokens=2,
+                cache_read_tokens=1,
+                cache_write_tokens=1,
+                raw_cost=Decimal('0.125'),
+            ),
+        ),
+        ModelStreamEvent(event_type='done'),
+    ]
     assert client.stream_payloads == [
         {
             'model': 'company-chat',
             'messages': [{'role': 'user', 'content': 'hello'}],
             'temperature': 0.2,
             'stream': True,
+            'stream_options': {'include_usage': True},
         }
     ]
     assert client.last_stream is not None
@@ -699,16 +746,63 @@ async def test_stream_chat_delegates_bytes_as_engine_neutral_events_and_controls
 
 @pytest.mark.asyncio
 async def test_closing_adapter_stream_closes_underlying_runtime_stream() -> None:
-    client = FakeRuntimeClient(stream_chunks=(b'first', b'second'))
+    client = FakeRuntimeClient(
+        stream_chunks=(
+            b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"second"}}]}\n\n',
+        )
+    )
     adapter_stream = LiteLLMRuntimeAdapter(client).stream_chat(
         ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
     )
 
-    assert await anext(adapter_stream) == ModelStreamEvent(data=b'first')
+    assert await anext(adapter_stream) == ModelStreamEvent(event_type='content', delta='first')
     assert client.last_stream is not None
     assert client.last_stream.closed is False
     await adapter_stream.aclose()
 
+    assert client.last_stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_ignores_unknown_choice_shapes_but_requires_done() -> None:
+    client = FakeRuntimeClient(
+        stream_chunks=((b'data: {"choices":"unknown","private":"ignored"}\n\ndata: [DONE]\n\n'),)
+    )
+
+    events = [
+        event
+        async for event in LiteLLMRuntimeAdapter(client).stream_chat(
+            ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+        )
+    ]
+
+    assert events == [ModelStreamEvent(event_type='done')]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'chunks',
+    (
+        (b'data: {"private":"invalid"\n\n',),
+        (b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',),
+        (b'data: {"usage":{"prompt_tokens":-1},"choices":[]}\n\ndata: [DONE]\n\n',),
+    ),
+)
+async def test_stream_chat_rejects_invalid_or_truncated_sse_as_sanitized_domain_error(
+    chunks: tuple[bytes, ...],
+) -> None:
+    client = FakeRuntimeClient(stream_chunks=chunks)
+    stream = LiteLLMRuntimeAdapter(client).stream_chat(
+        ModelChatRequest(engine_model='company-chat', messages=(ModelMessage(role='user', content='hello'),))
+    )
+
+    with pytest.raises(ModelServiceError) as raised:
+        async for _event in stream:
+            pass
+
+    _assert_sanitized_domain_error(raised.value, 'MODEL_RUNTIME_ERROR')
+    assert client.last_stream is not None
     assert client.last_stream.closed is True
 
 

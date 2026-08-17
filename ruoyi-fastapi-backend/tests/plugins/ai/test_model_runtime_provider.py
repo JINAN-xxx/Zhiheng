@@ -55,7 +55,12 @@ class RecordingRuntimeClient:
 
     def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]:
         self.stream_payloads.append(payload)
-        stream = RecordingByteStream((b'data: hello\n\n', b'data: [DONE]\n\n'))
+        stream = RecordingByteStream(
+            (
+                b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n',
+                b'data: [DONE]\n\n',
+            )
+        )
         self.streams.append(stream)
         return stream
 
@@ -122,12 +127,16 @@ async def test_runtime_provider_preserves_single_stream_close_semantics() -> Non
 
     events = [event async for event in runtime.stream_chat(chat_request)]
 
-    assert events == [ModelStreamEvent(data=b'data: hello\n\n'), ModelStreamEvent(data=b'data: [DONE]\n\n')]
+    assert events == [
+        ModelStreamEvent(event_type='content', delta='hello'),
+        ModelStreamEvent(event_type='done'),
+    ]
     assert client.stream_payloads == [
         {
             'model': 'company-chat',
             'messages': [{'role': 'user', 'content': 'hi'}],
             'stream': True,
+            'stream_options': {'include_usage': True},
         }
     ]
     assert len(client.streams) == 1

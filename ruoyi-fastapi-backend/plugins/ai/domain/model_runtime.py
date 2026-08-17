@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from math import isfinite
 from types import MappingProxyType
-from typing import Protocol
+from typing import Literal, Protocol
 
 _MESSAGE_ROLES = frozenset({'system', 'developer', 'user', 'assistant'})
 
@@ -101,12 +101,37 @@ class ModelChatResponse:
 
 @dataclass(frozen=True)
 class ModelStreamEvent:
-    data: bytes
+    event_type: Literal['meta', 'content', 'reasoning', 'usage', 'done']
+    delta: str | None = None
+    usage: ModelUsage | None = None
+    request_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.data, (bytes, bytearray)):
-            raise TypeError('模型流事件必须使用字节数据')
-        object.__setattr__(self, 'data', bytes(self.data))
+        if not isinstance(self.event_type, str):
+            raise TypeError('模型流事件类型必须是字符串')
+        if self.event_type in {'content', 'reasoning'}:
+            if not isinstance(self.delta, str) or not self.delta:
+                raise ValueError('文本流事件必须携带非空增量')
+            if self.usage is not None or self.request_id is not None:
+                raise ValueError('文本流事件不能携带其他字段')
+            return
+        if self.event_type == 'usage':
+            if not isinstance(self.usage, ModelUsage):
+                raise TypeError('用量流事件必须携带规范用量')
+            if self.delta is not None or self.request_id is not None:
+                raise ValueError('用量流事件不能携带其他字段')
+            return
+        if self.event_type == 'meta':
+            if not isinstance(self.request_id, str) or not self.request_id:
+                raise ValueError('元数据流事件必须携带请求 ID')
+            if self.delta is not None or self.usage is not None:
+                raise ValueError('元数据流事件不能携带其他字段')
+            return
+        if self.event_type == 'done':
+            if self.delta is not None or self.usage is not None or self.request_id is not None:
+                raise ValueError('完成流事件不能携带其他字段')
+            return
+        raise ValueError('不支持的模型流事件类型')
 
 
 class ModelRuntimeEngine(Protocol):

@@ -182,6 +182,16 @@ class PlatformChatDao:
         return run
 
     @classmethod
+    async def get_latest_run(cls, db: AsyncSession, session_id: str) -> AiChatRun | None:
+        result = await db.execute(
+            select(AiChatRun)
+            .where(AiChatRun.session_id == session_id)
+            .order_by(AiChatRun.created_at.desc(), AiChatRun.run_id.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    @classmethod
     async def get_owned_run(cls, db: AsyncSession, run_id: str, *, user_id: int) -> AiChatRun | None:
         return (
             (
