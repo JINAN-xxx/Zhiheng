@@ -1,7 +1,7 @@
 manifestVersion: 1
 id: ai
 name: AI 管理
-version: 0.3.0
+version: 0.4.0
 description: AI 模型管理与智能对话插件。
 
 metadata:
@@ -22,8 +22,10 @@ backend:
   migrations:
     - migrations/mysql/001_init.sql
     - migrations/mysql/002_model_service_foundation.sql
+    - migrations/mysql/003_platform_chat.sql
     - migrations/postgresql/001_init.sql
     - migrations/postgresql/002_model_service_foundation.sql
+    - migrations/postgresql/003_platform_chat.sql
   seeds:
     - seeds/mysql/ai_provider_type.sql
     - seeds/postgresql/ai_provider_type.sql

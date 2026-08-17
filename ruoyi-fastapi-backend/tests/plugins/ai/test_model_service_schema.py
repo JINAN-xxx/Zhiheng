@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.schema import CreateIndex, CreateTable
@@ -8,9 +8,10 @@ from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.core.discovery.scanner import PluginScanner
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_ROOT = BACKEND_ROOT / 'plugins' / 'ai'
+MODEL_SERVICE_TABLE_COUNT = 2
+RESOURCE_ID_LENGTH = 36
 
 
 def _read_migration(database: str) -> str:
@@ -24,12 +25,14 @@ def _normalize_sql(sql: str) -> str:
 def test_model_service_migrations_are_registered_after_initial_schema() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.3.0'
+    assert plugin.manifest.version == '0.4.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
+        'migrations/mysql/003_platform_chat.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
+        'migrations/postgresql/003_platform_chat.sql',
     ]
 
 
@@ -66,14 +69,14 @@ def test_model_service_migrations_support_tables_precreated_by_metadata() -> Non
     mysql_sql = _normalize_sql(_read_migration('mysql'))
     postgres_sql = _normalize_sql(_read_migration('postgresql'))
 
-    assert mysql_sql.count('create table if not exists') == 2
+    assert mysql_sql.count('create table if not exists') == MODEL_SERVICE_TABLE_COUNT
     assert 'create index if not exists' not in mysql_sql
     assert 'index idx_ai_model_catalog_lifecycle (lifecycle_status)' in mysql_sql
     assert 'index idx_ai_resource_binding_engine (engine_type, engine_resource_id)' in mysql_sql
     assert 'create index idx_ai_model_catalog_lifecycle' not in mysql_sql
     assert 'create index idx_ai_resource_binding_engine' not in mysql_sql
 
-    assert postgres_sql.count('create table if not exists') == 2
+    assert postgres_sql.count('create table if not exists') == MODEL_SERVICE_TABLE_COUNT
     assert 'create index if not exists idx_ai_model_catalog_lifecycle' in postgres_sql
     assert 'create index if not exists idx_ai_resource_binding_engine' in postgres_sql
 
@@ -81,7 +84,7 @@ def test_model_service_migrations_support_tables_precreated_by_metadata() -> Non
 def test_model_catalog_entity_matches_database_contract() -> None:
     assert AiModelCatalog.__tablename__ == 'ai_model_catalog'
     assert AiModelCatalog.__table__.c.model_id.primary_key is True
-    assert AiModelCatalog.__table__.c.model_id.type.length == 36
+    assert AiModelCatalog.__table__.c.model_id.type.length == RESOURCE_ID_LENGTH
     assert AiModelCatalog.__table__.c.model_code.unique is True
     assert AiModelCatalog.__table__.c.capabilities.nullable is False
     assert AiModelCatalog.__table__.c.default_parameters.nullable is False
@@ -124,8 +127,8 @@ def test_model_catalog_metadata_matches_database_specific_json_and_indexes() -> 
 def test_resource_binding_entity_matches_database_contract() -> None:
     assert AiResourceBinding.__tablename__ == 'ai_resource_binding'
     assert AiResourceBinding.__table__.c.binding_id.primary_key is True
-    assert AiResourceBinding.__table__.c.binding_id.type.length == 36
-    assert AiResourceBinding.__table__.c.resource_id.type.length == 36
+    assert AiResourceBinding.__table__.c.binding_id.type.length == RESOURCE_ID_LENGTH
+    assert AiResourceBinding.__table__.c.resource_id.type.length == RESOURCE_ID_LENGTH
     assert AiResourceBinding.__table__.c.engine_metadata.nullable is False
     assert AiResourceBinding.__table__.c.version.nullable is False
     assert AiResourceBinding.__table__.c.version.server_default is not None
