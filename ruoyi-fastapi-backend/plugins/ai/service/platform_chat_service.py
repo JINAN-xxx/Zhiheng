@@ -382,6 +382,10 @@ class PlatformChatService:
         resolved = await self._model_service.resolve_model(request.model_id)
         # ModelService owns the read transaction. Resolve it before session writes so
         # the Controller can safely inject the request's single clean DB session.
+        # Preferences are also a read operation which rolls back its transaction;
+        # load them before creating a new session so that rollback cannot remove
+        # the pending session before its first message is flushed.
+        preferences = await self._preferences.get_preferences(user_id=user_id)
         session = await self._load_owned_session(user_id, request.session_id)
         if session is not None and session.model_id != resolved.platform_model_id:
             raise PlatformChatError.session_model_mismatch()
@@ -396,7 +400,6 @@ class PlatformChatService:
                 updated_at=self._clock(),
             )
             await self._dao.create_session(self._db, session)
-        preferences = await self._preferences.get_preferences(user_id=user_id)
         existing = await self._dao.get_message_by_client_id(
             self._db,
             session.session_id,

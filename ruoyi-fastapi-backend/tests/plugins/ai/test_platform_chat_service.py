@@ -36,6 +36,7 @@ class FakeSession:
         self.commit_count = 0
         self.rollback_count = 0
         self._active = False
+        self.pending_session: AiChatSession | None = None
 
     def add(self, item: object) -> None:
         del item
@@ -51,6 +52,7 @@ class FakeSession:
     async def rollback(self) -> None:
         self.rollback_count += 1
         self._active = False
+        self.pending_session = None
 
     def in_transaction(self) -> bool:
         return self._active
@@ -235,6 +237,28 @@ class FakePreferences:
         )
 
 
+class RollbackPreferences(FakePreferences):
+    def __init__(self, db: FakeSession) -> None:
+        self._db = db
+
+    async def get_preferences(self, *, user_id: int) -> SimpleNamespace:
+        result = await super().get_preferences(user_id=user_id)
+        await self._db.rollback()
+        return result
+
+
+class TransactionalFakeDao(FakeDao):
+    async def create_session(self, db: FakeSession, session: AiChatSession) -> AiChatSession:
+        result = await super().create_session(db, session)
+        db.pending_session = session
+        return result
+
+    async def create_message(self, db: FakeSession, message: AiChatMessage) -> AiChatMessage:
+        if db.pending_session is None or db.pending_session.session_id != message.session_id:
+            raise AssertionError('message foreign key session is missing')
+        return await super().create_message(db, message)
+
+
 @pytest.mark.asyncio
 async def test_list_sessions_builds_page_model_with_public_aliases() -> None:
     class SessionListDao:
@@ -310,13 +334,15 @@ def _request(
 
 def _service(
     *,
+    db: FakeSession | None = None,
     stream: FakeRuntimeStream | None = None,
     dao: FakeDao | None = None,
     coordinator: FakeCoordinator | None = None,
     images: FakeImages | None = None,
     stream_error: BaseException | None = None,
+    preferences: FakePreferences | None = None,
 ) -> tuple[PlatformChatService, FakeSession, FakeDao, FakeModelService, FakeCoordinator]:
-    db = FakeSession()
+    db = db or FakeSession()
     fake_dao = dao or FakeDao()
     fake_runtime = FakeModelService(
         stream,
@@ -338,7 +364,7 @@ def _service(
         db,
         model_service=fake_runtime,
         coordinator=fake_coordinator,
-        preferences=FakePreferences(),
+        preferences=preferences or FakePreferences(),
         chat_dao=fake_dao,
         image_resolver=images or FakeImages(),
         id_factory=lambda prefix: {'ses': SESSION_ID, 'msg': 'msg_423e4567e89b42d3a456426614174444', 'run': RUN_ID}[
@@ -379,6 +405,19 @@ async def test_send_persists_user_run_and_terminal_assistant_with_platform_event
     assert coordinator.lock.entered == 1
     assert coordinator.lock.exited == 1
     assert runtime.stream_calls
+
+
+@pytest.mark.asyncio
+async def test_send_reads_preferences_before_creating_new_session() -> None:
+    db = FakeSession()
+    dao = TransactionalFakeDao()
+    service, _, _, _, _ = _service(db=db, dao=dao, preferences=RollbackPreferences(db))
+
+    result = await service.send(USER_ID, _request())
+    [event async for event in result]
+
+    assert dao.session is not None
+    assert len(dao.messages) == MESSAGE_COUNT
 
 
 @pytest.mark.asyncio
