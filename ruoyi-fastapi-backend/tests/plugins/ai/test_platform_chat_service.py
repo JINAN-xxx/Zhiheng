@@ -5,11 +5,17 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from plugins.ai.dao.platform_chat_dao import PlatformChatDao
 from plugins.ai.domain.model_runtime import ModelStreamEvent, ModelUsage
 from plugins.ai.domain.model_service_errors import ModelServiceError
-from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatRun, AiChatSession
+from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatPreferences, AiChatRun, AiChatSession
+from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
+from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.entity.vo.ai_platform_chat_vo import PlatformChatRequestModel
+from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError
 from plugins.ai.service.model_service import ModelServiceStreamResult, ResolvedModel
 from plugins.ai.service.platform_chat_service import (
@@ -418,6 +424,82 @@ async def test_send_reads_preferences_before_creating_new_session() -> None:
 
     assert dao.session is not None
     assert len(dao.messages) == MESSAGE_COUNT
+
+
+@pytest.mark.asyncio
+async def test_send_does_not_access_expired_entities_after_initial_commit() -> None:
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text('PRAGMA foreign_keys=ON'))
+            for table in (
+                AiModelCatalog.__table__,
+                AiResourceBinding.__table__,
+                AiChatSession.__table__,
+                AiChatMessage.__table__,
+                AiChatRun.__table__,
+                AiChatPreferences.__table__,
+            ):
+                await connection.run_sync(table.create)
+        session_maker = async_sessionmaker(engine, expire_on_commit=True)
+        async with session_maker() as db:
+            db.add(
+                AiModelCatalog(
+                    model_id=MODEL_ID,
+                    model_code='platform-chat-model',
+                    display_name='Platform Chat Model',
+                    model_type='chat',
+                    capabilities={},
+                    default_parameters={},
+                    lifecycle_status='active',
+                    published_at=NOW,
+                    create_by='tester',
+                    create_time=NOW,
+                    update_by='tester',
+                    update_time=NOW,
+                )
+            )
+            db.add(
+                AiResourceBinding(
+                    binding_id=BINDING_ID,
+                    resource_type='model',
+                    resource_id=MODEL_ID,
+                    engine_type='litellm',
+                    engine_resource_id='gpt-4o-mini',
+                    binding_status='active',
+                    engine_metadata={},
+                    version=1,
+                    create_by='tester',
+                    create_time=NOW,
+                    update_by='tester',
+                    update_time=NOW,
+                )
+            )
+            await db.commit()
+            service = PlatformChatService(
+                db,
+                model_service=FakeModelService(FakeRuntimeStream(())),
+                coordinator=FakeCoordinator(),
+                preferences=ChatPreferencesService(db),
+                id_factory=lambda prefix: {
+                    'ses': SESSION_ID,
+                    'msg': 'msg_423e4567e89b42d3a456426614174444',
+                    'run': RUN_ID,
+                }[prefix],
+                clock=lambda: NOW,
+            )
+
+            result = await service.send(USER_ID, _request())
+            [event async for event in result]
+
+            persisted_session = await PlatformChatDao.get_owned_session(db, SESSION_ID, user_id=USER_ID)
+            persisted_runs = await PlatformChatDao.list_runs(db, SESSION_ID)
+
+        assert persisted_session is not None
+        assert len(persisted_runs) == 1
+        assert persisted_runs[0].status == 'completed'
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

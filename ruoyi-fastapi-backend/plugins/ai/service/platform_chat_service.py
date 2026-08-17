@@ -400,32 +400,32 @@ class PlatformChatService:
                 updated_at=self._clock(),
             )
             await self._dao.create_session(self._db, session)
+        session_id = session.session_id
         existing = await self._dao.get_message_by_client_id(
             self._db,
-            session.session_id,
+            session_id,
             request.client_message_id,
         )
         if existing is not None:
             if existing.content != request.message:
                 raise PlatformChatError.idempotency_conflict()
-            previous_run = await self._dao.get_latest_run(self._db, session.session_id)
-            await self._rollback_if_active()
+            previous_run = await self._dao.get_latest_run(self._db, session_id)
             replay_run_id = previous_run.run_id if previous_run is not None else self._id_factory('run')
-            return PlatformChatStreamResult(
-                session.session_id, replay_run_id, self._replay(session.session_id, replay_run_id)
-            )
+            await self._rollback_if_active()
+            return PlatformChatStreamResult(session_id, replay_run_id, self._replay(session_id, replay_run_id))
 
         history = []
         if preferences.add_history and preferences.history_message_count > 0:
             history = await self._dao.list_history_messages(
                 self._db,
-                session.session_id,
+                session_id,
                 limit=preferences.history_message_count,
             )
         user_content, image_refs = await self._build_user_content(user_id, request, preferences)
+        messages = self._build_messages(history, request.message, user_content, preferences.system_prompt)
         message = AiChatMessage(
             message_id=self._id_factory('msg'),
-            session_id=session.session_id,
+            session_id=session_id,
             client_message_id=request.client_message_id,
             role='user',
             content=request.message,
@@ -435,11 +435,13 @@ class PlatformChatService:
             updated_at=self._clock(),
         )
         await self._dao.create_message(self._db, message)
+        run_id = self._id_factory('run')
+        binding_id = resolved.binding_id
         run = AiChatRun(
-            run_id=self._id_factory('run'),
-            session_id=session.session_id,
+            run_id=run_id,
+            session_id=session_id,
             model_id=resolved.platform_model_id,
-            binding_id=resolved.binding_id,
+            binding_id=binding_id,
             engine_type=resolved.engine_type,
             engine_model_snapshot=resolved.engine_model_snapshot,
             status='pending',
@@ -449,9 +451,8 @@ class PlatformChatService:
         await self._dao.create_run(self._db, run)
         await self._commit()
 
-        messages = self._build_messages(history, request.message, user_content, preferences.system_prompt)
         parameters = {'temperature': preferences.temperature} if preferences.temperature is not None else {}
-        lock = self._coordinator.acquire_session(session.session_id)
+        lock = self._coordinator.acquire_session(session_id)
         try:
             await lock.__aenter__()
             runtime_stream = await self._model_service.stream_chat(
@@ -460,19 +461,19 @@ class PlatformChatService:
                 parameters,
             )
         except BaseException as error:
-            await self._finish_setup_failure(run.run_id, error)
+            await self._finish_setup_failure(run_id, error)
             try:
                 await lock.__aexit__(type(error), error, error.__traceback__)
             except BaseException:
                 pass
             raise
         return PlatformChatStreamResult(
-            session.session_id,
-            run.run_id,
+            session_id,
+            run_id,
             self._generate(
-                session=session,
-                run=run,
-                request=request,
+                session_id=session_id,
+                run_id=run_id,
+                binding_id=binding_id,
                 runtime_stream=runtime_stream,
                 lock=lock,
             ),
@@ -537,29 +538,28 @@ class PlatformChatService:
     async def _generate(
         self,
         *,
-        session: AiChatSession,
-        run: AiChatRun,
-        request: PlatformChatRequestModel,
+        session_id: str,
+        run_id: str,
+        binding_id: str,
         runtime_stream: ModelServiceStreamResult,
         lock: Any,
     ) -> AsyncIterator[PlatformChatEvent]:
-        del request
         state = _GenerationState(content_parts=[], reasoning_parts=[])
         try:
-            await self._start_run(run)
+            await self._start_run(run_id)
             yield PlatformChatEvent(
                 'meta',
-                _freeze_data({'sessionId': session.session_id, 'runId': run.run_id, 'bindingId': run.binding_id}),
+                _freeze_data({'sessionId': session_id, 'runId': run_id, 'bindingId': binding_id}),
             )
-            async for event in self._forward_events(session, run, runtime_stream, state):
+            async for event in self._forward_events(session_id, run_id, runtime_stream, state):
                 yield event
-            yield self._status_event(session.session_id, run.run_id, 'completed')
+            yield self._status_event(session_id, run_id, 'completed')
         except (ModelServiceError, ChatCoordinationError) as error:
             state.final_status = 'failed'
             state.error_code = error.code
             state.error_message = error.public_message
-            yield self._error_event(session.session_id, run.run_id, state.error_code, state.error_message)
-            yield self._status_event(session.session_id, run.run_id, state.final_status)
+            yield self._error_event(session_id, run_id, state.error_code, state.error_message)
+            yield self._status_event(session_id, run_id, state.final_status)
         except asyncio.CancelledError:
             state.final_status = 'cancelled'
             state.active_error = sys.exc_info()[1]
@@ -572,8 +572,8 @@ class PlatformChatService:
             state.final_status = 'failed'
             state.error_code = 'MODEL_RUNTIME_ERROR'
             state.error_message = '模型运行时调用失败'
-            yield self._error_event(session.session_id, run.run_id, state.error_code, state.error_message)
-            yield self._status_event(session.session_id, run.run_id, state.final_status)
+            yield self._error_event(session_id, run_id, state.error_code, state.error_message)
+            yield self._status_event(session_id, run_id, state.final_status)
         finally:
             try:
                 await runtime_stream.aclose()
@@ -583,8 +583,8 @@ class PlatformChatService:
                     state.error_code = 'MODEL_RUNTIME_ERROR'
                     state.error_message = '模型运行时调用失败'
             await self._persist_terminal(
-                session=session,
-                run=run,
+                session_id=session_id,
+                run_id=run_id,
                 status=state.final_status,
                 content=''.join(state.content_parts),
                 reasoning=''.join(state.reasoning_parts) or None,
@@ -598,10 +598,10 @@ class PlatformChatService:
                 if state.active_error is None:
                     raise
 
-    async def _start_run(self, run: AiChatRun) -> None:
+    async def _start_run(self, run_id: str) -> None:
         await self._dao.transition_run_status(
             self._db,
-            run.run_id,
+            run_id,
             expected_statuses={'pending'},
             values={'status': 'running', 'started_at': self._clock(), 'updated_at': self._clock()},
         )
@@ -609,15 +609,15 @@ class PlatformChatService:
 
     async def _forward_events(
         self,
-        session: AiChatSession,
-        run: AiChatRun,
+        session_id: str,
+        run_id: str,
         runtime_stream: ModelServiceStreamResult,
         state: _GenerationState,
     ) -> AsyncIterator[PlatformChatEvent]:
         async for event in runtime_stream:
-            if await self._coordinator.is_cancelled(run.run_id):
+            if await self._coordinator.is_cancelled(run_id):
                 raise asyncio.CancelledError
-            normalized = self._platform_event_for_runtime(session.session_id, run.run_id, event, state)
+            normalized = self._platform_event_for_runtime(session_id, run_id, event, state)
             if normalized is not None:
                 yield normalized
 
@@ -666,8 +666,8 @@ class PlatformChatService:
     async def _persist_terminal(
         self,
         *,
-        session: AiChatSession,
-        run: AiChatRun,
+        session_id: str,
+        run_id: str,
         status: str,
         content: str,
         reasoning: str | None,
@@ -680,8 +680,8 @@ class PlatformChatService:
                 self._db,
                 AiChatMessage(
                     message_id=self._id_factory('msg'),
-                    session_id=session.session_id,
-                    client_message_id=f'{run.run_id}:assistant',
+                    session_id=session_id,
+                    client_message_id=f'{run_id}:assistant',
                     role='assistant',
                     content=content,
                     reasoning_content=reasoning,
@@ -713,7 +713,7 @@ class PlatformChatService:
             )
         await self._dao.transition_run_status(
             self._db,
-            run.run_id,
+            run_id,
             expected_statuses={'pending', 'running'},
             values=values,
         )
