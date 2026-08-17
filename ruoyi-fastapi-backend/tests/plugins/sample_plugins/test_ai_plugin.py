@@ -3,12 +3,6 @@ from pathlib import Path
 import pytest
 
 from cli.runtime.plugin.scaffold import PluginFrontendVersionResolver
-from exceptions.exception import ServiceException
-from plugins.ai.dao.ai_chat_dao import AiChatConfigDao
-from plugins.ai.dao.ai_model_dao import AiModelDao
-from plugins.ai.entity.vo.ai_chat_vo import AiChatConfigModel, AiChatRequestModel
-from plugins.ai.service.ai_chat_service import AiChatService
-from plugins.ai.utils.ai_util import AiUtil
 from plugins.core.discovery.registry import PluginRegistry
 from plugins.core.discovery.scanner import PluginScanner
 from plugins.core.management.entity.vo.schemas import PluginModel
@@ -40,19 +34,8 @@ EXPECTED_AI_PERMISSIONS = {
     'ai:engine:deployment:remove',
 }
 EXPECTED_AI_PYTHON_DEPENDENCIES = [
-    'agno==2.8.6',
-    'anthropic==0.120.2',
-    'cerebras-cloud-sdk==1.91.0',
-    'cohere==7.0.8',
-    'google-genai==2.16.0',
-    'groq==1.6.0',
     'httpx==0.28.1',
     'litellm==1.94.0',
-    'llama-api-client==0.6.0',
-    'mistralai==2.8.0',
-    'ollama==0.6.2',
-    'openai==2.52.0',
-    'portkey-ai==2.3.4',
 ]
 EXPECTED_AI_VUE2_NPM_DEPENDENCIES = [
     '@antv/infographic^0.2.13',
@@ -76,7 +59,6 @@ EXPECTED_AI_VUE3_NPM_DEPENDENCIES = [
     'stream-monaco>=0.0.48',
 ]
 EXPECTED_AI_VUE3_NPM_DEV_DEPENDENCIES = ['vite-plugin-monaco-editor-esm==2.0.2']
-EXPECTED_DEFAULT_NUM_HISTORY_RUNS = 3
 
 
 def test_ai_plugin_template_can_be_discovered() -> None:
@@ -165,117 +147,6 @@ def test_ai_plugin_structure_check_passes() -> None:
 
     assert result.ok is True
     assert result.failed_items == []
-
-
-@pytest.mark.asyncio
-async def test_ai_chat_config_detail_returns_vo_when_config_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """校验 AI 对话配置不存在时服务返回 VO 默认模型，而不是 DO 对象。"""
-
-    async def fake_get_chat_config_detail_by_user_id(*_args: object, **_kwargs: object) -> None:
-        """返回测试用 AI 聊天配置。"""
-
-    monkeypatch.setattr(
-        AiChatConfigDao,
-        'get_chat_config_detail_by_user_id',
-        fake_get_chat_config_detail_by_user_id,
-    )
-
-    result = await AiChatService.ai_chat_config_detail_services(query_db=object(), user_id=1)
-
-    assert isinstance(result, AiChatConfigModel)
-    assert result.num_history_runs == EXPECTED_DEFAULT_NUM_HISTORY_RUNS
-
-
-@pytest.mark.asyncio
-async def test_ai_chat_services_rejects_missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """校验 AI 对话在模型不存在时直接返回明确业务异常。"""
-
-    async def fake_get_ai_model_detail_by_id(*_args: object, **_kwargs: object) -> None:
-        """返回测试用 AI 模型配置。"""
-
-    monkeypatch.setattr(AiModelDao, 'get_ai_model_detail_by_id', fake_get_ai_model_detail_by_id)
-
-    stream = AiChatService.chat_services(
-        query_db=object(),
-        chat_req=AiChatRequestModel(modelId=404, message='hi'),
-        user_id=1,
-    )
-
-    with pytest.raises(ServiceException) as exc_info:
-        await anext(stream)
-    assert exc_info.value.message == '模型不存在'
-
-
-@pytest.mark.asyncio
-async def test_ai_chat_services_rejects_disabled_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    """校验 AI 对话不能使用已停用模型。"""
-
-    async def fake_get_ai_model_detail_by_id(*_args: object, **_kwargs: object) -> dict[str, object]:
-        """返回测试用 AI 模型配置。"""
-        return {
-            'model_id': 1,
-            'model_code': 'gpt-4o-mini',
-            'model_name': 'GPT',
-            'provider': 'OpenAI',
-            'api_key': 'encrypted',
-            'status': '1',
-            'support_reasoning': 'N',
-            'support_images': 'N',
-        }
-
-    monkeypatch.setattr(AiModelDao, 'get_ai_model_detail_by_id', fake_get_ai_model_detail_by_id)
-
-    stream = AiChatService.chat_services(
-        query_db=object(),
-        chat_req=AiChatRequestModel(modelId=1, message='hi'),
-        user_id=1,
-    )
-
-    with pytest.raises(ServiceException) as exc_info:
-        await anext(stream)
-    assert exc_info.value.message == '模型已停用'
-
-
-def test_ai_model_factory_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """校验未知 AI provider 不会静默回退到 OpenAI。"""
-
-    class FakeModel:
-        """
-        测试用模型类。
-        """
-
-        def __init__(self, **kwargs: object) -> None:
-            """初始化测试用 AI 模型提供者。"""
-            self.kwargs = kwargs
-
-    def fake_resolve_provider_class(cls: type[AiUtil], provider: str) -> type[FakeModel] | None:
-        """返回测试用 AI 模型提供者类。"""
-        return FakeModel if provider == 'OpenAI' else None
-
-    monkeypatch.setattr(AiUtil, '_resolve_provider_class', classmethod(fake_resolve_provider_class))
-
-    with pytest.raises(ValueError, match='未知AI模型提供商'):
-        AiUtil.get_model_from_factory(
-            provider='UnknownAI',
-            model_code='demo',
-            model_name='Demo',
-            api_key='secret',
-        )
-
-
-def test_ai_model_factory_validates_base_url_boundary() -> None:
-    """校验 AI 模型工厂限制基础 URL 的信任边界。"""
-    assert AiUtil._validate_base_url('https://api.example.com/v1') == 'https://api.example.com/v1'
-
-    blocked_urls = (
-        'http://127.0.0.1:8000',
-        'http://10.0.0.1',
-        'http://localhost:8000',
-        'ftp://api.example.com',
-    )
-    for base_url in blocked_urls:
-        with pytest.raises(ValueError):
-            AiUtil._validate_base_url(base_url)
 
 
 def test_ai_plugin_sql_assets_own_ai_schema_and_seed_data() -> None:

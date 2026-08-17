@@ -1,11 +1,13 @@
 # AI 管理后端插件
 
-AI 管理插件提供模型配置、供应商字典、会话对话和流式输出能力。插件保留原有接口前缀和权限标识，安装后会在系统菜单中生成「AI 管理」目录，以及「模型管理」「AI 对话」两个页面。
+AI 管理插件提供 Platform Model、供应商管理、Platform Session 会话和 LiteLLM 流式输出能力。安装后会在系统菜单中生成「AI 管理」目录，以及「模型中心」「AI 对话」两个页面。
+
+旧迁移中的 `ai_models`、`ai_chat_config` 以及历史 Agno 空表只作为兼容数据保留，不再进入活跃路由或服务链路。新模型、Binding、Session、Message、Run 和偏好使用 Platform 表与接口。
 
 ## 功能
 
-- 模型管理：维护模型编码、供应商、API Key、Base URL、温度、Token 限制、推理能力、图片能力和启停状态。
-- AI 对话：基于已启用模型发起对话，支持历史会话、系统提示词、温度配置、深度思考开关、图片输入和 SSE 流式返回。
+- 模型中心：维护 Platform Model、Runtime Binding、Credential 和发布状态。
+- AI 对话：基于已发布 Platform Model 发起对话，支持历史会话、用户偏好、受控图片引用和标准 SSE 流式返回。
 - 字典数据：安装时写入 `ai_provider_type` 字典，用于模型供应商下拉选择。
 - 多数据库脚本：内置 MySQL 和 PostgreSQL 的建表脚本与字典种子脚本。
 - 依赖声明：Python 与前端 npm 依赖统一声明在 `plugin.yaml`，由插件依赖检查与安装流程处理。
@@ -14,7 +16,8 @@ AI 管理插件提供模型配置、供应商字典、会话对话和流式输�
 
 后端接口：
 
-- `/ai/model`
+- `/ai/models`
+- `/ai/model-engine/*`
 - `/ai/chat`
 
 权限标识：

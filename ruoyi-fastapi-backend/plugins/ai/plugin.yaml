@@ -105,19 +105,8 @@ permissions:
 
 dependencies:
   python:
-    - agno==2.8.6
-    - anthropic==0.120.2
-    - cerebras-cloud-sdk==1.91.0
-    - cohere==7.0.8
-    - google-genai==2.16.0
-    - groq==1.6.0
     - httpx==0.28.1
     - litellm==1.94.0
-    - llama-api-client==0.6.0
-    - mistralai==2.8.0
-    - ollama==0.6.2
-    - openai==2.52.0
-    - portkey-ai==2.3.4
   npm:
     - '@antv/infographic^0.2.13'
     - '@terrastruct/d2>=0.1.33'
