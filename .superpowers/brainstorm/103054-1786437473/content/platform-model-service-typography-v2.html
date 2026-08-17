@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Model Service 字体调整稿</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { --ink:#172027; --text:#344149; --muted:#6c7880; --line:#dfe5e8; --canvas:#f3f5f6; --green:#176b55; --green-soft:#e9f4ef; --blue:#2467a3; --blue-soft:#eaf2f9; --amber:#91621c; --amber-soft:#fff3dc; }
+    body { margin:0; background:#edf0f1; color:var(--ink); font-family:system-ui,"Noto Sans SC","HarmonyOS Sans SC","MiSans","PingFang SC","Microsoft YaHei UI",sans-serif; font-size:14px; font-weight:400; line-height:1.5; letter-spacing:0; }
+    button,input,textarea { font:inherit; letter-spacing:0; }
+    .page { max-width:1400px; margin:0 auto; padding:28px; }
+    .intro h1 { margin:0 0 7px; font-size:25px; font-weight:650; line-height:1.25; }
+    .intro p { margin:0 0 20px; color:var(--muted); font-size:14px; }
+    .shell { display:grid; grid-template-columns:184px 1fr; min-height:690px; overflow:hidden; border:1px solid #d5dcdf; border-radius:7px; background:#fff; box-shadow:0 9px 28px rgba(37,48,54,.09); }
+    .side { background:#1e272c; color:#d4dde0; padding:16px 11px; }
+    .brand { display:flex; align-items:center; gap:9px; height:42px; padding:0 8px 15px; border-bottom:1px solid #364146; color:#fff; font-size:14px; font-weight:650; }
+    .brand-mark { display:grid; place-items:center; width:26px; height:26px; border-radius:5px; background:#48a487; color:#10201b; font-size:11px; font-weight:700; }
+    .nav-label { margin:20px 10px 7px; color:#84949b; font-size:11px; font-weight:500; }
+    .nav-item { display:flex; align-items:center; gap:9px; min-height:39px; margin:3px 0; padding:0 10px; border-radius:5px; color:#bec8cc; font-size:13px; font-weight:450; }
+    .nav-item.active { background:#30483f; color:#fff; font-weight:550; }
+    .nav-icon { width:17px; color:#9aabb2; text-align:center; }
+    .main { min-width:0; background:var(--canvas); }
+    .topbar { display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 21px; border-bottom:1px solid var(--line); background:#fff; color:#68757d; font-size:12px; }
+    .avatar { display:inline-grid; place-items:center; width:27px; height:27px; margin-left:10px; border-radius:50%; background:#d8e5e0; color:#365449; font-size:10px; font-style:normal; font-weight:600; }
+    .content { padding:22px; }
+    .heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:15px; }
+    .heading h2 { margin:0 0 5px; font-size:22px; font-weight:650; line-height:1.25; }
+    .heading p { margin:0; color:var(--muted); font-size:12px; }
+    .heading-actions { display:flex; align-items:center; gap:8px; }
+    .health { display:inline-flex; align-items:center; gap:7px; height:33px; padding:0 10px; border:1px solid #b7d6ca; border-radius:5px; background:var(--green-soft); color:var(--green); font-size:11px; font-weight:550; }
+    .dot { width:7px; height:7px; border-radius:50%; background:#2d9973; box-shadow:0 0 0 3px rgba(45,153,115,.12); }
+    .btn { height:33px; border:1px solid #c9d2d6; border-radius:5px; background:#fff; padding:0 12px; color:#354148; font-size:12px; font-weight:500; }
+    .btn.primary { border-color:var(--green); background:var(--green); color:#fff; font-weight:600; }
+    .btn.icon { width:33px; padding:0; font-size:16px; }
+    .tabs { display:flex; gap:23px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+    .tab { position:relative; padding:10px 1px 12px; color:#6c7881; font-size:12px; font-weight:450; }
+    .tab.active { color:var(--ink); font-weight:600; }
+    .tab.active::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--green); }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:11px; }
+    .filters { display:flex; gap:8px; }
+    .search { width:230px; height:33px; border:1px solid #cbd4d8; border-radius:5px; background:#fff; padding:0 11px; color:#455159; font-size:12px; }
+    .search::placeholder { color:#929ca2; }
+    .select { display:flex; align-items:center; justify-content:space-between; min-width:108px; height:33px; border:1px solid #cbd4d8; border-radius:5px; background:#fff; padding:0 10px; color:#647179; font-size:11px; }
+    .table { overflow:hidden; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    .row { display:grid; grid-template-columns:1.45fr .78fr .9fr .72fr .55fr .55fr; align-items:center; min-height:67px; padding:0 13px; border-top:1px solid #e8ecee; color:var(--text); font-size:12px; }
+    .row.head { min-height:41px; border:0; background:#f8faf9; color:#6b777f; font-size:11px; font-weight:600; }
+    .model-cell { display:flex; align-items:center; gap:10px; min-width:0; }
+    .model-mark { display:grid; place-items:center; flex:none; width:31px; height:31px; border-radius:6px; background:var(--blue-soft); color:var(--blue); font-size:10px; font-weight:700; }
+    .model-mark.amber { background:var(--amber-soft); color:var(--amber); }
+    .model-mark.green { background:var(--green-soft); color:var(--green); }
+    .strong { display:block; overflow:hidden; color:#1f292f; font-size:13px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .sub { display:block; overflow:hidden; margin-top:3px; color:#7e8a91; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+    .code { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:10px; font-weight:400; }
+    .tag { display:inline-block; margin:2px 2px 2px 0; padding:3px 6px; border-radius:4px; background:#f0f3f4; color:#59666d; font-size:9px; font-weight:500; }
+    .status { display:inline-flex; align-items:center; gap:6px; color:var(--green); font-size:11px; font-weight:550; }
+    .status::before { content:""; width:6px; height:6px; border-radius:50%; background:#309c75; }
+    .actions { color:var(--blue); font-size:11px; font-weight:600; }
+    .pager { display:flex; justify-content:space-between; margin-top:11px; color:#7b878d; font-size:10px; }
+    .chat-preview { display:grid; grid-template-columns:220px 1fr; margin-top:18px; overflow:hidden; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    .sessions { border-right:1px solid var(--line); background:#f8faf9; padding:13px 10px; }
+    .sessions h3 { margin:0 5px 12px; font-size:13px; font-weight:600; }
+    .session { margin:4px 0; padding:10px; border-radius:5px; color:#5c686f; font-size:11px; }
+    .session.active { background:#e7eeeb; color:#22322c; }
+    .session strong { display:block; font-size:12px; font-weight:550; }
+    .session small { display:block; margin-top:4px; color:#89949a; font-size:9px; }
+    .chat { padding:15px 18px; }
+    .chat-head { display:flex; align-items:center; justify-content:space-between; padding-bottom:12px; border-bottom:1px solid #edf0f1; }
+    .chat-head strong { font-size:14px; font-weight:600; }
+    .model-select { display:flex; align-items:center; gap:7px; min-height:31px; border:1px solid #cad3d7; border-radius:5px; padding:0 9px; font-size:11px; }
+    .model-select code { color:#68747b; font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; font-size:9px; }
+    .conversation { padding:17px 5%; }
+    .message { display:grid; grid-template-columns:29px 1fr; gap:10px; margin-bottom:16px; color:#2d383e; font-size:12px; line-height:1.7; }
+    .msg-avatar { display:grid; place-items:center; width:29px; height:29px; border-radius:6px; background:var(--green); color:#fff; font-size:9px; font-weight:700; }
+    .msg-meta { margin-bottom:5px; color:#7b878e; font-size:10px; }
+    .reasoning { margin:7px 0 9px; border-left:2px solid #d8c49c; padding-left:10px; color:#75694f; font-size:11px; }
+    .metrics { display:flex; flex-wrap:wrap; gap:11px; margin-top:8px; color:#7f8b92; font-size:9px; }
+    .decisions { display:flex; justify-content:center; gap:10px; margin-top:18px; }
+    .decisions button { min-width:170px; height:39px; border:1px solid #bdc8cc; border-radius:6px; background:#fff; color:#39454b; cursor:pointer; }
+    .decisions button:hover,.decisions button.selected { border-color:var(--green); background:var(--green-soft); color:var(--green); font-weight:600; }
+    @media(max-width:800px) { .page{padding:12px}.shell{grid-template-columns:1fr}.side{display:none}.content{padding:14px}.heading,.toolbar{align-items:stretch;flex-direction:column}.filters{flex-wrap:wrap}.search{width:100%}.tabs{gap:14px;overflow:auto}.row{grid-template-columns:1.5fr .8fr .6fr}.row>span:nth-child(3),.row>span:nth-child(4),.row>span:nth-child(6){display:none}.chat-preview{grid-template-columns:1fr}.sessions{display:none}.decisions{flex-direction:column}.decisions button{width:100%} }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="intro"><h1>Model Service 字体调整稿</h1><p>提高导航、表格和辅助信息的可读性，正文使用现代系统无衬线字体，资源 ID 使用等宽字体。</p></div>
+    <section class="shell">
+      <aside class="side">
+        <div class="brand"><span class="brand-mark">AI</span>Open Platform</div>
+        <div class="nav-label">Model Service</div>
+        <div class="nav-item active"><span class="nav-icon">▦</span>模型中心</div>
+        <div class="nav-item"><span class="nav-icon">◇</span>调试对话</div>
+        <div class="nav-label">Platform</div>
+        <div class="nav-item"><span class="nav-icon">◫</span>租户与项目</div>
+        <div class="nav-item"><span class="nav-icon">⌁</span>应用与密钥</div>
+        <div class="nav-item"><span class="nav-icon">◉</span>Usage 与审计</div>
+        <div class="nav-label">System</div>
+        <div class="nav-item"><span class="nav-icon">⚙</span>平台设置</div>
+      </aside>
+      <div class="main">
+        <div class="topbar"><span>Model Service / 模型中心</span><span>通知　帮助 <i class="avatar">JA</i></span></div>
+        <div class="content">
+          <div class="heading"><div><h2>模型中心</h2><p>管理平台模型，以及它们与 LiteLLM Runtime 的绑定关系</p></div><div class="heading-actions"><span class="health"><i class="dot"></i>Model Service 正常 · 32 ms</span><button class="btn primary">＋ 接入模型</button></div></div>
+          <div class="tabs"><span class="tab active">平台模型　3</span><span class="tab">引擎部署　4</span><span class="tab">Provider 凭据　3</span><span class="tab">运行状态</span></div>
+          <div class="toolbar"><div class="filters"><input class="search" placeholder="搜索模型 ID 或名称"><div class="select">全部类型　⌄</div><div class="select">全部状态　⌄</div></div><button class="btn icon" title="刷新">↻</button></div>
+          <div class="table">
+            <div class="row head"><span>平台模型</span><span>类型 / 能力</span><span>Runtime 绑定</span><span>上下文</span><span>状态</span><span>操作</span></div>
+            <div class="row"><span class="model-cell"><i class="model-mark">CR</i><span><b class="strong">企业推理模型</b><small class="sub"><span class="code">model_company_reasoning</span> · <span class="code">mdl_8f2a...</span></small></span></span><span><i class="tag">Chat</i><i class="tag">推理</i><i class="tag">Tools</i></span><span><b class="strong">deepseek-reasoner</b><small class="sub">LiteLLM · 2 deployments</small></span><span>64K</span><span class="status">已发布</span><span class="actions">调试　⋮</span></div>
+            <div class="row"><span class="model-cell"><i class="model-mark amber">QW</i><span><b class="strong">通用对话模型</b><small class="sub"><span class="code">model_general_chat</span> · <span class="code">mdl_b910...</span></small></span></span><span><i class="tag">Chat</i><i class="tag">Vision</i></span><span><b class="strong">qwen-plus</b><small class="sub">LiteLLM · 1 deployment</small></span><span>128K</span><span class="status">已发布</span><span class="actions">调试　⋮</span></div>
+            <div class="row"><span class="model-cell"><i class="model-mark green">EM</i><span><b class="strong">中文向量模型</b><small class="sub"><span class="code">model_embedding_zh</span> · <span class="code">mdl_473c...</span></small></span></span><span><i class="tag">Embedding</i></span><span><b class="strong">bge-m3</b><small class="sub">LiteLLM · 1 deployment</small></span><span>8K</span><span class="status">已发布</span><span class="actions">详情　⋮</span></div>
+          </div>
+          <div class="pager"><span>共 3 个平台模型 · 刚刚同步 Runtime 状态</span><span>‹　1　›</span></div>
+          <div class="chat-preview">
+            <aside class="sessions"><h3>调试会话</h3><div class="session active"><strong>模型网关的职责边界</strong><small>企业推理模型 · 刚刚</small></div><div class="session"><strong>比较两种部署策略</strong><small>通用对话模型 · 09:42</small></div></aside>
+            <div class="chat"><div class="chat-head"><strong>模型调试</strong><div class="model-select"><i class="dot"></i>企业推理模型 <code>model_company_reasoning</code>　⌄</div></div><div class="conversation"><div class="message"><span class="msg-avatar">AI</span><div><div class="msg-meta">企业推理模型 · 10:18</div><div class="reasoning">正在从业务主数据、能力接口和模型运行时三个层次梳理边界...</div><div>Platform 持有模型目录、权限与用量等业务主数据。Model Service 提供稳定能力接口，LiteLLM 负责 Provider 适配、部署和路由。</div><div class="metrics"><span>首 Token 0.42s</span><span>输入 1,284</span><span>输出 236</span><span>推理 81</span></div></div></div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div class="decisions"><button data-choice="approve-typography-v2" onclick="toggleSelect(this)">字体效果合适</button><button data-choice="revise-typography-v2" onclick="toggleSelect(this)">还需要继续调整</button></div>
+  </main>
+</body>
+</html>

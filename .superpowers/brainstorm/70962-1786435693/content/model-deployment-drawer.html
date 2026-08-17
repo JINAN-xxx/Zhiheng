@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新增模型部署抽屉</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { --ink:#182027; --muted:#66737d; --line:#dfe5e8; --canvas:#f3f5f6; --accent:#176b55; --accent-soft:#e9f4ef; --blue:#2467a3; --amber:#9a6415; --amber-soft:#fff3dc; }
+    body { margin:0; background:#eef1f2; color:var(--ink); font-family:Inter,"PingFang SC","Microsoft YaHei",Arial,sans-serif; font-size:14px; letter-spacing:0; }
+    button,input { font:inherit; letter-spacing:0; }
+    .page { max-width:1420px; margin:0 auto; padding:28px; }
+    h1 { margin:0 0 6px; font-size:24px; }
+    .intro { margin:0 0 18px; color:var(--muted); line-height:1.7; }
+    .prototype { position:relative; min-height:760px; overflow:hidden; border:1px solid #d5dcdf; border-radius:7px; background:#fff; box-shadow:0 10px 30px rgba(38,48,54,.11); }
+    .app { display:grid; grid-template-columns:178px 1fr; min-height:760px; }
+    .side { background:#1e272c; color:#d5dde0; padding:17px 12px; }
+    .brand { display:flex; align-items:center; gap:9px; padding:0 7px 17px; border-bottom:1px solid #364146; color:#fff; font-size:13px; font-weight:700; }
+    .brand span { display:grid; place-items:center; width:25px; height:25px; border-radius:5px; background:#48a487; color:#10201b; }
+    .group { margin:19px 8px 7px; color:#819199; font-size:10px; }
+    .nav { margin:3px 0; padding:10px; border-radius:5px; color:#b9c5ca; font-size:12px; }
+    .nav.active { background:#30483f; color:#fff; }
+    .main { background:var(--canvas); }
+    .top { display:flex; justify-content:space-between; align-items:center; height:50px; padding:0 20px; border-bottom:1px solid var(--line); background:#fff; color:#6a767e; font-size:11px; }
+    .content { padding:22px; opacity:.56; }
+    .heading { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:17px; }
+    .heading h2 { margin:0 0 4px; font-size:21px; }
+    .heading p { margin:0; color:var(--muted); font-size:11px; }
+    .button { min-height:34px; border:1px solid #cbd4d8; border-radius:5px; background:#fff; padding:0 12px; color:#38444b; }
+    .button.primary { border-color:var(--accent); background:var(--accent); color:#fff; font-weight:650; }
+    .tabs { display:flex; gap:22px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+    .tab { padding:9px 0 11px; color:#6c7881; font-size:12px; }
+    .tab.active { border-bottom:2px solid var(--accent); color:var(--ink); font-weight:650; }
+    .fake-table { overflow:hidden; border:1px solid var(--line); border-radius:6px; background:#fff; }
+    .row { display:grid; grid-template-columns:1.3fr 1fr 1.2fr .7fr; align-items:center; min-height:58px; padding:0 14px; border-top:1px solid #e8ecee; color:#4e5a61; font-size:11px; }
+    .row.header { min-height:38px; border:0; background:#f8faf9; color:#6e7980; font-size:10px; font-weight:650; }
+    .scrim { position:absolute; inset:0; background:rgba(21,31,35,.24); }
+    .drawer { position:absolute; top:0; right:0; bottom:0; width:min(570px,92%); display:flex; flex-direction:column; background:#fff; box-shadow:-12px 0 34px rgba(18,28,33,.16); }
+    .drawer-head { display:flex; align-items:flex-start; justify-content:space-between; padding:21px 24px 17px; border-bottom:1px solid var(--line); }
+    .drawer-head h2 { margin:0 0 5px; font-size:19px; }
+    .drawer-head p { margin:0; color:var(--muted); font-size:11px; }
+    .close { border:0; background:transparent; color:#758087; font-size:22px; line-height:1; }
+    .drawer-body { flex:1; overflow:auto; padding:20px 24px; }
+    .section { margin-bottom:23px; }
+    .section-title { display:flex; align-items:center; gap:8px; margin-bottom:13px; font-size:13px; font-weight:700; }
+    .section-num { display:grid; place-items:center; width:21px; height:21px; border-radius:50%; background:#e7eeeb; color:var(--accent); font-size:10px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .full { grid-column:1/-1; }
+    label { display:block; margin-bottom:6px; color:#4e5a61; font-size:11px; font-weight:600; }
+    .required::after { content:" *"; color:#b44747; }
+    .control { display:flex; align-items:center; justify-content:space-between; width:100%; height:36px; border:1px solid #cbd4d8; border-radius:5px; background:#fff; padding:0 10px; color:#344047; font-size:12px; }
+    .control.placeholder { color:#919ba1; }
+    .help { margin-top:5px; color:#8a959b; font-size:9px; line-height:1.45; }
+    .provider-choice { display:flex; align-items:center; gap:8px; }
+    .provider-mark { display:grid; place-items:center; width:24px; height:24px; border-radius:5px; background:#eaf2f9; color:var(--blue); font-size:9px; font-weight:750; }
+    .credential-box { border:1px solid #bdd4cb; border-radius:6px; background:#f8fbfa; padding:13px; }
+    .credential-line { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .credential-info { display:flex; align-items:center; gap:9px; min-width:0; }
+    .key-icon { display:grid; place-items:center; width:28px; height:28px; border-radius:5px; background:var(--accent-soft); color:var(--accent); font-size:13px; }
+    .credential-info strong { display:block; font-size:11px; }
+    .credential-info small { display:block; margin-top:3px; color:#7b878e; font-size:9px; }
+    .link { border:0; background:transparent; color:var(--blue); padding:0; font-size:10px; font-weight:650; }
+    .test-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:13px; border:1px solid #ead6b4; border-radius:6px; background:var(--amber-soft); }
+    .test-row strong { display:block; color:#684710; font-size:11px; }
+    .test-row small { display:block; margin-top:4px; color:#8e6b32; font-size:9px; line-height:1.45; }
+    .test-button { flex:none; height:31px; border:1px solid #c39143; border-radius:5px; background:#fff; padding:0 10px; color:#775019; font-size:10px; font-weight:650; }
+    .advanced { display:flex; justify-content:space-between; align-items:center; min-height:42px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); color:#4c5960; font-size:11px; font-weight:650; }
+    .advanced span:last-child { color:#7b878d; font-size:13px; }
+    .drawer-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 24px; border-top:1px solid var(--line); background:#fafbfb; }
+    .foot-note { color:#7c888f; font-size:9px; }
+    .foot-actions { display:flex; gap:8px; }
+    .decision { display:flex; justify-content:center; gap:10px; margin-top:18px; }
+    .decision button { min-width:150px; height:39px; border:1px solid #bfc9cd; border-radius:6px; background:#fff; color:#38444a; cursor:pointer; }
+    .decision button:hover { border-color:var(--accent); color:var(--accent); }
+    .decision button.selected { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); font-weight:700; }
+    @media (max-width:760px) { .page{padding:12px}.app{grid-template-columns:1fr}.side{display:none}.drawer{width:100%}.grid{grid-template-columns:1fr}.full{grid-column:auto}.drawer-body{padding:17px}.decision{flex-direction:column}.decision button{width:100%} }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>新增部署：右侧抽屉流程</h1>
+    <p class="intro">日常列表保持在背景中，新增过程不跳页。提供商决定动态字段，凭据默认复用 LiteLLM 中已加密保存的记录。</p>
+    <section class="prototype">
+      <div class="app">
+        <aside class="side"><div class="brand"><span>AI</span>Open Platform</div><div class="group">工作区</div><div class="nav">⌂　总览</div><div class="nav active">▦　模型网关</div><div class="nav">◇　智能对话</div><div class="group">系统</div><div class="nav">◫　用户与权限</div><div class="nav">◉　运行监控</div></aside>
+        <div class="main"><div class="top"><span>AI 管理 / 模型网关</span><span>通知　帮助　JA</span></div><div class="content"><div class="heading"><div><h2>模型网关</h2><p>统一管理 LiteLLM 模型部署与上游凭据</p></div><button class="button primary">＋ 新增部署</button></div><div class="tabs"><span class="tab active">模型部署　3</span><span class="tab">凭据　3</span><span class="tab">运行状态</span></div><div class="fake-table"><div class="row header"><span>部署名称</span><span>提供商</span><span>上游模型</span><span>状态</span></div><div class="row"><span>qwen-turbo</span><span>阿里云百炼</span><span>dashscope/qwen-turbo</span><span>可用</span></div><div class="row"><span>deepseek-chat</span><span>DeepSeek</span><span>deepseek/deepseek-chat</span><span>可用</span></div></div></div></div>
+      </div>
+      <div class="scrim"></div>
+      <aside class="drawer">
+        <header class="drawer-head"><div><h2>新增模型部署</h2><p>创建后立即同步到 LiteLLM Runtime</p></div><button class="close" aria-label="关闭">×</button></header>
+        <div class="drawer-body">
+          <section class="section">
+            <div class="section-title"><span class="section-num">1</span>模型与路由</div>
+            <div class="grid">
+              <div><label class="required">提供商</label><div class="control"><span class="provider-choice"><i class="provider-mark">DS</i>DeepSeek</span><span>⌄</span></div></div>
+              <div><label class="required">部署名称</label><div class="control">deepseek-chat</div><div class="help">平台调用时使用的稳定模型名称</div></div>
+              <div class="full"><label class="required">上游模型</label><div class="control">deepseek/deepseek-chat</div><div class="help">按 LiteLLM 规则填写 provider/model</div></div>
+            </div>
+          </section>
+          <section class="section">
+            <div class="section-title"><span class="section-num">2</span>访问凭据</div>
+            <div class="credential-box"><div class="credential-line"><div class="credential-info"><span class="key-icon">⌁</span><span><strong>deepseek-production</strong><small>DeepSeek · API Key 已加密保存</small></span></div><button class="link">更换凭据</button></div></div>
+            <div class="help">需要新 Key 时可在此创建凭据；密钥提交后不会再次显示。</div>
+          </section>
+          <section class="section">
+            <div class="section-title"><span class="section-num">3</span>验证与高级设置</div>
+            <div class="test-row"><div><strong>保存前测试连接</strong><small>直接验证 Provider、模型和凭据，可能产生一次极小调用费用。</small></div><button class="test-button">▶ 测试连接</button></div>
+            <div class="advanced"><span>高级设置 <small style="font-weight:400;color:#8a959b">超时、重试、速率限制</small></span><span>⌄</span></div>
+          </section>
+        </div>
+        <footer class="drawer-foot"><span class="foot-note">密钥不会写入 RuoYi 业务表</span><div class="foot-actions"><button class="button">取消</button><button class="button primary">创建部署</button></div></footer>
+      </aside>
+    </section>
+    <div class="decision">
+      <button data-choice="approve-deployment-drawer" onclick="toggleSelect(this)">这个配置流程合适</button>
+      <button data-choice="revise-deployment-drawer" onclick="toggleSelect(this)">需要调整字段或流程</button>
+    </div>
+  </main>
+</body>
+</html>
