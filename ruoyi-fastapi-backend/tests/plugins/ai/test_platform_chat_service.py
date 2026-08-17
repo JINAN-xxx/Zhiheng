@@ -235,6 +235,53 @@ class FakePreferences:
         )
 
 
+@pytest.mark.asyncio
+async def test_list_sessions_builds_page_model_with_public_aliases() -> None:
+    class SessionListDao:
+        async def list_sessions(self, db: object, *, user_id: int, page_num: int, page_size: int) -> SimpleNamespace:
+            del db
+            assert user_id == USER_ID
+            return SimpleNamespace(
+                rows=[
+                    AiChatSession(
+                        session_id=SESSION_ID,
+                        user_id=USER_ID,
+                        model_id=MODEL_ID,
+                        title='测试会话',
+                        status='active',
+                        created_at=NOW,
+                        updated_at=NOW,
+                    )
+                ],
+                page_num=page_num,
+                page_size=page_size,
+                total=1,
+                has_next=False,
+            )
+
+    service, _, _, _, _ = _service()
+    service._dao = SessionListDao()  # type: ignore[assignment]
+
+    result = await service.list_sessions(USER_ID, page_num=1, page_size=20)
+
+    assert result.model_dump(by_alias=True) == {
+        'rows': [
+            {
+                'sessionId': SESSION_ID,
+                'modelId': MODEL_ID,
+                'title': '测试会话',
+                'status': 'active',
+                'createdAt': NOW,
+                'updatedAt': NOW,
+            }
+        ],
+        'pageNum': 1,
+        'pageSize': 20,
+        'total': 1,
+        'hasNext': False,
+    }
+
+
 class FakeImages:
     def __init__(self, image: ResolvedPlatformImage | None = None) -> None:
         self.image = image

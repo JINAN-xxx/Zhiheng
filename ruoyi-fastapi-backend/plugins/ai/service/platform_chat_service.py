@@ -315,10 +315,10 @@ class PlatformChatService:
             rows = [PlatformSessionModel.model_validate(row) for row in result.rows]
             return PageModel(
                 rows=rows,
-                page_num=result.page_num,
-                page_size=result.page_size,
+                pageNum=result.page_num,
+                pageSize=result.page_size,
                 total=result.total,
-                has_next=result.has_next,
+                hasNext=result.has_next,
             )
         finally:
             await self._rollback_if_active()
