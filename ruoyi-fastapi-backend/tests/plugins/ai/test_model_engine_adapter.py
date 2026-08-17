@@ -1344,6 +1344,164 @@ def test_connection_payload_allows_saved_credential_without_reposting_values(
     }
 
 
+def test_connection_result_only_trusts_fixed_status_and_never_echoes_result() -> None:
+    vo, adapter_module = load_contract()
+    secret = 'provider rejected private-api-key at private-host'
+
+    success = adapter_module.LiteLLMManagementAdapter.normalize_connection_test_result(
+        {'status': 'success', 'result': {'response': secret}},
+        latency_ms=12.5,
+    )
+    failure = adapter_module.LiteLLMManagementAdapter.normalize_connection_test_result(
+        {'status': 'error', 'result': secret},
+        latency_ms=8.25,
+    )
+
+    assert isinstance(success, vo.ConnectionTestResultModel)
+    assert dump_alias(success) == {'success': True, 'latencyMs': 12.5, 'message': '连接测试成功'}
+    assert dump_alias(failure) == {'success': False, 'latencyMs': 8.25, 'message': '连接测试失败'}
+    assert secret not in repr((success, failure))
+
+
+@pytest.mark.parametrize('payload', ({}, {'status': 'unknown'}, {'status': True}, {'status': 'success\nsecret'}))
+def test_connection_result_rejects_malformed_status(payload: object) -> None:
+    _, adapter_module = load_contract()
+
+    with pytest.raises(Exception) as raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_connection_test_result(payload, latency_ms=1.0)
+
+    assert_upstream_invalid(raised.value)
+
+
+def test_created_deployment_uses_only_server_model_id_and_safe_request_fields() -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
+        {
+            'items': [
+                {
+                    'provider': 'OpenAI',
+                    'provider_display_name': 'OpenAI',
+                    'litellm_provider': 'openai',
+                    'credential_fields': [],
+                }
+            ]
+        }
+    )
+    request = vo.DeploymentCreateModel.model_validate(
+        {
+            'modelAlias': 'company-chat',
+            'upstreamModel': 'openai/gpt-4.1-mini',
+            'provider': 'OpenAI',
+            'credentialName': 'openai-main',
+            'timeout': 30,
+            'maxRetries': 2,
+            'description': 'Primary deployment',
+        }
+    )
+    secret = 'upstream-private-api-key'
+
+    result = adapter_module.LiteLLMManagementAdapter.normalize_created_deployment(
+        {
+            'model_id': 'created-deployment',
+            'litellm_params': {'api_key': secret, 'model': 'attacker/model'},
+            'model_info': {'description': secret},
+            'credential_values': {'token': secret},
+        },
+        request,
+        providers,
+    )
+
+    assert dump_alias(result) == {
+        'deploymentId': 'created-deployment',
+        'modelAlias': 'company-chat',
+        'provider': 'openai',
+        'upstreamModel': 'openai/gpt-4.1-mini',
+        'credentialName': 'openai-main',
+        'status': 'unknown',
+        'latencyMs': None,
+        'blocked': False,
+        'createdAt': None,
+        'updatedAt': None,
+        'timeout': 30.0,
+        'streamTimeout': None,
+        'maxRetries': 2,
+        'rpm': None,
+        'tpm': None,
+        'description': 'Primary deployment',
+    }
+    assert secret not in repr(result)
+
+
+@pytest.mark.parametrize(
+    'payload',
+    ({}, {'model_id': ''}, {'model_id': True}, {'model_id': 'id\nsecret'}, {'id': 'wrong-field'}),
+)
+def test_created_deployment_rejects_malformed_server_model_id(payload: object) -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
+        {
+            'items': [
+                {
+                    'provider': 'OpenAI',
+                    'provider_display_name': 'OpenAI',
+                    'litellm_provider': 'openai',
+                    'credential_fields': [],
+                }
+            ]
+        }
+    )
+    request = vo.DeploymentCreateModel.model_validate(
+        {
+            'modelAlias': 'company-chat',
+            'upstreamModel': 'openai/gpt-4.1-mini',
+            'provider': 'OpenAI',
+            'credentialName': 'openai-main',
+        }
+    )
+
+    with pytest.raises(Exception) as raised:
+        adapter_module.LiteLLMManagementAdapter.normalize_created_deployment(payload, request, providers)
+
+    assert_upstream_invalid(raised.value)
+
+
+def test_new_response_normalizers_drop_raw_secret_before_raising() -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(
+        {
+            'items': [
+                {
+                    'provider': 'OpenAI',
+                    'provider_display_name': 'OpenAI',
+                    'litellm_provider': 'openai',
+                    'credential_fields': [],
+                }
+            ]
+        }
+    )
+    request = vo.DeploymentCreateModel.model_validate(
+        {
+            'modelAlias': 'company-chat',
+            'upstreamModel': 'openai/gpt-4.1-mini',
+            'provider': 'OpenAI',
+            'credentialName': 'openai-main',
+        }
+    )
+    secret = 'response-secret-must-not-survive'
+
+    for operation in (
+        lambda: adapter_module.LiteLLMManagementAdapter.normalize_connection_test_result(
+            {'status': 'invalid', 'result': secret}, latency_ms=1.0
+        ),
+        lambda: adapter_module.LiteLLMManagementAdapter.normalize_created_deployment(
+            {'error': {'credential_values': secret}}, request, providers
+        ),
+    ):
+        with pytest.raises(Exception) as raised:
+            operation()
+        assert_upstream_invalid(raised.value, secret)
+
+
 @pytest.mark.parametrize(
     ('model_type_name', 'payload'),
     (

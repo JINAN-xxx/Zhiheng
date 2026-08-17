@@ -8,6 +8,7 @@ from typing import Generic, TypeVar, cast
 
 from plugins.ai.entity.vo.ai_model_engine_vo import (
     ConnectionTestRequestModel,
+    ConnectionTestResultModel,
     CredentialCreateModel,
     CredentialRotateModel,
     CredentialSummaryModel,
@@ -170,6 +171,89 @@ class LiteLLMManagementAdapter:
         if outcome.payload is None:
             _raise_credential_validation_error()
         return cast('dict[str, object]', outcome.payload)
+
+    @staticmethod
+    def normalize_connection_test_result(
+        payload: object,
+        *,
+        latency_ms: float,
+    ) -> ConnectionTestResultModel:
+        outcome = _normalize_connection_test_result(payload, latency_ms=latency_ms)
+        del payload
+        if outcome.value is None:
+            _raise_upstream_invalid()
+        return cast('ConnectionTestResultModel', outcome.value)
+
+    @staticmethod
+    def normalize_created_deployment(
+        payload: object,
+        request: DeploymentCreateModel,
+        providers: Sequence[ProviderModel],
+    ) -> DeploymentModel:
+        outcome = _normalize_created_deployment(payload, request, providers)
+        del payload, request, providers
+        if outcome.value is None:
+            _raise_upstream_invalid()
+        return cast('DeploymentModel', outcome.value)
+
+
+def _normalize_connection_test_result(
+    payload: object,
+    *,
+    latency_ms: float,
+) -> _ParseOutcome[ConnectionTestResultModel]:
+    try:
+        if not _is_string_key_mapping(payload):
+            return _ParseOutcome(value=None)
+        status = payload.get('status')
+        valid_latency, normalized_latency = _safe_optional_number(latency_ms, 0, None)
+        if status not in {'success', 'error'} or not valid_latency or normalized_latency is None:
+            return _ParseOutcome(value=None)
+        return _ParseOutcome(
+            value=ConnectionTestResultModel(
+                success=status == 'success',
+                latency_ms=normalized_latency,
+                message='连接测试成功' if status == 'success' else '连接测试失败',
+            )
+        )
+    except Exception:
+        return _ParseOutcome(value=None)
+
+
+def _normalize_created_deployment(
+    payload: object,
+    request: DeploymentCreateModel,
+    providers: Sequence[ProviderModel],
+) -> _ParseOutcome[DeploymentModel]:
+    try:
+        if not _is_string_key_mapping(payload):
+            return _ParseOutcome(value=None)
+        deployment_id = _safe_text(payload.get('model_id'), maximum=255)
+        provider = _find_provider(request.provider, providers)
+        if deployment_id is None or provider is None:
+            return _ParseOutcome(value=None)
+        return _ParseOutcome(
+            value=DeploymentModel(
+                deployment_id=deployment_id,
+                model_alias=request.model_alias,
+                provider=provider.litellm_provider,
+                upstream_model=request.upstream_model,
+                credential_name=request.credential_name,
+                status='unknown',
+                latency_ms=None,
+                blocked=False,
+                created_at=None,
+                updated_at=None,
+                timeout=request.timeout,
+                stream_timeout=request.stream_timeout,
+                max_retries=request.max_retries,
+                rpm=request.rpm,
+                tpm=request.tpm,
+                description=request.description,
+            )
+        )
+    except Exception:
+        return _ParseOutcome(value=None)
 
 
 def _build_deployment_create_payload(

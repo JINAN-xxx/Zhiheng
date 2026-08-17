@@ -29,6 +29,15 @@ EXPECTED_AI_PERMISSIONS = {
     'ai:runtime:query',
     'ai:model:publish',
     'ai:model:test',
+    'ai:engine:credential:list',
+    'ai:engine:credential:add',
+    'ai:engine:credential:rotate',
+    'ai:engine:credential:remove',
+    'ai:engine:deployment:list',
+    'ai:engine:deployment:query',
+    'ai:engine:deployment:add',
+    'ai:engine:deployment:edit',
+    'ai:engine:deployment:remove',
 }
 EXPECTED_AI_PYTHON_DEPENDENCIES = [
     'agno==2.8.6',
@@ -89,12 +98,15 @@ def test_ai_plugin_template_can_be_discovered() -> None:
         'seeds/mysql/ai_provider_type.sql',
         'seeds/postgresql/ai_provider_type.sql',
     ]
+    assert plugin.manifest.frontend.menus[0].children[0].name == '模型中心'
     assert plugin.manifest.frontend.menus[0].children[0].component == 'plugin/ai/model/index'
     assert plugin.manifest.frontend.menus[0].children[1].component == 'plugin/ai/chat/index'
     assert set(plugin.manifest.permission_codes) == EXPECTED_AI_PERMISSIONS
     assert plugin.manifest.permission_name_map['ai:model:add'] == '新增模型'
     assert plugin.manifest.permission_name_map['ai:model:publish'] == '发布模型'
     assert plugin.manifest.permission_name_map['ai:model:test'] == '测试模型连接'
+    assert plugin.manifest.permission_name_map['ai:engine:credential:rotate'] == '轮换引擎凭据'
+    assert plugin.manifest.permission_name_map['ai:engine:deployment:remove'] == '删除引擎部署'
     assert plugin.manifest.dependencies.python == EXPECTED_AI_PYTHON_DEPENDENCIES
     assert plugin.manifest.config.items == []
 

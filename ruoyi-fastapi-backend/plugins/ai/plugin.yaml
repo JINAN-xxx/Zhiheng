@@ -46,7 +46,7 @@ frontend:
       orderNum: 4
       icon: ai-manage
       children:
-        - name: 模型管理
+        - name: 模型中心
           path: model
           component: plugin/ai/model/index
           routeName: AiModel
@@ -82,6 +82,24 @@ permissions:
     name: 发布模型
   - code: ai:model:test
     name: 测试模型连接
+  - code: ai:engine:credential:list
+    name: 查询引擎凭据
+  - code: ai:engine:credential:add
+    name: 新增引擎凭据
+  - code: ai:engine:credential:rotate
+    name: 轮换引擎凭据
+  - code: ai:engine:credential:remove
+    name: 删除引擎凭据
+  - code: ai:engine:deployment:list
+    name: 引擎部署列表
+  - code: ai:engine:deployment:query
+    name: 查询引擎部署
+  - code: ai:engine:deployment:add
+    name: 新增引擎部署
+  - code: ai:engine:deployment:edit
+    name: 修改引擎部署
+  - code: ai:engine:deployment:remove
+    name: 删除引擎部署
 
 dependencies:
   python:
