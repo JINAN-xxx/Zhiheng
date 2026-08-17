@@ -149,7 +149,12 @@ class AiChatPreferences(Base):
     __table_args__ = ({'comment': 'Platform 对话用户偏好表'},)
 
     preference_id = Column(
-        BigInteger, Identity(), primary_key=True, autoincrement=True, nullable=False, comment='偏好ID'
+        BigInteger().with_variant(Integer(), 'sqlite'),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+        nullable=False,
+        comment='偏好ID',
     )
     user_id = Column(BigInteger, nullable=False, unique=True, comment='平台用户ID')
     temperature = Column(Float, nullable=True, comment='默认温度')
