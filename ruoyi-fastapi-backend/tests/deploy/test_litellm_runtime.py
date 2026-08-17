@@ -1,7 +1,10 @@
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -91,6 +94,38 @@ esac
     return environment, capture_path
 
 
+def make_runtime_key_test_environment(
+    tmp_path: Path,
+    *,
+    response_key: str = 'sk-runtime-test',
+) -> tuple[dict[str, str], Path, Path]:
+    """创建不会访问真实 LiteLLM 的 Runtime Key 命令环境。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    capture_path = tmp_path / 'curl-arguments'
+    response_path = tmp_path / 'curl-response.json'
+    response_path.write_text(json.dumps({'key': response_key}), encoding='utf-8')
+    fake_curl = fake_bin / 'curl'
+    fake_curl.write_text(
+        """#!/bin/sh
+set -eu
+printf '%s\n' CALL "$@" >> "$FAKE_CURL_CAPTURE"
+cat "$FAKE_CURL_RESPONSE"
+""",
+        encoding='utf-8',
+    )
+    fake_curl.chmod(0o755)
+    deploy_environment = tmp_path / 'litellm.env'
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_CURL_CAPTURE': str(capture_path),
+        'FAKE_CURL_RESPONSE': str(response_path),
+        'LITELLM_DEPLOY_ENV_FILE': str(deploy_environment),
+    }
+    return environment, capture_path, deploy_environment
+
+
 def test_litellm_compose_uses_pinned_local_images_and_private_data_services() -> None:
     compose = load_yaml('compose.yaml')
     services = compose['services']
@@ -142,8 +177,11 @@ def test_litellm_local_environment_is_ignored() -> None:
         'LITELLM_REDIS_PASSWORD',
         'LITELLM_MASTER_KEY',
         'LITELLM_SALT_KEY',
+        'LITELLM_MANAGEMENT_KEY',
     ):
         assert f'{key}=' in env_example
+
+    assert read_environment_value(DEPLOYMENT_ROOT / '.env.example', 'LITELLM_MANAGEMENT_KEY') == ''
 
 
 def test_init_env_generates_private_idempotent_secrets(tmp_path: Path) -> None:
@@ -162,17 +200,30 @@ def test_init_env_generates_private_idempotent_secrets(tmp_path: Path) -> None:
     assert 'LITELLM_SALT_KEY=sk-' in first_content
 
 
-def test_ruoyi_backend_joins_external_litellm_network_with_runtime_only_credentials() -> None:
-    """RuoYi Backend 通过外部网络访问 Proxy，且不持有 Master Key。"""
+def test_ruoyi_backend_joins_external_litellm_network_with_dual_control_credentials() -> None:
+    """Backend 仅持有职责分离的 Runtime 和 Management Key。"""
     compose = load_repository_yaml('docker-compose.pg.yml')
     services = compose['services']
     backend = services['ruoyi-backend-pg']
+    frontend = services['ruoyi-frontend']
 
     assert set(backend['networks']) == {'ruoyi-network', 'litellm-network'}
     assert compose['networks']['litellm-network'] == {'external': True, 'name': 'litellm-network'}
     assert backend['environment']['LITELLM_BASE_URL'] == 'http://litellm-proxy:4000'
     assert backend['environment']['LITELLM_RUNTIME_KEY'].startswith('${LITELLM_RUNTIME_KEY:')
-    assert 'LITELLM_MASTER_KEY' not in backend['environment']
+    assert backend['environment']['LITELLM_MANAGEMENT_KEY'] == (
+        '${LITELLM_MANAGEMENT_KEY:?set LITELLM_MANAGEMENT_KEY in repository .env}'
+    )
+    assert not {
+        'LITELLM_RUNTIME_KEY',
+        'LITELLM_MANAGEMENT_KEY',
+        'LITELLM_MASTER_KEY',
+    } & set(frontend.get('environment', {}))
+    assert not {
+        'LITELLM_MASTER_KEY',
+        'LITELLM_DB_PASSWORD',
+        'LITELLM_REDIS_PASSWORD',
+    } & set(backend['environment'])
     assert services['ruoyi-redis']['networks'] == ['ruoyi-network']
 
 
@@ -199,9 +250,7 @@ def test_ruoyi_compose_restarts_services_and_waits_for_backend_health() -> None:
 
     assert {service['restart'] for service in services.values()} == {'unless-stopped'}
     assert services['ruoyi-backend-pg']['healthcheck']
-    assert services['ruoyi-frontend']['depends_on'] == {
-        'ruoyi-backend-pg': {'condition': 'service_healthy'}
-    }
+    assert services['ruoyi-frontend']['depends_on'] == {'ruoyi-backend-pg': {'condition': 'service_healthy'}}
 
 
 def test_ruoyi_backend_mounts_frontend_plugin_sources_read_only() -> None:
@@ -264,8 +313,7 @@ def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp
     environment['FAKE_BOOTSTRAP_STATE'] = 'complete'
     platform_environment = tmp_path / '.env'
     platform_environment.write_text(
-        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n'
-        'LITELLM_RUNTIME_KEY=sk-runtime-test\n',
+        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\nLITELLM_RUNTIME_KEY=sk-runtime-test\n',
         encoding='utf-8',
     )
     script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
@@ -346,6 +394,7 @@ def test_platform_environment_templates_contain_no_runtime_secret() -> None:
         environment_path = backend_root / name
         assert read_environment_value(environment_path, 'LITELLM_BASE_URL') == expected_base_url
         assert read_environment_value(environment_path, 'LITELLM_RUNTIME_KEY') == ''
+        assert read_environment_value(environment_path, 'LITELLM_MANAGEMENT_KEY') == ''
         assert read_environment_value(environment_path, 'LITELLM_CONNECT_TIMEOUT_SECONDS') == '5'
         assert read_environment_value(environment_path, 'LITELLM_REQUEST_TIMEOUT_SECONDS') == '600'
         assert read_environment_value(environment_path, 'LITELLM_VERIFY_SSL') == 'true'
@@ -409,7 +458,7 @@ printf '%s\n' '{"key":"sk-runtime-test"}'
 
     deploy_environment = tmp_path / 'litellm.env'
     deploy_environment.write_text(
-        'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_PORT=14000\n',
+        'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_MANAGEMENT_KEY=sk-management-test\nLITELLM_PORT=14000\n',
         encoding='utf-8',
     )
     platform_environment = tmp_path / '.env'
@@ -441,7 +490,8 @@ printf '%s\n' '{"key":"sk-runtime-test"}'
     assert platform_environment.read_text(encoding='utf-8') == first_content
     assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
     assert 'EXISTING_SETTING=kept' in first_content
-    assert 'LITELLM_RUNTIME_KEY=sk-runtime-test' in first_content
+    assert read_environment_value(platform_environment, 'LITELLM_RUNTIME_KEY') == 'sk-runtime-test'
+    assert read_environment_value(platform_environment, 'LITELLM_MANAGEMENT_KEY') == 'sk-management-test'
     assert capture_path.read_text(encoding='utf-8').count('CALL') == 1
     captured_arguments = capture_path.read_text(encoding='utf-8')
     assert 'Authorization: Bearer sk-master-test' in captured_arguments
@@ -449,3 +499,353 @@ printf '%s\n' '{"key":"sk-runtime-test"}'
     combined_output = first.stdout + first.stderr + second.stdout + second.stderr
     assert 'sk-runtime-test' not in combined_output
     assert 'sk-master-test' not in combined_output
+    assert 'sk-management-test' not in combined_output
+
+
+def test_runtime_key_script_preserves_existing_management_key_and_skips_generation(
+    tmp_path: Path,
+) -> None:
+    """Platform 已有双 Key 时不调用 LiteLLM，也不被环境覆盖。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    fake_curl = fake_bin / 'curl'
+    capture_path = tmp_path / 'curl-arguments'
+    fake_curl.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' CALLED >> "$FAKE_CURL_CAPTURE"\nexit 99\n',
+        encoding='utf-8',
+    )
+    fake_curl.chmod(0o755)
+    python_capture_path = tmp_path / 'python-called'
+    for python_name in ('python3', 'python'):
+        fake_python = fake_bin / python_name
+        fake_python.write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' CALLED >> "$FAKE_PYTHON_CAPTURE"\nexit 99\n',
+            encoding='utf-8',
+        )
+        fake_python.chmod(0o755)
+    deploy_environment = tmp_path / 'litellm.env'
+    deploy_environment.write_text('LITELLM_MANAGEMENT_KEY=sk-deploy-management-test\n', encoding='utf-8')
+    platform_environment = tmp_path / '.env'
+    original_content = (
+        'EXISTING_SETTING=kept\n'
+        'LITELLM_RUNTIME_KEY=sk-existing-runtime\n'
+        'LITELLM_MANAGEMENT_KEY=sk-existing-management\n'
+    )
+    platform_environment.write_text(original_content, encoding='utf-8')
+    script = DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_CURL_CAPTURE': str(capture_path),
+        'FAKE_PYTHON_CAPTURE': str(python_capture_path),
+        'LITELLM_DEPLOY_ENV_FILE': str(deploy_environment),
+        'LITELLM_MANAGEMENT_KEY': 'sk-process-management-test',
+    }
+
+    result = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    rewritten_content = platform_environment.read_text(encoding='utf-8')
+    assert 'EXISTING_SETTING=kept' in rewritten_content
+    assert read_environment_value(platform_environment, 'LITELLM_RUNTIME_KEY') == 'sk-existing-runtime'
+    assert read_environment_value(platform_environment, 'LITELLM_MANAGEMENT_KEY') == 'sk-existing-management'
+    assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
+    assert not capture_path.exists()
+    assert not python_capture_path.exists()
+    combined_output = result.stdout + result.stderr
+    for secret in (
+        'sk-deploy-management-test',
+        'sk-process-management-test',
+        'sk-existing-runtime',
+        'sk-existing-management',
+    ):
+        assert secret not in combined_output
+
+
+def test_runtime_key_script_syncs_management_without_copying_master(tmp_path: Path) -> None:
+    """Runtime 已有时仍同步 Management，缺失时保持空值。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    fake_curl = fake_bin / 'curl'
+    capture_path = tmp_path / 'curl-arguments'
+    fake_curl.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' CALLED >> "$FAKE_CURL_CAPTURE"\nexit 99\n',
+        encoding='utf-8',
+    )
+    fake_curl.chmod(0o755)
+    deploy_environment = tmp_path / 'litellm.env'
+    deploy_environment.write_text('LITELLM_MASTER_KEY=sk-master-test\n', encoding='utf-8')
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'EXISTING_SETTING=kept\nLITELLM_RUNTIME_KEY=sk-existing-runtime\n',
+        encoding='utf-8',
+    )
+    script = DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_CURL_CAPTURE': str(capture_path),
+        'LITELLM_DEPLOY_ENV_FILE': str(deploy_environment),
+    }
+
+    first = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    first_content = platform_environment.read_text(encoding='utf-8')
+    second = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert 'EXISTING_SETTING=kept' in first_content
+    assert read_environment_value(platform_environment, 'LITELLM_RUNTIME_KEY') == 'sk-existing-runtime'
+    assert read_environment_value(platform_environment, 'LITELLM_MANAGEMENT_KEY') == ''
+    assert platform_environment.read_text(encoding='utf-8') == first_content
+    assert not capture_path.exists()
+    combined_output = first.stdout + first.stderr + second.stdout + second.stderr
+    assert 'sk-existing-runtime' not in combined_output
+    assert 'sk-master-test' not in combined_output
+
+
+def test_runtime_key_script_syncs_explicit_management_when_runtime_exists(tmp_path: Path) -> None:
+    """已有 Runtime 时跳过生成，但继续同步进程显式提供的 Management。"""
+    fake_bin = tmp_path / 'bin'
+    fake_bin.mkdir()
+    fake_curl = fake_bin / 'curl'
+    capture_path = tmp_path / 'curl-arguments'
+    fake_curl.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' CALLED >> "$FAKE_CURL_CAPTURE"\nexit 99\n',
+        encoding='utf-8',
+    )
+    fake_curl.chmod(0o755)
+    deploy_environment = tmp_path / 'litellm.env'
+    deploy_environment.write_text('LITELLM_MASTER_KEY=sk-master-test\n', encoding='utf-8')
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'EXISTING_SETTING=kept\nLITELLM_RUNTIME_KEY=sk-existing-runtime\n',
+        encoding='utf-8',
+    )
+    script = DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'
+    environment = {
+        **os.environ,
+        'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+        'FAKE_CURL_CAPTURE': str(capture_path),
+        'LITELLM_DEPLOY_ENV_FILE': str(deploy_environment),
+        'LITELLM_MANAGEMENT_KEY': 'sk-explicit-management',
+    }
+
+    result = subprocess.run(
+        [str(script), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    content = platform_environment.read_text(encoding='utf-8')
+    assert 'EXISTING_SETTING=kept' in content
+    assert read_environment_value(platform_environment, 'LITELLM_RUNTIME_KEY') == 'sk-existing-runtime'
+    assert read_environment_value(platform_environment, 'LITELLM_MANAGEMENT_KEY') == 'sk-explicit-management'
+    assert not capture_path.exists()
+    combined_output = result.stdout + result.stderr
+    assert 'sk-existing-runtime' not in combined_output
+    assert 'sk-explicit-management' not in combined_output
+    assert 'sk-master-test' not in combined_output
+
+
+def test_runtime_key_script_never_executes_deployment_environment(tmp_path: Path) -> None:
+    """部署 dotenv 中的 Shell 元字符只能作为数据处理或被安全拒绝。"""
+    environment, capture_path, deploy_environment = make_runtime_key_test_environment(tmp_path)
+    marker = tmp_path / 'dotenv-command-was-executed'
+    deploy_environment.write_text(
+        f'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_MANAGEMENT_KEY=sk-management-test; touch {marker}\n',
+        encoding='utf-8',
+    )
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text(
+        'LITELLM_RUNTIME_KEY=sk-existing-runtime\n',
+        encoding='utf-8',
+    )
+
+    result = subprocess.run(
+        [str(DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert not marker.exists()
+    assert not capture_path.exists()
+    assert platform_environment.read_text(encoding='utf-8') == ('LITELLM_RUNTIME_KEY=sk-existing-runtime\n')
+
+
+def test_runtime_key_script_writes_compose_lossless_special_characters(tmp_path: Path) -> None:
+    """写入的双 Key 对 Compose 保真，不发生变量插值或注释截断。"""
+    if shutil.which('docker') is None:
+        pytest.skip('docker compose is required for the dotenv compatibility check')
+
+    runtime_key = 'sk-runtime-$DOLLAR # hash and space'
+    management_key = 'sk-management-$DOLLAR # hash and space'
+    environment, _capture_path, deploy_environment = make_runtime_key_test_environment(
+        tmp_path,
+        response_key=runtime_key,
+    )
+    environment['LITELLM_MANAGEMENT_KEY'] = management_key
+    deploy_environment.write_text(
+        'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_PORT=14000\n',
+        encoding='utf-8',
+    )
+    platform_environment = tmp_path / 'platform.env'
+    platform_environment.write_text('EXISTING_SETTING=kept\n', encoding='utf-8')
+
+    subprocess.run(
+        [str(DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'), str(platform_environment)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    compose_file = tmp_path / 'compose.yaml'
+    compose_file.write_text(
+        """services:
+  probe:
+    image: scratch
+    environment:
+      PROBE_RUNTIME: "${LITELLM_RUNTIME_KEY:?missing runtime}"
+      PROBE_MANAGEMENT: "${LITELLM_MANAGEMENT_KEY:?missing management}"
+""",
+        encoding='utf-8',
+    )
+    compose_environment = {
+        key: value for key, value in os.environ.items() if key not in {'LITELLM_RUNTIME_KEY', 'LITELLM_MANAGEMENT_KEY'}
+    }
+    compose_command = [
+        'docker',
+        'compose',
+        '--env-file',
+        str(platform_environment),
+        '-f',
+        str(compose_file),
+        'config',
+    ]
+    environment_result = subprocess.run(
+        [*compose_command, '--environment'],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=compose_environment,
+        cwd=tmp_path,
+    )
+    parsed_environment = {}
+    for line in environment_result.stdout.splitlines():
+        name, separator, value = line.partition('=')
+        if separator and name in {'LITELLM_RUNTIME_KEY', 'LITELLM_MANAGEMENT_KEY'}:
+            parsed_environment[name] = value
+
+    assert parsed_environment == {
+        'LITELLM_RUNTIME_KEY': runtime_key,
+        'LITELLM_MANAGEMENT_KEY': management_key,
+    }
+
+    compose_result = subprocess.run(
+        [*compose_command, '--format', 'json'],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=compose_environment,
+        cwd=tmp_path,
+    )
+    compose = json.loads(compose_result.stdout)
+    probe_environment = compose['services']['probe']['environment']
+
+    assert probe_environment['PROBE_RUNTIME'] == runtime_key.replace('$', '$$')
+    assert probe_environment['PROBE_MANAGEMENT'] == management_key.replace('$', '$$')
+
+
+def test_runtime_key_script_rejects_malformed_platform_env_before_remote_call(
+    tmp_path: Path,
+) -> None:
+    """现有 Platform dotenv 无法可靠解析时不得创建远端 Runtime Key。"""
+    environment, capture_path, deploy_environment = make_runtime_key_test_environment(tmp_path)
+    deploy_environment.write_text('LITELLM_MASTER_KEY=sk-master-test\n', encoding='utf-8')
+    platform_environment = tmp_path / '.env'
+    original_content = "EXISTING_SETTING=kept\nLITELLM_RUNTIME_KEY='unterminated\n"
+    platform_environment.write_text(original_content, encoding='utf-8')
+
+    result = subprocess.run(
+        [str(DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert not capture_path.exists()
+    assert platform_environment.read_text(encoding='utf-8') == original_content
+
+
+def test_runtime_key_script_stages_local_write_before_remote_call(tmp_path: Path) -> None:
+    """目标目录不可 staging 时不得先创建远端 Runtime Key。"""
+    environment, capture_path, deploy_environment = make_runtime_key_test_environment(tmp_path)
+    deploy_environment.write_text('LITELLM_MASTER_KEY=sk-master-test\n', encoding='utf-8')
+    platform_environment = tmp_path / 'missing-parent' / '.env'
+
+    result = subprocess.run(
+        [str(DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert not capture_path.exists()
+    assert not platform_environment.exists()
+
+
+def test_runtime_key_script_keeps_original_when_final_replace_fails(tmp_path: Path) -> None:
+    """远端生成后的最终替换失败时，原文件保持不变且清理临时凭据。"""
+    environment, capture_path, deploy_environment = make_runtime_key_test_environment(tmp_path)
+    deploy_environment.write_text(
+        'LITELLM_MASTER_KEY=sk-master-test\nLITELLM_MANAGEMENT_KEY=sk-management-test\n',
+        encoding='utf-8',
+    )
+    fake_mv = tmp_path / 'bin' / 'mv'
+    fake_mv.write_text('#!/bin/sh\nexit 73\n', encoding='utf-8')
+    fake_mv.chmod(0o755)
+    platform_environment = tmp_path / '.env'
+    original_content = 'EXISTING_SETTING=kept\nLITELLM_RUNTIME_KEY=\n'
+    platform_environment.write_text(original_content, encoding='utf-8')
+
+    result = subprocess.run(
+        [str(DEPLOYMENT_ROOT / 'init-platform-runtime-key.sh'), str(platform_environment)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.returncode != 0
+    assert capture_path.read_text(encoding='utf-8').count('CALL') == 1
+    assert platform_environment.read_text(encoding='utf-8') == original_content
+    assert not list(tmp_path.glob('.env.base.*'))
+    assert not list(tmp_path.glob('.env.tmp.*'))
+    combined_output = result.stdout + result.stderr
+    for secret in ('sk-runtime-test', 'sk-master-test', 'sk-management-test'):
+        assert secret not in combined_output

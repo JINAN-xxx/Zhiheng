@@ -37,6 +37,7 @@ services:
       DB_DATABASE: ruoyi-fastapi
       LITELLM_BASE_URL: http://litellm-proxy:4000
       LITELLM_RUNTIME_KEY: "${LITELLM_RUNTIME_KEY:?set LITELLM_RUNTIME_KEY in repository .env}"
+      LITELLM_MANAGEMENT_KEY: "${LITELLM_MANAGEMENT_KEY:?set LITELLM_MANAGEMENT_KEY in repository .env}"
     depends_on:
       ruoyi-redis:
         condition: service_healthy
