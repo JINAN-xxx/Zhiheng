@@ -67,30 +67,34 @@ DAO 提供：按 Key ID/Prefix 获取认证快照；按 Key ID 列出 active Gra
 
 ## 任务 4：实现模型授权服务
 
+**状态：已完成。提交：`eb9bca9`。**
+
 **新增：**
 
 - `plugins/ai/service/api_entitlement_service.py`
 - `tests/plugins/ai/test_api_entitlement_service.py`
 
-- [ ] **步骤 1：编写授权服务红灯**
+- [x] **步骤 1：编写授权服务红灯**
 
 测试 `list_models(identity)` 只输出 `id/object/created/owned_by`，`resolve_model(identity, model_code)` 只返回 Platform Model ID 与公开 code；无授权固定抛 `PublicApiError.model_not_found()`。断言查询成功、空结果、DAO 异常和 `CancelledError` 后 `db.in_transaction()` 均为 false。
 
-- [ ] **步骤 2：运行红灯**
+- [x] **步骤 2：运行红灯**
 
 运行：`conda run -n dj pytest tests/plugins/ai/test_api_entitlement_service.py -q`
 
 预期：`api_entitlement_service` 模块不存在。
 
-- [ ] **步骤 3：实现短事务授权服务**
+- [x] **步骤 3：实现短事务授权服务**
 
 服务只持有 `DeveloperApiIdentity` 和 `PublicModelRecord`，将 `published_at` 转为 UTC Unix 秒。DAO 异常映射 `service_unavailable`；取消原样传播；任何清理异常不覆盖活动异常。
 
-- [ ] **步骤 4：运行绿灯并提交**
+- [x] **步骤 4：运行绿灯并提交**
 
 运行目标测试、DAO 回归、Ruff 和 format；提交 `feat: 实现 Public API 模型授权（Public 4/7）`。
 
 ## 任务 5：实现普通与流式 Chat 编排
+
+**状态：已完成。提交：`507b316`。**
 
 **新增：**
 
@@ -99,23 +103,23 @@ DAO 提供：按 Key ID/Prefix 获取认证快照；按 Key ID 列出 active Gra
 - `tests/plugins/ai/test_openai_compat_service.py`
 - `tests/plugins/ai/test_openai_stream_adapter.py`
 
-- [ ] **步骤 1：把 `stream=true` 契约改为红灯**
+- [x] **步骤 1：把 `stream=true` 契约改为红灯**
 
 修改 `test_public_api_contract.py`：true/false 均通过；新增 chunk VO，固定 `chat.completion.chunk`、assistant role 首帧、content delta、空 delta finish 帧。运行后预期旧 validator 拒绝 true。
 
-- [ ] **步骤 2：编写 Service 红灯**
+- [x] **步骤 2：编写 Service 红灯**
 
 普通路径断言 entitlement 后以 Platform Model ID 调 `ModelService.chat`；流式路径断言调用 `ModelService.stream_chat`。messages、temperature、top_p、max_tokens、presence_penalty、frequency_penalty、stop 和 user 必须精确映射；为此受控扩展 `ModelService` 参数白名单与验证，未知字段仍拒绝。
 
-- [ ] **步骤 3：编写 SSE adapter 红灯**
+- [x] **步骤 3：编写 SSE adapter 红灯**
 
 用可阻塞 async generator 覆盖精确字节序列：role chunk -> content chunks -> finish chunk -> `[DONE]`。reasoning 不输出；同一 completion ID/created/model 贯穿全流；慢消费者不预读；提前 `aclose`、取消和流中错误都恰好关闭一次底层流且不发送 `[DONE]`。
 
-- [ ] **步骤 4：实现最小编排与流适配器**
+- [x] **步骤 4：实现最小编排与流适配器**
 
 `OpenAICompatService` 在 Runtime 前完成 entitlement；`OpenAIStreamAdapter` 只持公开 completion 快照和 `ModelServiceStreamResult`。正常耗尽后发送 finish 与 `[DONE]`；任何活动异常在 `finally` 关闭并原样传播。
 
-- [ ] **步骤 5：运行绿灯并提交**
+- [x] **步骤 5：运行绿灯并提交**
 
 运行：
 
@@ -131,29 +135,33 @@ conda run -n dj pytest \
 
 ## 任务 6：发布独立 `/v1` Controller
 
+**状态：已完成。提交：`f83506c`。**
+
 **新增：**
 
 - `plugins/ai/controller/openai_compat_controller.py`
 - `plugins/ai/infrastructure/public_api_provider.py`
 - `tests/plugins/ai/test_openai_compat_controller.py`
 
-- [ ] **步骤 1：编写 Controller 红灯**
+- [x] **步骤 1：编写 Controller 红灯**
 
 断言 `/v1/models` 和 `/v1/chat/completions` 无 PreAuth、无 RuoYi `ResponseUtil`，Feature Flag 关闭返回真实 404。重复 Authorization、非法 Content-Length、chunked 超限、未知字段返回 OpenAI JSON 400/401，且零 Runtime 调用。
 
-- [ ] **步骤 2：锁定普通与流式 HTTP 契约**
+- [x] **步骤 2：锁定普通与流式 HTTP 契约**
 
 ASGITransport 断言普通响应 `application/json`；流式响应 `text/event-stream`、`Cache-Control: no-cache`、`X-Accel-Buffering: no`，最终 `[DONE]`。在发送响应头前的认证、授权和流构造错误返回 JSON `401/404/502/503`。
 
-- [ ] **步骤 3：实现 provider 与 Controller**
+- [x] **步骤 3：实现 provider 与 Controller**
 
 敏感 Authorization/body reader 只返回脱敏 outcome；clean boundary 生成固定错误响应。Controller 仅依赖 Authenticator、Entitlement 和 OpenAICompatService；共享 Runtime provider 使用非拥有 wrapper。StreamingResponse 的迭代器在 `finally` 调用 adapter `aclose()`。
 
-- [ ] **步骤 4：运行绿灯并提交**
+- [x] **步骤 4：运行绿灯并提交**
 
 运行 Controller、认证器、Service 和现有 Runtime provider 测试；提交 `feat: 发布 OpenAI 兼容 Public API（Public 6/7）`。
 
 ## 任务 7：联合回归与安全验收
+
+**状态：已完成。集成测试提交：`1823b74`。**
 
 **新增：**
 
