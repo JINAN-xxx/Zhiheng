@@ -23,6 +23,24 @@ export function buildApplicationPath(applicationId, suffix = '') {
   return path.join('/')
 }
 
+export function buildDeveloperKeyPayload(form = {}) {
+  const quota = { warningRatio: '0.8', hardLimitRatio: '1', currency: 'USD' }
+  if (form.rpmLimit) quota.rpmLimit = form.rpmLimit
+  if (form.tpmLimit) quota.tpmLimit = form.tpmLimit
+  if (form.concurrencyLimit) quota.concurrencyLimit = form.concurrencyLimit
+  const expiresAt = form.expiresAt instanceof Date ? form.expiresAt.toISOString() : null
+  return {
+    keyName: text(form.keyName),
+    modelIds: Array.isArray(form.modelIds) ? [...form.modelIds] : [],
+    expiresAt,
+    quota,
+  }
+}
+
+export function shouldResetDeveloperKeys(currentApplicationId, nextApplicationId) {
+  return currentApplicationId !== nextApplicationId
+}
+
 export function normalizeApplication(source = {}) {
   return {
     applicationId: text(source.applicationId ?? source.application_id),

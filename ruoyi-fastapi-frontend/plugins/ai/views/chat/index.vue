@@ -1,39 +1,20 @@
 <template>
   <div class="platform-chat workspace-chat-page">
     <aside class="chat-sessions">
-      <div class="sessions-header">
-        <div class="sessions-heading">
-          <span class="sessions-kicker">工作台</span>
-          <strong>对话</strong>
-        </div>
-        <el-button class="new-session-button" type="primary" :icon="Plus" aria-label="新建对话" @click="newSession">新建</el-button>
-      </div>
-      <div class="session-tools">
-        <el-input v-model="sessionQuery" clearable :prefix-icon="Search" placeholder="搜索会话" aria-label="搜索会话" />
-      </div>
-      <div v-loading="sessionLoading" class="session-list">
-        <div
-          v-for="session in filteredSessions"
-          :key="session.sessionId"
-          class="session-item"
-          :class="{ active: session.sessionId === sessionId }"
-          role="button"
-          tabindex="0"
-          @click="openSession(session.sessionId)"
-          @keydown.enter.prevent="openSession(session.sessionId)"
-        >
-          <span class="session-copy">
-            <strong>{{ session.title }}</strong>
-            <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
-          </span>
-          <WorkspaceMoreMenu :items="[{ command: 'archive', label: '归档会话', icon: Delete }]" @command="archiveSession(session.sessionId)" />
-        </div>
-        <el-empty v-if="!sessionLoading && filteredSessions.length === 0" description="暂无匹配会话" />
-      </div>
+      <ChatSessionPanel
+        v-model:query="sessionQuery"
+        :sessions="filteredSessions"
+        :active-session-id="sessionId"
+        :loading="sessionLoading"
+        @new="newSession"
+        @open="openSession"
+        @archive="archiveSession"
+      />
     </aside>
 
     <main class="chat-workspace">
       <header class="chat-toolbar">
+        <el-button class="mobile-session-toggle" text :icon="Menu" aria-label="打开会话列表" title="打开会话列表" @click="mobileSessionsOpen = true" />
         <div>
           <div class="toolbar-title">
             <h1>AI 对话</h1>
@@ -100,6 +81,18 @@
       </footer>
     </main>
 
+    <el-drawer v-model="mobileSessionsOpen" title="会话" direction="ltr" size="min(88vw, 320px)" class="mobile-session-drawer">
+      <ChatSessionPanel
+        v-model:query="sessionQuery"
+        :sessions="filteredSessions"
+        :active-session-id="sessionId"
+        :loading="sessionLoading"
+        @new="newSessionFromMobile"
+        @open="openSessionFromMobile"
+        @archive="archiveSession"
+      />
+    </el-drawer>
+
     <el-dialog v-model="showPreferences" title="对话偏好" width="520px">
       <el-form label-width="130px">
         <el-form-item label="温度"><el-input-number v-model="editingPreferences.temperature" :min="0" :max="2" :step="0.1" /></el-form-item>
@@ -120,7 +113,7 @@
 
 <script setup name="AiChat">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { ChatDotRound, Delete, Picture, Plus, Promotion, Search, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
+import { ChatDotRound, Menu, Picture, Promotion, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
 import { getToken } from "@/utils/auth";
 import { listPlatformModels } from "../../api/modelCatalog";
 import {
@@ -133,7 +126,7 @@ import {
   saveUserChatConfig,
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
-import WorkspaceMoreMenu from "@/components/Workspace/WorkspaceMoreMenu.vue";
+import ChatSessionPanel from "./components/ChatSessionPanel.vue";
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
 import { chatMessageLabel, normalizeChatSessions, resolveInitialSessionId } from "../../utils/chatTransforms.js";
 
@@ -155,6 +148,7 @@ const historyRef = ref(null);
 const fileInput = ref(null);
 const abortController = ref(null);
 const showPreferences = ref(false);
+const mobileSessionsOpen = ref(false);
 const preferences = reactive(defaultPreferences());
 const editingPreferences = reactive(defaultPreferences());
 
@@ -176,10 +170,6 @@ const filteredSessions = computed(() => {
   if (!query) return sessions.value;
   return sessions.value.filter((session) => session.title.toLowerCase().includes(query));
 });
-
-function formatTime(value) {
-  return value ? new Date(value).toLocaleString() : "";
-}
 
 async function loadModels() {
   const response = await listPlatformModels({ pageNum: 1, pageSize: 100 });
@@ -218,6 +208,16 @@ function newSession() {
   sessionId.value = null;
   messages.value = [];
   runState.value = "idle";
+}
+
+function newSessionFromMobile() {
+  mobileSessionsOpen.value = false;
+  newSession();
+}
+
+async function openSessionFromMobile(id) {
+  mobileSessionsOpen.value = false;
+  await openSession(id);
 }
 
 async function archiveSession(id) {
@@ -370,7 +370,6 @@ onBeforeUnmount(() => abortController.value?.abort());
   background: var(--workspace-surface);
 }
 
-.sessions-header,
 .chat-toolbar,
 .composer-actions {
   display: flex;
@@ -378,93 +377,6 @@ onBeforeUnmount(() => abortController.value?.abort());
   justify-content: space-between;
 }
 
-.sessions-header {
-  min-height: 72px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--workspace-border);
-}
-
-.sessions-heading {
-  display: grid;
-  gap: 2px;
-}
-
-.sessions-kicker {
-  color: var(--workspace-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.sessions-heading strong {
-  color: var(--workspace-text);
-  font-size: 16px;
-}
-
-.new-session-button {
-  min-height: 32px;
-}
-
-.session-tools {
-  padding: 10px;
-  border-bottom: 1px solid var(--workspace-border);
-}
-
-.session-list {
-  flex: 1;
-  overflow: auto;
-  padding: 8px;
-}
-
-.session-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px;
-  margin-bottom: 4px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.session-item:hover,
-.session-item.active {
-  border-color: transparent;
-  background: var(--workspace-main-soft);
-}
-
-.session-item.active {
-  color: var(--workspace-main-deep);
-}
-
-.session-item :deep(.workspace-more-menu) {
-  opacity: 0;
-}
-
-.session-item:hover :deep(.workspace-more-menu),
-.session-item.active :deep(.workspace-more-menu) {
-  opacity: 1;
-}
-
-.session-copy {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 4px;
-}
-
-.session-copy strong,
-.session-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-copy small,
 .run-state,
 .message-meta,
 .message-metrics,
@@ -489,6 +401,14 @@ onBeforeUnmount(() => abortController.value?.abort());
 .toolbar-icon-button {
   width: 32px;
   height: 32px;
+}
+
+.mobile-session-toggle {
+  display: none;
+}
+
+:global(.mobile-session-drawer .el-drawer__body) {
+  padding: 0;
 }
 
 .chat-toolbar {
@@ -616,6 +536,11 @@ onBeforeUnmount(() => abortController.value?.abort());
 @media (max-width: 760px) {
   .chat-sessions {
     display: none;
+  }
+
+  .mobile-session-toggle {
+    display: inline-flex;
+    flex: 0 0 auto;
   }
 
   .chat-toolbar,

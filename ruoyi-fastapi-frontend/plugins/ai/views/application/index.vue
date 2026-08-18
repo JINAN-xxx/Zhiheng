@@ -51,6 +51,7 @@
       </WorkspacePanel>
 
       <WorkspacePanel
+        class="key-panel"
         :title="selectedApplication?.applicationName || 'API Key'"
         :subtitle="selectedApplication ? selectedApplication.applicationCode : '先选择一个应用'"
         flush
@@ -78,6 +79,7 @@
         </template>
 
         <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看 API Key" />
+        <WorkspaceState v-else-if="!canListKeys" kind="error" title="无权查看 API Key" message="当前账号缺少 API Key 列表权限。" />
         <WorkspaceState v-else-if="keyLoading && !keys.length" kind="loading" />
         <WorkspaceState v-else-if="keyError && !keys.length" kind="error" :message="keyError" @retry="loadKeys" />
         <WorkspaceState v-else-if="!keys.length" kind="empty" title="暂无 API Key" message="为当前应用创建第一个 Key。" />
@@ -174,17 +176,20 @@ import {
 } from '../../api/application.js'
 import {
   applicationStatusLabel,
+  buildDeveloperKeyPayload,
   developerKeyStatusLabel,
   extractIssuedKey,
   normalizeApplication,
   normalizeApplicationPage,
   normalizeDeveloperKeys,
+  shouldResetDeveloperKeys,
 } from '../../utils/application.js'
 import { hasPermission } from '../../utils/modelEngine.js'
 
 const { proxy } = getCurrentInstance()
 const userStore = useUserStore()
 const can = (permission) => hasPermission(userStore.permissions || [], permission)
+const canListKeys = computed(() => can('ai:application:key:list'))
 const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 })
 const applications = ref([])
 const total = ref(0)
@@ -252,13 +257,19 @@ async function loadApplications() {
 }
 
 async function selectApplication(application) {
+  const currentApplicationId = selectedApplication.value?.applicationId || null
+  const nextApplicationId = application?.applicationId || null
+  if (shouldResetDeveloperKeys(currentApplicationId, nextApplicationId)) {
+    ++keyRequest
+    keys.value = []
+    keyError.value = ''
+  }
   selectedApplication.value = application
-  keys.value = []
-  if (application) await loadKeys()
+  if (application && canListKeys.value) await loadKeys()
 }
 
 async function loadKeys() {
-  if (!selectedApplication.value || !can('ai:application:key:list')) return
+  if (!selectedApplication.value || !canListKeys.value) return
   const applicationId = selectedApplication.value.applicationId
   const requestId = ++keyRequest
   keyLoading.value = true
@@ -326,20 +337,11 @@ function handleKeyFormClosed() {
   issuedKeyOpen.value = true
 }
 
-function buildKeyPayload() {
-  const quota = { warningRatio: 0.8, hardLimitRatio: 1, currency: 'USD' }
-  if (keyForm.rpmLimit) quota.rpmLimit = keyForm.rpmLimit
-  if (keyForm.tpmLimit) quota.tpmLimit = keyForm.tpmLimit
-  if (keyForm.concurrencyLimit) quota.concurrencyLimit = keyForm.concurrencyLimit
-  const expiresAt = keyForm.expiresAt instanceof Date ? keyForm.expiresAt.toISOString() : null
-  return { keyName: keyForm.keyName, modelIds: [...keyForm.modelIds], expiresAt, quota }
-}
-
 async function saveKey() {
   if (!await keyFormRef.value.validate().then(() => true).catch(() => false)) return
   saving.value = true
   try {
-    const response = await createDeveloperKey(selectedApplication.value.applicationId, buildKeyPayload())
+    const response = await createDeveloperKey(selectedApplication.value.applicationId, buildDeveloperKeyPayload(keyForm))
     pendingIssuedKey.value = extractIssuedKey(response)
     keyFormOpen.value = false
     await loadKeys()
@@ -553,6 +555,29 @@ onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedK
 
   .developer-header__actions .el-button span {
     display: none;
+  }
+
+  .key-panel :deep(.workspace-panel__header) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .key-panel :deep(.workspace-panel__header > div:first-child) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .key-panel :deep(.workspace-panel__title),
+  .key-panel :deep(.workspace-panel__subtitle) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .key-toolbar {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   .key-row {

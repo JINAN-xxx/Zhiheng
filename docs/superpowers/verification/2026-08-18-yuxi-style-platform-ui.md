@@ -7,7 +7,7 @@
 ## 自动化验证
 
 - `npm run test:plugin`：5 组插件测试通过。
-- `NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker`：退出码 0，Vite 成功转换 8390 个模块并生成生产产物。
+- `NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker`：退出码 0，Vite 成功转换 8392 个模块并生成生产产物。
 - `conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -k 'not structure_check_passes' -q`：4 passed、1 skipped、1 deselected。
 - `git diff --check`：无输出。
 
@@ -20,7 +20,7 @@ Python Playwright 使用与后端 VO 对齐的 Mock API，不访问真实用户�
 | 场景 | 1440 | 768 | 390 | 320 | 结果 |
 | --- | --- | --- | --- | --- | --- |
 | 登录页 | 通过 | 通过 | 通过 | 通过 | 品牌图像、表单与验证码关闭场景正常 |
-| AI 对话 | 通过 | 通过 | 通过 | 通过 | 历史会话、消息区和输入区无页面级溢出 |
+| AI 对话 | 通过 | 通过 | 通过 | 通过 | 历史会话、消息区、移动会话抽屉和输入区无页面级溢出 |
 | 模型中心 | 通过 | 通过 | 通过 | 通过 | 四个标签均可切换，无控制台或页面异常 |
 | Developer API | 通过 | 通过 | 通过 | 通过 | 应用、Key、授权模型与移动布局正常 |
 | 用户/监控/代码生成 | 通过 | 通过 | 通过 | 通过 | 三类管理页面无页面级溢出 |
@@ -29,7 +29,10 @@ Python Playwright 使用与后端 VO 对齐的 Mock API，不访问真实用户�
 
 登录后从 `/index` 进入时，动态路由使用 `/ai` 父路径和相对 `chat` 子路径；浏览器确认最终地址为 `/ai/chat`。无 AI 对话路由的权限场景由纯函数测试确认保留 `/index`。
 
+移动会话抽屉在 390px 和 320px 下验证了搜索、切换历史会话和新建会话。独立 Mock SSE 场景验证了流式内容、思考过程、用量、完成状态、503 失败提示和挂起请求停止；预期的 503 浏览器网络记录单独白名单处理，其余 console/page error 为 0。
+
 Developer API 创建 Key 场景确认：完整 Key 只在创建结果弹窗中展示；关闭弹窗后，完整 Key 不再存在于 DOM。
+创建请求体中的 `warningRatio` 和 `hardLimitRatio` 分别为十进制字符串 `"0.8"`、`"1"`，并通过后端 `DeveloperKeyCreateModel` 校验。同应用 Key 刷新失败保留旧数据并标记可能过期；缺少 `key:list` 权限时不发送 Key 请求并显示无权限状态。
 
 截图保存在 `/tmp`，未提交构建产物或浏览器脚本。主要截图包括：
 

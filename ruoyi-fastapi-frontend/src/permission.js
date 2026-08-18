@@ -65,6 +65,13 @@ router.beforeEach(async (to, from) => {
         return { path: '/' }
       }
     }
+    const landingPath = resolveWorkspaceLandingPath(
+      to.path,
+      collectWorkspaceRoutePaths(usePermissionStore().addRoutes),
+    )
+    if (landingPath !== to.path) {
+      return { path: landingPath, replace: true }
+    }
     return true
   } else {
     // 没有token
