@@ -117,6 +117,16 @@ class DeveloperKeyCodec:
             complete_key=material.complete_key,
         )
 
+    @staticmethod
+    def identify(complete_key: object) -> tuple[str, str] | None:
+        if not isinstance(complete_key, str):
+            return None
+        matched = KEY_PATTERN.fullmatch(complete_key)
+        if matched is None:
+            return None
+        key_id = matched.group(1)
+        return key_id, f'sk-zh_{key_id}'
+
     def verify(self, complete_key: str, *, version: str, expected_digest: str) -> bool:
         if not isinstance(complete_key, str) or KEY_PATTERN.fullmatch(complete_key) is None:
             return False
