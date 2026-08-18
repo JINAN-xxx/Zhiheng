@@ -31,6 +31,8 @@ _ALLOWED_PARAMETERS = frozenset(
         'max_tokens',
         'presence_penalty',
         'frequency_penalty',
+        'stop',
+        'user',
     }
 )
 _FORBIDDEN_MODEL_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})

@@ -73,8 +73,6 @@ class OpenAIChatCompletionRequestModel(_StrictRequestModel):
 
     @model_validator(mode='after')
     def validate_first_release_contract(self) -> 'OpenAIChatCompletionRequestModel':
-        if self.stream:
-            raise ValueError('streaming is not available in this release')
         if isinstance(self.stop, list) and not 1 <= len(self.stop) <= MAX_STOP_SEQUENCES:
             raise ValueError('stop must contain between one and four values')
         return self
@@ -104,3 +102,28 @@ class OpenAIChatCompletionResponseModel(_PublicResponseModel):
     model: SafeModelCode
     choices: list[OpenAIChatCompletionChoiceModel] = Field(min_length=1)
     usage: OpenAIUsageModel
+
+
+class OpenAIChatCompletionChunkDeltaModel(_PublicResponseModel):
+    role: Literal['assistant'] | None = None
+    content: str | None = None
+
+    @model_validator(mode='after')
+    def validate_delta_shape(self) -> 'OpenAIChatCompletionChunkDeltaModel':
+        if self.role is not None and self.content is not None:
+            raise ValueError('chunk delta cannot contain role and content together')
+        return self
+
+
+class OpenAIChatCompletionChunkChoiceModel(_PublicResponseModel):
+    index: Annotated[int, Field(strict=True, ge=0)]
+    delta: OpenAIChatCompletionChunkDeltaModel
+    finish_reason: Literal['stop', 'length'] | None = None
+
+
+class OpenAIChatCompletionChunkModel(_PublicResponseModel):
+    id: Annotated[str, StringConstraints(strict=True, pattern=r'^chatcmpl_[0-9a-f]{32}$')]
+    object: Literal['chat.completion.chunk'] = 'chat.completion.chunk'
+    created: Annotated[int, Field(strict=True, ge=0)]
+    model: SafeModelCode
+    choices: list[OpenAIChatCompletionChunkChoiceModel] = Field(min_length=1)

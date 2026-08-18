@@ -623,6 +623,40 @@ async def test_chat_merges_defaults_then_allowed_caller_overrides_and_returns_sn
 
 
 @pytest.mark.asyncio
+async def test_chat_passes_public_stop_and_user_parameters_to_runtime() -> None:
+    service, runtime = _service()
+
+    await service.chat(MODEL_ID, _messages(), {'stop': ['END', 'DONE'], 'user': 'caller-42'})
+
+    assert dict(runtime.chat_requests[0].parameters) == {
+        'temperature': 0.2,
+        'max_tokens': 2_048,
+        'stop': ('END', 'DONE'),
+        'user': 'caller-42',
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'parameters',
+    (
+        {'stop': []},
+        {'stop': ['1', '2', '3', '4', '5']},
+        {'stop': ['safe', 'bad\nvalue']},
+        {'user': ''},
+        {'user': 'bad\x00caller'},
+    ),
+)
+async def test_chat_rejects_invalid_public_stop_or_user_before_runtime(parameters: dict[str, object]) -> None:
+    service, runtime = _service()
+
+    with pytest.raises(ValueError, match='模型参数无效'):
+        await service.chat(MODEL_ID, _messages(), parameters)
+
+    assert runtime.chat_requests == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     'forbidden_key',
     ('model', 'api_key', 'apiKey', 'authorization', 'base_url', 'baseUrl', 'provider_private'),

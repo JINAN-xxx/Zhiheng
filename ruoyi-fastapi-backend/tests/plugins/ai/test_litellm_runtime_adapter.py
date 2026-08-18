@@ -346,6 +346,8 @@ async def test_chat_maps_only_platform_parameter_allowlist_to_openai_payload() -
             'max_tokens': 100,
             'presence_penalty': 0.1,
             'frequency_penalty': -0.1,
+            'stop': ['END'],
+            'user': 'caller-42',
         },
     )
 
@@ -360,6 +362,8 @@ async def test_chat_maps_only_platform_parameter_allowlist_to_openai_payload() -
             'max_tokens': 100,
             'presence_penalty': 0.1,
             'frequency_penalty': -0.1,
+            'stop': ['END'],
+            'user': 'caller-42',
             'stream': False,
         }
     ]

@@ -1,4 +1,5 @@
 import asyncio
+import unicodedata
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -20,7 +21,7 @@ from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import validate_resource_id
 from plugins.ai.entity.vo.ai_model_catalog_vo import ModelDefaultParametersModel
 
-_ALLOWED_PARAMETERS = frozenset(
+_DEFAULT_PARAMETERS = frozenset(
     {
         'temperature',
         'top_p',
@@ -29,8 +30,11 @@ _ALLOWED_PARAMETERS = frozenset(
         'frequency_penalty',
     }
 )
+_REQUEST_PARAMETERS = _DEFAULT_PARAMETERS | {'stop', 'user'}
+_FORBIDDEN_TEXT_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
 _INVALID_PARAMETER_MESSAGE = '模型参数无效'
 _UNSUPPORTED_PARAMETER_MESSAGE = '不支持的模型参数'
+_MAX_STOP_SEQUENCES = 4
 
 
 def _freeze_parameters(parameters: Mapping[str, object]) -> Mapping[str, object]:
@@ -204,7 +208,10 @@ class ModelService:
         messages: Sequence[ModelMessage],
         parameters: Mapping[str, object] | None,
     ) -> ModelChatRequest:
-        caller_parameters = ModelService._validate_parameters({} if parameters is None else parameters)
+        caller_parameters = ModelService._validate_parameters(
+            {} if parameters is None else parameters,
+            allow_request_extensions=True,
+        )
         merged_parameters = {**resolved.default_parameters, **caller_parameters}
         return ModelChatRequest(
             engine_model=resolved.engine_model_snapshot,
@@ -213,18 +220,61 @@ class ModelService:
         )
 
     @staticmethod
-    def _validate_parameters(parameters: Mapping[str, Any]) -> dict[str, object]:
+    def _validate_parameters(
+        parameters: Mapping[str, Any],
+        *,
+        allow_request_extensions: bool = False,
+    ) -> dict[str, object]:
         if not isinstance(parameters, Mapping):
             raise TypeError('模型参数必须是映射')
-        if set(parameters).difference(_ALLOWED_PARAMETERS):
+        allowed = _REQUEST_PARAMETERS if allow_request_extensions else _DEFAULT_PARAMETERS
+        if set(parameters).difference(allowed):
             raise ValueError(_UNSUPPORTED_PARAMETER_MESSAGE)
         normalized = {key: value for key, value in parameters.items() if value is not None}
-        aliased = {ModelDefaultParametersModel.model_fields[key].alias: value for key, value in normalized.items()}
+        default_parameters = {key: value for key, value in normalized.items() if key in _DEFAULT_PARAMETERS}
+        aliased = {
+            ModelDefaultParametersModel.model_fields[key].alias: value for key, value in default_parameters.items()
+        }
         try:
             validated = ModelDefaultParametersModel.model_validate(aliased)
         except ValidationError:
             raise ValueError(_INVALID_PARAMETER_MESSAGE) from None
-        return validated.model_dump(exclude_none=True)
+        result = validated.model_dump(exclude_none=True)
+        if 'stop' in normalized:
+            result['stop'] = ModelService._validate_stop(normalized['stop'])
+        if 'user' in normalized:
+            result['user'] = ModelService._validate_user(normalized['user'])
+        return result
+
+    @staticmethod
+    def _validate_stop(value: object) -> str | tuple[str, ...]:
+        if isinstance(value, str):
+            values = (value,)
+            normalized: str | tuple[str, ...] = value
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            values = tuple(value)
+            normalized = values
+        else:
+            raise ValueError(_INVALID_PARAMETER_MESSAGE)
+        if not 1 <= len(values) <= _MAX_STOP_SEQUENCES or any(
+            not ModelService._valid_public_text(item, 100) for item in values
+        ):
+            raise ValueError(_INVALID_PARAMETER_MESSAGE)
+        return normalized
+
+    @staticmethod
+    def _validate_user(value: object) -> str:
+        if not ModelService._valid_public_text(value, 128):
+            raise ValueError(_INVALID_PARAMETER_MESSAGE)
+        return value
+
+    @staticmethod
+    def _valid_public_text(value: object, max_length: int) -> bool:
+        return (
+            isinstance(value, str)
+            and 1 <= len(value) <= max_length
+            and not any(unicodedata.category(character) in _FORBIDDEN_TEXT_CATEGORIES for character in value)
+        )
 
     def _require_clean_session(self, db: AsyncSession | None = None) -> None:
         session = self._db if db is None else db

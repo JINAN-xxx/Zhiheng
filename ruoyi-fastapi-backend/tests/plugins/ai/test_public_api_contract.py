@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from plugins.ai.domain.public_api_errors import PublicApiError
 from plugins.ai.entity.vo.ai_openai_compat_vo import (
+    OpenAIChatCompletionChunkModel,
     OpenAIChatCompletionRequestModel,
     OpenAIChatCompletionResponseModel,
     OpenAIModelListResponseModel,
@@ -113,6 +114,14 @@ def test_chat_request_accepts_only_first_release_fields_and_snake_case() -> None
     assert request.model_dump(exclude_none=True) == valid_chat_request()
 
 
+@pytest.mark.parametrize('stream', (False, True))
+def test_chat_request_accepts_strict_stream_modes(stream: bool) -> None:
+    payload = valid_chat_request()
+    payload['stream'] = stream
+
+    assert OpenAIChatCompletionRequestModel.model_validate(payload).stream is stream
+
+
 @pytest.mark.parametrize(
     ('field', 'value'),
     (
@@ -135,7 +144,8 @@ def test_chat_request_rejects_unknown_or_private_fields(field: str, value: objec
 @pytest.mark.parametrize(
     ('field', 'value'),
     (
-        ('stream', True),
+        ('stream', 1),
+        ('stream', 'true'),
         ('temperature', -0.1),
         ('temperature', 2.1),
         ('top_p', 1.1),
@@ -220,3 +230,34 @@ def test_chat_completion_response_uses_openai_shape_and_ignores_internal_fields(
     assert serialized['usage'] == {'prompt_tokens': 3, 'completion_tokens': 1, 'total_tokens': 4}
     assert 'binding_id' not in serialized
     assert 'provider_cost' not in serialized
+
+
+@pytest.mark.parametrize(
+    ('delta', 'finish_reason'),
+    (
+        ({'role': 'assistant'}, None),
+        ({'content': 'Hello'}, None),
+        ({}, 'stop'),
+    ),
+)
+def test_chat_completion_chunk_supports_role_content_and_finish_frames(
+    delta: dict[str, str],
+    finish_reason: str | None,
+) -> None:
+    chunk = OpenAIChatCompletionChunkModel.model_validate(
+        {
+            'id': 'chatcmpl_00000000000040008000000000000001',
+            'object': 'chat.completion.chunk',
+            'created': 1786982400,
+            'model': MODEL_CODE,
+            'choices': [{'index': 0, 'delta': delta, 'finish_reason': finish_reason}],
+            'platform_model_id': 'must-not-survive',
+            'binding_id': 'must-not-survive',
+        }
+    )
+
+    serialized = chunk.model_dump(exclude_none=True)
+    assert serialized['object'] == 'chat.completion.chunk'
+    assert serialized['choices'][0]['delta'] == delta
+    assert 'platform_model_id' not in serialized
+    assert 'binding_id' not in serialized
