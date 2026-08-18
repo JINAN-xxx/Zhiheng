@@ -27,6 +27,8 @@ Python Playwright 使用与后端 VO 对齐的 Mock API，不访问真实用户�
 
 所有上述页面均满足 `document.documentElement.scrollWidth <= innerWidth`，浏览器 `console error` 与 `page error` 均为 0。1440 视口额外验证了实际亮/暗主题切换。
 
+登录后从 `/index` 进入时，动态路由使用 `/ai` 父路径和相对 `chat` 子路径；浏览器确认最终地址为 `/ai/chat`。无 AI 对话路由的权限场景由纯函数测试确认保留 `/index`。
+
 Developer API 创建 Key 场景确认：完整 Key 只在创建结果弹窗中展示；关闭弹窗后，完整 Key 不再存在于 DOM。
 
 截图保存在 `/tmp`，未提交构建产物或浏览器脚本。主要截图包括：

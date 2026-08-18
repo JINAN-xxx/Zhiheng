@@ -37,6 +37,18 @@ export function resolveWorkspaceLandingPath(currentPath, accessiblePaths = []) {
   return currentPath
 }
 
+export function collectWorkspaceRoutePaths(routes = [], parentPath = '') {
+  return routes.flatMap((route) => {
+    const routePath = typeof route?.path === 'string' ? route.path : ''
+    const fullPath = routePath.startsWith('/')
+      ? routePath
+      : [parentPath.replace(/\/$/u, ''), routePath].filter(Boolean).join('/')
+    const normalizedPath = fullPath ? `/${fullPath.replace(/^\/+/, '')}` : parentPath
+    const current = routePath ? [normalizedPath] : []
+    return current.concat(collectWorkspaceRoutePaths(route?.children, normalizedPath))
+  })
+}
+
 export function resolvePaginationLayout(width, desktopLayout) {
   if (width < 600) return 'prev, pager, next'
   if (width < 900) return 'total, prev, pager, next'
