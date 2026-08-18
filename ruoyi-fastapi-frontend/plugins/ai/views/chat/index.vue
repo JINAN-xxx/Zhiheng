@@ -1,45 +1,50 @@
 <template>
-  <div class="platform-chat">
+  <div class="platform-chat workspace-chat-page">
     <aside class="chat-sessions">
       <div class="sessions-header">
-        <span>平台对话</span>
-        <el-button type="primary" :icon="Plus" @click="newSession">新建</el-button>
+        <div class="sessions-heading">
+          <span class="sessions-kicker">工作台</span>
+          <strong>对话</strong>
+        </div>
+        <el-button class="new-session-button" type="primary" :icon="Plus" aria-label="新建对话" @click="newSession">新建</el-button>
+      </div>
+      <div class="session-tools">
+        <el-input v-model="sessionQuery" clearable :prefix-icon="Search" placeholder="搜索会话" aria-label="搜索会话" />
       </div>
       <div v-loading="sessionLoading" class="session-list">
-        <button
-          v-for="session in sessions"
+        <div
+          v-for="session in filteredSessions"
           :key="session.sessionId"
           class="session-item"
           :class="{ active: session.sessionId === sessionId }"
-          type="button"
+          role="button"
+          tabindex="0"
           @click="openSession(session.sessionId)"
+          @keydown.enter.prevent="openSession(session.sessionId)"
         >
           <span class="session-copy">
-            <strong>{{ session.title || "新对话" }}</strong>
+            <strong>{{ session.title }}</strong>
             <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
           </span>
-          <el-button
-            text
-            :icon="Delete"
-            aria-label="归档会话"
-            @click.stop="archiveSession(session.sessionId)"
-          />
-        </button>
-        <el-empty v-if="!sessionLoading && sessions.length === 0" description="暂无会话" />
+          <WorkspaceMoreMenu :items="[{ command: 'archive', label: '归档会话', icon: Delete }]" @command="archiveSession(session.sessionId)" />
+        </div>
+        <el-empty v-if="!sessionLoading && filteredSessions.length === 0" description="暂无匹配会话" />
       </div>
     </aside>
 
     <main class="chat-workspace">
       <header class="chat-toolbar">
         <div>
-          <h1>AI 对话</h1>
-          <span class="run-state" :class="runState">{{ stateLabel }}</span>
+          <div class="toolbar-title">
+            <h1>AI 对话</h1>
+            <WorkspaceStatus :status="runState" :label="stateLabel" />
+          </div>
         </div>
         <div class="toolbar-actions">
           <el-select v-model="modelId" placeholder="选择平台模型" filterable :disabled="loading">
             <el-option v-for="model in models" :key="model.modelId" :label="model.title || model.modelCode" :value="model.modelId" />
           </el-select>
-          <el-button text :icon="Setting" aria-label="对话偏好" @click="showPreferences = true" />
+          <el-button class="toolbar-icon-button" text :icon="Setting" aria-label="对话偏好" title="对话偏好" @click="showPreferences = true" />
         </div>
       </header>
 
@@ -47,12 +52,12 @@
         <div v-if="messages.length === 0" class="empty-chat">
           <el-icon :size="42"><ChatDotRound /></el-icon>
           <h2>从一个问题开始</h2>
-          <p>消息会保存到当前平台会话中。</p>
+          <p>选择一个平台模型，开始你的工作流。</p>
         </div>
         <article v-for="message in messages" :key="message.localId || message.messageId" class="message-row" :class="message.role">
           <div class="message-avatar"><el-icon><User v-if="message.role === 'user'" /><Service v-else /></el-icon></div>
           <div class="message-body">
-            <div class="message-meta">{{ message.role === "user" ? "我" : "AI" }}</div>
+            <div class="message-meta">{{ chatMessageLabel(message.role) }}</div>
             <div v-if="message.images?.length" class="message-images">
               <el-tag v-for="image in message.images" :key="image.fileId" size="small" effect="plain">文件 {{ image.fileId }}</el-tag>
             </div>
@@ -74,21 +79,23 @@
         <div v-if="imageIds.length" class="image-queue">
           <el-tag v-for="fileId in imageIds" :key="fileId" closable @close="removeImage(fileId)">文件 {{ fileId }}</el-tag>
         </div>
-        <el-input
-          v-model="draft"
-          type="textarea"
-          :rows="3"
-          resize="none"
-          :disabled="loading"
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-          @keydown.enter.exact.prevent="send"
-        />
-        <div class="composer-actions">
-          <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden @change="selectImage" />
-          <el-button text :icon="Picture" :disabled="loading" aria-label="添加图片" @click="fileInput?.click()" />
-          <span class="composer-hint">{{ imageIds.length }}/10</span>
-          <el-button v-if="loading" type="danger" :icon="VideoPause" @click="stop">停止</el-button>
-          <el-button v-else type="primary" :icon="Promotion" :disabled="!draft.trim() || !modelId" @click="send">发送</el-button>
+        <div class="composer-surface">
+          <el-input
+            v-model="draft"
+            type="textarea"
+            :rows="3"
+            resize="none"
+            :disabled="loading"
+            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+            @keydown.enter.exact.prevent="send"
+          />
+          <div class="composer-actions">
+            <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden @change="selectImage" />
+            <el-button text :icon="Picture" :disabled="loading" aria-label="添加图片" title="添加图片" @click="fileInput?.click()" />
+            <span class="composer-hint">{{ imageIds.length }}/10</span>
+            <el-button v-if="loading" type="danger" :icon="VideoPause" @click="stop">停止</el-button>
+            <el-button v-else type="primary" :icon="Promotion" :disabled="!draft.trim() || !modelId" @click="send">发送</el-button>
+          </div>
         </div>
       </footer>
     </main>
@@ -113,7 +120,7 @@
 
 <script setup name="AiChat">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { ChatDotRound, Delete, Picture, Plus, Promotion, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
+import { ChatDotRound, Delete, Picture, Plus, Promotion, Search, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
 import { getToken } from "@/utils/auth";
 import { listPlatformModels } from "../../api/modelCatalog";
 import {
@@ -126,11 +133,15 @@ import {
   saveUserChatConfig,
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
+import WorkspaceMoreMenu from "@/components/Workspace/WorkspaceMoreMenu.vue";
+import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
+import { chatMessageLabel, normalizeChatSessions, resolveInitialSessionId } from "../../utils/chatTransforms.js";
 
 const { proxy } = getCurrentInstance();
 const models = ref([]);
 const modelId = ref("");
 const sessions = ref([]);
+const sessionQuery = ref("");
 const sessionId = ref(null);
 const messages = ref([]);
 const draft = ref("");
@@ -160,6 +171,11 @@ function defaultPreferences() {
 }
 
 const stateLabel = computed(() => ({ idle: "就绪", loading: "准备中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || "就绪"));
+const filteredSessions = computed(() => {
+  const query = sessionQuery.value.trim().toLowerCase();
+  if (!query) return sessions.value;
+  return sessions.value.filter((session) => session.title.toLowerCase().includes(query));
+});
 
 function formatTime(value) {
   return value ? new Date(value).toLocaleString() : "";
@@ -175,7 +191,9 @@ async function loadSessions() {
   sessionLoading.value = true;
   try {
     const response = await listChatSession({ pageNum: 1, pageSize: 100 });
-    sessions.value = response.rows || response.data?.rows || [];
+    sessions.value = normalizeChatSessions(response);
+    const initialSessionId = resolveInitialSessionId(sessions.value, sessionId.value);
+    if (!sessionId.value && initialSessionId) await openSession(initialSessionId);
   } finally {
     sessionLoading.value = false;
   }
@@ -333,21 +351,23 @@ onBeforeUnmount(() => abortController.value?.abort());
 
 <style scoped lang="scss">
 .platform-chat {
-  height: calc(100vh - 84px);
+  height: calc(100vh - 116px);
   display: flex;
   overflow: hidden;
   color: var(--el-text-color-primary);
-  background: var(--el-bg-color-page);
+  background: var(--workspace-bg);
   font-family: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 .chat-sessions {
-  width: 280px;
-  flex: 0 0 280px;
+  width: 256px;
+  flex: 0 0 256px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  margin: var(--workspace-space-4) 0 var(--workspace-space-4) var(--workspace-space-4);
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
+  background: var(--workspace-surface);
 }
 
 .sessions-header,
@@ -359,10 +379,35 @@ onBeforeUnmount(() => abortController.value?.abort());
 }
 
 .sessions-header {
-  min-height: 60px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--el-border-color);
-  font-weight: 600;
+  min-height: 72px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--workspace-border);
+}
+
+.sessions-heading {
+  display: grid;
+  gap: 2px;
+}
+
+.sessions-kicker {
+  color: var(--workspace-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sessions-heading strong {
+  color: var(--workspace-text);
+  font-size: 16px;
+}
+
+.new-session-button {
+  min-height: 32px;
+}
+
+.session-tools {
+  padding: 10px;
+  border-bottom: 1px solid var(--workspace-border);
 }
 
 .session-list {
@@ -388,8 +433,21 @@ onBeforeUnmount(() => abortController.value?.abort());
 
 .session-item:hover,
 .session-item.active {
-  background: var(--el-fill-color-light);
-  border-color: var(--el-border-color);
+  border-color: transparent;
+  background: var(--workspace-main-soft);
+}
+
+.session-item.active {
+  color: var(--workspace-main-deep);
+}
+
+.session-item :deep(.workspace-more-menu) {
+  opacity: 0;
+}
+
+.session-item:hover :deep(.workspace-more-menu),
+.session-item.active :deep(.workspace-more-menu) {
+  opacity: 1;
 }
 
 .session-copy {
@@ -422,11 +480,22 @@ onBeforeUnmount(() => abortController.value?.abort());
   flex-direction: column;
 }
 
+.toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toolbar-icon-button {
+  width: 32px;
+  height: 32px;
+}
+
 .chat-toolbar {
   min-height: 60px;
   padding: 0 22px;
   border-bottom: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  background: transparent;
 }
 
 .chat-toolbar h1 {
@@ -444,7 +513,7 @@ onBeforeUnmount(() => abortController.value?.abort());
 .message-history {
   flex: 1;
   overflow: auto;
-  padding: 24px clamp(16px, 6vw, 96px);
+  padding: 28px clamp(16px, 7vw, 112px);
 }
 
 .empty-chat {
@@ -515,9 +584,23 @@ onBeforeUnmount(() => abortController.value?.abort());
 }
 
 .composer {
-  padding: 12px clamp(16px, 6vw, 96px) 16px;
-  border-top: 1px solid var(--el-border-color);
-  background: var(--el-bg-color);
+  padding: 12px clamp(16px, 7vw, 112px) 20px;
+  background: transparent;
+}
+
+.composer-surface {
+  padding: 10px 12px 8px;
+  border: 1px solid var(--workspace-border-strong);
+  border-radius: var(--workspace-radius-md);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-soft);
+}
+
+.composer-surface :deep(.el-textarea__inner) {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .composer :deep(textarea) {
@@ -532,10 +615,7 @@ onBeforeUnmount(() => abortController.value?.abort());
 
 @media (max-width: 760px) {
   .chat-sessions {
-    width: 0;
-    flex-basis: 0;
-    overflow: hidden;
-    border: 0;
+    display: none;
   }
 
   .chat-toolbar,
