@@ -153,5 +153,8 @@ cython_debug/
 .qoder/
 .trae/
 
+# Local Git worktrees
+.worktrees/
+
 # LiteLLM local secrets
 /deploy/litellm/.env
