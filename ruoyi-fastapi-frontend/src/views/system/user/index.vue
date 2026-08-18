@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container tree-sidebar-manage-wrap">
+  <div class="app-container workspace-admin-page tree-sidebar-manage-wrap">
     <tree-panel
       title="组织机构"
       :tree-data="deptOptions"

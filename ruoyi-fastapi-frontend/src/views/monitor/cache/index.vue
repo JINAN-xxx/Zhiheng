@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="app-container workspace-admin-page workspace-monitor-page">
     <el-row :gutter="10">
       <el-col :span="24" class="card-box">
         <el-card>

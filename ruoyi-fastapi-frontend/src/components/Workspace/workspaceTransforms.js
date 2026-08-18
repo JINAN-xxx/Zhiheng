@@ -36,3 +36,9 @@ export function resolveWorkspaceLandingPath(currentPath, accessiblePaths = []) {
   if (currentPath === '/index' && accessiblePaths.includes('/ai/chat')) return '/ai/chat'
   return currentPath
 }
+
+export function resolvePaginationLayout(width, desktopLayout) {
+  if (width < 600) return 'prev, pager, next'
+  if (width < 900) return 'total, prev, pager, next'
+  return desktopLayout
+}

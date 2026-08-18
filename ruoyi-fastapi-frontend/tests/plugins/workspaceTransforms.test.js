@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   groupWorkspaceActions,
+  resolvePaginationLayout,
   resolveWorkspaceLandingPath,
   resolveWorkspaceState,
   workspaceStateLabel,
@@ -27,3 +28,5 @@ assert.deepEqual(normalizeChatSessions({ data: { rows: [{ id: 's-1', name: '项�
 assert.equal(resolveInitialSessionId([{ sessionId: 's-1' }]), 's-1')
 assert.equal(resolveInitialSessionId([{ sessionId: 's-1' }], 'missing'), 's-1')
 assert.equal(chatMessageLabel('assistant'), '智衡')
+assert.equal(resolvePaginationLayout(390, 'total, sizes, prev, pager, next, jumper'), 'prev, pager, next')
+assert.equal(resolvePaginationLayout(1440, 'total, sizes, prev, pager, next, jumper'), 'total, sizes, prev, pager, next, jumper')

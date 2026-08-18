@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="app-container workspace-admin-page">
     <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
       <el-form-item label="表名称" prop="tableName">
         <el-input

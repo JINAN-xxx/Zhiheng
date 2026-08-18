@@ -4,7 +4,7 @@
       :background="background"
       v-model:current-page="currentPage"
       v-model:page-size="pageSize"
-      :layout="layout"
+      :layout="responsiveLayout"
       :page-sizes="pageSizes"
       :pager-count="pagerCount"
       :total="total"
@@ -16,6 +16,7 @@
 
 <script setup>
 import { scrollTo } from '@/utils/scroll-to'
+import { resolvePaginationLayout } from '@/components/Workspace/workspaceTransforms.js'
 
 const props = defineProps({
   total: {
@@ -60,6 +61,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits();
+const viewportWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
+const responsiveLayout = computed(() => resolvePaginationLayout(viewportWidth.value, props.layout))
 const currentPage = computed({
   get() {
     return props.page
@@ -85,6 +88,13 @@ function handleSizeChange(val) {
     scrollTo(0, 800)
   }
 }
+
+function updateViewportWidth() {
+  viewportWidth.value = window.innerWidth
+}
+
+onMounted(() => window.addEventListener('resize', updateViewportWidth, { passive: true }))
+onBeforeUnmount(() => window.removeEventListener('resize', updateViewportWidth))
 function handleCurrentChange(val) {
   emit('pagination', { page: val, limit: pageSize.value })
   if (props.autoScroll) {
@@ -94,11 +104,21 @@ function handleCurrentChange(val) {
 
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .pagination-container {
-  background: #fff;
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 0 0;
+  background: transparent;
 }
 .pagination-container.hidden {
   display: none;
+}
+
+@media (max-width: 599px) {
+  .pagination-container {
+    justify-content: center;
+    overflow: hidden;
+  }
 }
 </style>
