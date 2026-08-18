@@ -32,7 +32,9 @@
           <strong>{{ session.title }}</strong>
           <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
         </span>
-        <WorkspaceMoreMenu :items="[{ command: 'archive', label: '归档会话', icon: Delete }]" @command="emit('archive', session.sessionId)" />
+        <span class="session-actions" @click.stop @keydown.stop>
+          <WorkspaceMoreMenu :items="[{ command: 'archive', label: '归档会话', icon: Delete }]" @command="emit('archive', session.sessionId)" />
+        </span>
       </div>
       <el-empty v-if="!loading && sessions.length === 0" description="暂无匹配会话" />
     </div>
@@ -73,9 +75,13 @@ function formatTime(value) {
 .session-item.active { color: var(--workspace-main-deep); }
 .session-item :deep(.workspace-more-menu) { opacity: 0; }
 .session-item:hover :deep(.workspace-more-menu),
-.session-item.active :deep(.workspace-more-menu) { opacity: 1; }
+.session-item.active :deep(.workspace-more-menu),
+.session-item:focus-within :deep(.workspace-more-menu) { opacity: 1; }
 .session-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .session-copy strong,
 .session-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-copy small { color: var(--el-text-color-secondary); font-size: 12px; }
+@media (hover: none) {
+  .session-item :deep(.workspace-more-menu) { opacity: 1; }
+}
 </style>

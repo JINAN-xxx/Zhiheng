@@ -70,7 +70,7 @@
               @click="disableSelectedApplication"
             >停用</el-button>
             <el-button
-              v-if="can('ai:application:key:add') && selectedApplication.status === 'active'"
+              v-if="canCreateKey && selectedApplication.status === 'active'"
               type="primary"
               :icon="Key"
               @click="openKeyForm"
@@ -79,7 +79,7 @@
         </template>
 
         <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看 API Key" />
-        <WorkspaceState v-else-if="!canListKeys" kind="error" title="无权查看 API Key" message="当前账号缺少 API Key 列表权限。" />
+        <WorkspaceState v-else-if="!canListKeys" kind="forbidden" title="无权查看 API Key" message="当前账号缺少 API Key 列表权限。" />
         <WorkspaceState v-else-if="keyLoading && !keys.length" kind="loading" />
         <WorkspaceState v-else-if="keyError && !keys.length" kind="error" :message="keyError" @retry="loadKeys" />
         <WorkspaceState v-else-if="!keys.length" kind="empty" title="暂无 API Key" message="为当前应用创建第一个 Key。" />
@@ -190,6 +190,7 @@ const { proxy } = getCurrentInstance()
 const userStore = useUserStore()
 const can = (permission) => hasPermission(userStore.permissions || [], permission)
 const canListKeys = computed(() => can('ai:application:key:list'))
+const canCreateKey = computed(() => can('ai:application:key:add') && can('ai:model:list'))
 const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 })
 const applications = ref([])
 const total = ref(0)
@@ -320,6 +321,7 @@ async function disableSelectedApplication() {
 }
 
 async function openKeyForm() {
+  if (!canCreateKey.value) return
   const response = await listPlatformModels({ pageNum: 1, pageSize: 100 })
   models.value = response.rows || response.data?.rows || []
   keyFormOpen.value = true

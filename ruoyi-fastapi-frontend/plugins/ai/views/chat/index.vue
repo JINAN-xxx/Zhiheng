@@ -259,6 +259,7 @@ function removeImage(id) {
 async function send() {
   const message = draft.value.trim();
   if (!message || !modelId.value || loading.value) return;
+  runId.value = null;
   const clientMessageId = crypto.randomUUID();
   const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
   messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages });

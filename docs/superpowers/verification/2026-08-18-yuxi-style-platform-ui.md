@@ -15,7 +15,7 @@
 
 ## 浏览器验证
 
-Python Playwright 使用与后端 VO 对齐的 Mock API，不访问真实用户、模型、凭据或 Key。验证视口为 1440x960、768x1024、390x844 和 320x720。
+Python Playwright 使用与后端响应字段形状对齐的 Mock API，不访问真实用户、模型、凭据或 Key；严格请求校验由后端模型测试覆盖。验证视口为 1440x960、768x1024、390x844 和 320x720。
 
 | 场景 | 1440 | 768 | 390 | 320 | 结果 |
 | --- | --- | --- | --- | --- | --- |
@@ -32,7 +32,7 @@ Python Playwright 使用与后端 VO 对齐的 Mock API，不访问真实用户�
 移动会话抽屉在 390px 和 320px 下验证了搜索、切换历史会话和新建会话。独立 Mock SSE 场景验证了流式内容、思考过程、用量、完成状态、503 失败提示和挂起请求停止；预期的 503 浏览器网络记录单独白名单处理，其余 console/page error 为 0。
 
 Developer API 创建 Key 场景确认：完整 Key 只在创建结果弹窗中展示；关闭弹窗后，完整 Key 不再存在于 DOM。
-创建请求体中的 `warningRatio` 和 `hardLimitRatio` 分别为十进制字符串 `"0.8"`、`"1"`，并通过后端 `DeveloperKeyCreateModel` 校验。同应用 Key 刷新失败保留旧数据并标记可能过期；缺少 `key:list` 权限时不发送 Key 请求并显示无权限状态。
+创建请求体中的 `warningRatio` 和 `hardLimitRatio` 分别为十进制字符串 `"0.8"`、`"1"`，并通过后端 `DeveloperKeyCreateModel` 校验。同应用 Key 刷新失败保留旧数据并标记可能过期；缺少 `key:list` 权限时不发送 Key 请求并显示无权限状态；缺少 `model:list` 权限时不开放创建 Key，也不会请求授权模型列表。
 
 截图保存在 `/tmp`，未提交构建产物或浏览器脚本。主要截图包括：
 
