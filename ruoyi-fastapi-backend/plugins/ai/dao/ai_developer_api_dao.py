@@ -1,4 +1,5 @@
 from collections.abc import Collection, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -50,6 +51,26 @@ QUOTA_MUTABLE_FIELDS = frozenset(
         'updated_at',
     }
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DeveloperKeyAuthRecord:
+    key_id: str
+    application_id: str
+    key_prefix: str
+    secret_digest: str = field(repr=False)
+    digest_version: str
+    key_status: str
+    expires_at: datetime | None
+    retire_at: datetime | None
+    application_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class PublicModelRecord:
+    platform_model_id: str
+    model_code: str
+    published_at: datetime
 
 
 class AiDeveloperApiDao:
@@ -225,6 +246,108 @@ class AiDeveloperApiDao:
             .scalars()
             .all()
         )
+
+    @classmethod
+    async def get_key_auth_record(cls, db: AsyncSession, key_prefix: str) -> DeveloperKeyAuthRecord | None:
+        row = (
+            await db.execute(
+                select(
+                    AiApiKey.api_key_id,
+                    AiApiKey.application_id,
+                    AiApiKey.key_prefix,
+                    AiApiKey.secret_digest,
+                    AiApiKey.digest_version,
+                    AiApiKey.status,
+                    AiApiKey.expires_at,
+                    AiApiKey.retire_at,
+                    AiApplication.status,
+                )
+                .join(AiApplication, AiApplication.application_id == AiApiKey.application_id)
+                .where(AiApiKey.key_prefix == key_prefix)
+            )
+        ).first()
+        if row is None:
+            return None
+        return DeveloperKeyAuthRecord(
+            key_id=row[0],
+            application_id=row[1],
+            key_prefix=row[2],
+            secret_digest=row[3],
+            digest_version=row[4],
+            key_status=row[5],
+            expires_at=row[6],
+            retire_at=row[7],
+            application_status=row[8],
+        )
+
+    @classmethod
+    async def list_public_models_for_key(cls, db: AsyncSession, api_key_id: str) -> list[PublicModelRecord]:
+        rows = (
+            await db.execute(
+                select(
+                    AiModelCatalog.model_id,
+                    AiModelCatalog.model_code,
+                    AiModelCatalog.published_at,
+                )
+                .join(
+                    AiApiKeyModelGrant,
+                    AiApiKeyModelGrant.platform_model_id == AiModelCatalog.model_id,
+                )
+                .join(AiApiKey, AiApiKey.api_key_id == AiApiKeyModelGrant.api_key_id)
+                .join(AiApplication, AiApplication.application_id == AiApiKey.application_id)
+                .where(
+                    AiApiKey.api_key_id == api_key_id,
+                    AiApiKey.status.in_({'active', 'retiring'}),
+                    AiApplication.status == 'active',
+                    AiApiKeyModelGrant.status == 'active',
+                    AiModelCatalog.lifecycle_status == 'active',
+                    AiModelCatalog.published_at.is_not(None),
+                    AiModelCatalog.model_type == 'chat',
+                )
+                .order_by(AiModelCatalog.model_code, AiModelCatalog.model_id)
+            )
+        ).all()
+        return [
+            PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2])
+            for row in rows
+            if row[2] is not None
+        ]
+
+    @classmethod
+    async def get_public_model_for_key(
+        cls,
+        db: AsyncSession,
+        api_key_id: str,
+        model_code: str,
+    ) -> PublicModelRecord | None:
+        row = (
+            await db.execute(
+                select(
+                    AiModelCatalog.model_id,
+                    AiModelCatalog.model_code,
+                    AiModelCatalog.published_at,
+                )
+                .join(
+                    AiApiKeyModelGrant,
+                    AiApiKeyModelGrant.platform_model_id == AiModelCatalog.model_id,
+                )
+                .join(AiApiKey, AiApiKey.api_key_id == AiApiKeyModelGrant.api_key_id)
+                .join(AiApplication, AiApplication.application_id == AiApiKey.application_id)
+                .where(
+                    AiApiKey.api_key_id == api_key_id,
+                    AiApiKey.status.in_({'active', 'retiring'}),
+                    AiApplication.status == 'active',
+                    AiApiKeyModelGrant.status == 'active',
+                    AiModelCatalog.lifecycle_status == 'active',
+                    AiModelCatalog.published_at.is_not(None),
+                    AiModelCatalog.model_type == 'chat',
+                    AiModelCatalog.model_code == model_code,
+                )
+            )
+        ).first()
+        if row is None or row[2] is None:
+            return None
+        return PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2])
 
     @classmethod
     async def transition_key_status(
