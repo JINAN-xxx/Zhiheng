@@ -1,7 +1,19 @@
 <template>
   <div class="login">
+    <section class="auth-intro">
+      <div class="auth-brand"><span class="auth-brand__mark">智</span><strong>{{ title }}</strong></div>
+      <div class="auth-intro__copy">
+        <span>AI WORKSPACE</span>
+        <h1>模型能力，从这里进入工作流</h1>
+        <p>统一模型接入、对话协作与开发者访问。</p>
+      </div>
+    </section>
+    <section class="auth-panel">
     <el-form ref="loginRef" :model="loginForm" :rules="loginRules" class="login-form">
-      <h3 class="title">{{ title }}</h3>
+      <div class="auth-form-heading">
+        <span>欢迎回来</span>
+        <h2>登录 {{ title }}</h2>
+      </div>
       <el-form-item prop="username">
         <el-input
           v-model="loginForm.username"
@@ -61,6 +73,7 @@
     <div class="el-login-footer">
       <span>{{ footerContent }}</span>
     </div>
+    </section>
   </div>
 </template>
 
@@ -166,78 +179,148 @@ getCode();
 getCookie();
 </script>
 
-<style lang='scss' scoped>
+<style lang="scss" scoped>
 .login {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  background-image: url("../assets/images/login-background.jpg");
-  background-size: cover;
+  min-height: 100%;
+  background: #f3f6f5 url("../assets/images/login-background.jpg") center / cover no-repeat;
+  font-family: var(--workspace-font-family);
 }
-.title {
-  margin: 0px auto 30px auto;
-  text-align: center;
-  color: #707070;
+
+.auth-intro {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px clamp(40px, 7vw, 104px) 72px;
+  color: #fff;
+  background: linear-gradient(90deg, rgba(14, 49, 54, 0.84), rgba(25, 91, 103, 0.42));
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 17px;
+}
+
+.auth-brand__mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--workspace-radius-sm);
+  color: var(--workspace-main-deep);
+  background: #fff;
+  font-weight: 700;
+}
+
+.auth-intro__copy {
+  max-width: 560px;
+}
+
+.auth-intro__copy span {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  opacity: 0.76;
+}
+
+.auth-intro__copy h1 {
+  margin: 14px 0 12px;
+  font-size: 48px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.auth-intro__copy p {
+  margin: 0;
+  font-size: 16px;
+  opacity: 0.82;
+}
+
+.auth-panel {
+  position: relative;
+  display: grid;
+  width: min(480px, 42vw);
+  min-width: 400px;
+  place-items: center;
+  padding: 48px;
+  background: rgba(255, 255, 255, 0.97);
+}
+
+.auth-form-heading {
+  margin-bottom: 28px;
+}
+
+.auth-form-heading span {
+  color: var(--workspace-main-deep);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-form-heading h2 {
+  margin: 7px 0 0;
+  color: var(--workspace-text);
+  font-size: 25px;
+  letter-spacing: 0;
 }
 
 .login-form {
-  border-radius: 6px;
-  background: #ffffff;
-  width: 400px;
-  padding: 25px 25px 5px 25px;
   z-index: 1;
-  .el-input {
-    height: 40px;
-    input {
-      height: 40px;
-    }
+  width: min(100%, 360px);
+
+  .el-input,
+  .el-input input {
+    height: 42px;
   }
+
   .input-icon {
-    height: 39px;
     width: 14px;
-    margin-left: 0px;
+    height: 39px;
+    margin-left: 0;
   }
 }
-.login-tip {
-  font-size: 13px;
-  text-align: center;
-  color: #bfbfbf;
-}
+
 .login-code {
   width: 33%;
-  height: 40px;
+  height: 42px;
   float: right;
+
   img {
     cursor: pointer;
     vertical-align: middle;
   }
 }
-.el-login-footer {
-  height: 40px;
-  line-height: 40px;
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
-  color: #fff;
-  font-family: Arial;
-  font-size: 12px;
-  letter-spacing: 1px;
-}
+
 .login-code-img {
-  height: 40px;
+  height: 42px;
   padding-left: 12px;
 }
 
-html.dark .login {
-  background-image: linear-gradient(rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55)), url("../assets/images/login-background.jpg");
-  .login-form {
-    background: var(--el-bg-color-overlay) !important;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
+.el-login-footer {
+  position: absolute;
+  right: 0;
+  bottom: 20px;
+  left: 0;
+  color: var(--workspace-text-muted);
+  font-size: 12px;
+  text-align: center;
 }
-html.dark .title {
-  color: var(--el-text-color-primary);
+
+html.dark .auth-panel {
+  background: rgba(24, 27, 27, 0.97);
+}
+
+@media (max-width: 760px) {
+  .auth-intro {
+    display: none;
+  }
+
+  .auth-panel {
+    width: 100%;
+    min-width: 0;
+    padding: 28px;
+  }
 }
 </style>
