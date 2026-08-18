@@ -1,17 +1,13 @@
 <template>
   <main class="app-container ai-model-center">
-    <header class="page-header">
-      <div class="page-title">
-        <h2>模型中心</h2>
-        <span>Model Service</span>
-      </div>
-      <div class="header-actions">
+    <WorkspaceToolbar title="模型中心" subtitle="Model Service">
+      <template #actions>
         <el-tooltip content="刷新当前视图" placement="bottom">
           <el-button circle :icon="Refresh" aria-label="刷新当前视图" @click="refreshCurrent" />
         </el-tooltip>
         <el-button v-if="canOnboard" type="primary" :icon="Plus" @click="onboardingOpen = true">接入模型</el-button>
-      </div>
-    </header>
+      </template>
+    </WorkspaceToolbar>
 
     <section class="model-workspace">
       <el-tabs v-model="activeTab" class="workspace-tabs">
@@ -37,6 +33,7 @@
 <script setup name="AiModel">
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
+import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { hasAllPermissions, hasPermission } from '../../utils/modelEngine.js'
 import CredentialsPanel from './components/CredentialsPanel.vue'
 import EngineDeploymentsPanel from './components/EngineDeploymentsPanel.vue'
@@ -104,23 +101,13 @@ function refreshAfterOnboarding() {
   font-size: 13px;
   letter-spacing: 0;
 }
-.page-header {
-  display: flex;
-  min-height: 56px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.page-title { display: flex; min-width: 0; align-items: baseline; gap: 12px; }
-.page-title h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.35; letter-spacing: 0; }
-.page-title span { color: var(--el-text-color-secondary); font-family: var(--ai-font-mono); font-size: 12px; }
 .header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .model-workspace {
   min-width: 0;
-  border-top: 1px solid var(--el-border-color-lighter);
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  background: var(--el-bg-color);
+  margin-top: var(--workspace-space-4);
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
+  background: var(--workspace-surface);
   padding: 0 18px 18px;
 }
 .workspace-tabs :deep(.el-tabs__header) { margin: 0 0 12px; }
@@ -142,9 +129,6 @@ function refreshAfterOnboarding() {
 :global(.model-onboarding-drawer .el-segmented), :global(.model-onboarding-drawer .el-button) { border-radius: 6px; }
 @media (max-width: 760px) {
   .ai-model-center { padding: 12px; }
-  .page-header { align-items: flex-start; }
-  .page-title { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .page-title h2 { font-size: 18px; }
   .model-workspace { padding: 0 8px 12px; }
   .workspace-tabs :deep(.el-tabs__nav-wrap) { overflow-x: auto; }
   .workspace-tabs :deep(.el-tabs__nav) { min-width: max-content; }

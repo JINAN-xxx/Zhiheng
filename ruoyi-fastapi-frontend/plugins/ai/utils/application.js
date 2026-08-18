@@ -1,0 +1,102 @@
+function text(value, fallback = '') {
+  return typeof value === 'string' ? value : fallback
+}
+
+function optionalText(value) {
+  return typeof value === 'string' && value ? value : null
+}
+
+function positiveInteger(value, fallback = 1) {
+  return Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+function safeSegment(value) {
+  if (typeof value !== 'string' || !value || value === '.' || value === '..' || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new Error('资源标识不合法')
+  }
+  return encodeURIComponent(value).replaceAll('.', '%2E')
+}
+
+export function buildApplicationPath(applicationId, suffix = '') {
+  const path = ['/ai/applications', safeSegment(applicationId)]
+  if (suffix) path.push(...suffix.split('/').filter(Boolean).map(safeSegment))
+  return path.join('/')
+}
+
+export function normalizeApplication(source = {}) {
+  return {
+    applicationId: text(source.applicationId ?? source.application_id),
+    applicationCode: text(source.applicationCode ?? source.application_code),
+    applicationName: text(source.applicationName ?? source.application_name, '未命名应用'),
+    status: text(source.status, 'unknown'),
+    version: positiveInteger(source.version),
+    updatedAt: optionalText(source.updatedAt ?? source.updated_at),
+  }
+}
+
+export function normalizeApplicationPage(source = {}) {
+  const payload = source?.data && !Array.isArray(source.data) ? source.data : source
+  const rows = Array.isArray(payload?.rows) ? payload.rows : []
+  const total = Number.isInteger(payload?.total) && payload.total >= 0 ? payload.total : rows.length
+  return { rows: rows.map(normalizeApplication), total }
+}
+
+function normalizeGrant(source = {}) {
+  return {
+    grantId: text(source.grantId ?? source.grant_id),
+    modelId: text(source.modelId ?? source.model_id),
+    status: text(source.status, 'unknown'),
+  }
+}
+
+function normalizeQuota(source = {}) {
+  return {
+    rpmLimit: source.rpmLimit ?? source.rpm_limit ?? null,
+    tpmLimit: source.tpmLimit ?? source.tpm_limit ?? null,
+    concurrencyLimit: source.concurrencyLimit ?? source.concurrency_limit ?? null,
+    monthlyBudget: source.monthlyBudget ?? source.monthly_budget ?? null,
+    currency: text(source.currency, 'USD'),
+  }
+}
+
+export function normalizeDeveloperKey(source = {}) {
+  return {
+    keyId: text(source.keyId ?? source.key_id),
+    applicationId: text(source.applicationId ?? source.application_id),
+    keyName: text(source.keyName ?? source.key_name, '未命名 Key'),
+    maskedKey: text(source.maskedKey ?? source.masked_key),
+    fingerprint: text(source.fingerprint),
+    status: text(source.status, 'unknown'),
+    expiresAt: optionalText(source.expiresAt ?? source.expires_at),
+    retireAt: optionalText(source.retireAt ?? source.retire_at),
+    lastUsedAt: optionalText(source.lastUsedAt ?? source.last_used_at),
+    createdAt: optionalText(source.createdAt ?? source.created_at),
+    grants: Array.isArray(source.grants) ? source.grants.map(normalizeGrant) : [],
+    quota: normalizeQuota(source.quota),
+  }
+}
+
+export function normalizeDeveloperKeys(source = {}) {
+  const rows = Array.isArray(source) ? source : Array.isArray(source?.data) ? source.data : source?.rows || []
+  return rows.filter(Boolean).map(normalizeDeveloperKey)
+}
+
+export function extractIssuedKey(source = {}) {
+  const payload = source?.data ?? source
+  const result = {
+    keyId: text(payload?.keyId ?? payload?.key_id),
+    keyName: text(payload?.keyName ?? payload?.key_name),
+    apiKey: text(payload?.apiKey ?? payload?.api_key),
+    fingerprint: text(payload?.fingerprint),
+  }
+  if (!result.keyId || !result.apiKey || !result.fingerprint) throw new Error('API Key 响应无效')
+  return result
+}
+
+export function applicationStatusLabel(status) {
+  return { active: '启用', disabled: '停用', unknown: '未知' }[status] || '未知'
+}
+
+export function developerKeyStatusLabel(status) {
+  return { active: '有效', retiring: '轮换中', revoked: '已撤销', expired: '已过期', unknown: '未知' }[status] || '未知'
+}

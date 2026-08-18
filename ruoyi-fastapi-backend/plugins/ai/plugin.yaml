@@ -66,6 +66,14 @@ frontend:
           type: C
           orderNum: 2
           icon: ai-chat
+        - name: Developer API
+          path: application
+          component: plugin/ai/application/index
+          routeName: AiApplication
+          perms: ai:application:list
+          type: C
+          orderNum: 3
+          icon: code
 
 permissions:
   - code: ai:model:list
