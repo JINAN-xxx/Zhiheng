@@ -104,6 +104,24 @@ permissions:
     name: 修改引擎部署
   - code: ai:engine:deployment:remove
     name: 删除引擎部署
+  - code: ai:application:list
+    name: 应用列表
+  - code: ai:application:query
+    name: 查询应用
+  - code: ai:application:add
+    name: 新增应用
+  - code: ai:application:edit
+    name: 修改应用
+  - code: ai:application:disable
+    name: 停用应用
+  - code: ai:application:key:list
+    name: API Key 列表
+  - code: ai:application:key:add
+    name: 创建 API Key
+  - code: ai:application:key:rotate
+    name: 轮换 API Key
+  - code: ai:application:key:revoke
+    name: 撤销 API Key
 
 dependencies:
   python:

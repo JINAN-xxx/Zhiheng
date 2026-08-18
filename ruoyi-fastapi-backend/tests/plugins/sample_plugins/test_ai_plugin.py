@@ -32,6 +32,15 @@ EXPECTED_AI_PERMISSIONS = {
     'ai:engine:deployment:add',
     'ai:engine:deployment:edit',
     'ai:engine:deployment:remove',
+    'ai:application:list',
+    'ai:application:query',
+    'ai:application:add',
+    'ai:application:edit',
+    'ai:application:disable',
+    'ai:application:key:list',
+    'ai:application:key:add',
+    'ai:application:key:rotate',
+    'ai:application:key:revoke',
 }
 EXPECTED_AI_PYTHON_DEPENDENCIES = [
     'httpx==0.28.1',
