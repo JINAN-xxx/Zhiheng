@@ -51,6 +51,8 @@
 - `ruoyi-fastapi-backend/plugins/ai/plugin.yaml`：版本、004 迁移和 Application/Key 权限。
 - `ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_config.py`：新增配置边界回归。
 - `ruoyi-fastapi-backend/tests/plugins/ai/test_model_service_contract.py`：资源前缀集合回归。
+- `ruoyi-fastapi-backend/tests/plugins/ai/test_model_service_schema.py`：插件版本和完整迁移顺序回归。
+- `ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`：插件版本和完整迁移顺序回归。
 - `ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`：迁移和权限 manifest 回归。
 
 ## 固定公开契约
@@ -115,6 +117,8 @@ _ERRORS = {
 - 创建：`ruoyi-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py`
 - 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_developer_api_schema.py`
 - 修改：`ruoyi-fastapi-backend/plugins/ai/plugin.yaml`
+- 修改：`ruoyi-fastapi-backend/tests/plugins/ai/test_model_service_schema.py`
+- 修改：`ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`
 - 修改：`ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：编写 schema 红灯测试**
@@ -173,7 +177,7 @@ UniqueConstraint('application_id', 'idempotency_key', name='uk_ai_api_usage_idem
 
 - [ ] **步骤 4：登记迁移和插件版本**
 
-`plugin.yaml` 版本从 `0.4.0` 升为 `0.5.0`，在双方言 `003` 后登记 `004_developer_api_foundation.sql`。测试锁定顺序、文件存在和版本。
+`plugin.yaml` 版本从 `0.4.0` 升为 `0.5.0`，在双方言 `003` 后登记 `004_developer_api_foundation.sql`。测试锁定顺序、文件存在和版本。同步更新既有 Model Service 与 Platform Chat schema 测试，使它们断言完整的 001 -> 002 -> 003 -> 004 清单；各自针对 002/003 内容的测试保持不变。
 
 - [ ] **步骤 5：运行测试转绿并提交**
 
@@ -188,6 +192,8 @@ git add ruoyi-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py \
   ruoyi-fastapi-backend/plugins/ai/migrations \
   ruoyi-fastapi-backend/plugins/ai/plugin.yaml \
   ruoyi-fastapi-backend/tests/plugins/ai/test_developer_api_schema.py \
+  ruoyi-fastapi-backend/tests/plugins/ai/test_model_service_schema.py \
+  ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py \
   ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 建立开发者 API 数据基础"
 ```
