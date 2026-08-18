@@ -10,15 +10,15 @@ $panGreen: #30B08F;
 
 // 默认主题变量
 $menuText: #bfcbd9;
-$menuActiveText: #409eff;
+$menuActiveText: #3996ae;
 $menuBg: #1a1f2e;
-$menuHover: #263445;
+$menuHover: #eaf3f5;
 
 // 浅色主题theme-light
 $menuLightBg: #ffffff;
 $menuLightHover: #f0f1f5;
 $menuLightText: #303133;
-$menuLightActiveText: #409EFF;
+$menuLightActiveText: #24839a;
 
 // 基础变量
 $base-sidebar-width: 200px;
@@ -32,7 +32,7 @@ $base-sub-menu-background: #141824;
 $base-sub-menu-hover: rgba(255,255,255,.06);
 
 // 组件变量
-$--color-primary: #409EFF;
+$--color-primary: #3996ae;
 $--color-success: #67C23A;
 $--color-warning: #E6A23C;
 $--color-danger: #F56C6C;
@@ -68,15 +68,15 @@ $--color-info: #909399;
 // CSS变量定义
 :root {
   /* 亮色模式变量 */
-  --sidebar-bg: #{$menuBg};
+  --sidebar-bg: var(--workspace-surface);
   --sidebar-text: #{$menuText};
-  --menu-hover: #{$menuHover};
+  --menu-hover: var(--workspace-main-soft);
   
-  --navbar-bg: #ffffff;
-  --navbar-text: #303133;
+  --navbar-bg: var(--workspace-surface);
+  --navbar-text: var(--workspace-text);
   
   /* splitpanes default-theme 变量 */
-  --splitpanes-default-bg: #ffffff;
+  --splitpanes-default-bg: var(--workspace-surface);
 
 }
 

@@ -1,0 +1,23 @@
+const NAV_PERMISSION_KEYS = Object.freeze({
+  chat: 'canChat',
+  model: 'canModel',
+  api: 'canApi',
+})
+
+export function visibleWorkspaceNav(access = {}) {
+  return Object.entries(NAV_PERMISSION_KEYS)
+    .filter(([, permissionKey]) => access[permissionKey] === true)
+    .map(([key]) => key)
+}
+
+export function resolveWorkspaceState({ loading = false, rows = [], error = null } = {}) {
+  if (loading) return { kind: 'loading' }
+  if (error && rows.length) return { kind: 'stale', error }
+  if (error) return { kind: 'error', error }
+  return rows.length ? { kind: 'ready' } : { kind: 'empty' }
+}
+
+export function groupWorkspaceActions({ mobile = false, canEdit = false, canDelete = false } = {}) {
+  if (mobile) return ['more']
+  return [canEdit && 'edit', canDelete && 'delete'].filter(Boolean)
+}

@@ -1,0 +1,176 @@
+:root {
+  --workspace-main: #3996ae;
+  --workspace-main-deep: #24839a;
+  --workspace-main-soft: #e1f6fb;
+  --workspace-bg: #f5f7f7;
+  --workspace-surface: #ffffff;
+  --workspace-surface-muted: #fbfcfc;
+  --workspace-border: #e4e6e6;
+  --workspace-border-strong: #d7d9d9;
+  --workspace-text: #151616;
+  --workspace-text-secondary: #697070;
+  --workspace-text-muted: #979999;
+  --workspace-success: #389e0d;
+  --workspace-success-soft: #e6f7e6;
+  --workspace-warning: #d48806;
+  --workspace-warning-soft: #fffbe6;
+  --workspace-danger: #cf1322;
+  --workspace-danger-soft: #fff2f0;
+  --workspace-info: #096dd9;
+  --workspace-info-soft: #e6f7ff;
+  --workspace-radius-sm: 4px;
+  --workspace-radius-md: 8px;
+  --workspace-space-1: 4px;
+  --workspace-space-2: 8px;
+  --workspace-space-3: 12px;
+  --workspace-space-4: 16px;
+  --workspace-space-5: 20px;
+  --workspace-space-6: 24px;
+  --workspace-sidebar-width: 248px;
+  --workspace-sidebar-collapsed-width: 68px;
+  --workspace-content-max-width: 1440px;
+  --workspace-control-height: 36px;
+  --workspace-shadow-float: 0 12px 32px rgba(21, 22, 22, 0.12);
+  --workspace-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+  --el-color-primary: var(--workspace-main);
+  --el-color-primary-light-3: #5faec2;
+  --el-color-primary-light-5: #82c3d6;
+  --el-color-primary-light-7: #a3d8e8;
+  --el-color-primary-light-8: #c4eaf5;
+  --el-color-primary-light-9: var(--workspace-main-soft);
+  --el-color-primary-dark-2: var(--workspace-main-deep);
+  --el-border-radius-base: var(--workspace-radius-sm);
+  --el-border-radius-small: var(--workspace-radius-sm);
+  --el-border-radius-round: 999px;
+  --el-border-color: var(--workspace-border);
+  --el-border-color-light: var(--workspace-border);
+  --el-border-color-lighter: var(--workspace-surface-muted);
+  --el-bg-color: var(--workspace-surface);
+  --el-bg-color-page: var(--workspace-bg);
+  --el-fill-color-light: var(--workspace-surface-muted);
+  --el-text-color-primary: var(--workspace-text);
+  --el-text-color-regular: #323333;
+  --el-text-color-secondary: var(--workspace-text-secondary);
+  --el-text-color-placeholder: var(--workspace-text-muted);
+}
+
+html.dark {
+  --workspace-main: #5faec2;
+  --workspace-main-deep: #3996ae;
+  --workspace-main-soft: #023944;
+  --workspace-bg: #0c0d0d;
+  --workspace-surface: #151616;
+  --workspace-surface-muted: #1e1f1f;
+  --workspace-border: #323333;
+  --workspace-border-strong: #4c4d4d;
+  --workspace-text: #f5f7f7;
+  --workspace-text-secondary: #d7d9d9;
+  --workspace-text-muted: #979999;
+  --workspace-success-soft: #162312;
+  --workspace-warning-soft: #2b2111;
+  --workspace-danger-soft: #2a1215;
+  --workspace-info-soft: #0c0d0d;
+
+  --el-color-primary: var(--workspace-main);
+  --el-color-primary-light-3: #82c3d6;
+  --el-color-primary-light-5: #a3d8e8;
+  --el-color-primary-light-7: #c4eaf5;
+  --el-color-primary-light-8: #e1f6fb;
+  --el-color-primary-light-9: #023944;
+  --el-color-primary-dark-2: var(--workspace-main-deep);
+  --el-border-color: var(--workspace-border);
+  --el-border-color-light: var(--workspace-border);
+  --el-border-color-lighter: var(--workspace-surface-muted);
+  --el-bg-color: var(--workspace-surface);
+  --el-bg-color-page: var(--workspace-bg);
+  --el-fill-color-light: var(--workspace-surface-muted);
+  --el-text-color-primary: var(--workspace-text);
+  --el-text-color-regular: var(--workspace-text-secondary);
+  --el-text-color-secondary: var(--workspace-text-muted);
+  --el-text-color-placeholder: #697070;
+}
+
+body {
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+code,
+.workspace-mono {
+  font-family: var(--workspace-mono);
+}
+
+.workspace-surface {
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
+}
+
+.workspace-focus-ring:focus-visible,
+.workspace-icon-button:focus-visible {
+  outline: 2px solid var(--workspace-main);
+  outline-offset: 2px;
+}
+
+.el-button,
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-input-number,
+.el-date-editor.el-input,
+.el-date-editor.el-input__wrapper {
+  min-height: var(--workspace-control-height);
+  border-radius: var(--workspace-radius-sm);
+}
+
+.el-button--primary {
+  color: #ffffff;
+}
+
+.el-card,
+.el-dialog,
+.el-drawer,
+.el-popover {
+  border-radius: var(--workspace-radius-md);
+  border-color: var(--workspace-border);
+  box-shadow: var(--workspace-shadow-float);
+}
+
+.el-table {
+  --el-table-border-color: var(--workspace-border);
+  --el-table-header-bg-color: var(--workspace-surface-muted);
+  --el-table-row-hover-bg-color: var(--workspace-main-soft);
+  color: var(--workspace-text);
+}
+
+.el-table th.el-table__cell {
+  color: var(--workspace-text-secondary);
+  font-weight: 600;
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover,
+.el-link.el-link--primary {
+  color: var(--workspace-main-deep);
+}
+
+@media (max-width: 767px) {
+  :root {
+    --workspace-space-4: 14px;
+    --workspace-space-5: 16px;
+    --workspace-space-6: 18px;
+  }
+
+  .el-dialog,
+  .el-drawer {
+    max-width: 100vw;
+  }
+}
