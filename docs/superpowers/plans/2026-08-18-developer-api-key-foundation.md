@@ -103,6 +103,7 @@ _ERRORS = {
     'model_grant_invalid': (409, 'MODEL_GRANT_INVALID', '模型授权无效'),
     'quota_conflict': (409, 'QUOTA_VERSION_CONFLICT', '配额已被其他操作修改'),
     'configuration_error': (503, 'DEVELOPER_API_MISCONFIGURED', 'Developer API 尚未完成安全配置'),
+    'application_conflict': (409, 'APPLICATION_VERSION_CONFLICT', '应用已被其他操作修改'),
 }
 ```
 

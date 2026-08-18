@@ -255,6 +255,7 @@ def test_application_response_accepts_orm_style_names_and_serializes_camel_case(
         ('model_grant_invalid', 409, 'MODEL_GRANT_INVALID'),
         ('quota_conflict', 409, 'QUOTA_VERSION_CONFLICT'),
         ('configuration_error', 503, 'DEVELOPER_API_MISCONFIGURED'),
+        ('application_conflict', 409, 'APPLICATION_VERSION_CONFLICT'),
     ),
 )
 def test_developer_api_errors_have_fixed_public_contract(

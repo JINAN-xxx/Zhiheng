@@ -247,6 +247,13 @@ async def test_application_disable_is_conditional_and_update_allowlist_rejects_i
             expected_version=2,
             values={'owner_user_id': 9},
         )
+    with pytest.raises(ValueError, match='status'):
+        await AiDeveloperApiDao.update_application_with_version(
+            session,
+            APPLICATION_ID,
+            expected_version=2,
+            values={'status': 'active'},
+        )
 
 
 @pytest.mark.asyncio

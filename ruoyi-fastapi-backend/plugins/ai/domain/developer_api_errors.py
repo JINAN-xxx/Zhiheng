@@ -11,6 +11,7 @@ _FIXED_ERROR_CONTRACTS = (
     (409, 'MODEL_GRANT_INVALID', '模型授权无效'),
     (409, 'QUOTA_VERSION_CONFLICT', '配额已被其他操作修改'),
     (503, 'DEVELOPER_API_MISCONFIGURED', 'Developer API 尚未完成安全配置'),
+    (409, 'APPLICATION_VERSION_CONFLICT', '应用已被其他操作修改'),
 )
 _ERROR_NAMES = (
     'application_not_found',
@@ -21,6 +22,7 @@ _ERROR_NAMES = (
     'model_grant_invalid',
     'quota_conflict',
     'configuration_error',
+    'application_conflict',
 )
 _ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _FIXED_ERROR_CONTRACTS, strict=True)))
 _CONSTRUCTION_TOKEN = object()
@@ -132,3 +134,7 @@ class DeveloperApiError(Exception):
     @staticmethod
     def configuration_error() -> 'DeveloperApiError':
         return _new_developer_api_error(7)
+
+    @staticmethod
+    def application_conflict() -> 'DeveloperApiError':
+        return _new_developer_api_error(8)

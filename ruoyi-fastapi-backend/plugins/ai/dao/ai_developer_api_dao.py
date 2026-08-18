@@ -18,15 +18,14 @@ from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.vo.ai_developer_api_vo import ApplicationPageQueryModel
 from utils.page_util import PageUtil
 
-APPLICATION_MUTABLE_FIELDS = frozenset(
+APPLICATION_UPDATE_FIELDS = frozenset(
     {
         'application_name',
-        'status',
-        'disabled_at',
         'updated_by',
         'updated_at',
     }
 )
+APPLICATION_DISABLE_FIELDS = frozenset({'disabled_at', 'updated_by', 'updated_at'})
 KEY_MUTABLE_FIELDS = frozenset(
     {
         'status',
@@ -133,7 +132,7 @@ class AiDeveloperApiDao:
         expected_version: int,
         values: dict[str, Any],
     ) -> int:
-        cls._validate_fields(values, APPLICATION_MUTABLE_FIELDS, '应用')
+        cls._validate_fields(values, APPLICATION_UPDATE_FIELDS, '应用')
         if not values:
             return 0
         result = await db.execute(
@@ -153,7 +152,7 @@ class AiDeveloperApiDao:
         application_id: str,
         values: dict[str, Any],
     ) -> int:
-        cls._validate_fields(values, APPLICATION_MUTABLE_FIELDS, '应用')
+        cls._validate_fields(values, APPLICATION_DISABLE_FIELDS, '应用停用')
         result = await db.execute(
             update(AiApplication)
             .where(
