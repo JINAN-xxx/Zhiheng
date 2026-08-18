@@ -9,6 +9,7 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
+import { resolveWorkspaceLandingPath } from '@/components/Workspace/workspaceTransforms.js'
 
 NProgress.configure({ showSpinner: false })
 
@@ -51,6 +52,18 @@ router.beforeEach(async (to, from) => {
             router.addRoute(route)
           }
         })
+        const accessiblePaths = []
+        const collectPaths = (routes) => {
+          routes.forEach(route => {
+            if (route.path) accessiblePaths.push(route.path)
+            if (Array.isArray(route.children)) collectPaths(route.children)
+          })
+        }
+        collectPaths(accessRoutes)
+        const landingPath = resolveWorkspaceLandingPath(to.path, accessiblePaths)
+        if (landingPath !== to.path) {
+          return { path: landingPath, replace: true }
+        }
         // 重新导航到目标路由，确保动态路由已注册
         return { ...to, replace: true }
       } catch (err) {

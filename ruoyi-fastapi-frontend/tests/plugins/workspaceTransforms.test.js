@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   groupWorkspaceActions,
+  resolveWorkspaceLandingPath,
   resolveWorkspaceState,
   workspaceStateLabel,
   visibleWorkspaceNav,
@@ -13,3 +14,5 @@ assert.equal(resolveWorkspaceState({ loading: false, rows: [{ id: 1 }], error: n
 assert.deepEqual(groupWorkspaceActions({ mobile: true, canEdit: true, canDelete: true }), ['more'])
 assert.equal(workspaceStateLabel('stale'), '数据可能已过期')
 assert.equal(workspaceStateLabel('error'), '加载失败')
+assert.equal(resolveWorkspaceLandingPath('/index', ['/ai/chat']), '/ai/chat')
+assert.equal(resolveWorkspaceLandingPath('/index', ['/system/user']), '/index')

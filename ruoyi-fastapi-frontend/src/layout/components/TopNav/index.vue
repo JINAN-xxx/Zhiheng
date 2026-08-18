@@ -1,5 +1,6 @@
 <template>
   <el-menu
+    class="workspace-topnav"
     :default-active="activeMenu"
     mode="horizontal"
     @select="handleSelect"

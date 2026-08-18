@@ -31,3 +31,8 @@ export function workspaceStateLabel(kind) {
     ready: '已就绪',
   }[kind] || '加载失败'
 }
+
+export function resolveWorkspaceLandingPath(currentPath, accessiblePaths = []) {
+  if (currentPath === '/index' && accessiblePaths.includes('/ai/chat')) return '/ai/chat'
+  return currentPath
+}
