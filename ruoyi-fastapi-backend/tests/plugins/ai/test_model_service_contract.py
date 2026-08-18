@@ -282,9 +282,7 @@ async def test_model_service_error_translation_drops_sensitive_async_upstream_ex
         )
 
     error = raised.value
-    serialized_public_state = repr(
-        (error.__dict__, error.args, str(error), repr(error), error.public_dict())
-    ).lower()
+    serialized_public_state = repr((error.__dict__, error.args, str(error), repr(error), error.public_dict())).lower()
     formatted_traceback = ''.join(traceback.format_exception(type(error), error, error.__traceback__)).lower()
 
     assert vars(error) == {}
@@ -635,9 +633,7 @@ def test_resource_binding_upsert_uses_engine_alias_without_accepting_engine_type
     assert 'engine_type' not in type(binding).model_fields
 
     with pytest.raises(ValidationError):
-        ResourceBindingUpsertModel.model_validate(
-            {'engineResourceId': 'company-reasoning', 'engineType': 'litellm'}
-        )
+        ResourceBindingUpsertModel.model_validate({'engineResourceId': 'company-reasoning', 'engineType': 'litellm'})
 
 
 @pytest.mark.parametrize('engine_resource_id', ('', ' ', '   \t\n'))
@@ -656,9 +652,7 @@ def test_resource_binding_upsert_strips_engine_resource_id_and_accepts_maximum_l
 
 def test_resource_binding_upsert_rejects_engine_resource_id_over_maximum_length() -> None:
     with pytest.raises(ValidationError):
-        ResourceBindingUpsertModel.model_validate(
-            {'engineResourceId': 'm' * (MAX_ENGINE_RESOURCE_ID_LENGTH + 1)}
-        )
+        ResourceBindingUpsertModel.model_validate({'engineResourceId': 'm' * (MAX_ENGINE_RESOURCE_ID_LENGTH + 1)})
 
 
 @pytest.mark.parametrize(
