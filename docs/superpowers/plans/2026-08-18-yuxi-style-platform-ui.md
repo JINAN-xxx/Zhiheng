@@ -32,6 +32,7 @@
 - 修改：`ruoyi-fastapi-frontend/src/layout/index.vue`，接入 AI 工作台壳，同时保留管理路由壳和锁屏。
 - 修改：`ruoyi-fastapi-frontend/src/layout/components/Sidebar/index.vue`、`Sidebar/Logo.vue`、`Navbar.vue`、`TopNav/index.vue`，接入窄侧栏、智衡品牌和管理控制台入口。
 - 修改：`ruoyi-fastapi-frontend/src/router/index.js`，确认登录后默认重定向到 AI 对话，不改变已有 route name。
+- 修改：`ruoyi-fastapi-frontend/src/permission.js`，动态路由注册完成后，仅在用户拥有 `ai:chat:list` 时将 `/index` 重定向到 `/ai/chat`。
 
 第三阶段修改入口与业务页：
 
@@ -166,12 +167,13 @@ git commit -m "feat: 增加智衡工作台基础组件"
 - 修改：`src/layout/components/Navbar.vue`
 - 修改：`src/layout/components/TopNav/index.vue`
 - 修改：`src/router/index.js`
+- 修改：`src/permission.js`
 - 修改：`src/views/login.vue`
 - 修改：`src/views/register.vue`
 
 - [ ] **步骤 1：写路由和导航契约测试**
 
-在 `workspaceTransforms.test.js` 增加：未登录仍只进入 login；已登录默认目标为 AI 对话；无 API 权限时不显示 Developer API；管理控制台入口不绕过动态权限树。
+在 `workspaceTransforms.test.js` 增加：未登录仍只进入 login；已登录且拥有 `ai:chat:list` 时 `/index` 解析为 `/ai/chat`；无 AI 权限时仍为 `/index`；无 API 权限时不显示 Developer API；管理控制台入口不绕过动态权限树。
 
 - [ ] **步骤 2：运行测试确认失败**
 
