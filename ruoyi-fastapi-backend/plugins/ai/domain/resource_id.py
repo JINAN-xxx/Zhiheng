@@ -1,7 +1,9 @@
 import re
 from uuid import RFC_4122, UUID, uuid4
 
-ALLOWED_RESOURCE_PREFIXES = frozenset({'mdl', 'bnd', 'ses', 'msg', 'run'})
+ALLOWED_RESOURCE_PREFIXES = frozenset(
+    {'mdl', 'bnd', 'ses', 'msg', 'run', 'app', 'key', 'grt', 'qta', 'rate', 'use', 'qbk'}
+)
 UUID4_VERSION = 4
 
 

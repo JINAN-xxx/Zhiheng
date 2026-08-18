@@ -3,6 +3,8 @@ from urllib.parse import urlparse
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MINIMUM_API_KEY_PEPPER_LENGTH = 32
+
 
 class LiteLLMSettings(BaseSettings):
     """AI 插件访问 LiteLLM Runtime 的进程级配置。"""
@@ -13,6 +15,16 @@ class LiteLLMSettings(BaseSettings):
     connect_timeout_seconds: float = Field(5, gt=0, validation_alias='LITELLM_CONNECT_TIMEOUT_SECONDS')
     request_timeout_seconds: float = Field(600, gt=0, validation_alias='LITELLM_REQUEST_TIMEOUT_SECONDS')
     verify_ssl: bool = Field(True, validation_alias='LITELLM_VERIFY_SSL')
+    public_api_enabled: bool = Field(False, validation_alias='AI_PUBLIC_API_ENABLED')
+    api_key_pepper_current_version: str = Field('', validation_alias='AI_API_KEY_PEPPER_CURRENT_VERSION')
+    api_key_pepper_v1: SecretStr = Field(SecretStr(''), validation_alias='AI_API_KEY_PEPPER_V1')
+    api_auth_cache_ttl_seconds: int = Field(15, ge=0, le=15, validation_alias='AI_API_AUTH_CACHE_TTL_SECONDS')
+    api_max_request_bytes: int = Field(
+        1_048_576,
+        ge=1,
+        le=10_485_760,
+        validation_alias='AI_API_MAX_REQUEST_BYTES',
+    )
 
     model_config = SettingsConfigDict(case_sensitive=False, extra='ignore')
 
@@ -35,3 +47,9 @@ class LiteLLMSettings(BaseSettings):
     def management_configured(self) -> bool:
         """返回 Management Key 是否已配置。"""
         return bool(self.management_key.get_secret_value().strip())
+
+    @property
+    def developer_api_configured(self) -> bool:
+        """返回当前Developer API Key摘要版本是否安全可用。"""
+        pepper = self.api_key_pepper_v1.get_secret_value().strip()
+        return self.api_key_pepper_current_version == 'v1' and len(pepper) >= MINIMUM_API_KEY_PEPPER_LENGTH

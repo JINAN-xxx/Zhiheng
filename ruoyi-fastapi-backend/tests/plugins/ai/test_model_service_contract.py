@@ -25,7 +25,7 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ResourceBindingUpsertModel,
 )
 
-RESOURCE_PREFIXES = ('mdl', 'bnd', 'ses', 'msg', 'run')
+RESOURCE_PREFIXES = ('mdl', 'bnd', 'ses', 'msg', 'run', 'app', 'key', 'grt', 'qta', 'rate', 'use', 'qbk')
 GENERATED_ID_SAMPLE_SIZE = 100
 TOP_P = 0.95
 QUERY_PAGE_NUM = 2

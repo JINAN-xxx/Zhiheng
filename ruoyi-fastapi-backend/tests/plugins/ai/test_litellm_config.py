@@ -22,7 +22,15 @@ LITELLM_ENVIRONMENT_KEYS = (
     'LITELLM_CONNECT_TIMEOUT_SECONDS',
     'LITELLM_REQUEST_TIMEOUT_SECONDS',
     'LITELLM_VERIFY_SSL',
+    'AI_PUBLIC_API_ENABLED',
+    'AI_API_KEY_PEPPER_CURRENT_VERSION',
+    'AI_API_KEY_PEPPER_V1',
+    'AI_API_AUTH_CACHE_TTL_SECONDS',
+    'AI_API_MAX_REQUEST_BYTES',
 )
+VALID_PEPPER = 'developer-api-pepper-value-at-least-32-characters'
+CUSTOM_API_AUTH_CACHE_TTL_SECONDS = 10
+CUSTOM_API_MAX_REQUEST_BYTES = 2_097_152
 
 
 def clear_litellm_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +53,62 @@ def test_litellm_settings_use_safe_local_defaults(monkeypatch: pytest.MonkeyPatc
     assert settings.connect_timeout_seconds == DEFAULT_CONNECT_TIMEOUT_SECONDS
     assert settings.request_timeout_seconds == DEFAULT_REQUEST_TIMEOUT_SECONDS
     assert settings.verify_ssl is True
+    assert settings.public_api_enabled is False
+    assert settings.developer_api_configured is False
+
+
+def test_developer_api_settings_read_versioned_pepper_without_exposing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clear_litellm_environment(monkeypatch)
+    monkeypatch.setenv('AI_PUBLIC_API_ENABLED', 'true')
+    monkeypatch.setenv('AI_API_KEY_PEPPER_CURRENT_VERSION', 'v1')
+    monkeypatch.setenv('AI_API_KEY_PEPPER_V1', VALID_PEPPER)
+    monkeypatch.setenv('AI_API_AUTH_CACHE_TTL_SECONDS', '10')
+    monkeypatch.setenv('AI_API_MAX_REQUEST_BYTES', '2097152')
+
+    settings = LiteLLMSettings()
+
+    assert settings.public_api_enabled is True
+    assert settings.api_key_pepper_current_version == 'v1'
+    assert settings.api_key_pepper_v1.get_secret_value() == VALID_PEPPER
+    assert settings.api_auth_cache_ttl_seconds == CUSTOM_API_AUTH_CACHE_TTL_SECONDS
+    assert settings.api_max_request_bytes == CUSTOM_API_MAX_REQUEST_BYTES
+    assert settings.developer_api_configured is True
+    assert VALID_PEPPER not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    ('version', 'pepper'),
+    (
+        ('', VALID_PEPPER),
+        ('v2', VALID_PEPPER),
+        ('v1', ''),
+        ('v1', 'short-pepper'),
+        ('v1', ' ' * 40),
+    ),
+)
+def test_developer_api_settings_fail_closed_for_unknown_or_weak_pepper(version: str, pepper: str) -> None:
+    settings = LiteLLMSettings(
+        AI_API_KEY_PEPPER_CURRENT_VERSION=version,
+        AI_API_KEY_PEPPER_V1=pepper,
+    )
+
+    assert settings.developer_api_configured is False
+
+
+@pytest.mark.parametrize(
+    ('field', 'value'),
+    (
+        ('AI_API_AUTH_CACHE_TTL_SECONDS', -1),
+        ('AI_API_AUTH_CACHE_TTL_SECONDS', 16),
+        ('AI_API_MAX_REQUEST_BYTES', 0),
+        ('AI_API_MAX_REQUEST_BYTES', 10_485_761),
+    ),
+)
+def test_developer_api_settings_reject_unsafe_numeric_bounds(field: str, value: int) -> None:
+    with pytest.raises(ValidationError):
+        LiteLLMSettings(**{field: value})
 
 
 def test_litellm_settings_read_environment_without_exposing_secret(monkeypatch: pytest.MonkeyPatch) -> None:
