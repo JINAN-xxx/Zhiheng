@@ -23,15 +23,11 @@
         :key="session.sessionId"
         class="session-item"
         :class="{ active: session.sessionId === activeSessionId }"
-        role="button"
-        tabindex="0"
-        @click="emit('open', session.sessionId)"
-        @keydown.enter.prevent="emit('open', session.sessionId)"
       >
-        <span class="session-copy">
+        <button type="button" class="session-copy" @click="emit('open', session.sessionId)">
           <strong>{{ session.title }}</strong>
           <small>{{ formatTime(session.updatedAt || session.createdAt) }}</small>
-        </span>
+        </button>
         <span class="session-actions" @click.stop @keydown.stop>
           <WorkspaceMoreMenu :items="[{ command: 'archive', label: '归档会话', icon: Delete }]" @command="emit('archive', session.sessionId)" />
         </span>
@@ -77,7 +73,7 @@ function formatTime(value) {
 .session-item:hover :deep(.workspace-more-menu),
 .session-item.active :deep(.workspace-more-menu),
 .session-item:focus-within :deep(.workspace-more-menu) { opacity: 1; }
-.session-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.session-copy { min-width: 0; flex: 1; display: grid; gap: 4px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; text-align: left; cursor: pointer; }
 .session-copy strong,
 .session-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-copy small { color: var(--el-text-color-secondary); font-size: 12px; }
