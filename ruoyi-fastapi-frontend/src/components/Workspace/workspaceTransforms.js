@@ -21,3 +21,13 @@ export function groupWorkspaceActions({ mobile = false, canEdit = false, canDele
   if (mobile) return ['more']
   return [canEdit && 'edit', canDelete && 'delete'].filter(Boolean)
 }
+
+export function workspaceStateLabel(kind) {
+  return {
+    loading: '加载中',
+    empty: '暂无数据',
+    error: '加载失败',
+    stale: '数据可能已过期',
+    ready: '已就绪',
+  }[kind] || '加载失败'
+}
