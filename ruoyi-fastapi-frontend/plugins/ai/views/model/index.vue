@@ -5,6 +5,8 @@
         <el-tooltip content="刷新当前视图" placement="bottom">
           <el-button circle :icon="Refresh" aria-label="刷新当前视图" @click="refreshCurrent" />
         </el-tooltip>
+        <el-button v-if="canAdvanced && !advancedOpen" :icon="Setting" @click="advancedOpen = true">高级管理</el-button>
+        <el-button v-else-if="canAdvanced" :icon="Setting" @click="advancedOpen = false">收起高级管理</el-button>
         <el-button v-if="canOnboard" type="primary" :icon="Plus" @click="onboardingOpen = true">接入模型</el-button>
       </template>
     </WorkspaceToolbar>
@@ -14,13 +16,13 @@
         <el-tab-pane v-if="can('ai:model:list')" label="平台模型" name="platform">
           <PlatformModelsPanel ref="platformPanel" :permissions="permissions" :mobile="isMobile" />
         </el-tab-pane>
-        <el-tab-pane v-if="can('ai:engine:deployment:list')" label="引擎部署" name="deployments" lazy>
+        <el-tab-pane v-if="advancedOpen && can('ai:engine:deployment:list')" label="引擎部署" name="deployments" lazy>
           <EngineDeploymentsPanel ref="deploymentPanel" :permissions="permissions" :mobile="isMobile" />
         </el-tab-pane>
-        <el-tab-pane v-if="can('ai:engine:credential:list')" label="Provider 凭据" name="credentials" lazy>
+        <el-tab-pane v-if="advancedOpen && can('ai:engine:credential:list')" label="Provider 凭据" name="credentials" lazy>
           <CredentialsPanel ref="credentialPanel" :permissions="permissions" :mobile="isMobile" />
         </el-tab-pane>
-        <el-tab-pane v-if="can('ai:runtime:query')" label="运行状态" name="status" lazy>
+        <el-tab-pane v-if="advancedOpen && can('ai:runtime:query')" label="运行状态" name="status" lazy>
           <RuntimeStatusPanel ref="statusPanel" />
         </el-tab-pane>
       </el-tabs>
@@ -31,7 +33,7 @@
 </template>
 
 <script setup name="AiModel">
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Plus, Refresh, Setting } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { hasAllPermissions, hasPermission } from '../../utils/modelEngine.js'
@@ -51,9 +53,13 @@ const onboardingPermissions = [
   'ai:model:list', 'ai:model:add', 'ai:model:query', 'ai:model:edit', 'ai:model:publish', 'ai:model:test',
 ]
 const canOnboard = computed(() => hasAllPermissions(permissions.value, onboardingPermissions))
+const canAdvanced = computed(() => [
+  'ai:engine:deployment:list', 'ai:engine:credential:list', 'ai:runtime:query',
+].some((permission) => can(permission)))
 const isMobile = ref(false)
 const updateMobile = () => { isMobile.value = window.innerWidth <= 760 }
 const onboardingOpen = ref(false)
+const advancedOpen = ref(false)
 const platformPanel = ref()
 const deploymentPanel = ref()
 const credentialPanel = ref()
@@ -61,9 +67,9 @@ const statusPanel = ref()
 
 const availableTabs = computed(() => [
   can('ai:model:list') && 'platform',
-  can('ai:engine:deployment:list') && 'deployments',
-  can('ai:engine:credential:list') && 'credentials',
-  can('ai:runtime:query') && 'status',
+  advancedOpen.value && can('ai:engine:deployment:list') && 'deployments',
+  advancedOpen.value && can('ai:engine:credential:list') && 'credentials',
+  advancedOpen.value && can('ai:runtime:query') && 'status',
 ].filter(Boolean))
 
 watch(availableTabs, (tabs) => {
