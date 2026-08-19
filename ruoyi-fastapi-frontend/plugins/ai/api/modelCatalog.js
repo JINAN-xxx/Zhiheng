@@ -12,7 +12,7 @@ export function getPlatformModel(modelId) {
 }
 
 export function createPlatformModel(data) {
-  return request({ url: '/ai/models', method: 'post', data })
+  return request({ url: '/ai/models', method: 'post', data, headers: { repeatSubmit: false } })
 }
 
 export function updatePlatformModel(modelId, data) {
@@ -20,11 +20,11 @@ export function updatePlatformModel(modelId, data) {
 }
 
 export function savePlatformModelBinding(modelId, data) {
-  return request({ url: modelPath(modelId, '/binding'), method: 'put', data })
+  return request({ url: modelPath(modelId, '/binding'), method: 'put', data, headers: { repeatSubmit: false } })
 }
 
 export function publishPlatformModel(modelId) {
-  return request({ url: modelPath(modelId, '/publish'), method: 'post' })
+  return request({ url: modelPath(modelId, '/publish'), method: 'post', headers: { repeatSubmit: false } })
 }
 
 export function disablePlatformModel(modelId) {
