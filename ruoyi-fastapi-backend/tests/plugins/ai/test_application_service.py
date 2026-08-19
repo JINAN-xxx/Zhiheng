@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -19,6 +19,7 @@ from plugins.ai.entity.vo.ai_developer_api_vo import (
 from plugins.ai.service.application_service import ApplicationService
 
 NOW = datetime(2026, 8, 18, 14, 0)
+OFFSET_AWARE_NOW = datetime(2026, 8, 18, 22, 0, tzinfo=timezone(timedelta(hours=8)))
 APPLICATION_ID = 'app_00000000000040008000000000000001'
 SECOND_APPLICATION_ID = 'app_00000000000040008000000000000002'
 OWNER_USER_ID = 7
@@ -251,6 +252,44 @@ async def test_create_uses_server_identity_and_commits_safe_snapshot() -> None:
     assert session.rollback_count == 0
     assert dao.applications[result.application_id].tenant_id is None
     assert dao.applications[result.application_id].project_id is None
+
+
+@pytest.mark.asyncio
+async def test_application_writes_normalize_aware_time_to_naive_utc() -> None:
+    service, _, dao = _service()
+
+    created = await service.create_application(
+        ApplicationCreateModel(applicationCode='billing-prod', applicationName='Billing Production'),
+        owner_user_id=OWNER_USER_ID,
+        username='alice',
+        now=OFFSET_AWARE_NOW,
+    )
+    application = dao.applications[created.application_id]
+    assert application.created_at == NOW
+    assert application.updated_at == NOW
+    assert application.created_at.tzinfo is None
+
+    updated = await service.update_application(
+        created.application_id,
+        ApplicationUpdateModel(applicationName='Billing V2', expectedVersion=1),
+        actor_user_id=OWNER_USER_ID,
+        is_admin=False,
+        username='alice',
+        now=OFFSET_AWARE_NOW,
+    )
+    assert updated.updated_at == NOW
+    assert application.updated_at == NOW
+
+    disabled = await service.disable_application(
+        created.application_id,
+        actor_user_id=OWNER_USER_ID,
+        is_admin=False,
+        username='alice',
+        now=OFFSET_AWARE_NOW,
+    )
+    assert disabled.disabled_at == NOW
+    assert disabled.updated_at == NOW
+    assert application.disabled_at == NOW
 
 
 @pytest.mark.asyncio

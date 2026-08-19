@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol, TypeVar
 
 from sqlalchemy.exc import IntegrityError
@@ -104,6 +104,8 @@ class ApplicationService:
         username: str,
         now: datetime,
     ) -> ApplicationModel:
+        database_now = self._database_time(now)
+
         async def operation() -> ApplicationModel:
             if await self._application_dao.get_application_by_code(self._db, payload.application_code) is not None:
                 raise DeveloperApiError.application_code_conflict()
@@ -118,9 +120,9 @@ class ApplicationService:
                 version=1,
                 disabled_at=None,
                 created_by=username,
-                created_at=now,
+                created_at=database_now,
                 updated_by=username,
-                updated_at=now,
+                updated_at=database_now,
             )
             created = await self._application_dao.create_application(self._db, application)
             return ApplicationModel.model_validate(created)
@@ -137,6 +139,8 @@ class ApplicationService:
         username: str,
         now: datetime,
     ) -> ApplicationModel:
+        database_now = self._database_time(now)
+
         async def operation() -> ApplicationModel:
             application = await self._application_dao.get_application_for_update(self._db, application_id)
             self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
@@ -145,7 +149,7 @@ class ApplicationService:
             values = {
                 'application_name': payload.application_name,
                 'updated_by': username,
-                'updated_at': now,
+                'updated_at': database_now,
             }
             snapshot = ApplicationModel.model_validate(application).model_dump()
             updated = await self._application_dao.update_application_with_version(
@@ -175,15 +179,17 @@ class ApplicationService:
         username: str,
         now: datetime,
     ) -> ApplicationModel:
+        database_now = self._database_time(now)
+
         async def operation() -> ApplicationModel:
             application = await self._application_dao.get_application_for_update(self._db, application_id)
             self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
             if application.status != 'active':
                 raise DeveloperApiError.application_disabled()
             values = {
-                'disabled_at': now,
+                'disabled_at': database_now,
                 'updated_by': username,
-                'updated_at': now,
+                'updated_at': database_now,
             }
             snapshot = ApplicationModel.model_validate(application).model_dump()
             if await self._application_dao.disable_application_if_active(self._db, application_id, values) != 1:
@@ -212,6 +218,12 @@ class ApplicationService:
     @staticmethod
     def _safe_application_rows(rows: list[Any]) -> list[dict[str, Any]]:
         return [ApplicationModel.model_validate(row).model_dump(by_alias=True, mode='json') for row in rows]
+
+    @staticmethod
+    def _database_time(value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
 
     async def _run_write(
         self,
