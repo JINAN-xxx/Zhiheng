@@ -19,6 +19,8 @@ backend:
     onShutdown: plugins.ai.hooks:on_shutdown
   routers:
     autoScan: true
+    publicPrefixes:
+      - /v1
   migrations:
     - migrations/mysql/001_init.sql
     - migrations/mysql/002_model_service_foundation.sql

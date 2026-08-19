@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -834,14 +834,17 @@ class PluginRuntimeStartupManager:
         if getattr(app.state, 'plugin_routes_registered', False):
             return
         plugin_registry = getattr(app.state, 'plugin_registry', None)
-        plugin_ids = []
-        if plugin_registry:
-            plugin_ids = [
-                plugin.plugin_id
+        registered_plugins = (
+            [
+                plugin
                 for plugin in plugin_registry.list_enabled_plugins()
                 if plugin.discovered_plugin.manifest.backend.routers.auto_scan
             ]
-        for plugin_id in plugin_ids:
+            if plugin_registry
+            else []
+        )
+        for registered_plugin in registered_plugins:
+            plugin_id = registered_plugin.plugin_id
             with logger.contextualize(
                 plugin_id=plugin_id,
                 startup_generation=getattr(app.state, 'plugin_startup_generation', None),
@@ -849,7 +852,15 @@ class PluginRuntimeStartupManager:
                 startup_write_enabled=startup_write_enabled,
             ):
                 controller_files = self._find_plugin_controller_files([plugin_id])
-                controller_files = self._filter_plugin_controller_files_by_route_prefix(plugin_id, controller_files)
+                routers = registered_plugin.discovered_plugin.manifest.backend.routers
+                public_prefixes = getattr(routers, 'public_prefixes', ())
+                if not isinstance(public_prefixes, (list, tuple)):
+                    public_prefixes = ()
+                controller_files = self._filter_plugin_controller_files_by_route_prefix(
+                    plugin_id,
+                    controller_files,
+                    public_prefixes=public_prefixes,
+                )
                 if controller_files:
                     auto_register_controller_files(
                         app,
@@ -858,7 +869,13 @@ class PluginRuntimeStartupManager:
                     )
         app.state.plugin_routes_registered = True
 
-    def _filter_plugin_controller_files_by_route_prefix(self, plugin_id: str, controller_files: list[str]) -> list[str]:
+    def _filter_plugin_controller_files_by_route_prefix(
+        self,
+        plugin_id: str,
+        controller_files: list[str],
+        *,
+        public_prefixes: Sequence[str] = (),
+    ) -> list[str]:
         """
         启动期再次校验插件 controller 路由前缀，避免绕过预检注册宿主命名空间路由。
 
@@ -869,7 +886,11 @@ class PluginRuntimeStartupManager:
         checker = PluginStructureChecker(self.builder.backend_root)
         valid_controller_files = []
         for controller_file in controller_files:
-            check_items = checker.check_controller_file_route_prefixes(plugin_id, Path(controller_file))
+            check_items = checker.check_controller_file_route_prefixes(
+                plugin_id,
+                Path(controller_file),
+                public_prefixes=public_prefixes,
+            )
             if not check_items:
                 logger.error(f'❌ 插件 {plugin_id} controller 路由前缀无法静态确认，启动期跳过注册：{controller_file}')
                 continue

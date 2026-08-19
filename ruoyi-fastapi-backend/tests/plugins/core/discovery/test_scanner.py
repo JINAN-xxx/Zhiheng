@@ -86,7 +86,10 @@ def test_manifest_accepts_camel_case_fields() -> None:
             'id': 'demo',
             'name': '演示插件',
             'version': '1.0.0',
-            'backend': {'module': 'plugins.demo', 'routers': {'autoScan': False}},
+            'backend': {
+                'module': 'plugins.demo',
+                'routers': {'autoScan': False, 'publicPrefixes': ['/v1']},
+            },
             'frontend': {
                 'pluginId': 'demo',
                 'basePath': 'demo',
@@ -98,6 +101,7 @@ def test_manifest_accepts_camel_case_fields() -> None:
     )
 
     assert manifest.backend.routers.auto_scan is False
+    assert manifest.backend.routers.public_prefixes == ['/v1']
     assert manifest.frontend.plugin_id == 'demo'
     assert manifest.frontend.views_path == 'custom_views'
     assert manifest.frontend.menus[0].order_num == 0
@@ -113,6 +117,23 @@ def test_manifest_rejects_unsupported_manifest_version() -> None:
                 'name': '演示插件',
                 'version': '1.0.0',
                 'backend': {'module': 'plugins.demo'},
+            }
+        )
+
+
+@pytest.mark.parametrize('public_prefix', ['/', 'v1', '/../system', '/System'])
+def test_manifest_rejects_unsafe_public_route_prefix(public_prefix: str) -> None:
+    """校验公共路由前缀只能使用受限的绝对路径格式。"""
+    with pytest.raises(ValueError, match='publicPrefixes'):
+        PluginManifest.model_validate(
+            {
+                'id': 'demo',
+                'name': '演示插件',
+                'version': '1.0.0',
+                'backend': {
+                    'module': 'plugins.demo',
+                    'routers': {'publicPrefixes': [public_prefix]},
+                },
             }
         )
 

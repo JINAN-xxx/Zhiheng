@@ -21,6 +21,7 @@ PLUGIN_DEPENDENCY_PATTERN = re.compile(
 )
 VERSION_CONSTRAINT_PATTERN = re.compile(r'^([<>=!~^]{1,2})?[A-Za-z0-9_.+\-!*]+$')
 ROUTE_PATH_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)*$')
+PUBLIC_ROUTE_PREFIX_PATTERN = re.compile(r'^/[a-z0-9][a-z0-9_-]*(?:/[a-z0-9][a-z0-9_-]*)*$')
 EXTERNAL_URL_PATTERN = re.compile(r'^https?://\S+$')
 FRONTEND_RELATIVE_PATH_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)*$')
 PLUGIN_COMPONENT_SEGMENT_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*$')
@@ -44,6 +45,21 @@ class RouterManifest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra='forbid')
 
     auto_scan: bool = Field(default=True, alias='autoScan', description='是否自动扫描插件控制器')
+    public_prefixes: list[str] = Field(
+        default_factory=list,
+        alias='publicPrefixes',
+        description='插件显式声明的公共 API 路由前缀',
+    )
+
+    @field_validator('public_prefixes')
+    @classmethod
+    def validate_public_prefixes(cls, value: list[str]) -> list[str]:
+        """校验公共 API 路由前缀。"""
+        if len(value) != len(set(value)):
+            raise ValueError('publicPrefixes 不能重复')
+        if any(not PUBLIC_ROUTE_PREFIX_PATTERN.fullmatch(prefix) for prefix in value):
+            raise ValueError('publicPrefixes 必须是以 / 开头的小写安全路由前缀')
+        return value
 
 
 class HealthManifest(BaseModel):

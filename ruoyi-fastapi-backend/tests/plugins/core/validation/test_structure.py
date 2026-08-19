@@ -143,6 +143,35 @@ backend:
     assert [item.kind for item in result.failed_items] == ['controller_route_prefix']
 
 
+def test_structure_checker_accepts_declared_public_controller_prefix(tmp_path: Path) -> None:
+    """校验结构检查器仅接受清单显式声明的公共路由前缀。"""
+    backend_root = tmp_path / 'ruoyi-fastapi-backend'
+    plugin_root = backend_root / 'plugins' / 'demo'
+    write_manifest(
+        plugin_root,
+        """
+id: demo
+name: 演示插件
+version: 1.0.0
+backend:
+  module: plugins.demo
+  routers:
+    publicPrefixes:
+      - /v1
+""",
+    )
+    (plugin_root / 'controller').mkdir()
+    (plugin_root / 'controller' / 'public_controller.py').write_text(
+        "from common.router import APIRouterPro\n\npublic_controller = APIRouterPro(prefix='/v1')\n",
+        encoding='utf-8',
+    )
+
+    result = PluginStructureChecker(backend_root).check(load_discovered_plugin(backend_root, 'demo'))
+
+    assert result.ok is True
+    assert result.failed_items == []
+
+
 def test_structure_checker_reports_missing_seed_and_frontend_view(tmp_path: Path) -> None:
     """校验结构检查器能报告缺失 seed 和前端视图。"""
     backend_root = tmp_path / 'ruoyi-fastapi-backend'

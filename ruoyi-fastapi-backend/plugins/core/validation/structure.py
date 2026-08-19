@@ -1,4 +1,5 @@
 import ast
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -156,8 +157,15 @@ class PluginStructureChecker:
             return []
 
         items = []
+        public_prefixes = discovered_plugin.manifest.backend.routers.public_prefixes
         for controller_file in sorted(controller_dir.glob('[!_]*.py')):
-            items.extend(self.check_controller_file_route_prefixes(discovered_plugin.manifest.id, controller_file))
+            items.extend(
+                self.check_controller_file_route_prefixes(
+                    discovered_plugin.manifest.id,
+                    controller_file,
+                    public_prefixes=public_prefixes,
+                )
+            )
 
         return items
 
@@ -165,6 +173,8 @@ class PluginStructureChecker:
         self,
         plugin_id: str,
         controller_file: Path,
+        *,
+        public_prefixes: Sequence[str] = (),
     ) -> list[PluginStructureCheckItem]:
         """
         检查单个 controller 文件内的路由前缀。
@@ -192,7 +202,11 @@ class PluginStructureChecker:
 
             prefix = self._get_router_prefix_literal(node)
             path = f'{controller_file}:{getattr(node, "lineno", 1)}'
-            ok = prefix is not None and self._is_plugin_route_prefix(plugin_id, prefix)
+            ok = prefix is not None and self._is_plugin_route_prefix(
+                plugin_id,
+                prefix,
+                public_prefixes=public_prefixes,
+            )
             items.append(
                 PluginStructureCheckItem(
                     kind='controller_route_prefix',
@@ -241,7 +255,12 @@ class PluginStructureChecker:
         return None
 
     @staticmethod
-    def _is_plugin_route_prefix(plugin_id: str, prefix: str) -> bool:
+    def _is_plugin_route_prefix(
+        plugin_id: str,
+        prefix: str,
+        *,
+        public_prefixes: Sequence[str] = (),
+    ) -> bool:
         """
         判断路由前缀是否属于插件命名空间。
 
@@ -251,8 +270,12 @@ class PluginStructureChecker:
         """
         plugin_prefix = f'/{plugin_id}'
         nested_plugin_prefix = f'/plugin/{plugin_id}'
-        return prefix in (plugin_prefix, nested_plugin_prefix) or prefix.startswith(
+        if prefix in (plugin_prefix, nested_plugin_prefix) or prefix.startswith(
             (f'{plugin_prefix}/', f'{nested_plugin_prefix}/')
+        ):
+            return True
+        return any(
+            prefix == public_prefix or prefix.startswith(f'{public_prefix}/') for public_prefix in public_prefixes
         )
 
     def _check_hooks(self, discovered_plugin: DiscoveredPlugin) -> list[PluginStructureCheckItem]:
