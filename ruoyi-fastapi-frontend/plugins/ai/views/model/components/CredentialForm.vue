@@ -1,6 +1,6 @@
 <template>
   <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="engine-form">
-    <el-form-item label="凭据名称" prop="credentialName">
+    <el-form-item v-if="!quick" label="凭据名称" prop="credentialName">
       <el-input
         v-model="form.credentialName"
         :disabled="mode === 'rotate'"
@@ -8,7 +8,7 @@
         placeholder="例如 openai-production"
       />
     </el-form-item>
-    <el-form-item label="Provider" prop="provider">
+    <el-form-item v-if="!quick" label="Provider" prop="provider">
       <el-select
         v-model="form.provider"
         :disabled="mode === 'rotate'"
@@ -80,7 +80,7 @@
     <div class="form-actions">
       <el-button @click="$emit('cancel')">取消</el-button>
       <el-button type="primary" :loading="submitting" :icon="Check" @click="submit">
-        {{ mode === 'rotate' ? '确认轮换' : '创建凭据' }}
+        {{ mode === 'rotate' ? '确认轮换' : (quick ? '保存并继续' : '创建凭据') }}
       </el-button>
     </div>
   </el-form>
@@ -98,6 +98,7 @@ const props = defineProps({
   mode: { type: String, default: 'create' },
   credentialName: { type: String, default: '' },
   provider: { type: String, default: '' },
+  quick: { type: Boolean, default: false },
   submitting: { type: Boolean, default: false },
 })
 

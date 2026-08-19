@@ -1,18 +1,18 @@
 <template>
   <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="engine-form">
     <div class="form-grid">
-      <el-form-item label="路由别名" prop="modelAlias">
+      <el-form-item v-if="!quick" label="路由别名" prop="modelAlias">
         <el-input v-model="form.modelAlias" placeholder="例如 chat-default" @input="markChanged" />
       </el-form-item>
       <el-form-item label="上游模型" prop="upstreamModel">
         <el-input v-model="form.upstreamModel" placeholder="例如 gpt-4.1-mini" @input="markChanged" />
       </el-form-item>
-      <el-form-item label="Provider" prop="provider">
+      <el-form-item v-if="!quick" label="Provider" prop="provider">
         <el-select v-model="form.provider" filterable style="width: 100%" placeholder="选择 Provider" @change="markChanged">
           <el-option v-for="item in providers" :key="item.provider" :label="item.displayName" :value="item.provider" />
         </el-select>
       </el-form-item>
-      <el-form-item label="Provider 凭据" prop="credentialName">
+      <el-form-item v-if="!quick" label="Provider 凭据" prop="credentialName">
         <el-select v-model="form.credentialName" filterable style="width: 100%" placeholder="选择凭据" @change="markChanged">
           <el-option
             v-for="item in matchingCredentials"
@@ -22,22 +22,42 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item label="请求超时（秒）">
+      <el-form-item v-if="!quick" label="请求超时（秒）">
         <el-input-number v-model="form.timeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
       </el-form-item>
-      <el-form-item label="流式超时（秒）">
+      <el-form-item v-if="!quick" label="流式超时（秒）">
         <el-input-number v-model="form.streamTimeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
       </el-form-item>
-      <el-form-item label="最大重试">
+      <el-form-item v-if="!quick" label="最大重试">
         <el-input-number v-model="form.maxRetries" :min="0" :max="10" controls-position="right" style="width: 100%" />
       </el-form-item>
-      <el-form-item v-if="mode === 'edit'" label="阻止流量">
+      <el-form-item v-if="!quick && mode === 'edit'" label="阻止流量">
         <el-switch v-model="form.blocked" inline-prompt active-text="是" inactive-text="否" />
       </el-form-item>
     </div>
-    <el-form-item label="描述">
+    <el-form-item v-if="!quick" label="描述">
       <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" show-word-limit />
     </el-form-item>
+
+    <el-collapse v-if="quick" class="advanced-settings">
+      <el-collapse-item name="advanced">
+        <template #title><span>高级设置</span></template>
+        <div class="form-grid">
+          <el-form-item label="请求超时（秒）">
+            <el-input-number v-model="form.timeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="流式超时（秒）">
+            <el-input-number v-model="form.streamTimeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="最大重试">
+            <el-input-number v-model="form.maxRetries" :min="0" :max="10" controls-position="right" style="width: 100%" />
+          </el-form-item>
+        </div>
+        <el-form-item label="描述">
+          <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" show-word-limit />
+        </el-form-item>
+      </el-collapse-item>
+    </el-collapse>
 
     <div class="form-actions">
       <el-button @click="$emit('cancel')">取消</el-button>
@@ -68,6 +88,8 @@ const props = defineProps({
   testLoading: { type: Boolean, default: false },
   tested: { type: Boolean, default: false },
   requireTest: { type: Boolean, default: false },
+  quick: { type: Boolean, default: false },
+  initialAlias: { type: String, default: '' },
   initialCredentialName: { type: String, default: '' },
   initialProvider: { type: String, default: '' },
 })
@@ -92,7 +114,7 @@ const matchingCredentials = computed(() => props.credentials.filter((item) => (
 
 function resetForm() {
   const source = props.deployment || {}
-  form.modelAlias = source.alias || ''
+  form.modelAlias = source.alias || props.initialAlias || ''
   form.upstreamModel = source.baseModel || ''
   const providerIdentity = source.provider || props.initialProvider || ''
   form.provider = resolveProvider(props.providers, providerIdentity)?.provider || providerIdentity
@@ -105,7 +127,7 @@ function resetForm() {
   nextTick(() => formRef.value?.clearValidate())
 }
 
-watch(() => [props.deployment, props.initialCredentialName, props.initialProvider], resetForm, { immediate: true })
+watch(() => [props.deployment, props.initialAlias, props.initialCredentialName, props.initialProvider], resetForm, { immediate: true })
 watch(() => form.provider, (provider, previousProvider) => {
   if (provider === previousProvider || !form.credentialName) return
   const selectedCredential = props.credentials.find((item) => item.name === form.credentialName)
@@ -154,6 +176,7 @@ async function submit() {
 <style scoped>
 .engine-form { padding: 0 4px 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.advanced-settings { margin-bottom: 12px; }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }
