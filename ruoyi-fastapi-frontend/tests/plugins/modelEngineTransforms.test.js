@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildCredentialValues,
+  buildQuickResourceIdentity,
   buildRuntimeStatusRows,
   buildPanelState,
   buildSafeResourcePath,
@@ -13,6 +14,7 @@ import {
   getCapabilityMeta,
   getLifecycleStatusMeta,
   getLastAvailablePage,
+  getQuickOnboardingStep,
   hasAllPermissions,
   hasPermission,
   isManagementMisconfiguredError,
@@ -28,6 +30,37 @@ import {
   validateCredentialFileText,
   isCredentialCompatible,
 } from '../../plugins/ai/utils/modelEngine.js'
+
+assert.deepEqual(
+  buildQuickResourceIdentity({ provider: 'OpenAI', upstreamModel: 'openai/gpt-4o', suffix: 'a1b2c3d4' }),
+  {
+    credentialName: 'quick-openai-a1b2c3d4',
+    deploymentAlias: 'quick-openai-gpt-4o-a1b2c3d4',
+    modelCode: 'openai-gpt-4o',
+    displayName: 'gpt-4o',
+  },
+)
+
+for (const input of [
+  { provider: '', upstreamModel: '', suffix: '' },
+  { provider: '中文 Provider', upstreamModel: '深度/模型 一', suffix: '本地' },
+  { provider: ' Open AI ', upstreamModel: ' vendor / chat model ', suffix: ' local value ' },
+  { provider: 'Open\u0000AI', upstreamModel: 'vendor\u0085/model\u2028name', suffix: '\u0007suffix' },
+  { provider: 'p'.repeat(200), upstreamModel: `vendor/${'m'.repeat(200)}`, suffix: 's'.repeat(200) },
+]) {
+  const identity = buildQuickResourceIdentity(input)
+  for (const key of ['credentialName', 'deploymentAlias', 'modelCode']) {
+    assert.match(identity[key], /^[a-z0-9][a-z0-9._-]*$/)
+    assert.ok(identity[key].length <= 100)
+  }
+  assert.ok(identity.displayName.length > 0)
+}
+
+assert.deepEqual(getQuickOnboardingStep('credential'), { index: 0, title: '连接信息' })
+assert.deepEqual(getQuickOnboardingStep('deployment'), { index: 1, title: '测试模型' })
+assert.deepEqual(getQuickOnboardingStep('catalog'), { index: 2, title: '确认接入' })
+assert.deepEqual(getQuickOnboardingStep('published'), { index: 3, title: '接入成功' })
+assert.deepEqual(getQuickOnboardingStep('unknown'), { index: 0, title: '连接信息' })
 
 const requestGate = createRequestGate()
 const firstRequest = requestGate.begin()

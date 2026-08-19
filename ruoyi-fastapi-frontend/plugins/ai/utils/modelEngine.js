@@ -24,6 +24,36 @@ const asString = (value, fallback = '') => (typeof value === 'string' ? value : 
 const asNullableString = (value) => (typeof value === 'string' && value.length > 0 ? value : null)
 const asNullableNumber = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
 
+const QUICK_STEP_META = Object.freeze({
+  credential: Object.freeze({ index: 0, title: '连接信息' }),
+  deployment: Object.freeze({ index: 1, title: '测试模型' }),
+  catalog: Object.freeze({ index: 2, title: '确认接入' }),
+  published: Object.freeze({ index: 3, title: '接入成功' }),
+})
+
+const safeResourcePart = (value, fallback) => {
+  const normalized = asString(value).toLowerCase()
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '')
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '')
+  return (normalized || fallback).slice(0, 64)
+}
+
+export function buildQuickResourceIdentity({ provider, upstreamModel, suffix }) {
+  const providerPart = safeResourcePart(provider, 'provider')
+  const modelPart = safeResourcePart(upstreamModel, 'model')
+  const suffixPart = safeResourcePart(suffix, 'local').slice(0, 16)
+  const displayName = asString(upstreamModel).split('/').filter(Boolean).at(-1)?.trim() || 'AI 模型'
+  return {
+    credentialName: `quick-${providerPart}-${suffixPart}`.slice(0, 100),
+    deploymentAlias: `quick-${modelPart}-${suffixPart}`.slice(0, 100),
+    modelCode: modelPart.slice(0, 100),
+    displayName,
+  }
+}
+
+export const getQuickOnboardingStep = (state) => QUICK_STEP_META[state] || QUICK_STEP_META.credential
+
 export const MAX_CREDENTIAL_VALUE_BYTES = 8192
 
 export function createRequestGate() {
