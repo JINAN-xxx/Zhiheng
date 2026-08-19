@@ -14,10 +14,9 @@
 
       <template v-else>
         <el-steps :active="activeStep" finish-status="success" align-center class="workflow-steps">
-          <el-step title="Provider 凭据" />
-          <el-step title="引擎部署" />
-          <el-step title="平台模型" />
-          <el-step title="发布" />
+          <el-step title="连接信息" />
+          <el-step title="测试模型" />
+          <el-step title="确认接入" />
         </el-steps>
 
         <el-alert v-if="failureMessage" title="接入未完成" type="error" :closable="false" show-icon class="workflow-error">
@@ -34,17 +33,30 @@
 
         <section v-if="workflowState === 'credential'" class="step-section">
           <div class="section-heading">
-            <h3>Provider 凭据</h3>
+            <div>
+              <h3>连接信息</h3>
+              <p>选择模型服务商，并填写访问该服务所需的凭据。</p>
+            </div>
+          </div>
+          <el-form label-position="top">
+            <el-form-item label="Provider">
+              <el-select v-model="selectedProvider" filterable placeholder="选择 Provider" style="width: 100%">
+                <el-option v-for="item in providers" :key="item.provider" :label="item.displayName" :value="item.provider" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+          <div v-if="selectedProvider" class="credential-choice">
+            <span class="choice-label">凭据方式</span>
             <el-segmented v-model="credentialMode" :options="credentialModes" />
           </div>
           <template v-if="credentialMode === 'existing'">
             <el-form label-position="top">
-              <el-form-item label="选择凭据">
+              <el-form-item label="选择已保存凭据">
                 <el-select v-model="selectedCredential" filterable placeholder="选择现有凭据" style="width: 100%">
                   <el-option
-                    v-for="item in credentials"
+                    v-for="item in compatibleCredentials"
                     :key="item.name"
-                    :label="`${item.name} · ${item.provider}`"
+                    :label="item.name"
                     :value="item.name"
                   />
                 </el-select>
@@ -56,7 +68,10 @@
           </template>
           <CredentialForm
             v-else
+            quick
             :providers="providers"
+            :credential-name="autoCredentialName"
+            :provider="selectedProvider"
             :submitting="submitting"
             @submit="createCredential"
             @cancel="visible = false"
@@ -65,12 +80,14 @@
 
         <section v-if="workflowState === 'deployment'" class="step-section">
           <div class="resource-strip">
-            <span>当前凭据</span><code>{{ resources.credential?.name }}</code>
-            <el-tag size="small" type="success" effect="plain">已保留</el-tag>
+            <span>{{ selectedProviderLabel }}</span>
+            <el-tag size="small" type="success" effect="plain">凭据已就绪</el-tag>
           </div>
           <DeploymentForm
+            quick
             :providers="providers"
             :credentials="credentials"
+            :initial-alias="autoDeploymentAlias"
             :initial-credential-name="resources.credential?.name || ''"
             :initial-provider="resources.credential?.provider || ''"
             :submitting="submitting"
@@ -78,59 +95,63 @@
             :tested="connectionTested"
             require-test
             @change="connectionTested = false"
-            @test="testConnection"
-            @submit="createDeployment"
+            @test="testQuickConnection"
+            @submit="createQuickDeployment"
             @cancel="visible = false"
           />
         </section>
 
         <section v-if="workflowState === 'catalog'" class="step-section">
           <div class="resource-strip">
-            <span>Deployment</span><code>{{ resources.deployment?.deploymentId }}</code>
-            <span class="strip-alias">Alias: <code>{{ resources.deployment?.alias }}</code></span>
+            <span>{{ resources.deployment?.baseModel }}</span>
+            <el-tag size="small" type="success" effect="plain">连接已验证</el-tag>
           </div>
           <div class="section-heading">
-            <h3>平台模型</h3>
-            <el-segmented v-model="catalogMode" :options="catalogModes" :disabled="Boolean(resources.model)" />
+            <div>
+              <h3>确认接入</h3>
+              <p>确认用户在平台中看到的模型名称。</p>
+            </div>
           </div>
           <el-form ref="catalogFormRef" :model="catalogForm" :rules="catalogRules" label-position="top">
-            <el-form-item v-if="catalogMode === 'existing'" label="选择草稿模型" prop="existingModelId">
-              <el-select v-model="catalogForm.existingModelId" filterable placeholder="选择平台模型草稿" style="width: 100%" :disabled="Boolean(resources.model)">
-                <el-option v-for="item in draftModels" :key="item.modelId" :label="`${item.modelCode} · ${item.displayName}`" :value="item.modelId" />
-              </el-select>
-            </el-form-item>
-            <div v-else class="catalog-grid">
-              <el-form-item label="Model Code" prop="modelCode">
-                <el-input v-model="catalogForm.modelCode" placeholder="例如 chat-pro" :disabled="Boolean(resources.model)" />
-              </el-form-item>
+            <div class="catalog-grid">
               <el-form-item label="显示名称" prop="displayName">
                 <el-input v-model="catalogForm.displayName" placeholder="例如 Chat Pro" :disabled="Boolean(resources.model)" />
               </el-form-item>
-              <el-form-item label="模型类型" prop="modelType">
-                <el-segmented v-model="catalogForm.modelType" :options="modelTypes" :disabled="Boolean(resources.model)" />
-              </el-form-item>
-              <el-form-item label="Capability">
-                <el-checkbox-group v-model="catalogForm.capabilities" :disabled="Boolean(resources.model)">
-                  <el-checkbox-button value="streaming">流式</el-checkbox-button>
-                  <el-checkbox-button value="reasoning">推理</el-checkbox-button>
-                  <el-checkbox-button value="vision">视觉</el-checkbox-button>
-                  <el-checkbox-button value="tools">工具</el-checkbox-button>
-                </el-checkbox-group>
+              <el-form-item label="Model Code" prop="modelCode">
+                <el-input v-model="catalogForm.modelCode" placeholder="自动生成，可调整" :disabled="Boolean(resources.model)" />
               </el-form-item>
             </div>
+            <el-collapse class="advanced-settings">
+              <el-collapse-item name="catalog-advanced">
+                <template #title><span>高级设置</span></template>
+                <div class="catalog-grid">
+                  <el-form-item label="模型类型" prop="modelType">
+                    <el-segmented v-model="catalogForm.modelType" :options="modelTypes" :disabled="Boolean(resources.model)" />
+                  </el-form-item>
+                  <el-form-item label="Capability">
+                    <el-checkbox-group v-model="catalogForm.capabilities" :disabled="Boolean(resources.model)">
+                      <el-checkbox-button value="streaming">流式</el-checkbox-button>
+                      <el-checkbox-button value="reasoning">推理</el-checkbox-button>
+                      <el-checkbox-button value="vision">视觉</el-checkbox-button>
+                      <el-checkbox-button value="tools">工具</el-checkbox-button>
+                    </el-checkbox-group>
+                  </el-form-item>
+                </div>
+              </el-collapse-item>
+            </el-collapse>
             <div class="step-actions">
-              <el-button type="primary" :loading="submitting" :icon="Promotion" @click="publish">绑定并发布</el-button>
+              <el-button type="primary" :loading="submitting" :icon="Promotion" @click="publish">接入并发布</el-button>
             </div>
           </el-form>
         </section>
 
         <section v-if="workflowState === 'published'" class="result-section">
-          <el-result icon="success" title="模型已发布" :sub-title="resources.model?.modelCode || ''">
+          <el-result icon="success" title="接入成功" :sub-title="resources.model?.displayName || resources.model?.modelCode || ''">
             <template #extra><el-button type="primary" :icon="Check" @click="visible = false">完成</el-button></template>
           </el-result>
           <div class="retained-resources">
-            <div class="retained-row"><span>Platform Model</span><code>{{ resources.model?.modelId }}</code></div>
-            <div class="retained-row"><span>Binding Alias</span><code>{{ resources.deployment?.alias }}</code></div>
+            <div class="retained-row"><span>平台模型</span><code>{{ resources.model?.modelCode }}</code></div>
+            <div class="retained-row"><span>调用别名</span><code>{{ resources.deployment?.alias }}</code></div>
           </div>
         </section>
       </template>
@@ -148,8 +169,11 @@ import {
   createPlatformModel, getPlatformModel, listPlatformModels, publishPlatformModel, savePlatformModelBinding,
 } from '../../../api/modelCatalog.js'
 import {
+  buildQuickResourceIdentity,
   collectAllPages,
   createRequestGate,
+  getQuickOnboardingStep,
+  isCredentialCompatible,
   isManagementMisconfiguredError,
   normalizeCredential,
   normalizeDeployment,
@@ -177,8 +201,10 @@ const connectionTested = ref(false)
 const providers = ref([])
 const credentials = ref([])
 const models = ref([])
+const selectedProvider = ref('')
 const credentialMode = ref('existing')
 const selectedCredential = ref('')
+const resourceSuffix = ref('local')
 const catalogMode = ref('new')
 const catalogFormRef = ref()
 const resources = reactive({ credential: null, deployment: null, model: null, binding: null })
@@ -186,7 +212,6 @@ const requestGate = createRequestGate()
 const catalogForm = reactive({ existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'] })
 
 const credentialModes = [{ label: '使用现有', value: 'existing' }, { label: '新建凭据', value: 'new' }]
-const catalogModes = [{ label: '新建模型', value: 'new' }, { label: '使用草稿', value: 'existing' }]
 const modelTypes = [{ label: 'Chat', value: 'chat' }, { label: 'Embedding', value: 'embedding' }]
 const catalogRules = {
   existingModelId: [{ required: true, message: '请选择平台模型草稿', trigger: 'change' }],
@@ -198,15 +223,31 @@ const catalogRules = {
   modelType: [{ required: true, message: '请选择模型类型', trigger: 'change' }],
 }
 
-const activeStep = computed(() => {
-  return { credential: 0, deployment: 1, catalog: 2, published: 4 }[workflowState.value] ?? 0
+const activeStep = computed(() => getQuickOnboardingStep(workflowState.value).index)
+const selectedProviderRecord = computed(() => resolveProvider(providers.value, selectedProvider.value))
+const selectedProviderLabel = computed(() => selectedProviderRecord.value?.displayName || selectedProvider.value)
+const compatibleCredentials = computed(() => credentials.value.filter((credential) => (
+  isCredentialCompatible(credential, selectedProvider.value, providers.value)
+)))
+const quickIdentity = (upstreamModel = '') => buildQuickResourceIdentity({
+  provider: selectedProvider.value,
+  upstreamModel,
+  suffix: resourceSuffix.value,
 })
-const draftModels = computed(() => models.value.filter((item) => item.lifecycleStatus === 'draft'))
+const autoCredentialName = computed(() => quickIdentity().credentialName)
+const autoDeploymentAlias = computed(() => quickIdentity().deploymentAlias)
+
+function createResourceSuffix() {
+  const uuid = globalThis.crypto?.randomUUID?.()
+  if (uuid) return uuid.replaceAll('-', '').slice(0, 8)
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.slice(0, 8)
+}
 
 function resetWorkflow() {
   workflowState.value = 'credential'; failedStep.value = 'credential'; failureMessage.value = ''
   bootLoading.value = false; submitting.value = false; testLoading.value = false
-  credentialMode.value = 'existing'; selectedCredential.value = ''; catalogMode.value = 'new'
+  selectedProvider.value = ''; credentialMode.value = 'existing'; selectedCredential.value = ''; catalogMode.value = 'new'
+  resourceSuffix.value = createResourceSuffix()
   connectionTested.value = false
   resources.credential = null; resources.deployment = null; resources.model = null; resources.binding = null
   Object.assign(catalogForm, { existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'] })
@@ -225,7 +266,7 @@ async function loadOptions() {
     providers.value = (providerResponse?.data || []).map(normalizeProvider).filter(Boolean)
     credentials.value = (credentialResponse?.data || []).map(normalizeCredential)
     models.value = modelRows.map(normalizePlatformModel)
-    if (credentials.value.length === 0) credentialMode.value = 'new'
+    selectedProvider.value = providers.value[0]?.provider || ''
   } catch (event) {
     if (requestGate.isCurrent(requestGeneration)) bootError.value = isManagementMisconfiguredError(event) ? 'Management Key 未配置' : '接入资源加载失败'
   }
@@ -235,7 +276,7 @@ async function loadOptions() {
 function fail(step, message) { failedStep.value = step; failureMessage.value = message }
 
 function useCredential() {
-  const credential = credentials.value.find((item) => item.name === selectedCredential.value)
+  const credential = compatibleCredentials.value.find((item) => item.name === selectedCredential.value)
   if (!credential) return
   resources.credential = credential
   workflowState.value = 'deployment'
@@ -259,7 +300,7 @@ async function createCredential(payload) {
     credentials.value.push(resources.credential)
     workflowState.value = 'deployment'
   } catch {
-    if (requestGate.isCurrent(requestGeneration)) fail('credential', 'Provider 凭据创建失败，当前输入已保留')
+    if (requestGate.isCurrent(requestGeneration)) fail('credential', '连接信息保存失败，当前输入已保留')
   }
   finally { if (requestGate.isCurrent(requestGeneration)) submitting.value = false }
 }
@@ -279,7 +320,7 @@ async function testConnection(payload) {
     connectionTested.value = true
     ElMessage.success(`连接成功${response.data.latencyMs != null ? `，${response.data.latencyMs} ms` : ''}`)
   } catch {
-    if (requestGate.isCurrent(requestGeneration)) fail('deployment', '连接测试失败，当前部署输入已保留')
+    if (requestGate.isCurrent(requestGeneration)) fail('deployment', '模型连接测试失败，当前输入已保留')
   }
   finally { if (requestGate.isCurrent(requestGeneration)) testLoading.value = false }
 }
@@ -292,8 +333,22 @@ async function lookupDeployment(payload) {
 
 function reuseDeployment(deployment) {
   resources.deployment = deployment
+  const identity = quickIdentity(deployment.baseModel)
+  catalogForm.modelCode = identity.modelCode
+  catalogForm.displayName = identity.displayName
   failureMessage.value = ''
   workflowState.value = 'catalog'
+}
+
+function testQuickConnection(payload) {
+  return testConnection(payload)
+}
+
+function createQuickDeployment(payload) {
+  return createDeployment({
+    ...payload,
+    modelAlias: quickIdentity(payload.upstreamModel).deploymentAlias,
+  })
 }
 
 async function createDeployment(payload) {
@@ -304,7 +359,7 @@ async function createDeployment(payload) {
   try {
     beforeCreate = await lookupDeployment(payload)
   } catch {
-    if (requestGate.isCurrent(requestGeneration)) fail('deployment', '创建前核对部署失败，未发起创建；当前输入已保留')
+    if (requestGate.isCurrent(requestGeneration)) fail('deployment', '接入前核对失败，未发起创建；当前输入已保留')
     if (requestGate.isCurrent(requestGeneration)) submitting.value = false
     return
   }
@@ -315,7 +370,7 @@ async function createDeployment(payload) {
     return
   }
   if (beforeCreate.kind === 'conflict') {
-    fail('deployment', '同名部署已存在但配置不一致，请修改路由别名或对齐全部部署参数')
+    fail('deployment', '自动生成的调用别名已被其他配置占用，请关闭后重新接入')
     submitting.value = false
     return
   }
@@ -327,7 +382,7 @@ async function createDeployment(payload) {
     if (deployment.deploymentId && createdResult.kind === 'match') {
       reuseDeployment(createdResult.deployment)
     } else {
-      fail('deployment', '部署创建响应与提交配置不一致，已停止继续；当前输入已保留，系统未执行自动删除')
+      fail('deployment', '模型接入响应与提交配置不一致，已停止继续；当前输入已保留')
     }
   } catch {
     if (!requestGate.isCurrent(requestGeneration)) return
@@ -336,14 +391,14 @@ async function createDeployment(payload) {
       if (!requestGate.isCurrent(requestGeneration)) return
       if (afterCreate.kind === 'match') {
         reuseDeployment(afterCreate.deployment)
-        ElMessage.warning('创建响应结果未知，已核对部署实际存在并继续')
+        ElMessage.warning('创建响应结果未知，已核对模型实际存在并继续')
       } else if (afterCreate.kind === 'conflict') {
-        fail('deployment', '创建结果未知；已核对到同名但配置不一致的部署，请检查后重试')
+        fail('deployment', '创建结果未知；已核对到同名但配置不一致的模型，请检查后重试')
       } else {
-        fail('deployment', '部署创建失败；已核对未发现匹配部署，可重试当前步骤且不会自动删除已创建资源')
+        fail('deployment', '模型接入失败；已核对未发现匹配资源，可重试当前步骤')
       }
     } catch {
-      if (requestGate.isCurrent(requestGeneration)) fail('deployment', '创建结果未知且核对失败；重试时将先重新核对，不会盲目重复创建')
+      if (requestGate.isCurrent(requestGeneration)) fail('deployment', '创建结果未知且核对失败；重试时将先重新核对')
     }
   } finally {
     if (requestGate.isCurrent(requestGeneration)) submitting.value = false
@@ -378,7 +433,7 @@ async function ensureCatalogModel(requestGeneration) {
 }
 
 async function publish() {
-  const fields = catalogMode.value === 'existing' ? ['existingModelId'] : ['modelCode', 'displayName', 'modelType']
+  const fields = ['modelCode', 'displayName', 'modelType']
   const valid = await catalogFormRef.value.validateField(fields).then(() => true).catch(() => false)
   if (!valid) return
   const requestGeneration = requestGate.begin()
@@ -402,13 +457,20 @@ async function publish() {
     workflowState.value = 'published'
     emit('completed')
   } catch {
-    if (requestGate.isCurrent(requestGeneration)) fail('catalog', '平台模型绑定或发布失败，当前输入已保留')
+    if (requestGate.isCurrent(requestGeneration)) fail('catalog', '确认接入失败，已完成的资源和当前输入均已保留')
   }
   finally { if (requestGate.isCurrent(requestGeneration)) submitting.value = false }
 }
 
 function retry() { workflowState.value = failedStep.value; failureMessage.value = '' }
 function invalidateRequests() { requestGate.invalidate() }
+
+watch(selectedProvider, () => {
+  selectedCredential.value = ''
+  resources.credential = null
+  connectionTested.value = false
+  credentialMode.value = compatibleCredentials.value.length > 0 ? 'existing' : 'new'
+})
 
 watch(() => props.modelValue, (open) => {
   if (!open) {
@@ -430,10 +492,14 @@ onBeforeUnmount(invalidateRequests)
 .step-section { min-width: 0; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .section-heading h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0; }
+.section-heading p { margin: 6px 0 0; color: var(--el-text-color-secondary); line-height: 1.6; }
+.credential-choice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.choice-label { color: var(--el-text-color-regular); font-weight: 500; }
 .resource-strip, .retained-row { display: flex; min-width: 0; align-items: center; gap: 10px; border-top: 1px solid var(--el-border-color-lighter); border-bottom: 1px solid var(--el-border-color-lighter); padding: 10px 0; margin-bottom: 18px; }
 .resource-strip code, .retained-row code { min-width: 0; overflow: hidden; font-family: var(--ai-font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .strip-alias { margin-left: auto; color: var(--el-text-color-secondary); }
 .catalog-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.advanced-settings { margin-bottom: 12px; }
 .step-actions { display: flex; justify-content: flex-end; padding-top: 12px; }
 .result-section { max-width: 620px; margin: 0 auto; }
 .retained-resources { border-top: 1px solid var(--el-border-color-lighter); }
@@ -442,6 +508,7 @@ onBeforeUnmount(invalidateRequests)
 @media (max-width: 640px) {
   .workflow-steps :deep(.el-step__title) { font-size: 11px; }
   .section-heading { align-items: flex-start; flex-direction: column; }
+  .credential-choice { align-items: stretch; flex-direction: column; }
   .catalog-grid { grid-template-columns: minmax(0, 1fr); }
   .resource-strip { align-items: flex-start; flex-direction: column; }
   .strip-alias { margin-left: 0; }

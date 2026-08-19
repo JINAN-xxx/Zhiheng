@@ -69,7 +69,7 @@
         :icon="Check"
         @click="submit"
       >
-        {{ mode === 'edit' ? '保存变更' : '创建部署' }}
+        {{ mode === 'edit' ? '保存变更' : (quick ? '保存并继续' : '创建部署') }}
       </el-button>
     </div>
   </el-form>
