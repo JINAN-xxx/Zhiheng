@@ -54,6 +54,7 @@ for (const input of [
     assert.ok(identity[key].length <= 100)
   }
   assert.ok(identity.displayName.length > 0)
+  assert.ok(identity.displayName.length <= 100)
 }
 
 assert.deepEqual(getQuickOnboardingStep('credential'), { index: 0, title: '连接信息' })

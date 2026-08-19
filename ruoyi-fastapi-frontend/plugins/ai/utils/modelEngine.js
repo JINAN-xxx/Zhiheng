@@ -43,7 +43,7 @@ export function buildQuickResourceIdentity({ provider, upstreamModel, suffix }) 
   const providerPart = safeResourcePart(provider, 'provider')
   const modelPart = safeResourcePart(upstreamModel, 'model')
   const suffixPart = safeResourcePart(suffix, 'local').slice(0, 16)
-  const displayName = asString(upstreamModel).split('/').filter(Boolean).at(-1)?.trim() || 'AI 模型'
+  const displayName = (asString(upstreamModel).split('/').filter(Boolean).at(-1)?.trim() || 'AI 模型').slice(0, 100)
   return {
     credentialName: `quick-${providerPart}-${suffixPart}`.slice(0, 100),
     deploymentAlias: `quick-${modelPart}-${suffixPart}`.slice(0, 100),
