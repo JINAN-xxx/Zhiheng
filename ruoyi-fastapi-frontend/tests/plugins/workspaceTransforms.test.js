@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 
 import {
   collectWorkspaceRoutePaths,
+  filterAdminWorkspaceRoutes,
   groupWorkspaceActions,
+  resolveAiResourceTabs,
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
+  resolveWorkspaceMode,
   resolveWorkspaceState,
   workspaceStateLabel,
   visibleWorkspaceNav,
@@ -22,7 +25,27 @@ assert.deepEqual(groupWorkspaceActions({ mobile: true, canEdit: true, canDelete:
 assert.equal(workspaceStateLabel('stale'), '数据可能已过期')
 assert.equal(workspaceStateLabel('error'), '加载失败')
 assert.equal(resolveWorkspaceLandingPath('/index', ['/ai/chat']), '/ai/chat')
-assert.equal(resolveWorkspaceLandingPath('/index', ['/system/user']), '/index')
+assert.equal(resolveWorkspaceLandingPath('/', ['/ai/model', '/system/user']), '/ai/model')
+assert.equal(resolveWorkspaceLandingPath('/index', ['/system/user']), '/system/user')
+assert.equal(resolveWorkspaceLandingPath('/ai/model', ['/ai/chat']), '/ai/model')
+assert.equal(resolveWorkspaceMode('/ai/chat'), 'ai')
+assert.equal(resolveWorkspaceMode('/ai'), 'ai')
+assert.equal(resolveWorkspaceMode('/system/user'), 'admin')
+assert.deepEqual(
+  resolveAiResourceTabs(new Set(['ai:model:list', 'ai:application:list'])).map((item) => item.key),
+  ['model', 'application', 'usage'],
+)
+assert.deepEqual(
+  resolveAiResourceTabs(new Set(['*:*:*'])).map((item) => item.path),
+  ['/ai/model', '/ai/application', '/ai/usage'],
+)
+assert.deepEqual(
+  filterAdminWorkspaceRoutes([
+    { path: '/ai', children: [{ path: 'chat' }] },
+    { path: '/system', children: [{ path: 'user' }] },
+  ]),
+  [{ path: '/system', children: [{ path: 'user' }] }],
+)
 assert.deepEqual(collectWorkspaceRoutePaths([
   { path: '/ai', children: [{ path: 'chat' }, { path: '/absolute' }] },
 ]), ['/ai', '/ai/chat', '/absolute'])
