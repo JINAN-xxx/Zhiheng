@@ -4,11 +4,13 @@ import {
   collectWorkspaceRoutePaths,
   filterAdminWorkspaceRoutes,
   groupWorkspaceActions,
+  normalizeWorkspaceSessions,
   resolveAiResourceTabs,
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
   resolveWorkspaceMode,
   resolveWorkspaceState,
+  shouldApplyGeneration,
   workspaceStateLabel,
   visibleWorkspaceNav,
 } from '../../src/components/Workspace/workspaceTransforms.js'
@@ -46,6 +48,23 @@ assert.deepEqual(
   ]),
   [{ path: '/system', children: [{ path: 'user' }] }],
 )
+assert.deepEqual(
+  normalizeWorkspaceSessions({
+    data: {
+      rows: [
+        { sessionId: 's-1', title: '模型排查', updatedAt: '2026-08-20T08:00:00Z' },
+        { session_id: 's-2', name: '接口设计', updated_at: '2026-08-20T07:00:00Z' },
+        null,
+      ],
+    },
+  }),
+  [
+    { sessionId: 's-1', title: '模型排查', updatedAt: '2026-08-20T08:00:00Z' },
+    { sessionId: 's-2', title: '接口设计', updatedAt: '2026-08-20T07:00:00Z' },
+  ],
+)
+assert.equal(shouldApplyGeneration(2, 2), true)
+assert.equal(shouldApplyGeneration(1, 2), false)
 assert.deepEqual(collectWorkspaceRoutePaths([
   { path: '/ai', children: [{ path: 'chat' }, { path: '/absolute' }] },
 ]), ['/ai', '/ai/chat', '/absolute'])

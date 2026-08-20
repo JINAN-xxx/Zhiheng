@@ -62,6 +62,22 @@ export function filterAdminWorkspaceRoutes(routes = []) {
   })
 }
 
+export function normalizeWorkspaceSessions(source) {
+  const rows = Array.isArray(source)
+    ? source
+    : source?.rows || source?.data?.rows || source?.data?.items || source?.items || []
+
+  return rows.filter(Boolean).map((session) => ({
+    sessionId: session.sessionId ?? session.session_id ?? session.id ?? null,
+    title: session.title || session.name || '新对话',
+    updatedAt: session.updatedAt ?? session.updated_at ?? session.createdAt ?? session.created_at ?? null,
+  })).filter((session) => session.sessionId)
+}
+
+export function shouldApplyGeneration(requestGeneration, activeGeneration) {
+  return requestGeneration === activeGeneration
+}
+
 export function resolveWorkspaceLandingPath(currentPath, accessiblePaths = []) {
   if (currentPath !== '/' && currentPath !== '/index') return currentPath
 
