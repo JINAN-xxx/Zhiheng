@@ -1,20 +1,7 @@
 <template>
   <div class="platform-chat workspace-chat-page">
-    <aside class="chat-sessions">
-      <ChatSessionPanel
-        v-model:query="sessionQuery"
-        :sessions="filteredSessions"
-        :active-session-id="sessionId"
-        :loading="sessionLoading"
-        @new="newSession"
-        @open="openSession"
-        @archive="archiveSession"
-      />
-    </aside>
-
     <main class="chat-workspace">
       <header class="chat-toolbar">
-        <el-button class="mobile-session-toggle" text :icon="Menu" aria-label="打开会话列表" title="打开会话列表" @click="mobileSessionsOpen = true" />
         <div>
           <div class="toolbar-title">
             <h1>AI 对话</h1>
@@ -81,18 +68,6 @@
       </footer>
     </main>
 
-    <el-drawer v-model="mobileSessionsOpen" title="会话" direction="ltr" size="min(88vw, 320px)" class="mobile-session-drawer">
-      <ChatSessionPanel
-        v-model:query="sessionQuery"
-        :sessions="filteredSessions"
-        :active-session-id="sessionId"
-        :loading="sessionLoading"
-        @new="newSessionFromMobile"
-        @open="openSessionFromMobile"
-        @archive="archiveSession"
-      />
-    </el-drawer>
-
     <el-dialog v-model="showPreferences" title="对话偏好" width="520px">
       <el-form label-width="130px">
         <el-form-item label="温度"><el-input-number v-model="editingPreferences.temperature" :min="0" :max="2" :step="0.1" /></el-form-item>
@@ -112,35 +87,33 @@
 </template>
 
 <script setup name="AiChat">
-import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { ChatDotRound, Menu, Picture, Promotion, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
+import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { ChatDotRound, Picture, Promotion, Service, Setting, User, VideoPause } from "@element-plus/icons-vue";
 import { getToken } from "@/utils/auth";
+import useWorkspaceStore from "@/store/modules/workspace";
 import { listPlatformModels } from "../../api/modelCatalog";
 import {
   cancelChatRun,
   createChatStream,
-  delChatSession,
   getChatSession,
   getUserChatConfig,
-  listChatSession,
   saveUserChatConfig,
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
-import ChatSessionPanel from "./components/ChatSessionPanel.vue";
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
-import { chatMessageLabel, normalizeChatSessions, resolveInitialSessionId } from "../../utils/chatTransforms.js";
+import { chatMessageLabel } from "../../utils/chatTransforms.js";
 
 const { proxy } = getCurrentInstance();
+const route = useRoute();
+const router = useRouter();
+const workspaceStore = useWorkspaceStore();
 const models = ref([]);
 const modelId = ref("");
-const sessions = ref([]);
-const sessionQuery = ref("");
 const sessionId = ref(null);
 const messages = ref([]);
 const draft = ref("");
 const imageIds = ref([]);
 const loading = ref(false);
-const sessionLoading = ref(false);
 const runState = ref("idle");
 const runId = ref(null);
 const activeAssistantId = ref(null);
@@ -148,7 +121,7 @@ const historyRef = ref(null);
 const fileInput = ref(null);
 const abortController = ref(null);
 const showPreferences = ref(false);
-const mobileSessionsOpen = ref(false);
+let sessionLoadGeneration = 0;
 const preferences = reactive(defaultPreferences());
 const editingPreferences = reactive(defaultPreferences());
 
@@ -165,28 +138,11 @@ function defaultPreferences() {
 }
 
 const stateLabel = computed(() => ({ idle: "就绪", loading: "准备中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || "就绪"));
-const filteredSessions = computed(() => {
-  const query = sessionQuery.value.trim().toLowerCase();
-  if (!query) return sessions.value;
-  return sessions.value.filter((session) => session.title.toLowerCase().includes(query));
-});
 
 async function loadModels() {
   const response = await listPlatformModels({ pageNum: 1, pageSize: 100 });
   models.value = response.rows || response.data?.rows || [];
   if (!modelId.value && models.value.length) modelId.value = models.value[0].modelId;
-}
-
-async function loadSessions() {
-  sessionLoading.value = true;
-  try {
-    const response = await listChatSession({ pageNum: 1, pageSize: 100 });
-    sessions.value = normalizeChatSessions(response);
-    const initialSessionId = resolveInitialSessionId(sessions.value, sessionId.value);
-    if (!sessionId.value && initialSessionId) await openSession(initialSessionId);
-  } finally {
-    sessionLoading.value = false;
-  }
 }
 
 async function loadPreferences() {
@@ -197,7 +153,9 @@ async function loadPreferences() {
 
 async function openSession(id) {
   if (loading.value || id === sessionId.value) return;
+  const requestGeneration = ++sessionLoadGeneration;
   const response = await getChatSession(id);
+  if (requestGeneration !== sessionLoadGeneration) return;
   sessionId.value = id;
   messages.value = (response.data?.messages || []).map((item) => ({ ...item, localId: item.messageId }));
   await scrollToBottom();
@@ -205,26 +163,10 @@ async function openSession(id) {
 
 function newSession() {
   if (loading.value) return;
+  sessionLoadGeneration += 1;
   sessionId.value = null;
   messages.value = [];
   runState.value = "idle";
-}
-
-function newSessionFromMobile() {
-  mobileSessionsOpen.value = false;
-  newSession();
-}
-
-async function openSessionFromMobile(id) {
-  mobileSessionsOpen.value = false;
-  await openSession(id);
-}
-
-async function archiveSession(id) {
-  await proxy.$modal.confirm("是否归档该会话？");
-  await delChatSession(id);
-  if (id === sessionId.value) newSession();
-  await loadSessions();
 }
 
 async function selectImage(event) {
@@ -287,7 +229,7 @@ async function send() {
   } finally {
     loading.value = false;
     abortController.value = null;
-    await loadSessions();
+    await workspaceStore.loadSessions();
   }
 }
 
@@ -295,7 +237,11 @@ function handleEvent(event, assistantId) {
   const message = messages.value.find((item) => item.localId === assistantId);
   if (!message) return;
   if (event.event === "meta") {
-    sessionId.value = event.data.sessionId || sessionId.value;
+    const nextSessionId = event.data.sessionId || sessionId.value;
+    if (nextSessionId && nextSessionId !== sessionId.value) {
+      sessionId.value = nextSessionId;
+      router.replace({ path: "/ai/chat", query: { sessionId: nextSessionId } });
+    }
     runId.value = event.data.runId || null;
   } else if (event.event === "content") {
     message.content += event.data.delta || "";
@@ -341,34 +287,38 @@ async function scrollToBottom() {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadModels(), loadSessions(), loadPreferences()]);
+    await Promise.all([loadModels(), workspaceStore.loadSessions(), loadPreferences()]);
+    const routedSessionId = String(route.query.sessionId || "");
+    if (routedSessionId) await openSession(routedSessionId);
+    else newSession();
   } catch (error) {
     proxy.$modal.msgError(error?.message || "平台对话初始化失败");
   }
 });
 
-onBeforeUnmount(() => abortController.value?.abort());
+watch(() => route.query.sessionId, async (value) => {
+  const routedSessionId = String(value || "");
+  if (!routedSessionId) {
+    newSession();
+    return;
+  }
+  if (routedSessionId !== sessionId.value) await openSession(routedSessionId);
+});
+
+onBeforeUnmount(() => {
+  sessionLoadGeneration += 1;
+  abortController.value?.abort();
+});
 </script>
 
 <style scoped lang="scss">
 .platform-chat {
-  height: calc(100vh - 116px);
+  height: 100%;
   display: flex;
   overflow: hidden;
   color: var(--el-text-color-primary);
   background: var(--workspace-bg);
   font-family: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
-}
-
-.chat-sessions {
-  width: 256px;
-  flex: 0 0 256px;
-  display: flex;
-  flex-direction: column;
-  margin: var(--workspace-space-4) 0 var(--workspace-space-4) var(--workspace-space-4);
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-md);
-  background: var(--workspace-surface);
 }
 
 .chat-toolbar,
@@ -402,14 +352,6 @@ onBeforeUnmount(() => abortController.value?.abort());
 .toolbar-icon-button {
   width: 32px;
   height: 32px;
-}
-
-.mobile-session-toggle {
-  display: none;
-}
-
-:global(.mobile-session-drawer .el-drawer__body) {
-  padding: 0;
 }
 
 .chat-toolbar {
@@ -535,15 +477,6 @@ onBeforeUnmount(() => abortController.value?.abort());
 }
 
 @media (max-width: 760px) {
-  .chat-sessions {
-    display: none;
-  }
-
-  .mobile-session-toggle {
-    display: inline-flex;
-    flex: 0 0 auto;
-  }
-
   .chat-toolbar,
   .composer {
     padding-left: 12px;

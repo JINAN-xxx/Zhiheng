@@ -66,7 +66,7 @@ const resourceTabs = computed(() => resolveAiResourceTabs(permissionSet.value))
 const activeSessionId = computed(() => String(route.query.sessionId || ''))
 
 function newChat() {
-  router.push({ path: '/ai/chat', query: { new: '1' } })
+  router.push('/ai/chat')
 }
 
 function openSession(sessionId) {
