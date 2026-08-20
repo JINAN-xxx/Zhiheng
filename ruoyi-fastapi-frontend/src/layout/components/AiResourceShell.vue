@@ -39,12 +39,13 @@ const tabs = computed(() => resolveAiResourceTabs(new Set(userStore.permissions)
 .ai-resource-tabs { display: flex; min-width: 0; gap: 4px; padding: 4px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); }
 .ai-resource-tabs a { min-height: 34px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: var(--workspace-radius-sm); color: var(--workspace-text-secondary); text-decoration: none; white-space: nowrap; }
 .ai-resource-tabs a[aria-current='page'] { color: var(--workspace-main-deep); background: var(--workspace-main-soft); font-weight: 600; }
+.ai-resource-tabs a:focus-visible { outline: 2px solid var(--workspace-main); outline-offset: 1px; }
 .ai-resource-shell__content { min-width: 0; max-width: var(--workspace-content-max-width); margin: 0 auto; }
 .ai-resource-shell__content :deep(> .app-container) { padding: 0; }
 @media (max-width: 760px) {
   .ai-resource-shell { padding: 12px; }
   .ai-resource-shell__header { align-items: stretch; flex-direction: column; gap: 12px; }
-  .ai-resource-tabs { width: 100%; overflow-x: auto; }
-  .ai-resource-tabs a { flex: 1; justify-content: center; }
+  .ai-resource-tabs { width: 100%; }
+  .ai-resource-tabs a { min-width: 0; flex: 1; justify-content: center; padding-inline: 8px; }
 }
 </style>

@@ -1,6 +1,6 @@
 <template>
   <header class="platform-topbar">
-    <button type="button" class="platform-topbar__menu" aria-label="打开主菜单" @click="emit('toggle-sidebar')">
+    <button ref="menuButtonRef" type="button" class="platform-topbar__menu" aria-label="打开主菜单" title="打开主菜单" @click="emit('toggle-sidebar')">
       <el-icon><Menu /></el-icon>
     </button>
 
@@ -13,12 +13,13 @@
       <button
         type="button"
         class="platform-topbar__mode"
+        :title="mode === 'ai' ? '管理控制台' : '返回 AI 工作台'"
         @click="emit(mode === 'ai' ? 'open-admin' : 'open-ai')"
       >
         <el-icon><Grid v-if="mode === 'ai'" /><ChatDotRound v-else /></el-icon>
         <span>{{ mode === 'ai' ? '管理控制台' : '返回 AI 工作台' }}</span>
       </button>
-      <button type="button" class="platform-topbar__icon" aria-label="切换主题" @click="settingsStore.toggleTheme()">
+      <button type="button" class="platform-topbar__icon" aria-label="切换主题" title="切换主题" @click="settingsStore.toggleTheme()">
         <el-icon><Sunny v-if="settingsStore.isDark" /><Moon v-else /></el-icon>
       </button>
       <HeaderNotice class="platform-topbar__notice" />
@@ -56,6 +57,11 @@ const router = useRouter()
 const lockStore = useLockStore()
 const settingsStore = useSettingsStore()
 const userStore = useUserStore()
+const menuButtonRef = ref(null)
+
+function focusMenu() {
+  menuButtonRef.value?.focus()
+}
 
 function handleCommand(command) {
   if (command === 'profile') router.push('/user/profile')
@@ -80,13 +86,15 @@ async function logout() {
     // Cancel keeps the current session.
   }
 }
+
+defineExpose({ focusMenu })
 </script>
 
 <style scoped lang="scss">
-.platform-topbar { min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 0 18px; background: var(--workspace-surface); border-bottom: 1px solid var(--workspace-border); }
+.platform-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--workspace-surface); border-bottom: 1px solid var(--workspace-border); }
 .platform-topbar button { font: inherit; }
 .platform-topbar__menu,
-.platform-topbar__icon { display: inline-flex; width: 36px; height: 36px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
+.platform-topbar__icon { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
 .platform-topbar__menu:hover,
 .platform-topbar__icon:hover { border-color: var(--workspace-border); background: var(--workspace-surface-muted); color: var(--workspace-text); }
 .platform-topbar__context { min-width: 0; display: grid; gap: 1px; }
@@ -94,14 +102,14 @@ async function logout() {
 .platform-topbar__context strong { overflow: hidden; color: var(--workspace-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-topbar__actions { min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .platform-topbar__mode,
-.platform-topbar__profile { min-height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); color: var(--workspace-text-secondary); cursor: pointer; }
+.platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); color: var(--workspace-text-secondary); cursor: pointer; }
 .platform-topbar__profile img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
-.platform-topbar__notice { height: 36px; display: flex; align-items: center; }
+.platform-topbar__notice { height: 32px; display: flex; align-items: center; }
 @media (max-width: 760px) {
-  .platform-topbar { min-height: 56px; padding: 0 10px; }
+  .platform-topbar { padding: 0 8px; }
   .platform-topbar__context span,
   .platform-topbar__mode span,
   .platform-topbar__profile span { display: none; }
-  .platform-topbar__mode { width: 36px; justify-content: center; padding: 0; }
+  .platform-topbar__mode { width: 32px; justify-content: center; padding: 0; }
 }
 </style>

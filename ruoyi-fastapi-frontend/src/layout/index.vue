@@ -18,13 +18,16 @@
       :with-header="false"
       append-to-body
       class="platform-mobile-drawer"
+      @opened="focusMobileSidebar"
+      @closed="restoreMenuFocus"
     >
-      <PlatformSidebar v-if="mode === 'ai'" @open-admin="openAdmin" />
-      <AdminSidebar v-else @open-ai="openAi" />
+      <PlatformSidebar v-if="mode === 'ai'" ref="mobileSidebarRef" @open-admin="openAdmin" />
+      <AdminSidebar v-else ref="mobileSidebarRef" @open-ai="openAi" />
     </el-drawer>
 
     <section class="platform-shell__main">
       <PlatformTopbar
+        ref="topbarRef"
         :mode="mode"
         @toggle-sidebar="toggleSidebar"
         @open-admin="openAdmin"
@@ -60,6 +63,8 @@ const permissionStore = usePermissionStore()
 const settingsStore = useSettingsStore()
 const userStore = useUserStore()
 const settingRef = ref(null)
+const topbarRef = ref(null)
+const mobileSidebarRef = ref(null)
 const { width } = useWindowSize()
 
 const mode = computed(() => resolveWorkspaceMode(route.path))
@@ -73,6 +78,16 @@ watch(() => route.fullPath, () => appStore.closeMobileSidebar())
 function toggleSidebar() {
   if (isMobile.value) appStore.openMobileSidebar()
   else appStore.toggleSideBar()
+}
+
+async function focusMobileSidebar() {
+  await nextTick()
+  const root = mobileSidebarRef.value?.$el
+  root?.querySelector('button, a[href], input')?.focus()
+}
+
+function restoreMenuFocus() {
+  topbarRef.value?.focusMenu()
 }
 
 function openAdmin() {
@@ -98,8 +113,8 @@ function setLayout() {
 
 <style scoped lang="scss">
 .platform-shell { width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
-.platform-shell__sidebar { width: var(--workspace-sidebar-width); min-width: var(--workspace-sidebar-width); height: 100%; transition: width 0.2s ease, min-width 0.2s ease; }
-.platform-shell.is-collapsed .platform-shell__sidebar { width: var(--workspace-sidebar-collapsed-width); min-width: var(--workspace-sidebar-collapsed-width); }
+.platform-shell__sidebar { width: var(--platform-sidebar-width); min-width: var(--platform-sidebar-width); flex: 0 0 var(--platform-sidebar-width); height: 100%; transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease; }
+.platform-shell.is-collapsed .platform-shell__sidebar { width: var(--platform-sidebar-collapsed-width); min-width: var(--platform-sidebar-collapsed-width); flex-basis: var(--platform-sidebar-collapsed-width); }
 .platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
 </style>
 
