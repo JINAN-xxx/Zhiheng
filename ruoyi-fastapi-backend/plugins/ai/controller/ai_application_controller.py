@@ -25,6 +25,8 @@ from plugins.ai.entity.vo.ai_developer_api_vo import (
     DeveloperKeyResourceId,
     DeveloperKeyRotateModel,
     DeveloperKeySummaryModel,
+    UsageLedgerModel,
+    UsageLedgerPageQueryModel,
 )
 from plugins.ai.infrastructure.developer_api_provider import (
     get_application_service,
@@ -83,6 +85,32 @@ async def _call_developer_api(operation: Awaitable[ResultT]) -> ResultT:
         audit_code=detail['code'],
         audit_message=detail['message'],
     ) from None
+
+
+@ai_application_controller.get(
+    '/{application_id}/usage',
+    summary='获取开发者应用用量台账',
+    response_model=PageResponseModel[UsageLedgerModel],
+    dependencies=[UserInterfaceAuthDependency('ai:application:query')],
+)
+async def list_application_usage(
+    request: Request,
+    application_id: Annotated[ApplicationResourceId, Path(description='Application ID')],
+    query: Annotated[UsageLedgerPageQueryModel, Query()],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    del request
+    actor = _current_actor(current_user)
+    result = await _call_developer_api(
+        get_application_service(query_db).list_usage(
+            application_id,
+            query,
+            actor_user_id=actor.user_id,
+            is_admin=actor.is_admin,
+        )
+    )
+    return ResponseUtil.success(model_content=result)
 
 
 @ai_application_controller.get(

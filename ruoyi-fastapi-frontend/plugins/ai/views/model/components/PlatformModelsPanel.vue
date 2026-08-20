@@ -34,8 +34,10 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="!mobile" prop="modelType" label="类型" width="100">
-        <template #default="{ row }">{{ row.modelType === 'embedding' ? 'Embedding' : 'Chat' }}</template>
+      <el-table-column v-if="!mobile" prop="modelType" label="类型" width="110">
+        <template #default="{ row }">
+          <el-tag :type="modelTypeMeta(row.modelType).type" size="small" effect="plain">{{ modelTypeMeta(row.modelType).label }}</el-tag>
+        </template>
       </el-table-column>
       <el-table-column v-if="!mobile" label="Capability" width="194">
         <template #default="{ row }">
@@ -65,9 +67,15 @@
       <el-table-column v-if="!mobile" label="更新时间" width="140">
         <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
       </el-table-column>
-      <el-table-column v-if="hasAnyAction" label="操作" :width="mobile ? 86 : 104" align="right">
+      <el-table-column v-if="hasAnyAction" label="操作" :width="mobile ? 86 : 132" align="right">
         <template #default="{ row }">
           <div class="row-actions desktop-actions">
+            <el-tooltip v-if="canEdit" content="费率配置" placement="top">
+              <el-button link type="primary" :icon="Coin" aria-label="费率配置" @click="openRateCards(row)" />
+            </el-tooltip>
+            <el-tooltip v-if="canTest && row.lifecycleStatus === 'active'" content="类型化连接测试" placement="top">
+              <el-button link type="success" :icon="Connection" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)" />
+            </el-tooltip>
             <el-tooltip v-if="canPublish && row.lifecycleStatus === 'draft'" content="发布" placement="top">
               <el-button link type="primary" :icon="Promotion" aria-label="发布" :disabled="!canPublishPlatformModel(row)" @click="publish(row)" />
             </el-tooltip>
@@ -81,6 +89,8 @@
           <el-dropdown class="mobile-actions" trigger="click">
             <el-button link :icon="MoreFilled" aria-label="更多操作">更多</el-button>
             <template #dropdown><el-dropdown-menu>
+              <el-dropdown-item v-if="canEdit" @click="openRateCards(row)">费率配置</el-dropdown-item>
+              <el-dropdown-item v-if="canTest && row.lifecycleStatus === 'active'" @click="smokeTest(row)">类型化连接测试</el-dropdown-item>
               <el-dropdown-item v-if="canPublish && row.lifecycleStatus === 'draft'" :disabled="!canPublishPlatformModel(row)" @click="publish(row)">发布</el-dropdown-item>
               <el-dropdown-item v-if="canEdit && row.lifecycleStatus === 'active'" @click="disable(row)">停用</el-dropdown-item>
               <el-dropdown-item v-if="canRemove && row.lifecycleStatus === 'draft'" @click="remove(row)">删除草稿</el-dropdown-item>
@@ -99,18 +109,61 @@
       small
       @current-change="load"
     />
+
+    <el-dialog v-model="rateDialogVisible" title="费率配置" width="min(680px, 94vw)" destroy-on-close>
+      <div class="rate-context">
+        <strong>{{ rateModel?.modelCode }}</strong>
+        <el-tag size="small" effect="plain" :type="modelTypeMeta(rateModel?.modelType).type">
+          {{ modelTypeMeta(rateModel?.modelType).label }}
+        </el-tag>
+        <span class="muted">{{ rateForm.billingMode === 'search_unit' ? '按 Search Unit 计费' : '按 Token 计费' }}</span>
+      </div>
+      <el-table v-loading="rateLoading" :data="rateCards" size="small" table-layout="fixed" max-height="220">
+        <el-table-column prop="version" label="版本" width="72" />
+        <el-table-column prop="billingMode" label="模式" width="112" />
+        <el-table-column label="价格">
+          <template #default="{ row }">
+            <span v-if="row.billingMode === 'search_unit'">{{ row.searchPricePerUnit }} / unit</span>
+            <span v-else>输入 {{ row.inputPricePerToken }} / 输出 {{ row.outputPricePerToken }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="currency" label="币种" width="72" />
+        <el-table-column prop="status" label="状态" width="78" />
+      </el-table>
+      <el-divider content-position="left">新增价格版本</el-divider>
+      <el-form label-position="top" @submit.prevent>
+        <template v-if="rateForm.billingMode === 'token'">
+          <div class="rate-grid">
+            <el-form-item label="输入 Token 单价"><el-input v-model="rateForm.inputPricePerToken" /></el-form-item>
+            <el-form-item label="输出 Token 单价"><el-input v-model="rateForm.outputPricePerToken" /></el-form-item>
+            <el-form-item label="缓存 Token 单价（可选）"><el-input v-model="rateForm.cachePricePerToken" /></el-form-item>
+          </div>
+        </template>
+        <el-form-item v-else label="Search Unit 单价">
+          <el-input v-model="rateForm.searchPricePerUnit" />
+        </el-form-item>
+        <el-form-item label="币种"><el-input v-model="rateForm.currency" maxlength="3" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rateDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="rateSaving" @click="saveRateCard">创建价格版本</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup>
-import { Delete, DocumentCopy, MoreFilled, Promotion, Refresh, VideoPause } from '@element-plus/icons-vue'
+import { Coin, Connection, Delete, DocumentCopy, MoreFilled, Promotion, Refresh, VideoPause } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   deletePlatformModel,
   disablePlatformModel,
   getPlatformModel,
+  listModelRateCards,
   listPlatformModels,
   publishPlatformModel,
+  createModelRateCard,
+  smokeTestPlatformModel,
 } from '../../../api/modelCatalog.js'
 import {
   canPublishPlatformModel, createRequestGate, getBindingStatusMeta, getLastAvailablePage, getLifecycleStatusMeta,
@@ -135,7 +188,22 @@ const canQuery = computed(() => can('ai:model:query'))
 const canPublish = computed(() => can('ai:model:publish'))
 const canEdit = computed(() => can('ai:model:edit'))
 const canRemove = computed(() => can('ai:model:remove'))
-const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value)
+const canTest = computed(() => can('ai:model:test'))
+const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
+const testingId = ref(null)
+const rateDialogVisible = ref(false)
+const rateLoading = ref(false)
+const rateSaving = ref(false)
+const rateCards = ref([])
+const rateModel = ref(null)
+const rateForm = reactive({
+  billingMode: 'token',
+  inputPricePerToken: '0',
+  outputPricePerToken: '0',
+  cachePricePerToken: '',
+  searchPricePerUnit: '0.001',
+  currency: 'USD',
+})
 
 function formatTime(value) {
   if (!value) return '-'
@@ -147,6 +215,64 @@ function formatTime(value) {
 
 const lifecycle = (row) => getLifecycleStatusMeta(row.lifecycleStatus)
 const binding = (row) => getBindingStatusMeta(row.bindingStatus)
+
+const modelTypeMeta = (modelType) => ({
+  chat: { label: 'Chat', type: 'primary' },
+  embedding: { label: 'Embedding', type: 'success' },
+  rerank: { label: 'Rerank', type: 'warning' },
+}[modelType] || { label: modelType || '-', type: 'info' })
+
+const billingModeFor = (modelType) => modelType === 'rerank' ? 'search_unit' : 'token'
+
+async function loadRateCards() {
+  if (!rateModel.value) return
+  rateLoading.value = true
+  try {
+    const response = await listModelRateCards(rateModel.value.modelId)
+    rateCards.value = Array.isArray(response?.data) ? response.data : []
+  } catch {
+    ElMessage.error('费率加载失败')
+  } finally {
+    rateLoading.value = false
+  }
+}
+
+async function openRateCards(row) {
+  rateModel.value = row
+  rateForm.billingMode = billingModeFor(row.modelType)
+  rateForm.inputPricePerToken = '0'
+  rateForm.outputPricePerToken = '0'
+  rateForm.cachePricePerToken = ''
+  rateForm.searchPricePerUnit = '0.001'
+  rateForm.currency = 'USD'
+  rateCards.value = []
+  rateDialogVisible.value = true
+  await loadRateCards()
+}
+
+async function saveRateCard() {
+  if (!rateModel.value) return
+  const payload = {
+    billingMode: rateForm.billingMode,
+    inputPricePerToken: rateForm.billingMode === 'token' ? rateForm.inputPricePerToken : '0',
+    outputPricePerToken: rateForm.billingMode === 'token' ? rateForm.outputPricePerToken : '0',
+    cachePricePerToken: rateForm.billingMode === 'token' && rateForm.cachePricePerToken
+      ? rateForm.cachePricePerToken
+      : null,
+    searchPricePerUnit: rateForm.billingMode === 'search_unit' ? rateForm.searchPricePerUnit : null,
+    currency: rateForm.currency.toUpperCase(),
+  }
+  rateSaving.value = true
+  try {
+    await createModelRateCard(rateModel.value.modelId, payload)
+    ElMessage.success('价格版本已创建')
+    await loadRateCards()
+  } catch {
+    ElMessage.error('价格版本创建失败，请检查单价和币种')
+  } finally {
+    rateSaving.value = false
+  }
+}
 
 async function load() {
   const requestGeneration = loadGate.begin()
@@ -237,6 +363,23 @@ async function remove(row) {
   }
 }
 
+async function smokeTest(row) {
+  testingId.value = row.modelId
+  try {
+    const response = await smokeTestPlatformModel(row.modelId)
+    const result = response?.data
+    if (result?.success) {
+      ElMessage.success(`${modelTypeMeta(result.modelType).label} 连接测试成功（${result.latencyMs ?? '-'} ms）`)
+    } else {
+      ElMessage.error(`${modelTypeMeta(result.modelType).label} 连接测试失败：${result?.message || '未知错误'}`)
+    }
+  } catch {
+    ElMessage.error('连接测试请求失败')
+  } finally {
+    testingId.value = null
+  }
+}
+
 onMounted(load)
 onBeforeUnmount(() => loadGate.invalidate())
 defineExpose({ refresh: load })
@@ -256,11 +399,14 @@ defineExpose({ refresh: load })
 .copy-button:hover { color: var(--el-color-primary); }
 .copy-button svg { width: 14px; height: 14px; }
 .muted { color: var(--el-text-color-placeholder); }
+.rate-context { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mobile-actions { display: none; }
 :deep(.el-pagination) { justify-content: flex-end; margin-top: 14px; }
 @media (max-width: 760px) {
   :deep(.mobile-hidden), .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }
   :deep(.el-pagination) { justify-content: center; }
+  .rate-grid { grid-template-columns: 1fr; gap: 0; }
 }
 </style>

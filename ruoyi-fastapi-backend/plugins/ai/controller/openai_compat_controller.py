@@ -14,7 +14,11 @@ from common.aspect.db_seesion import DBSessionDependency
 from common.router import APIRouterPro
 from plugins.ai.config import LiteLLMSettings
 from plugins.ai.domain.public_api_errors import PublicApiError
-from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIChatCompletionRequestModel
+from plugins.ai.entity.vo.ai_openai_compat_vo import (
+    OpenAIChatCompletionRequestModel,
+    OpenAIEmbeddingRequestModel,
+    OpenAIRerankRequestModel,
+)
 from plugins.ai.infrastructure.developer_key_authenticator import (
     DeveloperApiIdentity,
     DeveloperKeyAuthenticator,
@@ -42,7 +46,7 @@ class _ControllerOutcome:
 
 @dataclass(frozen=True, slots=True)
 class _BodyOutcome:
-    value: OpenAIChatCompletionRequestModel | None = None
+    value: object | None = None
     cancelled: bool = False
 
 
@@ -78,6 +82,28 @@ async def create_chat_completion(
     return _finish_controller_outcome(outcome)
 
 
+@openai_compat_controller.post('/embeddings', summary='Create an OpenAI-compatible embedding')
+async def create_embeddings(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    operation = _handle_embeddings
+    outcome = await operation(request, query_db)
+    del request, query_db, operation
+    return _finish_controller_outcome(outcome)
+
+
+@openai_compat_controller.post('/rerank', summary='Create a LiteLLM/Cohere-compatible rerank')
+async def create_rerank(
+    request: Request,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    operation = _handle_rerank
+    outcome = await operation(request, query_db)
+    del request, query_db, operation
+    return _finish_controller_outcome(outcome)
+
+
 async def _handle_models(request: Request, db: AsyncSession) -> _ControllerOutcome:
     async def operation(settings: LiteLLMSettings, services: PublicApiServices) -> Response:
         identity = await _authenticate_request(request, services.authenticator)
@@ -90,7 +116,7 @@ async def _handle_models(request: Request, db: AsyncSession) -> _ControllerOutco
 async def _handle_chat(request: Request, db: AsyncSession) -> _ControllerOutcome:
     async def operation(settings: LiteLLMSettings, services: PublicApiServices) -> Response:
         identity = await _authenticate_request(request, services.authenticator)
-        body_outcome = await _read_chat_request(request, settings.api_max_request_bytes)
+        body_outcome = await _read_request(request, settings.api_max_request_bytes, OpenAIChatCompletionRequestModel)
         if body_outcome.cancelled:
             raise asyncio.CancelledError
         if body_outcome.value is None:
@@ -109,6 +135,34 @@ async def _handle_chat(request: Request, db: AsyncSession) -> _ControllerOutcome
     return await _run_request(request, db, operation)
 
 
+async def _handle_embeddings(request: Request, db: AsyncSession) -> _ControllerOutcome:
+    async def operation(settings: LiteLLMSettings, services: PublicApiServices) -> Response:
+        identity = await _authenticate_request(request, services.authenticator)
+        body_outcome = await _read_request(request, settings.api_max_request_bytes, OpenAIEmbeddingRequestModel)
+        if body_outcome.cancelled:
+            raise asyncio.CancelledError
+        if body_outcome.value is None:
+            raise PublicApiError.invalid_request()
+        result = await services.compat.embed(identity, body_outcome.value)
+        return JSONResponse(content=result.model_dump(mode='json'))
+
+    return await _run_request(request, db, operation)
+
+
+async def _handle_rerank(request: Request, db: AsyncSession) -> _ControllerOutcome:
+    async def operation(settings: LiteLLMSettings, services: PublicApiServices) -> Response:
+        identity = await _authenticate_request(request, services.authenticator)
+        body_outcome = await _read_request(request, settings.api_max_request_bytes, OpenAIRerankRequestModel)
+        if body_outcome.cancelled:
+            raise asyncio.CancelledError
+        if body_outcome.value is None:
+            raise PublicApiError.invalid_request()
+        result = await services.compat.rerank(identity, body_outcome.value)
+        return JSONResponse(content=result.model_dump(mode='json'))
+
+    return await _run_request(request, db, operation)
+
+
 async def _run_request(
     request: Request,
     db: AsyncSession,
@@ -118,7 +172,7 @@ async def _run_request(
         settings = _settings_factory()
         if not settings.public_api_enabled:
             return _ControllerOutcome(response=_error_response(PublicApiError.feature_disabled()))
-        services = _public_api_services(request, db, settings)
+        services = await _public_api_services(request, db, settings)
         return _ControllerOutcome(response=await operation(settings, services))
     except asyncio.CancelledError:
         return _ControllerOutcome(cancelled=True)
@@ -148,7 +202,11 @@ def _single_authorization(request: Request) -> str | None:
         return None
 
 
-async def _read_chat_request(request: Request, max_bytes: int) -> _BodyOutcome:
+async def _read_request(
+    request: Request,
+    max_bytes: int,
+    model_type: type[object],
+) -> _BodyOutcome:
     try:
         content_type = _single_header(request, b'content-type')
         if content_type is _INVALID_HEADER or not isinstance(content_type, str):
@@ -166,7 +224,7 @@ async def _read_chat_request(request: Request, max_bytes: int) -> _BodyOutcome:
         if isinstance(content_length, int) and content_length != len(body):
             return _BodyOutcome()
         payload = json.loads(body)
-        value = OpenAIChatCompletionRequestModel.model_validate(payload)
+        value = model_type.model_validate(payload)
         return _BodyOutcome(value=value)
     except asyncio.CancelledError:
         return _BodyOutcome(cancelled=True)

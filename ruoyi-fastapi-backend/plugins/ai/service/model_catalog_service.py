@@ -7,13 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from exceptions.exception import ServiceException
+from plugins.ai.dao.ai_developer_api_dao import AiDeveloperApiDao
 from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.dao.ai_resource_binding_dao import AiResourceBindingDao
 from plugins.ai.domain.model_runtime import ModelRuntimeEngine
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import new_resource_id
+from plugins.ai.entity.do.ai_developer_api_do import AiModelRateCard
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
+from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel, RateCardModel
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ModelCatalogCreateModel,
     ModelCatalogPageQueryModel,
@@ -28,6 +31,8 @@ ResultT = TypeVar('ResultT')
 
 MODEL_CODE_CONFLICT = '模型编码已存在'
 MODEL_CODE_IMMUTABLE = '已发布模型不允许修改模型编码'
+MODEL_TYPE_IMMUTABLE = '模型类型创建后不可修改，需要改变类型时必须新建模型编码'
+MODEL_TYPE_FIELD_CONFLICT = '模型类型与能力或默认参数不匹配'
 BINDING_ACTIVE_MODEL_CONFLICT = '已发布模型请先停用再修改运行时绑定'
 BINDING_CREATE_VERSION_CONFLICT = '新建绑定不允许指定版本号'
 BINDING_UPDATE_VERSION_REQUIRED = '更新绑定必须提供当前版本号'
@@ -38,6 +43,7 @@ MODEL_STATE_CONFLICT = '模型状态已变化，请刷新后重试'
 MODEL_DISABLE_CONFLICT = '仅已发布模型可以停用'
 MODEL_DELETE_CONFLICT = '仅从未发布的草稿可以删除'
 MODEL_REFERENCED = '模型已被对话引用，不能删除'
+RATE_CARD_TYPE_CONFLICT = '模型类型与计费模式不匹配'
 
 
 class ModelReferenceChecker(Protocol):
@@ -63,12 +69,14 @@ class ModelCatalogService:
         *,
         model_dao: type[AiModelCatalogDao] = AiModelCatalogDao,
         binding_dao: type[AiResourceBindingDao] = AiResourceBindingDao,
+        rate_card_dao: type[AiDeveloperApiDao] = AiDeveloperApiDao,
     ) -> None:
         self._db = db
         self._runtime = runtime
         self._reference_checker = reference_checker or NoModelReferenceChecker()
         self._model_dao = model_dao
         self._binding_dao = binding_dao
+        self._rate_card_dao = rate_card_dao
 
     async def list_models(
         self,
@@ -91,6 +99,57 @@ class ModelCatalogService:
                 'binding': ResourceBindingModel.model_validate(binding) if binding is not None else None,
             }
         )
+
+    async def list_rate_cards(self, model_id: str) -> list[RateCardModel]:
+        await self._require_model(model_id)
+        cards = await self._rate_card_dao.list_rate_cards_by_model(self._db, model_id)
+        return [RateCardModel.model_validate(card) for card in cards]
+
+    async def create_rate_card(
+        self,
+        model_id: str,
+        payload: RateCardCreateModel,
+        *,
+        username: str,
+        now: datetime,
+    ) -> RateCardModel:
+        model = await self._require_model(model_id)
+        expected_billing_mode = 'search_unit' if model.model_type == 'rerank' else 'token'
+        if payload.billing_mode != expected_billing_mode:
+            await self._rollback_preserving_error()
+            raise ServiceException(message=RATE_CARD_TYPE_CONFLICT)
+        existing = await self._rate_card_dao.list_rate_cards_by_model(self._db, model_id)
+        next_version = max((card.version for card in existing), default=0) + 1
+        database_now = now.replace(tzinfo=None) if now.tzinfo is not None else now
+        effective_from = (
+            payload.effective_from.replace(tzinfo=None)
+            if payload.effective_from is not None and payload.effective_from.tzinfo is not None
+            else (payload.effective_from or database_now)
+        )
+
+        async def operation() -> RateCardModel:
+            card = AiModelRateCard(
+                rate_card_id=new_resource_id('rate'),
+                platform_model_id=model_id,
+                version=next_version,
+                billing_mode=payload.billing_mode,
+                input_price_per_token=payload.input_price_per_token,
+                output_price_per_token=payload.output_price_per_token,
+                cache_price_per_token=payload.cache_price_per_token,
+                search_price_per_unit=payload.search_price_per_unit,
+                currency=payload.currency,
+                effective_from=effective_from,
+                effective_to=None,
+                status='active',
+                created_by=username,
+                created_at=database_now,
+                updated_by=username,
+                updated_at=database_now,
+            )
+            created = await self._rate_card_dao.create_rate_card(self._db, card)
+            return RateCardModel.model_validate(created)
+
+        return await self._run_write(operation)
 
     async def create_model(
         self,
@@ -140,6 +199,9 @@ class ModelCatalogService:
                 existing = await self._model_dao.get_model_by_code(self._db, requested_code)
                 if existing is not None and existing.model_id != model_id:
                     raise ServiceException(message=MODEL_CODE_CONFLICT)
+            requested_type = values.get('model_type')
+            if requested_type is not None and requested_type != model.model_type:
+                raise ServiceException(message=MODEL_TYPE_IMMUTABLE)
             update_values = {**values, 'update_by': username, 'update_time': now}
             update_operation = (
                 self._model_dao.update_unpublished_model

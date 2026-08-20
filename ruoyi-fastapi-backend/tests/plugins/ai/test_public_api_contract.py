@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from plugins.ai.domain.public_api_errors import PublicApiError
+from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel
 from plugins.ai.entity.vo.ai_openai_compat_vo import (
     OpenAIChatCompletionChunkModel,
     OpenAIChatCompletionRequestModel,
@@ -12,6 +13,28 @@ from plugins.ai.entity.vo.ai_openai_compat_vo import (
 )
 
 MODEL_CODE = 'deepseek-chat'
+
+
+@pytest.mark.parametrize(
+    'payload',
+    (
+        {
+            'billingMode': 'token',
+            'inputPricePerToken': '0.001',
+            'outputPricePerToken': '0.002',
+            'searchPricePerUnit': '0.1',
+        },
+        {
+            'billingMode': 'search_unit',
+            'inputPricePerToken': '0.001',
+            'outputPricePerToken': '0',
+            'searchPricePerUnit': '0.1',
+        },
+    ),
+)
+def test_rate_card_rejects_prices_from_the_other_billing_mode(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        RateCardCreateModel.model_validate(payload)
 
 
 @pytest.mark.parametrize(
@@ -261,3 +284,225 @@ def test_chat_completion_chunk_supports_role_content_and_finish_frames(
     assert serialized['choices'][0]['delta'] == delta
     assert 'platform_model_id' not in serialized
     assert 'binding_id' not in serialized
+
+
+def valid_embedding_request() -> dict[str, object]:
+    return {
+        'model': 'company-embedding-v1',
+        'input': ['first document', 'second document'],
+        'encoding_format': 'float',
+        'dimensions': 1024,
+        'user': 'external-user-42',
+    }
+
+
+def test_embedding_request_accepts_first_release_fields_and_snake_case() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
+
+    request = OpenAIEmbeddingRequestModel.model_validate(valid_embedding_request())
+
+    assert request.model == 'company-embedding-v1'
+    assert request.input == ['first document', 'second document']
+    assert request.dimensions == 1024
+    assert request.user == 'external-user-42'
+    assert request.model_dump(exclude_none=True) == valid_embedding_request()
+
+
+def test_embedding_request_accepts_single_string_input() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
+
+    request = OpenAIEmbeddingRequestModel.model_validate({'model': 'company-embedding-v1', 'input': 'text'})
+
+    assert request.input == 'text'
+
+
+@pytest.mark.parametrize(
+    ('field', 'value'),
+    (
+        ('input', []),
+        ('input', ['']),
+        ('input', ['ok', '']),
+        ('input', ['x' * 32769]),
+        ('input', 42),
+        ('encoding_format', 'base64'),
+        ('dimensions', 0),
+        ('dimensions', 65537),
+        ('user', ''),
+        ('user', 'bad\nvalue'),
+        ('provider', 'openai'),
+        ('api_key', 'secret'),
+    ),
+)
+def test_embedding_request_rejects_invalid_or_private_fields(field: str, value: object) -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
+
+    payload = valid_embedding_request()
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        OpenAIEmbeddingRequestModel.model_validate(payload)
+
+
+def test_embedding_request_rejects_more_than_256_inputs() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
+
+    with pytest.raises(ValidationError):
+        OpenAIEmbeddingRequestModel.model_validate({'model': 'company-embedding-v1', 'input': ['x'] * 257})
+
+
+def test_embedding_response_uses_openai_shape_and_ignores_internal_fields() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingResponseModel
+
+    response = OpenAIEmbeddingResponseModel.model_validate(
+        {
+            'object': 'list',
+            'data': [
+                {'object': 'embedding', 'index': 0, 'embedding': [0.0123, -0.0456]},
+                {'object': 'embedding', 'index': 1, 'embedding': [0.5, 0.25]},
+            ],
+            'model': 'company-embedding-v1',
+            'usage': {'prompt_tokens': 8, 'total_tokens': 8},
+            'platform_model_id': 'must-not-survive',
+            'binding_id': 'must-not-survive',
+        }
+    )
+
+    serialized = response.model_dump()
+    assert serialized['object'] == 'list'
+    assert serialized['data'][0]['embedding'] == [0.0123, -0.0456]
+    assert serialized['usage'] == {'prompt_tokens': 8, 'total_tokens': 8}
+    assert 'platform_model_id' not in serialized
+    assert 'binding_id' not in serialized
+
+
+def test_embedding_response_rejects_non_finite_or_empty_vectors() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingResponseModel
+
+    base = {
+        'object': 'list',
+        'data': [{'object': 'embedding', 'index': 0, 'embedding': [0.1]}],
+        'model': 'company-embedding-v1',
+        'usage': {'prompt_tokens': 1, 'total_tokens': 1},
+    }
+    with pytest.raises(ValidationError):
+        OpenAIEmbeddingResponseModel.model_validate(
+            {**base, 'data': [{'object': 'embedding', 'index': 0, 'embedding': []}]}
+        )
+    with pytest.raises(ValidationError):
+        OpenAIEmbeddingResponseModel.model_validate(
+            {**base, 'data': [{'object': 'embedding', 'index': 0, 'embedding': [float('nan')]}]}
+        )
+    # 各向量自身必须非空且全部有限；跨向量维度一致性由 Adapter/领域层保证。
+    mixed = OpenAIEmbeddingResponseModel.model_validate(
+        {
+            **base,
+            'data': [
+                {'object': 'embedding', 'index': 0, 'embedding': [0.1, 0.2]},
+                {'object': 'embedding', 'index': 1, 'embedding': [0.3]},
+            ],
+        }
+    )
+    assert len(mixed.data) == 2
+
+
+def valid_rerank_request() -> dict[str, object]:
+    return {
+        'model': 'company-rerank-v1',
+        'query': 'Which document describes the refund policy?',
+        'documents': [
+            'Shipping usually takes three days.',
+            {'text': 'Refunds are accepted within thirty days.'},
+        ],
+        'top_n': 2,
+        'return_documents': True,
+    }
+
+
+def test_rerank_request_accepts_first_release_fields_and_document_union() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
+
+    request = OpenAIRerankRequestModel.model_validate(valid_rerank_request())
+
+    assert request.model == 'company-rerank-v1'
+    assert request.documents[0] == 'Shipping usually takes three days.'
+    assert request.documents[1].text == 'Refunds are accepted within thirty days.'
+    assert request.top_n == 2
+    assert request.return_documents is True
+
+
+@pytest.mark.parametrize(
+    ('field', 'value'),
+    (
+        ('query', ''),
+        ('query', 'x' * 8193),
+        ('documents', []),
+        ('documents', ['']),
+        ('documents', [{'text': ''}]),
+        ('documents', ['x' * 32769]),
+        ('documents', [{'text': 'ok', 'rank_fields': ['title']}]),
+        ('documents', [{'text': 'ok', 'extra': 1}]),
+        ('top_n', 0),
+        ('top_n', 3),
+        ('return_documents', 'yes'),
+        ('rank_fields', ['title']),
+        ('max_chunks_per_doc', 10),
+        ('provider', 'openai'),
+    ),
+)
+def test_rerank_request_rejects_invalid_or_private_fields(field: str, value: object) -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
+
+    payload = valid_rerank_request()
+    payload[field] = value
+    with pytest.raises(ValidationError):
+        OpenAIRerankRequestModel.model_validate(payload)
+
+
+def test_rerank_request_rejects_more_than_256_documents() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
+
+    with pytest.raises(ValidationError):
+        OpenAIRerankRequestModel.model_validate({'model': 'company-rerank-v1', 'query': 'q', 'documents': ['x'] * 257})
+
+
+def test_rerank_response_is_stable_bounded_and_drops_unknown_meta() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankResponseModel
+
+    response = OpenAIRerankResponseModel.model_validate(
+        {
+            'id': 'rrk_01Habc',
+            'results': [
+                {
+                    'index': 1,
+                    'relevance_score': 0.9921,
+                    'document': {'text': 'Refunds are accepted within thirty days.'},
+                },
+                {'index': 0, 'relevance_score': 0.11},
+            ],
+            'meta': {
+                'billed_units': {'search_units': 1},
+                'tokens': {'input_tokens': 22},
+                'unknown_upstream_field': 'must-not-survive',
+            },
+            'binding_id': 'must-not-survive',
+        }
+    )
+
+    serialized = response.model_dump()
+    assert serialized['results'][0]['document'] == {'text': 'Refunds are accepted within thirty days.'}
+    assert serialized['results'][1]['document'] is None
+    assert serialized['meta'] == {'billed_units': {'search_units': 1}, 'tokens': {'input_tokens': 22}}
+    assert 'unknown_upstream_field' not in serialized['meta']
+    assert 'binding_id' not in serialized
+
+
+def test_rerank_response_rejects_non_finite_scores() -> None:
+    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankResponseModel
+
+    with pytest.raises(ValidationError):
+        OpenAIRerankResponseModel.model_validate(
+            {
+                'id': 'rrk_01Habc',
+                'results': [{'index': 0, 'relevance_score': float('inf')}],
+                'meta': {},
+            }
+        )

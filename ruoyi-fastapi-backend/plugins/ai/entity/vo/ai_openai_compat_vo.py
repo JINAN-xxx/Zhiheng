@@ -1,12 +1,27 @@
 import re
 import unicodedata
+from math import isfinite
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 _FORBIDDEN_SINGLE_LINE_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
 _MODEL_CODE_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
 MAX_STOP_SEQUENCES = 4
+EMBEDDING_MAX_INPUTS = 256
+EMBEDDING_MAX_INPUT_BYTES = 32768
+EMBEDDING_MAX_DIMENSIONS = 65536
+RERANK_MAX_DOCUMENTS = 256
+RERANK_MAX_QUERY_BYTES = 8192
+RERANK_MAX_DOCUMENT_BYTES = 32768
 
 
 def _reject_unsafe_single_line_text(value: object) -> object:
@@ -31,6 +46,34 @@ SafeStopSequence = Annotated[
     str,
     BeforeValidator(_reject_unsafe_single_line_text),
     StringConstraints(strict=True, min_length=1, max_length=100),
+]
+
+
+def _valid_utf8_bounded_text(value: object, max_bytes: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError('text must be a string')
+    if not value or len(value.encode('utf-8')) > max_bytes:
+        raise ValueError('text exceeds the allowed byte size')
+    return value
+
+
+EmbeddingInput = Annotated[
+    str,
+    BeforeValidator(_reject_unsafe_single_line_text),
+    BeforeValidator(lambda value: _valid_utf8_bounded_text(value, EMBEDDING_MAX_INPUT_BYTES)),
+    StringConstraints(strict=True, min_length=1),
+]
+RerankQuery = Annotated[
+    str,
+    BeforeValidator(_reject_unsafe_single_line_text),
+    BeforeValidator(lambda value: _valid_utf8_bounded_text(value, RERANK_MAX_QUERY_BYTES)),
+    StringConstraints(strict=True, min_length=1),
+]
+RerankDocumentText = Annotated[
+    str,
+    BeforeValidator(_reject_unsafe_single_line_text),
+    BeforeValidator(lambda value: _valid_utf8_bounded_text(value, RERANK_MAX_DOCUMENT_BYTES)),
+    StringConstraints(strict=True, min_length=1),
 ]
 
 
@@ -127,3 +170,101 @@ class OpenAIChatCompletionChunkModel(_PublicResponseModel):
     created: Annotated[int, Field(strict=True, ge=0)]
     model: SafeModelCode
     choices: list[OpenAIChatCompletionChunkChoiceModel] = Field(min_length=1)
+
+
+class OpenAIEmbeddingRequestModel(_StrictRequestModel):
+    model: SafeModelCode
+    input: str | list[EmbeddingInput] = Field(min_length=1)
+    encoding_format: Literal['float'] | None = None
+    dimensions: Annotated[int, Field(strict=True, ge=1, le=EMBEDDING_MAX_DIMENSIONS)] | None = None
+    user: SafeCallerId | None = None
+
+    @field_validator('input', mode='before')
+    @classmethod
+    def normalize_input(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            if not 1 <= len(value) <= EMBEDDING_MAX_INPUTS:
+                raise ValueError('input must contain between one and 256 values')
+            return value
+        raise ValueError('input must be a string or a list of strings')
+
+    @model_validator(mode='after')
+    def validate_input_text(self) -> 'OpenAIEmbeddingRequestModel':
+        if isinstance(self.input, list):
+            for item in self.input:
+                if not item:
+                    raise ValueError('input items must be non-empty strings')
+        return self
+
+
+class OpenAIEmbeddingDataModel(_PublicResponseModel):
+    object: Literal['embedding'] = 'embedding'
+    index: Annotated[int, Field(strict=True, ge=0)]
+    embedding: list[float]
+
+    @field_validator('embedding')
+    @classmethod
+    def validate_finite_embedding(cls, value: list[float]) -> list[float]:
+        if not value or any(not isinstance(item, float) or not isfinite(item) for item in value):
+            raise ValueError('embedding must be a non-empty list of finite floats')
+        return value
+
+
+class OpenAIEmbeddingUsageModel(_PublicResponseModel):
+    prompt_tokens: Annotated[int, Field(strict=True, ge=0)]
+    total_tokens: Annotated[int, Field(strict=True, ge=0)]
+
+
+class OpenAIEmbeddingResponseModel(_PublicResponseModel):
+    object: Literal['list'] = 'list'
+    data: list[OpenAIEmbeddingDataModel] = Field(min_length=1)
+    model: SafeModelCode
+    usage: OpenAIEmbeddingUsageModel
+
+
+class RerankDocumentModel(_StrictRequestModel):
+    text: RerankDocumentText
+
+
+class OpenAIRerankRequestModel(_StrictRequestModel):
+    model: SafeModelCode
+    query: RerankQuery
+    documents: list[RerankDocumentText | RerankDocumentModel] = Field(min_length=1, max_length=RERANK_MAX_DOCUMENTS)
+    top_n: Annotated[int, Field(strict=True, ge=1, le=RERANK_MAX_DOCUMENTS)] | None = None
+    return_documents: bool | None = None
+
+    @model_validator(mode='after')
+    def validate_top_n(self) -> 'OpenAIRerankRequestModel':
+        if self.top_n is not None and self.top_n > len(self.documents):
+            raise ValueError('top_n must not exceed the document count')
+        return self
+
+
+class RerankResultDocumentModel(_PublicResponseModel):
+    text: str
+
+
+class RerankResultModel(_PublicResponseModel):
+    index: Annotated[int, Field(strict=True, ge=0)]
+    relevance_score: float
+    document: RerankResultDocumentModel | None = None
+
+    @field_validator('relevance_score')
+    @classmethod
+    def validate_finite_score(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError('relevance_score must be finite')
+        return value
+
+
+class RerankMetaModel(_PublicResponseModel):
+    billed_units: dict[str, int] = Field(default_factory=dict)
+    tokens: dict[str, int] = Field(default_factory=dict)
+
+
+class OpenAIRerankResponseModel(_PublicResponseModel):
+    id: Annotated[str, StringConstraints(strict=True, min_length=1, max_length=255)]
+    results: list[RerankResultModel] = Field(min_length=1)
+    meta: RerankMetaModel

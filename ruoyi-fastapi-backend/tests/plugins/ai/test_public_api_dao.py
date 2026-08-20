@@ -137,8 +137,22 @@ async def test_public_models_are_key_scoped_and_contain_only_public_snapshot(dat
     first = await AiDeveloperApiDao.list_public_models_for_key(database, KEY_ID)
     second = await AiDeveloperApiDao.list_public_models_for_key(database, SECOND_KEY_ID)
 
-    assert first == [PublicModelRecord(platform_model_id=MODEL_ID, model_code='deepseek-chat', published_at=NOW)]
-    assert second == [PublicModelRecord(platform_model_id=SECOND_MODEL_ID, model_code='other-chat', published_at=NOW)]
+    assert first == [
+        PublicModelRecord(
+            platform_model_id=MODEL_ID,
+            model_code='deepseek-chat',
+            published_at=NOW,
+            model_type='chat',
+        )
+    ]
+    assert second == [
+        PublicModelRecord(
+            platform_model_id=SECOND_MODEL_ID,
+            model_code='other-chat',
+            published_at=NOW,
+            model_type='chat',
+        )
+    ]
     field_names = {item.name for item in fields(first[0])}
     assert 'binding' not in field_names
     assert 'provider' not in field_names

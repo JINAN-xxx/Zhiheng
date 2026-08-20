@@ -1,6 +1,7 @@
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import delete, or_, select, update
@@ -16,7 +17,8 @@ from plugins.ai.entity.do.ai_developer_api_do import (
     AiModelRateCard,
 )
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
-from plugins.ai.entity.vo.ai_developer_api_vo import ApplicationPageQueryModel
+from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
+from plugins.ai.entity.vo.ai_developer_api_vo import ApplicationPageQueryModel, UsageLedgerPageQueryModel
 from utils.page_util import PageUtil
 
 APPLICATION_UPDATE_FIELDS = frozenset(
@@ -71,6 +73,34 @@ class PublicModelRecord:
     platform_model_id: str
     model_code: str
     published_at: datetime
+    model_type: str = ''
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationSnapshotRecord:
+    """统一授权快照：Application/Key/Grant/Model/Binding/Rate Card/Quota。"""
+
+    application_id: str
+    api_key_id: str
+    platform_model_id: str
+    model_code: str
+    model_type: str
+    binding_id: str
+    engine_type: str
+    engine_model_snapshot: str
+    max_output_tokens: int | None
+    rate_card_id: str
+    rate_card_version: int
+    billing_mode: str
+    input_price_per_token: Decimal
+    output_price_per_token: Decimal
+    cache_price_per_token: Decimal | None
+    search_price_per_unit: Decimal | None
+    currency: str
+    rpm_limit: int | None
+    tpm_limit: int | None
+    concurrency_limit: int | None
+    monthly_budget: Decimal | None
 
 
 class AiDeveloperApiDao:
@@ -288,6 +318,7 @@ class AiDeveloperApiDao:
                     AiModelCatalog.model_id,
                     AiModelCatalog.model_code,
                     AiModelCatalog.published_at,
+                    AiModelCatalog.model_type,
                 )
                 .join(
                     AiApiKeyModelGrant,
@@ -302,13 +333,12 @@ class AiDeveloperApiDao:
                     AiApiKeyModelGrant.status == 'active',
                     AiModelCatalog.lifecycle_status == 'active',
                     AiModelCatalog.published_at.is_not(None),
-                    AiModelCatalog.model_type == 'chat',
                 )
                 .order_by(AiModelCatalog.model_code, AiModelCatalog.model_id)
             )
         ).all()
         return [
-            PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2])
+            PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2], model_type=row[3])
             for row in rows
             if row[2] is not None
         ]
@@ -326,6 +356,7 @@ class AiDeveloperApiDao:
                     AiModelCatalog.model_id,
                     AiModelCatalog.model_code,
                     AiModelCatalog.published_at,
+                    AiModelCatalog.model_type,
                 )
                 .join(
                     AiApiKeyModelGrant,
@@ -340,14 +371,99 @@ class AiDeveloperApiDao:
                     AiApiKeyModelGrant.status == 'active',
                     AiModelCatalog.lifecycle_status == 'active',
                     AiModelCatalog.published_at.is_not(None),
-                    AiModelCatalog.model_type == 'chat',
                     AiModelCatalog.model_code == model_code,
                 )
             )
         ).first()
         if row is None or row[2] is None:
             return None
-        return PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2])
+        return PublicModelRecord(platform_model_id=row[0], model_code=row[1], published_at=row[2], model_type=row[3])
+
+    @classmethod
+    async def get_invocation_snapshot(
+        cls,
+        db: AsyncSession,
+        api_key_id: str,
+        model_code: str,
+        expected_type: str,
+        now: datetime,
+    ) -> InvocationSnapshotRecord | None:
+        """在单次只读事务中读取统一授权与计费快照。"""
+        # PG timestamp 列为 naive，绑定参数需归一化为 naive UTC。
+        normalized_now = now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo is not None else now
+        row = (
+            await db.execute(
+                select(
+                    AiApiKey.application_id,
+                    AiModelCatalog.model_id,
+                    AiModelCatalog.model_code,
+                    AiModelCatalog.model_type,
+                    AiModelCatalog.max_output_tokens,
+                    AiResourceBinding.binding_id,
+                    AiResourceBinding.engine_type,
+                    AiResourceBinding.engine_resource_id,
+                    AiModelRateCard.rate_card_id,
+                    AiModelRateCard.version,
+                    AiModelRateCard.billing_mode,
+                    AiModelRateCard.input_price_per_token,
+                    AiModelRateCard.output_price_per_token,
+                    AiModelRateCard.cache_price_per_token,
+                    AiModelRateCard.search_price_per_unit,
+                    AiModelRateCard.currency,
+                    AiApiQuotaPolicy.rpm_limit,
+                    AiApiQuotaPolicy.tpm_limit,
+                    AiApiQuotaPolicy.concurrency_limit,
+                    AiApiQuotaPolicy.monthly_budget,
+                )
+                .join(AiApplication, AiApplication.application_id == AiApiKey.application_id)
+                .join(AiApiKeyModelGrant, AiApiKeyModelGrant.api_key_id == AiApiKey.api_key_id)
+                .join(AiModelCatalog, AiModelCatalog.model_id == AiApiKeyModelGrant.platform_model_id)
+                .join(AiResourceBinding, AiResourceBinding.resource_id == AiModelCatalog.model_id)
+                .join(AiModelRateCard, AiModelRateCard.platform_model_id == AiModelCatalog.model_id)
+                .outerjoin(AiApiQuotaPolicy, AiApiQuotaPolicy.api_key_id == AiApiKey.api_key_id)
+                .where(
+                    AiApiKey.api_key_id == api_key_id,
+                    AiApiKey.status.in_({'active', 'retiring'}),
+                    AiApplication.status == 'active',
+                    AiApiKeyModelGrant.status == 'active',
+                    AiModelCatalog.lifecycle_status == 'active',
+                    AiModelCatalog.published_at.is_not(None),
+                    AiModelCatalog.model_code == model_code,
+                    AiModelCatalog.model_type == expected_type,
+                    AiModelRateCard.billing_mode == ('search_unit' if expected_type == 'rerank' else 'token'),
+                    AiResourceBinding.binding_status == 'active',
+                    AiModelRateCard.status == 'active',
+                    AiModelRateCard.effective_from <= normalized_now,
+                    or_(AiModelRateCard.effective_to.is_(None), AiModelRateCard.effective_to > normalized_now),
+                )
+                .order_by(AiModelRateCard.version.desc(), AiModelRateCard.effective_from.desc())
+            )
+        ).first()
+        if row is None:
+            return None
+        return InvocationSnapshotRecord(
+            application_id=row[0],
+            api_key_id=api_key_id,
+            platform_model_id=row[1],
+            model_code=row[2],
+            model_type=row[3],
+            max_output_tokens=row[4],
+            binding_id=row[5],
+            engine_type=row[6],
+            engine_model_snapshot=row[7],
+            rate_card_id=row[8],
+            rate_card_version=row[9],
+            billing_mode=row[10],
+            input_price_per_token=row[11],
+            output_price_per_token=row[12],
+            cache_price_per_token=row[13],
+            search_price_per_unit=row[14],
+            currency=row[15],
+            rpm_limit=row[16],
+            tpm_limit=row[17],
+            concurrency_limit=row[18],
+            monthly_budget=row[19],
+        )
 
     @classmethod
     async def transition_key_status(
@@ -460,6 +576,7 @@ class AiDeveloperApiDao:
         platform_model_id: str,
         now: datetime,
     ) -> AiModelRateCard | None:
+        normalized_now = now.astimezone(timezone.utc).replace(tzinfo=None) if now.tzinfo is not None else now
         return (
             (
                 await db.execute(
@@ -467,8 +584,8 @@ class AiDeveloperApiDao:
                     .where(
                         AiModelRateCard.platform_model_id == platform_model_id,
                         AiModelRateCard.status == 'active',
-                        AiModelRateCard.effective_from <= now,
-                        or_(AiModelRateCard.effective_to.is_(None), AiModelRateCard.effective_to > now),
+                        AiModelRateCard.effective_from <= normalized_now,
+                        or_(AiModelRateCard.effective_to.is_(None), AiModelRateCard.effective_to > normalized_now),
                     )
                     .order_by(AiModelRateCard.version.desc(), AiModelRateCard.effective_from.desc())
                 )
@@ -489,6 +606,112 @@ class AiDeveloperApiDao:
             (await db.execute(select(AiApiUsageLedger).where(AiApiUsageLedger.request_id == request_id)))
             .scalars()
             .first()
+        )
+
+    LEDGER_FINALIZE_FIELDS = frozenset(
+        {
+            'status',
+            'input_tokens',
+            'output_tokens',
+            'cache_tokens',
+            'reasoning_tokens',
+            'search_units',
+            'raw_cost',
+            'billable_cost',
+            'cost_estimated',
+            'error_code',
+            'upstream_request_id',
+            'finished_at',
+            'updated_at',
+        }
+    )
+
+    @classmethod
+    async def finalize_usage_ledger(cls, db: AsyncSession, request_id: str, values: dict[str, Any]) -> int:
+        unsupported = set(values).difference(cls.LEDGER_FINALIZE_FIELDS)
+        if unsupported:
+            raise ValueError(f'不允许更新 Usage Ledger 字段: {", ".join(sorted(unsupported))}')
+        if not values:
+            return 0
+        result = await db.execute(
+            update(AiApiUsageLedger).where(AiApiUsageLedger.request_id == request_id).values(**values)
+        )
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def list_started_ledgers_before(
+        cls,
+        db: AsyncSession,
+        before: datetime,
+        limit: int = 200,
+    ) -> list[AiApiUsageLedger]:
+        return list(
+            (
+                await db.execute(
+                    select(AiApiUsageLedger)
+                    .where(
+                        AiApiUsageLedger.status == 'started',
+                        AiApiUsageLedger.started_at < before,
+                    )
+                    .order_by(AiApiUsageLedger.started_at)
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    @classmethod
+    async def list_rate_cards_by_model(cls, db: AsyncSession, model_id: str) -> list[AiModelRateCard]:
+        return list(
+            (
+                await db.execute(
+                    select(AiModelRateCard)
+                    .where(AiModelRateCard.platform_model_id == model_id)
+                    .order_by(AiModelRateCard.version.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    @classmethod
+    async def get_rate_card_by_id(cls, db: AsyncSession, rate_card_id: str) -> AiModelRateCard | None:
+        return (
+            (await db.execute(select(AiModelRateCard).where(AiModelRateCard.rate_card_id == rate_card_id)))
+            .scalars()
+            .first()
+        )
+
+    @classmethod
+    async def disable_rate_card(cls, db: AsyncSession, rate_card_id: str) -> int:
+        result = await db.execute(
+            update(AiModelRateCard).where(AiModelRateCard.rate_card_id == rate_card_id).values(status='disabled')
+        )
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def list_usage_ledgers(
+        cls,
+        db: AsyncSession,
+        application_id: str,
+        query_object: object,
+    ) -> PageModel:
+        """按 Application 分页查询 Usage Ledger（展示用途，不含敏感快照）。"""
+        if not isinstance(query_object, UsageLedgerPageQueryModel):
+            raise TypeError('用量查询参数必须使用 UsageLedgerPageQueryModel')
+        query = select(AiApiUsageLedger).where(AiApiUsageLedger.application_id == application_id)
+        if query_object.operation_type is not None:
+            query = query.where(AiApiUsageLedger.operation_type == query_object.operation_type)
+        if query_object.status is not None:
+            query = query.where(AiApiUsageLedger.status == query_object.status)
+        query = query.order_by(AiApiUsageLedger.started_at.desc(), AiApiUsageLedger.request_id)
+        return await PageUtil.paginate(
+            db,
+            query,
+            query_object.page_num,
+            query_object.page_size,
+            True,
         )
 
     @staticmethod

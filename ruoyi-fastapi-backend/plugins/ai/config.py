@@ -25,6 +25,27 @@ class LiteLLMSettings(BaseSettings):
         le=10_485_760,
         validation_alias='AI_API_MAX_REQUEST_BYTES',
     )
+    embedding_max_inputs: int = Field(256, ge=1, le=1024, validation_alias='AI_EMBEDDING_MAX_INPUTS')
+    embedding_max_input_bytes: int = Field(
+        32768,
+        ge=1,
+        le=1_048_576,
+        validation_alias='AI_EMBEDDING_MAX_INPUT_BYTES',
+    )
+    rerank_max_documents: int = Field(256, ge=1, le=1024, validation_alias='AI_RERANK_MAX_DOCUMENTS')
+    rerank_max_query_bytes: int = Field(8192, ge=1, le=1_048_576, validation_alias='AI_RERANK_MAX_QUERY_BYTES')
+    rerank_max_document_bytes: int = Field(
+        32768,
+        ge=1,
+        le=1_048_576,
+        validation_alias='AI_RERANK_MAX_DOCUMENT_BYTES',
+    )
+    runtime_max_json_response_bytes: int = Field(
+        33_554_432,
+        ge=1024,
+        le=268_435_456,
+        validation_alias='AI_RUNTIME_MAX_JSON_RESPONSE_BYTES',
+    )
 
     model_config = SettingsConfigDict(case_sensitive=False, extra='ignore')
 

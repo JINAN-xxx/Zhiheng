@@ -7,10 +7,24 @@ from pydantic.alias_generators import to_camel
 
 from plugins.ai.domain.resource_id import validate_resource_id
 
-ModelType = Literal['chat', 'embedding']
+ModelType = Literal['chat', 'embedding', 'rerank']
 LifecycleStatus = Literal['draft', 'active', 'disabled']
 BindingStatus = Literal['active', 'disabled']
 FORBIDDEN_RESOURCE_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
+
+# 类型化 Capability 白名单：未知 Capability 拒绝写入，不透传 LiteLLM 任意元数据。
+_CAPABILITIES_BY_TYPE: dict[str, frozenset[str]] = {
+    'chat': frozenset({'streaming', 'vision', 'reasoning', 'tools'}),
+    'embedding': frozenset({'dimensions_override'}),
+    'rerank': frozenset({'return_documents'}),
+}
+# 类型化默认参数白名单：按 model_type 使用互斥白名单验证。
+_DEFAULT_PARAMETERS_BY_TYPE: dict[str, frozenset[str]] = {
+    'chat': frozenset({'temperature', 'top_p', 'max_tokens', 'presence_penalty', 'frequency_penalty'}),
+    'embedding': frozenset({'dimensions'}),
+    'rerank': frozenset({'top_n', 'return_documents'}),
+}
+_INVALID_TYPE_MESSAGE = '模型类型与能力或默认参数不匹配'
 
 ModelCode = Annotated[
     str,
@@ -87,6 +101,8 @@ class ModelCapabilitiesModel(_StrictRequestModel):
     reasoning: bool = Field(default=False, strict=True)
     tools: bool = Field(default=False, strict=True)
     streaming: bool = Field(default=False, strict=True)
+    dimensions_override: bool = Field(default=False, strict=True)
+    return_documents: bool = Field(default=False, strict=True)
 
 
 class ModelDefaultParametersModel(_StrictRequestModel):
@@ -95,6 +111,9 @@ class ModelDefaultParametersModel(_StrictRequestModel):
     max_tokens: PositiveInteger | None = None
     presence_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
     frequency_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
+    dimensions: PositiveInteger | None = None
+    top_n: PositiveInteger | None = None
+    return_documents: bool | None = Field(default=None, strict=True)
 
 
 class EngineMetadataModel(_StrictRequestModel):
@@ -106,6 +125,8 @@ class _ModelCapabilitiesResponseModel(_ResponseModel):
     reasoning: bool = Field(default=False, strict=True)
     tools: bool = Field(default=False, strict=True)
     streaming: bool = Field(default=False, strict=True)
+    dimensions_override: bool = Field(default=False, strict=True)
+    return_documents: bool = Field(default=False, strict=True)
 
 
 class _ModelDefaultParametersResponseModel(_ResponseModel):
@@ -114,10 +135,30 @@ class _ModelDefaultParametersResponseModel(_ResponseModel):
     max_tokens: PositiveInteger | None = None
     presence_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
     frequency_penalty: float | None = Field(default=None, strict=True, ge=-2, le=2)
+    dimensions: PositiveInteger | None = None
+    top_n: PositiveInteger | None = None
+    return_documents: bool | None = Field(default=None, strict=True)
 
 
 class _EngineMetadataResponseModel(_ResponseModel):
     """响应侧非敏感引擎元数据。"""
+
+
+def _validate_typed_fields(
+    model_type: str,
+    capabilities: ModelCapabilitiesModel,
+    default_parameters: ModelDefaultParametersModel,
+) -> None:
+    """按 model_type 校验 Capability 与默认参数的白名单互斥约束。"""
+    capability_keys = set(capabilities.model_fields_set)
+    if capability_keys.difference(_CAPABILITIES_BY_TYPE[model_type]):
+        raise ValueError(_INVALID_TYPE_MESSAGE)
+    # 显式 null 等价于未设置，不参与类型白名单校验。
+    parameter_keys = {
+        key for key in default_parameters.model_fields_set if getattr(default_parameters, key) is not None
+    }
+    if parameter_keys.difference(_DEFAULT_PARAMETERS_BY_TYPE[model_type]):
+        raise ValueError(_INVALID_TYPE_MESSAGE)
 
 
 class ModelCatalogCreateModel(_StrictRequestModel):
@@ -128,6 +169,11 @@ class ModelCatalogCreateModel(_StrictRequestModel):
     context_window: PositiveInteger | None = None
     max_output_tokens: PositiveInteger | None = None
     default_parameters: ModelDefaultParametersModel = Field(default_factory=ModelDefaultParametersModel)
+
+    @model_validator(mode='after')
+    def validate_typed_fields(self) -> 'ModelCatalogCreateModel':
+        _validate_typed_fields(self.model_type, self.capabilities, self.default_parameters)
+        return self
 
 
 class ModelCatalogUpdateModel(_StrictRequestModel):
@@ -149,6 +195,23 @@ class ModelCatalogUpdateModel(_StrictRequestModel):
         if null_fields:
             raise ValueError(f'{", ".join(null_fields)} 不允许为 null')
         return value
+
+    @model_validator(mode='after')
+    def validate_typed_fields(self) -> 'ModelCatalogUpdateModel':
+        model_type = self.model_type
+        capabilities = self.capabilities
+        default_parameters = self.default_parameters
+        if model_type is None and capabilities is None and default_parameters is None:
+            return self
+        # 类型未变化时使用数据库既有类型校验；服务层会再校验类型不可变性。
+        if model_type is None:
+            return self
+        _validate_typed_fields(
+            model_type,
+            capabilities if capabilities is not None else ModelCapabilitiesModel(),
+            default_parameters if default_parameters is not None else ModelDefaultParametersModel(),
+        )
+        return self
 
 
 class ModelCatalogPageQueryModel(_StrictRequestModel):

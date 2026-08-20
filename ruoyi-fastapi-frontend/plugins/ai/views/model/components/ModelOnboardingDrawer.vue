@@ -126,15 +126,34 @@
                 <template #title><span>高级设置</span></template>
                 <div class="catalog-grid">
                   <el-form-item label="模型类型" prop="modelType">
-                    <el-segmented v-model="catalogForm.modelType" :options="modelTypes" :disabled="Boolean(resources.model)" />
+                    <el-segmented v-model="catalogForm.modelType" :options="modelTypes" :disabled="Boolean(resources.model)" @change="applyTypedDefaults" />
                   </el-form-item>
                   <el-form-item label="Capability">
                     <el-checkbox-group v-model="catalogForm.capabilities" :disabled="Boolean(resources.model)">
-                      <el-checkbox-button value="streaming">流式</el-checkbox-button>
-                      <el-checkbox-button value="reasoning">推理</el-checkbox-button>
-                      <el-checkbox-button value="vision">视觉</el-checkbox-button>
-                      <el-checkbox-button value="tools">工具</el-checkbox-button>
+                      <template v-if="catalogForm.modelType === 'chat'">
+                        <el-checkbox-button value="streaming">流式</el-checkbox-button>
+                        <el-checkbox-button value="reasoning">推理</el-checkbox-button>
+                        <el-checkbox-button value="vision">视觉</el-checkbox-button>
+                        <el-checkbox-button value="tools">工具</el-checkbox-button>
+                      </template>
+                      <template v-else-if="catalogForm.modelType === 'embedding'">
+                        <el-checkbox-button value="dimensionsOverride">维度覆盖</el-checkbox-button>
+                      </template>
+                      <template v-else-if="catalogForm.modelType === 'rerank'">
+                        <el-checkbox-button value="returnDocuments">返回文档</el-checkbox-button>
+                      </template>
                     </el-checkbox-group>
+                  </el-form-item>
+                </div>
+                <div v-if="catalogForm.modelType !== 'chat'" class="catalog-grid">
+                  <el-form-item v-if="catalogForm.modelType === 'embedding'" label="默认向量维度">
+                    <el-input-number v-model="catalogForm.defaultParameters.dimensions" :min="1" :max="65536" :disabled="Boolean(resources.model)" placeholder="可选" />
+                  </el-form-item>
+                  <el-form-item v-if="catalogForm.modelType === 'rerank'" label="默认 Top N">
+                    <el-input-number v-model="catalogForm.defaultParameters.topN" :min="1" :max="256" :disabled="Boolean(resources.model)" placeholder="可选" />
+                  </el-form-item>
+                  <el-form-item v-if="catalogForm.modelType === 'rerank'" label="默认返回文档">
+                    <el-switch v-model="catalogForm.defaultParameters.returnDocuments" :disabled="Boolean(resources.model)" />
                   </el-form-item>
                 </div>
               </el-collapse-item>
@@ -209,10 +228,17 @@ const catalogMode = ref('new')
 const catalogFormRef = ref()
 const resources = reactive({ credential: null, deployment: null, model: null, binding: null })
 const requestGate = createRequestGate()
-const catalogForm = reactive({ existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'] })
+const catalogForm = reactive({
+  existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'],
+  defaultParameters: { temperature: null, topP: null, maxTokens: null, dimensions: null, topN: null, returnDocuments: false },
+})
 
 const credentialModes = [{ label: '使用现有', value: 'existing' }, { label: '新建凭据', value: 'new' }]
-const modelTypes = [{ label: 'Chat', value: 'chat' }, { label: 'Embedding', value: 'embedding' }]
+const modelTypes = [
+  { label: 'Chat', value: 'chat' },
+  { label: 'Embedding', value: 'embedding' },
+  { label: 'Rerank', value: 'rerank' },
+]
 const catalogRules = {
   existingModelId: [{ required: true, message: '请选择平台模型草稿', trigger: 'change' }],
   modelCode: [
@@ -250,7 +276,17 @@ function resetWorkflow() {
   resourceSuffix.value = createResourceSuffix()
   connectionTested.value = false
   resources.credential = null; resources.deployment = null; resources.model = null; resources.binding = null
-  Object.assign(catalogForm, { existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'] })
+  Object.assign(catalogForm, {
+    existingModelId: '', modelCode: '', displayName: '', modelType: 'chat', capabilities: ['streaming'],
+    defaultParameters: { temperature: null, topP: null, maxTokens: null, dimensions: null, topN: null, returnDocuments: false },
+  })
+}
+
+function applyTypedDefaults() {
+  if (resources.model) return
+  const type = catalogForm.modelType
+  catalogForm.capabilities = type === 'chat' ? ['streaming'] : type === 'embedding' ? [] : []
+  catalogForm.defaultParameters = { temperature: null, topP: null, maxTokens: null, dimensions: null, topN: null, returnDocuments: false }
 }
 
 async function loadOptions() {
@@ -407,7 +443,24 @@ async function createDeployment(payload) {
 
 function capabilityPayload() {
   const selected = new Set(catalogForm.capabilities)
+  const type = catalogForm.modelType
+  if (type === 'embedding') return { dimensionsOverride: selected.has('dimensionsOverride') }
+  if (type === 'rerank') return { returnDocuments: selected.has('returnDocuments') }
   return { vision: selected.has('vision'), reasoning: selected.has('reasoning'), tools: selected.has('tools'), streaming: selected.has('streaming') }
+}
+
+function defaultParametersPayload() {
+  const type = catalogForm.modelType
+  if (type === 'embedding') {
+    return { dimensions: catalogForm.defaultParameters.dimensions || null }
+  }
+  if (type === 'rerank') {
+    return {
+      topN: catalogForm.defaultParameters.topN || null,
+      returnDocuments: catalogForm.defaultParameters.returnDocuments || null,
+    }
+  }
+  return {}
 }
 
 async function ensureCatalogModel(requestGeneration) {
@@ -424,7 +477,7 @@ async function ensureCatalogModel(requestGeneration) {
     displayName: catalogForm.displayName,
     modelType: catalogForm.modelType,
     capabilities: capabilityPayload(),
-    defaultParameters: {},
+    defaultParameters: defaultParametersPayload(),
   })
   if (!requestGate.isCurrent(requestGeneration)) return null
   resources.model = response?.data

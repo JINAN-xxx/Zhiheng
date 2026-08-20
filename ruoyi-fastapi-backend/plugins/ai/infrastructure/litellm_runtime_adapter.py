@@ -2,17 +2,26 @@ import sys
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from decimal import Decimal, InvalidOperation
+from math import isfinite
 from typing import Protocol, TypeVar
+from uuid import uuid4
 
 from plugins.ai.domain.model_runtime import (
     ModelChatRequest,
     ModelChatResponse,
+    ModelEmbeddingRequest,
+    ModelEmbeddingResponse,
+    ModelEmbeddingVector,
     ModelMessage,
+    ModelRerankDocument,
+    ModelRerankRequest,
+    ModelRerankResponse,
+    ModelRerankResult,
     ModelStreamEvent,
     ModelUsage,
 )
 from plugins.ai.domain.model_service_errors import ModelServiceError, call_with_model_service_error
-from plugins.ai.infrastructure.litellm_client import RuntimeChatResult
+from plugins.ai.infrastructure.litellm_client import RuntimeChatResult, RuntimeRerankResult
 from plugins.ai.infrastructure.litellm_errors import (
     LiteLLMAuthenticationError,
     LiteLLMError,
@@ -52,6 +61,20 @@ class RuntimeClient(Protocol):
 
     async def create_chat_completion(self, payload: Mapping[str, object]) -> RuntimeChatResult: ...
 
+    async def create_embedding(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> Mapping[str, object]: ...
+
+    async def create_rerank(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> RuntimeRerankResult: ...
+
     def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]: ...
 
     async def aclose(self) -> None: ...
@@ -66,8 +89,14 @@ def _thaw(value: object) -> object:
 
 
 class LiteLLMRuntimeAdapter:
-    def __init__(self, client: RuntimeClient) -> None:
+    def __init__(
+        self,
+        client: RuntimeClient,
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> None:
         self._client = client
+        self._max_json_response_bytes = max_json_response_bytes
 
     async def chat(self, request: ModelChatRequest) -> ModelChatResponse:
         payload = self._build_chat_payload(request, stream=False)
@@ -81,6 +110,46 @@ class LiteLLMRuntimeAdapter:
         model_ids = self._normalize_model_ids(response)
         del response
         return await _unwrap_model_ids(model_ids)
+
+    async def embed(
+        self,
+        request: ModelEmbeddingRequest,
+    ) -> ModelEmbeddingResponse:
+        payload = self._build_embedding_payload(request)
+        response = await _call_runtime(
+            lambda payload=payload: self._client.create_embedding(
+                payload,
+                max_json_response_bytes=self._max_json_response_bytes,
+            )
+        )
+        del payload
+        normalized = self._normalize_embedding_response(
+            response,
+            expected_count=len(request.inputs),
+            requested_dimensions=request.dimensions,
+        )
+        del response
+        return await _unwrap_embedding_response(normalized)
+
+    async def rerank(
+        self,
+        request: ModelRerankRequest,
+    ) -> ModelRerankResponse:
+        payload = self._build_rerank_payload(request)
+        result = await _call_runtime(
+            lambda payload=payload: self._client.create_rerank(
+                payload,
+                max_json_response_bytes=self._max_json_response_bytes,
+            )
+        )
+        del payload
+        normalized = self._normalize_rerank_response(
+            result,
+            documents=request.documents,
+            top_n=request.top_n,
+        )
+        del result
+        return await _unwrap_rerank_response(normalized)
 
     @staticmethod
     def _normalize_model_ids(response: Mapping[str, object]) -> set[str] | None:
@@ -154,6 +223,181 @@ class LiteLLMRuntimeAdapter:
     @staticmethod
     def _message_payload(message: ModelMessage) -> dict[str, object]:
         return {'role': message.role, 'content': _thaw(message.content)}
+
+    @staticmethod
+    def _build_embedding_payload(request: ModelEmbeddingRequest) -> dict[str, object]:
+        payload: dict[str, object] = {
+            'model': request.engine_model,
+            'input': list(request.inputs),
+        }
+        if request.dimensions is not None:
+            payload['dimensions'] = request.dimensions
+        if request.user is not None:
+            payload['user'] = request.user
+        return payload
+
+    @staticmethod
+    def _build_rerank_payload(request: ModelRerankRequest) -> dict[str, object]:
+        payload: dict[str, object] = {
+            'model': request.engine_model,
+            'query': request.query,
+            'documents': [{'text': document.text} for document in request.documents],
+            'return_documents': request.return_documents,
+        }
+        if request.top_n is not None:
+            payload['top_n'] = request.top_n
+        return payload
+
+    @staticmethod
+    def _normalize_embedding_response(
+        response: Mapping[str, object],
+        *,
+        expected_count: int,
+        requested_dimensions: int | None,
+    ) -> ModelEmbeddingResponse | None:
+        data = response.get('data')
+        if not isinstance(data, list) or len(data) != expected_count:
+            return None
+        vectors: list[ModelEmbeddingVector] = []
+        seen_indexes: set[int] = set()
+        dimension: int | None = None
+        for item in data:
+            vector = LiteLLMRuntimeAdapter._normalize_embedding_vector(item, seen_indexes)
+            if vector is None:
+                return None
+            if dimension is None:
+                dimension = len(vector.values)
+            elif len(vector.values) != dimension:
+                return None
+            vectors.append(vector)
+        if sorted(seen_indexes) != list(range(expected_count)):
+            return None
+        if requested_dimensions is not None and dimension != requested_dimensions:
+            return None
+
+        usage = response.get('usage')
+        input_tokens: int | None = None
+        if usage is not None:
+            if not isinstance(usage, Mapping):
+                return None
+            token_value = usage.get('prompt_tokens', usage.get('total_tokens', 0))
+            if type(token_value) is not int or token_value < 0:
+                return None
+            input_tokens = token_value
+        valid_cost, raw_cost = LiteLLMRuntimeAdapter._optional_cost(response.get('cost', response.get('response_cost')))
+        if not valid_cost:
+            return None
+        return ModelEmbeddingResponse(vectors=tuple(vectors), input_tokens=input_tokens, raw_cost=raw_cost)
+
+    @staticmethod
+    def _normalize_embedding_vector(
+        item: object,
+        seen_indexes: set[int],
+    ) -> ModelEmbeddingVector | None:
+        if not isinstance(item, Mapping):
+            return None
+        index = item.get('index')
+        if type(index) is not int or index < 0 or index in seen_indexes:
+            return None
+        values = item.get('embedding')
+        if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+            return None
+        normalized_values: list[float] = []
+        for value in values:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            float_value = float(value)
+            if not isfinite(float_value):
+                return None
+            normalized_values.append(float_value)
+        if not normalized_values:
+            return None
+        seen_indexes.add(index)
+        return ModelEmbeddingVector(index=index, values=tuple(normalized_values))
+
+    @staticmethod
+    def _normalize_rerank_response(
+        result: RuntimeRerankResult,
+        *,
+        documents: Sequence[ModelRerankDocument],
+        top_n: int | None,
+    ) -> ModelRerankResponse | None:
+        response = result.payload
+        raw_results = response.get('results')
+        if not isinstance(raw_results, list) or not raw_results:
+            return None
+        document_count = len(documents)
+        parsed: list[tuple[int, float]] = []
+        seen_indexes: set[int] = set()
+        for item in raw_results:
+            parsed_item = LiteLLMRuntimeAdapter._normalize_rerank_result(item, document_count, seen_indexes)
+            if parsed_item is None:
+                return None
+            parsed.append(parsed_item)
+        # 稳定排序：分数降序、相同分数按原索引升序。
+        parsed.sort(key=lambda entry: (-entry[1], entry[0]))
+        if top_n is not None:
+            parsed = parsed[:top_n]
+        results = tuple(ModelRerankResult(index=index, relevance_score=score) for index, score in parsed)
+
+        valid_usage, input_tokens, search_units = LiteLLMRuntimeAdapter._normalize_rerank_usage(response.get('meta'))
+        if not valid_usage:
+            return None
+
+        request_id_value = result.request_id or response.get('id')
+        if not isinstance(request_id_value, str) or not request_id_value:
+            request_id_value = f'rrk_{uuid4().hex}'
+
+        valid_cost, raw_cost = LiteLLMRuntimeAdapter._optional_cost(result.response_cost)
+        if not valid_cost:
+            return None
+        return ModelRerankResponse(
+            request_id=request_id_value,
+            results=results,
+            input_tokens=input_tokens,
+            search_units=search_units,
+            raw_cost=raw_cost,
+        )
+
+    @staticmethod
+    def _normalize_rerank_result(
+        item: object,
+        document_count: int,
+        seen_indexes: set[int],
+    ) -> tuple[int, float] | None:
+        if not isinstance(item, Mapping):
+            return None
+        index = item.get('index')
+        if type(index) is not int or not 0 <= index < document_count or index in seen_indexes:
+            return None
+        score = item.get('relevance_score')
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            return None
+        normalized_score = float(score)
+        if not isfinite(normalized_score):
+            return None
+        seen_indexes.add(index)
+        return index, normalized_score
+
+    @staticmethod
+    def _normalize_rerank_usage(meta: object) -> tuple[bool, int | None, int | None]:
+        if meta is None:
+            return True, None, None
+        if not isinstance(meta, Mapping):
+            return False, None, None
+        tokens = meta.get('tokens')
+        billed_units = meta.get('billed_units')
+        if tokens is not None and not isinstance(tokens, Mapping):
+            return False, None, None
+        if billed_units is not None and not isinstance(billed_units, Mapping):
+            return False, None, None
+        input_tokens = tokens.get('input_tokens') if isinstance(tokens, Mapping) else None
+        search_units = billed_units.get('search_units') if isinstance(billed_units, Mapping) else None
+        if input_tokens is not None and (type(input_tokens) is not int or input_tokens < 0):
+            return False, None, None
+        if search_units is not None and (type(search_units) is not int or search_units < 1):
+            return False, None, None
+        return True, input_tokens, search_units
 
     @staticmethod
     def _normalize_chat_response(result: RuntimeChatResult) -> ModelChatResponse | None:
@@ -312,6 +556,18 @@ async def _raise_runtime_failure() -> ResultT:
 
 
 async def _unwrap_chat_response(response: ModelChatResponse | None) -> ModelChatResponse:
+    if response is None:
+        raise ModelServiceError.runtime_error()
+    return response
+
+
+async def _unwrap_embedding_response(response: ModelEmbeddingResponse | None) -> ModelEmbeddingResponse:
+    if response is None:
+        raise ModelServiceError.runtime_error()
+    return response
+
+
+async def _unwrap_rerank_response(response: ModelRerankResponse | None) -> ModelRerankResponse:
     if response is None:
         raise ModelServiceError.runtime_error()
     return response

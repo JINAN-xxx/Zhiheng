@@ -25,16 +25,18 @@ def _normalize_sql(sql: str) -> str:
 def test_model_service_migrations_are_registered_after_initial_schema() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.5.0'
+    assert plugin.manifest.version == '0.6.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
         'migrations/mysql/003_platform_chat.sql',
         'migrations/mysql/004_developer_api_foundation.sql',
+        'migrations/mysql/005_embedding_rerank_gateway.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
         'migrations/postgresql/004_developer_api_foundation.sql',
+        'migrations/postgresql/005_embedding_rerank_gateway.sql',
     ]
 
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Index, Integer, JSON, String
+from sqlalchemy import JSON, CheckConstraint, Column, DateTime, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 
 from config.database import Base
@@ -11,6 +11,10 @@ class AiModelCatalog(Base):
 
     __tablename__ = 'ai_model_catalog'
     __table_args__ = (
+        CheckConstraint(
+            "model_type in ('chat', 'embedding', 'rerank')",
+            name='ck_ai_model_catalog_model_type',
+        ),
         CheckConstraint(
             "lifecycle_status in ('draft', 'active', 'disabled')",
             name='ck_ai_model_catalog_lifecycle_status',
@@ -31,7 +35,9 @@ class AiModelCatalog(Base):
     model_code = Column(String(100), nullable=False, unique=True, comment='平台模型编码')
     display_name = Column(String(100), nullable=False, comment='模型展示名称')
     model_type = Column(String(32), nullable=False, comment='模型类型')
-    capabilities = Column(JSON().with_variant(JSONB(), 'postgresql'), nullable=False, default=dict, comment='模型能力JSON')
+    capabilities = Column(
+        JSON().with_variant(JSONB(), 'postgresql'), nullable=False, default=dict, comment='模型能力JSON'
+    )
     context_window = Column(Integer, nullable=True, comment='上下文窗口大小')
     max_output_tokens = Column(Integer, nullable=True, comment='最大输出Token数')
     default_parameters = Column(

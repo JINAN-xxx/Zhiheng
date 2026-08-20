@@ -44,6 +44,13 @@ class RuntimeChatResult:
     request_id: str | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeRerankResult:
+    payload: Mapping[str, object]
+    response_cost: str | None = None
+    request_id: str | None = None
+
+
 LiteLLMFailure: TypeAlias = type[LiteLLMError]
 
 
@@ -103,11 +110,43 @@ class LiteLLMRuntimeClient:
             request_id=outcome.request_id,
         )
 
-    async def create_embedding(self, payload: Mapping[str, object]) -> Mapping[str, object]:
+    async def create_embedding(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> Mapping[str, object]:
         """调用 OpenAI 兼容 Embeddings 接口。"""
-        operation = self._request_json('POST', '/v1/embeddings', payload=payload)
+        operation = self._request_json(
+            'POST',
+            '/v1/embeddings',
+            payload=payload,
+            max_json_response_bytes=max_json_response_bytes,
+        )
         del payload
         return await operation
+
+    async def create_rerank(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> RuntimeRerankResult:
+        """调用 LiteLLM 兼容 Rerank 接口并保留成本与请求 ID。"""
+        operation = self._perform_json_request(
+            'POST',
+            '/v1/rerank',
+            payload=payload,
+            max_json_response_bytes=max_json_response_bytes,
+        )
+        del payload
+        outcome = await operation
+        result = await _unwrap_request_outcome(outcome)
+        return RuntimeRerankResult(
+            payload=result,
+            response_cost=outcome.response_cost,
+            request_id=outcome.request_id,
+        )
 
     async def stream_chat_completion(self, payload: Mapping[str, object]) -> AsyncIterator[bytes]:
         """调用 Chat Completions 并原样转发上游 SSE 字节。"""
@@ -153,6 +192,7 @@ class LiteLLMRuntimeClient:
         payload: Mapping[str, object] | None = None,
         authenticated: bool = True,
         allow_string: bool = False,
+        max_json_response_bytes: int | None = None,
     ) -> Mapping[str, object]:
         outcome = await self._perform_json_request(
             method,
@@ -160,6 +200,7 @@ class LiteLLMRuntimeClient:
             payload=payload,
             authenticated=authenticated,
             allow_string=allow_string,
+            max_json_response_bytes=max_json_response_bytes,
         )
         del payload
         return await _unwrap_request_outcome(outcome)
@@ -172,6 +213,7 @@ class LiteLLMRuntimeClient:
         payload: Mapping[str, object] | None = None,
         authenticated: bool = True,
         allow_string: bool = False,
+        max_json_response_bytes: int | None = None,
     ) -> _RequestOutcome:
         try:
             async with self._client.stream(
@@ -183,6 +225,8 @@ class LiteLLMRuntimeClient:
                 if not response.is_success:
                     return _RequestOutcome(failure=await self._failure_for_error_response(response))
                 await response.aread()
+                if max_json_response_bytes is not None and len(response.content) > max_json_response_bytes:
+                    return _RequestOutcome(failure=LiteLLMUpstreamError)
                 decoded = self._decode_json_mapping(response.content, allow_string=allow_string)
                 if decoded is None:
                     return _RequestOutcome(failure=LiteLLMUpstreamError)

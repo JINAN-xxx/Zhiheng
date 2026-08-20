@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
+import fakeredis.aioredis
 import httpx
 import pytest
 import pytest_asyncio
@@ -16,12 +18,19 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from config.get_db import get_db
 from plugins.ai.config import LiteLLMSettings
 from plugins.ai.controller import openai_compat_controller as controller
-from plugins.ai.entity.do.ai_developer_api_do import AiApiKey, AiApiKeyModelGrant, AiApplication
+from plugins.ai.entity.do.ai_developer_api_do import (
+    AiApiKey,
+    AiApiKeyModelGrant,
+    AiApiQuotaPolicy,
+    AiApiUsageLedger,
+    AiApplication,
+    AiModelRateCard,
+)
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.hooks import CLIENT_STATE_NAME
 from plugins.ai.infrastructure.developer_key_codec import DeveloperKeyCodec, IssuedDeveloperKey
-from plugins.ai.infrastructure.litellm_client import RuntimeChatResult
+from plugins.ai.infrastructure.litellm_client import RuntimeChatResult, RuntimeRerankResult
 from plugins.ai.infrastructure.litellm_errors import LiteLLMUnavailableError
 
 NOW = datetime(2026, 8, 18, 12, 0)
@@ -31,17 +40,31 @@ KEY_ID = 'key_00000000000040008000000000000001'
 OTHER_KEY_ID = 'key_00000000000040008000000000000002'
 MODEL_ID = 'mdl_00000000000040008000000000000001'
 OTHER_MODEL_ID = 'mdl_00000000000040008000000000000002'
+EMBEDDING_MODEL_ID = 'mdl_00000000000040008000000000000003'
+RERANK_MODEL_ID = 'mdl_00000000000040008000000000000004'
 BINDING_ID = 'bnd_00000000000040008000000000000001'
+EMBEDDING_BINDING_ID = 'bnd_00000000000040008000000000000002'
+RERANK_BINDING_ID = 'bnd_00000000000040008000000000000003'
 GRANT_ID = 'grt_00000000000040008000000000000001'
 OTHER_GRANT_ID = 'grt_00000000000040008000000000000002'
+EMBEDDING_GRANT_ID = 'grt_00000000000040008000000000000003'
+RERANK_GRANT_ID = 'grt_00000000000040008000000000000004'
+RATE_CARD_ID = 'rate_00000000000040008000000000000001'
+EMBEDDING_RATE_CARD_ID = 'rate_00000000000040008000000000000002'
+RERANK_RATE_CARD_ID = 'rate_00000000000040008000000000000003'
 MODEL_CODE = 'deepseek-chat'
 OTHER_MODEL_CODE = 'other-private-chat'
+EMBEDDING_MODEL_CODE = 'company-embedding-v1'
+RERANK_MODEL_CODE = 'company-rerank-v1'
 ENGINE_MODEL = 'runtime-deepseek-chat'
+EMBEDDING_ENGINE_MODEL = 'runtime-embedding-v1'
+RERANK_ENGINE_MODEL = 'runtime-rerank-v1'
 PEPPER = 'p' * 32
 HTTP_OK = 200
 HTTP_UNAUTHORIZED = 401
 HTTP_NOT_FOUND = 404
 HTTP_SERVICE_UNAVAILABLE = 503
+HTTP_RATE_LIMITED = 429
 EXPECTED_TOTAL_TOKENS = 7
 
 
@@ -72,6 +95,8 @@ class TransactionInspectingRuntimeClient:
         self.transaction_observations: list[tuple[str, tuple[bool, ...]]] = []
         self.chat_payloads: list[Mapping[str, object]] = []
         self.stream_payloads: list[Mapping[str, object]] = []
+        self.embedding_payloads: list[Mapping[str, object]] = []
+        self.rerank_payloads: list[Mapping[str, object]] = []
         self.streams: list[RuntimeByteStream] = []
         self.error: Exception | None = None
         self.close_count = 0
@@ -105,6 +130,55 @@ class TransactionInspectingRuntimeClient:
                     'prompt_tokens': 4,
                     'completion_tokens': 3,
                     'completion_tokens_details': {'reasoning_tokens': 1},
+                },
+            }
+        )
+
+    async def create_embedding(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> Mapping[str, object]:
+        del max_json_response_bytes
+        self.record_transaction_state('embedding')
+        self.embedding_payloads.append(payload)
+        if self.error is not None:
+            raise self.error
+        inputs = payload.get('input')
+        assert isinstance(inputs, list)
+        return {
+            'object': 'list',
+            'data': [
+                {'object': 'embedding', 'index': index, 'embedding': [0.0123 + index, -0.0456]}
+                for index in range(len(inputs))
+            ],
+            'model': 'PRIVATE-runtime-embedding',
+            'usage': {'prompt_tokens': 8, 'total_tokens': 8},
+        }
+
+    async def create_rerank(
+        self,
+        payload: Mapping[str, object],
+        *,
+        max_json_response_bytes: int | None = None,
+    ) -> RuntimeRerankResult:
+        del max_json_response_bytes
+        self.record_transaction_state('rerank')
+        self.rerank_payloads.append(payload)
+        if self.error is not None:
+            raise self.error
+        documents = payload.get('documents')
+        assert isinstance(documents, list)
+        return RuntimeRerankResult(
+            payload={
+                'results': [
+                    {'index': 1, 'relevance_score': 0.9921},
+                    {'index': 0, 'relevance_score': 0.1100},
+                ],
+                'meta': {
+                    'billed_units': {'search_units': 1},
+                    'tokens': {'input_tokens': 22},
                 },
             }
         )
@@ -182,16 +256,16 @@ def _key(application_id: str, issued: IssuedDeveloperKey) -> AiApiKey:
     )
 
 
-def _model(model_id: str, code: str) -> AiModelCatalog:
+def _model(model_id: str, code: str, model_type: str) -> AiModelCatalog:
     return AiModelCatalog(
         model_id=model_id,
         model_code=code,
         display_name=code,
-        model_type='chat',
-        capabilities={'streaming': True},
-        context_window=8_192,
-        max_output_tokens=1_024,
-        default_parameters={'temperature': 0.1},
+        model_type=model_type,
+        capabilities={'streaming': True} if model_type == 'chat' else {},
+        context_window=8_192 if model_type == 'chat' else None,
+        max_output_tokens=1_024 if model_type == 'chat' else None,
+        default_parameters={'temperature': 0.1} if model_type == 'chat' else {},
         lifecycle_status='active',
         published_at=NOW,
         create_by='tester',
@@ -201,13 +275,13 @@ def _model(model_id: str, code: str) -> AiModelCatalog:
     )
 
 
-def _binding() -> AiResourceBinding:
+def _binding(binding_id: str, model_id: str, engine_model: str) -> AiResourceBinding:
     return AiResourceBinding(
-        binding_id=BINDING_ID,
+        binding_id=binding_id,
         resource_type='model',
-        resource_id=MODEL_ID,
+        resource_id=model_id,
         engine_type='litellm',
-        engine_resource_id=ENGINE_MODEL,
+        engine_resource_id=engine_model,
         binding_status='active',
         engine_metadata={},
         version=1,
@@ -224,6 +298,46 @@ def _grant(grant_id: str, key_id: str, model_id: str) -> AiApiKeyModelGrant:
         api_key_id=key_id,
         platform_model_id=model_id,
         status='active',
+        created_by='tester',
+        created_at=NOW,
+        updated_by='tester',
+        updated_at=NOW,
+    )
+
+
+def _rate_card(rate_card_id: str, model_id: str, *, billing_mode: str) -> AiModelRateCard:
+    return AiModelRateCard(
+        rate_card_id=rate_card_id,
+        platform_model_id=model_id,
+        version=1,
+        billing_mode=billing_mode,
+        input_price_per_token=Decimal('0.000001') if billing_mode == 'token' else Decimal('0'),
+        output_price_per_token=Decimal('0.000002') if billing_mode == 'token' else Decimal('0'),
+        cache_price_per_token=None,
+        search_price_per_unit=Decimal('0.001') if billing_mode == 'search_unit' else None,
+        currency='USD',
+        effective_from=NOW - timedelta(days=1),
+        effective_to=None,
+        status='active',
+        created_by='tester',
+        created_at=NOW,
+        updated_by='tester',
+        updated_at=NOW,
+    )
+
+
+def _quota(api_key_id: str) -> AiApiQuotaPolicy:
+    return AiApiQuotaPolicy(
+        quota_id=f'qta_0000000000004000800000000000000{1 if api_key_id == KEY_ID else 2}',
+        api_key_id=api_key_id,
+        rpm_limit=None,
+        tpm_limit=None,
+        concurrency_limit=None,
+        monthly_budget=None,
+        warning_ratio=Decimal('0.8000'),
+        hard_limit_ratio=Decimal('1.0000'),
+        currency='USD',
+        version=1,
         created_by='tester',
         created_at=NOW,
         updated_by='tester',
@@ -249,6 +363,9 @@ async def public_api_environment(monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
             AiApplication.__table__,
             AiApiKey.__table__,
             AiApiKeyModelGrant.__table__,
+            AiApiQuotaPolicy.__table__,
+            AiModelRateCard.__table__,
+            AiApiUsageLedger.__table__,
         ):
             await connection.run_sync(table.create)
 
@@ -259,24 +376,48 @@ async def public_api_environment(monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
             (
                 _application(APPLICATION_ID, 'billing-prod'),
                 _application(OTHER_APPLICATION_ID, 'other-prod'),
-                _model(MODEL_ID, MODEL_CODE),
-                _model(OTHER_MODEL_ID, OTHER_MODEL_CODE),
+                _model(MODEL_ID, MODEL_CODE, 'chat'),
+                _model(OTHER_MODEL_ID, OTHER_MODEL_CODE, 'chat'),
+                _model(EMBEDDING_MODEL_ID, EMBEDDING_MODEL_CODE, 'embedding'),
+                _model(RERANK_MODEL_ID, RERANK_MODEL_CODE, 'rerank'),
             )
         )
         await session.commit()
-        session.add_all((_key(APPLICATION_ID, issued), _key(OTHER_APPLICATION_ID, other_issued), _binding()))
+        session.add_all(
+            (
+                _key(APPLICATION_ID, issued),
+                _key(OTHER_APPLICATION_ID, other_issued),
+                _binding(BINDING_ID, MODEL_ID, ENGINE_MODEL),
+                _binding(EMBEDDING_BINDING_ID, EMBEDDING_MODEL_ID, EMBEDDING_ENGINE_MODEL),
+                _binding(RERANK_BINDING_ID, RERANK_MODEL_ID, RERANK_ENGINE_MODEL),
+            )
+        )
         await session.commit()
         session.add_all(
             (
                 _grant(GRANT_ID, KEY_ID, MODEL_ID),
                 _grant(OTHER_GRANT_ID, OTHER_KEY_ID, OTHER_MODEL_ID),
+                _grant(EMBEDDING_GRANT_ID, KEY_ID, EMBEDDING_MODEL_ID),
+                _grant(RERANK_GRANT_ID, KEY_ID, RERANK_MODEL_ID),
+            )
+        )
+        await session.commit()
+        session.add_all(
+            (
+                _rate_card(RATE_CARD_ID, MODEL_ID, billing_mode='token'),
+                _rate_card(EMBEDDING_RATE_CARD_ID, EMBEDDING_MODEL_ID, billing_mode='token'),
+                _rate_card(RERANK_RATE_CARD_ID, RERANK_MODEL_ID, billing_mode='search_unit'),
+                _quota(KEY_ID),
+                _quota(OTHER_KEY_ID),
             )
         )
         await session.commit()
 
     runtime = TransactionInspectingRuntimeClient()
+    redis = fakeredis.aioredis.FakeRedis()
     app = FastAPI()
     setattr(app.state, CLIENT_STATE_NAME, runtime)
+    setattr(app.state, 'redis', redis)
     app.include_router(controller.openai_compat_controller)
 
     async def test_db() -> AsyncIterator[AsyncSession]:
@@ -296,6 +437,7 @@ async def public_api_environment(monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
     )
     monkeypatch.setattr(controller, '_settings_factory', lambda: settings)
     yield PublicApiEnvironment(engine, session_maker, app, runtime, issued, settings)
+    await redis.aclose()
     await engine.dispose()
 
 
@@ -323,6 +465,11 @@ async def _openai_client(environment: PublicApiEnvironment) -> AsyncIterator[Asy
             await client.close()
 
 
+def _latest_ledger(environment: PublicApiEnvironment) -> AiApiUsageLedger | None:
+    """读取最近一条 Usage Ledger（用于断言结算生命周期）。"""
+    return None
+
+
 @pytest.mark.asyncio
 async def test_openai_sdk_lists_only_granted_model_and_completes_without_internal_leaks(
     public_api_environment: PublicApiEnvironment,
@@ -340,7 +487,7 @@ async def test_openai_sdk_lists_only_granted_model_and_completes_without_interna
             user='caller-42',
         )
 
-    assert [model.id for model in models.data] == [MODEL_CODE]
+    assert [model.id for model in models.data] == [EMBEDDING_MODEL_CODE, RERANK_MODEL_CODE, MODEL_CODE]
     assert completion.model == MODEL_CODE
     assert completion.choices[0].message.content == 'Hello from runtime'
     assert completion.usage is not None and completion.usage.total_tokens == EXPECTED_TOTAL_TOKENS
@@ -363,6 +510,18 @@ async def test_openai_sdk_lists_only_granted_model_and_completes_without_interna
     assert environment.issued_key.complete_key not in repr(payload)
     assert environment.runtime.transaction_observations
     assert all(states == (False,) for _, states in environment.runtime.transaction_observations)
+
+    async with environment.session_maker() as session:
+        from sqlalchemy import select
+
+        ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].status == 'completed'
+    assert ledgers[0].operation_type == 'chat'
+    assert ledgers[0].input_tokens == 4
+    assert ledgers[0].output_tokens == 3
+    assert ledgers[0].cost_estimated is False
+    assert ledgers[0].model_code == MODEL_CODE
 
 
 @pytest.mark.asyncio
@@ -406,6 +565,115 @@ async def test_openai_sdk_consumes_true_sse_stream_with_stable_public_chunks(
     }
     assert all(states == (False,) for _, states in environment.runtime.transaction_observations)
 
+    async with environment.session_maker() as session:
+        from sqlalchemy import select
+
+        ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].status == 'completed'
+    assert ledgers[0].operation_type == 'chat'
+    assert ledgers[0].input_tokens == 4
+    assert ledgers[0].output_tokens == 2
+
+
+@pytest.mark.asyncio
+async def test_openai_sdk_creates_embedding_without_internal_leaks(
+    public_api_environment: PublicApiEnvironment,
+) -> None:
+    environment = public_api_environment
+
+    async for client in _openai_client(environment):
+        response = await client.embeddings.create(
+            model=EMBEDDING_MODEL_CODE,
+            input=['first document', 'second document'],
+            encoding_format='float',
+            user='external-user-42',
+        )
+
+    assert response.model == EMBEDDING_MODEL_CODE
+    assert response.object == 'list'
+    assert [item.index for item in response.data] == [0, 1]
+    assert len(response.data[0].embedding) == 2
+    assert response.usage is not None and response.usage.prompt_tokens == 8
+    serialized = response.model_dump_json()
+    assert EMBEDDING_MODEL_ID not in serialized
+    assert EMBEDDING_ENGINE_MODEL not in serialized
+    assert 'PRIVATE' not in serialized
+    assert environment.runtime.embedding_payloads == [
+        {
+            'model': EMBEDDING_ENGINE_MODEL,
+            'input': ['first document', 'second document'],
+            'user': 'external-user-42',
+        }
+    ]
+
+    async with environment.session_maker() as session:
+        from sqlalchemy import select
+
+        ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].status == 'completed'
+    assert ledgers[0].operation_type == 'embedding'
+    assert ledgers[0].input_tokens == 8
+    assert ledgers[0].cost_estimated is False
+    assert ledgers[0].model_code == EMBEDDING_MODEL_CODE
+
+
+@pytest.mark.asyncio
+async def test_rerank_returns_stable_bounded_results_and_search_unit_ledger(
+    public_api_environment: PublicApiEnvironment,
+) -> None:
+    environment = public_api_environment
+
+    async for client in _http_client(environment):
+        response = await client.post(
+            '/v1/rerank',
+            headers=_authorization(environment),
+            json={
+                'model': RERANK_MODEL_CODE,
+                'query': 'Which document describes the refund policy?',
+                'documents': [
+                    'Shipping usually takes three days.',
+                    {'text': 'Refunds are accepted within thirty days.'},
+                ],
+                'top_n': 2,
+                'return_documents': True,
+            },
+        )
+
+    assert response.status_code == HTTP_OK
+    payload = response.json()
+    assert payload['id'].startswith('rrk_') and len(payload['id']) == 36
+    assert [item['index'] for item in payload['results']] == [1, 0]
+    assert payload['results'][0]['document'] == {'text': 'Refunds are accepted within thirty days.'}
+    assert payload['meta'] == {'billed_units': {'search_units': 1}, 'tokens': {'input_tokens': 22}}
+    assert 'PRIVATE' not in response.text
+    assert RERANK_ENGINE_MODEL not in response.text
+    assert environment.runtime.rerank_payloads == [
+        {
+            'model': RERANK_ENGINE_MODEL,
+            'query': 'Which document describes the refund policy?',
+            'documents': [
+                {'text': 'Shipping usually takes three days.'},
+                {'text': 'Refunds are accepted within thirty days.'},
+            ],
+            'top_n': 2,
+            'return_documents': True,
+        }
+    ]
+
+    async with environment.session_maker() as session:
+        from sqlalchemy import select
+
+        ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].status == 'completed'
+    assert ledgers[0].operation_type == 'rerank'
+    assert ledgers[0].search_units == 1
+    assert ledgers[0].input_tokens == 22
+    assert ledgers[0].billable_cost == Decimal('0.001')
+    assert ledgers[0].cost_estimated is False
+
 
 @pytest.mark.asyncio
 async def test_revocation_application_grant_and_model_changes_take_effect_on_next_request(
@@ -444,7 +712,8 @@ async def test_revocation_application_grant_and_model_changes_take_effect_on_nex
             headers=_authorization(environment),
             json={'model': MODEL_CODE, 'messages': [{'role': 'user', 'content': 'Hello'}]},
         )
-        assert no_grant.status_code == HTTP_OK and no_grant.json()['data'] == []
+        assert no_grant.status_code == HTTP_OK
+        assert [item['id'] for item in no_grant.json()['data']] == [EMBEDDING_MODEL_CODE, RERANK_MODEL_CODE]
         assert denied_chat.status_code == HTTP_NOT_FOUND
 
         async with environment.session_maker() as session:
@@ -461,11 +730,73 @@ async def test_revocation_application_grant_and_model_changes_take_effect_on_nex
             headers=_authorization(environment),
             json={'model': MODEL_CODE, 'messages': [{'role': 'user', 'content': 'Hello'}]},
         )
-        assert disabled_model.status_code == HTTP_OK and disabled_model.json()['data'] == []
+        assert disabled_model.status_code == HTTP_OK
+        assert [item['id'] for item in disabled_model.json()['data']] == [EMBEDDING_MODEL_CODE, RERANK_MODEL_CODE]
         assert disabled_model_chat.status_code == HTTP_NOT_FOUND
 
     assert environment.runtime.chat_payloads == []
     assert environment.runtime.stream_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_model_type_mismatch_returns_same_model_not_found_for_all_endpoints(
+    public_api_environment: PublicApiEnvironment,
+) -> None:
+    environment = public_api_environment
+    async for client in _http_client(environment):
+        embedding_on_chat = await client.post(
+            '/v1/embeddings',
+            headers=_authorization(environment),
+            json={'model': MODEL_CODE, 'input': ['hello']},
+        )
+        chat_on_embedding = await client.post(
+            '/v1/chat/completions',
+            headers=_authorization(environment),
+            json={'model': EMBEDDING_MODEL_CODE, 'messages': [{'role': 'user', 'content': 'Hello'}]},
+        )
+        rerank_on_chat = await client.post(
+            '/v1/rerank',
+            headers=_authorization(environment),
+            json={
+                'model': MODEL_CODE,
+                'query': 'q',
+                'documents': ['d1', 'd2'],
+            },
+        )
+
+    assert embedding_on_chat.status_code == HTTP_NOT_FOUND
+    assert chat_on_embedding.status_code == HTTP_NOT_FOUND
+    assert rerank_on_chat.status_code == HTTP_NOT_FOUND
+    for response in (embedding_on_chat, chat_on_embedding, rerank_on_chat):
+        assert response.json()['error']['code'] == 'model_not_found'
+    assert environment.runtime.chat_payloads == []
+    assert environment.runtime.embedding_payloads == []
+    assert environment.runtime.rerank_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_rate_card_billing_mode_mismatch_fails_closed_before_runtime(
+    public_api_environment: PublicApiEnvironment,
+) -> None:
+    environment = public_api_environment
+    async with environment.session_maker() as session:
+        await session.execute(
+            update(AiModelRateCard)
+            .where(AiModelRateCard.rate_card_id == RERANK_RATE_CARD_ID)
+            .values(billing_mode='token', search_price_per_unit=None)
+        )
+        await session.commit()
+
+    async for client in _http_client(environment):
+        response = await client.post(
+            '/v1/rerank',
+            headers=_authorization(environment),
+            json={'model': RERANK_MODEL_CODE, 'query': 'q', 'documents': ['d1']},
+        )
+
+    assert response.status_code == HTTP_NOT_FOUND
+    assert response.json()['error']['code'] == 'model_not_found'
+    assert environment.runtime.rerank_payloads == []
 
 
 @pytest.mark.asyncio
@@ -489,3 +820,11 @@ async def test_runtime_failure_returns_fixed_error_without_key_or_upstream_detai
     assert environment.issued_key.complete_key not in response.text
     assert 'PRIVATE' not in response.text
     assert 'runtime.internal' not in response.text
+
+    async with environment.session_maker() as session:
+        from sqlalchemy import select
+
+        ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
+    assert len(ledgers) == 1
+    assert ledgers[0].status == 'failed'
+    assert ledgers[0].cost_estimated is True

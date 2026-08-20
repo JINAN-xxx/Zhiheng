@@ -14,6 +14,7 @@ from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
 from module_admin.entity.vo.user_vo import CurrentUserModel
 from plugins.ai.domain.model_service_errors import ModelServiceError
+from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel, RateCardModel
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ModelCatalogCreateModel,
     ModelCatalogPageQueryModel,
@@ -26,6 +27,8 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
 )
 from plugins.ai.infrastructure.model_runtime_provider import get_model_runtime_engine
 from plugins.ai.service.model_catalog_service import ModelCatalogService
+from plugins.ai.service.model_service import ModelService
+from plugins.ai.service.model_smoke_test_service import ModelSmokeTestService
 from utils.response_util import ResponseUtil
 
 ResultT = TypeVar('ResultT')
@@ -283,3 +286,59 @@ async def delete_platform_model(
     del current_user
     await _call_catalog(_catalog_service(request, query_db).delete_draft(model_id))
     return ResponseUtil.success()
+
+
+@ai_model_catalog_controller.get(
+    '/{model_id}/rate-cards',
+    summary='获取平台模型价格卡列表',
+    response_model=DataResponseModel[list[RateCardModel]],
+    dependencies=[UserInterfaceAuthDependency('ai:model:query')],
+)
+async def list_model_rate_cards(
+    request: Request,
+    model_id: Annotated[ModelResourceId, Path(description='平台模型ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    result = await _call_catalog(_catalog_service(request, query_db).list_rate_cards(model_id))
+    return ResponseUtil.success(data=result)
+
+
+@ai_model_catalog_controller.post(
+    '/{model_id}/rate-cards',
+    summary='创建平台模型价格卡新版本',
+    response_model=DataResponseModel[RateCardModel],
+    dependencies=[UserInterfaceAuthDependency('ai:model:edit')],
+)
+async def create_model_rate_card(
+    request: Request,
+    model_id: Annotated[ModelResourceId, Path(description='平台模型ID')],
+    payload: RateCardCreateModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await _call_catalog(
+        _catalog_service(request, query_db).create_rate_card(
+            model_id,
+            payload,
+            username=_current_username(current_user),
+            now=_current_time(),
+        )
+    )
+    return ResponseUtil.success(data=result)
+
+
+@ai_model_catalog_controller.post(
+    '/{model_id}/smoke-test',
+    summary='执行平台模型类型化连接测试',
+    response_model=DataResponseModel[dict[str, object]],
+    dependencies=[UserInterfaceAuthDependency('ai:model:test')],
+)
+async def smoke_test_platform_model(
+    request: Request,
+    model_id: Annotated[ModelResourceId, Path(description='平台模型ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+) -> Response:
+    runtime = get_model_runtime_engine(request)
+    service = ModelSmokeTestService(ModelService(query_db, runtime), runtime)
+    result = await service.run(model_id)
+    return ResponseUtil.success(data=result.model_dump(by_alias=True, mode='json'))

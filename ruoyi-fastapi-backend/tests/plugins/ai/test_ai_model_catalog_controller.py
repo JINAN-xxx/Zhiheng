@@ -209,6 +209,9 @@ def test_routes_use_exact_methods_permissions_login_and_no_data_scope() -> None:
         ('POST', '/ai/models/{model_id}/publish'): 'ai:model:publish',
         ('POST', '/ai/models/{model_id}/disable'): 'ai:model:edit',
         ('DELETE', '/ai/models/{model_id}'): 'ai:model:remove',
+        ('GET', '/ai/models/{model_id}/rate-cards'): 'ai:model:query',
+        ('POST', '/ai/models/{model_id}/rate-cards'): 'ai:model:edit',
+        ('POST', '/ai/models/{model_id}/smoke-test'): 'ai:model:test',
     }
 
     routes = route_map()

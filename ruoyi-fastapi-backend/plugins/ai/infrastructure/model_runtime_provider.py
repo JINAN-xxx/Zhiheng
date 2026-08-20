@@ -2,7 +2,17 @@ from collections.abc import AsyncIterator
 
 from fastapi import Request
 
-from plugins.ai.domain.model_runtime import ModelChatRequest, ModelChatResponse, ModelRuntimeEngine, ModelStreamEvent
+from plugins.ai.config import LiteLLMSettings
+from plugins.ai.domain.model_runtime import (
+    ModelChatRequest,
+    ModelChatResponse,
+    ModelEmbeddingRequest,
+    ModelEmbeddingResponse,
+    ModelRerankRequest,
+    ModelRerankResponse,
+    ModelRuntimeEngine,
+    ModelStreamEvent,
+)
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.hooks import CLIENT_STATE_NAME
 from plugins.ai.infrastructure.litellm_runtime_adapter import LiteLLMRuntimeAdapter
@@ -19,6 +29,14 @@ class MissingModelRuntimeEngine:
         raise ModelServiceError.runtime_misconfigured()
 
     def stream_chat(self, request: ModelChatRequest) -> AsyncIterator[ModelStreamEvent]:
+        del request
+        raise ModelServiceError.runtime_misconfigured()
+
+    async def embed(self, request: ModelEmbeddingRequest) -> ModelEmbeddingResponse:
+        del request
+        raise ModelServiceError.runtime_misconfigured()
+
+    async def rerank(self, request: ModelRerankRequest) -> ModelRerankResponse:
         del request
         raise ModelServiceError.runtime_misconfigured()
 
@@ -41,6 +59,12 @@ class _SharedModelRuntimeEngine:
     def stream_chat(self, request: ModelChatRequest) -> AsyncIterator[ModelStreamEvent]:
         return self._engine.stream_chat(request)
 
+    async def embed(self, request: ModelEmbeddingRequest) -> ModelEmbeddingResponse:
+        return await self._engine.embed(request)
+
+    async def rerank(self, request: ModelRerankRequest) -> ModelRerankResponse:
+        return await self._engine.rerank(request)
+
     async def aclose(self) -> None:
         return None
 
@@ -50,4 +74,7 @@ def get_model_runtime_engine(request: Request) -> ModelRuntimeEngine:
     client = getattr(request.app.state, CLIENT_STATE_NAME, None)
     if client is None:
         return MissingModelRuntimeEngine()
-    return _SharedModelRuntimeEngine(LiteLLMRuntimeAdapter(client))
+    settings = LiteLLMSettings()
+    return _SharedModelRuntimeEngine(
+        LiteLLMRuntimeAdapter(client, max_json_response_bytes=settings.runtime_max_json_response_bytes)
+    )

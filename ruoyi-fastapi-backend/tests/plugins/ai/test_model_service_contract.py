@@ -346,6 +346,24 @@ def _valid_create_payload() -> dict[str, object]:
             'maxTokens': 4096,
             'presencePenalty': 0,
             'frequencyPenalty': -0.1,
+            'dimensions': None,
+            'topN': None,
+            'returnDocuments': None,
+        },
+    }
+
+
+def _expected_create_serialization() -> dict[str, object]:
+    """模型创建请求在序列化时会补齐所有已知 Capability 与默认参数字段。"""
+    return {
+        **_valid_create_payload(),
+        'capabilities': {
+            'vision': True,
+            'reasoning': True,
+            'tools': False,
+            'streaming': True,
+            'dimensionsOverride': False,
+            'returnDocuments': False,
         },
     }
 
@@ -356,7 +374,7 @@ def test_model_catalog_create_accepts_camel_case_and_serializes_nested_models_as
     assert request.model_code == 'company.reasoning-v1'
     assert request.capabilities.reasoning is True
     assert request.default_parameters.top_p == TOP_P
-    assert request.model_dump(by_alias=True) == _valid_create_payload()
+    assert request.model_dump(by_alias=True) == _expected_create_serialization()
 
 
 @pytest.mark.parametrize(
@@ -473,11 +491,57 @@ def test_model_catalog_models_reject_unknown_model_type(model_type: str) -> None
         ModelCatalogCreateModel.model_validate(payload)
 
 
-@pytest.mark.parametrize('model_type', ('chat', 'embedding'))
-def test_model_catalog_models_accept_supported_model_type(model_type: str) -> None:
-    payload = {**_valid_create_payload(), 'modelType': model_type}
+@pytest.mark.parametrize(
+    ('model_type', 'capabilities', 'default_parameters'),
+    (
+        (
+            'chat',
+            {'vision': True, 'reasoning': True, 'tools': False, 'streaming': True},
+            {'temperature': 0.2, 'topP': TOP_P, 'maxTokens': 4096, 'presencePenalty': 0, 'frequencyPenalty': -0.1},
+        ),
+        ('embedding', {'dimensionsOverride': True}, {'dimensions': 1024}),
+        ('rerank', {'returnDocuments': True}, {'topN': 5, 'returnDocuments': True}),
+    ),
+)
+def test_model_catalog_models_accept_supported_model_type(
+    model_type: str,
+    capabilities: dict[str, object],
+    default_parameters: dict[str, object],
+) -> None:
+    payload = {
+        **_valid_create_payload(),
+        'modelType': model_type,
+        'capabilities': capabilities,
+        'defaultParameters': default_parameters,
+    }
 
     assert ModelCatalogCreateModel.model_validate(payload).model_type == model_type
+
+
+@pytest.mark.parametrize(
+    ('model_type', 'capabilities', 'default_parameters'),
+    (
+        ('embedding', {'streaming': True}, {'dimensions': 1024}),
+        ('embedding', {'dimensionsOverride': True}, {'temperature': 0.2}),
+        ('rerank', {'dimensionsOverride': True}, {'topN': 5}),
+        ('chat', {'returnDocuments': True}, {'topN': 5}),
+        ('chat', {'streaming': True}, {'dimensions': 1024}),
+    ),
+)
+def test_model_catalog_models_reject_type_mismatched_capabilities_or_parameters(
+    model_type: str,
+    capabilities: dict[str, object],
+    default_parameters: dict[str, object],
+) -> None:
+    payload = {
+        **_valid_create_payload(),
+        'modelType': model_type,
+        'capabilities': capabilities,
+        'defaultParameters': default_parameters,
+    }
+
+    with pytest.raises(ValidationError):
+        ModelCatalogCreateModel.model_validate(payload)
 
 
 @pytest.mark.parametrize('field', ('contextWindow', 'maxOutputTokens'))

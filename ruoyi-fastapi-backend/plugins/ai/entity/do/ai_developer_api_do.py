@@ -184,7 +184,16 @@ class AiModelRateCard(Base):
             'cache_price_per_token is null or cache_price_per_token >= 0',
             name='ck_ai_model_rate_card_cache_price',
         ),
+        CheckConstraint(
+            "billing_mode in ('token', 'search_unit')",
+            name='ck_ai_model_rate_card_billing_mode',
+        ),
+        CheckConstraint(
+            'search_price_per_unit is null or search_price_per_unit >= 0',
+            name='ck_ai_model_rate_card_search_price',
+        ),
         Index('idx_ai_model_rate_card_effective', 'platform_model_id', 'status', 'effective_from'),
+        Index('idx_ai_model_rate_card_billing_mode', 'billing_mode', 'status'),
         {'comment': 'Platform Model价格表'},
     )
 
@@ -196,9 +205,17 @@ class AiModelRateCard(Base):
         comment='Platform Model ID',
     )
     version = Column(Integer, nullable=False, comment='价格版本')
+    billing_mode = Column(
+        String(16),
+        nullable=False,
+        default='token',
+        server_default='token',
+        comment='计费模式: token或search_unit',
+    )
     input_price_per_token = Column(Numeric(24, 12), nullable=False, comment='输入Token单价')
     output_price_per_token = Column(Numeric(24, 12), nullable=False, comment='输出Token单价')
     cache_price_per_token = Column(Numeric(24, 12), nullable=True, comment='缓存Token单价')
+    search_price_per_unit = Column(Numeric(24, 12), nullable=True, comment='Search Unit单价')
     currency = Column(String(3), nullable=False, comment='结算币种')
     effective_from = Column(DateTime, nullable=False, comment='生效时间')
     effective_to = Column(DateTime, nullable=True, comment='结束时间')
@@ -219,6 +236,10 @@ class AiApiUsageLedger(Base):
             "status in ('started', 'completed', 'failed', 'cancelled', 'abandoned')",
             name='ck_ai_api_usage_status',
         ),
+        CheckConstraint(
+            "operation_type in ('chat', 'embedding', 'rerank')",
+            name='ck_ai_api_usage_operation_type',
+        ),
         CheckConstraint('input_tokens is null or input_tokens >= 0', name='ck_ai_api_usage_input_tokens'),
         CheckConstraint('output_tokens is null or output_tokens >= 0', name='ck_ai_api_usage_output_tokens'),
         CheckConstraint('cache_tokens is null or cache_tokens >= 0', name='ck_ai_api_usage_cache_tokens'),
@@ -226,8 +247,12 @@ class AiApiUsageLedger(Base):
             'reasoning_tokens is null or reasoning_tokens >= 0',
             name='ck_ai_api_usage_reasoning_tokens',
         ),
+        CheckConstraint('search_units is null or search_units >= 0', name='ck_ai_api_usage_search_units'),
+        CheckConstraint('reserved_tokens is null or reserved_tokens >= 0', name='ck_ai_api_usage_reserved_tokens'),
+        CheckConstraint('reserved_cost is null or reserved_cost >= 0', name='ck_ai_api_usage_reserved_cost'),
         Index('idx_ai_api_usage_key_started', 'api_key_id', 'started_at'),
         Index('idx_ai_api_usage_status_started', 'status', 'started_at'),
+        Index('idx_ai_api_usage_operation_started', 'operation_type', 'started_at'),
         {'comment': 'Developer API Usage Ledger'},
     )
 
@@ -266,10 +291,23 @@ class AiApiUsageLedger(Base):
         comment='Rate Card ID快照',
     )
     rate_card_version = Column(Integer, nullable=False, comment='价格版本快照')
+    operation_type = Column(
+        String(16),
+        nullable=False,
+        default='chat',
+        server_default='chat',
+        comment='操作类型: chat/embedding/rerank',
+    )
+    reserved_tokens = Column(Integer, nullable=True, comment='配额预留Token')
+    reserved_cost = Column(Numeric(20, 10), nullable=True, comment='配额预留成本')
+    quota_lease_token = Column(String(128), nullable=True, comment='Redis配额租约Token')
+    quota_minute_window = Column(String(16), nullable=True, comment='预留分钟窗口')
+    quota_month_window = Column(String(7), nullable=True, comment='预留月份窗口')
     input_tokens = Column(Integer, nullable=True, comment='输入Token')
     output_tokens = Column(Integer, nullable=True, comment='输出Token')
     cache_tokens = Column(Integer, nullable=True, comment='缓存Token')
     reasoning_tokens = Column(Integer, nullable=True, comment='推理Token')
+    search_units = Column(Integer, nullable=True, comment='Search Unit用量')
     raw_cost = Column(Numeric(20, 10), nullable=True, comment='Provider原始成本')
     billable_cost = Column(Numeric(20, 10), nullable=True, comment='Platform结算成本')
     currency = Column(String(3), nullable=False, comment='结算币种')

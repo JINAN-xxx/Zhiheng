@@ -75,7 +75,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(BACKEND_ROOT / 'plugins' / 'ai' / 'plugin.yaml')
 
     assert plugin.manifest.id == 'ai'
-    assert plugin.manifest.version == '0.5.0'
+    assert plugin.manifest.version == '0.6.0'
     assert plugin.manifest.backend.module == 'plugins.ai'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.ai.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.ai.hooks:on_shutdown'
@@ -84,10 +84,12 @@ def test_ai_plugin_template_can_be_discovered() -> None:
         'migrations/mysql/002_model_service_foundation.sql',
         'migrations/mysql/003_platform_chat.sql',
         'migrations/mysql/004_developer_api_foundation.sql',
+        'migrations/mysql/005_embedding_rerank_gateway.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
         'migrations/postgresql/004_developer_api_foundation.sql',
+        'migrations/postgresql/005_embedding_rerank_gateway.sql',
     ]
     assert plugin.manifest.backend.seeds == [
         'seeds/mysql/ai_provider_type.sql',

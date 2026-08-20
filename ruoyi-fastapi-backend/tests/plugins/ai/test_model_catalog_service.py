@@ -14,6 +14,7 @@ from common.vo import PageModel
 from exceptions.exception import ServiceException
 from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.domain.model_service_errors import ModelServiceError
+from plugins.ai.entity.do.ai_developer_api_do import AiModelRateCard
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
@@ -24,6 +25,7 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     PlatformModelModel,
     ResourceBindingUpsertModel,
 )
+from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel
 from plugins.ai.service.model_catalog_service import ModelCatalogService, NoModelReferenceChecker
 
 NOW = datetime(2026, 8, 13, 9, 30)
@@ -153,6 +155,23 @@ class FakeReferenceChecker:
         self.events.append('check_references')
         self.calls.append(model_id)
         return self.has_references
+
+
+class FakeRateCardDao:
+    cards: list[AiModelRateCard] = []
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.cards = []
+
+    @classmethod
+    async def list_rate_cards_by_model(cls, _db: FakeSession, model_id: str) -> list[AiModelRateCard]:
+        return [card for card in cls.cards if card.platform_model_id == model_id]
+
+    @classmethod
+    async def create_rate_card(cls, _db: FakeSession, card: AiModelRateCard) -> AiModelRateCard:
+        cls.cards.append(card)
+        return card
 
 
 class FakeModelDao:
@@ -399,6 +418,7 @@ class LosingStateRaceModelDao(FakeModelDao):
 def reset_fake_daos() -> None:
     FakeModelDao.reset()
     FakeBindingDao.reset()
+    FakeRateCardDao.reset()
 
 
 def _service(
@@ -415,6 +435,7 @@ def _service(
         reference_checker or FakeReferenceChecker(),
         model_dao=FakeModelDao,
         binding_dao=FakeBindingDao,
+        rate_card_dao=FakeRateCardDao,
     )
     return service, fake_session, fake_runtime
 
@@ -440,6 +461,38 @@ async def _create_model(
     now: datetime = NOW,
 ) -> PlatformModelModel:
     return await service.create_model(_create_payload(model_code), username='admin', now=now)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('model_type', 'billing_mode'),
+    (('chat', 'search_unit'), ('embedding', 'search_unit'), ('rerank', 'token')),
+)
+async def test_rate_card_billing_mode_must_match_model_type(model_type: str, billing_mode: str) -> None:
+    service, session, _ = _service()
+    payload = ModelCatalogCreateModel.model_validate(
+        {
+            'modelCode': f'company-{model_type}',
+            'displayName': f'Company {model_type}',
+            'modelType': model_type,
+            'capabilities': {},
+            'defaultParameters': {},
+        }
+    )
+    model = await service.create_model(payload, username='admin', now=NOW)
+    rate_payload = RateCardCreateModel.model_validate(
+        {
+            'billingMode': billing_mode,
+            'searchPricePerUnit': '0.001' if billing_mode == 'search_unit' else None,
+        }
+    )
+
+    with pytest.raises(ServiceException) as raised:
+        await service.create_rate_card(model.model_id, rate_payload, username='admin', now=NOW)
+
+    assert raised.value.message == '模型类型与计费模式不匹配'
+    assert FakeRateCardDao.cards == []
+    assert session.rollback_count == 1
 
 
 async def _create_binding(

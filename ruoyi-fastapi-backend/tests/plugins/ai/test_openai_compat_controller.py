@@ -19,6 +19,7 @@ from plugins.ai.entity.vo.ai_openai_compat_vo import (
     OpenAIModelListResponseModel,
 )
 from plugins.ai.infrastructure.developer_key_authenticator import DeveloperApiIdentity
+from plugins.ai.infrastructure import public_api_provider
 from plugins.ai.infrastructure.public_api_provider import PublicApiServices, get_public_api_services
 from plugins.ai.service.api_entitlement_service import ApiEntitlementService
 from plugins.ai.service.openai_compat_service import OpenAICompatService
@@ -159,10 +160,15 @@ def _app(
     async def fake_db() -> AsyncIterator[FakeSession]:
         yield session
 
-    def fake_provider(request: object, db: object, settings: object) -> PublicApiServices:
+    async def fake_provider(request: object, db: object, settings: object) -> PublicApiServices:
         del request, db, settings
         provider_calls.append(1)
-        return PublicApiServices(authenticator=authenticator, entitlement=entitlement, compat=compat)
+        return PublicApiServices(
+            authenticator=authenticator,
+            entitlement=entitlement,
+            coordinator=None,  # type: ignore[arg-type]
+            compat=compat,
+        )
 
     app.dependency_overrides[get_db] = fake_db
     monkeypatch.setattr(
@@ -181,7 +187,12 @@ async def _client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
 
 def test_public_router_is_independent_and_controller_has_no_internal_runtime_or_ruoyi_auth() -> None:
     routes = {(method, route.path) for route in controller.openai_compat_controller.routes for method in route.methods}
-    assert routes == {('GET', '/v1/models'), ('POST', '/v1/chat/completions')}
+    assert routes == {
+        ('GET', '/v1/models'),
+        ('POST', '/v1/chat/completions'),
+        ('POST', '/v1/embeddings'),
+        ('POST', '/v1/rerank'),
+    }
     assert controller.openai_compat_controller.dependencies == []
     source = Path(inspect.getfile(controller)).read_text(encoding='utf-8')
     for forbidden in (
@@ -414,6 +425,7 @@ async def test_controller_cancellation_traceback_does_not_retain_authorization(
     services = PublicApiServices(
         authenticator=CancellingAuthenticator(),  # type: ignore[arg-type]
         entitlement=FakeEntitlement(),  # type: ignore[arg-type]
+        coordinator=None,  # type: ignore[arg-type]
         compat=FakeCompatService(),  # type: ignore[arg-type]
     )
     monkeypatch.setattr(
@@ -421,7 +433,10 @@ async def test_controller_cancellation_traceback_does_not_retain_authorization(
         '_settings_factory',
         lambda: SimpleNamespace(public_api_enabled=True, api_max_request_bytes=MAX_BODY_BYTES),
     )
-    monkeypatch.setattr(controller, '_public_api_services', lambda request, db, settings: services)
+    async def lambda_services(request: object, db: object, settings: object) -> PublicApiServices:
+        del request, db, settings
+        return services
+    monkeypatch.setattr(controller, '_public_api_services', lambda_services)
     app = FastAPI()
     request = Request(
         {
@@ -444,7 +459,10 @@ async def test_controller_cancellation_traceback_does_not_retain_authorization(
         traceback = traceback.tb_next
 
 
-def test_public_provider_builds_real_auth_entitlement_and_compat_services() -> None:
+@pytest.mark.asyncio
+async def test_public_provider_builds_real_auth_entitlement_and_compat_services(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = LiteLLMSettings.model_construct(
         api_key_pepper_current_version='v1',
         api_key_pepper_v1=SecretStr('p' * 32),
@@ -452,8 +470,14 @@ def test_public_provider_builds_real_auth_entitlement_and_compat_services() -> N
     app = FastAPI()
     request = Request({'type': 'http', 'method': 'GET', 'path': '/v1/models', 'headers': [], 'app': app})
 
-    services = get_public_api_services(request, FakeSession(), settings)
+    def fake_session_factory(db: object) -> object:
+        del db
+        return lambda: FakeSession()
+
+    monkeypatch.setattr(public_api_provider, '_session_factory_factory', fake_session_factory)
+    services = await get_public_api_services(request, FakeSession(), settings)
 
     assert type(services.entitlement) is ApiEntitlementService
     assert type(services.compat) is OpenAICompatService
+    assert services.coordinator is not None
     assert services.authenticator is not None

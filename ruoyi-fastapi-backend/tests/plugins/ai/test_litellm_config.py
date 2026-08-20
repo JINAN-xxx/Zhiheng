@@ -27,6 +27,12 @@ LITELLM_ENVIRONMENT_KEYS = (
     'AI_API_KEY_PEPPER_V1',
     'AI_API_AUTH_CACHE_TTL_SECONDS',
     'AI_API_MAX_REQUEST_BYTES',
+    'AI_EMBEDDING_MAX_INPUTS',
+    'AI_EMBEDDING_MAX_INPUT_BYTES',
+    'AI_RERANK_MAX_DOCUMENTS',
+    'AI_RERANK_MAX_QUERY_BYTES',
+    'AI_RERANK_MAX_DOCUMENT_BYTES',
+    'AI_RUNTIME_MAX_JSON_RESPONSE_BYTES',
 )
 VALID_PEPPER = 'developer-api-pepper-value-at-least-32-characters'
 CUSTOM_API_AUTH_CACHE_TTL_SECONDS = 10
@@ -104,11 +110,34 @@ def test_developer_api_settings_fail_closed_for_unknown_or_weak_pepper(version: 
         ('AI_API_AUTH_CACHE_TTL_SECONDS', 16),
         ('AI_API_MAX_REQUEST_BYTES', 0),
         ('AI_API_MAX_REQUEST_BYTES', 10_485_761),
+        ('AI_EMBEDDING_MAX_INPUTS', 0),
+        ('AI_EMBEDDING_MAX_INPUTS', 2048),
+        ('AI_EMBEDDING_MAX_INPUT_BYTES', 0),
+        ('AI_EMBEDDING_MAX_INPUT_BYTES', 2_097_152),
+        ('AI_RERANK_MAX_DOCUMENTS', 0),
+        ('AI_RERANK_MAX_QUERY_BYTES', 0),
+        ('AI_RERANK_MAX_DOCUMENT_BYTES', 2_097_152),
+        ('AI_RUNTIME_MAX_JSON_RESPONSE_BYTES', 1023),
+        ('AI_RUNTIME_MAX_JSON_RESPONSE_BYTES', 268_435_457),
     ),
 )
 def test_developer_api_settings_reject_unsafe_numeric_bounds(field: str, value: int) -> None:
     with pytest.raises(ValidationError):
         LiteLLMSettings(**{field: value})
+
+
+def test_gateway_settings_read_environment_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Embedding/Rerank 网关配置从进程环境读取并采用文档化默认值。"""
+    clear_litellm_environment(monkeypatch)
+
+    settings = LiteLLMSettings()
+
+    assert settings.embedding_max_inputs == 256
+    assert settings.embedding_max_input_bytes == 32768
+    assert settings.rerank_max_documents == 256
+    assert settings.rerank_max_query_bytes == 8192
+    assert settings.rerank_max_document_bytes == 32768
+    assert settings.runtime_max_json_response_bytes == 33_554_432
 
 
 def test_litellm_settings_read_environment_without_exposing_secret(monkeypatch: pytest.MonkeyPatch) -> None:

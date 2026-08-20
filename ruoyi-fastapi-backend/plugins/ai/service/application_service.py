@@ -15,6 +15,8 @@ from plugins.ai.entity.vo.ai_developer_api_vo import (
     ApplicationModel,
     ApplicationPageQueryModel,
     ApplicationUpdateModel,
+    UsageLedgerModel,
+    UsageLedgerPageQueryModel,
 )
 
 ResultT = TypeVar('ResultT')
@@ -95,6 +97,26 @@ class ApplicationService:
         application = await self._application_dao.get_application_by_id(self._db, application_id)
         self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
         return ApplicationModel.model_validate(application)
+
+    async def list_usage(
+        self,
+        application_id: str,
+        query: UsageLedgerPageQueryModel,
+        *,
+        actor_user_id: int,
+        is_admin: bool,
+    ) -> PageModel:
+        """按 Application 分页查询 Usage Ledger，先校验所有权。"""
+        application = await self._application_dao.get_application_by_id(self._db, application_id)
+        self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
+        result = await self._application_dao.list_usage_ledgers(self._db, application_id, query)
+        return result.model_copy(
+            update={
+                'rows': [
+                    UsageLedgerModel.model_validate(row).model_dump(by_alias=True, mode='json') for row in result.rows
+                ]
+            }
+        )
 
     async def create_application(
         self,

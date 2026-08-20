@@ -13,7 +13,12 @@ from plugins.ai.dao.ai_resource_binding_dao import AiResourceBindingDao
 from plugins.ai.domain.model_runtime import (
     ModelChatRequest,
     ModelChatResponse,
+    ModelEmbeddingRequest,
+    ModelEmbeddingResponse,
     ModelMessage,
+    ModelRerankDocument,
+    ModelRerankRequest,
+    ModelRerankResponse,
     ModelRuntimeEngine,
     ModelStreamEvent,
 )
@@ -21,7 +26,7 @@ from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import validate_resource_id
 from plugins.ai.entity.vo.ai_model_catalog_vo import ModelDefaultParametersModel
 
-_DEFAULT_PARAMETERS = frozenset(
+_CHAT_DEFAULT_PARAMETERS = frozenset(
     {
         'temperature',
         'top_p',
@@ -30,11 +35,23 @@ _DEFAULT_PARAMETERS = frozenset(
         'frequency_penalty',
     }
 )
-_REQUEST_PARAMETERS = _DEFAULT_PARAMETERS | {'stop', 'user'}
+_EMBEDDING_DEFAULT_PARAMETERS = frozenset({'dimensions'})
+_RERANK_DEFAULT_PARAMETERS = frozenset({'top_n', 'return_documents'})
+_DEFAULT_PARAMETERS_BY_TYPE = {
+    'chat': _CHAT_DEFAULT_PARAMETERS,
+    'embedding': _EMBEDDING_DEFAULT_PARAMETERS,
+    'rerank': _RERANK_DEFAULT_PARAMETERS,
+}
+_REQUEST_PARAMETERS_BY_TYPE = {
+    'chat': _CHAT_DEFAULT_PARAMETERS | {'stop', 'user'},
+    'embedding': _EMBEDDING_DEFAULT_PARAMETERS | {'user'},
+    'rerank': _RERANK_DEFAULT_PARAMETERS,
+}
 _FORBIDDEN_TEXT_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
 _INVALID_PARAMETER_MESSAGE = '模型参数无效'
 _UNSUPPORTED_PARAMETER_MESSAGE = '不支持的模型参数'
 _MAX_STOP_SEQUENCES = 4
+_EMBEDDING_MAX_DIMENSIONS = 65536
 
 
 def _freeze_parameters(parameters: Mapping[str, object]) -> Mapping[str, object]:
@@ -47,6 +64,7 @@ class ResolvedModel:
     binding_id: str
     engine_type: str
     engine_model_snapshot: str
+    model_type: str
     default_parameters: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
@@ -60,6 +78,24 @@ class ModelServiceChatResult:
     engine_type: str
     engine_model_snapshot: str
     response: ModelChatResponse
+
+
+@dataclass(frozen=True)
+class ModelServiceEmbeddingResult:
+    platform_model_id: str
+    binding_id: str
+    engine_type: str
+    engine_model_snapshot: str
+    response: ModelEmbeddingResponse
+
+
+@dataclass(frozen=True)
+class ModelServiceRerankResult:
+    platform_model_id: str
+    binding_id: str
+    engine_type: str
+    engine_model_snapshot: str
+    response: ModelRerankResponse
 
 
 @dataclass(frozen=True)
@@ -135,14 +171,19 @@ class ModelService:
         if self._session_factory is None:
             self._require_clean_session()
 
-    async def resolve_model(self, model_id: str) -> ResolvedModel:
+    async def resolve_model(self, model_id: str, expected_type: str | None = None) -> ResolvedModel:
         validate_resource_id(model_id, 'mdl')
         if self._session_factory is not None:
             async with self._session_factory() as db:
-                return await self._resolve_model_in_session(db, model_id)
-        return await self._resolve_model_in_session(self._db, model_id)
+                return await self._resolve_model_in_session(db, model_id, expected_type)
+        return await self._resolve_model_in_session(self._db, model_id, expected_type)
 
-    async def _resolve_model_in_session(self, db: AsyncSession, model_id: str) -> ResolvedModel:
+    async def _resolve_model_in_session(
+        self,
+        db: AsyncSession,
+        model_id: str,
+        expected_type: str | None,
+    ) -> ResolvedModel:
         self._require_clean_session(db)
         try:
             model = await self._model_dao.get_model_by_id(db, model_id)
@@ -150,15 +191,19 @@ class ModelService:
                 raise ModelServiceError.not_found()
             if model.lifecycle_status != 'active':
                 raise ModelServiceError.disabled()
+            if expected_type is not None and model.model_type != expected_type:
+                # 类型不匹配与未授权返回同一外部错误，避免泄露其他类型授权。
+                raise ModelServiceError.not_found()
             binding = await self._binding_dao.get_current_binding(db, model_id)
             if binding is None or binding.binding_status != 'active':
                 raise ModelServiceError.binding_missing()
-            defaults = self._validate_parameters(model.default_parameters)
+            defaults = self._validate_parameters(model.model_type, model.default_parameters)
             resolved = ResolvedModel(
                 platform_model_id=model.model_id,
                 binding_id=binding.binding_id,
                 engine_type=binding.engine_type,
                 engine_model_snapshot=binding.engine_resource_id,
+                model_type=model.model_type,
                 default_parameters=defaults,
             )
         except BaseException:
@@ -174,10 +219,45 @@ class ModelService:
         messages: Sequence[ModelMessage],
         parameters: Mapping[str, object] | None = None,
     ) -> ModelServiceChatResult:
-        resolved = await self.resolve_model(model_id)
+        resolved = await self.resolve_model(model_id, expected_type='chat')
         request = self._build_request(resolved, messages, parameters)
         response = await self._runtime.chat(request)
         return ModelServiceChatResult(
+            platform_model_id=resolved.platform_model_id,
+            binding_id=resolved.binding_id,
+            engine_type=resolved.engine_type,
+            engine_model_snapshot=resolved.engine_model_snapshot,
+            response=response,
+        )
+
+    async def embed(
+        self,
+        model_id: str,
+        inputs: Sequence[str],
+        parameters: Mapping[str, object] | None = None,
+    ) -> ModelServiceEmbeddingResult:
+        resolved = await self.resolve_model(model_id, expected_type='embedding')
+        request = self._build_embedding_request(resolved, inputs, parameters)
+        response = await self._runtime.embed(request)
+        return ModelServiceEmbeddingResult(
+            platform_model_id=resolved.platform_model_id,
+            binding_id=resolved.binding_id,
+            engine_type=resolved.engine_type,
+            engine_model_snapshot=resolved.engine_model_snapshot,
+            response=response,
+        )
+
+    async def rerank(
+        self,
+        model_id: str,
+        query: str,
+        documents: Sequence[str],
+        parameters: Mapping[str, object] | None = None,
+    ) -> ModelServiceRerankResult:
+        resolved = await self.resolve_model(model_id, expected_type='rerank')
+        request = self._build_rerank_request(resolved, query, documents, parameters)
+        response = await self._runtime.rerank(request)
+        return ModelServiceRerankResult(
             platform_model_id=resolved.platform_model_id,
             binding_id=resolved.binding_id,
             engine_type=resolved.engine_type,
@@ -191,7 +271,7 @@ class ModelService:
         messages: Sequence[ModelMessage],
         parameters: Mapping[str, object] | None = None,
     ) -> ModelServiceStreamResult:
-        resolved = await self.resolve_model(model_id)
+        resolved = await self.resolve_model(model_id, expected_type='chat')
         request = self._build_request(resolved, messages, parameters)
         stream = self._runtime.stream_chat(request)
         return ModelServiceStreamResult(
@@ -209,6 +289,7 @@ class ModelService:
         parameters: Mapping[str, object] | None,
     ) -> ModelChatRequest:
         caller_parameters = ModelService._validate_parameters(
+            resolved.model_type,
             {} if parameters is None else parameters,
             allow_request_extensions=True,
         )
@@ -220,18 +301,74 @@ class ModelService:
         )
 
     @staticmethod
+    def _build_embedding_request(
+        resolved: ResolvedModel,
+        inputs: Sequence[str],
+        parameters: Mapping[str, object] | None,
+    ) -> ModelEmbeddingRequest:
+        caller_parameters = ModelService._validate_parameters(
+            resolved.model_type,
+            {} if parameters is None else parameters,
+            allow_request_extensions=True,
+        )
+        merged_parameters = {**resolved.default_parameters, **caller_parameters}
+        return ModelEmbeddingRequest(
+            engine_model=resolved.engine_model_snapshot,
+            inputs=tuple(inputs),
+            dimensions=merged_parameters.get('dimensions'),
+            user=merged_parameters.get('user'),
+        )
+
+    @staticmethod
+    def _build_rerank_request(
+        resolved: ResolvedModel,
+        query: str,
+        documents: Sequence[str],
+        parameters: Mapping[str, object] | None,
+    ) -> ModelRerankRequest:
+        caller_parameters = ModelService._validate_parameters(
+            resolved.model_type,
+            {} if parameters is None else parameters,
+            allow_request_extensions=True,
+        )
+        merged_parameters = {**resolved.default_parameters, **caller_parameters}
+        return ModelRerankRequest(
+            engine_model=resolved.engine_model_snapshot,
+            query=query,
+            documents=tuple(ModelRerankDocument(text=document) for document in documents),
+            top_n=merged_parameters.get('top_n'),
+            return_documents=bool(merged_parameters.get('return_documents', False)),
+        )
+
+    @classmethod
     def _validate_parameters(
+        cls,
+        model_type: str,
         parameters: Mapping[str, Any],
         *,
         allow_request_extensions: bool = False,
     ) -> dict[str, object]:
+        if model_type not in _DEFAULT_PARAMETERS_BY_TYPE:
+            raise ValueError(_UNSUPPORTED_PARAMETER_MESSAGE)
         if not isinstance(parameters, Mapping):
             raise TypeError('模型参数必须是映射')
-        allowed = _REQUEST_PARAMETERS if allow_request_extensions else _DEFAULT_PARAMETERS
+        allowed = (
+            _REQUEST_PARAMETERS_BY_TYPE[model_type]
+            if allow_request_extensions
+            else _DEFAULT_PARAMETERS_BY_TYPE[model_type]
+        )
         if set(parameters).difference(allowed):
             raise ValueError(_UNSUPPORTED_PARAMETER_MESSAGE)
         normalized = {key: value for key, value in parameters.items() if value is not None}
-        default_parameters = {key: value for key, value in normalized.items() if key in _DEFAULT_PARAMETERS}
+        if model_type == 'chat':
+            return cls._validate_chat_parameters(normalized)
+        if model_type == 'embedding':
+            return cls._validate_embedding_parameters(normalized)
+        return cls._validate_rerank_parameters(normalized)
+
+    @staticmethod
+    def _validate_chat_parameters(parameters: Mapping[str, Any]) -> dict[str, object]:
+        default_parameters = {key: value for key, value in parameters.items() if key in _CHAT_DEFAULT_PARAMETERS}
         aliased = {
             ModelDefaultParametersModel.model_fields[key].alias: value for key, value in default_parameters.items()
         }
@@ -240,10 +377,37 @@ class ModelService:
         except ValidationError:
             raise ValueError(_INVALID_PARAMETER_MESSAGE) from None
         result = validated.model_dump(exclude_none=True)
-        if 'stop' in normalized:
-            result['stop'] = ModelService._validate_stop(normalized['stop'])
-        if 'user' in normalized:
-            result['user'] = ModelService._validate_user(normalized['user'])
+        if 'stop' in parameters:
+            result['stop'] = ModelService._validate_stop(parameters['stop'])
+        if 'user' in parameters:
+            result['user'] = ModelService._validate_user(parameters['user'])
+        return result
+
+    @staticmethod
+    def _validate_embedding_parameters(parameters: Mapping[str, Any]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        if 'dimensions' in parameters:
+            dimensions = parameters['dimensions']
+            if type(dimensions) is not int or not 1 <= dimensions <= _EMBEDDING_MAX_DIMENSIONS:
+                raise ValueError(_INVALID_PARAMETER_MESSAGE)
+            result['dimensions'] = dimensions
+        if 'user' in parameters:
+            result['user'] = ModelService._validate_user(parameters['user'])
+        return result
+
+    @staticmethod
+    def _validate_rerank_parameters(parameters: Mapping[str, Any]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        if 'top_n' in parameters:
+            top_n = parameters['top_n']
+            if type(top_n) is not int or top_n < 1:
+                raise ValueError(_INVALID_PARAMETER_MESSAGE)
+            result['top_n'] = top_n
+        if 'return_documents' in parameters:
+            return_documents = parameters['return_documents']
+            if type(return_documents) is not bool:
+                raise ValueError(_INVALID_PARAMETER_MESSAGE)
+            result['return_documents'] = return_documents
         return result
 
     @staticmethod

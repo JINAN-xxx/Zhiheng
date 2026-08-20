@@ -1,9 +1,12 @@
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from time import perf_counter
+from typing import Annotated
 
 from fastapi import HTTPException, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import PreAuthDependency
 from common.router import APIRouterPro
@@ -12,6 +15,7 @@ from plugins.ai.entity.vo.ai_runtime_vo import AiRuntimeHealthModel, AiRuntimeMo
 from plugins.ai.hooks import CLIENT_STATE_NAME
 from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient
 from plugins.ai.infrastructure.litellm_errors import LiteLLMError, LiteLLMMisconfiguredError, LiteLLMUpstreamError
+from plugins.ai.jobs import reconcile_public_quota
 from utils.response_util import ResponseUtil
 
 ai_runtime_controller = APIRouterPro(
@@ -98,6 +102,18 @@ async def get_ai_runtime_health(request: Request) -> Response:
         message='LiteLLM Runtime 运行正常',
     )
     return ResponseUtil.success(data=status_model)
+
+
+@ai_runtime_controller.post(
+    '/quotas/reconcile',
+    summary='恢复超时 Public API 配额与 Ledger',
+    response_model=DataResponseModel[dict[str, int]],
+    dependencies=[UserInterfaceAuthDependency('ai:runtime:query')],
+)
+async def reconcile_public_quotas(query_db: Annotated[AsyncSession, DBSessionDependency()]) -> Response:
+    """将超时 started Usage Ledger 置为 abandoned 并保守结算。"""
+    recovered = await reconcile_public_quota(query_db)
+    return ResponseUtil.success(data={'recovered': recovered})
 
 
 @ai_runtime_controller.get(

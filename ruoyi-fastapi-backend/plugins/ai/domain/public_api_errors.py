@@ -10,6 +10,10 @@ _FIXED_ERROR_CONTRACTS = (
     (400, 'invalid_request', 'invalid_request_error', 'The request is invalid.'),
     (502, 'upstream_error', 'api_error', 'The model provider request failed.'),
     (503, 'service_unavailable', 'api_error', 'The model service is unavailable.'),
+    (413, 'request_too_large', 'invalid_request_error', 'The request exceeds the allowed size.'),
+    (429, 'rate_limit_exceeded', 'rate_limit_error', 'The request exceeded the current rate limit.'),
+    (429, 'concurrency_limit_exceeded', 'rate_limit_error', 'The request exceeded the current concurrency limit.'),
+    (429, 'budget_exceeded', 'rate_limit_error', 'The monthly budget limit has been reached.'),
 )
 _ERROR_NAMES = (
     'feature_disabled',
@@ -19,6 +23,10 @@ _ERROR_NAMES = (
     'invalid_request',
     'upstream_error',
     'service_unavailable',
+    'request_too_large',
+    'rate_limit_exceeded',
+    'concurrency_limit_exceeded',
+    'budget_exceeded',
 )
 _ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _FIXED_ERROR_CONTRACTS, strict=True)))
 _CONSTRUCTION_TOKEN = object()
@@ -134,3 +142,19 @@ class PublicApiError(Exception):
     @staticmethod
     def service_unavailable() -> 'PublicApiError':
         return _new_public_api_error(6)
+
+    @staticmethod
+    def request_too_large() -> 'PublicApiError':
+        return _new_public_api_error(7)
+
+    @staticmethod
+    def rate_limit_exceeded() -> 'PublicApiError':
+        return _new_public_api_error(8)
+
+    @staticmethod
+    def concurrency_limit_exceeded() -> 'PublicApiError':
+        return _new_public_api_error(9)
+
+    @staticmethod
+    def budget_exceeded() -> 'PublicApiError':
+        return _new_public_api_error(10)

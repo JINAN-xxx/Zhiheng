@@ -49,7 +49,7 @@ APPLICATION_ID = 'app_00000000000040008000000000000001'
 KEY_ID = 'key_00000000000040008000000000000001'
 MODEL_ID = 'mdl_00000000000040008000000000000001'
 SECRET_KEY = f'sk-zh_{KEY_ID}_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
-EXPECTED_ROUTE_COUNT = 9
+EXPECTED_ROUTE_COUNT = 10
 EXPECTED_WRITE_COUNT = 6
 OWNER_USER_ID = 7
 NOT_FOUND_STATUS = 404
@@ -284,6 +284,7 @@ def test_routes_use_exact_methods_permissions_login_and_no_data_scope() -> None:
         ('POST', '/ai/applications/{application_id}/keys'): 'ai:application:key:add',
         ('POST', '/ai/applications/{application_id}/keys/{key_id}/rotate'): 'ai:application:key:rotate',
         ('POST', '/ai/applications/{application_id}/keys/{key_id}/revoke'): 'ai:application:key:revoke',
+        ('GET', '/ai/applications/{application_id}/usage'): 'ai:application:query',
     }
     routes = route_map()
     assert ai_application_controller.prefix == '/ai/applications'

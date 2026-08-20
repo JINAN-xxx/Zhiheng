@@ -227,3 +227,84 @@ class DeveloperKeySummaryModel(_ResponseModel):
 
 class DeveloperKeyCreatedModel(DeveloperKeySummaryModel):
     api_key: str = Field(repr=False)
+
+
+UsageOperationType = Literal['chat', 'embedding', 'rerank']
+UsageLedgerStatus = Literal['started', 'completed', 'failed', 'cancelled', 'abandoned']
+
+
+class UsageLedgerPageQueryModel(_StrictRequestModel):
+    operation_type: UsageOperationType | None = None
+    status: UsageLedgerStatus | None = None
+    page_num: HttpQueryInteger = Field(default=1, ge=1)
+    page_size: HttpQueryInteger = Field(default=10, ge=1, le=100)
+
+
+class UsageLedgerModel(_ResponseModel):
+    request_id: str
+    api_key_id: DeveloperKeyResourceId
+    model_code: str
+    operation_type: UsageOperationType
+    input_tokens: NonNegativeInteger | None = None
+    output_tokens: NonNegativeInteger | None = None
+    cache_tokens: NonNegativeInteger | None = None
+    reasoning_tokens: NonNegativeInteger | None = None
+    search_units: NonNegativeInteger | None = None
+    raw_cost: Decimal | None = None
+    billable_cost: Decimal | None = None
+    currency: str
+    cost_estimated: bool
+    status: UsageLedgerStatus
+    error_code: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+
+
+class RateCardCreateModel(_StrictRequestModel):
+    billing_mode: Literal['token', 'search_unit'] = 'token'
+    input_price_per_token: Annotated[ExactDecimal, Field(ge=0)] = Decimal('0')
+    output_price_per_token: Annotated[ExactDecimal, Field(ge=0)] = Decimal('0')
+    cache_price_per_token: Annotated[ExactDecimal, Field(ge=0)] | None = None
+    search_price_per_unit: Annotated[ExactDecimal, Field(ge=0)] | None = None
+    currency: Annotated[str, StringConstraints(strict=True, pattern=r'^[A-Z]{3}$')] = 'USD'
+    effective_from: datetime | None = None
+
+    @model_validator(mode='after')
+    def validate_billing_mode(self) -> 'RateCardCreateModel':
+        if self.billing_mode == 'search_unit':
+            if self.search_price_per_unit is None or self.search_price_per_unit <= 0:
+                raise ValueError('Search Unit 计费模式必须配置正的 search_price_per_unit')
+            if (
+                self.input_price_per_token != 0
+                or self.output_price_per_token != 0
+                or self.cache_price_per_token is not None
+            ):
+                raise ValueError('Search Unit 计费模式不能配置 Token 价格')
+        elif self.search_price_per_unit is not None:
+            raise ValueError('Token 计费模式不能配置 search_price_per_unit')
+        return self
+
+
+class RateCardModel(_ResponseModel):
+    rate_card_id: str
+    version: PositiveInteger
+    billing_mode: Literal['token', 'search_unit']
+    input_price_per_token: Decimal
+    output_price_per_token: Decimal
+    cache_price_per_token: Decimal | None = None
+    search_price_per_unit: Decimal | None = None
+    currency: str
+    effective_from: datetime
+    effective_to: datetime | None = None
+    status: Literal['active', 'disabled']
+
+
+class ModelSmokeTestRequestModel(_StrictRequestModel):
+    pass
+
+
+class ModelSmokeTestResultModel(_ResponseModel):
+    model_type: Literal['chat', 'embedding', 'rerank']
+    success: bool
+    latency_ms: NonNegativeInteger | None = None
+    message: str

@@ -437,6 +437,7 @@ async def test_resolve_active_model_with_real_daos(
         binding_id=BINDING_ID,
         engine_type='litellm',
         engine_model_snapshot=ENGINE_MODEL,
+        model_type='chat',
         default_parameters={'temperature': 0.2, 'max_tokens': 2_048},
     )
     assert runtime.chat_requests == []

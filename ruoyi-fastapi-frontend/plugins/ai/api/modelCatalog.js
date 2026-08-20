@@ -34,3 +34,25 @@ export function disablePlatformModel(modelId) {
 export function deletePlatformModel(modelId) {
   return request({ url: modelPath(modelId), method: 'delete' })
 }
+
+export function smokeTestPlatformModel(modelId) {
+  return request({
+    url: `/ai/models/${modelId}/smoke-test`,
+    method: 'post',
+  })
+}
+
+export function listModelRateCards(modelId) {
+  return request({
+    url: `/ai/models/${modelId}/rate-cards`,
+    method: 'get',
+  })
+}
+
+export function createModelRateCard(modelId, data) {
+  return request({
+    url: `/ai/models/${modelId}/rate-cards`,
+    method: 'post',
+    data,
+  })
+}

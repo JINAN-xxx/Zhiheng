@@ -107,6 +107,48 @@
           </article>
         </div>
       </WorkspacePanel>
+
+      <WorkspacePanel class="usage-panel" :title="`用量台账 · ${selectedApplication?.applicationCode || '-'}`" subtitle="最近调用、Token 与结算记录" flush>
+        <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看用量台账" />
+        <WorkspaceState v-else-if="usageLoading && !usageRows.length" kind="loading" />
+        <WorkspaceState v-else-if="usageError && !usageRows.length" kind="error" :message="usageError" @retry="loadUsage" />
+        <WorkspaceState v-else-if="!usageRows.length" kind="empty" title="暂无用量记录" message="公开 API 调用完成后会在此展示。" />
+        <div v-else class="usage-list">
+          <el-table :data="usageRows" size="small" style="width: 100%">
+            <el-table-column prop="startedAt" label="开始时间" width="150">
+              <template #default="{ row }">{{ formatTime(row.startedAt) }}</template>
+            </el-table-column>
+            <el-table-column prop="operationType" label="类型" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="operationTypeMeta(row.operationType).type">{{ operationTypeMeta(row.operationType).label }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="modelCode" label="模型" min-width="140" />
+            <el-table-column label="Token" width="140">
+              <template #default="{ row }">{{ row.inputTokens ?? '-' }} / {{ row.outputTokens ?? '-' }}</template>
+            </el-table-column>
+            <el-table-column label="Search Unit" width="100">
+              <template #default="{ row }">{{ row.searchUnits ?? '-' }}</template>
+            </el-table-column>
+            <el-table-column label="结算成本" width="120">
+              <template #default="{ row }">
+                {{ row.billableCost != null ? Number(row.billableCost).toFixed(6) : '-' }}
+                <el-tag v-if="row.costEstimated" size="small" type="warning" effect="plain">估算</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="100">
+              <template #default="{ row }"><el-tag size="small" effect="plain">{{ row.status }}</el-tag></template>
+            </el-table-column>
+          </el-table>
+          <pagination
+            v-show="usageTotal > usageQuery.pageSize"
+            v-model:page="usageQuery.pageNum"
+            v-model:limit="usageQuery.pageSize"
+            :total="usageTotal"
+            @pagination="loadUsage"
+          />
+        </div>
+      </WorkspacePanel>
     </section>
 
     <el-dialog v-model="applicationFormOpen" :title="editingApplication ? '编辑应用' : '新建应用'" width="500px" destroy-on-close>
@@ -169,6 +211,7 @@ import {
   createDeveloperKey,
   disableApplication,
   listApplications,
+  listApplicationUsage,
   listDeveloperKeys,
   revokeDeveloperKey,
   rotateDeveloperKey,
@@ -200,6 +243,11 @@ const selectedApplication = ref(null)
 const keys = ref([])
 const keyLoading = ref(false)
 const keyError = ref('')
+const usageRows = ref([])
+const usageTotal = ref(0)
+const usageLoading = ref(false)
+const usageError = ref('')
+const usageQuery = reactive({ operationType: '', status: '', pageNum: 1, pageSize: 10 })
 const models = ref([])
 const applicationFormOpen = ref(false)
 const editingApplication = ref(null)
@@ -265,8 +313,15 @@ async function selectApplication(application) {
     keys.value = []
     keyError.value = ''
   }
+  if (currentApplicationId !== nextApplicationId) {
+    ++usageRequest
+    usageRows.value = []
+    usageQuery.pageNum = 1
+    usageError.value = ''
+  }
   selectedApplication.value = application
   if (application && canListKeys.value) await loadKeys()
+  if (application) await loadUsage()
 }
 
 async function loadKeys() {
@@ -283,6 +338,37 @@ async function loadKeys() {
     if (requestId === keyRequest) keyError.value = reason?.message || 'API Key 加载失败'
   } finally {
     if (requestId === keyRequest) keyLoading.value = false
+  }
+}
+
+const operationTypeMeta = (operationType) => ({
+  chat: { label: 'Chat', type: 'primary' },
+  embedding: { label: 'Embedding', type: 'success' },
+  rerank: { label: 'Rerank', type: 'warning' },
+}[operationType] || { label: operationType || '-', type: 'info' })
+
+let usageRequest = 0
+async function loadUsage() {
+  if (!selectedApplication.value) return
+  const applicationId = selectedApplication.value.applicationId
+  const requestId = ++usageRequest
+  usageLoading.value = true
+  usageError.value = ''
+  try {
+    const response = await listApplicationUsage(applicationId, {
+      pageNum: usageQuery.pageNum,
+      pageSize: usageQuery.pageSize,
+      operationType: usageQuery.operationType || undefined,
+      status: usageQuery.status || undefined,
+    })
+    if (requestId !== usageRequest || applicationId !== selectedApplication.value?.applicationId) return
+    const page = response?.data || response || {}
+    usageRows.value = Array.isArray(page.rows) ? page.rows : []
+    usageTotal.value = Number(page.total) || usageRows.value.length
+  } catch (reason) {
+    if (requestId === usageRequest) usageError.value = reason?.message || '用量台账加载失败'
+  } finally {
+    if (requestId === usageRequest) usageLoading.value = false
   }
 }
 

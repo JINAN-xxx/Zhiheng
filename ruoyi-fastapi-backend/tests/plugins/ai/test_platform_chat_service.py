@@ -127,13 +127,15 @@ class FakeModelService:
         self.resolve_calls: list[str] = []
         self.stream_calls: list[tuple[str, tuple[object, ...], Mapping[str, object]]] = []
 
-    async def resolve_model(self, model_id: str) -> ResolvedModel:
+    async def resolve_model(self, model_id: str, expected_type: str | None = None) -> ResolvedModel:
+        del expected_type
         self.resolve_calls.append(model_id)
         return ResolvedModel(
             platform_model_id=MODEL_ID,
             binding_id=BINDING_ID,
             engine_type='litellm',
             engine_model_snapshot='gpt-4o-mini',
+            model_type='chat',
             default_parameters={'temperature': 0.2},
         )
 
