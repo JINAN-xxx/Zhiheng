@@ -1,9 +1,16 @@
 <template>
   <section class="app-main">
     <router-view v-slot="{ Component, route }">
-      <transition name="fade-transform" mode="out-in">
+      <AiResourceShell v-if="isAiResourceRoute(route.path) && !route.meta.link">
+        <transition name="fade-transform" mode="out-in">
+          <keep-alive :include="tagsViewStore.cachedViews">
+            <component :is="Component" :key="route.path" />
+          </keep-alive>
+        </transition>
+      </AiResourceShell>
+      <transition v-else name="fade-transform" mode="out-in">
         <keep-alive :include="tagsViewStore.cachedViews">
-          <component v-if="!route.meta.link" :is="Component" :key="route.path"/>
+          <component v-if="!route.meta.link" :is="Component" :key="route.path" />
         </keep-alive>
       </transition>
     </router-view>
@@ -16,9 +23,15 @@
 import copyright from "./Copyright/index"
 import iframeToggle from "./IframeToggle/index"
 import useTagsViewStore from '@/store/modules/tagsView'
+import AiResourceShell from './AiResourceShell.vue'
 
 const route = useRoute()
 const tagsViewStore = useTagsViewStore()
+const AI_RESOURCE_PATHS = new Set(['/ai/model', '/ai/application', '/ai/usage'])
+
+function isAiResourceRoute(path) {
+  return AI_RESOURCE_PATHS.has(path)
+}
 
 onMounted(() => {
   addIframe()

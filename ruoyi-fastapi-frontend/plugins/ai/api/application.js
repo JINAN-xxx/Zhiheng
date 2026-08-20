@@ -32,3 +32,11 @@ export function rotateDeveloperKey(applicationId, keyId, data) {
 export function revokeDeveloperKey(applicationId, keyId) {
   return request({ url: buildApplicationPath(applicationId, `keys/${keyId}/revoke`), method: 'post' })
 }
+
+export function listApplicationUsage(applicationId, query) {
+  return request({
+    url: buildApplicationPath(applicationId, 'usage'),
+    method: 'get',
+    params: query,
+  })
+}

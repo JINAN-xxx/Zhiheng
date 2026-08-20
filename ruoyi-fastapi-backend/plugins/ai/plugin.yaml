@@ -76,6 +76,15 @@ frontend:
           type: C
           orderNum: 3
           icon: code
+        - name: 用量
+          path: usage
+          component: plugin/ai/usage/index
+          routeName: AiUsage
+          perms: ai:application:list
+          type: C
+          orderNum: 4
+          icon: chart
+          visible: '1'
 
 permissions:
   - code: ai:model:list
