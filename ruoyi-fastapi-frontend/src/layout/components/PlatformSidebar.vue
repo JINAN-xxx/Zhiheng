@@ -100,7 +100,7 @@ onMounted(() => {
 .platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--workspace-text-secondary); text-decoration: none; cursor: pointer; }
 .platform-new-chat { border-color: var(--workspace-border); color: var(--workspace-text); }
 .platform-nav-link.router-link-active { background: var(--workspace-main-soft); color: var(--workspace-main-deep); }
-.platform-admin-entry { margin: 8px 10px 12px; }
+.platform-admin-entry { margin: 8px 10px 12px; white-space: nowrap; }
 .platform-sidebar.collapsed .platform-brand,
 .platform-sidebar.collapsed .platform-nav-link,
 .platform-sidebar.collapsed .platform-new-chat,

@@ -39,7 +39,7 @@ const activeMenu = computed(() => route.meta.activeMenu || route.path)
 
 <style scoped lang="scss">
 .admin-sidebar { height: 100%; min-height: 0; display: flex; flex-direction: column; background: var(--workspace-surface); border-right: 1px solid var(--workspace-border); }
-.admin-sidebar__back { min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--workspace-border); background: transparent; color: var(--workspace-text); cursor: pointer; }
+.admin-sidebar__back { min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--workspace-border); background: transparent; color: var(--workspace-text); white-space: nowrap; cursor: pointer; }
 .admin-sidebar :deep(.el-scrollbar) { flex: 1; }
 .admin-sidebar :deep(.el-menu) { width: 100%; border-right: 0; background: transparent; }
 .admin-sidebar :deep(.el-menu-item),
