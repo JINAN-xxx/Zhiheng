@@ -6,7 +6,7 @@ import { handleThemeStyle } from '@/utils/theme'
 const isDark = useDark()
 const toggleDark = useToggle(isDark)
 
-const { sideTheme, showSettings, navType, tagsView, tagsViewPersist, tagsIcon, tagsViewStyle, fixedHeader, sidebarLogo, dynamicTitle, footerVisible, footerContent } = defaultSettings
+const { sideTheme, showSettings, tagsViewPersist, tagsIcon, tagsViewStyle, fixedHeader, sidebarLogo, dynamicTitle, footerVisible, footerContent } = defaultSettings
 
 const storageSetting = JSON.parse(localStorage.getItem('layout-setting')) || ''
 
@@ -15,11 +15,11 @@ const useSettingsStore = defineStore(
   {
     state: () => ({
       title: '',
+      platformShell: true,
       theme: storageSetting.theme || '#3996AE',
       sideTheme: storageSetting.sideTheme || sideTheme,
       showSettings: showSettings,
-      navType: storageSetting.navType === undefined ? navType : storageSetting.navType,
-      tagsView: storageSetting.tagsView === undefined ? tagsView : storageSetting.tagsView,
+      tagsView: true,
       tagsViewPersist: storageSetting.tagsViewPersist === undefined ? tagsViewPersist : storageSetting.tagsViewPersist,
       tagsIcon: storageSetting.tagsIcon === undefined ? tagsIcon : storageSetting.tagsIcon,
       tagsViewStyle: storageSetting.tagsViewStyle === undefined ? tagsViewStyle : storageSetting.tagsViewStyle,
