@@ -1,116 +1,108 @@
 <template>
-  <div :class="classObj" class="app-wrapper workspace-app-shell" :style="{ '--current-color': theme, '--current-color-light': theme + '1a', '--current-color-dark-bg': theme + '33' }">
-    <div v-if="device === 'mobile' && sidebar.opened" class="drawer-bg" @click="handleClickOutside"/>
-    <sidebar v-if="!sidebar.hide" class="sidebar-container" />
-    <div :class="{ hasTagsView: needTagsView, sidebarHide: sidebar.hide }" class="main-container">
-      <div :class="{ 'fixed-header': fixedHeader }">
-        <navbar @setLayout="setLayout" />
-        <tags-view v-if="needTagsView" />
-      </div>
-      <app-main />
-      <settings ref="settingRef" />
-    </div>
+  <div
+    class="platform-shell workspace-app-shell"
+    :class="[`is-${mode}`, { 'is-collapsed': collapsed, 'is-mobile': isMobile }]"
+    :style="{ '--current-color': theme, '--current-color-light': `${theme}1a` }"
+  >
+    <aside v-if="!isMobile" class="platform-shell__sidebar">
+      <PlatformSidebar v-if="mode === 'ai'" :collapsed="collapsed" @open-admin="openAdmin" />
+      <AdminSidebar v-else :collapsed="collapsed" @open-ai="openAi" />
+    </aside>
+
+    <el-drawer
+      v-else
+      v-model="appStore.mobileSidebarOpen"
+      direction="ltr"
+      size="min(86vw, 300px)"
+      :show-close="false"
+      :with-header="false"
+      append-to-body
+      class="platform-mobile-drawer"
+    >
+      <PlatformSidebar v-if="mode === 'ai'" @open-admin="openAdmin" />
+      <AdminSidebar v-else @open-ai="openAi" />
+    </el-drawer>
+
+    <section class="platform-shell__main">
+      <PlatformTopbar
+        :mode="mode"
+        @toggle-sidebar="toggleSidebar"
+        @open-admin="openAdmin"
+        @open-ai="openAi"
+        @set-layout="setLayout"
+      />
+      <TagsView v-if="mode === 'admin' && needTagsView" />
+      <AppMain />
+    </section>
+    <Settings ref="settingRef" />
   </div>
 </template>
 
 <script setup>
 import { useWindowSize } from '@vueuse/core'
-import Sidebar from './components/Sidebar/index.vue'
-import { AppMain, Navbar, Settings, TagsView } from './components'
+import {
+  collectWorkspaceRoutePaths,
+  filterAdminWorkspaceRoutes,
+  resolveAiResourceTabs,
+  resolveWorkspaceLandingPath,
+  resolveWorkspaceMode,
+} from '@/components/Workspace/workspaceTransforms.js'
 import useAppStore from '@/store/modules/app'
+import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
+import useUserStore from '@/store/modules/user'
+import { AdminSidebar, AppMain, PlatformSidebar, PlatformTopbar, Settings, TagsView } from './components'
 
+const route = useRoute()
+const router = useRouter()
+const appStore = useAppStore()
+const permissionStore = usePermissionStore()
 const settingsStore = useSettingsStore()
-const theme = computed(() => settingsStore.theme);
-const sidebar = computed(() => useAppStore().sidebar);
-const device = computed(() => useAppStore().device);
-const needTagsView = computed(() => settingsStore.tagsView);
-const fixedHeader = computed(() => settingsStore.fixedHeader);
+const userStore = useUserStore()
+const settingRef = ref(null)
+const { width } = useWindowSize()
 
-const classObj = computed(() => ({
-  hideSidebar: !sidebar.value.opened,
-  openSidebar: sidebar.value.opened,
-  withoutAnimation: sidebar.value.withoutAnimation,
-  mobile: device.value === 'mobile'
-}))
+const mode = computed(() => resolveWorkspaceMode(route.path))
+const isMobile = computed(() => width.value < 992)
+const collapsed = computed(() => !appStore.sidebar.opened)
+const needTagsView = computed(() => settingsStore.tagsView)
+const theme = computed(() => settingsStore.theme)
 
-const { width, height } = useWindowSize();
-const WIDTH = 992; // refer to Bootstrap's responsive design
+watch(() => route.fullPath, () => appStore.closeMobileSidebar())
 
-watch(() => device.value, () => {
-  if (device.value === 'mobile' && sidebar.value.opened) {
-    useAppStore().closeSideBar({ withoutAnimation: false })
-  }
-})
-
-watchEffect(() => {
-  if (width.value - 1 < WIDTH) {
-    useAppStore().toggleDevice('mobile')
-    useAppStore().closeSideBar({ withoutAnimation: true })
-  } else {
-    useAppStore().toggleDevice('desktop')
-  }
-})
-
-function handleClickOutside() {
-  useAppStore().closeSideBar({ withoutAnimation: false })
+function toggleSidebar() {
+  if (isMobile.value) appStore.openMobileSidebar()
+  else appStore.toggleSideBar()
 }
 
-const settingRef = ref(null);
+function openAdmin() {
+  const routes = filterAdminWorkspaceRoutes(permissionStore.addRoutes)
+  const target = collectWorkspaceRoutePaths(routes).find((path) => path !== '/index')
+  if (target) router.push(target)
+}
+
+function openAi() {
+  const accessiblePaths = collectWorkspaceRoutePaths(permissionStore.addRoutes)
+  const target = resolveWorkspaceLandingPath('/index', accessiblePaths)
+  if (resolveWorkspaceMode(target) === 'ai') router.push(target)
+  else {
+    const firstResource = resolveAiResourceTabs(new Set(userStore.permissions))[0]
+    if (firstResource) router.push(firstResource.path)
+  }
+}
+
 function setLayout() {
-  settingRef.value.openSetting();
+  settingRef.value?.openSetting()
 }
 </script>
 
-<style lang="scss" scoped>
-@use "@/assets/styles/mixin.scss" as mix;
-@use "@/assets/styles/variables.module.scss" as vars;
+<style scoped lang="scss">
+.platform-shell { width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
+.platform-shell__sidebar { width: var(--workspace-sidebar-width); min-width: var(--workspace-sidebar-width); height: 100%; transition: width 0.2s ease, min-width 0.2s ease; }
+.platform-shell.is-collapsed .platform-shell__sidebar { width: var(--workspace-sidebar-collapsed-width); min-width: var(--workspace-sidebar-collapsed-width); }
+.platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+</style>
 
-.app-wrapper {
-  @include mix.clearfix;
-  position: relative;
-  height: 100%;
-  width: 100%;
-
-  &.mobile.openSidebar {
-    position: fixed;
-    top: 0;
-  }
-}
-
-.main-container:has(.fixed-header) {
-  height: 100vh;
-  overflow: hidden;
-}
-
-.drawer-bg {
-  background: #000;
-  opacity: 0.3;
-  width: 100%;
-  top: 0;
-  height: 100%;
-  position: absolute;
-  z-index: 999;
-}
-
-.fixed-header {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 9;
-  width: calc(100% - #{vars.$base-sidebar-width});
-  transition: width 0.28s;
-}
-
-.hideSidebar .fixed-header {
-  width: calc(100% - 54px);
-}
-
-.sidebarHide .fixed-header {
-  width: 100%;
-}
-
-.mobile .fixed-header {
-  width: 100%;
-}
+<style lang="scss">
+.platform-mobile-drawer .el-drawer__body { padding: 0; overflow: hidden; }
 </style>

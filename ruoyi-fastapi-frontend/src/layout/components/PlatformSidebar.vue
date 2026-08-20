@@ -71,7 +71,6 @@ function newChat() {
 
 function openSession(sessionId) {
   router.push({ path: '/ai/chat', query: { sessionId } })
-  workspaceStore.closeMobileDrawer()
 }
 
 async function archiveSession(sessionId) {

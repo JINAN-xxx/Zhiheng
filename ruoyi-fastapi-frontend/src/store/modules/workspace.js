@@ -11,7 +11,6 @@ const useWorkspaceStore = defineStore('workspace', {
     sessionsError: '',
     sessionsLastSuccessAt: null,
     sessionGeneration: 0,
-    mobileDrawerOpen: false,
   }),
   actions: {
     async loadSessions() {
@@ -38,12 +37,6 @@ const useWorkspaceStore = defineStore('workspace', {
     async archiveSession(sessionId) {
       await archiveRecentSession(sessionId)
       this.sessions = this.sessions.filter((session) => session.sessionId !== sessionId)
-    },
-    openMobileDrawer() {
-      this.mobileDrawerOpen = true
-    },
-    closeMobileDrawer() {
-      this.mobileDrawerOpen = false
     },
     invalidateSessionRequests() {
       this.sessionGeneration += 1

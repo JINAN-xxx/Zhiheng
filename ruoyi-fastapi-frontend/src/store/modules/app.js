@@ -9,6 +9,7 @@ const useAppStore = defineStore(
         withoutAnimation: false,
         hide: false
       },
+      mobileSidebarOpen: false,
       device: 'desktop',
       size: Cookies.get('size') || 'default'
     }),
@@ -32,6 +33,12 @@ const useAppStore = defineStore(
       },
       toggleDevice(device) {
         this.device = device
+      },
+      openMobileSidebar() {
+        this.mobileSidebarOpen = true
+      },
+      closeMobileSidebar() {
+        this.mobileSidebarOpen = false
       },
       setSize(size) {
         this.size = size;
