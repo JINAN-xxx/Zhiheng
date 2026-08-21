@@ -1,11 +1,11 @@
 import axios from 'axios'
-import { ElNotification , ElMessageBox, ElMessage, ElLoading } from 'element-plus'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
 import { tansParams, blobValidate } from '@/utils/ruoyi'
 import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
 import useUserStore from '@/store/modules/user'
+import feedback from '@/plugins/antdFeedback'
 import {
   decryptTransportErrorResponse,
   decryptTransportResponse,
@@ -15,7 +15,6 @@ import {
   shouldRetryTransportWithFreshKey
 } from '@/utils/transportCrypto'
 
-let downloadLoadingInstance;
 // 是否显示重新登录
 export let isRelogin = { show: false };
 
@@ -109,7 +108,7 @@ service.interceptors.response.use(async res => {
     if (code === 401) {
       if (!isRelogin.show) {
         isRelogin.show = true;
-        ElMessageBox.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录', '系统提示', { confirmButtonText: '重新登录', cancelButtonText: '取消', type: 'warning' }).then(() => {
+        feedback.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录').then(() => {
           isRelogin.show = false;
           useUserStore().logOut().then(() => {
             location.href = '/index';
@@ -120,13 +119,13 @@ service.interceptors.response.use(async res => {
     }
       return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
     } else if (code === 500) {
-      ElMessage({ message: msg, type: 'error' })
+      feedback.msgError(msg)
       return Promise.reject(new Error(msg))
     } else if (code === 601) {
-      ElMessage({ message: msg, type: 'warning' })
+      feedback.msgWarning(msg)
       return Promise.reject(new Error(msg))
     } else if (code !== 200) {
-      ElNotification.error({ title: msg })
+      feedback.notifyError(msg)
       return Promise.reject('error')
     } else {
       return  Promise.resolve(res.data)
@@ -151,7 +150,11 @@ service.interceptors.response.use(async res => {
     const responseMsg = response?.data?.msg
     if (responseMsg) {
       const messageType = responseStatus === 429 || responseCode === 429 ? 'warning' : 'error'
-      ElMessage({ message: responseMsg, type: messageType, duration: 5 * 1000 })
+      if (messageType === 'warning') {
+        feedback.msgWarning(responseMsg, 5)
+      } else {
+        feedback.msgError(responseMsg, 5)
+      }
       return Promise.reject(new Error(responseMsg))
     }
     let { message } = error;
@@ -162,7 +165,7 @@ service.interceptors.response.use(async res => {
     } else if (message.includes("Request failed with status code")) {
       message = "系统接口" + message.slice(-3) + "异常";
     }
-    ElMessage({ message: message, type: 'error', duration: 5 * 1000 })
+    feedback.msgError(message, 5)
     return Promise.reject(error)
   }
 )
@@ -178,7 +181,7 @@ service.interceptors.response.use(async res => {
  */
 // 通用下载方法
 export function download(url, params, filename, config) {
-  downloadLoadingInstance = ElLoading.service({ text: "正在下载数据，请稍候", background: "rgba(0, 0, 0, 0.7)", })
+  feedback.loading('正在下载数据，请稍候')
   return service.post(url, params, {
     transformRequest: [(params) => { return tansParams(params) }],
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', encrypt: false, encryptResponse: false },
@@ -193,13 +196,13 @@ export function download(url, params, filename, config) {
       const resText = await data.text();
       const rspObj = JSON.parse(resText);
       const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
-      ElMessage.error(errMsg);
+      feedback.msgError(errMsg)
     }
-    downloadLoadingInstance.close();
+    feedback.closeLoading()
   }).catch((r) => {
     console.error(r)
-    ElMessage.error('下载文件出现错误，请联系管理员！')
-    downloadLoadingInstance.close();
+    feedback.msgError('下载文件出现错误，请联系管理员！')
+    feedback.closeLoading()
   })
 }
 

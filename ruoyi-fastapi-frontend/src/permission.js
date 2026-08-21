@@ -1,10 +1,10 @@
 import router from './router'
-import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import { getToken } from '@/utils/auth'
 import { isHttp, isPathMatch } from '@/utils/validate'
 import { isRelogin } from '@/utils/request'
+import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
@@ -61,7 +61,7 @@ router.beforeEach(async (to, from) => {
         return { ...to, replace: true }
       } catch (err) {
         await useUserStore().logOut()
-        ElMessage.error(err)
+        feedback.msgError(err?.message ?? String(err))
         return { path: '/' }
       }
     }

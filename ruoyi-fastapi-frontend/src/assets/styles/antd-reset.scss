@@ -29,3 +29,36 @@ html.dark {
 .ant-popover {
   font-family: var(--workspace-font-family);
 }
+
+.antd-global-loading {
+  position: fixed;
+  z-index: 2100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(12 13 13 / 58%);
+  backdrop-filter: blur(2px);
+}
+
+.antd-global-loading__surface {
+  display: flex;
+  min-width: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px 22px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 8px;
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-float);
+}
+
+.antd-global-loading__text {
+  color: var(--workspace-text);
+  font-size: 14px;
+}
+
+.antd-feedback-prompt__label {
+  margin: 0 0 12px;
+  color: var(--workspace-text-secondary);
+}

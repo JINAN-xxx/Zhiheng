@@ -1,6 +1,6 @@
 import router from '@/router'
 import cache from '@/plugins/cache'
-import { ElMessageBox } from 'element-plus'
+import feedback from '@/plugins/antdFeedback'
 import { login, logout, getInfo } from '@/api/login'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { isHttp, isEmpty } from "@/utils/validate"
@@ -59,13 +59,13 @@ const useUserStore = defineStore(
             cache.session.set('pwrChrtype', res.pwdChrtype)
             /* 初始密码提示 */
             if(res.isDefaultModifyPwd) {
-              ElMessageBox.confirm('您的密码还是初始密码，请修改密码！',  '安全提示', {  confirmButtonText: '确定',  cancelButtonText: '取消',  type: 'warning' }).then(() => {
+              feedback.confirm('您的密码还是初始密码，请修改密码！').then(() => {
                 router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
               }).catch(() => {})
             }
             /* 过期密码提示 */
             if(!res.isDefaultModifyPwd && res.isPasswordExpired) {
-              ElMessageBox.confirm('您的密码已过期，请尽快修改密码！',  '安全提示', {  confirmButtonText: '确定',  cancelButtonText: '取消',  type: 'warning' }).then(() => {
+              feedback.confirm('您的密码已过期，请尽快修改密码！').then(() => {
                 router.push({ name: 'Profile', params: { activeTab: 'resetPwd' } })
               }).catch(() => {})
             }
