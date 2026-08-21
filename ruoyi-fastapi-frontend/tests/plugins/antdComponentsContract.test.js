@@ -16,6 +16,7 @@ const componentFiles = [
   'PermissionAction.vue',
   'SecretField.vue',
   'PlatformIcon.vue',
+  'AuthShell.vue',
 ]
 
 assert.deepEqual(resolveAsyncState({ loading: true, rows: [] }), { kind: 'loading' })
