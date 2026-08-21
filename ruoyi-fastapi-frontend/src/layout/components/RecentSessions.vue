@@ -3,24 +3,26 @@
     <div class="recent-sessions__heading">
       <span>最近会话</span>
       <button type="button" class="recent-sessions__refresh" aria-label="刷新最近会话" @click="emit('refresh')">
-        <el-icon><Refresh /></el-icon>
+        <ReloadOutlined />
       </button>
     </div>
 
-    <el-input
-      v-model="query"
-      clearable
-      :prefix-icon="Search"
+    <a-input
+      v-model:value="query"
+      allow-clear
       placeholder="搜索会话"
       aria-label="搜索最近会话"
-    />
+    >
+      <template #prefix><SearchOutlined /></template>
+    </a-input>
 
     <p v-if="error && sessions.length" class="recent-sessions__stale" role="status">
       刷新失败，列表可能已过期
     </p>
     <p v-else-if="error" class="recent-sessions__error" role="alert">{{ error }}</p>
 
-    <div v-loading="loading" class="recent-sessions__list">
+    <a-spin :spinning="loading" class="recent-sessions__loading">
+      <div class="recent-sessions__list">
       <div
         v-for="session in filteredSessions"
         :key="session.sessionId"
@@ -41,17 +43,17 @@
           @command="emit('archive-session', session.sessionId)"
         />
       </div>
-      <el-empty
+      <a-empty
         v-if="!loading && filteredSessions.length === 0"
         :description="query ? '没有匹配会话' : '暂无会话'"
-        :image-size="48"
       />
-    </div>
+      </div>
+    </a-spin>
   </section>
 </template>
 
 <script setup>
-import { Delete, Refresh, Search } from '@element-plus/icons-vue'
+import { DeleteOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
 
 const props = defineProps({
@@ -63,7 +65,7 @@ const props = defineProps({
 
 const emit = defineEmits(['archive-session', 'open-session', 'refresh'])
 const query = ref('')
-const archiveActions = Object.freeze([{ command: 'archive', label: '归档会话', icon: Delete }])
+const archiveActions = Object.freeze([{ command: 'archive', label: '归档会话', icon: DeleteOutlined }])
 
 const filteredSessions = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
@@ -87,6 +89,8 @@ function formatTime(value) {
 .recent-sessions__stale { color: var(--workspace-warning); background: var(--workspace-warning-soft); }
 .recent-sessions__error { color: var(--workspace-danger); background: var(--workspace-danger-soft); }
 .recent-sessions__list { min-height: 0; flex: 1; overflow-y: auto; }
+.recent-sessions__loading { min-height: 0; flex: 1; overflow: hidden; }
+.recent-sessions__loading :deep(.ant-spin-container) { height: 100%; }
 .recent-session { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; padding: 7px 6px 7px 9px; border-radius: var(--workspace-radius-sm); }
 .recent-session:hover,
 .recent-session.active { background: var(--workspace-main-soft); }

@@ -9,21 +9,21 @@
       <AdminSidebar v-else :collapsed="collapsed" @open-ai="openAi" />
     </aside>
 
-    <el-drawer
+    <a-drawer
       v-else
-      v-model="appStore.mobileSidebarOpen"
-      direction="ltr"
-      size="min(86vw, 300px)"
-      :show-close="false"
-      :with-header="false"
-      append-to-body
-      class="platform-mobile-drawer"
-      @opened="focusMobileSidebar"
-      @closed="restoreMenuFocus"
+      :open="appStore.mobileSidebarOpen"
+      placement="left"
+      :width="mobileDrawerWidth"
+      :closable="false"
+      :autofocus="false"
+      root-class-name="platform-mobile-drawer"
+      @update:open="updateMobileSidebar"
+      @close="appStore.closeMobileSidebar"
+      @after-open-change="handleMobileDrawerChange"
     >
       <PlatformSidebar v-if="mode === 'ai'" ref="mobileSidebarRef" @open-admin="openAdmin" />
       <AdminSidebar v-else ref="mobileSidebarRef" @open-ai="openAi" />
-    </el-drawer>
+    </a-drawer>
 
     <section class="platform-shell__main">
       <PlatformTopbar
@@ -69,6 +69,7 @@ const { width } = useWindowSize()
 
 const mode = computed(() => resolveWorkspaceMode(route.path))
 const isMobile = computed(() => width.value < 992)
+const mobileDrawerWidth = computed(() => Math.min(width.value * 0.86, 300))
 const collapsed = computed(() => !appStore.sidebar.opened)
 const needTagsView = computed(() => settingsStore.tagsView)
 const theme = computed(() => settingsStore.theme)
@@ -88,6 +89,16 @@ async function focusMobileSidebar() {
 
 function restoreMenuFocus() {
   topbarRef.value?.focusMenu()
+}
+
+function updateMobileSidebar(open) {
+  if (open) appStore.openMobileSidebar()
+  else appStore.closeMobileSidebar()
+}
+
+function handleMobileDrawerChange(open) {
+  if (open) focusMobileSidebar()
+  else restoreMenuFocus()
 }
 
 function openAdmin() {
@@ -119,5 +130,5 @@ function setLayout() {
 </style>
 
 <style lang="scss">
-.platform-mobile-drawer .el-drawer__body { padding: 0; overflow: hidden; }
+.platform-mobile-drawer .ant-drawer-body { padding: 0; overflow: hidden; }
 </style>

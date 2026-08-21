@@ -1,661 +1,425 @@
 <template>
-  <div id="tags-view-container" class="tags-view-container" :class="{ 'tags-view-container--chrome': tagsViewStyle === 'chrome' }">
-    <!-- 左切换箭头 -->
-    <span class="tags-nav-btn tags-nav-btn--left" :class="{ disabled: !canScrollLeft }" @click="scrollLeft">
-      <el-icon><arrow-left /></el-icon>
-    </span>
+  <nav id="tags-view-container" class="tags-view-container" aria-label="管理页面标签">
+    <button class="tags-icon-button" :disabled="!canScrollLeft" aria-label="向左滚动" @click="scrollLeft">
+      <LeftOutlined />
+    </button>
 
-    <!-- 标签滚动区 -->
-    <scroll-pane ref="scrollPaneRef" class="tags-view-wrapper" @scroll="handleScroll" @update-arrows="updateArrowState">
+    <ScrollPane ref="scrollPaneRef" class="tags-view-wrapper" @scroll="handleScroll" @update-arrows="updateArrowState">
       <router-link
         v-for="tag in visitedViews"
         :key="tag.path"
         :data-path="tag.path"
-        :class="{ 'active': isActive(tag), 'has-icon': tagsIcon }"
+        :class="{ active: isActive(tag), 'has-icon': tagsIcon }"
         :to="{ path: tag.path, query: tag.query, fullPath: tag.fullPath }"
         class="tags-view-item"
         :style="tagActiveStyle(tag)"
-        @click.middle="!isAffix(tag) ? closeSelectedTag(tag) : ''"
+        :aria-current="isActive(tag) ? 'page' : undefined"
+        @click.middle="!isAffix(tag) && closeSelectedTag(tag)"
         @contextmenu.prevent="openMenu(tag, $event)"
       >
-        <svg-icon v-if="tagsIcon && tag.meta && tag.meta.icon && tag.meta.icon !== '#'" :icon-class="tag.meta.icon" style="margin-right: 3px;" />
-        {{ tag.title }}
-        <span v-if="!isAffix(tag)" @click.prevent.stop="closeSelectedTag(tag)" class="tags-close-btn">
-          <close class="el-icon-close" />
-        </span>
+        <svg-icon v-if="tagsIcon && tag.meta?.icon && tag.meta.icon !== '#'" :icon-class="tag.meta.icon" />
+        <span>{{ tag.title }}</span>
+        <button
+          v-if="!isAffix(tag)"
+          class="tags-close-button"
+          type="button"
+          :aria-label="`关闭 ${tag.title}`"
+          @click.prevent.stop="closeSelectedTag(tag)"
+        >
+          <CloseOutlined />
+        </button>
       </router-link>
-    </scroll-pane>
+    </ScrollPane>
 
-    <!-- 右切换箭头 -->
-    <span class="tags-nav-btn tags-nav-btn--right" :class="{ disabled: !canScrollRight }" @click="scrollRight">
-      <el-icon><arrow-right /></el-icon>
-    </span>
+    <button class="tags-icon-button" :disabled="!canScrollRight" aria-label="向右滚动" @click="scrollRight">
+      <RightOutlined />
+    </button>
 
-    <!-- 下拉操作菜单 -->
-    <el-dropdown class="tags-action-dropdown" trigger="click" placement="bottom-end" @command="handleDropdownCommand">
-      <span class="tags-action-btn">
-        <el-icon><arrow-down /></el-icon>
-      </span>
-      <template #dropdown>
-        <el-dropdown-menu class="tags-dropdown-menu">
-          <el-dropdown-item v-if="!isAffix(selectedDropdownTag)" command="close"><close style="width: 1em; height: 1em;" />关闭当前</el-dropdown-item>
-          <el-dropdown-item command="closeOthers"><circle-close style="width: 1em; height: 1em;" />关闭其他</el-dropdown-item>
-          <el-dropdown-item command="closeLeft" :disabled="isFirstView()"><back style="width: 1em; height: 1em;" />关闭左侧</el-dropdown-item>
-          <el-dropdown-item command="closeRight" :disabled="isLastView()"><right style="width: 1em; height: 1em;" />关闭右侧</el-dropdown-item>
-          <el-dropdown-item command="closeAll"><circle-close style="width: 1em; height: 1em;" />全部关闭</el-dropdown-item>
-          <el-dropdown-item command="fullscreen" divided><full-screen style="width: 1em; height: 1em;" />全屏显示</el-dropdown-item>
-        </el-dropdown-menu>
+    <a-dropdown :trigger="['click']" placement="bottomRight">
+      <button class="tags-icon-button" aria-label="标签操作">
+        <DownOutlined />
+      </button>
+      <template #overlay>
+        <a-menu @click="handleDropdownClick">
+          <a-menu-item v-if="!isAffix(selectedDropdownTag)" key="close"><CloseOutlined />关闭当前</a-menu-item>
+          <a-menu-item key="closeOthers"><CloseCircleOutlined />关闭其他</a-menu-item>
+          <a-menu-item key="closeLeft" :disabled="isFirstView()"><ArrowLeftOutlined />关闭左侧</a-menu-item>
+          <a-menu-item key="closeRight" :disabled="isLastView()"><ArrowRightOutlined />关闭右侧</a-menu-item>
+          <a-menu-item key="closeAll"><StopOutlined />全部关闭</a-menu-item>
+          <a-menu-divider />
+          <a-menu-item key="fullscreen"><FullscreenOutlined />全屏显示</a-menu-item>
+        </a-menu>
       </template>
-    </el-dropdown>
+    </a-dropdown>
 
-    <!-- 刷新按钮 -->
-    <span class="tags-action-btn tags-refresh-btn" title="刷新页面" @click="refreshSelectedTag(selectedDropdownTag)">
-      <el-icon><refresh-right/></el-icon> 刷新
-    </span>
+    <button class="tags-refresh-button" type="button" @click="refreshSelectedTag(selectedDropdownTag)">
+      <ReloadOutlined />
+      <span>刷新</span>
+    </button>
 
-    <!-- 右键上下文菜单 -->
-    <ul v-show="visible" :style="{ left: left + 'px', top: top + 'px' }" class="contextmenu">
-      <li @click="refreshSelectedTag(selectedTag)"><refresh-right style="width: 1em; height: 1em;" />刷新页面</li>
-      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><close style="width: 1em; height: 1em;" />关闭当前</li>
-      <li @click="closeOthersTags"><circle-close style="width: 1em; height: 1em;" />关闭其他</li>
-      <li v-if="!isFirstView()" @click="closeLeftTags"><back style="width: 1em; height: 1em;" />关闭左侧</li>
-      <li v-if="!isLastView()" @click="closeRightTags"><right style="width: 1em; height: 1em;" />关闭右侧</li>
-      <li @click="closeAllTags(selectedTag)"><circle-close style="width: 1em; height: 1em;" />全部关闭</li>
+    <ul v-show="visible" :style="{ left: `${left}px`, top: `${top}px` }" class="contextmenu">
+      <li @click="refreshSelectedTag(selectedTag)"><ReloadOutlined />刷新页面</li>
+      <li v-if="!isAffix(selectedTag)" @click="closeSelectedTag(selectedTag)"><CloseOutlined />关闭当前</li>
+      <li @click="closeOthersTags"><CloseCircleOutlined />关闭其他</li>
+      <li v-if="!isFirstView()" @click="closeLeftTags"><ArrowLeftOutlined />关闭左侧</li>
+      <li v-if="!isLastView()" @click="closeRightTags"><ArrowRightOutlined />关闭右侧</li>
+      <li @click="closeAllTags(selectedTag)"><StopOutlined />全部关闭</li>
     </ul>
-  </div>
+  </nav>
 </template>
 
 <script setup>
-import ScrollPane from './ScrollPane'
-import { getNormalPath } from '@/utils/ruoyi'
-import useTagsViewStore from '@/store/modules/tagsView'
-import useSettingsStore from '@/store/modules/settings'
-import usePermissionStore from '@/store/modules/permission'
+import {
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  CloseCircleOutlined,
+  CloseOutlined,
+  DownOutlined,
+  FullscreenOutlined,
+  LeftOutlined,
+  ReloadOutlined,
+  RightOutlined,
+  StopOutlined,
+} from '@ant-design/icons-vue'
 
-const visible = ref(false);
-const top = ref(0);
-const left = ref(0);
-const selectedTag = ref({});
-const affixTags = ref([]);
-const scrollPaneRef = ref(null);
+import usePermissionStore from '@/store/modules/permission'
+import useSettingsStore from '@/store/modules/settings'
+import useTagsViewStore from '@/store/modules/tagsView'
+import { getNormalPath } from '@/utils/ruoyi'
+import ScrollPane from './ScrollPane.vue'
+
+const visible = ref(false)
+const top = ref(0)
+const left = ref(0)
+const selectedTag = ref({})
+const affixTags = ref([])
+const scrollPaneRef = ref()
 const canScrollLeft = ref(false)
 const canScrollRight = ref(false)
-const isFullscreen = ref(false)
 
-const { proxy } = getCurrentInstance();
-const route = useRoute();
-const router = useRouter();
+const { proxy } = getCurrentInstance()
+const route = useRoute()
+const router = useRouter()
 const settingsStore = useSettingsStore()
+const tagsViewStore = useTagsViewStore()
 
-const visitedViews = computed(() => useTagsViewStore().visitedViews);
-const routes = computed(() => usePermissionStore().routes);
-const theme = computed(() => useSettingsStore().theme);
-const tagsIcon = computed(() => useSettingsStore().tagsIcon)
-const tagsViewPersist = computed(() => useSettingsStore().tagsViewPersist)
-const tagsViewStyle = computed(() => useSettingsStore().tagsViewStyle)
-
-// 下拉菜单针对当前激活的 tag
-const selectedDropdownTag = computed(() => visitedViews.value.find(v => isActive(v)) || {})
+const visitedViews = computed(() => tagsViewStore.visitedViews)
+const routes = computed(() => usePermissionStore().routes)
+const theme = computed(() => settingsStore.theme)
+const tagsIcon = computed(() => settingsStore.tagsIcon)
+const tagsViewPersist = computed(() => settingsStore.tagsViewPersist)
+const tagsViewStyle = computed(() => settingsStore.tagsViewStyle)
+const selectedDropdownTag = computed(() => visitedViews.value.find((view) => isActive(view)) || {})
 
 watch(route, () => {
   addTags()
   moveToCurrentTag()
 })
 watch(visible, (value) => {
-  if (value) {
-    document.body.addEventListener('click', closeMenu)
-  } else {
-    document.body.removeEventListener('click', closeMenu)
-  }
+  if (value) document.body.addEventListener('click', closeMenu)
+  else document.body.removeEventListener('click', closeMenu)
 })
-watch(visitedViews, () => {
-  nextTick(() => updateArrowState())
-})
+watch(visitedViews, updateArrowState)
+
 onMounted(() => {
   initTags()
   addTags()
   window.addEventListener('resize', updateArrowState)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateArrowState)
-  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 
-function isActive(r) {
-  return r.path === route.path
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateArrowState)
+  document.body.removeEventListener('click', closeMenu)
+})
+
+function isActive(view) {
+  return view.path === route.path
 }
+
 function tagActiveStyle(tag) {
-  if (!isActive(tag) || tagsViewStyle.value !== 'card') return {};
-  return {
-    'background-color': theme.value,
-    'border-color': theme.value
-  };
+  if (!isActive(tag) || tagsViewStyle.value !== 'card') return {}
+  return { backgroundColor: theme.value, borderColor: theme.value, color: '#fff' }
 }
+
 function isAffix(tag) {
-  return tag && tag.meta && tag.meta.affix
+  return Boolean(tag?.meta?.affix)
 }
+
+function getSelectedTag() {
+  return selectedTag.value?.fullPath ? selectedTag.value : selectedDropdownTag.value
+}
+
 function isFirstView() {
-  try {
-    const tag = selectedTag.value && selectedTag.value.fullPath ? selectedTag.value : selectedDropdownTag.value
-    return tag.fullPath === '/index' || tag.fullPath === visitedViews.value[1].fullPath
-  } catch (err) {
-    return false
-  }
+  const tag = getSelectedTag()
+  const closableViews = visitedViews.value.filter((view) => !isAffix(view))
+  return !tag.fullPath || closableViews[0]?.fullPath === tag.fullPath
 }
+
 function isLastView() {
-  try {
-    const tag = selectedTag.value && selectedTag.value.fullPath ? selectedTag.value : selectedDropdownTag.value
-    return tag.fullPath === visitedViews.value[visitedViews.value.length - 1].fullPath
-  } catch (err) {
-    return false
-  }
+  const tag = getSelectedTag()
+  return !tag.fullPath || visitedViews.value.at(-1)?.fullPath === tag.fullPath
 }
-function filterAffixTags(routes, basePath = '') {
-  let tags = []
-  routes.forEach(route => {
-    if (route.meta && route.meta.affix) {
-      const tagPath = getNormalPath(basePath + '/' + route.path)
-      tags.push({
-        fullPath: tagPath,
-        path: tagPath,
-        name: route.name,
-        meta: { ...route.meta }
-      })
+
+function filterAffixTags(routeList, basePath = '') {
+  return routeList.flatMap((item) => {
+    const result = []
+    if (item.meta?.affix) {
+      const path = getNormalPath(`${basePath}/${item.path}`)
+      result.push({ fullPath: path, path, name: item.name, meta: { ...item.meta } })
     }
-    if (route.children) {
-      const tempTags = filterAffixTags(route.children, route.path)
-      if (tempTags.length >= 1) {
-        tags = [...tags, ...tempTags]
-      }
-    }
+    if (item.children) result.push(...filterAffixTags(item.children, item.path))
+    return result
   })
-  return tags
 }
+
 function initTags() {
-  if (tagsViewPersist.value) {
-    useTagsViewStore().loadPersistedViews()
-  }
-  const res = filterAffixTags(routes.value);
-  affixTags.value = res;
-  for (const tag of res) {
-    if (tag.name) {
-      useTagsViewStore().addAffixView(tag)
-    }
+  if (tagsViewPersist.value) tagsViewStore.loadPersistedViews()
+  affixTags.value = filterAffixTags(routes.value)
+  for (const tag of affixTags.value) {
+    if (tag.name) tagsViewStore.addAffixView(tag)
   }
 }
+
 function addTags() {
-  const { name } = route
-  if (name) {
-    useTagsViewStore().addView(route)
-  }
+  if (route.name) tagsViewStore.addView(route)
 }
+
 function moveToCurrentTag() {
   nextTick(() => {
-    for (const r of visitedViews.value) {
-      if (r.path === route.path) {
-        scrollPaneRef.value.moveToTarget(r);
-        if (r.fullPath !== route.fullPath) {
-          useTagsViewStore().updateVisitedView(route)
-        }
-      }
-    }
+    const current = visitedViews.value.find((view) => view.path === route.path)
+    if (!current) return
+    scrollPaneRef.value?.moveToTarget(current)
+    if (current.fullPath !== route.fullPath) tagsViewStore.updateVisitedView(route)
   })
 }
+
 function scrollLeft() {
-  if (!canScrollLeft.value) return
-  scrollPaneRef.value.scrollToStart()
+  if (canScrollLeft.value) scrollPaneRef.value?.scrollToStart()
 }
+
 function scrollRight() {
-  if (!canScrollRight.value) return
-  scrollPaneRef.value.scrollToEnd()
+  if (canScrollRight.value) scrollPaneRef.value?.scrollToEnd()
 }
+
 function updateArrowState() {
   nextTick(() => {
-    if (scrollPaneRef.value) {
-      const state = scrollPaneRef.value.getScrollState()
-      canScrollLeft.value = state.canLeft
-      canScrollRight.value = state.canRight
-    }
+    const state = scrollPaneRef.value?.getScrollState()
+    canScrollLeft.value = Boolean(state?.canLeft)
+    canScrollRight.value = Boolean(state?.canRight)
   })
 }
+
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    const appMain = document.querySelector('.app-main')
-    if (appMain) {
-      appMain.requestFullscreen()
-    }
-  } else {
-    document.exitFullscreen()
-  }
+  if (!document.fullscreenElement) document.querySelector('.app-main')?.requestFullscreen()
+  else document.exitFullscreen()
 }
-function onFullscreenChange() {
-  isFullscreen.value = !!document.fullscreenElement
-  const appMain = document.querySelector('.app-main')
-  if (appMain && !settingsStore.isDark) {
-    appMain.style.backgroundColor = document.fullscreenElement ? '#fff' : ''
-    appMain.style.overflowY = document.fullscreenElement ? 'auto' : ''
-  }
+
+function handleDropdownClick({ key }) {
+  handleDropdownCommand(key)
 }
+
 function handleDropdownCommand(command) {
   const tag = selectedDropdownTag.value
   selectedTag.value = tag
-  switch (command) {
-    case 'refresh':     refreshSelectedTag(tag); break
-    case 'fullscreen':  toggleFullscreen(); break
-    case 'close':       closeSelectedTag(tag); break
-    case 'closeOthers': closeOthersTags(); break
-    case 'closeLeft':   closeLeftTags(); break
-    case 'closeRight':  closeRightTags(); break
-    case 'closeAll':    closeAllTags(tag); break
+  const handlers = {
+    refresh: () => refreshSelectedTag(tag),
+    fullscreen: toggleFullscreen,
+    close: () => closeSelectedTag(tag),
+    closeOthers: closeOthersTags,
+    closeLeft: closeLeftTags,
+    closeRight: closeRightTags,
+    closeAll: () => closeAllTags(tag),
   }
+  handlers[command]?.()
 }
+
 function refreshSelectedTag(view) {
-  proxy.$tab.refreshPage(view);
-  if (route.meta.link) {
-    useTagsViewStore().delIframeView(route);
-  }
+  if (!view?.fullPath) return
+  proxy.$tab.refreshPage(view)
+  if (route.meta.link) tagsViewStore.delIframeView(route)
 }
+
 function closeSelectedTag(view) {
-  proxy.$tab.closePage(view).then(({ visitedViews }) => {
-    if (isActive(view)) {
-      toLastView(visitedViews, view)
-    }
+  if (!view?.fullPath) return
+  proxy.$tab.closePage(view).then(({ visitedViews: remainingViews }) => {
+    if (isActive(view)) toLastView(remainingViews, view)
   })
 }
+
 function closeRightTags() {
-  proxy.$tab.closeRightPage(selectedTag.value).then(visitedViews => {
-    if (!visitedViews.find(i => i.fullPath === route.fullPath)) {
-      toLastView(visitedViews)
-    }
+  proxy.$tab.closeRightPage(getSelectedTag()).then((remainingViews) => {
+    if (!remainingViews.find((view) => view.fullPath === route.fullPath)) toLastView(remainingViews)
   })
 }
+
 function closeLeftTags() {
-  proxy.$tab.closeLeftPage(selectedTag.value).then(visitedViews => {
-    if (!visitedViews.find(i => i.fullPath === route.fullPath)) {
-      toLastView(visitedViews)
-    }
+  proxy.$tab.closeLeftPage(getSelectedTag()).then((remainingViews) => {
+    if (!remainingViews.find((view) => view.fullPath === route.fullPath)) toLastView(remainingViews)
   })
 }
+
 function closeOthersTags() {
-  router.push(selectedTag.value).catch(() => { });
-  proxy.$tab.closeOtherPage(selectedTag.value).then(() => {
-    moveToCurrentTag()
-  })
+  const tag = getSelectedTag()
+  router.push(tag).catch(() => {})
+  proxy.$tab.closeOtherPage(tag).then(moveToCurrentTag)
 }
+
 function closeAllTags(view) {
-  proxy.$tab.closeAllPage().then(({ visitedViews }) => {
-    if (affixTags.value.some(tag => tag.path === route.path)) {
-      return
-    }
-    toLastView(visitedViews, view)
+  proxy.$tab.closeAllPage().then(({ visitedViews: remainingViews }) => {
+    if (!affixTags.value.some((tag) => tag.path === route.path)) toLastView(remainingViews, view)
   })
 }
-function toLastView(visitedViews, view) {
-  const latestView = visitedViews.slice(-1)[0]
-  if (latestView) {
-    router.push(latestView.fullPath)
-  } else {
-    if (view && view.name === 'Dashboard') {
-      router.replace({ path: '/redirect' + view.fullPath })
-    } else {
-      router.push('/')
-    }
-  }
+
+function toLastView(remainingViews, view) {
+  const latestView = remainingViews.at(-1)
+  if (latestView) router.push(latestView.fullPath)
+  else if (view?.name === 'Dashboard') router.replace({ path: `/redirect${view.fullPath}` })
+  else router.push('/')
 }
-function openMenu(tag, e) {
-  left.value = e.clientX
-  top.value = e.clientY
+
+function openMenu(tag, event) {
+  left.value = event.clientX
+  top.value = event.clientY
   visible.value = true
   selectedTag.value = tag
 }
+
 function closeMenu() {
   visible.value = false
 }
+
 function handleScroll() {
   closeMenu()
   updateArrowState()
 }
 </script>
 
-<style lang="scss" scoped>
-$tags-bar-height: 34px;
-
+<style scoped>
 .tags-view-container {
-  height: $tags-bar-height;
-  width: 100%;
-  background: var(--tags-bg, #fff);
-  border-bottom: 1px solid var(--tags-item-border, #d8dce5);
+  position: relative;
   display: flex;
+  width: 100%;
+  height: 35px;
+  min-height: 35px;
   align-items: center;
   overflow: hidden;
-
-  $btn-width: 28px;
-  $btn-color: #71717a;
-  $btn-hover-bg: #f0f2f5;
-  $btn-hover-color: #303133;
-  $btn-disabled-color: #c0c4cc;
-  $divider: 1px solid var(--tags-item-border, #d8dce5);
-
-  .tags-nav-btn {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: $btn-width;
-    height: $tags-bar-height;
-    cursor: pointer;
-    color: $btn-color;
-    font-size: 13px;
-    user-select: none;
-    transition: background 0.15s, color 0.15s;
-
-    &:hover:not(.disabled) {
-      background: $btn-hover-bg;
-      color: $btn-hover-color;
-    }
-
-    &.disabled {
-      color: $btn-disabled-color;
-      cursor: not-allowed;
-    }
-
-    &--left  { border-right: $divider; }
-    &--right { border-left: $divider; }
-  }
-
-  .tags-view-wrapper {
-    flex: 1;
-    min-width: 0;
-    height: 100%;
-
-    .tags-view-item {
-      display: inline-flex;
-      align-items: center;
-      position: relative;
-      cursor: pointer;
-      height: 26px;
-      line-height: 26px;
-      border: 1px solid var(--tags-item-border, #d8dce5);
-      color: var(--tags-item-text, #495060);
-      background: var(--tags-item-bg, #fff);
-      padding: 0 8px;
-      font-size: 12px;
-      margin-left: 5px;
-      border-radius: 3px;
-      text-decoration: none;
-      vertical-align: middle;
-      padding-top: 2px !important;
-
-      &:first-of-type { margin-left: 6px; }
-      &:last-of-type  { margin-right: 15px; }
-    }
-  }
-
-  &:not(.tags-view-container--chrome) .tags-view-wrapper .tags-view-item.active {
-    background-color: #42b983;
-    color: #fff;
-    border-color: #42b983;
-
-    &::before {
-      content: '';
-      background: #fff;
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      position: relative;
-      margin-right: 5px;
-    }
-  }
-
-  &:not(.tags-view-container--chrome) .tags-view-wrapper .tags-view-item.active.has-icon::before {
-    content: none !important;
-  }
-
-  .tags-action-dropdown {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .tags-action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: $btn-width;
-    height: $tags-bar-height;
-    cursor: pointer;
-    color: $btn-color;
-    font-size: 13px;
-    border-left: $divider;
-    user-select: none;
-    transition: background 0.15s, color 0.15s;
-
-    &:hover {
-      background: $btn-hover-bg;
-      color: $btn-hover-color;
-    }
-  }
-
-  .tags-refresh-btn {
-    width: 60px;
-  }
-
-  .contextmenu {
-    margin: 0;
-    background: var(--el-bg-color-overlay, #fff);
-    z-index: 3000;
-    position: fixed;
-    list-style-type: none;
-    padding: 5px 0;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--tags-item-text, #333);
-    box-shadow: 2px 2px 3px 0 rgba(0, 0, 0, .3);
-    border: 1px solid var(--el-border-color-light, #e4e7ed);
-
-    li {
-      margin: 0;
-      padding: 7px 16px;
-      cursor: pointer;
-
-      &:hover {
-        background: var(--tags-item-hover, #eee);
-      }
-    }
-  }
-
-  &.tags-view-container--chrome {
-    --chrome-strip-bg: #ffffff;
-    --chrome-strip-border: var(--el-border-color-lighter, #e4e7ed);
-    --chrome-tab-active-bg: var(--el-color-primary-light-9);
-    --chrome-tab-text: var(--el-text-color-regular, #606266);
-    --chrome-tab-text-active: var(--el-color-primary);
-    --chrome-wing-r: 10px;
-
-    overflow: visible;
-    background: var(--chrome-strip-bg);
-    border-bottom: 1px solid var(--chrome-strip-border);
-    align-items: flex-end;
-
-    .tags-nav-btn {
-      align-self: stretch;
-      height: auto;
-      min-height: $tags-bar-height;
-      border-color: var(--chrome-strip-border);
-    }
-
-    .tags-action-btn {
-      border-color: var(--chrome-strip-border);
-    }
-
-    .tags-view-wrapper {
-      .tags-view-item {
-        display: inline-flex !important;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        z-index: 1;
-        height: 30px;
-        min-height: 30px;
-        margin: 0 0 -1px;
-        padding: 0 12px;
-        font-size: 13px;
-        font-weight: 400;
-        line-height: 1.2;
-        border: none !important;
-        border-radius: 0;
-        background: transparent !important;
-        color: var(--chrome-tab-text);
-        padding-top: 0 !important;
-        box-shadow: none !important;
-        transition: background 0.12s ease, color 0.12s ease, border-radius 0.12s ease;
-
-        &::before,
-        &::after {
-          content: '' !important;
-          display: block !important;
-          position: absolute;
-          bottom: 0;
-          width: var(--chrome-wing-r);
-          height: var(--chrome-wing-r);
-          margin: 0 !important;
-          pointer-events: none;
-          background: transparent !important;
-          border-radius: 0 !important;
-          transition: box-shadow 0.12s ease;
-        }
-
-        &::before {
-          left: calc(-1 * var(--chrome-wing-r));
-          border-bottom-right-radius: var(--chrome-wing-r) !important;
-          box-shadow: none;
-        }
-
-        &::after {
-          right: calc(-1 * var(--chrome-wing-r));
-          border-bottom-left-radius: var(--chrome-wing-r) !important;
-          box-shadow: none;
-        }
-
-        &:first-of-type {
-          margin-left: 6px;
-        }
-
-        &:last-of-type {
-          margin-right: 10px;
-        }
-
-        &:not(.active) + .tags-view-item:not(.active) {
-          border-left: 1px solid var(--el-border-color-lighter, #e4e7ed);
-          padding-left: 11px;
-        }
-
-        &:hover:not(.active) {
-          background: var(--el-fill-color-light, #f5f7fa) !important;
-          border-radius: 6px 6px 0 0;
-          color: var(--el-text-color-primary, #303133);
-        }
-
-        &.active {
-          height: 31px;
-          min-height: 31px;
-          padding: 0 14px;
-          color: var(--chrome-tab-text-active) !important;
-          font-weight: 500;
-          background: var(--chrome-tab-active-bg) !important;
-          border: none !important;
-          border-radius: var(--chrome-wing-r) var(--chrome-wing-r) 0 0;
-          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-
-          &::before {
-            box-shadow: calc(var(--chrome-wing-r) * 0.5) calc(var(--chrome-wing-r) * 0.5) 0 calc(var(--chrome-wing-r) * 0.5) var(--chrome-tab-active-bg);
-          }
-
-          &::after {
-            box-shadow: calc(var(--chrome-wing-r) * -0.5) calc(var(--chrome-wing-r) * 0.5) 0 calc(var(--chrome-wing-r) * 0.5) var(--chrome-tab-active-bg);
-          }
-        }
-      }
-    }
-  }
+  border-bottom: 1px solid var(--workspace-border);
+  background: var(--workspace-surface);
 }
-</style>
 
-<style lang="scss">
 .tags-view-wrapper {
-  .tags-view-item {
-    .tags-close-btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      margin-left: 4px;
-      border-radius: 50%;
-      transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
-      cursor: pointer;
+  min-width: 0;
+  flex: 1;
+}
 
-      .el-icon-close {
-        width: 1em;
-        height: 1em;
-        vertical-align: 0;
-        line-height: 1;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
+.tags-view-item {
+  display: inline-flex;
+  height: 28px;
+  align-items: center;
+  gap: 5px;
+  margin: 3px 0 3px 5px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius-sm);
+  color: var(--workspace-text-secondary);
+  font-size: 12px;
+  text-decoration: none;
+}
 
-      &:hover {
-        background-color: var(--tags-close-hover, #b4bccc);
+.tags-view-item:hover {
+  border-color: var(--workspace-border);
+  background: var(--workspace-surface-muted);
+  color: var(--workspace-text);
+}
 
-        .el-icon-close {
-          color: #fff;
-        }
-      }
-    }
+.tags-view-item.active {
+  border-color: var(--workspace-main-soft);
+  background: var(--workspace-main-soft);
+  color: var(--workspace-main-deep);
+  font-weight: 600;
+}
+
+.tags-icon-button,
+.tags-refresh-button,
+.tags-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--workspace-text-secondary);
+  cursor: pointer;
+}
+
+.tags-icon-button {
+  width: 32px;
+  height: 34px;
+  flex: 0 0 32px;
+  border-inline-start: 1px solid var(--workspace-border);
+}
+
+.tags-icon-button:disabled {
+  color: var(--workspace-text-muted);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.tags-refresh-button {
+  height: 34px;
+  gap: 5px;
+  padding: 0 10px;
+  border-inline-start: 1px solid var(--workspace-border);
+  font-size: 12px;
+}
+
+.tags-close-button {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.tags-close-button:hover {
+  background: var(--workspace-border);
+  color: var(--workspace-text);
+}
+
+.contextmenu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 140px;
+  margin: 0;
+  padding: 5px;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
+  background: var(--workspace-surface);
+  box-shadow: var(--workspace-shadow-float);
+  color: var(--workspace-text);
+  font-size: 12px;
+  list-style: none;
+}
+
+.contextmenu li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--workspace-radius-sm);
+  cursor: pointer;
+}
+
+.contextmenu li:hover {
+  background: var(--workspace-surface-muted);
+}
+
+@media (max-width: 760px) {
+  .tags-refresh-button span {
+    display: none;
   }
-}
 
-/* 页签全屏模式样式 */
-.main-container.fullscreen-mode {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
-  margin-left: 0 !important;
-  transition: none !important;
-}
-
-.main-container.fullscreen-mode .fixed-header {
-  display: block !important;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  width: 100% !important;
-  z-index: 1000;
-  transition: none !important;
-}
-
-.main-container.fullscreen-mode .fixed-header .navbar {
-  display: none !important;
-}
-
-.main-container.fullscreen-mode .app-main {
-  position: fixed;
-  top: 34px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  margin: 0 !important;
-  padding: 0 !important;
-  height: calc(100vh - 34px) !important;
-  min-height: calc(100vh - 34px) !important;
-  overflow: auto;
+  .tags-refresh-button {
+    width: 32px;
+    padding: 0;
+  }
 }
 </style>

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 const platformSidebar = readFileSync('src/layout/components/PlatformSidebar.vue', 'utf8')
 const recentSessions = readFileSync('src/layout/components/RecentSessions.vue', 'utf8')
 const adminSidebar = readFileSync('src/layout/components/AdminSidebar.vue', 'utf8')
+const noticeDetail = readFileSync('src/layout/components/HeaderNotice/DetailView.vue', 'utf8')
+const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
 const layout = readFileSync('src/layout/index.vue', 'utf8')
 const appStore = readFileSync('src/store/modules/app.js', 'utf8')
 const componentExports = readFileSync('src/layout/components/index.js', 'utf8')
@@ -16,6 +18,25 @@ const settings = readFileSync('src/layout/components/Settings/index.vue', 'utf8'
 const settingsStore = readFileSync('src/store/modules/settings.js', 'utf8')
 const defaultSettings = readFileSync('src/settings.js', 'utf8')
 const styles = readFileSync('src/assets/styles/workspace.scss', 'utf8')
+const shellFiles = [
+  'src/layout/index.vue',
+  'src/layout/components/PlatformSidebar.vue',
+  'src/layout/components/PlatformTopbar.vue',
+  'src/layout/components/AdminSidebar.vue',
+  'src/layout/components/RecentSessions.vue',
+  'src/layout/components/AiResourceShell.vue',
+  'src/layout/components/AppMain.vue',
+  'src/layout/components/HeaderNotice/index.vue',
+  'src/layout/components/HeaderNotice/DetailView.vue',
+  'src/layout/components/TagsView/index.vue',
+  'src/layout/components/TagsView/ScrollPane.vue',
+  'src/layout/components/Sidebar/SidebarItem.vue',
+]
+
+for (const fileName of shellFiles) {
+  const source = readFileSync(fileName, 'utf8')
+  assert.doesNotMatch(source, /element-plus|@element-plus\/icons-vue|<el-|--el-/)
+}
 
 assert.match(platformSidebar, /新建对话/)
 assert.match(platformSidebar, /AI 对话/)
@@ -34,6 +55,13 @@ assert.doesNotMatch(recentSessions, /listRecentSessions/)
 assert.match(adminSidebar, /返回 AI 工作台/)
 assert.match(adminSidebar, /filterAdminWorkspaceRoutes/)
 assert.match(adminSidebar, /SidebarItem/)
+assert.match(adminSidebar, /mode="inline"/)
+assert.match(adminSidebar, /v-model:open-keys="openKeys"/)
+assert.match(adminSidebar, /findMenuKeyChain/)
+assert.match(adminSidebar, /@open-change="handleOpenChange"/)
+assert.match(noticeDetail, /DOMPurify/)
+assert.match(noticeDetail, /v-html="safeNoticeContent"/)
+assert.ok(packageJson.dependencies.dompurify, '公告富文本清洗器必须声明为直接依赖')
 
 assert.match(componentExports, /PlatformSidebar/)
 assert.match(componentExports, /AdminSidebar/)
@@ -81,6 +109,12 @@ assert.match(styles, /prefers-reduced-motion/)
 assert.match(platformSidebar, /aria-label="新建对话"/)
 assert.match(platformSidebar, /aria-current/)
 assert.doesNotMatch(adminSidebar, /class="admin-sidebar sidebar-container"/)
-assert.match(layout, /@opened="focusMobileSidebar"/)
-assert.match(layout, /@closed="restoreMenuFocus"/)
+assert.match(layout, /@after-open-change="handleMobileDrawerChange"/)
+assert.match(layout, /focusMobileSidebar/)
+assert.match(layout, /restoreMenuFocus/)
+assert.match(layout, /a-drawer/)
 assert.match(topbar, /defineExpose\(\{ focusMenu \}\)/)
+assert.match(topbar, /a-dropdown/)
+assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'), /a-popover/)
+assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'), /a-list/)
+assert.match(readFileSync('src/layout/components/TagsView/index.vue', 'utf8'), /a-dropdown/)

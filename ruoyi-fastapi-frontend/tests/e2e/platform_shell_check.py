@@ -229,7 +229,37 @@ def response_for(path: str, method: str, access: str) -> dict:
             },
         }
     if path == "/system/notice/listTop":
-        return {"code": 200, "data": []}
+        return {
+            "code": 200,
+            "data": [
+                {
+                    "noticeId": 42,
+                    "noticeTitle": "维护公告",
+                    "noticeType": "1",
+                    "createTime": "2026-08-21 10:00:00",
+                    "isRead": True,
+                }
+            ],
+            "unreadCount": 0,
+        }
+    if path == "/system/notice/42":
+        return {
+            "code": 200,
+            "data": {
+                "noticeId": 42,
+                "noticeTitle": "维护公告",
+                "noticeType": "1",
+                "status": "0",
+                "createBy": "admin",
+                "createTime": "2026-08-21 10:00:00",
+                "noticeContent": (
+                    '<p><strong>维护窗口</strong>，请查看 '
+                    '<a href="https://example.com/help">操作说明</a>。</p>'
+                    '<img src=x onerror="window.__noticeXss = true">'
+                    '<script>window.__noticeXss = true</script>'
+                ),
+            },
+        }
     if method == "DELETE":
         return {"code": 200, "msg": "操作成功"}
     return {"code": 200, "rows": [], "data": [], "total": 0}
@@ -329,6 +359,12 @@ async def check_desktop(browser: Browser) -> None:
     await page.get_by_text("这是已保存的会话内容。", exact=True).wait_for()
     await page.go_back()
     await page.wait_for_url("**/ai/chat")
+    await page.get_by_role("button", name="通知公告").click()
+    await page.get_by_text("维护公告", exact=True).click()
+    await page.locator(".notice-content strong", has_text="维护窗口").wait_for()
+    assert await page.locator('.notice-content a[href="https://example.com/help"]').count() == 1
+    assert await page.locator(".notice-content script").count() == 0
+    assert not await page.evaluate("Boolean(window.__noticeXss)")
     assert console_errors == []
     assert page_errors == []
     await context.close()
@@ -343,7 +379,13 @@ async def check_admin(browser: Browser) -> None:
     await page.wait_for_url("**/system/overview")
     await page.get_by_text("用量台账", exact=True).wait_for()
     assert await page.locator(".admin-sidebar").count() == 1
+    await page.get_by_role("menuitem", name="系统概览").wait_for()
     assert await page.locator("#tags-view-container").count() == 1
+    await page.get_by_role("button", name="打开主菜单").click()
+    await page.wait_for_timeout(250)
+    assert await page.locator(".platform-shell__sidebar").evaluate(
+        "element => element.getBoundingClientRect().width === 56"
+    )
     await assert_no_overflow(page)
     await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-admin-1024.png"))
     await page.get_by_role("button", name="返回 AI 工作台").first.click()
@@ -365,16 +407,29 @@ async def check_mobile(browser: Browser, width: int, height: int) -> None:
     menu_button = page.get_by_role("button", name="打开主菜单")
     await menu_button.click()
     drawer = page.locator(".platform-mobile-drawer")
-    await drawer.wait_for(state="visible")
+    await page.wait_for_function(
+        "document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
+    await drawer.locator(":focus").wait_for()
     assert await drawer.locator(":focus").count() == 1
     await page.keyboard.press("Escape")
-    await drawer.wait_for(state="hidden")
+    await page.wait_for_function(
+        "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
+    await page.wait_for_function(
+        "element => document.activeElement === element",
+        arg=await menu_button.element_handle(),
+    )
     assert await menu_button.evaluate("(element) => document.activeElement === element")
     await menu_button.click()
-    await drawer.wait_for(state="visible")
+    await page.wait_for_function(
+        "document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
     await drawer.get_by_text("规划会话", exact=True).click()
     await page.wait_for_url("**/ai/chat?sessionId=session-planning")
-    await drawer.wait_for(state="hidden")
+    await page.wait_for_function(
+        "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
     await page.get_by_text("这是已保存的会话内容。", exact=True).wait_for()
     await assert_no_overflow(page)
     await page.screenshot(

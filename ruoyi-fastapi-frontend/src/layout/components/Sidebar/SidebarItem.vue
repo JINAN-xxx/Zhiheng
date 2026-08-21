@@ -1,17 +1,23 @@
 <template>
-  <div v-if="!item.hidden">
-    <template v-if="hasOneShowingChild(item.children, item) && (!onlyOneChild.children || onlyOneChild.noShowingChildren) && !item.alwaysShow">
-      <app-link v-if="onlyOneChild.meta" :to="resolvePath(onlyOneChild.path, onlyOneChild.query)">
-        <el-menu-item :index="resolvePath(onlyOneChild.path)" :class="{ 'submenu-title-noDropdown': !isNest }">
+  <template v-if="!item.hidden">
+    <a-menu-item
+      v-if="hasOneShowingChild(item.children, item) && (!onlyOneChild.children || onlyOneChild.noShowingChildren) && !item.alwaysShow && onlyOneChild.meta"
+      :key="resolvePath(onlyOneChild.path)"
+      :class="{ 'submenu-title-noDropdown': !isNest }"
+    >
+      <app-link :to="resolvePath(onlyOneChild.path, onlyOneChild.query)">
+        <span class="sidebar-menu-link">
           <svg-icon :icon-class="onlyOneChild.meta.icon || (item.meta && item.meta.icon)"/>
-          <template #title><span class="menu-title" :title="hasTitle(onlyOneChild.meta.title)">{{ onlyOneChild.meta.title }}</span></template>
-        </el-menu-item>
+          <span class="menu-title" :title="hasTitle(onlyOneChild.meta.title)">{{ onlyOneChild.meta.title }}</span>
+        </span>
       </app-link>
-    </template>
+    </a-menu-item>
 
-    <el-sub-menu v-else ref="subMenu" :index="resolvePath(item.path)" teleported>
-      <template v-if="item.meta" #title>
+    <a-sub-menu v-else :key="basePath">
+      <template v-if="item.meta" #icon>
         <svg-icon :icon-class="item.meta && item.meta.icon" />
+      </template>
+      <template v-if="item.meta" #title>
         <span class="menu-title" :title="hasTitle(item.meta.title)">{{ item.meta.title }}</span>
       </template>
 
@@ -23,8 +29,8 @@
         :base-path="resolvePath(child.path)"
         class="nest-menu"
       />
-    </el-sub-menu>
-  </div>
+    </a-sub-menu>
+  </template>
 </template>
 
 <script setup>
@@ -91,10 +97,25 @@ function resolvePath(routePath, routeQuery) {
 }
 
 function hasTitle(title){
-  if (title.length > 5) {
+  if (title && title.length > 5) {
     return title;
   } else {
     return "";
   }
 }
 </script>
+
+<style scoped>
+.sidebar-menu-link {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.menu-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

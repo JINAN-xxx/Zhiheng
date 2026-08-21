@@ -1,7 +1,7 @@
 <template>
   <header class="platform-topbar">
     <button ref="menuButtonRef" type="button" class="platform-topbar__menu" aria-label="打开主菜单" title="打开主菜单" @click="emit('toggle-sidebar')">
-      <el-icon><Menu /></el-icon>
+      <MenuOutlined />
     </button>
 
     <div class="platform-topbar__context">
@@ -16,35 +16,38 @@
         :title="mode === 'ai' ? '管理控制台' : '返回 AI 工作台'"
         @click="emit(mode === 'ai' ? 'open-admin' : 'open-ai')"
       >
-        <el-icon><Grid v-if="mode === 'ai'" /><ChatDotRound v-else /></el-icon>
+        <AppstoreOutlined v-if="mode === 'ai'" />
+        <MessageOutlined v-else />
         <span>{{ mode === 'ai' ? '管理控制台' : '返回 AI 工作台' }}</span>
       </button>
       <button type="button" class="platform-topbar__icon" aria-label="切换主题" title="切换主题" @click="settingsStore.toggleTheme()">
-        <el-icon><Sunny v-if="settingsStore.isDark" /><Moon v-else /></el-icon>
+        <BulbOutlined v-if="settingsStore.isDark" />
+        <BgColorsOutlined v-else />
       </button>
       <HeaderNotice class="platform-topbar__notice" />
 
-      <el-dropdown trigger="click" @command="handleCommand">
+      <a-dropdown :trigger="['click']">
         <button type="button" class="platform-topbar__profile" aria-label="用户菜单">
-          <img :src="userStore.avatar" alt="" />
+          <a-avatar :size="28" :src="userStore.avatar" />
           <span>{{ userStore.nickName }}</span>
         </button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-            <el-dropdown-item v-if="settingsStore.showSettings" command="settings">界面设置</el-dropdown-item>
-            <el-dropdown-item command="lock">锁定屏幕</el-dropdown-item>
-            <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-          </el-dropdown-menu>
+        <template #overlay>
+          <a-menu @click="handleMenuClick">
+            <a-menu-item key="profile">个人中心</a-menu-item>
+            <a-menu-item v-if="settingsStore.showSettings" key="settings">界面设置</a-menu-item>
+            <a-menu-item key="lock">锁定屏幕</a-menu-item>
+            <a-menu-divider />
+            <a-menu-item key="logout">退出登录</a-menu-item>
+          </a-menu>
         </template>
-      </el-dropdown>
+      </a-dropdown>
     </div>
   </header>
 </template>
 
 <script setup>
-import { ChatDotRound, Grid, Menu, Moon, Sunny } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { AppstoreOutlined, BgColorsOutlined, BulbOutlined, MenuOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import feedback from '@/plugins/antdFeedback'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
@@ -73,13 +76,13 @@ function handleCommand(command) {
   if (command === 'logout') logout()
 }
 
+function handleMenuClick({ key }) {
+  handleCommand(key)
+}
+
 async function logout() {
   try {
-    await ElMessageBox.confirm('确定注销并退出系统吗？', '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
+    await feedback.confirm('确定注销并退出系统吗？')
     await userStore.logOut()
     location.href = '/index'
   } catch {
@@ -103,7 +106,6 @@ defineExpose({ focusMenu })
 .platform-topbar__actions { min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .platform-topbar__mode,
 .platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); color: var(--workspace-text-secondary); cursor: pointer; }
-.platform-topbar__profile img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
 .platform-topbar__notice { height: 32px; display: flex; align-items: center; }
 @media (max-width: 760px) {
   .platform-topbar { padding: 0 8px; }

@@ -1,184 +1,170 @@
 <template>
-  <div>
-    <el-popover ref="noticePopover" placement="bottom-end" :width="320" trigger="manual" v-model:visible="noticeVisible" popper-class="notice-popover">
-      <!-- 弹出内容 -->
-      <div class="notice-header">
-        <span class="notice-title">通知公告</span>
-        <span class="notice-mark-all" @click="markAllRead">全部已读</span>
-      </div>
-      <div v-if="noticeLoading" class="notice-loading">
-        <el-icon class="is-loading"><Loading /></el-icon> 加载中...
-      </div>
-      <div v-else-if="noticeList.length === 0" class="notice-empty">
-        <el-icon style="font-size:24px;display:block;margin-bottom:6px;"><Postcard /></el-icon>
-        暂无公告
-      </div>
-      <div v-else>
-        <div v-for="item in noticeList" :key="item.noticeId" class="notice-item" :class="{ 'is-read': item.isRead }" @click="previewNotice(item)">
-          <el-tag size="small" :type="item.noticeType === '1' ? 'warning' : 'success'" class="notice-tag">
-            {{ item.noticeType === '1' ? '通知' : '公告' }}
-          </el-tag>
-          <span class="notice-item-title">{{ item.noticeTitle }}</span>
-          <span class="notice-item-date">{{ item.createTime }}</span>
-        </div>
-      </div>
+  <div class="header-notice">
+    <a-popover
+      v-model:open="noticeVisible"
+      placement="bottomRight"
+      trigger="click"
+      :overlay-inner-style="{ width: '340px', padding: 0 }"
+    >
+      <template #content>
+        <section class="notice-popover" aria-label="通知公告">
+          <header class="notice-header">
+            <strong>通知公告</strong>
+            <a-button :disabled="!noticeList.length" size="small" type="link" @click="markAllRead">
+              全部已读
+            </a-button>
+          </header>
 
-      <!-- 触发器 -->
-      <template #reference>
-        <div class="right-menu-item hover-effect notice-trigger" @mouseenter="onNoticeEnter" @mouseleave="onNoticeLeave">
-          <svg-icon icon-class="bell" />
-          <span v-if="unreadCount > 0" class="notice-badge">{{ unreadCount }}</span>
-        </div>
+          <div v-if="noticeError && noticeList.length" class="notice-stale" role="status">
+            刷新失败，列表可能已过期
+          </div>
+          <a-alert v-else-if="noticeError" :message="noticeError" show-icon type="error" />
+
+          <a-spin :spinning="noticeLoading">
+            <a-list v-if="noticeList.length" :data-source="noticeList" size="small">
+              <template #renderItem="{ item }">
+                <a-list-item
+                  class="notice-item"
+                  :class="{ 'is-read': item.isRead }"
+                  role="button"
+                  tabindex="0"
+                  @click="previewNotice(item)"
+                  @keydown.enter="previewNotice(item)"
+                >
+                  <a-tag :color="item.noticeType === '1' ? 'orange' : 'green'">
+                    {{ item.noticeType === '1' ? '通知' : '公告' }}
+                  </a-tag>
+                  <span class="notice-item__title">{{ item.noticeTitle }}</span>
+                  <time>{{ item.createTime }}</time>
+                </a-list-item>
+              </template>
+            </a-list>
+            <a-empty v-else-if="!noticeLoading && !noticeError" description="暂无公告" />
+          </a-spin>
+        </section>
       </template>
-    </el-popover>
 
-    <!-- 预览弹窗 -->
-    <notice-detail-view ref="noticeViewRef" />
+      <a-badge :count="unreadCount" :overflow-count="99">
+        <a-button aria-label="通知公告" class="notice-trigger" type="text">
+          <template #icon><BellOutlined /></template>
+        </a-button>
+      </a-badge>
+    </a-popover>
+
+    <NoticeDetailView ref="noticeViewRef" />
   </div>
 </template>
 
 <script setup>
-import NoticeDetailView from './DetailView'
-import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/notice'
+import { BellOutlined } from '@ant-design/icons-vue'
 
-const noticePopover = ref(null)
+import { listNoticeTop, markNoticeRead, markNoticeReadAll } from '@/api/system/notice'
+import NoticeDetailView from './DetailView.vue'
+
 const noticeList = ref([])
 const unreadCount = ref(0)
 const noticeLoading = ref(false)
+const noticeError = ref('')
 const noticeVisible = ref(false)
-const noticeLeaveTimer = ref(null)
-const { proxy } = getCurrentInstance()
+const noticeViewRef = ref()
 
-// 加载顶部公告列表
-function loadNoticeTop() {
+async function loadNoticeTop() {
   noticeLoading.value = true
-  listNoticeTop().then(res => {
-    noticeList.value = res.data || []
-    unreadCount.value = res.unreadCount !== undefined ? res.unreadCount : noticeList.value.filter(n => !n.isRead).length
-  }).finally(() => {
+  noticeError.value = ''
+  try {
+    const response = await listNoticeTop()
+    noticeList.value = response.data || []
+    unreadCount.value = response.unreadCount ?? noticeList.value.filter((notice) => !notice.isRead).length
+  } catch (error) {
+    noticeError.value = error?.message ?? '通知公告加载失败'
+  } finally {
     noticeLoading.value = false
-  })
+  }
 }
 
-onMounted(() => loadNoticeTop())
-
-// 鼠标移入铃铛区域
-function onNoticeEnter() {
-  clearTimeout(noticeLeaveTimer.value)
-  noticeVisible.value = true
-  nextTick(() => {
-    const popper = noticePopover.value?.popperRef?.contentRef
-    if (popper && !popper._noticeBound) {
-      popper._noticeBound = true
-      popper.addEventListener('mouseenter', () => clearTimeout(noticeLeaveTimer.value))
-      popper.addEventListener('mouseleave', () => {
-        noticeLeaveTimer.value = setTimeout(() => { noticeVisible.value = false }, 100)
-      })
-    }
-  })
-}
-
-// 鼠标离开铃铛区域
-function onNoticeLeave() {
-  noticeLeaveTimer.value = setTimeout(() => { noticeVisible.value = false }, 150)
-}
-
-// 预览公告详情
 function previewNotice(item) {
   if (!item.isRead) {
     markNoticeRead(item.noticeId).catch(() => {})
-    const idx = noticeList.value.indexOf(item)
-    if (idx !== -1) noticeList.value[idx] = { ...item, isRead: true }
+    const index = noticeList.value.indexOf(item)
+    if (index !== -1) noticeList.value[index] = { ...item, isRead: true }
     unreadCount.value = Math.max(0, unreadCount.value - 1)
   }
-  proxy.$refs["noticeViewRef"].open(item.noticeId)
+  noticeVisible.value = false
+  noticeViewRef.value?.open(item.noticeId)
 }
 
-// 全部已读
 function markAllRead() {
-  const ids = noticeList.value.map(n => n.noticeId).join(',')
+  const ids = noticeList.value.map((notice) => notice.noticeId).join(',')
   if (!ids) return
   markNoticeReadAll(ids).catch(() => {})
-  noticeList.value = noticeList.value.map(n => ({ ...n, isRead: true }))
+  noticeList.value = noticeList.value.map((notice) => ({ ...notice, isRead: true }))
   unreadCount.value = 0
 }
+
+onMounted(loadNoticeTop)
 </script>
 
-<style lang="scss" scoped>
-.notice-trigger {
-  position: relative;
-  transform: translateX(-6px);
-  .svg-icon { width: 1.2em; height: 1.2em; vertical-align: -0.2em; }
-  .notice-badge {
-    position: absolute;
-    top: 7px;
-    right: -3px;
-    background: #f56c6c;
-    color: #fff;
-    border-radius: 10px;
-    font-size: 10px;
-    height: 16px;
-    line-height: 16px;
-    padding: 0 4px;
-    min-width: 16px;
-    text-align: center;
-    white-space: nowrap;
-    pointer-events: none;
-  }
-}
-.notice-popover { padding: 0 !important; }
-.notice-popover .notice-header {
+<style scoped>
+.header-notice {
   display: flex;
+  align-items: center;
+}
+
+.notice-trigger {
+  width: 32px;
+  height: 32px;
+}
+
+.notice-popover {
+  overflow: hidden;
+  border-radius: var(--workspace-radius-md);
+}
+
+.notice-header {
+  display: flex;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: #f7f9fb;
-  border-bottom: 1px solid #eee;
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--workspace-border);
 }
-.notice-popover .notice-mark-all {
+
+.notice-stale {
+  margin: 8px 12px 0;
+  padding: 8px;
+  border-radius: var(--workspace-radius-sm);
+  background: var(--workspace-warning-soft);
+  color: var(--workspace-warning);
   font-size: 12px;
-  color: var(--el-color-primary);
-  font-weight: normal;
-  cursor: pointer;
 }
-.notice-popover .notice-mark-all:hover { color: #2b7cc1; }
-.notice-popover .notice-loading,
-.notice-popover .notice-empty {
-  padding: 24px;
-  text-align: center;
-  color: #bbb;
-  font-size: 12px;
-  line-height: 1.8;
-}
-.notice-popover .notice-item {
-  display: flex;
-  align-items: center;
+
+.notice-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #f5f5f5;
   cursor: pointer;
-  transition: background 0.15s;
 }
-.notice-popover .notice-item:last-child { border-bottom: none; }
-.notice-popover .notice-item:hover { background: #f7f9fb; }
-.notice-popover .notice-item.is-read .notice-tag,
-.notice-popover .notice-item.is-read .notice-item-title,
-.notice-popover .notice-item.is-read .notice-item-date { opacity: 0.45; filter: grayscale(1); color: #999; }
-.notice-popover .notice-tag { flex-shrink: 0; }
-.notice-popover .notice-item-title {
-  flex: 1;
-  font-size: 12px;
-  color: #333;
+
+.notice-item:hover {
+  background: var(--workspace-surface-muted);
+}
+
+.notice-item.is-read {
+  opacity: 0.55;
+}
+
+.notice-item__title {
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.notice-popover .notice-item-date {
-  flex-shrink: 0;
+
+.notice-item time {
+  color: var(--workspace-text-muted);
   font-size: 11px;
-  color: #bbb;
+}
+
+.notice-popover :deep(.ant-empty) {
+  margin: 24px 0;
 }
 </style>

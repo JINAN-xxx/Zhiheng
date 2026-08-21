@@ -7,7 +7,7 @@
 
     <nav class="platform-primary-nav" aria-label="AI 主导航">
       <button v-if="canChat" type="button" class="platform-new-chat" aria-label="新建对话" title="新建对话" @click="newChat">
-        <el-icon><Plus /></el-icon>
+        <PlusOutlined />
         <span v-if="!collapsed">新建对话</span>
       </button>
       <router-link
@@ -17,7 +17,7 @@
         aria-label="AI 对话"
         :aria-current="route.path === '/ai/chat' ? 'page' : undefined"
       >
-        <el-icon><ChatDotRound /></el-icon>
+        <MessageOutlined />
         <span v-if="!collapsed">AI 对话</span>
       </router-link>
       <router-link
@@ -27,7 +27,7 @@
         aria-label="AI 资源"
         :aria-current="resourceTabs.some((tab) => tab.path === route.path) ? 'page' : undefined"
       >
-        <el-icon><Box /></el-icon>
+        <DatabaseOutlined />
         <span v-if="!collapsed">AI 资源</span>
       </router-link>
     </nav>
@@ -44,14 +44,14 @@
     />
 
     <button type="button" class="platform-admin-entry" aria-label="管理控制台" title="管理控制台" @click="emit('open-admin')">
-      <el-icon><Setting /></el-icon>
+      <SettingOutlined />
       <span v-if="!collapsed">管理控制台</span>
     </button>
   </aside>
 </template>
 
 <script setup>
-import { Box, ChatDotRound, Plus, Setting } from '@element-plus/icons-vue'
+import { DatabaseOutlined, MessageOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import logo from '@/assets/logo/logo.png'
 import { resolveAiResourceTabs } from '@/components/Workspace/workspaceTransforms.js'
 import useUserStore from '@/store/modules/user'
