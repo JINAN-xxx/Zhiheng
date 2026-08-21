@@ -1,14 +1,11 @@
 // 处理主题样式
 export function handleThemeStyle(theme) {
-  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+  if (typeof document === 'undefined') return
+
+  const isDark = document.documentElement.classList.contains('dark')
   const primary = isDark ? softenPrimaryForDark(theme) : theme
-  document.documentElement.style.setProperty('--el-color-primary', primary)
-  for (let i = 1; i <= 9; i++) {
-    document.documentElement.style.setProperty(`--el-color-primary-light-${i}`, `${getLightColor(primary, i / 10)}`)
-  }
-  for (let i = 1; i <= 9; i++) {
-    document.documentElement.style.setProperty(`--el-color-primary-dark-${i}`, `${getDarkColor(primary, i / 10)}`)
-  }
+  document.documentElement.style.setProperty('--workspace-main', primary)
+  document.documentElement.dataset.workspaceTheme = isDark ? 'dark' : 'light'
 }
 
 /** 混合两种十六进制颜色 */

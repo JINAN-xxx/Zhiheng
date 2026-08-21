@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 
 import Cookies from 'js-cookie'
 
+import Antd from 'ant-design-vue'
+import 'ant-design-vue/dist/reset.css'
+
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
@@ -9,6 +12,7 @@ import locale from 'element-plus/es/locale/lang/zh-cn'
 
 import '@/assets/styles/index.scss' // global css
 import '@/assets/styles/workspace.scss' // 智衡 AI 工作台主题
+import '@/assets/styles/antd-reset.scss'
 
 import App from './App'
 import store from './store'
@@ -72,6 +76,7 @@ app.component('Editor', Editor)
 
 app.use(router)
 app.use(store)
+app.use(Antd)
 app.use(plugins)
 app.use(elementIcons)
 app.component('svg-icon', SvgIcon)
