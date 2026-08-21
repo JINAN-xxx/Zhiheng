@@ -35,6 +35,7 @@ defineProps({
   }
 
   &.is-loading .workspace-status__dot,
+  &.is-connecting .workspace-status__dot,
   &.is-streaming .workspace-status__dot {
     background: var(--workspace-main);
   }

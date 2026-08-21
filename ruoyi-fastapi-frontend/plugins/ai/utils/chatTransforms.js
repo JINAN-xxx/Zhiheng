@@ -23,3 +23,7 @@ export function resolveInitialSessionId(sessions = [], preferredId = null) {
 export function chatMessageLabel(role) {
   return role === 'user' ? '我' : '智衡'
 }
+
+export function beginSend() {
+  return { runId: null, status: 'connecting' }
+}

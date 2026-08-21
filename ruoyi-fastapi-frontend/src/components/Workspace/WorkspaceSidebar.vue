@@ -16,7 +16,7 @@
         :title="collapsed ? item.label : undefined"
         @click="emit('select', item)"
       >
-        <el-icon><component :is="item.icon" /></el-icon>
+        <span class="workspace-sidebar__icon" aria-hidden="true"><component :is="item.icon" /></span>
         <span v-if="!collapsed" class="workspace-sidebar__label">{{ item.label }}</span>
       </router-link>
     </nav>
@@ -93,6 +93,15 @@ const emit = defineEmits(['select'])
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  &__icon {
+    display: inline-flex;
+    width: 18px;
+    flex: 0 0 18px;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
   }
 
   &__bottom {

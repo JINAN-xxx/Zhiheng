@@ -1,18 +1,18 @@
 <template>
   <div class="workspace-state" :class="`is-${kind}`">
     <div class="workspace-state__icon" aria-hidden="true">
-      <el-icon v-if="kind === 'loading'" class="is-loading"><Loading /></el-icon>
-      <el-icon v-else-if="kind === 'error' || kind === 'stale'"><Warning /></el-icon>
-      <el-icon v-else><Document /></el-icon>
+      <LoadingOutlined v-if="kind === 'loading'" class="is-loading" />
+      <WarningOutlined v-else-if="kind === 'error' || kind === 'stale'" />
+      <FileTextOutlined v-else />
     </div>
     <strong>{{ title || workspaceStateLabel(kind) }}</strong>
     <p v-if="message">{{ message }}</p>
-    <el-button v-if="kind === 'error' || kind === 'stale'" text type="primary" @click="emit('retry')">重试</el-button>
+    <a-button v-if="kind === 'error' || kind === 'stale'" type="link" @click="emit('retry')">重试</a-button>
   </div>
 </template>
 
 <script setup>
-import { Document, Loading, Warning } from '@element-plus/icons-vue'
+import { FileTextOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons-vue'
 import { workspaceStateLabel } from './workspaceTransforms.js'
 
 defineProps({

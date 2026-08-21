@@ -8,7 +8,7 @@
         aria-label="打开工作台导航"
         @click="emit('open-sidebar')"
       >
-        <el-icon><Menu /></el-icon>
+        <MenuOutlined />
       </button>
       <div>
         <h1 v-if="title" class="workspace-toolbar__title">{{ title }}</h1>
@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { Menu } from '@element-plus/icons-vue'
+import { MenuOutlined } from '@ant-design/icons-vue'
 
 defineProps({
   title: { type: String, default: '' },

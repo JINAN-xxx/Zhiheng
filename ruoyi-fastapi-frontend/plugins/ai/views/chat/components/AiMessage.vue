@@ -1,15 +1,13 @@
 <template>
   <div class="ai-message-container">
     <div v-if="reasoningContent" class="reasoning-section">
-      <div class="reasoning-header" @click="toggleReasoning">
-        <el-icon :class="{ 'is-expanded': isReasoningExpanded }"
-          ><ArrowRight
-        /></el-icon>
+      <button type="button" class="reasoning-header" :aria-expanded="isReasoningExpanded" @click="toggleReasoning">
+        <RightOutlined class="reasoning-chevron" :class="{ 'is-expanded': isReasoningExpanded }" />
         <span>深度思考过程</span>
         <span class="reasoning-status" v-if="!isThinkingComplete"
           >思考中...</span
         >
-      </div>
+      </button>
       <div v-show="isReasoningExpanded" class="reasoning-content">
         <MarkdownRender
           :content="reasoningContent"
@@ -44,6 +42,7 @@
 import { computed, ref } from "vue";
 import { MarkdownRender } from "markstream-vue";
 import { useDark } from "@vueuse/core";
+import { RightOutlined } from '@ant-design/icons-vue'
 import { enableKatex, enableMermaid } from "markstream-vue";
 import "markstream-vue/index.css";
 import "katex/dist/katex.min.css";
@@ -86,7 +85,7 @@ function toggleReasoning() {
   .ai-message-content {
     font-size: 14px;
     line-height: 1.6;
-    color: var(--el-text-color-primary);
+    color: var(--workspace-text);
     overflow-wrap: break-word;
     word-break: break-word;
   }
@@ -94,19 +93,25 @@ function toggleReasoning() {
 
 .reasoning-section {
   margin-bottom: 15px;
-  border-left: 2px solid var(--el-border-color);
+  border-left: 2px solid var(--workspace-border);
   padding-left: 10px;
 
   .reasoning-header {
+    width: 100%;
     display: flex;
     align-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
     cursor: pointer;
-    color: var(--el-text-color-secondary);
+    color: var(--workspace-text-secondary);
+    font: inherit;
     font-size: 13px;
+    text-align: left;
     user-select: none;
     margin-bottom: 5px;
 
-    .el-icon {
+    .reasoning-chevron {
       margin-right: 4px;
       transition: transform 0.3s;
       &.is-expanded {
@@ -124,10 +129,10 @@ function toggleReasoning() {
 
   .reasoning-content {
     font-size: 13px;
-    color: var(--el-text-color-regular);
+    color: var(--workspace-text-secondary);
     padding: 8px;
-    background-color: var(--el-fill-color-light);
-    border-radius: 4px;
+    background-color: var(--workspace-surface-muted);
+    border-radius: var(--workspace-radius-sm);
     overflow-wrap: break-word;
     word-break: break-word;
   }
@@ -154,7 +159,7 @@ function toggleReasoning() {
     display: inline-block;
     width: 6px;
     height: 6px;
-    background-color: var(--el-text-color-secondary);
+    background-color: var(--workspace-text-secondary);
     border-radius: 50%;
     animation: typing 1.4s infinite ease-in-out both;
     margin-right: 4px;
