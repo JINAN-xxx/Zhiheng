@@ -12,12 +12,23 @@ const workspaceFiles = [
   'src/components/Workspace/WorkspaceState.vue',
   'src/components/Workspace/WorkspaceToolbar.vue',
 ]
+const modelFiles = [
+  'plugins/ai/views/model/index.vue',
+  'plugins/ai/views/model/components/PlatformModelsPanel.vue',
+  'plugins/ai/views/model/components/EngineDeploymentsPanel.vue',
+  'plugins/ai/views/model/components/CredentialsPanel.vue',
+  'plugins/ai/views/model/components/RuntimeStatusPanel.vue',
+  'plugins/ai/views/model/components/ModelOnboardingDrawer.vue',
+  'plugins/ai/views/model/components/CredentialForm.vue',
+  'plugins/ai/views/model/components/DeploymentForm.vue',
+]
 
 for (const fileName of [
   'plugins/ai/views/chat/index.vue',
   'plugins/ai/views/chat/components/AiMessage.vue',
   'plugins/ai/views/chat/components/ChatSessionPanel.vue',
   ...workspaceFiles,
+  ...modelFiles,
 ]) {
   const source = readFileSync(fileName, 'utf8')
   assert.doesNotMatch(source, /element-plus|@element-plus\/icons-vue|<el-|--el-/)
@@ -37,5 +48,9 @@ assert.match(chatMessage, /RightOutlined/)
 assert.match(chatSessions, /<button[\s\S]*class="session-copy"[\s\S]*<WorkspaceMoreMenu/)
 assert.doesNotMatch(chatSessions, /<button[^>]*class="session-item"/)
 assert.match(readFileSync('src/components/Workspace/WorkspaceMoreMenu.vue', 'utf8'), /a-dropdown/)
+assert.match(readFileSync('plugins/ai/views/model/components/CredentialForm.vue', 'utf8'), /SecretField/)
+assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /a-dropdown/)
+assert.match(readFileSync('plugins/ai/views/model/components/EngineDeploymentsPanel.vue', 'utf8'), /a-dropdown/)
+assert.match(readFileSync('plugins/ai/views/model/components/CredentialsPanel.vue', 'utf8'), /a-dropdown/)
 
 console.log('ok Ant Design AI views contract')

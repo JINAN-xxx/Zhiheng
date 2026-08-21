@@ -2,28 +2,48 @@
   <section class="workspace-panel">
     <div class="panel-toolbar">
       <div class="panel-summary">最后检查：{{ formatTime(lastCheckedAt) }}</div>
-      <el-tooltip content="刷新运行状态" placement="top"><el-button circle :icon="Refresh" :loading="loading" aria-label="刷新运行状态" @click="load" /></el-tooltip>
+      <a-tooltip title="刷新运行状态" placement="top">
+        <a-button shape="circle" :loading="loading" aria-label="刷新运行状态" @click="load">
+          <template #icon><ReloadOutlined /></template>
+        </a-button>
+      </a-tooltip>
     </div>
-    <el-alert v-if="error" title="部分运行状态检查失败" type="warning" :closable="false" show-icon>
-      <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
-    </el-alert>
-    <el-table v-loading="loading" :data="statuses" table-layout="fixed">
-      <el-table-column prop="name" label="检查项" min-width="190" />
-      <el-table-column label="状态" width="130"><template #default="{ row }"><el-tag :type="row.type" size="small" effect="light">{{ row.label }}</el-tag></template></el-table-column>
-      <el-table-column label="延迟" width="120" class-name="mobile-hidden"><template #default="{ row }">{{ row.latency == null ? '-' : `${row.latency} ms` }}</template></el-table-column>
-      <el-table-column label="最后检查" min-width="180" class-name="mobile-hidden"><template #default="{ row }">{{ formatTime(row.checkedAt) }}</template></el-table-column>
-    </el-table>
+    <a-alert v-if="error" message="部分运行状态检查失败" type="warning" :closable="false" show-icon>
+      <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
+    </a-alert>
+    <a-table
+      :columns="columns"
+      :data-source="statuses"
+      :loading="loading"
+      :pagination="false"
+      row-key="name"
+      table-layout="fixed"
+    >
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'name'">{{ record.name }}</template>
+        <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.type] || 'default'">{{ record.label }}</a-tag>
+        <template v-else-if="column.key === 'latency'">{{ record.latency == null ? '-' : `${record.latency} ms` }}</template>
+        <template v-else-if="column.key === 'checkedAt'">{{ formatTime(record.checkedAt) }}</template>
+      </template>
+    </a-table>
   </section>
 </template>
 
 <script setup>
-import { Refresh } from '@element-plus/icons-vue'
+import { ReloadOutlined } from '@ant-design/icons-vue'
 import { getEngineRuntimeStatus } from '../../../api/modelEngine.js'
 import { listPlatformModels } from '../../../api/modelCatalog.js'
 import { buildRuntimeStatusRows, createRequestGate } from '../../../utils/modelEngine.js'
 
 const loading = ref(false); const error = ref(false); const statuses = ref(buildRuntimeStatusRows()); const lastCheckedAt = ref(null)
 const loadGate = createRequestGate()
+const columns = [
+  { title: '检查项', dataIndex: 'name', key: 'name' },
+  { title: '状态', key: 'status', width: 130 },
+  { title: '延迟', key: 'latency', width: 120, responsive: ['md'] },
+  { title: '最后检查', key: 'checkedAt', width: 180, responsive: ['md'] },
+]
+const statusColors = { success: 'success', warning: 'warning', danger: 'error', info: 'default' }
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 
 async function probe(request) {
@@ -58,6 +78,5 @@ defineExpose({ refresh: load })
 <style scoped>
 .workspace-panel { min-height: 360px; }
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--el-text-color-secondary); font-size: 12px; }
-@media (max-width: 760px) { :deep(.mobile-hidden) { display: none; } }
+.panel-summary { color: var(--workspace-text-secondary); font-size: 12px; }
 </style>

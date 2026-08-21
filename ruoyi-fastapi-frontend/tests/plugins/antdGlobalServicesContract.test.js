@@ -51,6 +51,7 @@ assert.match(antdRoot, /a-app/)
 assert.match(antdRoot, /AntdFeedbackHost/)
 
 const calls = []
+let confirmZIndex
 const modal = {
   info(options) {
     calls.push(['alert', options.content])
@@ -58,6 +59,7 @@ const modal = {
   },
   confirm(options) {
     calls.push(['confirm', options.content])
+    confirmZIndex = options.zIndex
     options.onOk()
   },
 }
@@ -90,3 +92,4 @@ assert.deepEqual(calls.map(([type]) => type), [
   'confirm',
 ])
 assert.deepEqual(promptResult, { value: '' })
+assert.ok(confirmZIndex > 1000)

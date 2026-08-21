@@ -2,30 +2,41 @@
   <main class="app-container ai-model-center">
     <WorkspaceToolbar title="模型中心" subtitle="Model Service">
       <template #actions>
-        <el-tooltip content="刷新当前视图" placement="bottom">
-          <el-button circle :icon="Refresh" aria-label="刷新当前视图" @click="refreshCurrent" />
-        </el-tooltip>
-        <el-button v-if="canAdvanced && !advancedOpen" :icon="Setting" @click="advancedOpen = true">高级管理</el-button>
-        <el-button v-else-if="canAdvanced" :icon="Setting" @click="advancedOpen = false">收起高级管理</el-button>
-        <el-button v-if="canOnboard" type="primary" :icon="Plus" @click="onboardingOpen = true">接入模型</el-button>
+        <a-tooltip title="刷新当前视图" placement="bottom">
+          <a-button shape="circle" aria-label="刷新当前视图" @click="refreshCurrent">
+            <template #icon><ReloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-button v-if="canAdvanced && !advancedOpen" @click="advancedOpen = true">
+          <template #icon><SettingOutlined /></template>
+          高级管理
+        </a-button>
+        <a-button v-else-if="canAdvanced" @click="advancedOpen = false">
+          <template #icon><SettingOutlined /></template>
+          收起高级管理
+        </a-button>
+        <a-button v-if="canOnboard" type="primary" @click="onboardingOpen = true">
+          <template #icon><PlusOutlined /></template>
+          接入模型
+        </a-button>
       </template>
     </WorkspaceToolbar>
 
     <section class="model-workspace">
-      <el-tabs v-model="activeTab" class="workspace-tabs">
-        <el-tab-pane v-if="can('ai:model:list')" label="平台模型" name="platform">
+      <a-tabs v-model:active-key="activeTab" class="workspace-tabs">
+        <a-tab-pane v-if="can('ai:model:list')" key="platform" tab="平台模型">
           <PlatformModelsPanel ref="platformPanel" :permissions="permissions" :mobile="isMobile" />
-        </el-tab-pane>
-        <el-tab-pane v-if="advancedOpen && can('ai:engine:deployment:list')" label="引擎部署" name="deployments" lazy>
+        </a-tab-pane>
+        <a-tab-pane v-if="advancedOpen && can('ai:engine:deployment:list')" key="deployments" tab="引擎部署">
           <EngineDeploymentsPanel ref="deploymentPanel" :permissions="permissions" :mobile="isMobile" />
-        </el-tab-pane>
-        <el-tab-pane v-if="advancedOpen && can('ai:engine:credential:list')" label="Provider 凭据" name="credentials" lazy>
+        </a-tab-pane>
+        <a-tab-pane v-if="advancedOpen && can('ai:engine:credential:list')" key="credentials" tab="Provider 凭据">
           <CredentialsPanel ref="credentialPanel" :permissions="permissions" :mobile="isMobile" />
-        </el-tab-pane>
-        <el-tab-pane v-if="advancedOpen && can('ai:runtime:query')" label="运行状态" name="status" lazy>
+        </a-tab-pane>
+        <a-tab-pane v-if="advancedOpen && can('ai:runtime:query')" key="status" tab="运行状态">
           <RuntimeStatusPanel ref="statusPanel" />
-        </el-tab-pane>
-      </el-tabs>
+        </a-tab-pane>
+      </a-tabs>
     </section>
 
     <ModelOnboardingDrawer v-model="onboardingOpen" @completed="refreshAfterOnboarding" />
@@ -33,7 +44,7 @@
 </template>
 
 <script setup name="AiModel">
-import { Plus, Refresh, Setting } from '@element-plus/icons-vue'
+import { PlusOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { hasAllPermissions, hasPermission } from '../../utils/modelEngine.js'
@@ -102,7 +113,7 @@ function refreshAfterOnboarding() {
   --ai-font-body: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", MiSans, "PingFang SC", "Microsoft YaHei", sans-serif;
   --ai-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   min-width: 0;
-  color: var(--el-text-color-primary);
+  color: var(--workspace-text);
   font-family: var(--ai-font-body);
   font-size: 13px;
   letter-spacing: 0;
@@ -116,13 +127,13 @@ function refreshAfterOnboarding() {
   background: var(--workspace-surface);
   padding: 0 18px 18px;
 }
-.workspace-tabs :deep(.el-tabs__header) { margin: 0 0 12px; }
-.workspace-tabs :deep(.el-tabs__item) { height: 48px; padding: 0 18px; font-size: 13px; font-weight: 500; }
-.workspace-tabs :deep(.el-table) { font-size: 12px; }
-.workspace-tabs :deep(.el-table th.el-table__cell) { height: 42px; font-size: 12px; font-weight: 500; }
-.workspace-tabs :deep(.el-table td.el-table__cell) { height: 46px; }
-.workspace-tabs :deep(.el-tag) { border-radius: 4px; }
-.workspace-tabs :deep(.el-alert), :global(.model-onboarding-drawer .el-alert) { border-radius: 6px; }
+.workspace-tabs :deep(.ant-tabs-nav) { margin: 0 0 12px; }
+.workspace-tabs :deep(.ant-tabs-tab) { height: 48px; padding: 0 18px; font-size: 13px; font-weight: 500; }
+.workspace-tabs :deep(.ant-table) { font-size: 12px; }
+.workspace-tabs :deep(.ant-table-thead > tr > th) { height: 42px; font-size: 12px; font-weight: 500; }
+.workspace-tabs :deep(.ant-table-tbody > tr > td) { height: 46px; }
+.workspace-tabs :deep(.ant-tag) { border-radius: 4px; }
+.workspace-tabs :deep(.ant-alert), :global(.model-onboarding-drawer .ant-alert) { border-radius: 6px; }
 :global(.model-onboarding-drawer) {
   --ai-font-body: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", MiSans, "PingFang SC", "Microsoft YaHei", sans-serif;
   --ai-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -130,16 +141,19 @@ function refreshAfterOnboarding() {
   font-size: 13px;
   letter-spacing: 0;
 }
-:global(.model-onboarding-drawer .el-drawer__header) { margin-bottom: 16px; border-bottom: 1px solid var(--el-border-color-lighter); padding-bottom: 16px; }
-:global(.model-onboarding-drawer .el-drawer__title) { font-size: 16px; font-weight: 600; }
-:global(.model-onboarding-drawer .el-segmented), :global(.model-onboarding-drawer .el-button) { border-radius: 6px; }
+:global(.model-onboarding-drawer .ant-drawer-header) { margin-bottom: 16px; border-bottom: 1px solid var(--workspace-border); padding-bottom: 16px; }
+:global(.model-onboarding-drawer .ant-drawer-title) { font-size: 16px; font-weight: 600; }
+:global(.model-onboarding-drawer .ant-segmented), :global(.model-onboarding-drawer .ant-btn) { border-radius: 6px; }
 @media (max-width: 760px) {
   .ai-model-center { padding: 12px; }
+  .ai-model-center :deep(.workspace-toolbar) { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .ai-model-center :deep(.workspace-toolbar__leading) { width: 100%; }
+  .ai-model-center :deep(.workspace-toolbar__actions) { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
   .model-workspace { padding: 0 8px 12px; }
-  .workspace-tabs :deep(.el-tabs__nav-wrap) { overflow-x: auto; }
-  .workspace-tabs :deep(.el-tabs__nav) { min-width: max-content; }
-  .workspace-tabs :deep(.el-tabs__item) { padding: 0 12px; }
+  .workspace-tabs :deep(.ant-tabs-nav-wrap) { overflow-x: auto; }
+  .workspace-tabs :deep(.ant-tabs-nav-list) { min-width: max-content; }
+  .workspace-tabs :deep(.ant-tabs-tab) { padding: 0 12px; }
   :global(.model-onboarding-drawer) { width: 100% !important; }
-  :global(.model-onboarding-drawer .el-drawer__body) { padding: 14px; }
+  :global(.model-onboarding-drawer .ant-drawer-body) { padding: 14px; }
 }
 </style>

@@ -1,82 +1,88 @@
 <template>
-  <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="engine-form">
+  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form">
     <div class="form-grid">
-      <el-form-item v-if="!quick" label="路由别名" prop="modelAlias">
-        <el-input v-model="form.modelAlias" placeholder="例如 chat-default" @input="markChanged" />
-      </el-form-item>
-      <el-form-item label="上游模型" prop="upstreamModel">
-        <el-input v-model="form.upstreamModel" placeholder="例如 gpt-4.1-mini" @input="markChanged" />
-      </el-form-item>
-      <el-form-item v-if="!quick" label="Provider" prop="provider">
-        <el-select v-model="form.provider" filterable style="width: 100%" placeholder="选择 Provider" @change="markChanged">
-          <el-option v-for="item in providers" :key="item.provider" :label="item.displayName" :value="item.provider" />
-        </el-select>
-      </el-form-item>
-      <el-form-item v-if="!quick" label="Provider 凭据" prop="credentialName">
-        <el-select v-model="form.credentialName" filterable style="width: 100%" placeholder="选择凭据" @change="markChanged">
-          <el-option
-            v-for="item in matchingCredentials"
-            :key="item.name"
-            :label="item.name"
-            :value="item.name"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item v-if="!quick" label="请求超时（秒）">
-        <el-input-number v-model="form.timeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
-      </el-form-item>
-      <el-form-item v-if="!quick" label="流式超时（秒）">
-        <el-input-number v-model="form.streamTimeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
-      </el-form-item>
-      <el-form-item v-if="!quick" label="最大重试">
-        <el-input-number v-model="form.maxRetries" :min="0" :max="10" controls-position="right" style="width: 100%" />
-      </el-form-item>
-      <el-form-item v-if="!quick && mode === 'edit'" label="阻止流量">
-        <el-switch v-model="form.blocked" inline-prompt active-text="是" inactive-text="否" />
-      </el-form-item>
+      <a-form-item v-if="!quick" label="路由别名" name="modelAlias">
+        <a-input v-model:value="form.modelAlias" placeholder="例如 chat-default" @input="markChanged" />
+      </a-form-item>
+      <a-form-item label="上游模型" name="upstreamModel">
+        <a-input v-model:value="form.upstreamModel" placeholder="例如 gpt-4.1-mini" @input="markChanged" />
+      </a-form-item>
+      <a-form-item v-if="!quick" label="Provider" name="provider">
+        <a-select
+          v-model:value="form.provider"
+          show-search
+          option-filter-prop="label"
+          style="width: 100%"
+          placeholder="选择 Provider"
+          :options="providerOptions"
+          @change="markChanged"
+        />
+      </a-form-item>
+      <a-form-item v-if="!quick" label="Provider 凭据" name="credentialName">
+        <a-select
+          v-model:value="form.credentialName"
+          show-search
+          option-filter-prop="label"
+          style="width: 100%"
+          placeholder="选择凭据"
+          :options="credentialOptions"
+          @change="markChanged"
+        />
+      </a-form-item>
+      <a-form-item v-if="!quick" label="请求超时（秒）">
+        <a-input-number v-model:value="form.timeout" :min="0.1" :max="600" style="width: 100%" />
+      </a-form-item>
+      <a-form-item v-if="!quick" label="流式超时（秒）">
+        <a-input-number v-model:value="form.streamTimeout" :min="0.1" :max="600" style="width: 100%" />
+      </a-form-item>
+      <a-form-item v-if="!quick" label="最大重试">
+        <a-input-number v-model:value="form.maxRetries" :min="0" :max="10" style="width: 100%" />
+      </a-form-item>
+      <a-form-item v-if="!quick && mode === 'edit'" label="阻止流量">
+        <a-switch v-model:checked="form.blocked" checked-children="是" un-checked-children="否" />
+      </a-form-item>
     </div>
-    <el-form-item v-if="!quick" label="描述">
-      <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" show-word-limit />
-    </el-form-item>
+    <a-form-item v-if="!quick" label="描述">
+      <a-textarea v-model:value="form.description" :rows="3" :maxlength="2000" show-count />
+    </a-form-item>
 
-    <el-collapse v-if="quick" class="advanced-settings">
-      <el-collapse-item name="advanced">
-        <template #title><span>高级设置</span></template>
+    <a-collapse v-if="quick" class="advanced-settings">
+      <a-collapse-panel key="advanced" header="高级设置">
         <div class="form-grid">
-          <el-form-item label="请求超时（秒）">
-            <el-input-number v-model="form.timeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="流式超时（秒）">
-            <el-input-number v-model="form.streamTimeout" :min="0.1" :max="600" controls-position="right" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="最大重试">
-            <el-input-number v-model="form.maxRetries" :min="0" :max="10" controls-position="right" style="width: 100%" />
-          </el-form-item>
+          <a-form-item label="请求超时（秒）">
+            <a-input-number v-model:value="form.timeout" :min="0.1" :max="600" style="width: 100%" />
+          </a-form-item>
+          <a-form-item label="流式超时（秒）">
+            <a-input-number v-model:value="form.streamTimeout" :min="0.1" :max="600" style="width: 100%" />
+          </a-form-item>
+          <a-form-item label="最大重试">
+            <a-input-number v-model:value="form.maxRetries" :min="0" :max="10" style="width: 100%" />
+          </a-form-item>
         </div>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="3" maxlength="2000" show-word-limit />
-        </el-form-item>
-      </el-collapse-item>
-    </el-collapse>
+        <a-form-item label="描述">
+          <a-textarea v-model:value="form.description" :rows="3" :maxlength="2000" show-count />
+        </a-form-item>
+      </a-collapse-panel>
+    </a-collapse>
 
     <div class="form-actions">
-      <el-button @click="$emit('cancel')">取消</el-button>
-      <el-button :loading="testLoading" :icon="Connection" @click="testConnection">测试连接</el-button>
-      <el-button
+      <a-button @click="$emit('cancel')">取消</a-button>
+      <a-button :loading="testLoading" @click="testConnection"><ApiOutlined />测试连接</a-button>
+      <a-button
         type="primary"
         :loading="submitting"
         :disabled="requireTest && !tested"
-        :icon="Check"
         @click="submit"
       >
+        <CheckOutlined />
         {{ mode === 'edit' ? '保存变更' : (quick ? '保存并继续' : '创建部署') }}
-      </el-button>
+      </a-button>
     </div>
-  </el-form>
+  </a-form>
 </template>
 
 <script setup>
-import { Check, Connection } from '@element-plus/icons-vue'
+import { ApiOutlined, CheckOutlined } from '@ant-design/icons-vue'
 import { isCredentialCompatible, resolveProvider } from '../../../utils/modelEngine.js'
 
 const props = defineProps({
@@ -111,6 +117,14 @@ const rules = {
 const matchingCredentials = computed(() => props.credentials.filter((item) => (
   !form.provider || isCredentialCompatible(item, form.provider, props.providers)
 )))
+const providerOptions = computed(() => props.providers.map((item) => ({
+  label: item.displayName,
+  value: item.provider,
+})))
+const credentialOptions = computed(() => matchingCredentials.value.map((item) => ({
+  label: item.name,
+  value: item.name,
+})))
 
 function resetForm() {
   const source = props.deployment || {}
@@ -134,7 +148,7 @@ watch(() => form.provider, (provider, previousProvider) => {
   if (isCredentialCompatible(selectedCredential, provider, props.providers)) return
   form.credentialName = ''
   markChanged()
-  nextTick(() => formRef.value?.validateField('credentialName').catch(() => {}))
+  nextTick(() => formRef.value?.validateFields(['credentialName']).catch(() => {}))
 })
 
 function markChanged() { emit('change') }
@@ -156,8 +170,11 @@ function payload() {
 }
 
 async function testConnection() {
-  const valid = await formRef.value.validateField(['upstreamModel', 'provider', 'credentialName']).then(() => true).catch(() => false)
-  if (!valid) return
+  const fields = props.quick ? ['upstreamModel'] : ['upstreamModel', 'provider', 'credentialName']
+  const valid = await formRef.value.validateFields(fields)
+    .then(() => true)
+    .catch(() => false)
+  if (!valid || !form.provider || !form.credentialName) return
   emit('test', {
     upstreamModel: form.upstreamModel,
     provider: form.provider,
@@ -167,8 +184,8 @@ async function testConnection() {
 }
 
 async function submit() {
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  const valid = await formRef.value.validateFields().then(() => true).catch(() => false)
+  if (!valid || !form.provider || !form.credentialName) return
   emit('submit', payload())
 }
 </script>
@@ -180,6 +197,6 @@ async function submit() {
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }
-  .form-actions :deep(.el-button) { flex: 1 1 auto; margin-left: 0; }
+  .form-actions :deep(.ant-btn) { flex: 1 1 auto; margin-left: 0; }
 }
 </style>

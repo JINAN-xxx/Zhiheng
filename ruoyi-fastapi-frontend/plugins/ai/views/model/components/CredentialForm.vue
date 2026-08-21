@@ -1,94 +1,91 @@
 <template>
-  <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="engine-form">
-    <el-form-item v-if="!quick" label="凭据名称" prop="credentialName">
-      <el-input
-        v-model="form.credentialName"
+  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form">
+    <a-form-item v-if="!quick" label="凭据名称" name="credentialName">
+      <a-input
+        v-model:value="form.credentialName"
         :disabled="mode === 'rotate'"
-        maxlength="128"
+        :maxlength="128"
         placeholder="例如 openai-production"
       />
-    </el-form-item>
-    <el-form-item v-if="!quick" label="Provider" prop="provider">
-      <el-select
-        v-model="form.provider"
+    </a-form-item>
+    <a-form-item v-if="!quick" label="Provider" name="provider">
+      <a-select
+        v-model:value="form.provider"
         :disabled="mode === 'rotate'"
-        filterable
+        show-search
+        option-filter-prop="label"
         placeholder="选择 Provider"
         style="width: 100%"
-      >
-        <el-option
-          v-for="item in providers"
-          :key="item.provider"
-          :label="item.displayName"
-          :value="item.provider"
-        />
-      </el-select>
-    </el-form-item>
+        :options="providerOptions"
+      />
+    </a-form-item>
 
-    <el-divider content-position="left">凭据字段</el-divider>
-    <el-empty v-if="form.provider && currentFields.length === 0" description="该 Provider 无需额外凭据" :image-size="56" />
-    <el-form-item
+    <a-divider orientation="left">凭据字段</a-divider>
+    <a-empty v-if="form.provider && currentFields.length === 0" description="该 Provider 无需额外凭据" />
+    <a-form-item
       v-for="field in currentFields"
       :key="field.key"
-      :label="field.label"
-      :prop="`values.${field.key}`"
+      :name="['values', field.key]"
       :rules="field.required ? [{ required: true, message: `${field.label}不能为空`, trigger: 'blur' }] : []"
     >
       <template #label>
         <span>{{ field.label }}</span>
-        <el-tooltip v-if="field.tooltip" :content="field.tooltip" placement="top">
-          <el-icon class="field-help"><QuestionFilled /></el-icon>
-        </el-tooltip>
+        <a-tooltip v-if="field.tooltip" :title="field.tooltip" placement="top">
+          <QuestionCircleOutlined class="field-help" />
+        </a-tooltip>
       </template>
-      <el-select
+      <a-select
         v-if="field.fieldType === 'select'"
-        v-model="form.values[field.key]"
+        v-model:value="form.values[field.key]"
         :placeholder="field.placeholder || `选择${field.label}`"
-        clearable
+        allow-clear
         style="width: 100%"
-      >
-        <el-option v-for="option in field.options" :key="String(option)" :label="String(option)" :value="String(option)" />
-      </el-select>
-      <el-input
+        :options="(field.options || []).map((option) => ({ label: String(option), value: String(option) }))"
+      />
+      <SecretField
+        v-else-if="isSecretField(field)"
+        v-model:value="form.values[field.key]"
+        :multiline="field.fieldType === 'textarea'"
+        :placeholder="field.placeholder || `输入${field.label}`"
+      />
+      <a-textarea
         v-else-if="field.fieldType === 'textarea'"
-        v-model="form.values[field.key]"
-        type="textarea"
+        v-model:value="form.values[field.key]"
         :rows="4"
         :placeholder="field.placeholder || `输入${field.label}`"
       />
       <div v-else-if="field.fieldType === 'upload'" class="upload-field">
-        <el-upload
+        <a-upload
           accept=".json,.pem,.txt,.key,.crt,.cer,.yaml,.yml,.conf,.config,application/json,text/plain,text/yaml,application/x-pem-file,application/yaml"
-          :auto-upload="false"
-          :show-file-list="false"
-          :on-change="(file) => readCredentialFile(field.key, file)"
+          :before-upload="(file) => selectCredentialFile(field.key, file)"
+          :show-upload-list="false"
         >
-          <el-button :icon="Upload">选择文件</el-button>
-        </el-upload>
+          <a-button><UploadOutlined />选择文件</a-button>
+        </a-upload>
         <span v-if="fileNames[field.key]" class="file-name">{{ fileNames[field.key] }}</span>
       </div>
-      <el-input
+      <a-input
         v-else
-        v-model="form.values[field.key]"
-        :type="field.fieldType === 'password' ? 'password' : 'text'"
-        :show-password="field.fieldType === 'password'"
+        v-model:value="form.values[field.key]"
         autocomplete="new-password"
         :placeholder="field.placeholder || `输入${field.label}`"
       />
-    </el-form-item>
+    </a-form-item>
 
     <div class="form-actions">
-      <el-button @click="$emit('cancel')">取消</el-button>
-      <el-button type="primary" :loading="submitting" :icon="Check" @click="submit">
+      <a-button @click="$emit('cancel')">取消</a-button>
+      <a-button type="primary" :loading="submitting" @click="submit">
+        <CheckOutlined />
         {{ mode === 'rotate' ? '确认轮换' : (quick ? '保存并继续' : '创建凭据') }}
-      </el-button>
+      </a-button>
     </div>
-  </el-form>
+  </a-form>
 </template>
 
 <script setup>
-import { Check, QuestionFilled, Upload } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { CheckOutlined, QuestionCircleOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import SecretField from '@/components/Antd/SecretField.vue'
+import feedback from '@/plugins/antdFeedback'
 import {
   buildCredentialValues, resolveProvider, validateCredentialFileMetadata, validateCredentialFileText,
 } from '../../../utils/modelEngine.js'
@@ -119,6 +116,23 @@ const rules = {
 
 const currentProvider = computed(() => resolveProvider(props.providers, form.provider))
 const currentFields = computed(() => currentProvider.value?.fields || [])
+const providerOptions = computed(() => props.providers.map((item) => ({
+  label: item.displayName,
+  value: item.provider,
+})))
+
+function isSecretField(field) {
+  if (field.fieldType === 'password') return true
+  if (field.fieldType === 'select' || field.fieldType === 'upload') return false
+  const normalizedKey = String(field.key || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return ['key', 'credential', 'cred', 'auth', 'token', 'secret', 'password', 'pass', 'private', 'cert']
+    .some((marker) => normalizedKey.includes(marker))
+}
+
+function initialFieldValue(field) {
+  if (isSecretField(field) || ['upload', 'textarea'].includes(field.fieldType)) return ''
+  return field.defaultValue == null ? '' : String(field.defaultValue)
+}
 
 function resetForm() {
   invalidateFileReads()
@@ -127,7 +141,7 @@ function resetForm() {
   form.values = {}
   Object.keys(fileNames).forEach((key) => delete fileNames[key])
   for (const field of currentFields.value) {
-    form.values[field.key] = field.defaultValue == null ? '' : String(field.defaultValue)
+    form.values[field.key] = initialFieldValue(field)
   }
   nextTick(() => formRef.value?.clearValidate())
 }
@@ -141,7 +155,7 @@ watch(
     form.values = {}
     Object.keys(fileNames).forEach((key) => delete fileNames[key])
     for (const field of currentFields.value) {
-      form.values[field.key] = field.defaultValue == null ? '' : String(field.defaultValue)
+      form.values[field.key] = initialFieldValue(field)
     }
   },
 )
@@ -151,8 +165,13 @@ function invalidateFileReads() {
   fileFieldGenerations.clear()
 }
 
+function selectCredentialFile(key, file) {
+  void readCredentialFile(key, file)
+  return false
+}
+
 async function readCredentialFile(key, uploadFile) {
-  const raw = uploadFile?.raw
+  const raw = uploadFile?.originFileObj || uploadFile?.raw || uploadFile
   const scopeGeneration = fileScopeGeneration
   const fieldGeneration = (fileFieldGenerations.get(key) || 0) + 1
   fileFieldGenerations.set(key, fieldGeneration)
@@ -165,11 +184,11 @@ async function readCredentialFile(key, uploadFile) {
   delete fileNames[key]
   const metadataError = validateCredentialFileMetadata(raw)
   if (metadataError) {
-    ElMessage.error(metadataError)
+    feedback.msgError(metadataError)
     return
   }
   if (!raw || typeof raw.text !== 'function') {
-    ElMessage.error('凭据文件读取失败')
+    feedback.msgError('凭据文件读取失败')
     return
   }
   try {
@@ -177,7 +196,7 @@ async function readCredentialFile(key, uploadFile) {
     if (!isCurrent()) return
     const contentError = validateCredentialFileText(value)
     if (contentError) {
-      ElMessage.error(contentError)
+      feedback.msgError(contentError)
       return
     }
     form.values[key] = value
@@ -186,16 +205,16 @@ async function readCredentialFile(key, uploadFile) {
     if (!isCurrent()) return
     form.values[key] = ''
     delete fileNames[key]
-    ElMessage.error('凭据文件读取失败')
+    feedback.msgError('凭据文件读取失败')
   }
 }
 
 async function submit() {
-  const valid = await formRef.value.validate().catch(() => false)
+  const valid = await formRef.value.validateFields().then(() => true).catch(() => false)
   if (!valid) return
   const values = buildCredentialValues(currentFields.value, form.values)
   if (Object.keys(values).length === 0) {
-    ElMessage.error('请至少填写一项凭据值')
+    feedback.msgError('请至少填写一项凭据值')
     return
   }
   emit('submit', {
@@ -210,8 +229,8 @@ onBeforeUnmount(invalidateFileReads)
 
 <style scoped>
 .engine-form { padding: 0 4px 16px; }
-.field-help { margin-left: 5px; color: var(--el-text-color-secondary); vertical-align: -2px; }
+.field-help { margin-left: 5px; color: var(--workspace-text-secondary); vertical-align: -2px; }
 .upload-field { display: flex; min-width: 0; align-items: center; gap: 10px; }
-.file-name { min-width: 0; overflow: hidden; color: var(--el-text-color-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.file-name { min-width: 0; overflow: hidden; color: var(--workspace-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 </style>

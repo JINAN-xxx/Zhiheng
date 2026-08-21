@@ -2,159 +2,145 @@
   <section class="workspace-panel">
     <div class="panel-toolbar">
       <div class="panel-summary">{{ total }} 个平台模型<span v-if="lastSuccessAt"> · 更新于 {{ formatTime(lastSuccessAt) }}</span></div>
-      <el-tooltip content="刷新平台模型" placement="top">
-        <el-button circle :icon="Refresh" :loading="loading" aria-label="刷新平台模型" @click="load" />
-      </el-tooltip>
+      <a-tooltip title="刷新平台模型" placement="top">
+        <a-button shape="circle" :loading="loading" aria-label="刷新平台模型" @click="load">
+          <template #icon><ReloadOutlined /></template>
+        </a-button>
+      </a-tooltip>
     </div>
 
-    <el-alert v-if="error && rows.length" title="刷新失败，数据可能已过期" type="warning" :closable="false" show-icon>
-      <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
-    </el-alert>
-    <el-alert v-else-if="error" title="平台模型加载失败" type="error" :closable="false" show-icon>
-      <template #default><el-button link type="primary" @click="load">重新加载</el-button></template>
-    </el-alert>
-    <el-table v-if="rows.length || loading" v-loading="loading" :data="rows" table-layout="fixed" class="model-table">
-      <el-table-column v-if="!mobile" label="Model ID" width="180">
-        <template #default="{ row }">
+    <a-alert v-if="error && rows.length" message="刷新失败，数据可能已过期" type="warning" show-icon>
+      <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
+    </a-alert>
+    <a-alert v-else-if="error" message="平台模型加载失败" type="error" show-icon>
+      <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
+    </a-alert>
+    <a-table
+      v-if="rows.length || loading"
+      class="model-table"
+      :columns="columns"
+      :data-source="rows"
+      :loading="loading"
+      :pagination="false"
+      row-key="modelId"
+      table-layout="fixed"
+    >
+      <template #bodyCell="{ column, record: row }">
+        <template v-if="column.key === 'modelId'">
           <div class="resource-value">
             <span class="resource-text" :title="row.modelId">{{ row.modelId }}</span>
-            <el-tooltip content="复制 Model ID" placement="top">
-              <button class="copy-button" type="button" aria-label="复制 Model ID" @click="copyValue(row.modelId)"><el-icon><DocumentCopy /></el-icon></button>
-            </el-tooltip>
+            <a-tooltip title="复制 Model ID" placement="top">
+              <button class="copy-button" type="button" aria-label="复制 Model ID" @click="copyValue(row.modelId)"><CopyOutlined /></button>
+            </a-tooltip>
           </div>
         </template>
-      </el-table-column>
-      <el-table-column label="Model Code" :width="mobile ? undefined : 160" :min-width="mobile ? 140 : undefined">
-        <template #default="{ row }">
+        <template v-else-if="column.key === 'modelCode'">
           <div class="resource-value">
             <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
-            <el-tooltip content="复制 Model Code" placement="top">
-              <button class="copy-button" type="button" aria-label="复制 Model Code" @click="copyValue(row.modelCode)"><el-icon><DocumentCopy /></el-icon></button>
-            </el-tooltip>
+            <a-tooltip title="复制 Model Code" placement="top">
+              <button class="copy-button" type="button" aria-label="复制 Model Code" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
+            </a-tooltip>
           </div>
         </template>
-      </el-table-column>
-      <el-table-column v-if="!mobile" prop="modelType" label="类型" width="110">
-        <template #default="{ row }">
-          <el-tag :type="modelTypeMeta(row.modelType).type" size="small" effect="plain">{{ modelTypeMeta(row.modelType).label }}</el-tag>
+        <template v-else-if="column.key === 'modelType'">
+          <a-tag :color="tagColor(modelTypeMeta(row.modelType).type)">{{ modelTypeMeta(row.modelType).label }}</a-tag>
         </template>
-      </el-table-column>
-      <el-table-column v-if="!mobile" label="Capability" width="194">
-        <template #default="{ row }">
+        <template v-else-if="column.key === 'capabilities'">
           <div class="tag-list">
-            <el-tag v-for="item in row.capabilities" :key="item.key" :type="item.type" size="small" effect="plain">{{ item.label }}</el-tag>
+            <a-tag v-for="item in row.capabilities" :key="item.key" :color="tagColor(item.type)">{{ item.label }}</a-tag>
             <span v-if="row.capabilities.length === 0" class="muted">-</span>
           </div>
         </template>
-      </el-table-column>
-      <el-table-column v-if="!mobile" label="Binding Alias" width="160">
-        <template #default="{ row }">
+        <template v-else-if="column.key === 'bindingAlias'">
           <div class="binding-value">
             <div v-if="row.bindingAlias" class="resource-value">
               <span class="resource-text" :title="row.bindingAlias">{{ row.bindingAlias }}</span>
-              <el-tooltip content="复制 Binding Alias" placement="top">
-                <button class="copy-button" type="button" aria-label="复制 Binding Alias" @click="copyValue(row.bindingAlias)"><el-icon><DocumentCopy /></el-icon></button>
-              </el-tooltip>
+              <a-tooltip title="复制 Binding Alias" placement="top">
+                <button class="copy-button" type="button" aria-label="复制 Binding Alias" @click="copyValue(row.bindingAlias)"><CopyOutlined /></button>
+              </a-tooltip>
             </div>
             <span v-else class="muted">-</span>
-            <el-tag :type="binding(row).type" size="small" effect="plain">{{ binding(row).label }}</el-tag>
+            <a-tag :color="tagColor(binding(row).type)">{{ binding(row).label }}</a-tag>
           </div>
         </template>
-      </el-table-column>
-      <el-table-column v-if="!mobile" label="生命周期" width="90">
-        <template #default="{ row }"><el-tag :type="lifecycle(row).type" size="small" effect="light">{{ lifecycle(row).label }}</el-tag></template>
-      </el-table-column>
-      <el-table-column v-if="!mobile" label="更新时间" width="140">
-        <template #default="{ row }">{{ formatTime(row.updatedAt) }}</template>
-      </el-table-column>
-      <el-table-column v-if="hasAnyAction" label="操作" :width="mobile ? 86 : 132" align="right">
-        <template #default="{ row }">
+        <template v-else-if="column.key === 'lifecycle'">
+          <a-tag :color="tagColor(lifecycle(row).type)">{{ lifecycle(row).label }}</a-tag>
+        </template>
+        <template v-else-if="column.key === 'updatedAt'">{{ formatTime(row.updatedAt) }}</template>
+        <template v-else-if="column.key === 'actions'">
           <div class="row-actions desktop-actions">
-            <el-tooltip v-if="canEdit" content="费率配置" placement="top">
-              <el-button link type="primary" :icon="Coin" aria-label="费率配置" @click="openRateCards(row)" />
-            </el-tooltip>
-            <el-tooltip v-if="canTest && row.lifecycleStatus === 'active'" content="类型化连接测试" placement="top">
-              <el-button link type="success" :icon="Connection" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)" />
-            </el-tooltip>
-            <el-tooltip v-if="canPublish && row.lifecycleStatus === 'draft'" content="发布" placement="top">
-              <el-button link type="primary" :icon="Promotion" aria-label="发布" :disabled="!canPublishPlatformModel(row)" @click="publish(row)" />
-            </el-tooltip>
-            <el-tooltip v-if="canEdit && row.lifecycleStatus === 'active'" content="停用" placement="top">
-              <el-button link type="warning" :icon="VideoPause" aria-label="停用" @click="disable(row)" />
-            </el-tooltip>
-            <el-tooltip v-if="canRemove && row.lifecycleStatus === 'draft'" content="删除草稿" placement="top">
-              <el-button link type="danger" :icon="Delete" aria-label="删除草稿" @click="remove(row)" />
-            </el-tooltip>
+            <a-tooltip v-if="canEdit" title="费率配置" placement="top"><a-button type="link" aria-label="费率配置" @click="openRateCards(row)"><template #icon><DollarOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canTest && row.lifecycleStatus === 'active'" title="类型化连接测试" placement="top"><a-button type="link" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)"><template #icon><ApiOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canPublish && row.lifecycleStatus === 'draft'" title="发布" placement="top"><a-button type="link" aria-label="发布" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canEdit && row.lifecycleStatus === 'active'" title="停用" placement="top"><a-button type="link" class="warning-action" aria-label="停用" @click="disable(row)"><template #icon><PauseCircleOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canRemove && row.lifecycleStatus === 'draft'" title="删除草稿" placement="top"><a-button type="link" danger aria-label="删除草稿" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
           </div>
-          <el-dropdown class="mobile-actions" trigger="click">
-            <el-button link :icon="MoreFilled" aria-label="更多操作">更多</el-button>
-            <template #dropdown><el-dropdown-menu>
-              <el-dropdown-item v-if="canEdit" @click="openRateCards(row)">费率配置</el-dropdown-item>
-              <el-dropdown-item v-if="canTest && row.lifecycleStatus === 'active'" @click="smokeTest(row)">类型化连接测试</el-dropdown-item>
-              <el-dropdown-item v-if="canPublish && row.lifecycleStatus === 'draft'" :disabled="!canPublishPlatformModel(row)" @click="publish(row)">发布</el-dropdown-item>
-              <el-dropdown-item v-if="canEdit && row.lifecycleStatus === 'active'" @click="disable(row)">停用</el-dropdown-item>
-              <el-dropdown-item v-if="canRemove && row.lifecycleStatus === 'draft'" @click="remove(row)">删除草稿</el-dropdown-item>
-            </el-dropdown-menu></template>
-          </el-dropdown>
+          <a-dropdown class="mobile-actions" :trigger="['click']">
+            <a-button type="text" aria-label="更多操作"><template #icon><EllipsisOutlined /></template></a-button>
+            <template #overlay><a-menu @click="({ key }) => handleRowAction(key, row)">
+              <a-menu-item v-if="canEdit" key="rate">费率配置</a-menu-item>
+              <a-menu-item v-if="canTest && row.lifecycleStatus === 'active'" key="test">类型化连接测试</a-menu-item>
+              <a-menu-item v-if="canPublish && row.lifecycleStatus === 'draft'" key="publish" :disabled="!canPublishPlatformModel(row)">发布</a-menu-item>
+              <a-menu-item v-if="canEdit && row.lifecycleStatus === 'active'" key="disable">停用</a-menu-item>
+              <a-menu-item v-if="canRemove && row.lifecycleStatus === 'draft'" key="remove" danger>删除草稿</a-menu-item>
+            </a-menu></template>
+          </a-dropdown>
         </template>
-      </el-table-column>
-    </el-table>
-    <el-empty v-else-if="!error" description="暂无平台模型" :image-size="72" />
-    <el-pagination
+      </template>
+    </a-table>
+    <a-empty v-else-if="!error" description="暂无平台模型" :image-style="{ height: '72px' }" />
+    <a-pagination
       v-if="total > pageSize"
-      v-model:current-page="pageNum"
+      v-model:current="pageNum"
       :page-size="pageSize"
       :total="total"
-      layout="prev, pager, next"
-      small
-      @current-change="load"
+      :show-size-changer="false"
+      size="small"
+      @change="load"
     />
 
-    <el-dialog v-model="rateDialogVisible" title="费率配置" width="min(680px, 94vw)" destroy-on-close>
+    <a-modal v-model:open="rateDialogVisible" title="费率配置" width="min(680px, 94vw)" destroy-on-close>
       <div class="rate-context">
         <strong>{{ rateModel?.modelCode }}</strong>
-        <el-tag size="small" effect="plain" :type="modelTypeMeta(rateModel?.modelType).type">
+        <a-tag :color="tagColor(modelTypeMeta(rateModel?.modelType).type)">
           {{ modelTypeMeta(rateModel?.modelType).label }}
-        </el-tag>
+        </a-tag>
         <span class="muted">{{ rateForm.billingMode === 'search_unit' ? '按 Search Unit 计费' : '按 Token 计费' }}</span>
       </div>
-      <el-table v-loading="rateLoading" :data="rateCards" size="small" table-layout="fixed" max-height="220">
-        <el-table-column prop="version" label="版本" width="72" />
-        <el-table-column prop="billingMode" label="模式" width="112" />
-        <el-table-column label="价格">
-          <template #default="{ row }">
+      <a-table :columns="rateColumns" :data-source="rateCards" :loading="rateLoading" :pagination="false" :scroll="{ y: 220 }" row-key="version" size="small" table-layout="fixed">
+        <template #bodyCell="{ column, record: row }">
+          <template v-if="column.key === 'price'">
             <span v-if="row.billingMode === 'search_unit'">{{ row.searchPricePerUnit }} / unit</span>
             <span v-else>输入 {{ row.inputPricePerToken }} / 输出 {{ row.outputPricePerToken }}</span>
           </template>
-        </el-table-column>
-        <el-table-column prop="currency" label="币种" width="72" />
-        <el-table-column prop="status" label="状态" width="78" />
-      </el-table>
-      <el-divider content-position="left">新增价格版本</el-divider>
-      <el-form label-position="top" @submit.prevent>
+        </template>
+      </a-table>
+      <a-divider orientation="left">新增价格版本</a-divider>
+      <a-form layout="vertical" @submit.prevent>
         <template v-if="rateForm.billingMode === 'token'">
           <div class="rate-grid">
-            <el-form-item label="输入 Token 单价"><el-input v-model="rateForm.inputPricePerToken" /></el-form-item>
-            <el-form-item label="输出 Token 单价"><el-input v-model="rateForm.outputPricePerToken" /></el-form-item>
-            <el-form-item label="缓存 Token 单价（可选）"><el-input v-model="rateForm.cachePricePerToken" /></el-form-item>
+            <a-form-item label="输入 Token 单价"><a-input v-model:value="rateForm.inputPricePerToken" /></a-form-item>
+            <a-form-item label="输出 Token 单价"><a-input v-model:value="rateForm.outputPricePerToken" /></a-form-item>
+            <a-form-item label="缓存 Token 单价（可选）"><a-input v-model:value="rateForm.cachePricePerToken" /></a-form-item>
           </div>
         </template>
-        <el-form-item v-else label="Search Unit 单价">
-          <el-input v-model="rateForm.searchPricePerUnit" />
-        </el-form-item>
-        <el-form-item label="币种"><el-input v-model="rateForm.currency" maxlength="3" /></el-form-item>
-      </el-form>
+        <a-form-item v-else label="Search Unit 单价"><a-input v-model:value="rateForm.searchPricePerUnit" /></a-form-item>
+        <a-form-item label="币种"><a-input v-model:value="rateForm.currency" :maxlength="3" /></a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="rateDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="rateSaving" @click="saveRateCard">创建价格版本</el-button>
+        <a-button @click="rateDialogVisible = false">关闭</a-button>
+        <a-button type="primary" :loading="rateSaving" @click="saveRateCard">创建价格版本</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
   </section>
 </template>
 
 <script setup>
-import { Coin, Connection, Delete, DocumentCopy, MoreFilled, Promotion, Refresh, VideoPause } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  ApiOutlined, CopyOutlined, DeleteOutlined, DollarOutlined, EllipsisOutlined,
+  PauseCircleOutlined, ReloadOutlined, SendOutlined,
+} from '@ant-design/icons-vue'
+import feedback from '@/plugins/antdFeedback'
 import {
   deletePlatformModel,
   disablePlatformModel,
@@ -190,6 +176,23 @@ const canEdit = computed(() => can('ai:model:edit'))
 const canRemove = computed(() => can('ai:model:remove'))
 const canTest = computed(() => can('ai:model:test'))
 const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
+const columns = computed(() => [
+  !props.mobile && { title: 'Model ID', key: 'modelId', width: 180 },
+  { title: 'Model Code', key: 'modelCode', width: props.mobile ? 180 : 160 },
+  !props.mobile && { title: '类型', key: 'modelType', width: 110 },
+  !props.mobile && { title: 'Capability', key: 'capabilities', width: 194 },
+  !props.mobile && { title: 'Binding Alias', key: 'bindingAlias', width: 160 },
+  !props.mobile && { title: '生命周期', key: 'lifecycle', width: 90 },
+  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140 },
+  hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 180, align: 'right' },
+].filter(Boolean))
+const rateColumns = [
+  { title: '版本', dataIndex: 'version', key: 'version', width: 72 },
+  { title: '模式', dataIndex: 'billingMode', key: 'billingMode', width: 112 },
+  { title: '价格', key: 'price' },
+  { title: '币种', dataIndex: 'currency', key: 'currency', width: 72 },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 78 },
+]
 const testingId = ref(null)
 const rateDialogVisible = ref(false)
 const rateLoading = ref(false)
@@ -221,6 +224,7 @@ const modelTypeMeta = (modelType) => ({
   embedding: { label: 'Embedding', type: 'success' },
   rerank: { label: 'Rerank', type: 'warning' },
 }[modelType] || { label: modelType || '-', type: 'info' })
+const tagColor = (type) => ({ primary: 'blue', success: 'green', warning: 'orange', danger: 'red' }[type])
 
 const billingModeFor = (modelType) => modelType === 'rerank' ? 'search_unit' : 'token'
 
@@ -231,7 +235,7 @@ async function loadRateCards() {
     const response = await listModelRateCards(rateModel.value.modelId)
     rateCards.value = Array.isArray(response?.data) ? response.data : []
   } catch {
-    ElMessage.error('费率加载失败')
+    feedback.msgError('费率加载失败')
   } finally {
     rateLoading.value = false
   }
@@ -265,10 +269,10 @@ async function saveRateCard() {
   rateSaving.value = true
   try {
     await createModelRateCard(rateModel.value.modelId, payload)
-    ElMessage.success('价格版本已创建')
+    feedback.msgSuccess('价格版本已创建')
     await loadRateCards()
   } catch {
-    ElMessage.error('价格版本创建失败，请检查单价和币种')
+    feedback.msgError('价格版本创建失败，请检查单价和币种')
   } finally {
     rateSaving.value = false
   }
@@ -326,40 +330,40 @@ async function copyValue(value) {
     document.execCommand('copy')
     input.remove()
   }
-  ElMessage.success('已复制')
+  feedback.msgSuccess('已复制')
 }
 
 async function publish(row) {
   if (!canPublishPlatformModel(row)) {
-    ElMessage.warning('仅可发布已激活运行时绑定的模型')
+    feedback.msgWarning('仅可发布已激活运行时绑定的模型')
     return
   }
   try {
     await publishPlatformModel(row.modelId)
-    ElMessage.success('模型已发布')
+    feedback.msgSuccess('模型已发布')
     await load()
-  } catch { ElMessage.error('发布失败') }
+  } catch { feedback.msgError('发布失败') }
 }
 
 async function disable(row) {
   try {
-    await ElMessageBox.confirm(`确认停用 ${row.modelCode}？`, '停用模型', { type: 'warning' })
+    await feedback.confirm(`确认停用 ${row.modelCode}？`)
     await disablePlatformModel(row.modelId)
-    ElMessage.success('模型已停用')
+    feedback.msgSuccess('模型已停用')
     await load()
   } catch (event) {
-    if (event !== 'cancel' && event !== 'close') ElMessage.error('停用失败')
+    if (event !== 'cancel' && event !== 'close') feedback.msgError('停用失败')
   }
 }
 
 async function remove(row) {
   try {
-    await ElMessageBox.confirm(`确认删除草稿 ${row.modelCode}？`, '删除草稿', { type: 'warning' })
+    await feedback.confirm(`确认删除草稿 ${row.modelCode}？`)
     await deletePlatformModel(row.modelId)
-    ElMessage.success('草稿已删除')
+    feedback.msgSuccess('草稿已删除')
     await load()
   } catch (event) {
-    if (event !== 'cancel' && event !== 'close') ElMessage.error('删除失败')
+    if (event !== 'cancel' && event !== 'close') feedback.msgError('删除失败')
   }
 }
 
@@ -369,15 +373,26 @@ async function smokeTest(row) {
     const response = await smokeTestPlatformModel(row.modelId)
     const result = response?.data
     if (result?.success) {
-      ElMessage.success(`${modelTypeMeta(result.modelType).label} 连接测试成功（${result.latencyMs ?? '-'} ms）`)
+      feedback.msgSuccess(`${modelTypeMeta(result.modelType).label} 连接测试成功（${result.latencyMs ?? '-'} ms）`)
     } else {
-      ElMessage.error(`${modelTypeMeta(result.modelType).label} 连接测试失败：${result?.message || '未知错误'}`)
+      feedback.msgError(`${modelTypeMeta(result.modelType).label} 连接测试失败：${result?.message || '未知错误'}`)
     }
   } catch {
-    ElMessage.error('连接测试请求失败')
+    feedback.msgError('连接测试请求失败')
   } finally {
     testingId.value = null
   }
+}
+
+function handleRowAction(action, row) {
+  const actions = {
+    rate: openRateCards,
+    test: smokeTest,
+    publish,
+    disable,
+    remove,
+  }
+  actions[action]?.(row)
 }
 
 onMounted(load)
@@ -388,25 +403,26 @@ defineExpose({ refresh: load })
 <style scoped>
 .workspace-panel { min-height: 360px; }
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--el-text-color-secondary); font-size: 12px; }
+.panel-summary { color: var(--workspace-text-secondary); font-size: 12px; }
 .tag-list, .row-actions { display: flex; align-items: center; gap: 6px; }
 .binding-value { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .binding-value .resource-value { flex: 1 1 auto; }
 .row-actions { justify-content: flex-end; }
 .resource-value { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .resource-text { min-width: 0; overflow: hidden; font-family: var(--ai-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--el-text-color-secondary); cursor: pointer; }
-.copy-button:hover { color: var(--el-color-primary); }
+.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
+.copy-button:hover { color: var(--workspace-main); }
 .copy-button svg { width: 14px; height: 14px; }
-.muted { color: var(--el-text-color-placeholder); }
+.muted { color: var(--workspace-text-tertiary, #8c8c8c); }
+.warning-action { color: #d48806; }
 .rate-context { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mobile-actions { display: none; }
-:deep(.el-pagination) { justify-content: flex-end; margin-top: 14px; }
+:deep(.ant-pagination) { justify-content: flex-end; margin-top: 14px; }
 @media (max-width: 760px) {
-  :deep(.mobile-hidden), .desktop-actions { display: none; }
+  .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }
-  :deep(.el-pagination) { justify-content: center; }
+  :deep(.ant-pagination) { justify-content: center; }
   .rate-grid { grid-template-columns: 1fr; gap: 0; }
 }
 </style>

@@ -3,6 +3,7 @@ import { Input, Modal, Spin, message, notification } from 'ant-design-vue'
 
 let feedbackApis
 let loadingContainer
+const FEEDBACK_MODAL_Z_INDEX = 1200
 
 export function registerFeedbackApis(apis) {
   feedbackApis = apis
@@ -34,6 +35,7 @@ function showAlert(type, content) {
     getModalApi()[type]({
       title: '系统提示',
       content,
+      zIndex: FEEDBACK_MODAL_Z_INDEX,
       okText: '确定',
       centered: true,
       onOk: resolve,
@@ -91,6 +93,7 @@ const feedback = {
       getModalApi().confirm({
         title: '系统提示',
         content,
+        zIndex: FEEDBACK_MODAL_Z_INDEX,
         okText: '确定',
         cancelText: '取消',
         centered: true,
@@ -118,6 +121,7 @@ const feedback = {
         okText: '确定',
         cancelText: '取消',
         centered: true,
+        zIndex: FEEDBACK_MODAL_Z_INDEX,
         onOk: () => resolve({ value: value.value }),
         onCancel: () => reject('cancel'),
       })
