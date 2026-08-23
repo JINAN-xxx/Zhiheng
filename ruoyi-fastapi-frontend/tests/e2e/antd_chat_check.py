@@ -97,7 +97,7 @@ async def install_chat_routes(page: Page) -> tuple[dict, asyncio.Event]:
 
 
 async def send_message(page: Page, message: str) -> None:
-    composer = page.get_by_placeholder("输入消息，Enter 发送，Shift+Enter 换行")
+    composer = page.get_by_placeholder("输入消息，按回车发送，按住上档键回车换行")
     await composer.fill(message)
     await page.get_by_role("button", name="发送").click()
 

@@ -62,7 +62,7 @@
             v-model:value="draft"
             :auto-size="{ minRows: 3, maxRows: 6 }"
             :disabled="loading"
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+            placeholder="输入消息，按回车发送，按住上档键回车换行"
             @keydown.enter.exact.prevent="send"
           />
           <div class="composer-actions">

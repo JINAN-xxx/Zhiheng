@@ -54,7 +54,7 @@ def ai_route(name: str, path: str, component: str, title: str) -> dict:
 def routes_for(access: str) -> list[dict]:
     children = []
     if access in {"all", "chat"}:
-        children.append(ai_route("AiChat", "chat", "plugin/ai/chat/index", "AI 对话"))
+        children.append(ai_route("AiChat", "chat", "plugin/ai/chat/index", "智能对话"))
     if access in {"all", "model"}:
         children.append(ai_route("AiModel", "model", "plugin/ai/model/index", "模型"))
     if access in {"all", "application"}:
@@ -64,10 +64,10 @@ def routes_for(access: str) -> list[dict]:
                     "AiApplication",
                     "application",
                     "plugin/ai/application/index",
-                    "应用接入",
+                    "开发接入",
                 ),
                 {
-                    **ai_route("AiUsage", "usage", "plugin/ai/usage/index", "用量"),
+                    **ai_route("AiUsage", "usage", "plugin/ai/usage/index", "用量记录"),
                     "hidden": True,
                 },
             ]
@@ -82,7 +82,7 @@ def routes_for(access: str) -> list[dict]:
                 "component": "Layout",
                 "redirect": f"/ai/{children[0]['path']}",
                 "alwaysShow": True,
-                "meta": {"title": "AI 工作台", "icon": "chat"},
+                "meta": {"title": "智能工作台", "icon": "chat"},
                 "children": children,
             }
         )
@@ -320,14 +320,15 @@ async def check_desktop(browser: Browser) -> None:
     await page.wait_for_url("**/ai/chat")
     assert await page.locator(".platform-sidebar").count() == 1
     assert await page.get_by_text("Developer API", exact=True).count() == 0
-    assert await page.get_by_role("link", name="AI 资源").count() == 1
+    for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
+        assert await page.get_by_role("link", name=label, exact=True).count() == 1
     assert await page.get_by_text("分析会话", exact=True).count() == 1
     await assert_no_overflow(page)
 
     expanded_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
     )
-    assert expanded_width == 230
+    assert expanded_width == 184
     await page.get_by_role("button", name="打开主菜单").click()
     await page.wait_for_timeout(250)
     collapsed_width = await page.locator(".platform-shell__sidebar").evaluate(
@@ -375,9 +376,9 @@ async def check_admin(browser: Browser) -> None:
         browser, {"width": 1024, "height": 768}
     )
     await page.goto(f"{BASE_URL}/ai/chat")
-    await page.get_by_role("button", name="管理控制台").first.click()
+    await page.get_by_role("button", name="管理后台").first.click()
     await page.wait_for_url("**/system/overview")
-    await page.get_by_text("用量台账", exact=True).wait_for()
+    await page.locator('main[aria-label="用量记录"]').wait_for()
     assert await page.locator(".admin-sidebar").count() == 1
     await page.get_by_role("menuitem", name="系统概览").wait_for()
     assert await page.locator("#tags-view-container").count() == 1
@@ -388,7 +389,7 @@ async def check_admin(browser: Browser) -> None:
     )
     await assert_no_overflow(page)
     await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-admin-1024.png"))
-    await page.get_by_role("button", name="返回 AI 工作台").first.click()
+    await page.get_by_role("button", name="返回智能工作台").first.click()
     await page.wait_for_url("**/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
     assert await page.locator("#tags-view-container").count() == 0
@@ -412,7 +413,7 @@ async def check_mobile(browser: Browser, width: int, height: int) -> None:
     )
     await drawer.locator(":focus").wait_for()
     assert await drawer.locator(":focus").count() == 1
-    await page.keyboard.press("Escape")
+    await page.mouse.click(width - 5, height / 2)
     await page.wait_for_function(
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
@@ -445,10 +446,19 @@ async def check_resources_320(browser: Browser) -> None:
         browser, {"width": 320, "height": 720}
     )
     await page.goto(f"{BASE_URL}/ai/model")
-    await page.get_by_role("navigation", name="AI 资源导航").wait_for()
-    for label in ("模型", "应用接入", "用量"):
-        assert await page.get_by_role("link", name=label, exact=True).count() == 1
-    await page.get_by_role("button", name="更多操作").click()
+    menu_button = page.get_by_role("button", name="打开主菜单")
+    await menu_button.click()
+    drawer = page.locator(".platform-mobile-drawer")
+    await page.wait_for_function(
+        "document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
+    for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
+        assert await drawer.get_by_role("link", name=label, exact=True).count() == 1
+    await page.mouse.click(315, 360)
+    await page.wait_for_function(
+        "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
+    )
+    await page.locator(".model-table").get_by_role("button", name="更多操作").click()
     assert await page.get_by_text("费率配置", exact=True).count() == 1
     await assert_no_overflow(page)
     await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-resource-320.png"))

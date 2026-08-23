@@ -75,7 +75,7 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 </script>
 
 <style scoped lang="scss">
-.admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--workspace-surface); border-right: 1px solid var(--workspace-border); }
+.admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--workspace-surface); border-right: 1px solid var(--workspace-border); color: var(--workspace-text); font: inherit; line-height: normal; }
 .admin-sidebar__back { width: 100%; min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; overflow: hidden; border: 0; border-bottom: 1px solid var(--workspace-border); background: transparent; color: var(--workspace-text); white-space: nowrap; cursor: pointer; }
 .admin-sidebar__scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 6px 0; }
 .admin-sidebar :deep(.ant-menu) { width: 100%; border-inline-end: 0; background: transparent; }

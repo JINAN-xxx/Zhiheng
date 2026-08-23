@@ -91,7 +91,7 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
-.platform-sidebar { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--workspace-sidebar-bg); border-right: 1px solid var(--workspace-sidebar-border); color: var(--workspace-sidebar-text); }
+.platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--workspace-sidebar-bg); border-right: 1px solid var(--workspace-sidebar-border); color: var(--workspace-sidebar-text); font: inherit; line-height: normal; }
 .platform-brand { min-height: 66px; display: flex; align-items: center; gap: 9px; padding: 0 16px; color: #fff; font-size: 15px; font-weight: 700; text-decoration: none; }
 .platform-brand img { width: 27px; height: 27px; object-fit: contain; filter: brightness(1.12); }
 .platform-primary-nav { display: grid; gap: 3px; padding: 6px 10px 14px; border-bottom: 1px solid var(--workspace-sidebar-border); }

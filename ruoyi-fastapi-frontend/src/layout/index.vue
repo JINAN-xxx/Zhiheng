@@ -124,7 +124,7 @@ function setLayout() {
 
 <style scoped lang="scss">
 .platform-shell { width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
-.platform-shell__sidebar { width: var(--platform-sidebar-width); min-width: var(--platform-sidebar-width); flex: 0 0 var(--platform-sidebar-width); height: 100%; transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease; }
+.platform-shell__sidebar { width: var(--platform-sidebar-width); min-width: var(--platform-sidebar-width); flex: 0 0 var(--platform-sidebar-width); height: 100%; margin: 0; padding: 0; border-radius: 0; background: transparent; line-height: normal; transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease; }
 .platform-shell.is-collapsed .platform-shell__sidebar { width: var(--platform-sidebar-collapsed-width); min-width: var(--platform-sidebar-collapsed-width); flex-basis: var(--platform-sidebar-collapsed-width); }
 .platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
 </style>
