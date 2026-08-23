@@ -1,6 +1,6 @@
 <template>
-  <main class="usage-ledger-page">
-    <WorkspaceToolbar title="用量台账" subtitle="Usage Ledger">
+  <main class="usage-ledger-page" aria-label="用量记录">
+    <WorkspaceToolbar subtitle="查看调用结果、消耗与费用">
       <template #actions>
         <a-button v-if="canQueryUsage" :loading="loading" @click="loadUsage">
           <template #icon><ReloadOutlined /></template>
@@ -40,7 +40,7 @@
     <p v-if="canQueryUsage && error && rows.length" class="usage-stale" role="status">
       刷新失败，当前数据可能已过期。最近成功：{{ formatTime(lastSuccessAt) }}
     </p>
-    <WorkspaceState v-if="!canQueryUsage" kind="forbidden" title="无权查看用量台账" message="当前账号缺少应用查询权限。" />
+    <WorkspaceState v-if="!canQueryUsage" kind="forbidden" title="无权查看用量记录" message="当前账号缺少应用查询权限。" />
     <WorkspaceState v-else-if="loading && !rows.length" kind="loading" />
     <WorkspaceState v-else-if="error && !rows.length" kind="error" :message="error" @retry="loadUsage" />
     <WorkspaceState v-else-if="!selectedApplicationId" kind="empty" title="暂无可查看应用" message="创建应用后可查看调用用量。" />
@@ -65,6 +65,7 @@
             {{ formatCost(row.billableCost) }}
             <a-tag v-if="row.costEstimated" color="orange">估算</a-tag>
           </template>
+          <template v-else-if="column.key === 'status'">{{ statusLabel(row.status) }}</template>
         </template>
       </ResourceTable>
       <a-pagination
@@ -112,9 +113,9 @@ const applicationOptions = computed(() => applications.value.map((application) =
   value: application.applicationId,
 })))
 const operationOptions = [
-  { label: 'Chat', value: 'chat' },
-  { label: 'Embedding', value: 'embedding' },
-  { label: 'Rerank', value: 'rerank' },
+  { label: '对话', value: 'chat' },
+  { label: '向量', value: 'embedding' },
+  { label: '排序', value: 'rerank' },
 ]
 const statusOptions = [
   { label: '已完成', value: 'completed' },
@@ -126,16 +127,16 @@ const columns = [
   { title: '开始时间', key: 'startedAt', width: 170 },
   { title: '类型', key: 'operationType', width: 110 },
   { title: '模型', dataIndex: 'modelCode', key: 'modelCode', width: 170, ellipsis: true },
-  { title: 'Token', key: 'tokens', width: 150 },
-  { title: 'Search Unit', key: 'searchUnits', width: 120, mobileHidden: true },
-  { title: '成本', key: 'cost', width: 130, mobileHidden: true },
+  { title: '令牌', key: 'tokens', width: 150 },
+  { title: '检索单元', key: 'searchUnits', width: 120, mobileHidden: true },
+  { title: '费用', key: 'cost', width: 130, mobileHidden: true },
   { title: '状态', dataIndex: 'status', key: 'status', width: 110 },
 ]
 
 const operationMeta = (operationType) => ({
-  chat: { label: 'Chat', type: 'primary' },
-  embedding: { label: 'Embedding', type: 'success' },
-  rerank: { label: 'Rerank', type: 'warning' },
+  chat: { label: '对话', type: 'primary' },
+  embedding: { label: '向量', type: 'success' },
+  rerank: { label: '排序', type: 'warning' },
 }[operationType] || { label: operationType || '-', type: 'info' })
 const operationColor = (type) => ({ primary: 'blue', success: 'green', warning: 'orange' }[type] || 'default')
 
@@ -187,8 +188,15 @@ function resetAndLoad() {
 }
 
 function formatTime(value) {
-  return value ? new Date(value).toLocaleString() : '-'
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(value))
 }
+
+const statusLabel = (status) => ({
+  completed: '成功', failed: '失败', cancelled: '已取消', abandoned: '已放弃', started: '处理中',
+}[status] || status || '-')
 
 function formatCost(value) {
   return value == null ? '-' : Number(value).toFixed(6)

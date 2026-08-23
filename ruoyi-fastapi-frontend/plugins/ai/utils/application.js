@@ -81,7 +81,7 @@ export function normalizeDeveloperKey(source = {}) {
   return {
     keyId: text(source.keyId ?? source.key_id),
     applicationId: text(source.applicationId ?? source.application_id),
-    keyName: text(source.keyName ?? source.key_name, '未命名 Key'),
+    keyName: text(source.keyName ?? source.key_name, '未命名密钥'),
     maskedKey: text(source.maskedKey ?? source.masked_key),
     fingerprint: text(source.fingerprint),
     status: text(source.status, 'unknown'),
@@ -107,7 +107,7 @@ export function extractIssuedKey(source = {}) {
     apiKey: text(payload?.apiKey ?? payload?.api_key),
     fingerprint: text(payload?.fingerprint),
   }
-  if (!result.keyId || !result.apiKey || !result.fingerprint) throw new Error('API Key 响应无效')
+  if (!result.keyId || !result.apiKey || !result.fingerprint) throw new Error('访问密钥响应无效')
   return result
 }
 

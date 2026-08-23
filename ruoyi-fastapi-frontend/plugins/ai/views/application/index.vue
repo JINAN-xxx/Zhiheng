@@ -2,9 +2,7 @@
   <main class="app-container developer-api-page">
     <header class="developer-header">
       <div>
-        <span class="developer-kicker">DEVELOPER ACCESS</span>
-        <h2>Developer API</h2>
-        <p>管理应用、模型授权与平台 API Key。</p>
+        <p>管理开发接入应用、模型授权与访问密钥</p>
       </div>
       <div class="developer-header__actions">
         <a-tooltip title="刷新应用" placement="bottom">
@@ -17,7 +15,7 @@
     </header>
 
     <section class="developer-grid">
-      <WorkspacePanel title="应用" subtitle="每个应用拥有独立 Key 与模型权限" flush>
+      <WorkspacePanel title="应用" subtitle="每个应用拥有独立访问密钥与模型权限" flush>
         <div class="application-tools">
           <a-input v-model:value="query.applicationName" allow-clear placeholder="搜索应用" @press-enter="loadApplications">
             <template #prefix><SearchOutlined /></template>
@@ -66,7 +64,7 @@
 
       <WorkspacePanel
         class="key-panel"
-        :title="selectedApplication?.applicationName || 'API Key'"
+        :title="selectedApplication?.applicationName || '访问密钥'"
         :subtitle="selectedApplication ? selectedApplication.applicationCode : '先选择一个应用'"
         flush
       >
@@ -86,17 +84,17 @@
               v-if="canCreateKey && selectedApplication.status === 'active'"
               type="primary"
               @click="openKeyForm"
-            ><KeyOutlined />创建 Key</a-button>
+            ><KeyOutlined />创建密钥</a-button>
           </div>
         </template>
 
-        <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看 API Key" />
-        <WorkspaceState v-else-if="!canListKeys" kind="forbidden" title="无权查看 API Key" message="当前账号缺少 API Key 列表权限。" />
+        <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看访问密钥" />
+        <WorkspaceState v-else-if="!canListKeys" kind="forbidden" title="无权查看访问密钥" message="当前账号缺少访问密钥列表权限。" />
         <WorkspaceState v-else-if="keyLoading && !keys.length" kind="loading" />
         <WorkspaceState v-else-if="keyError && !keys.length" kind="error" :message="keyError" @retry="loadKeys" />
-        <WorkspaceState v-else-if="!keys.length" kind="empty" title="暂无 API Key" message="为当前应用创建第一个 Key。" />
+        <WorkspaceState v-else-if="!keys.length" kind="empty" title="暂无访问密钥" message="为当前应用创建第一个访问密钥。" />
         <div v-else class="key-list">
-          <div v-if="keyError" class="stale-notice">刷新失败，当前 Key 列表可能已过期。</div>
+          <div v-if="keyError" class="stale-notice">刷新失败，当前访问密钥列表可能已过期。</div>
           <article v-for="item in keys" :key="item.keyId" class="key-row">
             <div class="key-row__identity">
               <div class="key-row__title">
@@ -107,8 +105,8 @@
               <small>{{ item.grants.length }} 个模型授权 · 最近使用 {{ formatTime(item.lastUsedAt) }}</small>
             </div>
             <div class="key-row__quota">
-              <span>RPM {{ item.quota.rpmLimit ?? '不限' }}</span>
-              <span>TPM {{ item.quota.tpmLimit ?? '不限' }}</span>
+              <span>每分钟请求数 {{ item.quota.rpmLimit ?? '不限' }}</span>
+              <span>每分钟令牌数 {{ item.quota.tpmLimit ?? '不限' }}</span>
               <span>并发 {{ item.quota.concurrencyLimit ?? '不限' }}</span>
             </div>
             <WorkspaceMoreMenu
@@ -120,12 +118,12 @@
         </div>
       </WorkspacePanel>
 
-      <WorkspacePanel class="usage-panel" :title="`用量台账 · ${selectedApplication?.applicationCode || '-'}`" subtitle="最近调用、Token 与结算记录" flush>
-        <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看用量台账" />
-        <WorkspaceState v-else-if="!canQueryUsage" kind="forbidden" title="无权查看用量台账" message="当前账号缺少应用查询权限。" />
+      <WorkspacePanel class="usage-panel" :title="`调用记录 · ${selectedApplication?.applicationCode || '-'}`" subtitle="最近调用、令牌与结算记录" flush>
+        <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看调用记录" />
+        <WorkspaceState v-else-if="!canQueryUsage" kind="forbidden" title="无权查看调用记录" message="当前账号缺少应用查询权限。" />
         <WorkspaceState v-else-if="usageLoading && !usageRows.length" kind="loading" />
         <WorkspaceState v-else-if="usageError && !usageRows.length" kind="error" :message="usageError" @retry="loadUsage" />
-        <WorkspaceState v-else-if="!usageRows.length" kind="empty" title="暂无用量记录" message="公开 API 调用完成后会在此展示。" />
+        <WorkspaceState v-else-if="!usageRows.length" kind="empty" title="暂无调用记录" message="公开接口调用完成后会在此展示。" />
         <div v-else class="usage-list">
           <div v-if="usageError" class="stale-notice">刷新失败，当前用量数据可能已过期。</div>
           <ResourceTable
@@ -146,7 +144,7 @@
                 {{ row.billableCost != null ? Number(row.billableCost).toFixed(6) : '-' }}
                 <a-tag v-if="row.costEstimated" color="orange">估算</a-tag>
               </template>
-              <template v-else-if="column.key === 'status'"><a-tag>{{ row.status }}</a-tag></template>
+              <template v-else-if="column.key === 'status'"><a-tag>{{ usageStatusLabel(row.status) }}</a-tag></template>
             </template>
           </ResourceTable>
           <a-pagination
@@ -178,9 +176,9 @@
       </template>
     </a-modal>
 
-    <a-modal v-model:open="keyFormOpen" title="创建 API Key" :width="600" destroy-on-close :after-close="handleKeyFormClosed">
+    <a-modal v-model:open="keyFormOpen" title="创建访问密钥" :width="600" destroy-on-close :after-close="handleKeyFormClosed">
       <a-form ref="keyFormRef" :model="keyForm" :rules="keyRules" layout="vertical">
-        <a-form-item label="Key 名称" name="keyName"><a-input v-model:value="keyForm.keyName" :maxlength="100" /></a-form-item>
+        <a-form-item label="密钥名称" name="keyName"><a-input v-model:value="keyForm.keyName" :maxlength="100" /></a-form-item>
         <a-form-item label="授权模型" name="modelIds">
           <a-select
             v-model:value="keyForm.modelIds"
@@ -193,8 +191,8 @@
           />
         </a-form-item>
         <div class="quota-grid">
-          <a-form-item label="RPM"><a-input-number v-model:value="keyForm.rpmLimit" :min="1" style="width: 100%" /></a-form-item>
-          <a-form-item label="TPM"><a-input-number v-model:value="keyForm.tpmLimit" :min="1" style="width: 100%" /></a-form-item>
+          <a-form-item label="每分钟请求数"><a-input-number v-model:value="keyForm.rpmLimit" :min="1" style="width: 100%" /></a-form-item>
+          <a-form-item label="每分钟令牌数"><a-input-number v-model:value="keyForm.tpmLimit" :min="1" style="width: 100%" /></a-form-item>
           <a-form-item label="并发数"><a-input-number v-model:value="keyForm.concurrencyLimit" :min="1" style="width: 100%" /></a-form-item>
         </div>
         <a-form-item label="过期时间"><a-date-picker v-model:value="keyForm.expiresAt" show-time style="width: 100%" /></a-form-item>
@@ -205,11 +203,11 @@
       </template>
     </a-modal>
 
-    <a-modal v-model:open="issuedKeyOpen" title="API Key 已生成" :width="560" :mask-closable="false" :after-close="clearIssuedKey">
-      <a-alert type="warning" :closable="false" message="该 Key 仅展示一次，关闭后无法再次查看。" show-icon />
+    <a-modal v-model:open="issuedKeyOpen" title="访问密钥已生成" :width="560" :mask-closable="false" :after-close="clearIssuedKey">
+      <a-alert type="warning" :closable="false" message="该密钥仅展示一次，关闭后无法再次查看。" show-icon />
       <div class="issued-key">
         <code>{{ issuedKey?.apiKey }}</code>
-        <a-button aria-label="复制 API Key" title="复制 API Key" @click="copyIssuedKey"><template #icon><CopyOutlined /></template></a-button>
+        <a-button aria-label="复制访问密钥" title="复制访问密钥" @click="copyIssuedKey"><template #icon><CopyOutlined /></template></a-button>
       </div>
       <template #footer><a-button type="primary" @click="issuedKeyOpen = false">我已保存</a-button></template>
     </a-modal>
@@ -293,12 +291,12 @@ const applicationRules = {
   applicationName: [{ required: true, message: '应用名称不能为空', trigger: 'blur' }],
 }
 const keyRules = {
-  keyName: [{ required: true, message: 'Key 名称不能为空', trigger: 'blur' }],
+  keyName: [{ required: true, message: '密钥名称不能为空', trigger: 'blur' }],
   modelIds: [{ type: 'array', required: true, min: 1, message: '至少选择一个模型', trigger: 'change' }],
 }
 const keyActions = computed(() => [
-  can('ai:application:key:rotate') && { command: 'rotate', label: '轮换 Key', icon: ReloadOutlined },
-  can('ai:application:key:revoke') && { command: 'revoke', label: '撤销 Key', icon: DeleteOutlined, danger: true, divided: true },
+  can('ai:application:key:rotate') && { command: 'rotate', label: '轮换密钥', icon: ReloadOutlined },
+  can('ai:application:key:revoke') && { command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true, divided: true },
 ].filter(Boolean))
 const applicationColumns = [
   { title: '应用', key: 'application' },
@@ -311,8 +309,8 @@ const usageColumns = [
   { title: '开始时间', dataIndex: 'startedAt', key: 'startedAt', width: 150 },
   { title: '类型', dataIndex: 'operationType', key: 'operationType', width: 110 },
   { title: '模型', dataIndex: 'modelCode', key: 'modelCode', width: 150, ellipsis: true },
-  { title: 'Token', key: 'tokens', width: 140 },
-  { title: 'Search Unit', key: 'searchUnits', width: 110, mobileHidden: true },
+  { title: '令牌', key: 'tokens', width: 140 },
+  { title: '检索单元', key: 'searchUnits', width: 110, mobileHidden: true },
   { title: '结算成本', key: 'billableCost', width: 130, mobileHidden: true },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
 ]
@@ -322,7 +320,10 @@ function defaultKeyForm() {
 }
 
 function formatTime(value) {
-  return value ? new Date(value).toLocaleString() : '从未'
+  if (!value) return '从未'
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date(value))
 }
 
 async function loadApplications() {
@@ -373,17 +374,20 @@ async function loadKeys() {
     if (requestId !== keyRequest || applicationId !== selectedApplication.value?.applicationId) return
     keys.value = normalizeDeveloperKeys(response)
   } catch (reason) {
-    if (requestId === keyRequest) keyError.value = reason?.message || 'API Key 加载失败'
+    if (requestId === keyRequest) keyError.value = reason?.message || '访问密钥加载失败'
   } finally {
     if (requestId === keyRequest) keyLoading.value = false
   }
 }
 
 const operationTypeMeta = (operationType) => ({
-  chat: { label: 'Chat', type: 'primary' },
-  embedding: { label: 'Embedding', type: 'success' },
-  rerank: { label: 'Rerank', type: 'warning' },
+  chat: { label: '对话', type: 'primary' },
+  embedding: { label: '向量', type: 'success' },
+  rerank: { label: '排序', type: 'warning' },
 }[operationType] || { label: operationType || '-', type: 'info' })
+const usageStatusLabel = (status) => ({
+  completed: '成功', failed: '失败', cancelled: '已取消', abandoned: '已放弃', started: '处理中',
+}[status] || status || '-')
 const tagColor = (type) => ({ primary: 'blue', success: 'green', warning: 'orange', danger: 'red' }[type])
 const usageRowKey = (row) => row.usageId || row.requestId || row.id || `${row.startedAt}-${row.modelCode}`
 
@@ -447,7 +451,7 @@ async function saveApplication() {
 
 async function disableSelectedApplication() {
   if (!can('ai:application:disable') || selectedApplication.value?.status !== 'active') return
-  await feedback.confirm('停用后，该应用下所有 Key 将无法调用。是否继续？')
+  await feedback.confirm('停用后，该应用下所有访问密钥将无法调用。是否继续？')
   await disableApplication(selectedApplication.value.applicationId)
   await loadApplications()
 }
@@ -491,12 +495,12 @@ async function handleKeyAction(command, item) {
   if (command === 'rotate' && !can('ai:application:key:rotate')) return
   if (command === 'revoke' && !can('ai:application:key:revoke')) return
   if (command === 'rotate') {
-    await feedback.confirm('轮换后旧 Key 将保留 24 小时宽限期，是否继续？')
+    await feedback.confirm('轮换后旧密钥将保留 24 小时宽限期，是否继续？')
     const response = await rotateDeveloperKey(selectedApplication.value.applicationId, item.keyId, { gracePeriodSeconds: 86400 })
     showIssuedKey(response)
     await loadKeys()
   } else if (command === 'revoke') {
-    await feedback.confirm('撤销后该 Key 立即失效，是否继续？')
+    await feedback.confirm('撤销后该密钥立即失效，是否继续？')
     await revokeDeveloperKey(selectedApplication.value.applicationId, item.keyId)
     await loadKeys()
   }
@@ -514,7 +518,7 @@ function clearIssuedKey() {
 async function copyIssuedKey() {
   if (!issuedKey.value?.apiKey) return
   await navigator.clipboard.writeText(issuedKey.value.apiKey)
-  feedback.msgSuccess('API Key 已复制')
+  feedback.msgSuccess('访问密钥已复制')
 }
 
 onMounted(loadApplications)
@@ -535,29 +539,17 @@ onBeforeUnmount(() => {
 
 .developer-header {
   display: flex;
-  min-height: 72px;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
   gap: var(--workspace-space-4);
   margin-bottom: var(--workspace-space-4);
 }
 
-.developer-kicker {
-  color: var(--workspace-main-deep);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.developer-header h2 {
-  margin: 4px 0 2px;
-  font-size: 21px;
-}
-
 .developer-header p {
   margin: 0;
   color: var(--workspace-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .developer-header__actions,
@@ -574,6 +566,8 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(290px, 0.72fr) minmax(0, 1.28fr);
   gap: var(--workspace-space-4);
 }
+.developer-grid > :first-child { grid-row: 1 / span 2; align-self: start; }
+.usage-panel { grid-column: 2; }
 
 .application-tools {
   padding: var(--workspace-space-3);
@@ -696,13 +690,11 @@ onBeforeUnmount(() => {
   .developer-grid {
     grid-template-columns: 1fr;
   }
+  .developer-grid > :first-child,
+  .usage-panel { grid-column: auto; grid-row: auto; }
 }
 
 @media (max-width: 560px) {
-  .developer-api-page {
-    padding: 12px;
-  }
-
   .developer-header {
     align-items: flex-start;
   }
