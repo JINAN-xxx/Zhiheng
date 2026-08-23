@@ -35,11 +35,18 @@
           </div>
         </template>
         <template v-else-if="column.key === 'modelCode'">
-          <div class="resource-value">
-            <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
-            <a-tooltip title="复制模型代码" placement="top">
-              <button class="copy-button" type="button" aria-label="复制模型代码" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
-            </a-tooltip>
+          <div class="mobile-model-cell">
+            <div class="resource-value">
+              <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
+              <a-tooltip title="复制模型代码" placement="top">
+                <button class="copy-button" type="button" aria-label="复制模型代码" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
+              </a-tooltip>
+            </div>
+            <div v-if="props.mobile" class="mobile-model-meta">
+              <a-tag :color="tagColor(modelTypeMeta(row.modelType).type)">{{ modelTypeMeta(row.modelType).label }}</a-tag>
+              <a-tag :color="tagColor(binding(row).type)">{{ binding(row).label }}</a-tag>
+              <a-tag :color="tagColor(lifecycle(row).type)">{{ lifecycle(row).label }}</a-tag>
+            </div>
           </div>
         </template>
         <template v-else-if="column.key === 'modelType'">
@@ -409,6 +416,8 @@ defineExpose({ refresh: load })
 .binding-value .resource-value { flex: 1 1 auto; }
 .row-actions { justify-content: flex-end; }
 .resource-value { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.mobile-model-cell { display: grid; min-width: 0; gap: 8px; }
+.mobile-model-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .resource-text { min-width: 0; overflow: hidden; font-family: var(--ai-font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
 .copy-button:hover { color: var(--workspace-main); }

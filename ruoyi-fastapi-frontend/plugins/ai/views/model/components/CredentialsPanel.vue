@@ -7,7 +7,7 @@
       </div>
       <a-tooltip title="刷新服务商凭据" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新服务商凭据" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
     </div>
-    <a-alert v-if="notConfigured" :message="rows.length ? 'Management Key 未配置，当前数据可能已过期' : 'Management Key 未配置'" type="warning" show-icon />
+    <a-alert v-if="notConfigured" :message="rows.length ? '管理密钥未配置，当前数据可能已过期' : '管理密钥未配置'" type="warning" show-icon />
     <a-alert v-else-if="error && rows.length" message="刷新失败，数据可能已过期" type="warning" show-icon>
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>

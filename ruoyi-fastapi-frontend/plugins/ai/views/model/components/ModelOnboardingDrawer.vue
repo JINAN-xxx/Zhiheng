@@ -414,7 +414,7 @@ async function loadOptions() {
     selectedProvider.value = providers.value[0]?.provider || ''
   } catch (event) {
     if (requestGate.isCurrent(requestGeneration))
-      bootError.value = isManagementMisconfiguredError(event) ? 'Management Key 未配置' : '接入资源加载失败'
+      bootError.value = isManagementMisconfiguredError(event) ? '管理密钥未配置' : '接入资源加载失败'
   } finally {
     if (requestGate.isCurrent(requestGeneration)) bootLoading.value = false
   }

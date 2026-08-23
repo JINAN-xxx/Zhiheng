@@ -126,7 +126,23 @@
         <WorkspaceState v-else-if="!usageRows.length" kind="empty" title="暂无调用记录" message="公开接口调用完成后会在此展示。" />
         <div v-else class="usage-list">
           <div v-if="usageError" class="stale-notice">刷新失败，当前用量数据可能已过期。</div>
+          <div v-if="isMobile" class="usage-mobile-list">
+            <article v-for="row in usageRows" :key="usageRowKey(row)" class="usage-mobile-item">
+              <div class="usage-mobile-item__header">
+                <strong>{{ formatTime(row.startedAt) }}</strong>
+                <a-tag>{{ usageStatusLabel(row.status) }}</a-tag>
+              </div>
+              <div class="usage-mobile-item__model" :title="row.modelCode">{{ row.modelCode }}</div>
+              <div class="usage-mobile-item__meta">
+                <a-tag :color="tagColor(operationTypeMeta(row.operationType).type)">{{ operationTypeMeta(row.operationType).label }}</a-tag>
+                <span>令牌 {{ row.inputTokens ?? '-' }} / {{ row.outputTokens ?? '-' }}</span>
+                <span v-if="row.searchUnits != null">检索单元 {{ row.searchUnits }}</span>
+                <span>费用 {{ row.billableCost != null ? Number(row.billableCost).toFixed(6) : '-' }}</span>
+              </div>
+            </article>
+          </div>
           <ResourceTable
+            v-else
             :columns="usageColumns"
             :rows="usageRows"
             :pagination="false"
@@ -218,6 +234,7 @@
 import {
   CopyOutlined, DeleteOutlined, EditOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined,
 } from '@ant-design/icons-vue'
+import { useWindowSize } from '@vueuse/core'
 import useUserStore from '@/store/modules/user'
 import feedback from '@/plugins/antdFeedback'
 import ResourceTable from '@/components/Antd/ResourceTable.vue'
@@ -250,6 +267,8 @@ import {
 import { hasPermission } from '../../utils/modelEngine.js'
 
 const userStore = useUserStore()
+const { width } = useWindowSize()
+const isMobile = computed(() => width.value < 768)
 const can = (permission) => hasPermission(userStore.permissions || [], permission)
 const canListKeys = computed(() => can('ai:application:key:list'))
 const canCreateKey = computed(() => can('ai:application:key:add') && can('ai:model:list'))
@@ -663,6 +682,12 @@ onBeforeUnmount(() => {
   background: var(--workspace-warning-soft);
   font-size: 12px;
 }
+.usage-mobile-list { display: grid; gap: 10px; padding: 12px; }
+.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); }
+.usage-mobile-item__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.usage-mobile-item__header strong { font-size: 13px; }
+.usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--workspace-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.usage-mobile-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--workspace-text-secondary); font-size: 12px; }
 
 .quota-grid {
   display: grid;

@@ -4,7 +4,7 @@
       <div class="panel-summary">{{ rows.length }} 个引擎部署<span v-if="lastSuccessAt"> · 更新于 {{ formatTime(lastSuccessAt) }}</span></div>
       <a-tooltip title="刷新引擎部署" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新引擎部署" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
     </div>
-    <a-alert v-if="notConfigured" :message="rows.length ? 'Management Key 未配置，当前数据可能已过期' : 'Management Key 未配置'" type="warning" show-icon />
+    <a-alert v-if="notConfigured" :message="rows.length ? '管理密钥未配置，当前数据可能已过期' : '管理密钥未配置'" type="warning" show-icon />
     <a-alert v-else-if="error && rows.length" message="刷新失败，数据可能已过期" type="warning" show-icon>
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>
@@ -90,10 +90,10 @@ const canRemove = computed(() => can('ai:engine:deployment:remove'))
 const hasAnyAction = computed(() => !notConfigured.value && (canEdit.value || canTest.value || canRemove.value))
 const columns = computed(() => [
   !props.mobile && { title: '部署编号', dataIndex: 'deploymentId', key: 'deploymentId', width: 190, ellipsis: true },
-  { title: 'Alias', dataIndex: 'alias', key: 'alias', width: props.mobile ? 180 : 150, ellipsis: true },
+  { title: '调用别名', dataIndex: 'alias', key: 'alias', width: props.mobile ? 180 : 150, ellipsis: true },
   !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 130 },
   !props.mobile && { title: '上游模型', dataIndex: 'baseModel', key: 'baseModel', width: 170, ellipsis: true },
-  !props.mobile && { title: 'Blocked', key: 'blocked', width: 90 },
+  !props.mobile && { title: '已阻止', key: 'blocked', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 132, align: 'right' },
 ].filter(Boolean))
