@@ -1,11 +1,10 @@
 <template>
-   <el-dialog :title="title" :model-value="modelValue" width="920px" append-to-body @update:model-value="emit('update:modelValue', $event)">
-      <el-alert
+   <ResourceDrawer :title="title" :open="modelValue" :width="920" destroy-on-close @close="emit('update:modelValue', false)">
+      <a-alert
          v-if="planResult.message"
-         :title="planResult.message"
+         :message="planResult.message"
          :type="planResult.ok ? 'success' : 'warning'"
          show-icon
-         :closable="false"
          class="mb16"
       />
       <div class="plan-summary">
@@ -26,110 +25,49 @@
             <span class="plan-summary-value is-danger">{{ planResult.blockerCount }}</span>
          </div>
       </div>
-      <el-descriptions :column="1" border class="mb16">
-         <el-descriptions-item label="目标范围">{{ formatPluginIdsForDisplay(planResult.requestedPluginIds) }}</el-descriptions-item>
-         <el-descriptions-item label="执行顺序">
-            <el-tag
+      <a-descriptions :column="1" bordered class="mb16">
+         <a-descriptions-item label="目标范围">{{ formatPluginIdsForDisplay(planResult.requestedPluginIds) }}</a-descriptions-item>
+         <a-descriptions-item label="执行顺序">
+            <a-tag
                v-for="pluginId in planResult.executablePluginIds"
                :key="pluginId"
                class="plan-order-tag"
-               type="info"
-            >{{ pluginId }}</el-tag>
+            >{{ pluginId }}</a-tag>
             <span v-if="!planResult.executablePluginIds.length">-</span>
-         </el-descriptions-item>
-      </el-descriptions>
+         </a-descriptions-item>
+      </a-descriptions>
 
-      <el-tabs>
-         <el-tab-pane label="计划项">
-            <el-table :data="planResult.items" size="small" border empty-text="暂无计划项">
-               <el-table-column label="顺序" prop="order" width="70" align="center" />
-               <el-table-column label="插件ID" prop="pluginId" width="140" :show-overflow-tooltip="true" />
-               <el-table-column label="插件名称" prop="name" min-width="150" :show-overflow-tooltip="true" />
-               <el-table-column label="版本" prop="version" width="100" align="center" />
-               <el-table-column label="显式选择" width="90" align="center">
-                  <template #default="scope">
-                     <el-tag :type="scope.row.requested ? 'success' : 'info'">{{ scope.row.requested ? "是" : "依赖" }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="可执行" width="90" align="center">
-                  <template #default="scope">
-                     <el-tag :type="getPlanReadyTagType(scope.row.ready)">{{ scope.row.ready ? "是" : "否" }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="依赖" min-width="180" :show-overflow-tooltip="true">
-                  <template #default="scope">
-                     <span>{{ formatPlanDependencies(scope.row.dependencies) }}</span>
-                  </template>
-               </el-table-column>
-               <el-table-column label="阻塞项" width="90" align="center">
-                  <template #default="scope">
-                     <el-tag :type="scope.row.blockers?.length ? 'danger' : 'success'">{{ scope.row.blockers?.length || 0 }}</el-tag>
-                  </template>
-               </el-table-column>
-            </el-table>
-         </el-tab-pane>
-         <el-tab-pane label="阻塞原因">
-            <el-table :data="planResult.blockers" size="small" border empty-text="暂无阻塞项">
-               <el-table-column label="插件ID" prop="pluginId" width="140" :show-overflow-tooltip="true" />
-               <el-table-column label="依赖插件" prop="dependencyId" width="140" :show-overflow-tooltip="true" />
-               <el-table-column label="状态" width="150" align="center">
-                  <template #default="scope">
-                     <el-tag type="danger">{{ getPlanBlockerStatusLabel(scope.row.status) }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="说明" prop="message" min-width="320" :show-overflow-tooltip="true" />
-            </el-table>
-         </el-tab-pane>
-         <el-tab-pane label="执行结果">
-            <el-descriptions :column="4" border class="mb16">
-               <el-descriptions-item label="总数">{{ batchResult.summary.total }}</el-descriptions-item>
-               <el-descriptions-item label="成功">{{ batchResult.summary.succeeded }}</el-descriptions-item>
-               <el-descriptions-item label="失败">{{ batchResult.summary.failed }}</el-descriptions-item>
-               <el-descriptions-item label="跳过">{{ batchResult.summary.skipped }}</el-descriptions-item>
-            </el-descriptions>
-            <el-table :data="batchResult.executed" size="small" border empty-text="暂无执行记录">
-               <el-table-column label="插件ID" prop="pluginId" width="140" :show-overflow-tooltip="true" />
-               <el-table-column label="操作" width="90" align="center">
-                  <template #default="scope">{{ formatPluginOperation(scope.row.operation) }}</template>
-               </el-table-column>
-               <el-table-column label="状态" width="90" align="center">
-                  <template #default="scope">
-                     <el-tag :type="scope.row.ok ? 'success' : 'danger'">{{ scope.row.status || "-" }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="耗时" prop="durationMs" width="90" align="center">
-                  <template #default="scope">{{ scope.row.durationMs ?? "-" }}ms</template>
-               </el-table-column>
-               <el-table-column label="说明" prop="message" min-width="220" :show-overflow-tooltip="true" />
-               <el-table-column label="建议" prop="suggestion" min-width="260" :show-overflow-tooltip="true" />
-            </el-table>
-         </el-tab-pane>
-      </el-tabs>
+      <a-tabs>
+         <a-tab-pane key="items" tab="计划项"><a-table :columns="itemColumns" :data-source="planResult.items" :pagination="false" row-key="pluginId" size="small" :scroll="{ x: 1000 }"><template #bodyCell="{ column, record }"><a-tag v-if="column.key === 'requested'" :color="record.requested ? 'green' : 'default'">{{ record.requested ? '是' : '依赖' }}</a-tag><a-tag v-else-if="column.key === 'ready'" :color="tagColor(getPlanReadyTagType(record.ready))">{{ record.ready ? '是' : '否' }}</a-tag><span v-else-if="column.key === 'dependencies'">{{ formatPlanDependencies(record.dependencies) }}</span><a-tag v-else-if="column.key === 'blockers'" :color="record.blockers?.length ? 'red' : 'green'">{{ record.blockers?.length || 0 }}</a-tag></template></a-table></a-tab-pane>
+         <a-tab-pane key="blockers" tab="阻塞原因"><a-table :columns="blockerColumns" :data-source="planResult.blockers" :pagination="false" row-key="message" size="small" :scroll="{ x: 760 }"><template #bodyCell="{ column, record }"><a-tag v-if="column.key === 'status'" color="red">{{ getPlanBlockerStatusLabel(record.status) }}</a-tag></template></a-table></a-tab-pane>
+         <a-tab-pane key="result" tab="执行结果"><a-descriptions :column="4" bordered class="mb16"><a-descriptions-item label="总数">{{ batchResult.summary.total }}</a-descriptions-item><a-descriptions-item label="成功">{{ batchResult.summary.succeeded }}</a-descriptions-item><a-descriptions-item label="失败">{{ batchResult.summary.failed }}</a-descriptions-item><a-descriptions-item label="跳过">{{ batchResult.summary.skipped }}</a-descriptions-item></a-descriptions><a-table :columns="resultColumns" :data-source="batchResult.executed" :pagination="false" row-key="pluginId" size="small" :scroll="{ x: 980 }"><template #bodyCell="{ column, record }"><span v-if="column.key === 'operation'">{{ formatPluginOperation(record.operation) }}</span><a-tag v-else-if="column.key === 'status'" :color="record.ok ? 'green' : 'red'">{{ record.status || '-' }}</a-tag><span v-else-if="column.key === 'durationMs'">{{ record.durationMs ?? '-' }}ms</span></template></a-table></a-tab-pane>
+      </a-tabs>
 
       <template #footer>
          <div class="dialog-footer">
-            <el-switch
-               :model-value="continueOnError"
-               active-text="失败后继续"
-               inactive-text="失败即中止"
+            <a-switch
+               :checked="continueOnError"
+               checked-children="失败后继续"
+               un-checked-children="失败即中止"
                class="mr12"
-               @update:model-value="emit('update:continueOnError', $event)"
+               @update:checked="emit('update:continueOnError', $event)"
             />
-            <el-button
+            <a-button
                type="primary"
                :disabled="!canExecuteBatchPlan"
                :loading="loading"
                @click="emit('execute')"
                v-hasPermi="['system:plugin:edit']"
-            >执行计划：{{ formatPluginOperation(planResult.operation) }}</el-button>
-            <el-button @click="emit('update:modelValue', false)">关 闭</el-button>
+            >执行计划：{{ formatPluginOperation(planResult.operation) }}</a-button>
+            <a-button @click="emit('update:modelValue', false)">关 闭</a-button>
          </div>
       </template>
-   </el-dialog>
+   </ResourceDrawer>
 </template>
 
 <script setup name="PluginPlanDialog">
 import { computed } from "vue";
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
 
 const props = defineProps({
   modelValue: {
@@ -179,6 +117,12 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["update:modelValue", "update:continueOnError", "execute"]);
+const itemColumns = [
+  { title: '顺序', dataIndex: 'order', key: 'order', width: 70, align: 'center' }, { title: '插件ID', dataIndex: 'pluginId', key: 'pluginId', width: 140, ellipsis: true }, { title: '插件名称', dataIndex: 'name', key: 'name', width: 150, ellipsis: true }, { title: '版本', dataIndex: 'version', key: 'version', width: 100, align: 'center' }, { title: '显式选择', key: 'requested', width: 90, align: 'center' }, { title: '可执行', key: 'ready', width: 90, align: 'center' }, { title: '依赖', key: 'dependencies', width: 180, ellipsis: true }, { title: '阻塞项', key: 'blockers', width: 90, align: 'center' },
+];
+const blockerColumns = [{ title: '插件ID', dataIndex: 'pluginId', key: 'pluginId', width: 140, ellipsis: true }, { title: '依赖插件', dataIndex: 'dependencyId', key: 'dependencyId', width: 140, ellipsis: true }, { title: '状态', key: 'status', width: 150, align: 'center' }, { title: '说明', dataIndex: 'message', key: 'message', width: 320, ellipsis: true }];
+const resultColumns = [{ title: '插件ID', dataIndex: 'pluginId', key: 'pluginId', width: 140, ellipsis: true }, { title: '操作', key: 'operation', width: 90, align: 'center' }, { title: '状态', key: 'status', width: 90, align: 'center' }, { title: '耗时', key: 'durationMs', width: 90, align: 'center' }, { title: '说明', dataIndex: 'message', key: 'message', width: 220, ellipsis: true }, { title: '建议', dataIndex: 'suggestion', key: 'suggestion', width: 260, ellipsis: true }];
+const tagColor = type => ({ success: 'green', warning: 'orange', danger: 'red', info: 'default' }[type] || 'default');
 
 const canExecuteBatchPlan = computed(() => {
   return props.planResult.ok && props.planResult.executablePluginIds.length > 0;
@@ -204,20 +148,20 @@ const canExecuteBatchPlan = computed(() => {
 .plan-summary-item {
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--workspace-border);
   border-radius: 4px;
-  background: #f8f9fb;
+  background: var(--workspace-surface-muted);
 }
 
 .plan-summary-label {
   display: block;
   margin-bottom: 6px;
-  color: #909399;
+  color: var(--workspace-text-secondary);
   font-size: 12px;
 }
 
 .plan-summary-value {
-  color: #303133;
+  color: var(--workspace-text);
   font-size: 14px;
   font-weight: 600;
   word-break: break-all;

@@ -1,107 +1,95 @@
 <template>
-  <el-form
+  <a-form
     ref="queryRef"
     v-show="show"
     :model="queryParams"
-    :inline="true"
-    label-width="68px"
+    layout="inline"
+    class="file-search-form"
   >
-    <el-form-item label="文件名称" prop="originalName">
-      <el-input
-        v-model="queryParams.originalName"
+    <a-form-item label="文件名称" name="originalName">
+      <a-input
+        v-model:value="queryParams.originalName"
         placeholder="请输入原始文件名"
-        clearable
+        allow-clear
         style="width: 200px"
-        @keyup.enter="emit('query')"
+        @press-enter="emit('query')"
       />
-    </el-form-item>
-    <el-form-item label="访问类型" prop="accessType">
-      <el-select
-        v-model="queryParams.accessType"
+    </a-form-item>
+    <a-form-item label="访问类型" name="accessType">
+      <a-select
+        v-model:value="queryParams.accessType"
         placeholder="请选择访问类型"
-        clearable
+        allow-clear
         style="width: 200px"
-      >
-        <el-option label="公开文件" value="public" />
-        <el-option label="受保护文件" value="private" />
-      </el-select>
-    </el-form-item>
-    <el-form-item label="文件状态" prop="status">
-      <el-select
-        v-model="queryParams.status"
+        :options="accessTypeOptions"
+      />
+    </a-form-item>
+    <a-form-item label="文件状态" name="status">
+      <a-select
+        v-model:value="queryParams.status"
         placeholder="请选择文件状态"
-        clearable
+        allow-clear
         style="width: 200px"
-      >
-        <el-option label="正常" value="active" />
-        <el-option label="已删除" value="deleted" />
-        <el-option label="清理中" value="purging" />
-      </el-select>
-    </el-form-item>
-    <el-form-item label="上传用户" prop="createBy">
-      <el-input
-        v-model="queryParams.createBy"
+        :options="statusOptions"
+      />
+    </a-form-item>
+    <a-form-item label="上传用户" name="createBy">
+      <a-input
+        v-model:value="queryParams.createBy"
         placeholder="请输入上传用户"
-        clearable
+        allow-clear
         style="width: 200px"
-        @keyup.enter="emit('query')"
+        @press-enter="emit('query')"
       />
-    </el-form-item>
-    <el-form-item label="所有者" prop="ownerName">
-      <el-input
-        v-model="queryParams.ownerName"
+    </a-form-item>
+    <a-form-item label="所有者" name="ownerName">
+      <a-input
+        v-model:value="queryParams.ownerName"
         placeholder="请输入所有者"
-        clearable
+        allow-clear
         style="width: 200px"
-        @keyup.enter="emit('query')"
+        @press-enter="emit('query')"
       />
-    </el-form-item>
-    <el-form-item label="所属部门" prop="deptId">
-      <el-tree-select
-        v-model="queryParams.deptId"
-        :data="deptOptions"
-        :props="{ value: 'id', label: 'label', children: 'children' }"
-        value-key="id"
+    </a-form-item>
+    <a-form-item label="所属部门" name="deptId">
+      <a-tree-select
+        v-model:value="queryParams.deptId"
+        :tree-data="deptOptions"
+        :field-names="{ value: 'id', label: 'label', children: 'children' }"
         placeholder="请选择所属部门"
-        filterable
-        clearable
-        check-strictly
-        :render-after-expand="false"
+        show-search
+        allow-clear
+        tree-default-expand-all
         style="width: 200px"
       />
-    </el-form-item>
-    <el-form-item label="过期状态" prop="expirationStatus">
-      <el-select
-        v-model="queryParams.expirationStatus"
+    </a-form-item>
+    <a-form-item label="过期状态" name="expirationStatus">
+      <a-select
+        v-model:value="queryParams.expirationStatus"
         placeholder="请选择过期状态"
-        clearable
+        allow-clear
         style="width: 200px"
-      >
-        <el-option label="永久有效" value="permanent" />
-        <el-option label="有效" value="valid" />
-        <el-option label="7天内过期" value="expiring" />
-        <el-option label="已过期" value="expired" />
-      </el-select>
-    </el-form-item>
-    <el-form-item label="上传时间">
-      <el-date-picker
-        v-model="dateRange"
-        value-format="YYYY-MM-DD HH:mm:ss"
-        type="datetimerange"
-        style="width: 200px"
-        range-separator="-"
-        start-placeholder="开始时间"
-        end-placeholder="结束时间"
+        :options="expirationOptions"
       />
-    </el-form-item>
-    <el-form-item>
-      <el-button type="primary" icon="Search" @click="emit('query')">搜索</el-button>
-      <el-button icon="Refresh" @click="handleReset">重置</el-button>
-    </el-form-item>
-  </el-form>
+    </a-form-item>
+    <a-form-item label="上传时间">
+      <a-range-picker
+        v-model:value="dateRange"
+        value-format="YYYY-MM-DD HH:mm:ss"
+        show-time
+        style="width: 200px"
+        :placeholder="['开始时间', '结束时间']"
+      />
+    </a-form-item>
+    <a-form-item><a-space><a-button type="primary" @click="emit('query')"><SearchOutlined />搜索</a-button><a-button @click="handleReset"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+  </a-form>
 </template>
 
 <script setup>
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+const accessTypeOptions = [{ label: '公开文件', value: 'public' }, { label: '受保护文件', value: 'private' }]
+const statusOptions = [{ label: '正常', value: 'active' }, { label: '已删除', value: 'deleted' }, { label: '清理中', value: 'purging' }]
+const expirationOptions = [{ label: '永久有效', value: 'permanent' }, { label: '有效', value: 'valid' }, { label: '7天内过期', value: 'expiring' }, { label: '已过期', value: 'expired' }]
 defineProps({
   show: {
     type: Boolean,
@@ -130,3 +118,8 @@ function handleReset() {
   emit("reset");
 }
 </script>
+
+<style scoped>
+.file-search-form { margin-bottom: 16px; row-gap: 8px; }
+@media (max-width: 767px) { .file-search-form { display: grid; } .file-search-form :deep(.ant-form-item), .file-search-form :deep(.ant-input), .file-search-form :deep(.ant-select), .file-search-form :deep(.ant-picker) { width: 100% !important; } }
+</style>

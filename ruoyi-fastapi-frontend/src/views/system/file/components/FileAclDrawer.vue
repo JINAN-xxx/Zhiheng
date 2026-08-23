@@ -1,178 +1,40 @@
 <template>
-  <el-drawer
-    :title="drawerTitle"
-    v-model="visible"
-    size="70%"
-    append-to-body
-    :close-on-click-modal="!saving"
-  >
-    <el-alert
-      :title="
-        batchMode
-          ? '批量操作仅覆盖所选文件的显式授权；内置权限仍按各文件规则生效。'
-          : '内置权限只读展示；管理员和所有者不可被拒绝，启用的上传人权限可被匹配的显式拒绝覆盖。'
-      "
-      type="info"
-      :closable="false"
-      show-icon
-      class="mb8"
-    />
+  <ResourceDrawer :open="visible" :title="drawerTitle" width="70%" @close="closeDrawer">
+    <a-alert :message="batchMode ? '批量操作仅覆盖所选文件的显式授权；内置权限仍按各文件规则生效。' : '内置权限只读展示；管理员和所有者不可被拒绝，启用的上传人权限可被匹配的显式拒绝覆盖。'" type="info" :closable="false" show-icon class="mb8" />
     <div v-if="!batchMode" class="permission-section">
       <div class="permission-section__title">内置权限</div>
-      <el-table v-loading="loading" :data="builtinPermissions" border>
-        <el-table-column label="权限来源" align="center" width="110">
-          <template #default="scope">
-            <el-tag :type="builtinSourceType(scope.row.source)" effect="plain">
-              {{ builtinSourceLabel(scope.row.source) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="权限主体" align="center" min-width="180">
-          <template #default="scope">
-            {{ scope.row.subjectName || scope.row.subjectId || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="规则" align="center" width="110">
-          <template #default="scope">
-            <el-tag
-              :type="scope.row.enabled ? 'success' : 'info'"
-              effect="plain"
-            >
-              {{ scope.row.enabled ? "允许下载" : "已移除" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="拒绝覆盖" align="center" width="135">
-          <template #default="scope">
-            <el-tag
-              v-if="scope.row.enabled"
-              :type="scope.row.denyOverridable ? 'warning' : 'info'"
-              effect="plain"
-            >
-              {{ scope.row.denyOverridable ? "可以覆盖" : "不可覆盖" }}
-            </el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="description"
-          label="权限说明"
-          align="left"
-          min-width="320"
-          show-overflow-tooltip
-        />
-      </el-table>
+      <ResourceTable :columns="builtinColumns" :rows="builtinPermissions" :loading="loading" :pagination="false" :row-key="(row, index) => `${row.source}-${row.subjectId || index}`" :scroll="{ x: 850 }">
+        <template #bodyCell="{ column, record: row }">
+          <template v-if="column.key === 'source'"><a-tag :color="tagColor(builtinSourceType(row.source))">{{ builtinSourceLabel(row.source) }}</a-tag></template>
+          <template v-else-if="column.key === 'subject'">{{ row.subjectName || row.subjectId || '-' }}</template>
+          <template v-else-if="column.key === 'enabled'"><a-tag :color="row.enabled ? 'green' : 'default'">{{ row.enabled ? '允许下载' : '已移除' }}</a-tag></template>
+          <template v-else-if="column.key === 'deny'"><a-tag v-if="row.enabled" :color="row.denyOverridable ? 'orange' : 'default'">{{ row.denyOverridable ? '可以覆盖' : '不可覆盖' }}</a-tag><span v-else>-</span></template>
+        </template>
+      </ResourceTable>
     </div>
-    <div class="permission-section__header">
-      <span class="permission-section__title">显式授权</span>
-      <el-button type="primary" plain icon="Plus" @click="addEntry">
-        添加授权
-      </el-button>
-    </div>
-    <el-table v-loading="loading" :data="entries">
-      <el-table-column label="主体类型" align="center" width="125">
-        <template #default="scope">
-          <el-select
-            v-model="scope.row.subjectType"
-            @change="handleSubjectTypeChange(scope.row)"
-          >
-            <el-option label="用户" value="user" />
-            <el-option label="角色" value="role" />
-            <el-option label="部门" value="dept" />
-          </el-select>
+    <div class="permission-section__header"><span class="permission-section__title">显式授权</span><a-button type="primary" @click="addEntry"><PlusOutlined />添加授权</a-button></div>
+    <ResourceTable :columns="entryColumns" :rows="entries" :loading="loading" :pagination="false" :row-key="(_, index) => index" :scroll="{ x: 900 }">
+      <template #bodyCell="{ column, record: row, index }">
+        <a-select v-if="column.key === 'subjectType'" v-model:value="row.subjectType" :options="subjectTypeOptions" @change="handleSubjectTypeChange(row)" />
+        <template v-else-if="column.key === 'subject'">
+          <a-tree-select v-if="row.subjectType === 'dept'" v-model:value="row.subjectId" :tree-data="deptOptions" :field-names="{ value: 'id', label: 'label', children: 'children' }" show-search allow-clear tree-default-expand-all placeholder="请选择部门" style="width:100%" />
+          <a-select v-else v-model:value="row.subjectId" show-search allow-clear :filter-option="false" :loading="row.subjectLoading" :options="subjectOptions(row)" @search="keyword => searchSubjectOptions(row, keyword)" @dropdown-visible-change="open => handleSubjectVisible(row, open)" placeholder="输入名称搜索" style="width:100%" />
         </template>
-      </el-table-column>
-      <el-table-column label="授权主体" align="center" min-width="230">
-        <template #default="scope">
-          <el-tree-select
-            v-if="scope.row.subjectType === 'dept'"
-            v-model="scope.row.subjectId"
-            :data="deptOptions"
-            :props="{ value: 'id', label: 'label', children: 'children' }"
-            value-key="id"
-            placeholder="请选择部门"
-            filterable
-            clearable
-            check-strictly
-            :render-after-expand="false"
-            style="width: 100%"
-          />
-          <el-select
-            v-else
-            v-model="scope.row.subjectId"
-            filterable
-            remote
-            clearable
-            :loading="scope.row.subjectLoading"
-            :remote-method="keyword => searchSubjectOptions(scope.row, keyword)"
-            @visible-change="
-              visible => handleSubjectVisible(scope.row, visible)
-            "
-            placeholder="输入名称搜索"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in scope.row.subjectOptions"
-              :key="item.subjectId"
-              :label="item.subjectName"
-              :value="item.subjectId"
-            />
-          </el-select>
-        </template>
-      </el-table-column>
-      <el-table-column label="规则" align="center" width="120">
-        <template #default="scope">
-          <el-select v-model="scope.row.effect">
-            <el-option label="允许下载" value="allow" />
-            <el-option label="拒绝下载" value="deny" />
-          </el-select>
-        </template>
-      </el-table-column>
-      <el-table-column label="包含下级部门" align="center" width="125">
-        <template #default="scope">
-          <el-switch
-            v-if="scope.row.subjectType === 'dept'"
-            v-model="scope.row.includeChildren"
-          />
-          <span v-else>-</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="有效期至" align="center" width="205">
-        <template #default="scope">
-          <el-date-picker
-            v-model="scope.row.expireTime"
-            type="datetime"
-            value-format="YYYY-MM-DD HH:mm:ss"
-            placeholder="永久有效"
-            style="width: 185px"
-          />
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" align="center" width="70">
-        <template #default="scope">
-          <el-tooltip content="删除" placement="top">
-            <el-button
-              link
-              type="danger"
-              icon="Delete"
-              @click="removeEntry(scope.$index)"
-            />
-          </el-tooltip>
-        </template>
-      </el-table-column>
-    </el-table>
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button type="primary" :loading="saving" @click="submit">
-          保 存
-        </el-button>
-        <el-button @click="visible = false">取 消</el-button>
-      </div>
-    </template>
-  </el-drawer>
+        <a-select v-else-if="column.key === 'effect'" v-model:value="row.effect" :options="effectOptions" />
+        <template v-else-if="column.key === 'children'"><a-switch v-if="row.subjectType === 'dept'" v-model:checked="row.includeChildren" /><span v-else>-</span></template>
+        <a-date-picker v-else-if="column.key === 'expireTime'" v-model:value="row.expireTime" value-format="YYYY-MM-DD HH:mm:ss" show-time placeholder="永久有效" />
+        <a-tooltip v-else-if="column.key === 'actions'" title="删除"><a-button type="link" danger aria-label="删除" @click="removeEntry(index)"><DeleteOutlined /></a-button></a-tooltip>
+      </template>
+    </ResourceTable>
+    <template #footer><a-button @click="closeDrawer">取消</a-button><a-button type="primary" :loading="saving" :disabled="loading" @click="submit">保存</a-button></template>
+  </ResourceDrawer>
 </template>
 
 <script setup>
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
+import feedback from '@/plugins/antdFeedback'
 import {
   batchSaveFileAcl,
   getFileAclDeptTree,
@@ -195,16 +57,29 @@ const aclVersion = ref(0);
 const builtinPermissions = ref([]);
 const entries = ref([]);
 const deptOptions = ref([]);
+let requestGeneration = 0;
 const drawerTitle = computed(() =>
   batchMode.value
     ? `批量授权 - ${batchCount.value}个文件`
     : `访问权限 - ${fileName.value}`
 );
+const builtinColumns = [{ title:'权限来源',key:'source',width:110 },{ title:'权限主体',key:'subject',width:180 },{ title:'规则',key:'enabled',width:110 },{ title:'拒绝覆盖',key:'deny',width:135 },{ title:'权限说明',dataIndex:'description',key:'description',width:320,ellipsis:true }];
+const entryColumns = [{ title:'主体类型',key:'subjectType',width:125 },{ title:'授权主体',key:'subject',width:230 },{ title:'规则',key:'effect',width:120 },{ title:'包含下级部门',key:'children',width:125 },{ title:'有效期至',key:'expireTime',width:205 },{ title:'操作',key:'actions',width:70 }];
+const subjectTypeOptions = [{label:'用户',value:'user'},{label:'角色',value:'role'},{label:'部门',value:'dept'}];
+const effectOptions = [{label:'允许下载',value:'allow'},{label:'拒绝下载',value:'deny'}];
+const subjectOptions = row => row.subjectOptions.map(item => ({label:item.subjectName,value:item.subjectId}));
+const tagColor = type => ({danger:'red',primary:'blue',warning:'orange',info:'default'}[type] || type);
+function closeDrawer() {
+  if (saving.value) return;
+  requestGeneration += 1;
+  visible.value = false;
+  loading.value = false;
+}
 
 function open(row, selectedIds, selectedPrivateIds) {
   batchMode.value = !row?.fileId;
   if (batchMode.value && !selectedPrivateIds.length) {
-    proxy.$modal.msgWarning("请选择正常状态的受保护文件");
+    feedback.msgWarning("请选择正常状态的受保护文件");
     return;
   }
   fileId.value = row?.fileId || "";
@@ -214,27 +89,32 @@ function open(row, selectedIds, selectedPrivateIds) {
   batchCount.value = batchMode.value ? selectedPrivateIds.length : 0;
   fileName.value = row?.originalName || "";
   if (batchMode.value && selectedPrivateIds.length < selectedIds.length) {
-    proxy.$modal.msgWarning(
+    feedback.msgWarning(
       `已忽略${selectedIds.length - selectedPrivateIds.length}个公开或非正常状态的文件`
     );
   }
+  const generation = ++requestGeneration;
+  const requestTarget = fileIds.value;
   visible.value = true;
   loading.value = true;
   builtinPermissions.value = [];
+  entries.value = [];
+  deptOptions.value = [];
   if (batchMode.value) {
     aclVersion.value = 0;
-    entries.value = [];
     getFileAclDeptTree()
       .then(response => {
+        if (!isCurrentRequest(generation, requestTarget)) return;
         deptOptions.value = response.data;
       })
       .finally(() => {
-        loading.value = false;
+        if (generation === requestGeneration) loading.value = false;
       });
     return;
   }
   Promise.all([listFileAcl(row.fileId), getFileAclDeptTree()])
     .then(([aclResponse, deptResponse]) => {
+      if (!isCurrentRequest(generation, requestTarget)) return;
       deptOptions.value = deptResponse.data;
       aclVersion.value = aclResponse.data.aclVersion;
       builtinPermissions.value = aclResponse.data.builtinPermissions || [];
@@ -251,8 +131,12 @@ function open(row, selectedIds, selectedPrivateIds) {
       }));
     })
     .finally(() => {
-      loading.value = false;
+      if (generation === requestGeneration) loading.value = false;
     });
+}
+
+function isCurrentRequest(generation, requestTarget) {
+  return generation === requestGeneration && visible.value && requestTarget === fileIds.value;
 }
 
 function builtinSourceLabel(source) {
@@ -320,7 +204,7 @@ function searchSubjectOptions(row, keyword) {
 
 function submit() {
   if (entries.value.some(item => !item.subjectId)) {
-    proxy.$modal.msgError("请选择完整的授权主体");
+    feedback.msgError("请选择完整的授权主体");
     return;
   }
   const aclEntries = entries.value.map(item => ({
@@ -340,7 +224,7 @@ function submit() {
         });
     saveRequest
       .then(() => {
-        proxy.$modal.msgSuccess(
+        feedback.msgSuccess(
           batchMode.value ? "文件权限批量保存成功" : "文件权限保存成功"
         );
         visible.value = false;
@@ -351,7 +235,7 @@ function submit() {
       });
   };
   if (batchMode.value) {
-    proxy.$modal
+    feedback
       .confirm(`将覆盖所选${batchCount.value}个文件的全部授权，是否继续?`)
       .then(saveAcl)
       .catch(() => {});
@@ -361,6 +245,7 @@ function submit() {
 }
 
 defineExpose({ open });
+onBeforeUnmount(() => { requestGeneration += 1 })
 </script>
 
 <style scoped>
@@ -376,7 +261,7 @@ defineExpose({ open });
 }
 
 .permission-section__title {
-  color: var(--el-text-color-primary);
+  color: var(--workspace-text);
   font-size: 15px;
   font-weight: 600;
 }

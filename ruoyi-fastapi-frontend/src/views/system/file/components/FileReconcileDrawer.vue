@@ -1,363 +1,56 @@
 <template>
-  <el-drawer
-    title="文件存储对账"
-    v-model="visible"
-    size="88%"
-    append-to-body
-    @closed="handleClosed"
-  >
-    <el-alert
-      title="对账会双向检查文件信息表与公开、受保护、回收站存储区；隔离区不对外提供静态访问。修复操作仅使用异常中已校验的相对路径。"
-      type="info"
-      :closable="false"
-      show-icon
-      class="mb12"
-    />
-
+  <ResourceDrawer :open="visible" title="文件存储对账" width="88%" @close="closeDrawer">
+    <a-alert message="对账会双向检查文件信息表与公开、受保护、回收站存储区；隔离区不对外提供静态访问。修复操作仅使用异常中已校验的相对路径。" type="info" show-icon class="mb12" />
     <div class="reconcile-summary">
-      <div class="summary-card summary-card--danger">
-        <div class="summary-card__label">待处理</div>
-        <div class="summary-card__value">{{ stats.openCount }}</div>
-        <div class="summary-card__hint">需要确认或修复的异常</div>
-      </div>
-      <div class="summary-card summary-card--critical">
-        <div class="summary-card__label">严重异常</div>
-        <div class="summary-card__value">{{ stats.criticalCount }}</div>
-        <div class="summary-card__hint">文件缺失、错位或内容不一致</div>
-      </div>
-      <div class="summary-card summary-card--warning">
-        <div class="summary-card__label">警告异常</div>
-        <div class="summary-card__value">{{ stats.warningCount }}</div>
-        <div class="summary-card__hint">孤立文件或回收状态异常</div>
-      </div>
-      <div class="summary-card summary-card--quarantine">
-        <div class="summary-card__label">隔离文件</div>
-        <div class="summary-card__value">{{ stats.quarantinedCount }}</div>
-        <div class="summary-card__hint">仅管理员可恢复或永久删除</div>
-      </div>
-      <div class="summary-card summary-card--run">
-        <div class="summary-card__label">最近任务</div>
-        <div class="summary-card__status">
-          <el-tag :type="runStatusType(stats.latestRun?.status)">
-            {{ runStatusLabel(stats.latestRun?.status) }}
-          </el-tag>
-        </div>
-        <div class="summary-card__hint">
-          {{ stats.latestRun ? parseTime(stats.latestRun.startedTime) : "尚未执行" }}
-        </div>
-      </div>
+      <div class="summary-card summary-card--danger"><div class="summary-card__label">待处理</div><div class="summary-card__value">{{ stats.openCount }}</div><div class="summary-card__hint">需要确认或修复的异常</div></div>
+      <div class="summary-card summary-card--critical"><div class="summary-card__label">严重异常</div><div class="summary-card__value">{{ stats.criticalCount }}</div><div class="summary-card__hint">文件缺失、错位或内容不一致</div></div>
+      <div class="summary-card summary-card--warning"><div class="summary-card__label">警告异常</div><div class="summary-card__value">{{ stats.warningCount }}</div><div class="summary-card__hint">孤立文件或回收状态异常</div></div>
+      <div class="summary-card summary-card--quarantine"><div class="summary-card__label">隔离文件</div><div class="summary-card__value">{{ stats.quarantinedCount }}</div><div class="summary-card__hint">仅管理员可恢复或永久删除</div></div>
+      <div class="summary-card summary-card--run"><div class="summary-card__label">最近任务</div><div class="summary-card__status"><a-tag :color="tagColor(runStatusType(stats.latestRun?.status))">{{ runStatusLabel(stats.latestRun?.status) }}</a-tag></div><div class="summary-card__hint">{{ stats.latestRun ? parseTime(stats.latestRun.startedTime) : '尚未执行' }}</div></div>
     </div>
-
-    <div class="reconcile-toolbar">
-      <div class="reconcile-toolbar__tip">
-        完整摘要校验会读取全部文件内容，建议在低峰期启用。
-      </div>
-      <div class="reconcile-toolbar__actions">
-        <span class="mr8">校验 SHA-256</span>
-        <el-switch v-model="checkHash" class="mr12" />
-        <el-button
-          type="primary"
-          plain
-          icon="Refresh"
-          :loading="scanning"
-          :disabled="stats.latestRun?.status === 'running'"
-          @click="handleStart"
-        >
-          开始对账
-        </el-button>
-      </div>
-    </div>
-
-    <el-tabs v-model="activeTab" @tab-change="handleTabChange">
-      <el-tab-pane label="异常明细" name="issues">
-        <el-form
-          ref="issueQueryRef"
-          :model="issueQuery"
-          :inline="true"
-          label-width="68px"
-        >
-          <el-form-item label="关键字" prop="keyword">
-            <el-input
-              v-model="issueQuery.keyword"
-              placeholder="文件名、ID或相对路径"
-              clearable
-              style="width: 200px"
-              @keyup.enter="handleIssueQuery"
-            />
-          </el-form-item>
-          <el-form-item label="异常类型" prop="issueType">
-            <el-select
-              v-model="issueQuery.issueType"
-              placeholder="全部类型"
-              clearable
-              style="width: 200px"
-            >
-              <el-option
-                v-for="item in issueTypeOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="严重级别" prop="severity">
-            <el-select
-              v-model="issueQuery.severity"
-              placeholder="全部级别"
-              clearable
-              style="width: 200px"
-            >
-              <el-option label="严重" value="critical" />
-              <el-option label="警告" value="warning" />
-              <el-option label="提示" value="info" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="处理状态" prop="status">
-            <el-select
-              v-model="issueQuery.status"
-              placeholder="全部状态"
-              clearable
-              style="width: 200px"
-            >
-              <el-option label="待处理" value="open" />
-              <el-option label="已忽略" value="ignored" />
-              <el-option label="已隔离" value="quarantined" />
-              <el-option label="已解决" value="resolved" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label-width="0">
-            <el-button type="primary" icon="Search" @click="handleIssueQuery">
-              搜索
-            </el-button>
-            <el-button icon="Refresh" @click="resetIssueQuery">重置</el-button>
-          </el-form-item>
-        </el-form>
-
-        <el-table v-loading="issueLoading" :data="issueList">
-          <el-table-column label="级别" align="center" width="80">
-            <template #default="scope">
-              <el-tag :type="severityTagType(scope.row.severity)">
-                {{ severityLabel(scope.row.severity) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="异常类型"
-            align="center"
-            prop="issueType"
-            width="130"
-          >
-            <template #default="scope">
-              {{ issueTypeLabel(scope.row.issueType) }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="文件"
-            align="left"
-            prop="originalName"
-            min-width="170"
-            :show-overflow-tooltip="true"
-          >
-            <template #default="scope">
-              <div>{{ scope.row.originalName || "未登记文件" }}</div>
-              <div class="cell-secondary">{{ scope.row.fileId || "-" }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column label="存储位置" align="left" min-width="230">
-            <template #default="scope">
-              <div :title="formatLocation(scope.row.expectedRoot, scope.row.expectedKey)">
-                预期：{{ formatLocation(scope.row.expectedRoot, scope.row.expectedKey) }}
-              </div>
-              <div
-                class="cell-secondary"
-                :title="formatLocation(scope.row.actualRoot, scope.row.actualKey)"
-              >
-                实际：{{ formatLocation(scope.row.actualRoot, scope.row.actualKey) }}
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="大小" align="right" width="130">
-            <template #default="scope">
-              <div>预期：{{ formatOptionalSize(scope.row.expectedSize) }}</div>
-              <div class="cell-secondary">
-                实际：{{ formatOptionalSize(scope.row.actualSize) }}
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" align="center" width="90">
-            <template #default="scope">
-              <el-tag :type="issueStatusType(scope.row.status)">
-                {{ issueStatusLabel(scope.row.status) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="异常说明"
-            align="left"
-            prop="detail"
-            min-width="180"
-            :show-overflow-tooltip="true"
-          />
-          <el-table-column label="最近发现" align="center" width="170">
-            <template #default="scope">
-              {{ parseTime(scope.row.lastSeenTime) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" align="center" width="70" fixed="right">
-            <template #default="scope">
-              <el-tooltip
-                v-if="scope.row.availableActions?.length"
-                :content="
-                  stats.latestRun?.status === 'running'
-                    ? '对账任务运行中，请等待扫描完成'
-                    : '处理异常'
-                "
-                placement="top"
-              >
-                <span class="reconcile-action-trigger">
-                  <el-dropdown
-                    trigger="click"
-                    :disabled="stats.latestRun?.status === 'running'"
-                    @command="handleCommand($event, scope.row)"
-                  >
-                    <el-button
-                      link
-                      type="primary"
-                      icon="Setting"
-                      :disabled="stats.latestRun?.status === 'running'"
-                    />
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item
-                          v-for="action in scope.row.availableActions"
-                          :key="action"
-                          :command="action"
-                        >
-                          {{ actionLabel(action) }}
-                        </el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </span>
-              </el-tooltip>
-              <span v-else>-</span>
-            </template>
-          </el-table-column>
-        </el-table>
-        <pagination
-          v-show="issueTotal > 0"
-          :total="issueTotal"
-          v-model:page="issueQuery.pageNum"
-          v-model:limit="issueQuery.pageSize"
-          @pagination="getIssueList"
-        />
-      </el-tab-pane>
-
-      <el-tab-pane label="任务记录" name="runs">
-        <el-table v-loading="runLoading" :data="runList">
-          <el-table-column label="任务状态" align="center" width="100">
-            <template #default="scope">
-              <el-tag :type="runStatusType(scope.row.status)">
-                {{ runStatusLabel(scope.row.status) }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="触发方式" align="center" width="100">
-            <template #default="scope">
-              {{ scope.row.triggerType === "scheduled" ? "定时任务" : "手动" }}
-            </template>
-          </el-table-column>
-          <el-table-column label="摘要校验" align="center" width="90">
-            <template #default="scope">{{ scope.row.checkHash ? "是" : "否" }}</template>
-          </el-table-column>
-          <el-table-column label="文件记录" align="right" prop="scannedFileCount" width="100" />
-          <el-table-column label="物理文件" align="right" prop="scannedStorageCount" width="100" />
-          <el-table-column label="发现异常" align="right" prop="issueCount" width="100" />
-          <el-table-column label="新增异常" align="right" prop="newIssueCount" width="100" />
-          <el-table-column label="自动恢复" align="right" prop="resolvedIssueCount" width="100" />
-          <el-table-column
-            label="发起人"
-            align="center"
-            prop="startedBy"
-            width="110"
-            :show-overflow-tooltip="true"
-          />
-          <el-table-column label="开始时间" align="center" width="170">
-            <template #default="scope">{{ parseTime(scope.row.startedTime) }}</template>
-          </el-table-column>
-          <el-table-column label="完成时间" align="center" width="170">
-            <template #default="scope">
-              {{ scope.row.finishedTime ? parseTime(scope.row.finishedTime) : "-" }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            label="失败原因"
-            align="left"
-            prop="errorMessage"
-            min-width="180"
-            :show-overflow-tooltip="true"
-          />
-        </el-table>
-        <pagination
-          v-show="runTotal > 0"
-          :total="runTotal"
-          v-model:page="runQuery.pageNum"
-          v-model:limit="runQuery.pageSize"
-          @pagination="getRunList"
-        />
-      </el-tab-pane>
-    </el-tabs>
-  </el-drawer>
-
-  <el-dialog
-    :title="actionLabel(handleForm.action)"
-    v-model="handleOpen"
-    width="520px"
-    append-to-body
-  >
-    <el-alert
-      v-if="actionDescriptions[handleForm.action]"
-      :title="actionDescriptions[handleForm.action]"
-      :type="dangerousActions.includes(handleForm.action) ? 'warning' : 'info'"
-      :closable="false"
-      show-icon
-      class="mb16"
-    />
-    <el-form ref="handleFormRef" :model="handleForm" :rules="handleRules" label-width="90px">
-      <el-form-item
-        v-if="handleForm.action === 'register_orphan'"
-        label="原始文件名"
-        prop="originalName"
-      >
-        <el-input
-          v-model="handleForm.originalName"
-          placeholder="需与物理文件扩展名一致"
-          maxlength="255"
-        />
-      </el-form-item>
-      <el-form-item label="处理原因" prop="reason">
-        <el-input
-          v-model="handleForm.reason"
-          type="textarea"
-          :rows="4"
-          maxlength="500"
-          show-word-limit
-          placeholder="请填写处理依据，内容会保留在对账记录中"
-        />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="handleOpen = false">取 消</el-button>
-        <el-button type="primary" :loading="handling" @click="submitHandle">
-          确 定
-        </el-button>
-      </div>
-    </template>
-  </el-dialog>
+    <div class="reconcile-toolbar"><div class="reconcile-toolbar__tip">完整摘要校验会读取全部文件内容，建议在低峰期启用。</div><div class="reconcile-toolbar__actions"><span class="mr8">校验 SHA-256</span><a-switch v-model:checked="checkHash" class="mr12" /><a-button type="primary" :loading="scanning" :disabled="stats.latestRun?.status === 'running'" @click="handleStart"><ReloadOutlined />开始对账</a-button></div></div>
+    <a-tabs v-model:active-key="activeTab" @change="handleTabChange">
+      <a-tab-pane key="issues" tab="异常明细">
+        <a-form ref="issueQueryRef" :model="issueQuery" layout="inline" class="query-form">
+          <a-form-item label="关键字" name="keyword"><a-input v-model:value="issueQuery.keyword" allow-clear placeholder="文件名、ID或相对路径" @press-enter="handleIssueQuery" /></a-form-item>
+          <a-form-item label="异常类型" name="issueType"><a-select v-model:value="issueQuery.issueType" allow-clear placeholder="全部类型" :options="issueTypeOptions" /></a-form-item>
+          <a-form-item label="严重级别" name="severity"><a-select v-model:value="issueQuery.severity" allow-clear placeholder="全部级别" :options="severityOptions" /></a-form-item>
+          <a-form-item label="处理状态" name="status"><a-select v-model:value="issueQuery.status" allow-clear placeholder="全部状态" :options="issueStatusOptions" /></a-form-item>
+          <a-form-item><a-space><a-button type="primary" @click="handleIssueQuery"><SearchOutlined />搜索</a-button><a-button @click="resetIssueQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+        </a-form>
+        <ResourceTable :columns="issueColumns" :rows="issueList" :loading="issueLoading" :pagination="false" row-key="issueId" :scroll="{ x: 1250 }">
+          <template #bodyCell="{ column, record: row }">
+            <a-tag v-if="column.key === 'severity'" :color="tagColor(severityTagType(row.severity))">{{ severityLabel(row.severity) }}</a-tag>
+            <template v-else-if="column.key === 'issueType'">{{ issueTypeLabel(row.issueType) }}</template>
+            <template v-else-if="column.key === 'file'"><div>{{ row.originalName || '未登记文件' }}</div><div class="cell-secondary">{{ row.fileId || '-' }}</div></template>
+            <template v-else-if="column.key === 'location'"><div>预期：{{ formatLocation(row.expectedRoot,row.expectedKey) }}</div><div class="cell-secondary">实际：{{ formatLocation(row.actualRoot,row.actualKey) }}</div></template>
+            <template v-else-if="column.key === 'size'"><div>预期：{{ formatOptionalSize(row.expectedSize) }}</div><div class="cell-secondary">实际：{{ formatOptionalSize(row.actualSize) }}</div></template>
+            <a-tag v-else-if="column.key === 'status'" :color="tagColor(issueStatusType(row.status))">{{ issueStatusLabel(row.status) }}</a-tag>
+            <template v-else-if="column.key === 'lastSeen'">{{ parseTime(row.lastSeenTime) }}</template>
+            <template v-else-if="column.key === 'actions'"><a-dropdown v-if="row.availableActions?.length" :disabled="stats.latestRun?.status === 'running'" :trigger="['click']"><a-button type="link" :disabled="stats.latestRun?.status === 'running'"><SettingOutlined /></a-button><template #overlay><a-menu @click="({key}) => handleCommand(key,row)"><a-menu-item v-for="action in row.availableActions" :key="action">{{ actionLabel(action) }}</a-menu-item></a-menu></template></a-dropdown><span v-else>-</span></template>
+          </template>
+        </ResourceTable>
+        <a-pagination v-if="issueTotal > 0" v-model:current="issueQuery.pageNum" v-model:page-size="issueQuery.pageSize" :total="issueTotal" show-size-changer @change="getIssueList" />
+      </a-tab-pane>
+      <a-tab-pane key="runs" tab="任务记录">
+        <ResourceTable :columns="runColumns" :rows="runList" :loading="runLoading" :pagination="false" row-key="runId" :scroll="{ x: 1150 }">
+          <template #bodyCell="{ column, record: row }"><a-tag v-if="column.key === 'status'" :color="tagColor(runStatusType(row.status))">{{ runStatusLabel(row.status) }}</a-tag><template v-else-if="column.key === 'triggerType'">{{ row.triggerType === 'scheduled' ? '定时任务' : '手动' }}</template><template v-else-if="column.key === 'checkHash'">{{ row.checkHash ? '是' : '否' }}</template><template v-else-if="column.key === 'startedTime'">{{ parseTime(row.startedTime) }}</template><template v-else-if="column.key === 'finishedTime'">{{ row.finishedTime ? parseTime(row.finishedTime) : '-' }}</template></template>
+        </ResourceTable>
+        <a-pagination v-if="runTotal > 0" v-model:current="runQuery.pageNum" v-model:page-size="runQuery.pageSize" :total="runTotal" show-size-changer @change="getRunList" />
+      </a-tab-pane>
+    </a-tabs>
+  </ResourceDrawer>
+  <a-modal v-model:open="handleOpen" :title="actionLabel(handleForm.action)" :width="520">
+    <a-alert v-if="actionDescriptions[handleForm.action]" :message="actionDescriptions[handleForm.action]" :type="dangerousActions.includes(handleForm.action) ? 'warning' : 'info'" show-icon class="mb16" />
+    <a-form ref="handleFormRef" :model="handleForm" :rules="handleRules" layout="vertical"><a-form-item v-if="handleForm.action === 'register_orphan'" label="原始文件名" name="originalName"><a-input v-model:value="handleForm.originalName" :maxlength="255" placeholder="需与物理文件扩展名一致" /></a-form-item><a-form-item label="处理原因" name="reason"><a-textarea v-model:value="handleForm.reason" :rows="4" :maxlength="500" show-count placeholder="请填写处理依据，内容会保留在对账记录中" /></a-form-item></a-form>
+    <template #footer><a-button @click="handleOpen = false">取消</a-button><a-button type="primary" :danger="dangerousActions.includes(handleForm.action)" :loading="handling" @click="submitHandle">确定</a-button></template>
+  </a-modal>
 </template>
-
 <script setup>
+import { ReloadOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
+import feedback from '@/plugins/antdFeedback'
 import {
   getFileReconcileStats,
   handleFileReconcileIssue,
@@ -438,6 +131,11 @@ const issueTypeOptions = [
   { label: "孤立物理文件", value: "orphan_file" },
   { label: "不安全目录项", value: "unsafe_entry" }
 ];
+const severityOptions = [{label:'严重',value:'critical'},{label:'警告',value:'warning'},{label:'提示',value:'info'}];
+const issueStatusOptions = [{label:'待处理',value:'open'},{label:'已忽略',value:'ignored'},{label:'已隔离',value:'quarantined'},{label:'已解决',value:'resolved'}];
+const issueColumns = [{title:'级别',key:'severity',width:80},{title:'异常类型',key:'issueType',width:130},{title:'文件',key:'file',width:180},{title:'存储位置',key:'location',width:260},{title:'大小',key:'size',width:140},{title:'状态',key:'status',width:90},{title:'异常说明',dataIndex:'detail',key:'detail',width:180,ellipsis:true},{title:'最近发现',key:'lastSeen',width:170},{title:'操作',key:'actions',width:70}];
+const runColumns = [{title:'任务状态',key:'status',width:100},{title:'触发方式',key:'triggerType',width:100},{title:'摘要校验',key:'checkHash',width:90},{title:'文件记录',dataIndex:'scannedFileCount',key:'scannedFileCount',width:100},{title:'物理文件',dataIndex:'scannedStorageCount',key:'scannedStorageCount',width:100},{title:'发现异常',dataIndex:'issueCount',key:'issueCount',width:100},{title:'新增异常',dataIndex:'newIssueCount',key:'newIssueCount',width:100},{title:'自动恢复',dataIndex:'resolvedIssueCount',key:'resolvedIssueCount',width:100},{title:'发起人',dataIndex:'startedBy',key:'startedBy',width:110,ellipsis:true},{title:'开始时间',key:'startedTime',width:170},{title:'完成时间',key:'finishedTime',width:170},{title:'失败原因',dataIndex:'errorMessage',key:'errorMessage',width:180,ellipsis:true}];
+const tagColor = type => ({danger:'red',warning:'orange',success:'green',info:'default',primary:'blue'}[type] || type);
 const dangerousActions = [
   "delete_quarantine",
   "accept_current",
@@ -503,7 +201,7 @@ function handleStart() {
   scanning.value = true;
   startFileReconcile({ checkHash: checkHash.value })
     .then(() => {
-      proxy.$modal.msgSuccess("文件存储对账任务已启动");
+      feedback.msgSuccess("文件存储对账任务已启动");
       refreshAll();
     })
     .finally(() => {
@@ -541,8 +239,7 @@ function handleCommand(action, row) {
 }
 
 function submitHandle() {
-  handleFormRef.value?.validate(valid => {
-    if (!valid) return;
+  handleFormRef.value?.validateFields().then(() => {
     handling.value = true;
     handleFileReconcileIssue(currentIssueId.value, {
       action: handleForm.action,
@@ -553,7 +250,7 @@ function submitHandle() {
           : undefined
     })
       .then(() => {
-        proxy.$modal.msgSuccess("文件存储异常处理成功");
+        feedback.msgSuccess("文件存储异常处理成功");
         handleOpen.value = false;
         refreshAll();
         emit("refresh");
@@ -561,7 +258,7 @@ function submitHandle() {
       .finally(() => {
         handling.value = false;
       });
-  });
+  }).catch(() => {});
 }
 
 function startPolling() {
@@ -577,6 +274,7 @@ function handleClosed() {
   pollTimer = undefined;
   handleOpen.value = false;
 }
+function closeDrawer() { visible.value = false; handleClosed(); }
 
 function formatLocation(root, key) {
   return root && key ? `${root}:${key}` : "-";
@@ -665,9 +363,9 @@ defineExpose({ open });
   overflow: hidden;
   min-height: 112px;
   padding: 16px 18px;
-  border: 1px solid var(--el-border-color-lighter);
+  border: 1px solid var(--workspace-border);
   border-radius: 8px;
-  background: var(--el-bg-color);
+  background: var(--workspace-surface);
 }
 
 .summary-card::before {
@@ -681,7 +379,7 @@ defineExpose({ open });
 }
 
 .summary-card--danger {
-  --card-color: var(--el-color-danger);
+  --card-color: #cf1322;
 }
 
 .summary-card--critical {
@@ -689,7 +387,7 @@ defineExpose({ open });
 }
 
 .summary-card--warning {
-  --card-color: var(--el-color-warning);
+  --card-color: #d48806;
 }
 
 .summary-card--quarantine {
@@ -697,17 +395,17 @@ defineExpose({ open });
 }
 
 .summary-card--run {
-  --card-color: var(--el-color-primary);
+  --card-color: var(--workspace-main);
 }
 
 .summary-card__label {
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 14px;
 }
 
 .summary-card__value {
   margin-top: 7px;
-  color: var(--el-text-color-primary);
+  color: var(--workspace-text);
   font-size: 28px;
   font-weight: 600;
   line-height: 34px;
@@ -721,7 +419,7 @@ defineExpose({ open });
 
 .summary-card__hint {
   overflow: hidden;
-  color: var(--el-text-color-placeholder);
+  color: var(--workspace-text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -734,11 +432,11 @@ defineExpose({ open });
   margin-bottom: 8px;
   padding: 10px 14px;
   border-radius: 6px;
-  background: var(--el-fill-color-light);
+  background: var(--workspace-surface-muted);
 }
 
 .reconcile-toolbar__tip {
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 13px;
 }
 
@@ -756,7 +454,7 @@ defineExpose({ open });
 .cell-secondary {
   overflow: hidden;
   margin-top: 3px;
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;

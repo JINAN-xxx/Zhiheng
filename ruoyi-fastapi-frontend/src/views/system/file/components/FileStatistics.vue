@@ -9,11 +9,8 @@
     <div class="file-statistics-content">
       <div class="file-stat-item stat-primary">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">文件总数</div>
-            <div class="file-stat-value">{{ stats.totalCount }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><Files /></el-icon></div>
+          <a-statistic title="文件总数" :value="stats.totalCount" />
+          <div class="file-stat-icon"><FileOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>正常 {{ stats.activeCount }}</span>
@@ -23,11 +20,8 @@
 
       <div class="file-stat-item stat-purple">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">占用空间</div>
-            <div class="file-stat-value">{{ formatFileSize(stats.totalSize) }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><DataLine /></el-icon></div>
+          <a-statistic title="占用空间" :value="formatFileSize(stats.totalSize)" />
+          <div class="file-stat-icon"><BarChartOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>全部文件累计占用</span>
@@ -36,11 +30,8 @@
 
       <div class="file-stat-item stat-green">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">公开文件空间</div>
-            <div class="file-stat-value">{{ formatFileSize(stats.publicSize) }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><FolderOpened /></el-icon></div>
+          <a-statistic title="公开文件空间" :value="formatFileSize(stats.publicSize)" />
+          <div class="file-stat-icon"><FolderOpenOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>占总空间 {{ formatPercentage(stats.publicSize) }}</span>
@@ -49,11 +40,8 @@
 
       <div class="file-stat-item stat-orange">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">受保护文件空间</div>
-            <div class="file-stat-value">{{ formatFileSize(stats.privateSize) }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><Lock /></el-icon></div>
+          <a-statistic title="受保护文件空间" :value="formatFileSize(stats.privateSize)" />
+          <div class="file-stat-icon"><LockOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>占总空间 {{ formatPercentage(stats.privateSize) }}</span>
@@ -62,11 +50,8 @@
 
       <div class="file-stat-item stat-red">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">已过期文件</div>
-            <div class="file-stat-value">{{ stats.expiredCount }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><Timer /></el-icon></div>
+          <a-statistic title="已过期文件" :value="stats.expiredCount" />
+          <div class="file-stat-icon"><ClockCircleOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>7天内到期 {{ stats.retentionExpiringCount }}</span>
@@ -75,11 +60,8 @@
 
       <div class="file-stat-item stat-cyan">
         <div class="file-stat-main">
-          <div>
-            <div class="file-stat-title">即将过期授权</div>
-            <div class="file-stat-value">{{ stats.aclExpiringCount }}</div>
-          </div>
-          <div class="file-stat-icon"><el-icon><Key /></el-icon></div>
+          <a-statistic title="即将过期授权" :value="stats.aclExpiringCount" />
+          <div class="file-stat-icon"><KeyOutlined /></div>
         </div>
         <div class="file-stat-extra">
           <span>7天内失效的 ACL 项</span>
@@ -90,14 +72,7 @@
 </template>
 
 <script setup>
-import {
-  DataLine,
-  Files,
-  FolderOpened,
-  Key,
-  Lock,
-  Timer
-} from "@element-plus/icons-vue";
+import { BarChartOutlined, ClockCircleOutlined, FileOutlined, FolderOpenOutlined, KeyOutlined, LockOutlined } from '@ant-design/icons-vue'
 import { formatFileSize } from "./fileFormatters";
 
 const props = defineProps({
@@ -126,11 +101,11 @@ function formatPercentage(size) {
   justify-content: space-between;
   margin-bottom: 14px;
   padding-left: 10px;
-  border-left: 3px solid var(--el-color-primary);
+  border-left: 3px solid var(--workspace-main);
 }
 
 .file-statistics-title {
-  color: var(--el-text-color-primary);
+  color: var(--workspace-text);
   font-size: 16px;
   font-weight: 600;
   line-height: 22px;
@@ -138,7 +113,7 @@ function formatPercentage(size) {
 
 .file-statistics-tip {
   margin-top: 2px;
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -150,36 +125,18 @@ function formatPercentage(size) {
 }
 
 .file-stat-item {
-  --stat-color: var(--el-color-primary);
+  --stat-color: var(--workspace-main);
   position: relative;
   min-width: 0;
   min-height: 118px;
   padding: 16px;
-  overflow: hidden;
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--stat-color) 9%, var(--el-bg-color)) 0%,
-      var(--el-bg-color) 58%
-    );
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-border);
+  border-radius: 8px;
   box-shadow: 0 4px 14px rgb(31 45 61 / 5%);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
-}
-
-.file-stat-item::after {
-  position: absolute;
-  right: -22px;
-  bottom: -28px;
-  width: 78px;
-  height: 78px;
-  background-color: var(--stat-color);
-  border-radius: 50%;
-  opacity: 0.05;
-  content: "";
 }
 
 .file-stat-item:hover {
@@ -195,14 +152,16 @@ function formatPercentage(size) {
 }
 
 .file-stat-title {
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 13px;
   line-height: 20px;
 }
+.file-stat-item :deep(.ant-statistic-title) { color: var(--workspace-text-secondary); font-size: 13px; }
+.file-stat-item :deep(.ant-statistic-content) { color: var(--workspace-text); font-size: 25px; font-weight: 650; }
 
 .file-stat-value {
   margin-top: 5px;
-  color: var(--el-text-color-primary);
+  color: var(--workspace-text);
   font-size: 25px;
   font-weight: 650;
   line-height: 32px;
@@ -226,7 +185,7 @@ function formatPercentage(size) {
   display: flex;
   gap: 12px;
   margin-top: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 12px;
   line-height: 18px;
   white-space: nowrap;

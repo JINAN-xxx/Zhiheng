@@ -1,216 +1,42 @@
 <template>
-  <el-drawer
-    :title="`文件审计 - ${fileName}`"
-    v-model="visible"
-    size="80%"
-    append-to-body
-    @closed="detailOpen = false"
-  >
-    <el-form
-      ref="queryRef"
-      :model="queryParams"
-      :inline="true"
-      label-width="68px"
-    >
-      <el-form-item label="操作类型" prop="action">
-        <el-select
-          v-model="queryParams.action"
-          placeholder="全部操作"
-          clearable
-          style="width: 200px"
-        >
-          <el-option label="上传" value="upload" />
-          <el-option label="下载" value="download" />
-          <el-option label="授权变更" value="acl_update" />
-          <el-option label="归属转移" value="transfer" />
-          <el-option label="移入回收站" value="delete" />
-          <el-option label="恢复" value="restore" />
-          <el-option label="永久清理" value="purge" />
-          <el-option label="存储对账" value="reconcile" />
-          <el-option label="保留延期" value="retention_extend" />
-          <el-option label="到期处置" value="retention_dispose" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="操作结果" prop="result">
-        <el-select
-          v-model="queryParams.result"
-          placeholder="全部结果"
-          clearable
-          style="width: 200px"
-        >
-          <el-option label="已授权" value="allowed" />
-          <el-option label="已拒绝" value="denied" />
-          <el-option label="已完成" value="completed" />
-          <el-option label="失败" value="failed" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="操作用户" prop="actorName">
-        <el-input
-          v-model="queryParams.actorName"
-          placeholder="请输入用户名"
-          clearable
-          style="width: 200px"
-          @keyup.enter="handleQuery"
-        />
-      </el-form-item>
-      <el-form-item label="操作时间">
-        <el-date-picker
-          v-model="dateRange"
-          value-format="YYYY-MM-DD HH:mm:ss"
-          type="datetimerange"
-          range-separator="-"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
-          style="width: 200px"
-        />
-      </el-form-item>
-      <el-form-item label-width="0">
-        <el-button type="primary" icon="Search" @click="handleQuery">
-          搜索
-        </el-button>
-        <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-      </el-form-item>
-    </el-form>
-    <el-table v-loading="loading" :data="auditList">
-      <el-table-column label="操作" align="center" prop="action" width="105">
-        <template #default="scope">{{ actionLabel(scope.row.action) }}</template>
-      </el-table-column>
-      <el-table-column label="结果" align="center" prop="result" width="100">
-        <template #default="scope">
-          <el-tag :type="resultTagType(scope.row.result)">
-            {{ resultLabel(scope.row.result) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="操作用户"
-        align="center"
-        prop="actorName"
-        width="120"
-        :show-overflow-tooltip="true"
-      />
-      <el-table-column
-        label="客户端地址"
-        align="center"
-        prop="ipAddress"
-        width="140"
-        :show-overflow-tooltip="true"
-      />
-      <el-table-column
-        label="传输字节"
-        align="right"
-        prop="bytesSent"
-        width="110"
-      >
-        <template #default="scope">
-          {{ scope.row.bytesSent ? formatFileSize(scope.row.bytesSent) : "-" }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="失败原因"
-        align="left"
-        prop="errorMessage"
-        min-width="140"
-        :show-overflow-tooltip="true"
-      />
-      <el-table-column
-        label="访问时间"
-        align="center"
-        prop="accessTime"
-        width="180"
-      >
-        <template #default="scope">{{ parseTime(scope.row.accessTime) }}</template>
-      </el-table-column>
-      <el-table-column label="详情" align="center" width="70">
-        <template #default="scope">
-          <el-tooltip content="查看审计详情" placement="top">
-            <el-button
-              link
-              type="primary"
-              icon="View"
-              @click="handleDetail(scope.row)"
-            />
-          </el-tooltip>
-        </template>
-      </el-table-column>
-    </el-table>
-    <pagination
-      v-show="total > 0"
-      :total="total"
-      v-model:page="queryParams.pageNum"
-      v-model:limit="queryParams.pageSize"
-      @pagination="getList"
-    />
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="visible = false">关 闭</el-button>
-      </div>
-    </template>
-  </el-drawer>
+  <ResourceDrawer :open="visible" :title="`文件审计 - ${fileName}`" width="80%" @close="closeDrawer">
+    <a-form ref="queryRef" :model="queryParams" layout="inline" class="query-form">
+      <a-form-item label="操作类型" name="action"><a-select v-model:value="queryParams.action" allow-clear placeholder="全部操作" :options="actionOptions" /></a-form-item>
+      <a-form-item label="操作结果" name="result"><a-select v-model:value="queryParams.result" allow-clear placeholder="全部结果" :options="resultOptions" /></a-form-item>
+      <a-form-item label="操作用户" name="actorName"><a-input v-model:value="queryParams.actorName" allow-clear placeholder="请输入用户名" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="操作时间"><a-range-picker v-model:value="dateRange" value-format="YYYY-MM-DD HH:mm:ss" show-time :placeholder="['开始时间', '结束时间']" /></a-form-item>
+      <a-form-item><a-space><a-button type="primary" @click="handleQuery"><SearchOutlined />搜索</a-button><a-button @click="resetQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+    </a-form>
+    <ResourceTable :columns="columns" :rows="auditList" :loading="loading" :pagination="false" row-key="auditId" :scroll="{ x: 970 }">
+      <template #bodyCell="{ column, record: row }">
+        <template v-if="column.key === 'action'">{{ actionLabel(row.action) }}</template>
+        <template v-else-if="column.key === 'result'"><a-tag :color="tagColor(resultTagType(row.result))">{{ resultLabel(row.result) }}</a-tag></template>
+        <template v-else-if="column.key === 'bytesSent'">{{ row.bytesSent ? formatFileSize(row.bytesSent) : '-' }}</template>
+        <template v-else-if="column.key === 'accessTime'">{{ parseTime(row.accessTime) }}</template>
+        <template v-else-if="column.key === 'detail'"><a-tooltip title="查看审计详情"><a-button type="link" aria-label="查看审计详情" @click="handleDetail(row)"><EyeOutlined /></a-button></a-tooltip></template>
+      </template>
+    </ResourceTable>
+    <a-pagination v-if="total > 0" v-model:current="queryParams.pageNum" v-model:page-size="queryParams.pageSize" :total="total" show-size-changer @change="getList" />
+    <template #footer><a-button @click="closeDrawer">关闭</a-button></template>
+  </ResourceDrawer>
 
-  <el-dialog
-    title="审计详情"
-    v-model="detailOpen"
-    width="720px"
-    append-to-body
-  >
-    <el-descriptions
-      :column="2"
-      border
-      label-width="110px"
-      class="audit-descriptions"
-    >
-      <el-descriptions-item label="操作类型">
-        {{ actionLabel(detail.action) }}
-      </el-descriptions-item>
-      <el-descriptions-item label="操作结果">
-        {{ resultLabel(detail.result) }}
-      </el-descriptions-item>
-      <el-descriptions-item label="操作用户">
-        {{ detail.actorName || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="客户端地址">
-        {{ detail.ipAddress || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="请求ID">
-        {{ detail.requestId || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="链路ID">
-        {{ detail.traceId || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="操作时间" :span="2">
-        {{ parseTime(detail.accessTime) }}
-      </el-descriptions-item>
-      <el-descriptions-item label="用户代理" :span="2">
-        {{ detail.userAgent || "-" }}
-      </el-descriptions-item>
-      <el-descriptions-item label="失败原因" :span="2">
-        {{ detail.errorMessage || "-" }}
-      </el-descriptions-item>
-    </el-descriptions>
-    <el-table
-      v-if="detailEntries.length"
-      :data="detailEntries"
-      border
-      class="mt20"
-    >
-      <el-table-column label="详情项" prop="label" width="180" />
-      <el-table-column
-        label="内容"
-        prop="value"
-        :show-overflow-tooltip="true"
-      />
-    </el-table>
-    <el-empty v-else description="无操作详情" :image-size="60" />
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button @click="detailOpen = false">关 闭</el-button>
-      </div>
-    </template>
-  </el-dialog>
+  <a-modal v-model:open="detailOpen" title="审计详情" :width="720">
+    <a-descriptions :column="2" bordered class="audit-descriptions">
+      <a-descriptions-item label="操作类型">{{ actionLabel(detail.action) }}</a-descriptions-item><a-descriptions-item label="操作结果">{{ resultLabel(detail.result) }}</a-descriptions-item>
+      <a-descriptions-item label="操作用户">{{ detail.actorName || '-' }}</a-descriptions-item><a-descriptions-item label="客户端地址">{{ detail.ipAddress || '-' }}</a-descriptions-item>
+      <a-descriptions-item label="请求ID">{{ detail.requestId || '-' }}</a-descriptions-item><a-descriptions-item label="链路ID">{{ detail.traceId || '-' }}</a-descriptions-item>
+      <a-descriptions-item label="操作时间" :span="2">{{ parseTime(detail.accessTime) }}</a-descriptions-item><a-descriptions-item label="用户代理" :span="2">{{ detail.userAgent || '-' }}</a-descriptions-item><a-descriptions-item label="失败原因" :span="2">{{ detail.errorMessage || '-' }}</a-descriptions-item>
+    </a-descriptions>
+    <ResourceTable v-if="detailEntries.length" class="mt20" :columns="detailColumns" :rows="detailEntries" :pagination="false" :row-key="(_, index) => index" />
+    <a-empty v-else description="无操作详情" />
+    <template #footer><a-button @click="detailOpen = false">关闭</a-button></template>
+  </a-modal>
 </template>
 
 <script setup>
+import { EyeOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
 import { listFileAccessLog } from "@/api/system/file";
 import {
   actionLabel,
@@ -231,6 +57,7 @@ const dateRange = ref([]);
 const queryRef = ref();
 const detailOpen = ref(false);
 const detail = ref({});
+let requestGeneration = 0;
 const detailEntries = computed(() =>
   parseOperationDetail(detail.value.operationDetail)
 );
@@ -241,6 +68,15 @@ const queryParams = reactive({
   result: undefined,
   actorName: undefined
 });
+const actionOptions = ['upload', 'download', 'acl_update', 'transfer', 'delete', 'restore', 'purge', 'reconcile', 'retention_extend', 'retention_dispose'].map(value => ({ value, label: actionLabel(value) }));
+const resultOptions = ['allowed', 'denied', 'completed', 'failed'].map(value => ({ value, label: resultLabel(value) }));
+const columns = [
+  { title: '操作', key: 'action', width: 105 }, { title: '结果', key: 'result', width: 100 }, { title: '操作用户', dataIndex: 'actorName', key: 'actorName', width: 120, ellipsis: true },
+  { title: '客户端地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 140, ellipsis: true }, { title: '传输字节', key: 'bytesSent', width: 110 },
+  { title: '失败原因', dataIndex: 'errorMessage', key: 'errorMessage', width: 160, ellipsis: true }, { title: '访问时间', key: 'accessTime', width: 180 }, { title: '详情', key: 'detail', width: 70 },
+];
+const detailColumns = [{ title: '详情项', dataIndex: 'label', key: 'label', width: 180 }, { title: '内容', dataIndex: 'value', key: 'value', ellipsis: true }];
+const tagColor = type => ({ success: 'green', danger: 'red', warning: 'orange', info: 'default', primary: 'blue' }[type] || type);
 
 function open(row) {
   fileId.value = row.fileId;
@@ -252,22 +88,27 @@ function open(row) {
     actorName: undefined
   });
   dateRange.value = [];
+  auditList.value = [];
+  total.value = 0;
   visible.value = true;
   getList();
 }
 
 function getList() {
+  const generation = ++requestGeneration;
+  const requestFileId = fileId.value;
   loading.value = true;
   listFileAccessLog(
-    fileId.value,
+    requestFileId,
     proxy.addDateRange({ ...queryParams }, dateRange.value)
   )
     .then(response => {
+      if (generation !== requestGeneration || !visible.value || requestFileId !== fileId.value) return;
       auditList.value = response.rows;
       total.value = response.total;
     })
     .finally(() => {
-      loading.value = false;
+      if (generation === requestGeneration) loading.value = false;
     });
 }
 
@@ -288,15 +129,19 @@ function handleDetail(row) {
   detailOpen.value = true;
 }
 
+function closeDrawer() { requestGeneration += 1; visible.value = false; loading.value = false; detailOpen.value = false; auditList.value = []; total.value = 0; }
+
 defineExpose({ open });
+onBeforeUnmount(() => { requestGeneration += 1 })
 </script>
 
 <style scoped>
-.audit-descriptions :deep(.el-descriptions__label) {
+.query-form { margin-bottom: 16px; row-gap: 8px; }
+.audit-descriptions :deep(.ant-descriptions-item-label) {
   white-space: nowrap;
 }
 
-.audit-descriptions :deep(.el-descriptions__content) {
+.audit-descriptions :deep(.ant-descriptions-item-content) {
   overflow-wrap: anywhere;
   word-break: break-word;
 }

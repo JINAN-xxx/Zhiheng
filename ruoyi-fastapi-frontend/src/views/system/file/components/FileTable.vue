@@ -1,258 +1,34 @@
 <template>
-  <el-table
-    v-loading="loading"
-    :data="fileList"
-    @selection-change="emit('selection-change', $event)"
-  >
-    <el-table-column type="selection" width="50" align="center" />
-    <el-table-column
-      label="原始文件名"
-      align="left"
-      prop="originalName"
-      min-width="200"
-      :show-overflow-tooltip="true"
-    />
-    <el-table-column label="访问类型" align="center" prop="accessType" width="110">
-      <template #default="scope">
-        <el-tag v-if="scope.row.accessType === 'public'" type="success">公开</el-tag>
-        <el-tag v-else type="warning">受保护</el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column label="扩展名" align="center" prop="extension" width="90" />
-    <el-table-column label="文件大小" align="right" prop="fileSize" width="120">
-      <template #default="scope">{{ formatFileSize(scope.row.fileSize) }}</template>
-    </el-table-column>
-    <el-table-column
-      label="上传用户"
-      align="center"
-      prop="createBy"
-      width="120"
-      :show-overflow-tooltip="true"
-    />
-    <el-table-column
-      label="所有者"
-      align="center"
-      prop="ownerName"
-      width="120"
-      :show-overflow-tooltip="true"
-    >
-      <template #default="scope">
-        {{ scope.row.ownerName || scope.row.ownerUserId || "-" }}
-      </template>
-    </el-table-column>
-    <el-table-column
-      label="所属部门"
-      align="center"
-      prop="deptName"
-      width="140"
-      :show-overflow-tooltip="true"
-    >
-      <template #default="scope">
-        {{ scope.row.deptName || scope.row.deptId || "-" }}
-      </template>
-    </el-table-column>
-    <el-table-column label="文件有效期" align="center" prop="expireTime" width="150">
-      <template #default="scope">
-        <el-tag :type="expirationTagType(scope.row.expireTime)" effect="plain">
-          {{ expirationLabel(scope.row.expireTime) }}
-        </el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column label="ACL" align="center" width="130">
-      <template #default="scope">
-        <el-tooltip
-          v-if="scope.row.aclNearestExpireTime"
-          :content="`最近过期：${parseTime(scope.row.aclNearestExpireTime)}`"
-          placement="top"
-        >
-          <el-tag
-            :type="isAclExpiring(scope.row.aclNearestExpireTime) ? 'warning' : 'info'"
-            effect="plain"
-          >
-            {{ scope.row.aclEntryCount }} 项<span
-              v-if="isAclExpiring(scope.row.aclNearestExpireTime)"
-            >
-              · 即将过期</span
-            >
-          </el-tag>
-        </el-tooltip>
-        <span v-else>{{ scope.row.aclEntryCount || 0 }} 项</span>
-      </template>
-    </el-table-column>
-    <el-table-column
-      label="业务引用"
-      align="center"
-      prop="referenceCount"
-      width="100"
-    >
-      <template #default="scope">
-        <el-button
-          v-if="scope.row.referenceCount"
-          link
-          type="primary"
-          @click="emit('reference', scope.row)"
-        >
-          {{ scope.row.referenceCount }} 项
-        </el-button>
-        <span v-else>0 项</span>
-      </template>
-    </el-table-column>
-    <el-table-column
-      label="存储状态"
-      align="center"
-      prop="storageStatus"
-      width="110"
-    >
-      <template #default="scope">
-        <el-tag
-          :type="storageStatusTagType(scope.row.storageStatus)"
-          effect="plain"
-        >
-          {{ storageStatusLabel(scope.row.storageStatus) }}
-        </el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column label="上传时间" align="center" prop="createTime" width="180">
-      <template #default="scope">{{ parseTime(scope.row.createTime) }}</template>
-    </el-table-column>
-    <el-table-column label="状态" align="center" prop="status" width="90">
-      <template #default="scope">
-        <el-tag v-if="scope.row.status === 'active'" type="success">正常</el-tag>
-        <el-tag v-else-if="scope.row.status === 'deleted'" type="info">
-          已删除
-        </el-tag>
-        <el-tag v-else type="warning">清理中</el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column
-      label="操作"
-      align="center"
-      class-name="small-padding fixed-width"
-      width="250"
-      fixed="right"
-    >
-      <template #default="scope">
-        <el-tooltip content="详细" placement="top">
-          <el-button
-            link
-            type="primary"
-            icon="View"
-            @click="emit('view', scope.row)"
-            v-hasPermi="['system:file:query']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="scope.row.status === 'active'"
-          content="下载"
-          placement="top"
-        >
-          <el-button
-            link
-            type="primary"
-            icon="Download"
-            @click="emit('download', scope.row)"
-            v-hasPermi="['system:file:download']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="
-            scope.row.accessType === 'private' && scope.row.status === 'active'
-          "
-          content="授权"
-          placement="top"
-        >
-          <el-button
-            link
-            type="primary"
-            icon="Lock"
-            @click="emit('acl', scope.row)"
-            v-hasPermi="['system:file:edit']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="scope.row.status === 'active'"
-          content="转移"
-          placement="top"
-        >
-          <el-button
-            link
-            type="primary"
-            icon="Switch"
-            @click="emit('transfer', scope.row)"
-            v-hasPermi="['system:file:transfer']"
-          />
-        </el-tooltip>
-        <el-tooltip content="审计" placement="top">
-          <el-button
-            link
-            type="primary"
-            icon="Tickets"
-            @click="emit('audit', scope.row)"
-            v-hasPermi="['system:file:query']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="scope.row.status === 'active' && scope.row.referenceCount"
-          content="存在业务引用，无法删除"
-          placement="top"
-        >
-          <span class="file-action-disabled-wrapper">
-            <el-button
-              link
-              type="danger"
-              icon="Delete"
-              disabled
-              v-hasPermi="['system:file:remove']"
-            />
-          </span>
-        </el-tooltip>
-        <el-tooltip
-          v-else-if="scope.row.status === 'active'"
-          content="删除"
-          placement="top"
-        >
-          <el-button
-            link
-            type="danger"
-            icon="Delete"
-            @click="emit('delete', scope.row)"
-            v-hasPermi="['system:file:remove']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="scope.row.status === 'deleted'"
-          content="恢复"
-          placement="top"
-        >
-          <el-button
-            link
-            type="success"
-            icon="RefreshLeft"
-            @click="emit('restore', scope.row)"
-            v-hasPermi="['system:file:restore']"
-          />
-        </el-tooltip>
-        <el-tooltip
-          v-if="scope.row.status !== 'active'"
-          :content="
-            scope.row.status === 'purging' ? '重试永久清理' : '永久清理'
-          "
-          placement="top"
-        >
-          <el-button
-            link
-            type="danger"
-            icon="DeleteFilled"
-            @click="emit('purge', scope.row)"
-            v-hasPermi="['system:file:purge']"
-          />
-        </el-tooltip>
-      </template>
-    </el-table-column>
-  </el-table>
+  <ResourceTable :columns="columns" :rows="fileList" :loading="loading" :pagination="false" row-key="fileId" :scroll="{ x: 1750 }">
+    <template #headerCell="{ column }"><a-checkbox v-if="column.key === 'selection'" :checked="allSelected" :indeterminate="someSelected" @change="toggleAll" /></template>
+    <template #bodyCell="{ column, record: row }">
+      <a-checkbox v-if="column.key === 'selection'" :checked="selectedIds.includes(row.fileId)" @change="event => toggleRow(row,event.target.checked)" />
+      <a-tag v-else-if="column.key === 'accessType'" :color="row.accessType === 'public' ? 'green' : 'orange'">{{ row.accessType === 'public' ? '公开' : '受保护' }}</a-tag>
+      <template v-else-if="column.key === 'fileSize'">{{ formatFileSize(row.fileSize) }}</template><template v-else-if="column.key === 'ownerName'">{{ row.ownerName || row.ownerUserId || '-' }}</template><template v-else-if="column.key === 'deptName'">{{ row.deptName || row.deptId || '-' }}</template>
+      <a-tag v-else-if="column.key === 'expireTime'" :color="tagColor(expirationTagType(row.expireTime))">{{ expirationLabel(row.expireTime) }}</a-tag>
+      <template v-else-if="column.key === 'acl'"><a-tooltip v-if="row.aclNearestExpireTime" :title="`最近过期：${parseTime(row.aclNearestExpireTime)}`"><a-tag :color="isAclExpiring(row.aclNearestExpireTime) ? 'orange' : 'default'">{{ row.aclEntryCount }} 项<span v-if="isAclExpiring(row.aclNearestExpireTime)"> · 即将过期</span></a-tag></a-tooltip><span v-else>{{ row.aclEntryCount || 0 }} 项</span></template>
+      <template v-else-if="column.key === 'reference'"><a-button v-if="row.referenceCount" type="link" @click="emit('reference',row)">{{ row.referenceCount }} 项</a-button><span v-else>0 项</span></template>
+      <a-tag v-else-if="column.key === 'storageStatus'" :color="tagColor(storageStatusTagType(row.storageStatus))">{{ storageStatusLabel(row.storageStatus) }}</a-tag>
+      <template v-else-if="column.key === 'createTime'">{{ parseTime(row.createTime) }}</template>
+      <template v-else-if="column.key === 'status'"><a-tag :color="row.status === 'active' ? 'green' : row.status === 'deleted' ? 'default' : 'orange'">{{ row.status === 'active' ? '正常' : row.status === 'deleted' ? '已删除' : '清理中' }}</a-tag></template>
+      <a-space v-else-if="column.key === 'actions'" :size="2">
+        <a-tooltip title="详细"><a-button type="link" @click="emit('view',row)" v-hasPermi="['system:file:query']"><EyeOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.status === 'active'" title="下载"><a-button type="link" @click="emit('download',row)" v-hasPermi="['system:file:download']"><DownloadOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.accessType === 'private' && row.status === 'active'" title="授权"><a-button type="link" @click="emit('acl',row)" v-hasPermi="['system:file:edit']"><LockOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.status === 'active'" title="转移"><a-button type="link" @click="emit('transfer',row)" v-hasPermi="['system:file:transfer']"><SwapOutlined /></a-button></a-tooltip>
+        <a-tooltip title="审计"><a-button type="link" @click="emit('audit',row)" v-hasPermi="['system:file:query']"><AuditOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.status === 'active' && row.referenceCount" title="存在业务引用，无法删除"><a-button type="link" danger disabled v-hasPermi="['system:file:remove']"><DeleteOutlined /></a-button></a-tooltip>
+        <a-tooltip v-else-if="row.status === 'active'" title="删除"><a-button type="link" danger @click="emit('delete',row)" v-hasPermi="['system:file:remove']"><DeleteOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.status === 'deleted'" title="恢复"><a-button type="link" @click="emit('restore',row)" v-hasPermi="['system:file:restore']"><RollbackOutlined /></a-button></a-tooltip>
+        <a-tooltip v-if="row.status !== 'active'" :title="row.status === 'purging' ? '重试永久清理' : '永久清理'"><a-button type="link" danger @click="emit('purge',row)" v-hasPermi="['system:file:purge']"><DeleteFilled /></a-button></a-tooltip>
+      </a-space>
+    </template>
+  </ResourceTable>
 </template>
 
 <script setup>
+import { AuditOutlined, DeleteFilled, DeleteOutlined, DownloadOutlined, EyeOutlined, LockOutlined, RollbackOutlined, SwapOutlined } from '@ant-design/icons-vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
 import {
   expirationLabel,
   expirationTagType,
@@ -262,7 +38,7 @@ import {
   storageStatusTagType
 } from "./fileFormatters";
 
-defineProps({
+const props = defineProps({
   fileList: {
     type: Array,
     default: () => []
@@ -285,6 +61,18 @@ const emit = defineEmits([
   "restore",
   "purge"
 ]);
+const selectedIds = ref([]);
+const selectedRows = computed(() => props.fileList.filter(row => selectedIds.value.includes(row.fileId)));
+const allSelected = computed(() => props.fileList.length > 0 && props.fileList.every(row => selectedIds.value.includes(row.fileId)));
+const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value);
+const columns = [
+  {title:'',key:'selection',width:48},{title:'原始文件名',dataIndex:'originalName',key:'originalName',width:220,ellipsis:true},{title:'访问类型',key:'accessType',width:110},{title:'扩展名',dataIndex:'extension',key:'extension',width:90},{title:'文件大小',key:'fileSize',width:120},{title:'上传用户',dataIndex:'createBy',key:'createBy',width:120,ellipsis:true},{title:'所有者',key:'ownerName',width:120},{title:'所属部门',key:'deptName',width:140},{title:'文件有效期',key:'expireTime',width:150},{title:'ACL',key:'acl',width:130},{title:'业务引用',key:'reference',width:100},{title:'存储状态',key:'storageStatus',width:110},{title:'上传时间',key:'createTime',width:180},{title:'状态',key:'status',width:90},{title:'操作',key:'actions',width:300,fixed:'right'},
+];
+const tagColor = type => ({success:'green',warning:'orange',danger:'red',info:'default',primary:'blue'}[type] || type);
+function notifySelection() { emit('selection-change', selectedRows.value); }
+function toggleRow(row, checked) { selectedIds.value = checked ? [...new Set([...selectedIds.value,row.fileId])] : selectedIds.value.filter(id => id !== row.fileId); notifySelection(); }
+function toggleAll(event) { selectedIds.value = event.target.checked ? props.fileList.map(row => row.fileId) : []; notifySelection(); }
+watch(() => props.fileList, () => { selectedIds.value = []; notifySelection(); });
 </script>
 
 <style scoped>

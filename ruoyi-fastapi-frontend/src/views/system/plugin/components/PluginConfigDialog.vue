@@ -1,90 +1,84 @@
 <template>
-   <el-dialog :title="title" :model-value="modelValue" width="720px" append-to-body @update:model-value="emit('update:modelValue', $event)">
-      <el-form ref="configRef" :model="configForm" label-width="120px">
-         <el-empty v-if="!items.length" description="暂无插件配置" />
+   <ResourceDrawer :title="title" :open="modelValue" :width="720" destroy-on-close @close="emit('update:modelValue', false)">
+      <a-form ref="configRef" :model="configForm" layout="vertical">
+         <a-empty v-if="!items.length" description="暂无插件配置" />
          <div v-for="group in configGroups" :key="group.name" class="plugin-config-section">
             <div v-if="configGroups.length > 1 || group.name !== 'default'" class="plugin-config-section-title">{{ formatConfigGroupLabel(group.name) }}</div>
-            <el-form-item
+            <a-form-item
                v-for="item in group.items"
                :key="item.key"
                :label="item.label || item.key"
-               :prop="'values.' + item.key"
+               :name="['values', item.key]"
                :rules="getConfigItemRules(item)"
                class="plugin-config-item"
             >
-               <el-switch v-if="item.type === 'boolean'" v-model="configForm.values[item.key]" />
-               <el-input-number
+               <a-switch v-if="item.type === 'boolean'" v-model:checked="configForm.values[item.key]" />
+               <a-input-number
                   v-else-if="item.type === 'number'"
-                  v-model="configForm.values[item.key]"
+                  v-model:value="configForm.values[item.key]"
                   :min="item.min ?? undefined"
                   :max="item.max ?? undefined"
                   :placeholder="getConfigInputPlaceholder(item)"
                   class="plugin-config-control"
                />
-               <el-select
+               <a-select
                   v-else-if="item.type === 'select'"
-                  v-model="configForm.values[item.key]"
+                  v-model:value="configForm.values[item.key]"
                   :placeholder="getConfigInputPlaceholder(item)"
                   class="plugin-config-control"
-               >
-                  <el-option
-                     v-for="option in item.options || []"
-                     :key="String(option.value)"
-                     :label="option.label"
-                     :value="option.value"
-                  />
-               </el-select>
+                  :options="item.options || []"
+               />
                <template v-else-if="item.type === 'textarea' || item.type === 'json'">
-                  <el-input
-                     v-model="configForm.values[item.key]"
-                     type="textarea"
+                  <a-textarea
+                     v-model:value="configForm.values[item.key]"
                      :rows="4"
                      :placeholder="getConfigInputPlaceholder(item)"
                      class="plugin-config-control"
                   />
                   <div v-if="item.type === 'json'" class="config-inline-actions">
-                     <el-button link type="primary" icon="MagicStick" @click="formatConfigJsonValue(item)">格式化 JSON</el-button>
+                     <a-button type="link" @click="formatConfigJsonValue(item)"><FormatPainterOutlined />格式化 JSON</a-button>
                   </div>
                </template>
-               <el-input
-                  v-else
-                  v-model="configForm.values[item.key]"
-                  :type="isSecretConfigItem(item) ? 'password' : 'text'"
-                  :show-password="isSecretConfigItem(item)"
+               <a-input-password
+                  v-else-if="isSecretConfigItem(item)"
+                  v-model:value="configForm.values[item.key]"
                   :placeholder="getConfigInputPlaceholder(item)"
                   class="plugin-config-control"
                />
+               <a-input v-else v-model:value="configForm.values[item.key]" :placeholder="getConfigInputPlaceholder(item)" class="plugin-config-control" />
                <div class="config-help">
                   <span v-if="item.description" class="config-help-text">{{ item.description }}</span>
                   <div v-if="hasConfigMeta(item)" class="config-meta-list">
-                     <el-tag size="small" type="info" effect="plain">{{ item.key }}</el-tag>
-                     <el-tag v-if="item.required" size="small" type="warning" effect="plain">必填</el-tag>
-                     <el-tag v-if="item.secret" size="small" type="warning" effect="plain">敏感</el-tag>
-                     <el-tag v-if="formatConfigDefaultValue(item) !== '-'" size="small" type="info" effect="plain">默认 {{ formatConfigDefaultValue(item) }}</el-tag>
-                     <el-tag v-if="formatConfigConstraint(item) !== '-'" size="small" type="info" effect="plain">{{ formatConfigConstraint(item) }}</el-tag>
+                     <a-tag>{{ item.key }}</a-tag>
+                     <a-tag v-if="item.required" color="orange">必填</a-tag>
+                     <a-tag v-if="item.secret" color="orange">敏感</a-tag>
+                     <a-tag v-if="formatConfigDefaultValue(item) !== '-'">默认 {{ formatConfigDefaultValue(item) }}</a-tag>
+                     <a-tag v-if="formatConfigConstraint(item) !== '-'">{{ formatConfigConstraint(item) }}</a-tag>
                   </div>
                </div>
-            </el-form-item>
+            </a-form-item>
          </div>
-      </el-form>
+      </a-form>
       <template #footer>
          <div class="dialog-footer">
-            <el-button
+            <a-button
                type="primary"
                :disabled="!items.length"
                :loading="loading"
                @click="submit"
                v-hasPermi="['system:plugin:edit']"
-            >保 存</el-button>
-            <el-button @click="emit('update:modelValue', false)">关 闭</el-button>
+            >保 存</a-button>
+            <a-button @click="emit('update:modelValue', false)">关 闭</a-button>
          </div>
       </template>
-   </el-dialog>
+   </ResourceDrawer>
 </template>
 
 <script setup name="PluginConfigDialog">
 import { computed, reactive, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { FormatPainterOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import feedback from '@/plugins/antdFeedback'
 
 const props = defineProps({
   modelValue: {
@@ -155,20 +149,17 @@ watch(
   { immediate: true }
 );
 
-function submit() {
-  configRef.value?.validate(valid => {
-    if (!valid) {
-      return;
-    }
+async function submit() {
+  const valid = await configRef.value?.validateFields().then(() => true).catch(() => false);
+  if (!valid) return;
     let values;
     try {
       values = buildConfigSubmitValues();
     } catch (error) {
-      ElMessage.error(error.message || "配置格式不正确");
+      feedback.msgError(error.message || "配置格式不正确");
       return;
     }
     emit("submit", values);
-  });
 }
 
 function normalizeConfigValueForForm(item) {
@@ -284,7 +275,7 @@ function formatConfigJsonValue(item) {
   try {
     configForm.values[item.key] = JSON.stringify(typeof value === "string" ? JSON.parse(value) : value, null, 2);
   } catch {
-    ElMessage.error((item.label || item.key) + " 不是合法 JSON");
+    feedback.msgError((item.label || item.key) + " 不是合法 JSON");
   }
 }
 
@@ -317,7 +308,7 @@ function formatConfigGroupLabel(groupName) {
 .config-help {
   width: 100%;
   margin-top: 4px;
-  color: #909399;
+  color: var(--workspace-text-secondary);
   font-size: 12px;
   line-height: 18px;
 }
@@ -344,7 +335,7 @@ function formatConfigGroupLabel(groupName) {
   max-width: 100%;
 }
 
-.plugin-config-control :deep(.el-input__wrapper) {
+.plugin-config-control :deep(.ant-input-affix-wrapper) {
   width: 100%;
 }
 
@@ -357,9 +348,9 @@ function formatConfigGroupLabel(groupName) {
 }
 
 .plugin-config-section-title {
-  padding-left: 120px;
+  padding-left: 0;
   margin: 0 0 10px;
-  color: #606266;
+  color: var(--workspace-text-secondary);
   font-size: 13px;
   font-weight: 600;
 }

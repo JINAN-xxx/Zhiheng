@@ -1,51 +1,43 @@
 <template>
-  <el-dialog
+  <ResourceDrawer
     :title="`转移文件 - ${fileName}`"
-    v-model="visible"
-    width="620px"
-    append-to-body
+    :open="visible"
+    :width="620"
+    @close="visible = false"
   >
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-      <el-form-item label="新所有者" prop="ownerUserId">
-        <el-select
-          v-model="form.ownerUserId"
-          filterable
-          remote
-          clearable
+    <a-form ref="formRef" :model="form" :rules="rules" layout="vertical">
+      <a-form-item label="新所有者" name="ownerUserId">
+        <a-select
+          v-model:value="form.ownerUserId"
+          show-search
+          allow-clear
+          :filter-option="false"
           :loading="userLoading"
-          :remote-method="searchUsers"
-          @visible-change="visible => visible && searchUsers('')"
+          @search="searchUsers"
+          @dropdown-visible-change="open => open && searchUsers('')"
           @change="handleUserChange"
           placeholder="输入用户名称搜索"
           style="width: 100%"
-        >
-          <el-option
-            v-for="item in userOptions"
-            :key="item.subjectId"
-            :label="item.subjectName"
-            :value="item.subjectId"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="所属部门" prop="deptId">
-        <el-tree-select
-          v-model="form.deptId"
-          :data="deptOptions"
-          :props="{ value: 'id', label: 'label', children: 'children' }"
-          value-key="id"
+          :options="userSelectOptions"
+        />
+      </a-form-item>
+      <a-form-item label="所属部门" name="deptId">
+        <a-tree-select
+          v-model:value="form.deptId"
+          :tree-data="deptOptions"
+          :field-names="{ value: 'id', label: 'label', children: 'children' }"
           placeholder="请选择所属部门"
-          filterable
-          clearable
-          check-strictly
-          :render-after-expand="false"
+          show-search
+          allow-clear
+          tree-default-expand-all
           style="width: 100%"
         />
-      </el-form-item>
-      <el-form-item label="上传人权限">
-        <el-switch
-          v-model="form.retainUploaderAccess"
-          active-text="保留"
-          inactive-text="移除"
+      </a-form-item>
+      <a-form-item label="上传人权限">
+        <a-switch
+          v-model:checked="form.retainUploaderAccess"
+          checked-children="保留"
+          un-checked-children="移除"
         />
         <div class="form-tip">
           {{
@@ -54,30 +46,31 @@
               : "原上传人不再因上传身份获得下载权限，上传记录仍会保留。"
           }}
         </div>
-      </el-form-item>
-      <el-form-item label="转移原因" prop="reason">
-        <el-input
-          v-model="form.reason"
-          type="textarea"
+      </a-form-item>
+      <a-form-item label="转移原因" name="reason">
+        <a-textarea
+          v-model:value="form.reason"
           :rows="3"
-          maxlength="500"
-          show-word-limit
+          :maxlength="500"
+          show-count
           placeholder="请输入转移原因"
         />
-      </el-form-item>
-    </el-form>
+      </a-form-item>
+    </a-form>
     <template #footer>
       <div class="dialog-footer">
-        <el-button type="primary" :loading="saving" @click="submit">
+        <a-button type="primary" :loading="saving" @click="submit">
           确 定
-        </el-button>
-        <el-button @click="visible = false">取 消</el-button>
+        </a-button>
+        <a-button @click="visible = false">取 消</a-button>
       </div>
     </template>
-  </el-dialog>
+  </ResourceDrawer>
 </template>
 
 <script setup>
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import feedback from '@/plugins/antdFeedback'
 import {
   getFileAclDeptTree,
   searchFileAclSubjects,
@@ -85,7 +78,6 @@ import {
 } from "@/api/system/file";
 
 const emit = defineEmits(["refresh"]);
-const { proxy } = getCurrentInstance();
 const visible = ref(false);
 const saving = ref(false);
 const userLoading = ref(false);
@@ -107,6 +99,7 @@ const rules = {
   deptId: [{ required: true, message: "请选择所属部门", trigger: "change" }],
   reason: [{ required: true, message: "请输入转移原因", trigger: "blur" }]
 };
+const userSelectOptions = computed(() => userOptions.value.map(item => ({ label: item.subjectName, value: item.subjectId })));
 
 function open(row, selectedIds) {
   const isSingle = row?.fileId;
@@ -146,19 +139,18 @@ function handleUserChange(userId) {
 }
 
 function submit() {
-  formRef.value.validate(valid => {
-    if (!valid) return;
+  formRef.value.validateFields().then(() => {
     saving.value = true;
     transferFile(fileIds.value, form)
       .then(() => {
         visible.value = false;
         emit("refresh");
-        proxy.$modal.msgSuccess("文件转移成功");
+        feedback.msgSuccess("文件转移成功");
       })
       .finally(() => {
         saving.value = false;
       });
-  });
+  }).catch(() => {});
 }
 
 defineExpose({ open });
@@ -168,7 +160,7 @@ defineExpose({ open });
 .form-tip {
   width: 100%;
   margin-top: 4px;
-  color: var(--el-text-color-secondary);
+  color: var(--workspace-text-secondary);
   font-size: 12px;
   line-height: 20px;
 }

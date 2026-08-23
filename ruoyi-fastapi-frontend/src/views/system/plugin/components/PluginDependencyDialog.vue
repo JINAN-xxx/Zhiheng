@@ -1,13 +1,6 @@
 <template>
-   <el-dialog title="插件依赖" :model-value="modelValue" width="860px" append-to-body @update:model-value="emit('update:modelValue', $event)">
-      <el-alert
-         v-if="result.message"
-         :title="result.message"
-         :type="result.ok ? 'success' : 'warning'"
-         show-icon
-         :closable="false"
-         class="mb16"
-      />
+   <ResourceDrawer title="插件依赖" :open="modelValue" :width="860" destroy-on-close @close="emit('update:modelValue', false)">
+      <a-alert v-if="result.message" :message="result.message" :type="result.ok ? 'success' : 'warning'" show-icon class="mb16" />
       <div class="dependency-summary">
          <div class="dependency-summary-item">
             <span class="dependency-summary-label">插件ID</span>
@@ -15,7 +8,7 @@
          </div>
          <div class="dependency-summary-item">
             <span class="dependency-summary-label">依赖检查</span>
-            <el-tag :type="result.dependencyOk ? 'success' : 'danger'">{{ formatBoolean(result.dependencyOk) }}</el-tag>
+            <a-tag :color="result.dependencyOk ? 'green' : 'red'">{{ formatBoolean(result.dependencyOk) }}</a-tag>
          </div>
          <div class="dependency-summary-item">
             <span class="dependency-summary-label">缺失依赖</span>
@@ -27,118 +20,50 @@
          </div>
          <div class="dependency-summary-item">
             <span class="dependency-summary-label">安装策略</span>
-            <el-tag v-if="policy" :type="policyTagType">{{ policy.mode || "-" }}</el-tag>
+            <a-tag v-if="policy" :color="tagColor(policyTagType)">{{ policy.mode || "-" }}</a-tag>
             <span v-else class="dependency-summary-value">-</span>
          </div>
       </div>
-      <el-alert
+      <a-alert
          v-if="policy"
-         :title="policySummaryTitle"
+         :message="policySummaryTitle"
          :type="policyAllowed ? 'success' : 'warning'"
          show-icon
-         :closable="false"
          class="mb16"
       >
-         <template #default>
+         <template #description>
             <div v-if="policyMessages.length" class="dependency-policy-messages">
                <div v-for="message in policyMessages" :key="message">{{ message }}</div>
             </div>
             <div v-if="policyNextStep" class="dependency-policy-next">{{ policyNextStep }}</div>
          </template>
-      </el-alert>
-      <el-tabs>
-         <el-tab-pane label="依赖状态">
-            <el-table :data="result.dependencies || []" size="small" border empty-text="暂无依赖声明">
-               <el-table-column label="类型" prop="kind" width="90" align="center" />
-               <el-table-column label="依赖" prop="requirement" min-width="200" :show-overflow-tooltip="true" />
-               <el-table-column label="已安装版本" min-width="130" :show-overflow-tooltip="true">
-                  <template #default="scope">{{ scope.row.installedVersion || "-" }}</template>
-               </el-table-column>
-               <el-table-column label="安装状态" width="100" align="center">
-                  <template #default="scope">
-                     <el-tag :type="getDependencyTagType(scope.row)">{{ formatDependencyInstalled(scope.row) }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="版本满足" width="100" align="center">
-                  <template #default="scope">
-                     <el-tag :type="getDependencyTagType(scope.row)">{{ formatDependencyVersionSatisfied(scope.row) }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="说明" prop="message" min-width="240" :show-overflow-tooltip="true" />
-            </el-table>
-         </el-tab-pane>
-         <el-tab-pane label="安装计划">
-            <el-table :data="result.plan || []" size="small" border empty-text="暂无安装计划">
-               <el-table-column label="类型" prop="kind" width="90" align="center" />
-               <el-table-column label="依赖" prop="requirement" min-width="150" :show-overflow-tooltip="true" />
-               <el-table-column label="工作目录" prop="workdir" min-width="220" :show-overflow-tooltip="true" />
-               <el-table-column label="命令" min-width="300">
-                  <template #default="scope">
-                     <div class="dependency-command-cell">
-                        <span class="dependency-command-text">{{ scope.row.commandText || "-" }}</span>
-                        <el-tooltip content="复制命令" placement="top">
-                           <el-button
-                              link
-                              type="primary"
-                              icon="CopyDocument"
-                              :disabled="!scope.row.commandText"
-                              @click="copyDependencyCommand(scope.row.commandText)"
-                           />
-                        </el-tooltip>
-                     </div>
-                  </template>
-               </el-table-column>
-            </el-table>
-         </el-tab-pane>
-         <el-tab-pane v-if="policy" label="策略判定">
-            <el-descriptions :column="2" border size="small" class="mb16">
-               <el-descriptions-item label="策略模式">{{ policy.mode || "-" }}</el-descriptions-item>
-               <el-descriptions-item label="允许执行">
-                  <el-tag :type="policyAllowed ? 'success' : 'danger'">{{ policyAllowed ? "允许" : "阻断" }}</el-tag>
-               </el-descriptions-item>
-               <el-descriptions-item label="阻断原因">{{ formatPolicyList(policy.reasons) }}</el-descriptions-item>
-               <el-descriptions-item label="前置要求">{{ formatPolicyList(policy.requirements) }}</el-descriptions-item>
-               <el-descriptions-item label="风险提示">{{ formatPolicyList(policy.warnings) }}</el-descriptions-item>
-            </el-descriptions>
-            <el-table :data="policy.items || []" size="small" border empty-text="暂无策略项">
-               <el-table-column label="类型" prop="kind" width="90" align="center" />
-               <el-table-column label="依赖" prop="requirement" min-width="180" :show-overflow-tooltip="true" />
-               <el-table-column label="判定" width="90" align="center">
-                  <template #default="scope">
-                     <el-tag :type="scope.row.allowed ? 'success' : 'danger'">{{ scope.row.allowed ? "允许" : "阻断" }}</el-tag>
-                  </template>
-               </el-table-column>
-               <el-table-column label="锁定版本" min-width="120" :show-overflow-tooltip="true">
-                  <template #default="scope">{{ scope.row.lockedVersion || "-" }}</template>
-               </el-table-column>
-               <el-table-column label="离线制品" min-width="220" :show-overflow-tooltip="true">
-                  <template #default="scope">{{ scope.row.artifactPath || "-" }}</template>
-               </el-table-column>
-               <el-table-column label="说明" min-width="260" :show-overflow-tooltip="true">
-                  <template #default="scope">{{ formatPolicyItemMessage(scope.row) }}</template>
-               </el-table-column>
-            </el-table>
-         </el-tab-pane>
-      </el-tabs>
+      </a-alert>
+      <a-tabs>
+         <a-tab-pane key="dependencies" tab="依赖状态"><a-table :columns="dependencyColumns" :data-source="result.dependencies || []" :pagination="false" row-key="requirement" size="small" :scroll="{ x: 900 }"><template #bodyCell="{ column, record }"><span v-if="column.key === 'installedVersion'">{{ record.installedVersion || '-' }}</span><a-tag v-else-if="column.key === 'installed'" :color="tagColor(getDependencyTagType(record))">{{ formatDependencyInstalled(record) }}</a-tag><a-tag v-else-if="column.key === 'satisfied'" :color="tagColor(getDependencyTagType(record))">{{ formatDependencyVersionSatisfied(record) }}</a-tag></template></a-table></a-tab-pane>
+         <a-tab-pane key="plan" tab="安装计划"><a-table :columns="planColumns" :data-source="result.plan || []" :pagination="false" row-key="requirement" size="small" :scroll="{ x: 800 }"><template #bodyCell="{ column, record }"><div v-if="column.key === 'command'" class="dependency-command-cell"><span class="dependency-command-text">{{ record.commandText || '-' }}</span><a-tooltip title="复制命令"><a-button type="link" :disabled="!record.commandText" @click="copyDependencyCommand(record.commandText)"><template #icon><CopyOutlined /></template></a-button></a-tooltip></div></template></a-table></a-tab-pane>
+         <a-tab-pane v-if="policy" key="policy" tab="策略判定"><a-descriptions :column="2" bordered size="small" class="mb16"><a-descriptions-item label="策略模式">{{ policy.mode || '-' }}</a-descriptions-item><a-descriptions-item label="允许执行"><a-tag :color="policyAllowed ? 'green' : 'red'">{{ policyAllowed ? '允许' : '阻断' }}</a-tag></a-descriptions-item><a-descriptions-item label="阻断原因">{{ formatPolicyList(policy.reasons) }}</a-descriptions-item><a-descriptions-item label="前置要求">{{ formatPolicyList(policy.requirements) }}</a-descriptions-item><a-descriptions-item label="风险提示">{{ formatPolicyList(policy.warnings) }}</a-descriptions-item></a-descriptions><a-table :columns="policyColumns" :data-source="policy.items || []" :pagination="false" row-key="requirement" size="small" :scroll="{ x: 950 }"><template #bodyCell="{ column, record }"><a-tag v-if="column.key === 'allowed'" :color="record.allowed ? 'green' : 'red'">{{ record.allowed ? '允许' : '阻断' }}</a-tag><span v-else-if="column.key === 'lockedVersion'">{{ record.lockedVersion || '-' }}</span><span v-else-if="column.key === 'artifactPath'">{{ record.artifactPath || '-' }}</span><span v-else-if="column.key === 'message'">{{ formatPolicyItemMessage(record) }}</span></template></a-table></a-tab-pane>
+      </a-tabs>
       <template #footer>
          <div class="dialog-footer">
-            <el-button type="primary" :disabled="isCapabilityOperationBlocked(result.capability, 'dependency_install')" :loading="loading" @click="emit('dry-run')">生成安装计划</el-button>
-            <el-button
-               type="success"
+            <a-button type="primary" :disabled="isCapabilityOperationBlocked(result.capability, 'dependency_install')" :loading="loading" @click="emit('dry-run')">生成安装计划</a-button>
+            <a-button
+               type="primary"
                :disabled="!canInstall"
                :loading="loading"
                @click="emit('install')"
                v-hasPermi="['system:plugin:edit']"
-            >执行依赖安装</el-button>
-            <el-button @click="emit('update:modelValue', false)">关 闭</el-button>
+            >执行依赖安装</a-button>
+            <a-button @click="emit('update:modelValue', false)">关 闭</a-button>
          </div>
       </template>
-   </el-dialog>
+   </ResourceDrawer>
 </template>
 
 <script setup name="PluginDependencyDialog">
 import { computed } from "vue";
-import { ElMessage } from "element-plus";
+import { CopyOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import feedback from '@/plugins/antdFeedback'
 
 const props = defineProps({
   modelValue: {
@@ -176,6 +101,10 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["update:modelValue", "dry-run", "install"]);
+const dependencyColumns = [{ title: '类型', dataIndex: 'kind', key: 'kind', width: 90, align: 'center' }, { title: '依赖', dataIndex: 'requirement', key: 'requirement', width: 200, ellipsis: true }, { title: '已安装版本', key: 'installedVersion', width: 130, ellipsis: true }, { title: '安装状态', key: 'installed', width: 100, align: 'center' }, { title: '版本满足', key: 'satisfied', width: 100, align: 'center' }, { title: '说明', dataIndex: 'message', key: 'message', width: 240, ellipsis: true }];
+const planColumns = [{ title: '类型', dataIndex: 'kind', key: 'kind', width: 90 }, { title: '依赖', dataIndex: 'requirement', key: 'requirement', width: 150, ellipsis: true }, { title: '工作目录', dataIndex: 'workdir', key: 'workdir', width: 220, ellipsis: true }, { title: '命令', key: 'command', width: 300 }];
+const policyColumns = [{ title: '类型', dataIndex: 'kind', key: 'kind', width: 90 }, { title: '依赖', dataIndex: 'requirement', key: 'requirement', width: 180, ellipsis: true }, { title: '判定', key: 'allowed', width: 90 }, { title: '锁定版本', key: 'lockedVersion', width: 120, ellipsis: true }, { title: '离线制品', key: 'artifactPath', width: 220, ellipsis: true }, { title: '说明', key: 'message', width: 260, ellipsis: true }];
+const tagColor = type => ({ success: 'green', warning: 'orange', danger: 'red', info: 'default' }[type] || 'default');
 
 const dependencyProblemCount = computed(() => {
   const dependencies = Array.isArray(props.result.dependencies) ? props.result.dependencies : [];
@@ -238,9 +167,9 @@ function copyDependencyCommand(commandText) {
     return;
   }
   copyText(commandText).then(() => {
-    ElMessage.success("命令已复制");
+    feedback.msgSuccess("命令已复制");
   }).catch(() => {
-    ElMessage.error("复制失败，请手动复制命令");
+    feedback.msgError("复制失败，请手动复制命令");
   });
 }
 
@@ -279,20 +208,20 @@ async function copyText(text) {
 .dependency-summary-item {
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--workspace-border);
   border-radius: 4px;
-  background: #f8f9fb;
+  background: var(--workspace-surface-muted);
 }
 
 .dependency-summary-label {
   display: block;
   margin-bottom: 6px;
-  color: #909399;
+  color: var(--workspace-text-secondary);
   font-size: 12px;
 }
 
 .dependency-summary-value {
-  color: #303133;
+  color: var(--workspace-text);
   font-size: 14px;
   font-weight: 600;
   word-break: break-all;
@@ -309,7 +238,7 @@ async function copyText(text) {
 
 .dependency-policy-next {
   margin-top: 6px;
-  color: #606266;
+  color: var(--workspace-text-secondary);
 }
 
 .dependency-command-cell {
@@ -322,7 +251,7 @@ async function copyText(text) {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: #303133;
+  color: var(--workspace-text);
   font-family: monospace;
   text-overflow: ellipsis;
   white-space: nowrap;

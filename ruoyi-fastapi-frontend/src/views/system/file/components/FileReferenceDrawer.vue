@@ -1,106 +1,83 @@
 <template>
-  <el-drawer
+  <ResourceDrawer
     :title="`业务引用 - ${fileName}`"
-    v-model="visible"
-    size="55%"
-    append-to-body
+    :open="visible"
+    width="55%"
+    @close="closeDrawer"
   >
-    <el-alert
-      title="存在业务引用时文件不能移入回收站，请先在对应业务中解除文件引用。"
+    <a-alert
+      message="存在业务引用时文件不能移入回收站，请先在对应业务中解除文件引用。"
       type="warning"
       :closable="false"
       show-icon
       class="mb8"
     />
-    <el-table v-loading="loading" :data="referenceList">
-      <el-table-column
-        label="业务类型"
-        align="center"
-        prop="businessType"
-        width="130"
-        :show-overflow-tooltip="true"
-      />
-      <el-table-column
-        label="业务名称"
-        align="left"
-        prop="businessName"
-        min-width="180"
-        :show-overflow-tooltip="true"
-      >
-        <template #default="scope">{{ scope.row.businessName || "-" }}</template>
-      </el-table-column>
-      <el-table-column
-        label="业务ID"
-        align="center"
-        prop="businessId"
-        min-width="160"
-        :show-overflow-tooltip="true"
-      />
-      <el-table-column
-        label="保留到期"
-        align="center"
-        prop="retentionExpireTime"
-        width="180"
-      >
-        <template #default="scope">
+    <ResourceTable :columns="columns" :rows="referenceList" :loading="loading" :pagination="false" row-key="referenceId" :scroll="{ x: 900 }">
+      <template #bodyCell="{ column, record: row }">
+        <template v-if="column.key === 'businessName'">{{ row.businessName || "-" }}</template>
+        <template v-else-if="column.key === 'retentionExpireTime'">
           {{
-            scope.row.retentionExpireTime
-              ? parseTime(scope.row.retentionExpireTime)
+            row.retentionExpireTime
+              ? parseTime(row.retentionExpireTime)
               : "永久保留"
           }}
         </template>
-      </el-table-column>
-      <el-table-column label="来源" align="center" width="100">
-        <template #default="scope">
-          <el-tag v-if="scope.row.legacy" type="info" effect="plain">
+        <template v-else-if="column.key === 'source'">
+          <a-tag v-if="row.legacy">
             兼容字段
-          </el-tag>
-          <el-tag v-else type="success" effect="plain">引用关系</el-tag>
+          </a-tag>
+          <a-tag v-else color="green">引用关系</a-tag>
         </template>
-      </el-table-column>
-      <el-table-column
-        label="登记人"
-        align="center"
-        prop="createBy"
-        width="110"
-        :show-overflow-tooltip="true"
-      >
-        <template #default="scope">{{ scope.row.createBy || "-" }}</template>
-      </el-table-column>
-      <el-table-column
-        label="登记时间"
-        align="center"
-        prop="createTime"
-        width="180"
-      >
-        <template #default="scope">
-          {{ parseTime(scope.row.createTime) || "-" }}
+        <template v-else-if="column.key === 'createBy'">{{ row.createBy || "-" }}</template>
+        <template v-else-if="column.key === 'createTime'">
+          {{ parseTime(row.createTime) || "-" }}
         </template>
-      </el-table-column>
-    </el-table>
-  </el-drawer>
+      </template>
+    </ResourceTable>
+  </ResourceDrawer>
 </template>
 
 <script setup>
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
 import { listFileReference } from "@/api/system/file";
 
 const visible = ref(false);
 const loading = ref(false);
 const fileName = ref("");
+const fileId = ref("");
 const referenceList = ref([]);
+let requestGeneration = 0;
+const columns = [
+  { title: '业务类型', dataIndex: 'businessType', key: 'businessType', width: 130, ellipsis: true },
+  { title: '业务名称', dataIndex: 'businessName', key: 'businessName', width: 180, ellipsis: true },
+  { title: '业务ID', dataIndex: 'businessId', key: 'businessId', width: 160, ellipsis: true },
+  { title: '保留到期', key: 'retentionExpireTime', width: 180 },
+  { title: '来源', key: 'source', width: 100 },
+  { title: '登记人', key: 'createBy', width: 110 },
+  { title: '登记时间', key: 'createTime', width: 180 },
+];
 
 function open(row) {
+  const generation = ++requestGeneration;
+  const requestFileId = row.fileId;
+  fileId.value = requestFileId;
   fileName.value = row.originalName;
+  referenceList.value = [];
   visible.value = true;
   loading.value = true;
-  listFileReference(row.fileId)
+  listFileReference(requestFileId)
     .then(response => {
+      if (generation !== requestGeneration || !visible.value || requestFileId !== fileId.value) return;
       referenceList.value = response.data;
     })
     .finally(() => {
-      loading.value = false;
+      if (generation === requestGeneration) loading.value = false;
     });
 }
 
+function closeDrawer() { requestGeneration += 1; visible.value = false; loading.value = false; referenceList.value = []; }
+
 defineExpose({ open });
+onBeforeUnmount(() => { requestGeneration += 1 })
 </script>
