@@ -1,3 +1,4 @@
+import hashlib
 import importlib
 import re
 from pathlib import Path
@@ -13,6 +14,7 @@ PLUGIN_ROOT = BACKEND_ROOT / 'plugins' / 'ai'
 RESOURCE_ID_LENGTH = 36
 COST_PRECISION = 20
 COST_SCALE = 10
+POSTGRES_EMBEDDING_RERANK_MIGRATION_CHECKSUM = '2118d771dfe794e6aacb297e3133a8168695c5d8328f8c7b1c7c7c83a9a42531'
 DEVELOPER_API_TABLES = {
     'ai_application',
     'ai_api_key',
@@ -42,6 +44,10 @@ def _read_migration(database: str) -> str:
     return path.read_text(encoding='utf-8')
 
 
+def _read_named_migration(database: str, filename: str) -> str:
+    return (PLUGIN_ROOT / 'migrations' / database / filename).read_text(encoding='utf-8')
+
+
 def _normalize_sql(sql: str) -> str:
     return re.sub(r'\s+', ' ', sql.lower()).strip()
 
@@ -64,19 +70,40 @@ def _assert_restrict_foreign_key(column: object, target: str) -> None:
 def test_developer_api_migrations_are_registered_after_platform_chat() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.6.0'
+    assert plugin.manifest.version == '0.6.1'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
         'migrations/mysql/003_platform_chat.sql',
         'migrations/mysql/004_developer_api_foundation.sql',
         'migrations/mysql/005_embedding_rerank_gateway.sql',
+        'migrations/mysql/006_quota_reservation.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
         'migrations/postgresql/004_developer_api_foundation.sql',
         'migrations/postgresql/005_embedding_rerank_gateway.sql',
+        'migrations/postgresql/006_quota_reservation.sql',
     ]
+
+
+def test_quota_reservation_uses_a_new_migration_without_rewriting_embedding_rerank_history() -> None:
+    postgres_005_path = PLUGIN_ROOT / 'migrations' / 'postgresql' / '005_embedding_rerank_gateway.sql'
+    assert hashlib.sha256(postgres_005_path.read_bytes()).hexdigest() == POSTGRES_EMBEDDING_RERANK_MIGRATION_CHECKSUM
+
+    plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
+    for database in ('mysql', 'postgresql'):
+        embedding_rerank_sql = _normalize_sql(_read_named_migration(database, '005_embedding_rerank_gateway.sql'))
+        quota_reservation_sql = _normalize_sql(_read_named_migration(database, '006_quota_reservation.sql'))
+
+        assert 'reserved_tokens' not in embedding_rerank_sql
+        assert 'reserved_cost' not in embedding_rerank_sql
+        assert 'reserved_tokens' in quota_reservation_sql
+        assert 'reserved_cost' in quota_reservation_sql
+        assert 'quota_lease_token' in quota_reservation_sql
+        assert 'quota_minute_window' in quota_reservation_sql
+        assert 'quota_month_window' in quota_reservation_sql
+        assert f'migrations/{database}/006_quota_reservation.sql' in plugin.manifest.backend.migrations
 
 
 def test_developer_api_migrations_are_additive_and_define_all_tables() -> None:

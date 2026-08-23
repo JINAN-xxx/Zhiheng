@@ -28,12 +28,7 @@ alter table ai_model_rate_card
 -- 3. Usage Ledger 操作类型与 Search Unit 用量
 alter table ai_api_usage_ledger
   add column operation_type varchar(16) null comment '操作类型',
-  add column search_units int default null comment 'Search Unit用量',
-  add column reserved_tokens int default null comment '配额预留Token',
-  add column reserved_cost decimal(20,10) default null comment '配额预留成本',
-  add column quota_lease_token varchar(128) default null comment 'Redis配额租约Token',
-  add column quota_minute_window varchar(16) default null comment '预留分钟窗口',
-  add column quota_month_window varchar(7) default null comment '预留月份窗口';
+  add column search_units int default null comment 'Search Unit用量';
 update ai_api_usage_ledger
   set operation_type = 'chat'
   where operation_type is null;
@@ -45,12 +40,6 @@ alter table ai_api_usage_ledger
 alter table ai_api_usage_ledger
   add constraint ck_ai_api_usage_search_units
     check (search_units is null or search_units >= 0);
-alter table ai_api_usage_ledger
-  add constraint ck_ai_api_usage_reserved_tokens
-    check (reserved_tokens is null or reserved_tokens >= 0);
-alter table ai_api_usage_ledger
-  add constraint ck_ai_api_usage_reserved_cost
-    check (reserved_cost is null or reserved_cost >= 0);
 
 -- 4. 查询索引
 create index idx_ai_api_usage_operation_started
