@@ -22,6 +22,7 @@ const modelFiles = [
   'plugins/ai/views/model/components/CredentialForm.vue',
   'plugins/ai/views/model/components/DeploymentForm.vue',
 ]
+const modelSources = modelFiles.map((fileName) => readFileSync(fileName, 'utf8')).join('\n')
 const applicationFiles = [
   'plugins/ai/views/application/index.vue',
   'plugins/ai/views/usage/index.vue',
@@ -57,6 +58,7 @@ assert.match(readFileSync('plugins/ai/views/model/components/CredentialForm.vue'
 assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /a-dropdown/)
 assert.match(readFileSync('plugins/ai/views/model/components/EngineDeploymentsPanel.vue', 'utf8'), /a-dropdown/)
 assert.match(readFileSync('plugins/ai/views/model/components/CredentialsPanel.vue', 'utf8'), /a-dropdown/)
+assert.doesNotMatch(modelSources, /Model Service|Provider 凭据|Model ID|Model Code|Base Model|Capability/)
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')
@@ -71,11 +73,16 @@ assert.match(applicationView, /:after-close="handleKeyFormClosed"/)
 assert.match(applicationView, /:after-close="clearIssuedKey"/)
 assert.match(applicationView, /function clearIssuedKey\(\)[\s\S]*issuedKey\.value = null/)
 assert.match(applicationView, /onBeforeUnmount\(\(\) => \{[^}]*usageRequest \+= 1/)
+assert.doesNotMatch(applicationView, /Developer API|API Key|Embedding|Rerank/)
+assert.match(applicationView, /开发接入/)
+assert.match(applicationView, /访问密钥/)
 assert.match(usageView, /ResourceTable/)
 assert.match(usageView, /a-select/)
 assert.match(usageView, /canQueryUsage/)
 assert.match(usageView, /ai:application:list/)
 assert.match(usageView, /mobileHidden: true/)
+assert.doesNotMatch(usageView, /Usage Ledger|\bChat\b|\bEmbedding\b|\bRerank\b|\bToken\b|Search Unit/)
+assert.match(usageView, /用量记录/)
 assert.match(applicationView, /if \(!can\('ai:application:add'\)\) return/)
 assert.match(applicationView, /if \(!can\('ai:application:disable'\)/)
 assert.match(applicationView, /if \(!canCreateKey\.value/)
