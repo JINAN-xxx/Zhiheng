@@ -7,45 +7,59 @@
         <p>管理应用、模型授权与平台 API Key。</p>
       </div>
       <div class="developer-header__actions">
-        <el-tooltip content="刷新应用" placement="bottom">
-          <el-button circle :icon="Refresh" aria-label="刷新应用" @click="loadApplications" />
-        </el-tooltip>
-        <el-button v-if="can('ai:application:add')" type="primary" :icon="Plus" @click="openApplicationForm()">新建应用</el-button>
+        <a-tooltip title="刷新应用" placement="bottom">
+          <a-button shape="circle" aria-label="刷新应用" @click="loadApplications">
+            <template #icon><ReloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined /><span class="button-label">新建应用</span></a-button>
       </div>
     </header>
 
     <section class="developer-grid">
       <WorkspacePanel title="应用" subtitle="每个应用拥有独立 Key 与模型权限" flush>
         <div class="application-tools">
-          <el-input v-model="query.applicationName" clearable :prefix-icon="Search" placeholder="搜索应用" @keyup.enter="loadApplications" />
+          <a-input v-model:value="query.applicationName" allow-clear placeholder="搜索应用" @press-enter="loadApplications">
+            <template #prefix><SearchOutlined /></template>
+          </a-input>
         </div>
         <WorkspaceState v-if="loading && !applications.length" kind="loading" />
         <WorkspaceState v-else-if="error && !applications.length" kind="error" :message="error" @retry="loadApplications" />
         <WorkspaceState v-else-if="!applications.length" kind="empty" title="暂无开发者应用" />
         <template v-else>
           <div v-if="error" class="stale-notice">刷新失败，当前列表可能已过期。</div>
-          <div class="application-list">
-            <button
-              v-for="application in applications"
-              :key="application.applicationId"
-              type="button"
-              class="application-row"
-              :class="{ 'is-active': application.applicationId === selectedApplication?.applicationId }"
-              @click="selectApplication(application)"
-            >
-              <span class="application-row__main">
-                <strong>{{ application.applicationName }}</strong>
-                <small>{{ application.applicationCode }}</small>
-              </span>
-              <WorkspaceStatus :status="application.status" :label="applicationStatusLabel(application.status)" />
-            </button>
-          </div>
-          <pagination
-            v-show="total > query.pageSize"
-            v-model:page="query.pageNum"
-            v-model:limit="query.pageSize"
+          <ResourceTable
+            class="application-table"
+            :columns="applicationColumns"
+            :rows="applications"
+            :pagination="false"
+            row-key="applicationId"
+          >
+            <template #bodyCell="{ column, record: application }">
+              <button
+                v-if="column.key === 'application'"
+                type="button"
+                class="application-row"
+                :class="{ 'is-active': application.applicationId === selectedApplication?.applicationId }"
+                @click="selectApplication(application)"
+              >
+                <span class="application-row__main">
+                  <strong>{{ application.applicationName }}</strong>
+                  <small>{{ application.applicationCode }}</small>
+                </span>
+                <WorkspaceStatus :status="application.status" :label="applicationStatusLabel(application.status)" />
+              </button>
+            </template>
+          </ResourceTable>
+          <a-pagination
+            v-if="total > query.pageSize"
+            v-model:current="query.pageNum"
+            v-model:page-size="query.pageSize"
             :total="total"
-            @pagination="loadApplications"
+            :page-size-options="['10', '20', '50']"
+            show-size-changer
+            size="small"
+            @change="loadApplications"
           />
         </template>
       </WorkspacePanel>
@@ -58,23 +72,21 @@
       >
         <template #header>
           <div v-if="selectedApplication" class="key-toolbar">
-            <el-button v-if="can('ai:application:edit')" class="secondary-key-action" text :icon="Edit" aria-label="编辑应用" title="编辑应用" @click="openApplicationForm(selectedApplication)">编辑</el-button>
-            <el-button
+            <a-button v-if="can('ai:application:edit')" class="secondary-key-action" type="text" aria-label="编辑应用" title="编辑应用" @click="openApplicationForm(selectedApplication)"><EditOutlined /><span class="button-label">编辑</span></a-button>
+            <a-button
               v-if="can('ai:application:disable') && selectedApplication.status === 'active'"
-              text
-              type="danger"
-              :icon="CircleClose"
+              type="text"
+              danger
               class="secondary-key-action"
               aria-label="停用应用"
               title="停用应用"
               @click="disableSelectedApplication"
-            >停用</el-button>
-            <el-button
+            ><StopOutlined /><span class="button-label">停用</span></a-button>
+            <a-button
               v-if="canCreateKey && selectedApplication.status === 'active'"
               type="primary"
-              :icon="Key"
               @click="openKeyForm"
-            >创建 Key</el-button>
+            ><KeyOutlined />创建 Key</a-button>
           </div>
         </template>
 
@@ -110,97 +122,107 @@
 
       <WorkspacePanel class="usage-panel" :title="`用量台账 · ${selectedApplication?.applicationCode || '-'}`" subtitle="最近调用、Token 与结算记录" flush>
         <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看用量台账" />
+        <WorkspaceState v-else-if="!canQueryUsage" kind="forbidden" title="无权查看用量台账" message="当前账号缺少应用查询权限。" />
         <WorkspaceState v-else-if="usageLoading && !usageRows.length" kind="loading" />
         <WorkspaceState v-else-if="usageError && !usageRows.length" kind="error" :message="usageError" @retry="loadUsage" />
         <WorkspaceState v-else-if="!usageRows.length" kind="empty" title="暂无用量记录" message="公开 API 调用完成后会在此展示。" />
         <div v-else class="usage-list">
-          <el-table :data="usageRows" size="small" style="width: 100%">
-            <el-table-column prop="startedAt" label="开始时间" width="150">
-              <template #default="{ row }">{{ formatTime(row.startedAt) }}</template>
-            </el-table-column>
-            <el-table-column prop="operationType" label="类型" width="110">
-              <template #default="{ row }">
-                <el-tag size="small" effect="plain" :type="operationTypeMeta(row.operationType).type">{{ operationTypeMeta(row.operationType).label }}</el-tag>
+          <div v-if="usageError" class="stale-notice">刷新失败，当前用量数据可能已过期。</div>
+          <ResourceTable
+            :columns="usageColumns"
+            :rows="usageRows"
+            :pagination="false"
+            :scroll="{ x: 860 }"
+            :row-key="usageRowKey"
+          >
+            <template #bodyCell="{ column, record: row }">
+              <template v-if="column.key === 'startedAt'">{{ formatTime(row.startedAt) }}</template>
+              <template v-else-if="column.key === 'operationType'">
+                <a-tag :color="tagColor(operationTypeMeta(row.operationType).type)">{{ operationTypeMeta(row.operationType).label }}</a-tag>
               </template>
-            </el-table-column>
-            <el-table-column prop="modelCode" label="模型" min-width="140" />
-            <el-table-column label="Token" width="140">
-              <template #default="{ row }">{{ row.inputTokens ?? '-' }} / {{ row.outputTokens ?? '-' }}</template>
-            </el-table-column>
-            <el-table-column label="Search Unit" width="100">
-              <template #default="{ row }">{{ row.searchUnits ?? '-' }}</template>
-            </el-table-column>
-            <el-table-column label="结算成本" width="120">
-              <template #default="{ row }">
+              <template v-else-if="column.key === 'tokens'">{{ row.inputTokens ?? '-' }} / {{ row.outputTokens ?? '-' }}</template>
+              <template v-else-if="column.key === 'searchUnits'">{{ row.searchUnits ?? '-' }}</template>
+              <template v-else-if="column.key === 'billableCost'">
                 {{ row.billableCost != null ? Number(row.billableCost).toFixed(6) : '-' }}
-                <el-tag v-if="row.costEstimated" size="small" type="warning" effect="plain">估算</el-tag>
+                <a-tag v-if="row.costEstimated" color="orange">估算</a-tag>
               </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="100">
-              <template #default="{ row }"><el-tag size="small" effect="plain">{{ row.status }}</el-tag></template>
-            </el-table-column>
-          </el-table>
-          <pagination
-            v-show="usageTotal > usageQuery.pageSize"
-            v-model:page="usageQuery.pageNum"
-            v-model:limit="usageQuery.pageSize"
+              <template v-else-if="column.key === 'status'"><a-tag>{{ row.status }}</a-tag></template>
+            </template>
+          </ResourceTable>
+          <a-pagination
+            v-if="usageTotal > usageQuery.pageSize"
+            v-model:current="usageQuery.pageNum"
+            v-model:page-size="usageQuery.pageSize"
             :total="usageTotal"
-            @pagination="loadUsage"
+            :page-size-options="['10', '20', '50']"
+            show-size-changer
+            size="small"
+            @change="loadUsage"
           />
         </div>
       </WorkspacePanel>
     </section>
 
-    <el-dialog v-model="applicationFormOpen" :title="editingApplication ? '编辑应用' : '新建应用'" width="500px" destroy-on-close>
-      <el-form ref="applicationFormRef" :model="applicationForm" :rules="applicationRules" label-position="top">
-        <el-form-item v-if="!editingApplication" label="应用编码" prop="applicationCode">
-          <el-input v-model="applicationForm.applicationCode" maxlength="100" placeholder="例如 internal-tools" />
-        </el-form-item>
-        <el-form-item label="应用名称" prop="applicationName">
-          <el-input v-model="applicationForm.applicationName" maxlength="100" placeholder="例如内部智能工具" />
-        </el-form-item>
-      </el-form>
+    <a-modal v-model:open="applicationFormOpen" :title="editingApplication ? '编辑应用' : '新建应用'" :width="500" destroy-on-close>
+      <a-form ref="applicationFormRef" :model="applicationForm" :rules="applicationRules" layout="vertical">
+        <a-form-item v-if="!editingApplication" label="应用编码" name="applicationCode">
+          <a-input v-model:value="applicationForm.applicationCode" :maxlength="100" placeholder="例如 internal-tools" />
+        </a-form-item>
+        <a-form-item label="应用名称" name="applicationName">
+          <a-input v-model:value="applicationForm.applicationName" :maxlength="100" placeholder="例如内部智能工具" />
+        </a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="applicationFormOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveApplication">保存</el-button>
+        <a-button @click="applicationFormOpen = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="saveApplication">保存</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="keyFormOpen" title="创建 API Key" width="600px" destroy-on-close @closed="handleKeyFormClosed">
-      <el-form ref="keyFormRef" :model="keyForm" :rules="keyRules" label-position="top">
-        <el-form-item label="Key 名称" prop="keyName"><el-input v-model="keyForm.keyName" maxlength="100" /></el-form-item>
-        <el-form-item label="授权模型" prop="modelIds">
-          <el-select v-model="keyForm.modelIds" multiple filterable style="width: 100%" placeholder="至少选择一个已发布模型">
-            <el-option v-for="model in models" :key="model.modelId" :label="model.title || model.modelCode" :value="model.modelId" />
-          </el-select>
-        </el-form-item>
+    <a-modal v-model:open="keyFormOpen" title="创建 API Key" :width="600" destroy-on-close :after-close="handleKeyFormClosed">
+      <a-form ref="keyFormRef" :model="keyForm" :rules="keyRules" layout="vertical">
+        <a-form-item label="Key 名称" name="keyName"><a-input v-model:value="keyForm.keyName" :maxlength="100" /></a-form-item>
+        <a-form-item label="授权模型" name="modelIds">
+          <a-select
+            v-model:value="keyForm.modelIds"
+            mode="multiple"
+            show-search
+            option-filter-prop="label"
+            style="width: 100%"
+            placeholder="至少选择一个已发布模型"
+            :options="modelOptions"
+          />
+        </a-form-item>
         <div class="quota-grid">
-          <el-form-item label="RPM"><el-input-number v-model="keyForm.rpmLimit" :min="1" controls-position="right" /></el-form-item>
-          <el-form-item label="TPM"><el-input-number v-model="keyForm.tpmLimit" :min="1" controls-position="right" /></el-form-item>
-          <el-form-item label="并发数"><el-input-number v-model="keyForm.concurrencyLimit" :min="1" controls-position="right" /></el-form-item>
+          <a-form-item label="RPM"><a-input-number v-model:value="keyForm.rpmLimit" :min="1" style="width: 100%" /></a-form-item>
+          <a-form-item label="TPM"><a-input-number v-model:value="keyForm.tpmLimit" :min="1" style="width: 100%" /></a-form-item>
+          <a-form-item label="并发数"><a-input-number v-model:value="keyForm.concurrencyLimit" :min="1" style="width: 100%" /></a-form-item>
         </div>
-        <el-form-item label="过期时间"><el-date-picker v-model="keyForm.expiresAt" type="datetime" style="width: 100%" /></el-form-item>
-      </el-form>
+        <a-form-item label="过期时间"><a-date-picker v-model:value="keyForm.expiresAt" show-time style="width: 100%" /></a-form-item>
+      </a-form>
       <template #footer>
-        <el-button @click="keyFormOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveKey">创建</el-button>
+        <a-button @click="keyFormOpen = false">取消</a-button>
+        <a-button type="primary" :loading="saving" @click="saveKey">创建</a-button>
       </template>
-    </el-dialog>
+    </a-modal>
 
-    <el-dialog v-model="issuedKeyOpen" title="API Key 已生成" width="560px" :close-on-click-modal="false" @close="clearIssuedKey">
-      <el-alert type="warning" :closable="false" title="该 Key 仅展示一次，关闭后无法再次查看。" />
+    <a-modal v-model:open="issuedKeyOpen" title="API Key 已生成" :width="560" :mask-closable="false" :after-close="clearIssuedKey">
+      <a-alert type="warning" :closable="false" message="该 Key 仅展示一次，关闭后无法再次查看。" show-icon />
       <div class="issued-key">
         <code>{{ issuedKey?.apiKey }}</code>
-        <el-button :icon="CopyDocument" aria-label="复制 API Key" title="复制 API Key" @click="copyIssuedKey" />
+        <a-button aria-label="复制 API Key" title="复制 API Key" @click="copyIssuedKey"><template #icon><CopyOutlined /></template></a-button>
       </div>
-      <template #footer><el-button type="primary" @click="issuedKeyOpen = false">我已保存</el-button></template>
-    </el-dialog>
+      <template #footer><a-button type="primary" @click="issuedKeyOpen = false">我已保存</a-button></template>
+    </a-modal>
   </main>
 </template>
 
 <script setup name="AiApplication">
-import { CircleClose, CopyDocument, Delete, Edit, Key, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import {
+  CopyOutlined, DeleteOutlined, EditOutlined, KeyOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined,
+} from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
+import feedback from '@/plugins/antdFeedback'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
 import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
 import WorkspacePanel from '@/components/Workspace/WorkspacePanel.vue'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
@@ -229,11 +251,11 @@ import {
 } from '../../utils/application.js'
 import { hasPermission } from '../../utils/modelEngine.js'
 
-const { proxy } = getCurrentInstance()
 const userStore = useUserStore()
 const can = (permission) => hasPermission(userStore.permissions || [], permission)
 const canListKeys = computed(() => can('ai:application:key:list'))
 const canCreateKey = computed(() => can('ai:application:key:add') && can('ai:model:list'))
+const canQueryUsage = computed(() => can('ai:application:query'))
 const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 })
 const applications = ref([])
 const total = ref(0)
@@ -275,9 +297,25 @@ const keyRules = {
   modelIds: [{ type: 'array', required: true, min: 1, message: '至少选择一个模型', trigger: 'change' }],
 }
 const keyActions = computed(() => [
-  can('ai:application:key:rotate') && { command: 'rotate', label: '轮换 Key', icon: Refresh },
-  can('ai:application:key:revoke') && { command: 'revoke', label: '撤销 Key', icon: Delete, divided: true },
+  can('ai:application:key:rotate') && { command: 'rotate', label: '轮换 Key', icon: ReloadOutlined },
+  can('ai:application:key:revoke') && { command: 'revoke', label: '撤销 Key', icon: DeleteOutlined, danger: true, divided: true },
 ].filter(Boolean))
+const applicationColumns = [
+  { title: '应用', key: 'application' },
+]
+const modelOptions = computed(() => models.value.map((model) => ({
+  label: model.title || model.modelCode,
+  value: model.modelId,
+})))
+const usageColumns = [
+  { title: '开始时间', dataIndex: 'startedAt', key: 'startedAt', width: 150 },
+  { title: '类型', dataIndex: 'operationType', key: 'operationType', width: 110 },
+  { title: '模型', dataIndex: 'modelCode', key: 'modelCode', width: 150, ellipsis: true },
+  { title: 'Token', key: 'tokens', width: 140 },
+  { title: 'Search Unit', key: 'searchUnits', width: 110, mobileHidden: true },
+  { title: '结算成本', key: 'billableCost', width: 130, mobileHidden: true },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+]
 
 function defaultKeyForm() {
   return { keyName: '', modelIds: [], expiresAt: null, rpmLimit: null, tpmLimit: null, concurrencyLimit: null }
@@ -321,7 +359,7 @@ async function selectApplication(application) {
   }
   selectedApplication.value = application
   if (application && canListKeys.value) await loadKeys()
-  if (application) await loadUsage()
+  if (application && canQueryUsage.value) await loadUsage()
 }
 
 async function loadKeys() {
@@ -346,10 +384,12 @@ const operationTypeMeta = (operationType) => ({
   embedding: { label: 'Embedding', type: 'success' },
   rerank: { label: 'Rerank', type: 'warning' },
 }[operationType] || { label: operationType || '-', type: 'info' })
+const tagColor = (type) => ({ primary: 'blue', success: 'green', warning: 'orange', danger: 'red' }[type])
+const usageRowKey = (row) => row.usageId || row.requestId || row.id || `${row.startedAt}-${row.modelCode}`
 
 let usageRequest = 0
 async function loadUsage() {
-  if (!selectedApplication.value) return
+  if (!selectedApplication.value || !canQueryUsage.value) return
   const applicationId = selectedApplication.value.applicationId
   const requestId = ++usageRequest
   usageLoading.value = true
@@ -373,6 +413,8 @@ async function loadUsage() {
 }
 
 function openApplicationForm(application = null) {
+  if (!application && !can('ai:application:add')) return
+  if (application && !can('ai:application:edit')) return
   editingApplication.value = application
   applicationForm.applicationCode = application?.applicationCode || ''
   applicationForm.applicationName = application?.applicationName || ''
@@ -380,7 +422,10 @@ function openApplicationForm(application = null) {
 }
 
 async function saveApplication() {
-  if (!await applicationFormRef.value.validate().then(() => true).catch(() => false)) return
+  if (!editingApplication.value) {
+    if (!can('ai:application:add')) return
+  } else if (!can('ai:application:edit')) return
+  if (!await applicationFormRef.value.validateFields().then(() => true).catch(() => false)) return
   saving.value = true
   try {
     if (editingApplication.value) {
@@ -401,7 +446,8 @@ async function saveApplication() {
 }
 
 async function disableSelectedApplication() {
-  await proxy.$modal.confirm('停用后，该应用下所有 Key 将无法调用。是否继续？')
+  if (!can('ai:application:disable') || selectedApplication.value?.status !== 'active') return
+  await feedback.confirm('停用后，该应用下所有 Key 将无法调用。是否继续？')
   await disableApplication(selectedApplication.value.applicationId)
   await loadApplications()
 }
@@ -426,10 +472,12 @@ function handleKeyFormClosed() {
 }
 
 async function saveKey() {
-  if (!await keyFormRef.value.validate().then(() => true).catch(() => false)) return
+  if (!canCreateKey.value || selectedApplication.value?.status !== 'active') return
+  if (!await keyFormRef.value.validateFields().then(() => true).catch(() => false)) return
   saving.value = true
   try {
-    const response = await createDeveloperKey(selectedApplication.value.applicationId, buildDeveloperKeyPayload(keyForm))
+    const expiresAt = keyForm.expiresAt?.toDate?.() || keyForm.expiresAt
+    const response = await createDeveloperKey(selectedApplication.value.applicationId, buildDeveloperKeyPayload({ ...keyForm, expiresAt }))
     pendingIssuedKey.value = extractIssuedKey(response)
     keyFormOpen.value = false
     await loadKeys()
@@ -439,13 +487,16 @@ async function saveKey() {
 }
 
 async function handleKeyAction(command, item) {
+  if (item?.status !== 'active') return
+  if (command === 'rotate' && !can('ai:application:key:rotate')) return
+  if (command === 'revoke' && !can('ai:application:key:revoke')) return
   if (command === 'rotate') {
-    await proxy.$modal.confirm('轮换后旧 Key 将保留 24 小时宽限期，是否继续？')
+    await feedback.confirm('轮换后旧 Key 将保留 24 小时宽限期，是否继续？')
     const response = await rotateDeveloperKey(selectedApplication.value.applicationId, item.keyId, { gracePeriodSeconds: 86400 })
     showIssuedKey(response)
     await loadKeys()
   } else if (command === 'revoke') {
-    await proxy.$modal.confirm('撤销后该 Key 立即失效，是否继续？')
+    await feedback.confirm('撤销后该 Key 立即失效，是否继续？')
     await revokeDeveloperKey(selectedApplication.value.applicationId, item.keyId)
     await loadKeys()
   }
@@ -463,11 +514,17 @@ function clearIssuedKey() {
 async function copyIssuedKey() {
   if (!issuedKey.value?.apiKey) return
   await navigator.clipboard.writeText(issuedKey.value.apiKey)
-  proxy.$modal.msgSuccess('API Key 已复制')
+  feedback.msgSuccess('API Key 已复制')
 }
 
 onMounted(loadApplications)
-onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedKey.value = null; clearIssuedKey() })
+onBeforeUnmount(() => {
+  applicationRequest += 1
+  keyRequest += 1
+  usageRequest += 1
+  pendingIssuedKey.value = null
+  clearIssuedKey()
+})
 </script>
 
 <style scoped lang="scss">
@@ -523,9 +580,14 @@ onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedK
   border-bottom: 1px solid var(--workspace-border);
 }
 
-.application-list,
 .key-list {
   display: grid;
+}
+
+.application-table + :deep(.ant-pagination),
+.usage-list > :deep(.ant-pagination) {
+  margin: 0;
+  padding: 12px 16px;
 }
 
 .application-row {
@@ -537,11 +599,15 @@ onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedK
   gap: var(--workspace-space-3);
   padding: 12px 16px;
   border: 0;
-  border-bottom: 1px solid var(--workspace-border);
+  border: 0;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.application-table :deep(.ant-table-tbody > tr > td) {
+  padding: 0;
 }
 
 .application-row:hover,
@@ -641,7 +707,7 @@ onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedK
     align-items: flex-start;
   }
 
-  .developer-header__actions .el-button span {
+  .developer-header__actions .button-label {
     display: none;
   }
 
@@ -677,7 +743,7 @@ onBeforeUnmount(() => { applicationRequest += 1; keyRequest += 1; pendingIssuedK
     padding: 0;
   }
 
-  .secondary-key-action :deep(span) {
+  .secondary-key-action .button-label {
     display: none;
   }
 
