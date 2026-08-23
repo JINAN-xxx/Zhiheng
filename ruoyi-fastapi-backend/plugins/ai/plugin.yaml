@@ -92,7 +92,7 @@ frontend:
           path: usage
           component: plugin/ai/usage/index
           routeName: AiUsage
-          perms: ai:application:list
+          perms: ai:application:query
           type: C
           orderNum: 4
           icon: chart

@@ -99,8 +99,12 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     assert plugin.manifest.frontend.menus[0].children[0].component == 'plugin/ai/model/index'
     assert plugin.manifest.frontend.menus[0].children[1].component == 'plugin/ai/chat/index'
     assert plugin.manifest.frontend.menus[0].children[2].component == 'plugin/ai/application/index'
+    assert plugin.manifest.frontend.menus[0].children[2].perms == 'ai:application:list'
     assert plugin.manifest.frontend.menus[0].children[3].component == 'plugin/ai/usage/index'
+    assert plugin.manifest.frontend.menus[0].children[3].perms == 'ai:application:query'
     assert plugin.manifest.frontend.menus[0].children[3].visible == '1'
+    menu_permissions = [menu.perms for menu in plugin.manifest.frontend.menus[0].children if menu.perms]
+    assert len(menu_permissions) == len(set(menu_permissions))
     assert set(plugin.manifest.permission_codes) == EXPECTED_AI_PERMISSIONS
     assert plugin.manifest.permission_name_map['ai:model:add'] == '新增模型'
     assert plugin.manifest.permission_name_map['ai:model:publish'] == '发布模型'
