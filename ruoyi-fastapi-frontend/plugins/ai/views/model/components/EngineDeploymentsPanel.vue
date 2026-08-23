@@ -89,10 +89,10 @@ const canTest = computed(() => can('ai:model:test'))
 const canRemove = computed(() => can('ai:engine:deployment:remove'))
 const hasAnyAction = computed(() => !notConfigured.value && (canEdit.value || canTest.value || canRemove.value))
 const columns = computed(() => [
-  !props.mobile && { title: 'Deployment ID', dataIndex: 'deploymentId', key: 'deploymentId', width: 190, ellipsis: true },
+  !props.mobile && { title: '部署编号', dataIndex: 'deploymentId', key: 'deploymentId', width: 190, ellipsis: true },
   { title: 'Alias', dataIndex: 'alias', key: 'alias', width: props.mobile ? 180 : 150, ellipsis: true },
-  !props.mobile && { title: 'Provider', dataIndex: 'provider', key: 'provider', width: 130 },
-  !props.mobile && { title: 'Base Model', dataIndex: 'baseModel', key: 'baseModel', width: 170, ellipsis: true },
+  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 130 },
+  !props.mobile && { title: '上游模型', dataIndex: 'baseModel', key: 'baseModel', width: 170, ellipsis: true },
   !props.mobile && { title: 'Blocked', key: 'blocked', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 132, align: 'right' },
@@ -134,7 +134,7 @@ function openEdit(row) {
 
 async function runTest(payload) {
   if (notConfigured.value) return
-  await feedback.confirm('连接测试可能触发 Provider 请求并产生极小费用，确认继续？')
+  await feedback.confirm('连接测试可能触发服务商请求并产生极小费用，确认继续？')
   testing.value = true
   try {
     const response = await testEngineConnection(payload)

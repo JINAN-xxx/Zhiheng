@@ -7,18 +7,18 @@
       <a-form-item label="上游模型" name="upstreamModel">
         <a-input v-model:value="form.upstreamModel" placeholder="例如 gpt-4.1-mini" @input="markChanged" />
       </a-form-item>
-      <a-form-item v-if="!quick" label="Provider" name="provider">
+      <a-form-item v-if="!quick" label="服务商" name="provider">
         <a-select
           v-model:value="form.provider"
           show-search
           option-filter-prop="label"
           style="width: 100%"
-          placeholder="选择 Provider"
+          placeholder="选择服务商"
           :options="providerOptions"
           @change="markChanged"
         />
       </a-form-item>
-      <a-form-item v-if="!quick" label="Provider 凭据" name="credentialName">
+      <a-form-item v-if="!quick" label="服务商凭据" name="credentialName">
         <a-select
           v-model:value="form.credentialName"
           show-search
@@ -110,7 +110,7 @@ const form = reactive({
 const rules = {
   modelAlias: [{ required: true, message: '路由别名不能为空', trigger: 'blur' }],
   upstreamModel: [{ required: true, message: '上游模型不能为空', trigger: 'blur' }],
-  provider: [{ required: true, message: '请选择 Provider', trigger: 'change' }],
+  provider: [{ required: true, message: '请选择服务商', trigger: 'change' }],
   credentialName: [{ required: true, message: '请选择凭据', trigger: 'change' }],
 }
 

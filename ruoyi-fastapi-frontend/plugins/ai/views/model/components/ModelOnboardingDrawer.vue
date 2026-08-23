@@ -38,12 +38,12 @@
               </div>
             </div>
             <a-form layout="vertical">
-              <a-form-item label="Provider">
+              <a-form-item label="服务商">
                 <a-select
                   v-model:value="selectedProvider"
                   show-search
                   option-filter-prop="label"
-                  placeholder="选择 Provider"
+                  placeholder="选择服务商"
                   :options="providerOptions"
                 />
               </a-form-item>
@@ -119,9 +119,9 @@
             <a-form ref="catalogFormRef" :model="catalogForm" :rules="catalogRules" layout="vertical">
               <div class="catalog-grid">
                 <a-form-item label="显示名称" name="displayName">
-                  <a-input v-model:value="catalogForm.displayName" placeholder="例如 Chat Pro" :disabled="Boolean(resources.model)" />
+                  <a-input v-model:value="catalogForm.displayName" placeholder="例如：专业对话模型" :disabled="Boolean(resources.model)" />
                 </a-form-item>
-                <a-form-item label="Model Code" name="modelCode">
+                <a-form-item label="模型代码" name="modelCode">
                   <a-input v-model:value="catalogForm.modelCode" placeholder="自动生成，可调整" :disabled="Boolean(resources.model)" />
                 </a-form-item>
               </div>
@@ -136,7 +136,7 @@
                         @change="applyTypedDefaults"
                       />
                     </a-form-item>
-                    <a-form-item label="Capability">
+                    <a-form-item label="能力">
                       <a-checkbox-group v-model:value="catalogForm.capabilities" :disabled="Boolean(resources.model)">
                         <template v-if="catalogForm.modelType === 'chat'">
                           <a-checkbox value="streaming">流式</a-checkbox>
@@ -298,17 +298,17 @@ const credentialModes = [
 ]
 const workflowSteps = [{ title: '连接信息' }, { title: '测试模型' }, { title: '确认接入' }]
 const modelTypes = [
-  { label: 'Chat', value: 'chat' },
-  { label: 'Embedding', value: 'embedding' },
-  { label: 'Rerank', value: 'rerank' },
+  { label: '对话', value: 'chat' },
+  { label: '向量', value: 'embedding' },
+  { label: '排序', value: 'rerank' },
 ]
 const catalogRules = {
   existingModelId: [{ required: true, message: '请选择平台模型草稿', trigger: 'change' }],
   modelCode: [
-    { required: true, message: 'Model Code 不能为空', trigger: 'blur' },
+    { required: true, message: '模型代码不能为空', trigger: 'blur' },
     {
       pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/,
-      message: 'Model Code 格式不正确',
+      message: '模型代码格式不正确',
       trigger: 'blur',
     },
   ],
@@ -460,7 +460,7 @@ async function testConnection(payload) {
   const requestGeneration = requestGate.begin()
   failureMessage.value = ''
   try {
-    await feedback.confirm('连接测试可能触发 Provider 请求并产生极小费用，确认继续？')
+    await feedback.confirm('连接测试可能触发服务商请求并产生极小费用，确认继续？')
   } catch {
     return
   }

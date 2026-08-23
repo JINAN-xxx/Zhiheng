@@ -1,20 +1,12 @@
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar title="模型中心" subtitle="Model Service">
+    <WorkspaceToolbar subtitle="管理模型绑定、发布状态和计费规则">
       <template #actions>
         <a-tooltip title="刷新当前视图" placement="bottom">
           <a-button shape="circle" aria-label="刷新当前视图" @click="refreshCurrent">
             <template #icon><ReloadOutlined /></template>
           </a-button>
         </a-tooltip>
-        <a-button v-if="canAdvanced && !advancedOpen" @click="advancedOpen = true">
-          <template #icon><SettingOutlined /></template>
-          高级管理
-        </a-button>
-        <a-button v-else-if="canAdvanced" @click="advancedOpen = false">
-          <template #icon><SettingOutlined /></template>
-          收起高级管理
-        </a-button>
         <a-button v-if="canOnboard" type="primary" @click="onboardingOpen = true">
           <template #icon><PlusOutlined /></template>
           接入模型
@@ -27,13 +19,13 @@
         <a-tab-pane v-if="can('ai:model:list')" key="platform" tab="平台模型">
           <PlatformModelsPanel ref="platformPanel" :permissions="permissions" :mobile="isMobile" />
         </a-tab-pane>
-        <a-tab-pane v-if="advancedOpen && can('ai:engine:deployment:list')" key="deployments" tab="引擎部署">
+        <a-tab-pane v-if="can('ai:engine:deployment:list')" key="deployments" tab="引擎部署">
           <EngineDeploymentsPanel ref="deploymentPanel" :permissions="permissions" :mobile="isMobile" />
         </a-tab-pane>
-        <a-tab-pane v-if="advancedOpen && can('ai:engine:credential:list')" key="credentials" tab="Provider 凭据">
+        <a-tab-pane v-if="can('ai:engine:credential:list')" key="credentials" tab="凭据管理">
           <CredentialsPanel ref="credentialPanel" :permissions="permissions" :mobile="isMobile" />
         </a-tab-pane>
-        <a-tab-pane v-if="advancedOpen && can('ai:runtime:query')" key="status" tab="运行状态">
+        <a-tab-pane v-if="can('ai:runtime:query')" key="status" tab="运行状态">
           <RuntimeStatusPanel ref="statusPanel" />
         </a-tab-pane>
       </a-tabs>
@@ -44,7 +36,7 @@
 </template>
 
 <script setup name="AiModel">
-import { PlusOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { hasAllPermissions, hasPermission } from '../../utils/modelEngine.js'
@@ -64,13 +56,9 @@ const onboardingPermissions = [
   'ai:model:list', 'ai:model:add', 'ai:model:query', 'ai:model:edit', 'ai:model:publish', 'ai:model:test',
 ]
 const canOnboard = computed(() => hasAllPermissions(permissions.value, onboardingPermissions))
-const canAdvanced = computed(() => [
-  'ai:engine:deployment:list', 'ai:engine:credential:list', 'ai:runtime:query',
-].some((permission) => can(permission)))
 const isMobile = ref(false)
 const updateMobile = () => { isMobile.value = window.innerWidth <= 760 }
 const onboardingOpen = ref(false)
-const advancedOpen = ref(false)
 const platformPanel = ref()
 const deploymentPanel = ref()
 const credentialPanel = ref()
@@ -78,9 +66,9 @@ const statusPanel = ref()
 
 const availableTabs = computed(() => [
   can('ai:model:list') && 'platform',
-  advancedOpen.value && can('ai:engine:deployment:list') && 'deployments',
-  advancedOpen.value && can('ai:engine:credential:list') && 'credentials',
-  advancedOpen.value && can('ai:runtime:query') && 'status',
+  can('ai:engine:deployment:list') && 'deployments',
+  can('ai:engine:credential:list') && 'credentials',
+  can('ai:runtime:query') && 'status',
 ].filter(Boolean))
 
 watch(availableTabs, (tabs) => {
@@ -123,7 +111,7 @@ function refreshAfterOnboarding() {
   min-width: 0;
   margin-top: var(--workspace-space-4);
   border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-md);
+  border-radius: var(--workspace-radius-sm);
   background: var(--workspace-surface);
   padding: 0 18px 18px;
 }
@@ -145,8 +133,8 @@ function refreshAfterOnboarding() {
 :global(.model-onboarding-drawer .ant-drawer-title) { font-size: 16px; font-weight: 600; }
 :global(.model-onboarding-drawer .ant-segmented), :global(.model-onboarding-drawer .ant-btn) { border-radius: 6px; }
 @media (max-width: 760px) {
-  .ai-model-center { padding: 12px; }
-  .ai-model-center :deep(.workspace-toolbar) { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .ai-model-center { padding: 0; }
+  .ai-model-center :deep(.workspace-toolbar) { align-items: flex-start; flex-wrap: wrap; padding: 0; }
   .ai-model-center :deep(.workspace-toolbar__leading) { width: 100%; }
   .ai-model-center :deep(.workspace-toolbar__actions) { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
   .model-workspace { padding: 0 8px 12px; }

@@ -8,20 +8,20 @@
         placeholder="例如 openai-production"
       />
     </a-form-item>
-    <a-form-item v-if="!quick" label="Provider" name="provider">
+    <a-form-item v-if="!quick" label="服务商" name="provider">
       <a-select
         v-model:value="form.provider"
         :disabled="mode === 'rotate'"
         show-search
         option-filter-prop="label"
-        placeholder="选择 Provider"
+        placeholder="选择服务商"
         style="width: 100%"
         :options="providerOptions"
       />
     </a-form-item>
 
     <a-divider orientation="left">凭据字段</a-divider>
-    <a-empty v-if="form.provider && currentFields.length === 0" description="该 Provider 无需额外凭据" />
+    <a-empty v-if="form.provider && currentFields.length === 0" description="该服务商无需额外凭据" />
     <a-form-item
       v-for="field in currentFields"
       :key="field.key"
@@ -111,7 +111,7 @@ const rules = {
     { required: true, message: '凭据名称不能为空', trigger: 'blur' },
     { pattern: /^(?!\.{1,2}$)[A-Za-z0-9._-]{1,128}$/, message: '仅支持字母、数字、点、下划线和短横线，且不能仅为点', trigger: 'blur' },
   ],
-  provider: [{ required: true, message: '请选择 Provider', trigger: 'change' }],
+  provider: [{ required: true, message: '请选择服务商', trigger: 'change' }],
 }
 
 const currentProvider = computed(() => resolveProvider(props.providers, form.provider))

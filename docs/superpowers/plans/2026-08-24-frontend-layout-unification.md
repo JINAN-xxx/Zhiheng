@@ -205,7 +205,7 @@ node tests/plugins/modelOnboardingContract.test.js
 node tests/plugins/sseParser.test.js
 ```
 
-预期：四组测试全部输出 `ok`。
+预期：模型转换、接入流程和流解析三组测试输出 `ok`；AI 页面总契约越过模型文案断言后，在尚未执行的开发接入中文文案断言处失败。AI 页面总契约在任务四完成后转为全绿。
 
 - [ ] **步骤 6：提交对话与模型中心**
 

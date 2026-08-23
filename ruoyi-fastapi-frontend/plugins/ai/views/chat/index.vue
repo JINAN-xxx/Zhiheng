@@ -3,10 +3,7 @@
     <main class="chat-workspace">
       <header class="chat-toolbar">
         <div>
-          <div class="toolbar-title">
-            <h1>AI 对话</h1>
-            <WorkspaceStatus :status="runState" :label="stateLabel" />
-          </div>
+          <WorkspaceStatus :status="runState" :label="stateLabel" />
         </div>
         <div class="toolbar-actions">
           <a-select
@@ -377,6 +374,7 @@ onBeforeUnmount(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
+  padding: 0 28px 20px;
 }
 
 .toolbar-title {
@@ -395,16 +393,10 @@ onBeforeUnmount(() => {
 }
 
 .chat-toolbar {
-  min-height: 60px;
-  padding: 0 22px;
-  border-bottom: 1px solid var(--workspace-border);
+  min-height: 64px;
+  padding: 0;
+  border-bottom: 0;
   background: transparent;
-}
-
-.chat-toolbar h1 {
-  display: inline;
-  margin: 0 12px 0 0;
-  font-size: 17px;
 }
 
 .toolbar-actions {
@@ -416,7 +408,9 @@ onBeforeUnmount(() => {
 .message-history {
   flex: 1;
   overflow: auto;
-  padding: 28px clamp(16px, 7vw, 112px);
+  padding: 28px clamp(16px, 6vw, 96px);
+  border: 1px solid var(--workspace-border);
+  background: var(--workspace-surface);
 }
 
 .empty-chat {
@@ -492,7 +486,7 @@ onBeforeUnmount(() => {
 }
 
 .composer {
-  padding: 12px clamp(16px, 7vw, 112px) 20px;
+  padding: 12px clamp(16px, 6vw, 96px) 0;
   background: transparent;
 }
 
@@ -536,10 +530,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
+  .chat-workspace { padding: 0 14px 14px; }
   .chat-toolbar,
   .composer {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .message-history {
@@ -552,10 +547,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 480px) {
-  .toolbar-title {
-    display: none;
-  }
-
   .toolbar-actions {
     width: 100%;
   }

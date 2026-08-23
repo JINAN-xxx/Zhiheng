@@ -5,13 +5,13 @@
         <a-button v-if="canAdd" type="primary" ghost :disabled="notConfigured" @click="openCreate"><template #icon><PlusOutlined /></template>新建凭据</a-button>
         <span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span>
       </div>
-      <a-tooltip title="刷新 Provider 凭据" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新 Provider 凭据" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
+      <a-tooltip title="刷新服务商凭据" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新服务商凭据" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
     </div>
     <a-alert v-if="notConfigured" :message="rows.length ? 'Management Key 未配置，当前数据可能已过期' : 'Management Key 未配置'" type="warning" show-icon />
     <a-alert v-else-if="error && rows.length" message="刷新失败，数据可能已过期" type="warning" show-icon>
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>
-    <a-alert v-else-if="error" message="Provider 凭据加载失败" type="error" show-icon>
+    <a-alert v-else-if="error" message="服务商凭据加载失败" type="error" show-icon>
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>
     <a-table v-if="rows.length || loading" :columns="columns" :data-source="rows" :loading="loading" :pagination="false" row-key="name" table-layout="fixed">
@@ -33,9 +33,9 @@
         </template>
       </template>
     </a-table>
-    <a-empty v-else-if="!error && !notConfigured" description="暂无 Provider 凭据" :image-style="{ height: '72px' }" />
+    <a-empty v-else-if="!error && !notConfigured" description="暂无服务商凭据" :image-style="{ height: '72px' }" />
 
-    <a-drawer v-model:open="drawerOpen" :title="mode === 'rotate' ? '轮换 Provider 凭据' : '新建 Provider 凭据'" width="min(620px, 100%)" destroy-on-close>
+    <a-drawer v-model:open="drawerOpen" :title="mode === 'rotate' ? '轮换服务商凭据' : '新建服务商凭据'" width="min(620px, 100%)" destroy-on-close>
       <CredentialForm
         :providers="providers"
         :mode="mode"
@@ -76,7 +76,7 @@ const canRemove = computed(() => can('ai:engine:credential:remove'))
 const hasAnyRowAction = computed(() => !notConfigured.value && (canRotate.value || canRemove.value))
 const columns = computed(() => [
   { title: '名称', dataIndex: 'name', key: 'name', width: props.mobile ? 180 : 220, ellipsis: true },
-  !props.mobile && { title: 'Provider', dataIndex: 'provider', key: 'provider', width: 150 },
+  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 150 },
   !props.mobile && { title: '引用数', dataIndex: 'deploymentCount', key: 'deploymentCount', width: 80, align: 'right' },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
   hasAnyRowAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 96, align: 'right' },
@@ -108,7 +108,7 @@ async function load() {
 
 function openForm(nextMode, row = null) {
   if (notConfigured.value) return
-  if (!providersAvailable.value) { feedback.msgError('Provider 选项加载失败，请刷新后重试'); return }
+  if (!providersAvailable.value) { feedback.msgError('服务商选项加载失败，请刷新后重试'); return }
   mode.value = nextMode; editing.value = row; drawerOpen.value = true
 }
 function openCreate() { openForm('create') }

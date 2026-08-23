@@ -29,16 +29,16 @@
         <template v-if="column.key === 'modelId'">
           <div class="resource-value">
             <span class="resource-text" :title="row.modelId">{{ row.modelId }}</span>
-            <a-tooltip title="复制 Model ID" placement="top">
-              <button class="copy-button" type="button" aria-label="复制 Model ID" @click="copyValue(row.modelId)"><CopyOutlined /></button>
+            <a-tooltip title="复制模型编号" placement="top">
+              <button class="copy-button" type="button" aria-label="复制模型编号" @click="copyValue(row.modelId)"><CopyOutlined /></button>
             </a-tooltip>
           </div>
         </template>
         <template v-else-if="column.key === 'modelCode'">
           <div class="resource-value">
             <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
-            <a-tooltip title="复制 Model Code" placement="top">
-              <button class="copy-button" type="button" aria-label="复制 Model Code" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
+            <a-tooltip title="复制模型代码" placement="top">
+              <button class="copy-button" type="button" aria-label="复制模型代码" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
             </a-tooltip>
           </div>
         </template>
@@ -55,8 +55,8 @@
           <div class="binding-value">
             <div v-if="row.bindingAlias" class="resource-value">
               <span class="resource-text" :title="row.bindingAlias">{{ row.bindingAlias }}</span>
-              <a-tooltip title="复制 Binding Alias" placement="top">
-                <button class="copy-button" type="button" aria-label="复制 Binding Alias" @click="copyValue(row.bindingAlias)"><CopyOutlined /></button>
+              <a-tooltip title="复制绑定别名" placement="top">
+                <button class="copy-button" type="button" aria-label="复制绑定别名" @click="copyValue(row.bindingAlias)"><CopyOutlined /></button>
               </a-tooltip>
             </div>
             <span v-else class="muted">-</span>
@@ -105,12 +105,12 @@
         <a-tag :color="tagColor(modelTypeMeta(rateModel?.modelType).type)">
           {{ modelTypeMeta(rateModel?.modelType).label }}
         </a-tag>
-        <span class="muted">{{ rateForm.billingMode === 'search_unit' ? '按 Search Unit 计费' : '按 Token 计费' }}</span>
+        <span class="muted">{{ rateForm.billingMode === 'search_unit' ? '按检索单元计费' : '按令牌计费' }}</span>
       </div>
       <a-table :columns="rateColumns" :data-source="rateCards" :loading="rateLoading" :pagination="false" :scroll="{ y: 220 }" row-key="version" size="small" table-layout="fixed">
         <template #bodyCell="{ column, record: row }">
           <template v-if="column.key === 'price'">
-            <span v-if="row.billingMode === 'search_unit'">{{ row.searchPricePerUnit }} / unit</span>
+            <span v-if="row.billingMode === 'search_unit'">{{ row.searchPricePerUnit }} / 单元</span>
             <span v-else>输入 {{ row.inputPricePerToken }} / 输出 {{ row.outputPricePerToken }}</span>
           </template>
         </template>
@@ -119,12 +119,12 @@
       <a-form layout="vertical" @submit.prevent>
         <template v-if="rateForm.billingMode === 'token'">
           <div class="rate-grid">
-            <a-form-item label="输入 Token 单价"><a-input v-model:value="rateForm.inputPricePerToken" /></a-form-item>
-            <a-form-item label="输出 Token 单价"><a-input v-model:value="rateForm.outputPricePerToken" /></a-form-item>
-            <a-form-item label="缓存 Token 单价（可选）"><a-input v-model:value="rateForm.cachePricePerToken" /></a-form-item>
+            <a-form-item label="输入令牌单价"><a-input v-model:value="rateForm.inputPricePerToken" /></a-form-item>
+            <a-form-item label="输出令牌单价"><a-input v-model:value="rateForm.outputPricePerToken" /></a-form-item>
+            <a-form-item label="缓存令牌单价（可选）"><a-input v-model:value="rateForm.cachePricePerToken" /></a-form-item>
           </div>
         </template>
-        <a-form-item v-else label="Search Unit 单价"><a-input v-model:value="rateForm.searchPricePerUnit" /></a-form-item>
+        <a-form-item v-else label="检索单元单价"><a-input v-model:value="rateForm.searchPricePerUnit" /></a-form-item>
         <a-form-item label="币种"><a-input v-model:value="rateForm.currency" :maxlength="3" /></a-form-item>
       </a-form>
       <template #footer>
@@ -177,12 +177,12 @@ const canRemove = computed(() => can('ai:model:remove'))
 const canTest = computed(() => can('ai:model:test'))
 const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
 const columns = computed(() => [
-  !props.mobile && { title: 'Model ID', key: 'modelId', width: 180 },
-  { title: 'Model Code', key: 'modelCode', width: props.mobile ? 180 : 160 },
+  !props.mobile && { title: '模型编号', key: 'modelId', width: 180 },
+  { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160 },
   !props.mobile && { title: '类型', key: 'modelType', width: 110 },
-  !props.mobile && { title: 'Capability', key: 'capabilities', width: 194 },
-  !props.mobile && { title: 'Binding Alias', key: 'bindingAlias', width: 160 },
-  !props.mobile && { title: '生命周期', key: 'lifecycle', width: 90 },
+  !props.mobile && { title: '能力', key: 'capabilities', width: 194 },
+  !props.mobile && { title: '绑定状态', key: 'bindingAlias', width: 160 },
+  !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140 },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 180, align: 'right' },
 ].filter(Boolean))
@@ -220,9 +220,9 @@ const lifecycle = (row) => getLifecycleStatusMeta(row.lifecycleStatus)
 const binding = (row) => getBindingStatusMeta(row.bindingStatus)
 
 const modelTypeMeta = (modelType) => ({
-  chat: { label: 'Chat', type: 'primary' },
-  embedding: { label: 'Embedding', type: 'success' },
-  rerank: { label: 'Rerank', type: 'warning' },
+  chat: { label: '对话', type: 'primary' },
+  embedding: { label: '向量', type: 'success' },
+  rerank: { label: '排序', type: 'warning' },
 }[modelType] || { label: modelType || '-', type: 'info' })
 const tagColor = (type) => ({ primary: 'blue', success: 'green', warning: 'orange', danger: 'red' }[type])
 
