@@ -18,6 +18,7 @@ const settings = readFileSync('src/layout/components/Settings/index.vue', 'utf8'
 const settingsStore = readFileSync('src/store/modules/settings.js', 'utf8')
 const defaultSettings = readFileSync('src/settings.js', 'utf8')
 const styles = readFileSync('src/assets/styles/workspace.scss', 'utf8')
+const workspaceTransforms = readFileSync('src/components/Workspace/workspaceTransforms.js', 'utf8')
 const shellFiles = [
   'src/layout/index.vue',
   'src/layout/components/PlatformSidebar.vue',
@@ -41,9 +42,9 @@ for (const fileName of shellFiles) {
 assert.match(platformSidebar, /新建对话/)
 assert.match(platformSidebar, /智衡平台/)
 assert.match(platformSidebar, /智能对话/)
-assert.match(platformSidebar, /模型中心/)
-assert.match(platformSidebar, /开发接入/)
-assert.match(platformSidebar, /用量记录/)
+assert.match(workspaceTransforms, /模型中心/)
+assert.match(workspaceTransforms, /开发接入/)
+assert.match(workspaceTransforms, /用量记录/)
 assert.match(platformSidebar, /管理后台/)
 assert.match(platformSidebar, /resolveAiResourceTabs/)
 assert.match(platformSidebar, /useWorkspaceStore/)
@@ -92,7 +93,7 @@ assert.match(chatView, /workspaceStore\.loadSessions/)
 assert.match(chatView, /router\.replace/)
 
 assert.match(appMain, /AiResourceShell/)
-assert.match(resourceShell, /resolveAiResourceTabs/)
+assert.doesNotMatch(resourceShell, /resolveAiResourceTabs/)
 assert.doesNotMatch(resourceShell, /AI RESOURCE|AI 资源导航/)
 assert.match(usageView, /listApplications/)
 assert.match(usageView, /listApplicationUsage/)

@@ -1,8 +1,8 @@
 :root {
-  --workspace-main: #3996ae;
-  --workspace-main-deep: #24839a;
-  --workspace-main-soft: #e1f6fb;
-  --workspace-bg: #f5f7f7;
+  --workspace-main: #2f7e78;
+  --workspace-main-deep: #226862;
+  --workspace-main-soft: #e5f3f1;
+  --workspace-bg: #f5f7f8;
   --workspace-surface: #ffffff;
   --workspace-surface-muted: #fbfcfc;
   --workspace-border: #e4e6e6;
@@ -26,10 +26,15 @@
   --workspace-space-4: 16px;
   --workspace-space-5: 20px;
   --workspace-space-6: 24px;
-  --platform-sidebar-width: 230px;
+  --workspace-sidebar-bg: #172a2e;
+  --workspace-sidebar-surface: #20383c;
+  --workspace-sidebar-border: #385055;
+  --workspace-sidebar-text: #dce8e7;
+  --workspace-sidebar-muted: #9fb4b5;
+  --platform-sidebar-width: 184px;
   --platform-sidebar-collapsed-width: 56px;
-  --platform-topbar-height: 48px;
-  --platform-menu-item-height: 32px;
+  --platform-topbar-height: 54px;
+  --platform-menu-item-height: 38px;
   --workspace-sidebar-width: var(--platform-sidebar-width);
   --workspace-sidebar-collapsed-width: var(--platform-sidebar-collapsed-width);
   --workspace-content-max-width: 1440px;
@@ -77,6 +82,11 @@ html.dark {
   --workspace-warning-soft: #2b2111;
   --workspace-danger-soft: #2a1215;
   --workspace-info-soft: #0c0d0d;
+  --workspace-sidebar-bg: #101d20;
+  --workspace-sidebar-surface: #192c30;
+  --workspace-sidebar-border: #30474b;
+  --workspace-sidebar-text: #e1ebea;
+  --workspace-sidebar-muted: #9eb1b2;
 
   --el-color-primary: var(--workspace-main);
   --el-color-primary-light-3: #82c3d6;

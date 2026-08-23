@@ -5,20 +5,19 @@
     </button>
 
     <div class="platform-topbar__context">
-      <span>{{ mode === 'ai' ? 'AI 工作台' : '管理控制台' }}</span>
-      <strong>{{ route.meta.title || (mode === 'ai' ? '智能工作空间' : '系统管理') }}</strong>
+      <strong>{{ currentTitle }}</strong>
     </div>
 
     <div class="platform-topbar__actions">
       <button
+        v-if="mode !== 'ai'"
         type="button"
         class="platform-topbar__mode"
-        :title="mode === 'ai' ? '管理控制台' : '返回 AI 工作台'"
-        @click="emit(mode === 'ai' ? 'open-admin' : 'open-ai')"
+        title="返回智能工作台"
+        @click="emit('open-ai')"
       >
-        <AppstoreOutlined v-if="mode === 'ai'" />
-        <MessageOutlined v-else />
-        <span>{{ mode === 'ai' ? '管理控制台' : '返回 AI 工作台' }}</span>
+        <MessageOutlined />
+        <span>返回智能工作台</span>
       </button>
       <button type="button" class="platform-topbar__icon" aria-label="切换主题" title="切换主题" @click="settingsStore.toggleTheme()">
         <BulbOutlined v-if="settingsStore.isDark" />
@@ -46,14 +45,14 @@
 </template>
 
 <script setup>
-import { AppstoreOutlined, BgColorsOutlined, BulbOutlined, MenuOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import { BgColorsOutlined, BulbOutlined, MenuOutlined, MessageOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
 import HeaderNotice from './HeaderNotice/index.vue'
 
-defineProps({ mode: { type: String, required: true } })
+const props = defineProps({ mode: { type: String, required: true } })
 const emit = defineEmits(['open-admin', 'open-ai', 'set-layout', 'toggle-sidebar'])
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +60,15 @@ const lockStore = useLockStore()
 const settingsStore = useSettingsStore()
 const userStore = useUserStore()
 const menuButtonRef = ref(null)
+const aiTitles = Object.freeze({
+  '/ai/chat': '智能对话',
+  '/ai/model': '模型中心',
+  '/ai/application': '开发接入',
+  '/ai/usage': '用量记录',
+})
+const currentTitle = computed(() => (
+  props.mode === 'ai' ? aiTitles[route.path] || '智能工作台' : route.meta.title || '管理后台'
+))
 
 function focusMenu() {
   menuButtonRef.value?.focus()
