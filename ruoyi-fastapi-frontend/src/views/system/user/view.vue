@@ -1,131 +1,134 @@
 <template>
-  <el-drawer title="用户信息详情" v-model="visible" direction="rtl" size="68%" append-to-body :before-close="handleClose" class="detail-drawer">
-    <div v-loading="loading" class="drawer-content">
+  <ResourceDrawer title="用户信息详情" :open="visible" width="68%" class="detail-drawer" @close="handleClose">
+    <a-spin :spinning="loading">
+      <div class="drawer-content">
       <!-- 基本信息 -->
       <h4 class="section-header">基本信息</h4>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">用户名称：</label>
             <span class="info-value plaintext">{{ info.nickName }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">归属部门：</label>
             <span class="info-value plaintext">{{ (info.dept && info.dept.deptName) }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">手机号码：</label>
             <span class="info-value plaintext">{{ info.phonenumber }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">邮箱：</label>
             <span class="info-value plaintext">{{ info.email }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">登录账号：</label>
             <span class="info-value plaintext">{{ info.userName }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">用户状态：</label>
             <span class="info-value plaintext">
-              <el-tag size="small" :type="info.status === '0' ? 'success' : 'danger'">{{ info.status === '0' ? '正常' : '停用' }}</el-tag>
+              <a-tag :color="info.status === '0' ? 'green' : 'red'">{{ info.status === '0' ? '正常' : '停用' }}</a-tag>
             </span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">岗位：</label>
             <span class="info-value plaintext">{{ postNames || '无岗位' }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">用户性别：</label>
             <span class="info-value plaintext">{{ sexLabel }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="24">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :span="24">
           <div class="info-item full-width">
             <label class="info-label">角色：</label>
             <span class="info-value plaintext">{{ roleNames || '无角色' }}</span>
           </div>
-        </el-col>
-      </el-row>
+        </a-col>
+      </a-row>
       <!-- 其他信息 -->
       <h4 class="section-header">其他信息</h4>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">创建者：</label>
             <span class="info-value plaintext">{{ info.createBy }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">创建时间：</label>
             <span class="info-value plaintext">{{ parseTime(info.createTime) }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">更新者：</label>
             <span class="info-value plaintext">{{ info.updateBy }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">更新时间：</label>
             <span class="info-value plaintext">{{ parseTime(info.updateTime) }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="12">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">最后登录IP：</label>
             <span class="info-value plaintext">{{ info.loginIp }}</span>
           </div>
-        </el-col>
-        <el-col :span="12">
+        </a-col>
+        <a-col :xs="24" :md="12">
           <div class="info-item">
             <label class="info-label">最后登录时间：</label>
             <span class="info-value plaintext">{{ parseTime(info.loginDate) }}</span>
           </div>
-        </el-col>
-      </el-row>
-      <el-row :gutter="20" class="mb8">
-        <el-col :span="24">
+        </a-col>
+      </a-row>
+      <a-row :gutter="20" class="mb8">
+        <a-col :span="24">
           <div class="info-item full-width">
             <label class="info-label">备注：</label>
             <span class="info-value plaintext">{{ info.remark }}</span>
           </div>
-        </el-col>
-      </el-row>
-    </div>
-  </el-drawer>
+        </a-col>
+      </a-row>
+      </div>
+    </a-spin>
+  </ResourceDrawer>
 </template>
 
 <script setup>
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
 import { getUser } from '@/api/system/user'
 
 const visible = ref(false)

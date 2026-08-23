@@ -1,350 +1,102 @@
 <template>
-   <div class="app-container">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
-         <el-form-item label="字典名称" prop="dictType">
-            <el-select v-model="queryParams.dictType" style="width: 200px">
-               <el-option
-                  v-for="item in typeOptions"
-                  :key="item.dictId"
-                  :label="item.dictName"
-                  :value="item.dictType"
-               />
-            </el-select>
-         </el-form-item>
-         <el-form-item label="字典标签" prop="dictLabel">
-            <el-input
-               v-model="queryParams.dictLabel"
-               placeholder="请输入字典标签"
-               clearable
-               style="width: 200px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="状态" prop="status">
-            <el-select v-model="queryParams.status" placeholder="数据状态" clearable style="width: 200px">
-               <el-option
-                  v-for="dict in sys_normal_disable"
-                  :key="dict.value"
-                  :label="dict.label"
-                  :value="dict.value"
-               />
-            </el-select>
-         </el-form-item>
-         <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-         </el-form-item>
-      </el-form>
-
-      <el-row :gutter="10" class="mb8">
-         <el-col :span="1.5">
-            <el-button
-               type="primary"
-               plain
-               icon="Plus"
-               @click="handleAdd"
-               v-hasPermi="['system:dict:add']"
-            >新增</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="success"
-               plain
-               icon="Edit"
-               :disabled="single"
-               @click="handleUpdate"
-               v-hasPermi="['system:dict:edit']"
-            >修改</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="danger"
-               plain
-               icon="Delete"
-               :disabled="multiple"
-               @click="handleDelete"
-               v-hasPermi="['system:dict:remove']"
-            >删除</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="warning"
-               plain
-               icon="Download"
-               @click="handleExport"
-               v-hasPermi="['system:dict:export']"
-            >导出</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="warning"
-               plain
-               icon="Close"
-               @click="handleClose"
-            >关闭</el-button>
-         </el-col>
-         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
-      </el-row>
-
-      <el-table v-loading="loading" :data="dataList" @selection-change="handleSelectionChange">
-         <el-table-column type="selection" width="55" align="center" />
-         <el-table-column label="字典编码" align="center" prop="dictCode" />
-         <el-table-column label="字典标签" align="center" prop="dictLabel">
-            <template #default="scope">
-               <span v-if="(scope.row.listClass == '' || scope.row.listClass == 'default') && (scope.row.cssClass == '' || scope.row.cssClass == null)">{{ scope.row.dictLabel }}</span>
-               <el-tag v-else :type="scope.row.listClass == 'primary' ? '' : scope.row.listClass" :class="scope.row.cssClass">{{ scope.row.dictLabel }}</el-tag>
-            </template>
-         </el-table-column>
-         <el-table-column label="字典键值" align="center" prop="dictValue" />
-         <el-table-column label="字典排序" align="center" prop="dictSort" />
-         <el-table-column label="状态" align="center" prop="status">
-            <template #default="scope">
-               <dict-tag :options="sys_normal_disable" :value="scope.row.status" />
-            </template>
-         </el-table-column>
-         <el-table-column label="备注" align="center" prop="remark" :show-overflow-tooltip="true" />
-         <el-table-column label="创建时间" align="center" prop="createTime" width="180">
-            <template #default="scope">
-               <span>{{ parseTime(scope.row.createTime) }}</span>
-            </template>
-         </el-table-column>
-         <el-table-column label="操作" align="center" width="160" class-name="small-padding fixed-width">
-            <template #default="scope">
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:dict:edit']">修改</el-button>
-               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:dict:remove']">删除</el-button>
-            </template>
-         </el-table-column>
-      </el-table>
-
-      <pagination
-         v-show="total > 0"
-         :total="total"
-         v-model:page="queryParams.pageNum"
-         v-model:limit="queryParams.pageSize"
-         @pagination="getList"
-      />
-
-      <!-- 添加或修改参数配置对话框 -->
-      <el-dialog :title="title" v-model="open" width="500px" append-to-body>
-         <el-form ref="dataRef" :model="form" :rules="rules" label-width="80px">
-            <el-form-item label="字典类型">
-               <el-input v-model="form.dictType" :disabled="true" />
-            </el-form-item>
-            <el-form-item label="数据标签" prop="dictLabel">
-               <el-input v-model="form.dictLabel" placeholder="请输入数据标签" />
-            </el-form-item>
-            <el-form-item label="数据键值" prop="dictValue">
-               <el-input v-model="form.dictValue" placeholder="请输入数据键值" />
-            </el-form-item>
-            <el-form-item label="样式属性" prop="cssClass">
-               <el-input v-model="form.cssClass" placeholder="请输入样式属性" />
-            </el-form-item>
-            <el-form-item label="显示排序" prop="dictSort">
-               <el-input-number v-model="form.dictSort" controls-position="right" :min="0" />
-            </el-form-item>
-            <el-form-item label="回显样式" prop="listClass">
-               <el-select v-model="form.listClass">
-                  <el-option
-                     v-for="item in listClassOptions"
-                     :key="item.value"
-                     :label="item.label + '(' + item.value + ')'"
-                     :value="item.value"
-                  ></el-option>
-               </el-select>
-            </el-form-item>
-            <el-form-item label="状态" prop="status">
-               <el-radio-group v-model="form.status">
-                  <el-radio
-                     v-for="dict in sys_normal_disable"
-                     :key="dict.value"
-                     :value="dict.value"
-                  >{{ dict.label }}</el-radio>
-               </el-radio-group>
-            </el-form-item>
-            <el-form-item label="备注" prop="remark">
-               <el-input v-model="form.remark" type="textarea" placeholder="请输入内容"></el-input>
-            </el-form-item>
-         </el-form>
-         <template #footer>
-            <div class="dialog-footer">
-               <el-button type="primary" @click="submitForm">确 定</el-button>
-               <el-button @click="cancel">取 消</el-button>
-            </div>
-         </template>
-      </el-dialog>
-   </div>
+  <WorkspacePage title="字典数据" :subtitle="queryParams.dictType || '维护字典条目'">
+    <a-form v-show="showSearch" class="query-form" layout="inline" @submit.prevent>
+      <a-form-item label="字典名称"><a-select v-model:value="queryParams.dictType" :options="typeSelectOptions" @change="handleQuery" /></a-form-item>
+      <a-form-item label="字典标签"><a-input v-model:value="queryParams.dictLabel" allow-clear placeholder="请输入字典标签" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="状态"><a-select v-model:value="queryParams.status" allow-clear placeholder="数据状态" :options="normalOptions" /></a-form-item>
+      <a-form-item><a-space><a-button type="primary" @click="handleQuery"><SearchOutlined />搜索</a-button><a-button @click="resetQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+    </a-form>
+    <div class="table-toolbar"><a-space wrap>
+      <a-button type="primary" @click="handleAdd" v-hasPermi="['system:dict:add']"><PlusOutlined />新增</a-button>
+      <a-button :disabled="single" @click="handleUpdate()" v-hasPermi="['system:dict:edit']"><EditOutlined />修改</a-button>
+      <a-button danger :disabled="multiple" @click="handleDelete()" v-hasPermi="['system:dict:remove']"><DeleteOutlined />删除</a-button>
+      <a-button @click="handleExport" v-hasPermi="['system:dict:export']"><DownloadOutlined />导出</a-button>
+      <a-button @click="handleClose"><CloseOutlined />关闭</a-button>
+    </a-space><a-space><a-tooltip title="显示/隐藏筛选"><a-button shape="circle" @click="showSearch = !showSearch"><FilterOutlined /></a-button></a-tooltip><a-tooltip title="刷新"><a-button shape="circle" @click="getList"><ReloadOutlined /></a-button></a-tooltip></a-space></div>
+    <ResourceTable :columns="columns" :rows="dataList" :loading="loading" :pagination="false" row-key="dictCode" :scroll="{ x: 980 }">
+      <template #headerCell="{ column }"><a-checkbox v-if="column.key === 'selection'" :checked="allSelected" :indeterminate="someSelected" @change="toggleAll" /></template>
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'selection'"><a-checkbox :checked="ids.includes(record.dictCode)" @change="(event) => toggleRow(record, event.target.checked)" /></template>
+        <template v-else-if="column.key === 'dictLabel'"><span v-if="(!record.listClass || record.listClass === 'default') && !record.cssClass">{{ record.dictLabel }}</span><a-tag v-else :color="tagColor(record.listClass)" :class="record.cssClass">{{ record.dictLabel }}</a-tag></template>
+        <template v-else-if="column.key === 'status'"><dict-tag :options="sys_normal_disable" :value="record.status" /></template>
+        <template v-else-if="column.key === 'createTime'">{{ parseTime(record.createTime) }}</template>
+        <template v-else-if="column.key === 'actions'"><a-space><a-button type="link" @click="handleUpdate(record)" v-hasPermi="['system:dict:edit']"><EditOutlined />修改</a-button><a-button type="link" danger @click="handleDelete(record)" v-hasPermi="['system:dict:remove']"><DeleteOutlined />删除</a-button></a-space></template>
+      </template>
+    </ResourceTable>
+    <a-pagination v-if="total > 0" v-model:current="queryParams.pageNum" v-model:page-size="queryParams.pageSize" :total="total" :page-size-options="['10', '20', '50']" show-size-changer @change="getList" />
+    <ResourceDrawer :open="open" :title="title" :width="540" destroy-on-close @close="cancel">
+      <a-form ref="dataRef" :model="form" :rules="rules" layout="vertical">
+        <a-form-item label="字典类型"><a-input v-model:value="form.dictType" disabled /></a-form-item>
+        <a-form-item label="数据标签" name="dictLabel"><a-input v-model:value="form.dictLabel" placeholder="请输入数据标签" /></a-form-item>
+        <a-form-item label="数据键值" name="dictValue"><a-input v-model:value="form.dictValue" placeholder="请输入数据键值" /></a-form-item>
+        <a-form-item label="样式属性" name="cssClass"><a-input v-model:value="form.cssClass" placeholder="请输入样式属性" /></a-form-item>
+        <a-form-item label="显示排序" name="dictSort"><a-input-number v-model:value="form.dictSort" :min="0" style="width:100%" /></a-form-item>
+        <a-form-item label="回显样式" name="listClass"><a-select v-model:value="form.listClass" :options="listClassOptions" /></a-form-item>
+        <a-form-item label="状态" name="status"><a-radio-group v-model:value="form.status" :options="normalOptions" /></a-form-item>
+        <a-form-item label="备注" name="remark"><a-textarea v-model:value="form.remark" placeholder="请输入内容" :rows="4" /></a-form-item>
+      </a-form>
+      <template #footer><a-button @click="cancel">取消</a-button><a-button type="primary" @click="submitForm">确定</a-button></template>
+    </ResourceDrawer>
+  </WorkspacePage>
 </template>
 
 <script setup name="Data">
+import { CloseOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, FilterOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import WorkspacePage from '@/components/Antd/WorkspacePage.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
 import useDictStore from '@/store/modules/dict'
-import { optionselect as getDictOptionselect, getType } from "@/api/system/dict/type";
-import { listData, getData, delData, addData, updateData } from "@/api/system/dict/data";
+import { optionselect as getDictOptionselect, getType } from '@/api/system/dict/type'
+import { listData, getData, delData, addData, updateData } from '@/api/system/dict/data'
 
-const { proxy } = getCurrentInstance();
-const { sys_normal_disable } = proxy.useDict("sys_normal_disable");
+const { proxy } = getCurrentInstance()
+const { sys_normal_disable } = proxy.useDict('sys_normal_disable')
+const route = useRoute()
+const dataList = ref([]), open = ref(false), loading = ref(true), showSearch = ref(true), ids = ref([]), total = ref(0)
+const title = ref(''), defaultDictType = ref(''), typeOptions = ref([]), dataRef = ref()
+const queryParams = reactive({ pageNum: 1, pageSize: 10, dictType: undefined, dictLabel: undefined, status: undefined })
+const form = reactive({})
+const rules = { dictLabel: [{ required: true, message: '数据标签不能为空', trigger: 'blur' }], dictValue: [{ required: true, message: '数据键值不能为空', trigger: 'blur' }], dictSort: [{ required: true, message: '数据顺序不能为空', trigger: 'blur' }] }
+const listClassOptions = [
+  { value: 'default', label: '默认(default)' }, { value: 'primary', label: '主要(primary)' }, { value: 'success', label: '成功(success)' },
+  { value: 'info', label: '信息(info)' }, { value: 'warning', label: '警告(warning)' }, { value: 'danger', label: '危险(danger)' },
+]
+const normalOptions = computed(() => sys_normal_disable.value.map((item) => ({ label: item.label, value: item.value })))
+const typeSelectOptions = computed(() => typeOptions.value.map((item) => ({ label: item.dictName, value: item.dictType })))
+const single = computed(() => ids.value.length !== 1), multiple = computed(() => ids.value.length === 0)
+const allSelected = computed(() => dataList.value.length > 0 && dataList.value.every((item) => ids.value.includes(item.dictCode)))
+const someSelected = computed(() => ids.value.length > 0 && !allSelected.value)
+const columns = [
+  { title: '', key: 'selection', width: 48 }, { title: '字典编码', dataIndex: 'dictCode', key: 'dictCode', width: 100 }, { title: '字典标签', key: 'dictLabel' },
+  { title: '字典键值', dataIndex: 'dictValue', key: 'dictValue' }, { title: '字典排序', dataIndex: 'dictSort', key: 'dictSort', width: 100 },
+  { title: '状态', key: 'status', width: 90 }, { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true, mobileHidden: true },
+  { title: '创建时间', key: 'createTime', width: 180, mobileHidden: true }, { title: '操作', key: 'actions', width: 150, fixed: 'right' },
+]
+const tagColor = (type) => ({ primary: 'blue', success: 'green', info: 'default', warning: 'orange', danger: 'red' }[type] || 'default')
 
-const dataList = ref([]);
-const open = ref(false);
-const loading = ref(true);
-const showSearch = ref(true);
-const ids = ref([]);
-const single = ref(true);
-const multiple = ref(true);
-const total = ref(0);
-const title = ref("");
-const defaultDictType = ref("");
-const typeOptions = ref([]);
-const route = useRoute();
-// 数据标签回显样式
-const listClassOptions = ref([
-  { value: "default", label: "默认" }, 
-  { value: "primary", label: "主要" }, 
-  { value: "success", label: "成功" },
-  { value: "info", label: "信息" },
-  { value: "warning", label: "警告" },
-  { value: "danger", label: "危险" }
-]);
-
-const data = reactive({
-  form: {},
-  queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-    dictType: undefined,
-    dictLabel: undefined,
-    status: undefined
-  },
-  rules: {
-    dictLabel: [{ required: true, message: "数据标签不能为空", trigger: "blur" }],
-    dictValue: [{ required: true, message: "数据键值不能为空", trigger: "blur" }],
-    dictSort: [{ required: true, message: "数据顺序不能为空", trigger: "blur" }]
-  }
-});
-
-const { queryParams, form, rules } = toRefs(data);
-
-/** 查询字典类型详细 */
-function getTypes(dictId) {
-  getType(dictId).then(response => {
-    queryParams.value.dictType = response.data.dictType;
-    defaultDictType.value = response.data.dictType;
-    getList();
-  });
-}
-
-/** 查询字典类型列表 */
-function getTypeList() {
-  getDictOptionselect().then(response => {
-    typeOptions.value = response.data;
-  });
-}
-/** 查询字典数据列表 */
-function getList() {
-  loading.value = true;
-  listData(queryParams.value).then(response => {
-    dataList.value = response.rows;
-    total.value = response.total;
-    loading.value = false;
-  });
-}
-/** 取消按钮 */
-function cancel() {
-  open.value = false;
-  reset();
-}
-/** 表单重置 */
-function reset() {
-  form.value = {
-    dictCode: undefined,
-    dictLabel: undefined,
-    dictValue: undefined,
-    cssClass: undefined,
-    listClass: "default",
-    dictSort: 0,
-    status: "0",
-    remark: undefined
-  };
-  proxy.resetForm("dataRef");
-}
-/** 搜索按钮操作 */
-function handleQuery() {
-  queryParams.value.pageNum = 1;
-  getList();
-}
-/** 返回按钮操作 */
-function handleClose() {
-  const obj = { path: "/system/dict" };
-  proxy.$tab.closeOpenPage(obj);
-}
-/** 重置按钮操作 */
-function resetQuery() {
-  proxy.resetForm("queryRef");
-  queryParams.value.dictType = defaultDictType.value;
-  handleQuery();
-}
-/** 新增按钮操作 */
-function handleAdd() {
-  reset();
-  open.value = true;
-  title.value = "添加字典数据";
-  form.value.dictType = queryParams.value.dictType;
-}
-/** 多选框选中数据 */
-function handleSelectionChange(selection) {
-  ids.value = selection.map(item => item.dictCode);
-  single.value = selection.length != 1;
-  multiple.value = !selection.length;
-}
-/** 修改按钮操作 */
-function handleUpdate(row) {
-  reset();
-  const dictCode = row.dictCode || ids.value;
-  getData(dictCode).then(response => {
-    form.value = response.data;
-    open.value = true;
-    title.value = "修改字典数据";
-  });
-}
-/** 提交按钮 */
-function submitForm() {
-  proxy.$refs["dataRef"].validate(valid => {
-    if (valid) {
-      if (form.value.dictCode != undefined) {
-        updateData(form.value).then(response => {
-          useDictStore().removeDict(queryParams.value.dictType);
-          proxy.$modal.msgSuccess("修改成功");
-          open.value = false;
-          getList();
-        });
-      } else {
-        addData(form.value).then(response => {
-          useDictStore().removeDict(queryParams.value.dictType);
-          proxy.$modal.msgSuccess("新增成功");
-          open.value = false;
-          getList();
-        });
-      }
-    }
-  });
-}
-/** 删除按钮操作 */
-function handleDelete(row) {
-  const dictCodes = row.dictCode || ids.value;
-  proxy.$modal.confirm('是否确认删除字典编码为"' + dictCodes + '"的数据项？').then(function() {
-    return delData(dictCodes);
-  }).then(() => {
-    getList();
-    proxy.$modal.msgSuccess("删除成功");
-    useDictStore().removeDict(queryParams.value.dictType);
-  }).catch(() => {});
-}
-/** 导出按钮操作 */
-function handleExport() {
-  proxy.download("system/dict/data/export", {
-    ...queryParams.value
-  }, `dict_data_${new Date().getTime()}.xlsx`);
-}
-
-getTypes(route.params && route.params.dictId);
-getTypeList();
+async function getTypes(dictId) { const response = await getType(dictId); queryParams.dictType = response.data.dictType; defaultDictType.value = response.data.dictType; getList() }
+async function getTypeList() { const response = await getDictOptionselect(); typeOptions.value = response.data }
+async function getList() { loading.value = true; try { const response = await listData(queryParams); dataList.value = response.rows; total.value = response.total; ids.value = [] } finally { loading.value = false } }
+function reset() { Object.keys(form).forEach((key) => delete form[key]); Object.assign(form, { dictCode: undefined, dictLabel: undefined, dictValue: undefined, cssClass: undefined, listClass: 'default', dictSort: 0, status: '0', remark: undefined }); nextTick(() => dataRef.value?.clearValidate()) }
+function cancel() { open.value = false; reset() }
+function handleQuery() { queryParams.pageNum = 1; getList() }
+function handleClose() { proxy.$tab.closeOpenPage({ path: '/system/dict' }) }
+function resetQuery() { Object.assign(queryParams, { dictType: defaultDictType.value, dictLabel: undefined, status: undefined }); handleQuery() }
+function handleAdd() { reset(); form.dictType = queryParams.dictType; open.value = true; title.value = '添加字典数据' }
+function toggleRow(row, checked) { ids.value = checked ? [...new Set([...ids.value, row.dictCode])] : ids.value.filter((id) => id !== row.dictCode) }
+function toggleAll(event) { ids.value = event.target.checked ? dataList.value.map((item) => item.dictCode) : [] }
+async function handleUpdate(row = {}) { reset(); const response = await getData(row.dictCode || ids.value[0]); Object.assign(form, response.data); open.value = true; title.value = '修改字典数据' }
+async function submitForm() { if (!await dataRef.value.validateFields().then(() => true).catch(() => false)) return; const editing = form.dictCode != null; if (editing) await updateData(form); else await addData(form); useDictStore().removeDict(queryParams.dictType); proxy.$modal.msgSuccess(editing ? '修改成功' : '新增成功'); open.value = false; getList() }
+function handleDelete(row = {}) { const dictCodes = row.dictCode || ids.value; proxy.$modal.confirm(`是否确认删除字典编码为"${dictCodes}"的数据项？`).then(() => delData(dictCodes)).then(() => { getList(); proxy.$modal.msgSuccess('删除成功'); useDictStore().removeDict(queryParams.dictType) }).catch(() => {}) }
+function handleExport() { proxy.download('system/dict/data/export', { ...queryParams }, `dict_data_${Date.now()}.xlsx`) }
+getTypes(route.params && route.params.dictId)
+getTypeList()
 </script>
+
+<style scoped>
+.query-form { padding: 16px; margin-bottom: 12px; border: 1px solid var(--workspace-border); background: var(--workspace-surface); }
+.query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 210px; }
+.table-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+:deep(.ant-pagination) { justify-content:flex-end; margin-top:14px; }
+@media (max-width:767px) { .query-form { display:grid; } .query-form :deep(.ant-form-item), .query-form :deep(.ant-input), .query-form :deep(.ant-select) { width:100%; } }
+</style>

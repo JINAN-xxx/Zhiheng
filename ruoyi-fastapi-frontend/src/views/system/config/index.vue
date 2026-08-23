@@ -1,175 +1,62 @@
 <template>
-   <div class="app-container">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" label-width="68px">
-         <el-form-item label="参数名称" prop="configName">
-            <el-input
-               v-model="queryParams.configName"
-               placeholder="请输入参数名称"
-               clearable
-               style="width: 240px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="参数键名" prop="configKey">
-            <el-input
-               v-model="queryParams.configKey"
-               placeholder="请输入参数键名"
-               clearable
-               style="width: 240px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="系统内置" prop="configType">
-            <el-select
-               v-model="queryParams.configType"
-               placeholder="系统内置"
-               clearable
-               style="width: 240px"
-            >
-               <el-option
-                  v-for="dict in sys_yes_no"
-                  :key="dict.value"
-                  :label="dict.label"
-                  :value="dict.value"
-               />
-            </el-select>
-         </el-form-item>
-         <el-form-item label="创建时间" style="width: 308px;">
-            <el-date-picker
-               v-model="dateRange"
-               value-format="YYYY-MM-DD"
-               type="daterange"
-               range-separator="-"
-               start-placeholder="开始日期"
-               end-placeholder="结束日期"
-            ></el-date-picker>
-         </el-form-item>
-         <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-         </el-form-item>
-      </el-form>
+  <WorkspacePage title="参数设置" subtitle="系统运行参数与缓存">
+    <template #actions><a-space wrap>
+      <a-button type="primary" @click="handleAdd" v-hasPermi="['system:config:add']"><PlusOutlined />新增</a-button>
+      <a-button :disabled="single" @click="handleUpdate" v-hasPermi="['system:config:edit']"><EditOutlined />修改</a-button>
+      <a-button danger :disabled="multiple" @click="handleDelete" v-hasPermi="['system:config:remove']"><DeleteOutlined />删除</a-button>
+      <a-button @click="handleExport" v-hasPermi="['system:config:export']"><DownloadOutlined />导出</a-button>
+      <a-button danger @click="handleRefreshCache" v-hasPermi="['system:config:remove']"><SyncOutlined />刷新缓存</a-button>
+      <a-tooltip title="显示/隐藏搜索"><a-button shape="circle" @click="showSearch = !showSearch"><FilterOutlined /></a-button></a-tooltip>
+      <a-tooltip title="刷新"><a-button shape="circle" @click="getList"><ReloadOutlined /></a-button></a-tooltip>
+    </a-space></template>
 
-      <el-row :gutter="10" class="mb8">
-         <el-col :span="1.5">
-            <el-button
-               type="primary"
-               plain
-               icon="Plus"
-               @click="handleAdd"
-               v-hasPermi="['system:config:add']"
-            >新增</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="success"
-               plain
-               icon="Edit"
-               :disabled="single"
-               @click="handleUpdate"
-               v-hasPermi="['system:config:edit']"
-            >修改</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="danger"
-               plain
-               icon="Delete"
-               :disabled="multiple"
-               @click="handleDelete"
-               v-hasPermi="['system:config:remove']"
-            >删除</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="warning"
-               plain
-               icon="Download"
-               @click="handleExport"
-               v-hasPermi="['system:config:export']"
-            >导出</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="danger"
-               plain
-               icon="Refresh"
-               @click="handleRefreshCache"
-               v-hasPermi="['system:config:remove']"
-            >刷新缓存</el-button>
-         </el-col>
-         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
-      </el-row>
+    <a-form v-show="showSearch" ref="queryRef" :model="queryParams" layout="inline" class="query-form">
+      <a-form-item label="参数名称" name="configName"><a-input v-model:value="queryParams.configName" allow-clear placeholder="请输入参数名称" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="参数键名" name="configKey"><a-input v-model:value="queryParams.configKey" allow-clear placeholder="请输入参数键名" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="系统内置" name="configType"><a-select v-model:value="queryParams.configType" allow-clear placeholder="系统内置" :options="yesNoOptions" /></a-form-item>
+      <a-form-item label="创建时间"><a-range-picker v-model:value="dateRange" value-format="YYYY-MM-DD" /></a-form-item>
+      <a-form-item><a-space><a-button type="primary" @click="handleQuery"><SearchOutlined />搜索</a-button><a-button @click="resetQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+    </a-form>
 
-      <el-table v-loading="loading" :data="configList" @selection-change="handleSelectionChange">
-         <el-table-column type="selection" width="55" align="center" />
-         <el-table-column label="参数主键" align="center" prop="configId" />
-         <el-table-column label="参数名称" align="center" prop="configName" :show-overflow-tooltip="true" />
-         <el-table-column label="参数键名" align="center" prop="configKey" :show-overflow-tooltip="true" />
-         <el-table-column label="参数键值" align="center" prop="configValue" :show-overflow-tooltip="true" />
-         <el-table-column label="系统内置" align="center" prop="configType">
-            <template #default="scope">
-               <dict-tag :options="sys_yes_no" :value="scope.row.configType" />
-            </template>
-         </el-table-column>
-         <el-table-column label="备注" align="center" prop="remark" :show-overflow-tooltip="true" />
-         <el-table-column label="创建时间" align="center" prop="createTime" width="180">
-            <template #default="scope">
-               <span>{{ parseTime(scope.row.createTime) }}</span>
-            </template>
-         </el-table-column>
-         <el-table-column label="操作" align="center" width="150" class-name="small-padding fixed-width">
-            <template #default="scope">
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:config:edit']" >修改</el-button>
-               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:config:remove']">删除</el-button>
-            </template>
-         </el-table-column>
-      </el-table>
+    <ResourceTable :columns="columns" :rows="configList" :loading="loading" :pagination="false" row-key="configId" :scroll="{ x: 1100 }">
+      <template #headerCell="{ column }"><a-checkbox v-if="column.key === 'selection'" :checked="allSelected" :indeterminate="partiallySelected" @change="toggleAll" /></template>
+      <template #bodyCell="{ column, record }">
+        <a-checkbox v-if="column.key === 'selection'" :checked="ids.includes(record.configId)" @change="(event) => toggleRow(record, event.target.checked)" />
+        <dict-tag v-else-if="column.key === 'configType'" :options="sys_yes_no" :value="record.configType" />
+        <span v-else-if="column.key === 'createTime'">{{ parseTime(record.createTime) }}</span>
+        <template v-else-if="column.key === 'actions'">
+          <a-space class="desktop-row-actions">
+            <a-button type="link" @click="handleUpdate(record)" v-hasPermi="['system:config:edit']"><EditOutlined />修改</a-button>
+            <a-button type="link" danger @click="handleDelete(record)" v-hasPermi="['system:config:remove']"><DeleteOutlined />删除</a-button>
+          </a-space>
+          <div v-if="configRowActions.length" class="mobile-row-actions"><WorkspaceMoreMenu :items="configRowActions" @command="handleRowCommand($event, record)" /></div>
+        </template>
+      </template>
+    </ResourceTable>
+    <a-pagination v-if="total > 0" v-model:current="queryParams.pageNum" v-model:page-size="queryParams.pageSize" :total="total" :page-size-options="['10', '20', '30', '50']" :show-total="count => `共 ${count} 条`" show-size-changer show-quick-jumper responsive @change="getList" />
 
-      <pagination
-         v-show="total > 0"
-         :total="total"
-         v-model:page="queryParams.pageNum"
-         v-model:limit="queryParams.pageSize"
-         @pagination="getList"
-      />
-
-      <!-- 添加或修改参数配置对话框 -->
-      <el-dialog :title="title" v-model="open" width="500px" append-to-body>
-         <el-form ref="configRef" :model="form" :rules="rules" label-width="80px">
-            <el-form-item label="参数名称" prop="configName">
-               <el-input v-model="form.configName" placeholder="请输入参数名称" />
-            </el-form-item>
-            <el-form-item label="参数键名" prop="configKey">
-               <el-input v-model="form.configKey" placeholder="请输入参数键名" />
-            </el-form-item>
-            <el-form-item label="参数键值" prop="configValue">
-               <el-input v-model="form.configValue" type="textarea" placeholder="请输入参数键值" />
-            </el-form-item>
-            <el-form-item label="系统内置" prop="configType">
-               <el-radio-group v-model="form.configType">
-                  <el-radio
-                     v-for="dict in sys_yes_no"
-                     :key="dict.value"
-                     :value="dict.value"
-                  >{{ dict.label }}</el-radio>
-               </el-radio-group>
-            </el-form-item>
-            <el-form-item label="备注" prop="remark">
-               <el-input v-model="form.remark" type="textarea" placeholder="请输入内容" />
-            </el-form-item>
-         </el-form>
-         <template #footer>
-            <div class="dialog-footer">
-               <el-button type="primary" @click="submitForm">确 定</el-button>
-               <el-button @click="cancel">取 消</el-button>
-            </div>
-         </template>
-      </el-dialog>
-   </div>
+    <ResourceDrawer :open="open" :title="title" :width="500" destroy-on-close @close="cancel">
+      <a-form ref="configRef" :model="form" :rules="rules" layout="vertical">
+        <a-form-item label="参数名称" name="configName"><a-input v-model:value="form.configName" placeholder="请输入参数名称" /></a-form-item>
+        <a-form-item label="参数键名" name="configKey"><a-input v-model:value="form.configKey" placeholder="请输入参数键名" /></a-form-item>
+        <a-form-item label="参数键值" name="configValue"><a-textarea v-model:value="form.configValue" placeholder="请输入参数键值" /></a-form-item>
+        <a-form-item label="系统内置" name="configType"><a-radio-group v-model:value="form.configType" :options="yesNoOptions" /></a-form-item>
+        <a-form-item label="备注" name="remark"><a-textarea v-model:value="form.remark" placeholder="请输入内容" /></a-form-item>
+      </a-form>
+      <template #footer><a-button @click="cancel">取 消</a-button><a-button type="primary" @click="submitForm">确 定</a-button></template>
+    </ResourceDrawer>
+  </WorkspacePage>
 </template>
 
 <script setup name="Config">
+import { useWindowSize } from '@vueuse/core'
+import { DeleteOutlined, DownloadOutlined, EditOutlined, FilterOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SyncOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
+import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
+import WorkspacePage from '@/components/Antd/WorkspacePage.vue'
+import feedback from '@/plugins/antdFeedback'
+import { checkPermi } from '@/utils/permission'
 import { listConfig, getConfig, delConfig, addConfig, updateConfig, refreshCache } from "@/api/system/config";
 
 const { proxy } = getCurrentInstance();
@@ -185,6 +72,27 @@ const multiple = ref(true);
 const total = ref(0);
 const title = ref("");
 const dateRange = ref([]);
+const queryRef = ref();
+const configRef = ref();
+const yesNoOptions = computed(() => sys_yes_no.value.map(item => ({ label: item.label, value: item.value })));
+const { width: viewportWidth } = useWindowSize();
+const columns = computed(() => [
+  { key: 'selection', width: 55, align: 'center' },
+  { title: '参数主键', dataIndex: 'configId', key: 'configId', align: 'center' },
+  { title: '参数名称', dataIndex: 'configName', key: 'configName', ellipsis: true, align: 'center' },
+  { title: '参数键名', dataIndex: 'configKey', key: 'configKey', ellipsis: true, align: 'center' },
+  { title: '参数键值', dataIndex: 'configValue', key: 'configValue', ellipsis: true, align: 'center' },
+  { title: '系统内置', key: 'configType', align: 'center' },
+  { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true, align: 'center' },
+  { title: '创建时间', key: 'createTime', width: 180, align: 'center' },
+  { title: '操作', key: 'actions', width: viewportWidth.value <= 767 ? 64 : 150, align: 'center' },
+]);
+const configRowActions = computed(() => [
+  checkPermi(['system:config:edit']) && { command: 'edit', label: '修改', icon: EditOutlined },
+  checkPermi(['system:config:remove']) && { command: 'delete', label: '删除', icon: DeleteOutlined, danger: true, divided: true },
+].filter(Boolean));
+const allSelected = computed(() => configList.value.length > 0 && ids.value.length === configList.value.length);
+const partiallySelected = computed(() => ids.value.length > 0 && !allSelected.value);
 
 const data = reactive({
   form: {},
@@ -210,6 +118,7 @@ function getList() {
   listConfig(proxy.addDateRange(queryParams.value, dateRange.value)).then(response => {
     configList.value = response.rows;
     total.value = response.total;
+    handleSelectionChange([]);
     loading.value = false;
   });
 }
@@ -228,7 +137,7 @@ function reset() {
     configType: "Y",
     remark: undefined
   };
-  proxy.resetForm("configRef");
+  nextTick(() => configRef.value?.clearValidate());
 }
 /** 搜索按钮操作 */
 function handleQuery() {
@@ -238,7 +147,7 @@ function handleQuery() {
 /** 重置按钮操作 */
 function resetQuery() {
   dateRange.value = [];
-  proxy.resetForm("queryRef");
+  queryRef.value?.resetFields();
   handleQuery();
 }
 /** 多选框选中数据 */
@@ -247,6 +156,11 @@ function handleSelectionChange(selection) {
   single.value = selection.length != 1;
   multiple.value = !selection.length;
 }
+function toggleRow(row, checked) {
+  const selected = checked ? [...configList.value.filter(item => ids.value.includes(item.configId)), row] : configList.value.filter(item => ids.value.includes(item.configId) && item.configId !== row.configId);
+  handleSelectionChange([...new Map(selected.map(item => [item.configId, item])).values()]);
+}
+function toggleAll(event) { handleSelectionChange(event.target.checked ? configList.value : []); }
 /** 新增按钮操作 */
 function handleAdd() {
   reset();
@@ -264,34 +178,37 @@ function handleUpdate(row) {
   });
 }
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["configRef"].validate(valid => {
-    if (valid) {
+async function submitForm() {
+  const valid = await configRef.value.validateFields().then(() => true).catch(() => false);
+  if (valid) {
       if (form.value.configId != undefined) {
         updateConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功");
+          feedback.msgSuccess("修改成功");
           open.value = false;
           getList();
         });
       } else {
         addConfig(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功");
+          feedback.msgSuccess("新增成功");
           open.value = false;
           getList();
         });
       }
-    }
-  });
+  }
 }
 /** 删除按钮操作 */
 function handleDelete(row) {
   const configIds = row.configId || ids.value;
-  proxy.$modal.confirm('是否确认删除参数编号为"' + configIds + '"的数据项？').then(function () {
+  feedback.confirm('是否确认删除参数编号为"' + configIds + '"的数据项？').then(function () {
     return delConfig(configIds);
   }).then(() => {
     getList();
-    proxy.$modal.msgSuccess("删除成功");
+    feedback.msgSuccess("删除成功");
   }).catch(() => {});
+}
+function handleRowCommand(command, row) {
+  const actions = { edit: handleUpdate, delete: handleDelete };
+  actions[command]?.(row);
 }
 /** 导出按钮操作 */
 function handleExport() {
@@ -302,9 +219,17 @@ function handleExport() {
 /** 刷新缓存按钮操作 */
 function handleRefreshCache() {
   refreshCache().then(() => {
-    proxy.$modal.msgSuccess("刷新缓存成功");
+    feedback.msgSuccess("刷新缓存成功");
   });
 }
 
 getList();
 </script>
+
+<style scoped>
+.query-form { margin-bottom: 16px; gap: 8px 0; }
+.query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 220px; }
+:deep(.ant-pagination) { justify-content: flex-end; margin-top: 16px; }
+.desktop-row-actions { display: inline-flex; }.mobile-row-actions { display: none; }
+@media (max-width: 767px) { .query-form { display: grid; } .query-form :deep(.ant-form-item), .query-form :deep(.ant-input), .query-form :deep(.ant-select), .query-form :deep(.ant-picker) { width: 100%; } :deep(.ant-pagination-options), :deep(.ant-pagination-total-text) { display: none; }.desktop-row-actions { display: none; }.mobile-row-actions { display: flex; justify-content: center; } }
+</style>

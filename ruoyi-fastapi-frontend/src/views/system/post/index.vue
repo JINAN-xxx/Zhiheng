@@ -1,150 +1,56 @@
 <template>
-   <div class="app-container">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
-         <el-form-item label="岗位编码" prop="postCode">
-            <el-input
-               v-model="queryParams.postCode"
-               placeholder="请输入岗位编码"
-               clearable
-               style="width: 200px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="岗位名称" prop="postName">
-            <el-input
-               v-model="queryParams.postName"
-               placeholder="请输入岗位名称"
-               clearable
-               style="width: 200px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="状态" prop="status">
-            <el-select v-model="queryParams.status" placeholder="岗位状态" clearable style="width: 200px">
-               <el-option
-                  v-for="dict in sys_normal_disable"
-                  :key="dict.value"
-                  :label="dict.label"
-                  :value="dict.value"
-               />
-            </el-select>
-         </el-form-item>
-         <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-         </el-form-item>
-      </el-form>
+  <WorkspacePage title="岗位管理" subtitle="岗位、编码与启停状态">
+    <template #actions>
+      <a-space wrap>
+        <a-button type="primary" @click="handleAdd" v-hasPermi="['system:post:add']"><PlusOutlined />新增</a-button>
+        <a-button :disabled="single" @click="handleUpdate" v-hasPermi="['system:post:edit']"><EditOutlined />修改</a-button>
+        <a-button danger :disabled="multiple" @click="handleDelete" v-hasPermi="['system:post:remove']"><DeleteOutlined />删除</a-button>
+        <a-button @click="handleExport" v-hasPermi="['system:post:export']"><DownloadOutlined />导出</a-button>
+        <a-tooltip title="显示/隐藏搜索"><a-button shape="circle" @click="showSearch = !showSearch"><FilterOutlined /></a-button></a-tooltip>
+        <a-tooltip title="刷新"><a-button shape="circle" @click="getList"><ReloadOutlined /></a-button></a-tooltip>
+      </a-space>
+    </template>
 
-      <el-row :gutter="10" class="mb8">
-         <el-col :span="1.5">
-            <el-button
-               type="primary"
-               plain
-               icon="Plus"
-               @click="handleAdd"
-               v-hasPermi="['system:post:add']"
-            >新增</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="success"
-               plain
-               icon="Edit"
-               :disabled="single"
-               @click="handleUpdate"
-               v-hasPermi="['system:post:edit']"
-            >修改</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="danger"
-               plain
-               icon="Delete"
-               :disabled="multiple"
-               @click="handleDelete"
-               v-hasPermi="['system:post:remove']"
-            >删除</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="warning"
-               plain
-               icon="Download"
-               @click="handleExport"
-               v-hasPermi="['system:post:export']"
-            >导出</el-button>
-         </el-col>
-         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
-      </el-row>
+    <a-form v-show="showSearch" ref="queryRef" :model="queryParams" layout="inline" class="query-form">
+      <a-form-item label="岗位编码" name="postCode"><a-input v-model:value="queryParams.postCode" allow-clear placeholder="请输入岗位编码" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="岗位名称" name="postName"><a-input v-model:value="queryParams.postName" allow-clear placeholder="请输入岗位名称" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="状态" name="status"><a-select v-model:value="queryParams.status" allow-clear placeholder="岗位状态" :options="normalDisableOptions" /></a-form-item>
+      <a-form-item><a-space><a-button type="primary" @click="handleQuery"><SearchOutlined />搜索</a-button><a-button @click="resetQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+    </a-form>
 
-      <el-table v-loading="loading" :data="postList" @selection-change="handleSelectionChange">
-         <el-table-column type="selection" width="55" align="center" />
-         <el-table-column label="岗位编号" align="center" prop="postId" />
-         <el-table-column label="岗位编码" align="center" prop="postCode" />
-         <el-table-column label="岗位名称" align="center" prop="postName" />
-         <el-table-column label="岗位排序" align="center" prop="postSort" />
-         <el-table-column label="状态" align="center" prop="status">
-            <template #default="scope">
-               <dict-tag :options="sys_normal_disable" :value="scope.row.status" />
-            </template>
-         </el-table-column>
-         <el-table-column label="创建时间" align="center" prop="createTime" width="180">
-            <template #default="scope">
-               <span>{{ parseTime(scope.row.createTime) }}</span>
-            </template>
-         </el-table-column>
-         <el-table-column label="操作" width="180" align="center" class-name="small-padding fixed-width">
-            <template #default="scope">
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:post:edit']">修改</el-button>
-               <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:post:remove']">删除</el-button>
-            </template>
-         </el-table-column>
-      </el-table>
+    <ResourceTable :columns="columns" :rows="postList" :loading="loading" :pagination="false" row-key="postId" :scroll="{ x: 900 }">
+      <template #headerCell="{ column }"><a-checkbox v-if="column.key === 'selection'" :checked="allSelected" :indeterminate="partiallySelected" @change="toggleAll" /></template>
+      <template #bodyCell="{ column, record }">
+        <a-checkbox v-if="column.key === 'selection'" :checked="ids.includes(record.postId)" @change="(event) => toggleRow(record, event.target.checked)" />
+        <dict-tag v-else-if="column.key === 'status'" :options="sys_normal_disable" :value="record.status" />
+        <span v-else-if="column.key === 'createTime'">{{ parseTime(record.createTime) }}</span>
+        <a-space v-else-if="column.key === 'actions'">
+          <a-button type="link" @click="handleUpdate(record)" v-hasPermi="['system:post:edit']"><EditOutlined />修改</a-button>
+          <a-button type="link" danger @click="handleDelete(record)" v-hasPermi="['system:post:remove']"><DeleteOutlined />删除</a-button>
+        </a-space>
+      </template>
+    </ResourceTable>
+    <a-pagination v-if="total > 0" v-model:current="queryParams.pageNum" v-model:page-size="queryParams.pageSize" :total="total" :page-size-options="['10', '20', '30', '50']" :show-total="count => `共 ${count} 条`" show-size-changer show-quick-jumper responsive @change="getList" />
 
-      <pagination
-         v-show="total > 0"
-         :total="total"
-         v-model:page="queryParams.pageNum"
-         v-model:limit="queryParams.pageSize"
-         @pagination="getList"
-      />
-
-      <!-- 添加或修改岗位对话框 -->
-      <el-dialog :title="title" v-model="open" width="500px" append-to-body>
-         <el-form ref="postRef" :model="form" :rules="rules" label-width="80px">
-            <el-form-item label="岗位名称" prop="postName">
-               <el-input v-model="form.postName" placeholder="请输入岗位名称" />
-            </el-form-item>
-            <el-form-item label="岗位编码" prop="postCode">
-               <el-input v-model="form.postCode" placeholder="请输入编码名称" />
-            </el-form-item>
-            <el-form-item label="岗位顺序" prop="postSort">
-               <el-input-number v-model="form.postSort" controls-position="right" :min="0" />
-            </el-form-item>
-            <el-form-item label="岗位状态" prop="status">
-               <el-radio-group v-model="form.status">
-                  <el-radio
-                     v-for="dict in sys_normal_disable"
-                     :key="dict.value"
-                     :value="dict.value"
-                  >{{ dict.label }}</el-radio>
-               </el-radio-group>
-            </el-form-item>
-            <el-form-item label="备注" prop="remark">
-               <el-input v-model="form.remark" type="textarea" placeholder="请输入内容" />
-            </el-form-item>
-         </el-form>
-         <template #footer>
-            <div class="dialog-footer">
-               <el-button type="primary" @click="submitForm">确 定</el-button>
-               <el-button @click="cancel">取 消</el-button>
-            </div>
-         </template>
-      </el-dialog>
-   </div>
+    <ResourceDrawer :open="open" :title="title" :width="500" destroy-on-close @close="cancel">
+      <a-form ref="postRef" :model="form" :rules="rules" layout="vertical">
+        <a-form-item label="岗位名称" name="postName"><a-input v-model:value="form.postName" placeholder="请输入岗位名称" /></a-form-item>
+        <a-form-item label="岗位编码" name="postCode"><a-input v-model:value="form.postCode" placeholder="请输入编码名称" /></a-form-item>
+        <a-form-item label="岗位顺序" name="postSort"><a-input-number v-model:value="form.postSort" :min="0" /></a-form-item>
+        <a-form-item label="岗位状态" name="status"><a-radio-group v-model:value="form.status" :options="normalDisableOptions" /></a-form-item>
+        <a-form-item label="备注" name="remark"><a-textarea v-model:value="form.remark" placeholder="请输入内容" /></a-form-item>
+      </a-form>
+      <template #footer><a-button @click="cancel">取 消</a-button><a-button type="primary" @click="submitForm">确 定</a-button></template>
+    </ResourceDrawer>
+  </WorkspacePage>
 </template>
 
 <script setup name="Post">
+import { DeleteOutlined, DownloadOutlined, EditOutlined, FilterOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import ResourceTable from '@/components/Antd/ResourceTable.vue'
+import WorkspacePage from '@/components/Antd/WorkspacePage.vue'
+import feedback from '@/plugins/antdFeedback'
 import { listPost, addPost, delPost, getPost, updatePost } from "@/api/system/post";
 
 const { proxy } = getCurrentInstance();
@@ -159,6 +65,21 @@ const single = ref(true);
 const multiple = ref(true);
 const total = ref(0);
 const title = ref("");
+const queryRef = ref();
+const postRef = ref();
+const normalDisableOptions = computed(() => sys_normal_disable.value.map(item => ({ label: item.label, value: item.value })));
+const columns = [
+  { key: 'selection', width: 55, align: 'center' },
+  { title: '岗位编号', dataIndex: 'postId', key: 'postId', align: 'center' },
+  { title: '岗位编码', dataIndex: 'postCode', key: 'postCode', align: 'center' },
+  { title: '岗位名称', dataIndex: 'postName', key: 'postName', align: 'center' },
+  { title: '岗位排序', dataIndex: 'postSort', key: 'postSort', align: 'center' },
+  { title: '状态', key: 'status', align: 'center' },
+  { title: '创建时间', key: 'createTime', width: 180, align: 'center' },
+  { title: '操作', key: 'actions', width: 180, align: 'center' },
+];
+const allSelected = computed(() => postList.value.length > 0 && ids.value.length === postList.value.length);
+const partiallySelected = computed(() => ids.value.length > 0 && !allSelected.value);
 
 const data = reactive({
   form: {},
@@ -184,6 +105,7 @@ function getList() {
   listPost(queryParams.value).then(response => {
     postList.value = response.rows;
     total.value = response.total;
+    handleSelectionChange([]);
     loading.value = false;
   });
 }
@@ -202,7 +124,7 @@ function reset() {
     status: "0",
     remark: undefined
   };
-  proxy.resetForm("postRef");
+  nextTick(() => postRef.value?.clearValidate());
 }
 /** 搜索按钮操作 */
 function handleQuery() {
@@ -211,7 +133,7 @@ function handleQuery() {
 }
 /** 重置按钮操作 */
 function resetQuery() {
-  proxy.resetForm("queryRef");
+  queryRef.value?.resetFields();
   handleQuery();
 }
 /** 多选框选中数据 */
@@ -220,6 +142,11 @@ function handleSelectionChange(selection) {
   single.value = selection.length != 1;
   multiple.value = !selection.length;
 }
+function toggleRow(row, checked) {
+  const selected = checked ? [...postList.value.filter(item => ids.value.includes(item.postId)), row] : postList.value.filter(item => ids.value.includes(item.postId) && item.postId !== row.postId);
+  handleSelectionChange([...new Map(selected.map(item => [item.postId, item])).values()]);
+}
+function toggleAll(event) { handleSelectionChange(event.target.checked ? postList.value : []); }
 /** 新增按钮操作 */
 function handleAdd() {
   reset();
@@ -237,33 +164,32 @@ function handleUpdate(row) {
   });
 }
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["postRef"].validate(valid => {
-    if (valid) {
+async function submitForm() {
+  const valid = await postRef.value.validateFields().then(() => true).catch(() => false);
+  if (valid) {
       if (form.value.postId != undefined) {
         updatePost(form.value).then(() => {
-          proxy.$modal.msgSuccess("修改成功");
+          feedback.msgSuccess("修改成功");
           open.value = false;
           getList();
         });
       } else {
         addPost(form.value).then(() => {
-          proxy.$modal.msgSuccess("新增成功");
+          feedback.msgSuccess("新增成功");
           open.value = false;
           getList();
         });
       }
-    }
-  });
+  }
 }
 /** 删除按钮操作 */
 function handleDelete(row) {
   const postIds = row.postId || ids.value;
-  proxy.$modal.confirm('是否确认删除岗位编号为"' + postIds + '"的数据项？').then(function() {
+  feedback.confirm('是否确认删除岗位编号为"' + postIds + '"的数据项？').then(function() {
     return delPost(postIds);
   }).then(() => {
     getList();
-    proxy.$modal.msgSuccess("删除成功");
+    feedback.msgSuccess("删除成功");
   }).catch(() => {});
 }
 /** 导出按钮操作 */
@@ -275,3 +201,10 @@ function handleExport() {
 
 getList();
 </script>
+
+<style scoped>
+.query-form { margin-bottom: 16px; gap: 8px 0; }
+.query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 200px; }
+:deep(.ant-pagination) { justify-content: flex-end; margin-top: 16px; }
+@media (max-width: 767px) { .query-form { display: grid; } .query-form :deep(.ant-form-item), .query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 100%; } :deep(.ant-pagination-options), :deep(.ant-pagination-total-text) { display: none; } }
+</style>

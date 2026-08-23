@@ -9,16 +9,6 @@
   </div>
 </template>
 
-<script>
-import { Button } from "ant-design-vue";
-
-export default {
-  components: {
-    AButton: Button,
-  },
-};
-</script>
-
 <script setup>
 import { PlusOutlined } from "@ant-design/icons-vue";
 
@@ -58,10 +48,10 @@ const links = [
     display: inline-block;
     width: 25%;
     margin-bottom: 13px;
-    color: var(--el-text-color-regular);
+    color: var(--workspace-text);
     font-size: 14px;
     &:hover {
-      color: var(--el-color-primary);
+      color: var(--workspace-main);
     }
   }
 }

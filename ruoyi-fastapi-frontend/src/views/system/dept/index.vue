@@ -1,159 +1,51 @@
 <template>
-   <div class="app-container">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch">
-         <el-form-item label="部门名称" prop="deptName">
-            <el-input
-               v-model="queryParams.deptName"
-               placeholder="请输入部门名称"
-               clearable
-               style="width: 200px"
-               @keyup.enter="handleQuery"
-            />
-         </el-form-item>
-         <el-form-item label="状态" prop="status">
-            <el-select v-model="queryParams.status" placeholder="部门状态" clearable style="width: 200px">
-               <el-option
-                  v-for="dict in sys_normal_disable"
-                  :key="dict.value"
-                  :label="dict.label"
-                  :value="dict.value"
-               />
-            </el-select>
-         </el-form-item>
-         <el-form-item>
-            <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-            <el-button icon="Refresh" @click="resetQuery">重置</el-button>
-         </el-form-item>
-      </el-form>
-
-      <el-row :gutter="10" class="mb8">
-         <el-col :span="1.5">
-            <el-button
-               type="primary"
-               plain
-               icon="Plus"
-               @click="handleAdd"
-               v-hasPermi="['system:dept:add']"
-            >新增</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="warning"
-               plain
-               icon="Check"
-               @click="handleSaveSort"
-               v-hasPermi="['system:dept:edit']"
-            >保存排序</el-button>
-         </el-col>
-         <el-col :span="1.5">
-            <el-button
-               type="info"
-               plain
-               icon="Sort"
-               @click="toggleExpandAll"
-            >展开/折叠</el-button>
-         </el-col>
-         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
-      </el-row>
-
-      <el-table
-         v-if="refreshTable"
-         v-loading="loading"
-         :data="deptList"
-         row-key="deptId"
-         :default-expand-all="isExpandAll"
-         :tree-props="{ children: 'children', hasChildren: 'hasChildren' }"
-      >
-         <el-table-column prop="deptName" label="部门名称" width="260"></el-table-column>
-         <el-table-column prop="orderNum" label="排序" width="200">
-            <template #default="scope">
-               <el-input-number v-model="scope.row.orderNum" controls-position="right" :min="0" style="width: 88px" />
-            </template>
-         </el-table-column>
-         <el-table-column prop="status" label="状态" width="100">
-            <template #default="scope">
-               <dict-tag :options="sys_normal_disable" :value="scope.row.status" />
-            </template>
-         </el-table-column>
-         <el-table-column label="创建时间" align="center" prop="createTime" width="200">
-            <template #default="scope">
-               <span>{{ parseTime(scope.row.createTime) }}</span>
-            </template>
-         </el-table-column>
-         <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
-            <template #default="scope">
-               <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['system:dept:edit']">修改</el-button>
-               <el-button link type="primary" icon="Plus" @click="handleAdd(scope.row)" v-hasPermi="['system:dept:add']">新增</el-button>
-               <el-button v-if="scope.row.parentId != 0" link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['system:dept:remove']">删除</el-button>
-            </template>
-         </el-table-column>
-      </el-table>
-
-      <!-- 添加或修改部门对话框 -->
-      <el-dialog :title="title" v-model="open" width="600px" append-to-body>
-         <el-form ref="deptRef" :model="form" :rules="rules" label-width="80px">
-            <el-row>
-               <el-col :span="24" v-if="form.parentId !== 0">
-                  <el-form-item label="上级部门" prop="parentId">
-                     <el-tree-select
-                        v-model="form.parentId"
-                        :data="deptOptions"
-                        :props="{ value: 'deptId', label: 'deptName', children: 'children' }"
-                        value-key="deptId"
-                        placeholder="选择上级部门"
-                        check-strictly
-                     />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="部门名称" prop="deptName">
-                     <el-input v-model="form.deptName" placeholder="请输入部门名称" />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="显示排序" prop="orderNum">
-                     <el-input-number v-model="form.orderNum" controls-position="right" :min="0" />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="负责人" prop="leader">
-                     <el-input v-model="form.leader" placeholder="请输入负责人" maxlength="20" />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="联系电话" prop="phone">
-                     <el-input v-model="form.phone" placeholder="请输入联系电话" maxlength="11" />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="邮箱" prop="email">
-                     <el-input v-model="form.email" placeholder="请输入邮箱" maxlength="50" />
-                  </el-form-item>
-               </el-col>
-               <el-col :span="12">
-                  <el-form-item label="部门状态">
-                     <el-radio-group v-model="form.status">
-                        <el-radio
-                           v-for="dict in sys_normal_disable"
-                           :key="dict.value"
-                           :value="dict.value"
-                        >{{ dict.label }}</el-radio>
-                     </el-radio-group>
-                  </el-form-item>
-               </el-col>
-            </el-row>
-         </el-form>
-         <template #footer>
-            <div class="dialog-footer">
-               <el-button type="primary" @click="submitForm">确 定</el-button>
-               <el-button @click="cancel">取 消</el-button>
-            </div>
-         </template>
-      </el-dialog>
-   </div>
+  <WorkspacePage title="部门管理" subtitle="组织层级、负责人和状态">
+    <template #actions><a-space wrap>
+      <a-button type="primary" @click="handleAdd" v-hasPermi="['system:dept:add']"><PlusOutlined />新增</a-button>
+      <a-button @click="handleSaveSort" v-hasPermi="['system:dept:edit']"><SaveOutlined />保存排序</a-button>
+      <a-button @click="toggleExpandAll"><NodeExpandOutlined />展开/折叠</a-button>
+      <a-tooltip title="显示/隐藏搜索"><a-button shape="circle" @click="showSearch = !showSearch"><FilterOutlined /></a-button></a-tooltip>
+      <a-tooltip title="刷新"><a-button shape="circle" @click="getList"><ReloadOutlined /></a-button></a-tooltip>
+    </a-space></template>
+    <a-form v-show="showSearch" ref="queryRef" :model="queryParams" layout="inline" class="query-form">
+      <a-form-item label="部门名称" name="deptName"><a-input v-model:value="queryParams.deptName" allow-clear placeholder="请输入部门名称" @press-enter="handleQuery" /></a-form-item>
+      <a-form-item label="状态" name="status"><a-select v-model:value="queryParams.status" allow-clear placeholder="部门状态" :options="normalDisableOptions" /></a-form-item>
+      <a-form-item><a-space><a-button type="primary" @click="handleQuery"><SearchOutlined />搜索</a-button><a-button @click="resetQuery"><ReloadOutlined />重置</a-button></a-space></a-form-item>
+    </a-form>
+    <a-table v-if="refreshTable" :columns="columns" :data-source="deptList" :loading="loading" :pagination="false" row-key="deptId" :expanded-row-keys="expandedRowKeys" :scroll="{ x: 900 }" @expanded-rows-change="expandedRowKeys = $event">
+      <template #bodyCell="{ column, record }">
+        <a-input-number v-if="column.key === 'orderNum'" v-model:value="record.orderNum" :min="0" class="sort-input" />
+        <dict-tag v-else-if="column.key === 'status'" :options="sys_normal_disable" :value="record.status" />
+        <span v-else-if="column.key === 'createTime'">{{ parseTime(record.createTime) }}</span>
+        <a-space v-else-if="column.key === 'actions'">
+          <a-button type="link" @click="handleUpdate(record)" v-hasPermi="['system:dept:edit']"><EditOutlined />修改</a-button>
+          <a-button type="link" @click="handleAdd(record)" v-hasPermi="['system:dept:add']"><PlusOutlined />新增</a-button>
+          <a-button v-if="record.parentId != 0" type="link" danger @click="handleDelete(record)" v-hasPermi="['system:dept:remove']"><DeleteOutlined />删除</a-button>
+        </a-space>
+      </template>
+    </a-table>
+    <ResourceDrawer :open="open" :title="title" :width="600" destroy-on-close @close="cancel">
+      <a-form ref="deptRef" :model="form" :rules="rules" layout="vertical">
+        <a-row :gutter="16">
+          <a-col v-if="form.parentId !== 0" :span="24"><a-form-item label="上级部门" name="parentId"><a-tree-select v-model:value="form.parentId" :tree-data="deptOptions" :field-names="deptFieldNames" tree-default-expand-all placeholder="选择上级部门" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="部门名称" name="deptName"><a-input v-model:value="form.deptName" placeholder="请输入部门名称" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="显示排序" name="orderNum"><a-input-number v-model:value="form.orderNum" :min="0" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="负责人" name="leader"><a-input v-model:value="form.leader" :maxlength="20" placeholder="请输入负责人" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="联系电话" name="phone"><a-input v-model:value="form.phone" :maxlength="11" placeholder="请输入联系电话" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="邮箱" name="email"><a-input v-model:value="form.email" :maxlength="50" placeholder="请输入邮箱" /></a-form-item></a-col>
+          <a-col :xs="24" :md="12"><a-form-item label="部门状态"><a-radio-group v-model:value="form.status" :options="normalDisableOptions" /></a-form-item></a-col>
+        </a-row>
+      </a-form>
+      <template #footer><a-button @click="cancel">取 消</a-button><a-button type="primary" @click="submitForm">确 定</a-button></template>
+    </ResourceDrawer>
+  </WorkspacePage>
 </template>
 
 <script setup name="Dept">
+import { DeleteOutlined, EditOutlined, FilterOutlined, NodeExpandOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import ResourceDrawer from '@/components/Antd/ResourceDrawer.vue'
+import WorkspacePage from '@/components/Antd/WorkspacePage.vue'
+import feedback from '@/plugins/antdFeedback'
 import { listDept, getDept, delDept, addDept, updateDept, updateDeptSort, listDeptExcludeChild } from "@/api/system/dept";
 
 const { proxy } = getCurrentInstance();
@@ -168,6 +60,17 @@ const deptOptions = ref([]);
 const isExpandAll = ref(true);
 const refreshTable = ref(true);
 const originalOrders = ref({});
+const expandedRowKeys = ref([]);
+const queryRef = ref();
+const deptRef = ref();
+const normalDisableOptions = computed(() => sys_normal_disable.value.map(item => ({ label: item.label, value: item.value })));
+const deptFieldNames = { value: 'deptId', label: 'deptName', children: 'children' };
+const columns = [
+  { title: '部门名称', dataIndex: 'deptName', key: 'deptName', width: 260 }, { title: '排序', key: 'orderNum', width: 120 },
+  { title: '状态', key: 'status', width: 100 }, { title: '创建时间', key: 'createTime', width: 200, align: 'center' },
+  { title: '操作', key: 'actions', width: 230, align: 'center' },
+];
+const collectDeptKeys = list => list.flatMap(item => [item.deptId, ...collectDeptKeys(item.children || [])]);
 
 const data = reactive({
   form: {},
@@ -191,6 +94,8 @@ function getList() {
   loading.value = true;
   listDept(queryParams.value).then(response => {
     deptList.value = proxy.handleTree(response.data, "deptId");
+    const availableKeys = collectDeptKeys(deptList.value);
+    expandedRowKeys.value = isExpandAll.value ? availableKeys : expandedRowKeys.value.filter(key => availableKeys.includes(key));
     recordOriginalOrders(deptList.value);
     loading.value = false;
   });
@@ -212,7 +117,7 @@ function reset() {
     email: undefined,
     status: "0"
   };
-  proxy.resetForm("deptRef");
+  nextTick(() => deptRef.value?.clearValidate());
 }
 /** 搜索按钮操作 */
 function handleQuery() {
@@ -220,7 +125,7 @@ function handleQuery() {
 }
 /** 重置按钮操作 */
 function resetQuery() {
-  proxy.resetForm("queryRef");
+  queryRef.value?.resetFields();
   handleQuery();
 }
 /** 新增按钮操作 */
@@ -239,6 +144,7 @@ function handleAdd(row) {
 function toggleExpandAll() {
   refreshTable.value = false;
   isExpandAll.value = !isExpandAll.value;
+  expandedRowKeys.value = isExpandAll.value ? collectDeptKeys(deptList.value) : [];
   nextTick(() => {
     refreshTable.value = true;
   });
@@ -256,24 +162,23 @@ function handleUpdate(row) {
   });
 }
 /** 提交按钮 */
-function submitForm() {
-  proxy.$refs["deptRef"].validate(valid => {
-    if (valid) {
+async function submitForm() {
+  const valid = await deptRef.value.validateFields().then(() => true).catch(() => false);
+  if (valid) {
       if (form.value.deptId != undefined) {
         updateDept(form.value).then(response => {
-          proxy.$modal.msgSuccess("修改成功");
+          feedback.msgSuccess("修改成功");
           open.value = false;
           getList();
         });
       } else {
         addDept(form.value).then(response => {
-          proxy.$modal.msgSuccess("新增成功");
+          feedback.msgSuccess("新增成功");
           open.value = false;
           getList();
         });
       }
-    }
-  });
+  }
 }
 
 /** 递归记录原始排序 */
@@ -303,24 +208,29 @@ function handleSaveSort() {
   };
   collectChanged(deptList.value);
   if (changedDeptIds.length === 0) {
-    proxy.$modal.msgWarning("未检测到排序修改");
+    feedback.msgWarning("未检测到排序修改");
     return;
   }
   updateDeptSort({ deptIds: changedDeptIds.join(","), orderNums: changedOrderNums.join(",") }).then(() => {
-    proxy.$modal.msgSuccess("排序保存成功");
+    feedback.msgSuccess("排序保存成功");
     recordOriginalOrders(deptList.value);
   });
 }
 
 /** 删除按钮操作 */
 function handleDelete(row) {
-  proxy.$modal.confirm('是否确认删除名称为"' + row.deptName + '"的数据项?').then(function() {
+  feedback.confirm('是否确认删除名称为"' + row.deptName + '"的数据项?').then(function() {
     return delDept(row.deptId);
   }).then(() => {
     getList();
-    proxy.$modal.msgSuccess("删除成功");
+    feedback.msgSuccess("删除成功");
   }).catch(() => {});
 }
 
 getList();
 </script>
+
+<style scoped>
+.query-form { margin-bottom: 16px; gap: 8px 0; }.query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 200px; }.sort-input { width: 88px; }
+@media (max-width: 767px) { .query-form { display: grid; }.query-form :deep(.ant-form-item), .query-form :deep(.ant-input), .query-form :deep(.ant-select) { width: 100%; } }
+</style>

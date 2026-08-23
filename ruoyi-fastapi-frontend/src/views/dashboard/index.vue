@@ -45,7 +45,7 @@
             >
               <template #extra>
                 <a href="">
-                  <span style="color: var(--el-color-primary)">全部项目</span>
+                  <span style="color: var(--workspace-main)">全部项目</span>
                 </a>
               </template>
               <a-card-grid
@@ -97,11 +97,11 @@
                           <span class="event">
                             <span>{{ item.template1 }}</span
                             >&nbsp;
-                            <a href="" style="color: var(--el-color-primary)">
+                            <a href="" style="color: var(--workspace-main)">
                               {{ item?.group?.name }} </a
                             >&nbsp; <span>{{ item.template2 }}</span
                             >&nbsp;
-                            <a href="" style="color: var(--el-color-primary)">
+                            <a href="" style="color: var(--workspace-main)">
                               {{ item?.project?.name }}
                             </a>
                           </span>
@@ -526,7 +526,7 @@ onBeforeUnmount(() => {
 .activitiesList {
   padding: 0 24px 8px 24px;
   .username {
-    color: var(--el-text-color-regular);
+    color: var(--workspace-text);
   }
   .event {
     font-weight: normal;
@@ -537,7 +537,7 @@ onBeforeUnmount(() => {
   display: flex;
   padding: 12px;
   margin-bottom: 24px;
-  box-shadow: var(--el-box-shadow-light);
+  border: 1px solid var(--workspace-border);
   .avatar {
     flex: 0 1 72px;
     & > span {
@@ -552,11 +552,11 @@ onBeforeUnmount(() => {
     top: 4px;
     flex: 1 1 auto;
     margin-left: 24px;
-    color: var(--el-text-color-secondary);
+    color: var(--workspace-text-secondary);
     line-height: 22px;
     .contentTitle {
       margin-bottom: 12px;
-      color: var(--el-text-color-primary);
+      color: var(--workspace-text);
       font-weight: 500;
       font-size: 20px;
       line-height: 28px;
@@ -575,17 +575,17 @@ onBeforeUnmount(() => {
     padding: 0 32px;
     > p:first-child {
       margin-bottom: 4px;
-      color: var(--el-text-color-secondary);
+      color: var(--workspace-text-secondary);
       font-size: 14px;
       line-height: 22px;
     }
     > p {
       margin: 0;
-      color: var(--el-text-color-primary);
+      color: var(--workspace-text);
       font-size: 30px;
       line-height: 38px;
       > span {
-        color: var(--el-text-color-secondary);
+        color: var(--workspace-text-secondary);
         font-size: 20px;
       }
     }
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
       right: 0;
       width: 1px;
       height: 40px;
-      background-color: var(--el-border-color);
+      background-color: var(--workspace-border);
       content: "";
     }
     &:last-child {
@@ -612,7 +612,7 @@ onBeforeUnmount(() => {
     display: block;
     height: 24px;
     margin: 12px 0;
-    color: var(--el-text-color-regular);
+    color: var(--workspace-text);
     transition: all 0.3s;
     .textOverflow();
     .member {
@@ -622,7 +622,7 @@ onBeforeUnmount(() => {
       vertical-align: top;
     }
     &:hover {
-      color: var(--el-color-primary);
+      color: var(--workspace-main);
     }
   }
 }
@@ -631,7 +631,7 @@ onBeforeUnmount(() => {
   :deep(.ant-card-meta-description) {
     height: 44px;
     overflow: hidden;
-    color: var(--el-text-color-secondary);
+    color: var(--workspace-text-secondary);
     line-height: 22px;
   }
   .cardTitle {
@@ -640,12 +640,12 @@ onBeforeUnmount(() => {
       display: inline-block;
       height: 24px;
       margin-left: 12px;
-      color: var(--el-text-color-primary);
+      color: var(--workspace-text);
       font-size: 14px;
       line-height: 24px;
       vertical-align: top;
       &:hover {
-        color: var(--el-color-primary);
+        color: var(--workspace-main);
       }
     }
   }
@@ -664,22 +664,22 @@ onBeforeUnmount(() => {
     a {
       display: inline-block;
       flex: 1 1 0;
-      color: var(--el-text-color-secondary);
+      color: var(--workspace-text-secondary);
       .textOverflow();
       &:hover {
-        color: var(--el-color-primary);
+        color: var(--workspace-main);
       }
     }
     .datetime {
       flex: 0 0 auto;
       float: right;
-      color: var(--el-text-color-placeholder);
+      color: var(--workspace-text-muted);
     }
   }
 }
 
 .datetime {
-  color: var(--el-text-color-placeholder);
+  color: var(--workspace-text-muted);
 }
 
 @media screen and (max-width: 1200px) and (min-width: 992px) {

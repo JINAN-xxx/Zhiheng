@@ -1,9 +1,9 @@
 <template>
   <div class="user-info-head" @click="editCropper()">
     <img :src="options.img" title="点击上传头像" class="img-circle img-lg" />
-    <el-dialog :title="title" v-model="open" width="800px" append-to-body @opened="modalOpened" @close="closeDialog">
-      <el-row>
-        <el-col :xs="24" :md="12" :style="{ height: '350px' }">
+    <a-modal :title="title" v-model:open="open" :width="800" :footer="null" :after-close="closeDialog">
+      <a-row :gutter="20">
+        <a-col :xs="24" :md="12" :style="{ height: '350px' }">
           <vue-cropper
             ref="cropper"
             :img="options.img"
@@ -16,51 +16,37 @@
             @realTime="realTime"
             v-if="visible"
           />
-        </el-col>
-        <el-col :xs="24" :md="12" :style="{ height: '350px' }">
+        </a-col>
+        <a-col :xs="24" :md="12" :style="{ height: '350px' }">
           <div class="avatar-upload-preview">
             <img :src="options.previews.url" :style="options.previews.img" />
           </div>
-        </el-col>
-      </el-row>
+        </a-col>
+      </a-row>
       <br />
-      <el-row>
-        <el-col :lg="2" :md="2">
-          <el-upload
-            action="#"
-            :http-request="requestUpload"
+      <div class="avatar-tools">
+          <a-upload
+            accept="image/*"
             :show-file-list="false"
             :before-upload="beforeUpload"
           >
-            <el-button>
-              选择
-              <el-icon class="el-icon--right"><Upload /></el-icon>
-            </el-button>
-          </el-upload>
-        </el-col>
-        <el-col :lg="{ span: 1, offset: 2 }" :md="2">
-          <el-button icon="Plus" @click="changeScale(1)"></el-button>
-        </el-col>
-        <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="Minus" @click="changeScale(-1)"></el-button>
-        </el-col>
-        <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="RefreshLeft" @click="rotateLeft()"></el-button>
-        </el-col>
-        <el-col :lg="{ span: 1, offset: 1 }" :md="2">
-          <el-button icon="RefreshRight" @click="rotateRight()"></el-button>
-        </el-col>
-        <el-col :lg="{ span: 2, offset: 6 }" :md="2">
-          <el-button type="primary" @click="uploadImg()">提 交</el-button>
-        </el-col>
-      </el-row>
-    </el-dialog>
+            <a-button><UploadOutlined />选择</a-button>
+          </a-upload>
+          <a-tooltip title="放大"><a-button aria-label="放大" @click="changeScale(1)"><PlusOutlined /></a-button></a-tooltip>
+          <a-tooltip title="缩小"><a-button aria-label="缩小" @click="changeScale(-1)"><MinusOutlined /></a-button></a-tooltip>
+          <a-tooltip title="向左旋转"><a-button aria-label="向左旋转" @click="rotateLeft()"><RotateLeftOutlined /></a-button></a-tooltip>
+          <a-tooltip title="向右旋转"><a-button aria-label="向右旋转" @click="rotateRight()"><RotateRightOutlined /></a-button></a-tooltip>
+          <a-button class="avatar-submit" type="primary" @click="uploadImg()"><SaveOutlined />提交</a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup>
+import { MinusOutlined, PlusOutlined, RotateLeftOutlined, RotateRightOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import "vue-cropper/dist/index.css";
 import { VueCropper } from "vue-cropper";
+import feedback from '@/plugins/antdFeedback'
 import { uploadAvatar } from "@/api/system/user";
 import useUserStore from "@/store/modules/user";
 
@@ -85,14 +71,9 @@ const options = reactive({
 
 /** 编辑头像 */
 function editCropper() {
+  visible.value = true;
   open.value = true;
 }
-/** 打开弹出层结束时的回调 */
-function modalOpened() {
-  visible.value = true;
-}
-/** 覆盖默认上传行为 */
-function requestUpload() {}
 /** 向左旋转 */
 function rotateLeft() {
   proxy.$refs.cropper.rotateLeft();
@@ -109,7 +90,7 @@ function changeScale(num) {
 /** 上传预处理 */
 function beforeUpload(file) {
   if (file.type.indexOf("image/") == -1) {
-    proxy.$modal.msgError("文件格式错误，请上传图片类型,如：JPG，PNG后缀的文件。");
+    feedback.msgError("文件格式错误，请上传图片类型,如：JPG，PNG后缀的文件。");
   } else {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -118,6 +99,7 @@ function beforeUpload(file) {
       options.filename = file.name;
     };
   }
+  return false;
 }
 /** 上传图片 */
 function uploadImg() {
@@ -128,7 +110,7 @@ function uploadImg() {
       open.value = false;
       options.img = import.meta.env.VITE_APP_BASE_API + response.imgUrl;
       userStore.avatar = options.img;
-      proxy.$modal.msgSuccess("修改成功");
+      feedback.msgSuccess("修改成功");
       visible.value = false;
     });
   });
@@ -140,7 +122,7 @@ function realTime(data) {
 /** 关闭窗口 */
 function closeDialog() {
   options.img = userStore.avatar;
-  options.visible = false;
+  visible.value = false;
 }
 </script>
 
@@ -168,4 +150,13 @@ function closeDialog() {
   line-height: 110px;
   border-radius: 50%;
 }
+
+.avatar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-submit { margin-left: auto; }
 </style>
