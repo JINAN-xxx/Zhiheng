@@ -228,9 +228,12 @@ onBeforeUnmount(invalidateFileReads)
 </script>
 
 <style scoped>
-.engine-form { padding: 0 4px 16px; }
-.field-help { margin-left: 5px; color: var(--workspace-text-secondary); vertical-align: -2px; }
+.engine-form { padding: 0 4px 16px; color: var(--color-text); }
+.engine-form :deep(.ant-form-item-label > label) { color: var(--color-text); }
+.engine-form :deep(.ant-input), .engine-form :deep(.ant-input-affix-wrapper), .engine-form :deep(.ant-select-selector), .engine-form :deep(.ant-input-number) { border-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.engine-form :deep(.ant-input::placeholder) { color: var(--color-text-tertiary); }
+.field-help { margin-left: 5px; color: var(--color-text-secondary); vertical-align: -2px; }
 .upload-field { display: flex; min-width: 0; align-items: center; gap: 10px; }
-.file-name { min-width: 0; overflow: hidden; color: var(--workspace-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.file-name { min-width: 0; overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 </style>

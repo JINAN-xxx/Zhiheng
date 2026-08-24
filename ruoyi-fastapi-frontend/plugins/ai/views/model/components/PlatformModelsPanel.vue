@@ -408,9 +408,14 @@ defineExpose({ refresh: load })
 </script>
 
 <style scoped>
-.workspace-panel { min-height: 360px; }
+.workspace-panel { min-height: 360px; color: var(--color-text); }
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--workspace-text-secondary); font-size: 12px; }
+.panel-summary { color: var(--color-text-secondary); font-size: 12px; }
+.model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
+.model-table :deep(.ant-table-thead > tr > th) { height: 44px; border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.model-table :deep(.ant-table-tbody > tr > td) { height: 46px; border-bottom-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--main-50) !important; }
+.model-table :deep(.ant-tag) { border: 0; border-radius: 999px; }
 .tag-list, .row-actions { display: flex; align-items: center; gap: 6px; }
 .binding-value { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .binding-value .resource-value { flex: 1 1 auto; }
@@ -419,11 +424,11 @@ defineExpose({ refresh: load })
 .mobile-model-cell { display: grid; min-width: 0; gap: 8px; }
 .mobile-model-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .resource-text { min-width: 0; overflow: hidden; font-family: var(--ai-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
-.copy-button:hover { color: var(--workspace-main); }
+.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.copy-button:hover { background: var(--gray-10); color: var(--main-700); }
 .copy-button svg { width: 14px; height: 14px; }
-.muted { color: var(--workspace-text-tertiary, #8c8c8c); }
-.warning-action { color: #d48806; }
+.muted { color: var(--color-text-tertiary); }
+.warning-action { color: var(--color-warning-700); }
 .rate-context { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mobile-actions { display: none; }

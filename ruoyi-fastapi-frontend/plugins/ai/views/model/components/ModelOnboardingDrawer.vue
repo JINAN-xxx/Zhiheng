@@ -679,11 +679,15 @@ onBeforeUnmount(invalidateRequests)
 <style scoped>
 .onboarding-body {
   min-height: 460px;
+  color: var(--color-text);
   font-size: 13px;
 }
 .workflow-steps {
   margin: 4px 0 28px;
 }
+.workflow-steps :deep(.ant-steps-item-title) { color: var(--color-text-secondary); }
+.workflow-steps :deep(.ant-steps-item-process .ant-steps-item-title) { color: var(--main-700); }
+.workflow-steps :deep(.ant-steps-item-tail::after) { background: var(--gray-150); }
 .workflow-error {
   margin-bottom: 18px;
 }
@@ -711,7 +715,7 @@ onBeforeUnmount(invalidateRequests)
 }
 .section-heading p {
   margin: 6px 0 0;
-  color: var(--workspace-text-muted);
+  color: var(--color-text-secondary);
   line-height: 1.6;
 }
 .credential-choice {
@@ -722,7 +726,7 @@ onBeforeUnmount(invalidateRequests)
   margin-bottom: 18px;
 }
 .choice-label {
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-weight: 500;
 }
 .resource-strip,
@@ -731,8 +735,9 @@ onBeforeUnmount(invalidateRequests)
   min-width: 0;
   align-items: center;
   gap: 10px;
-  border-top: 1px solid var(--workspace-border);
-  border-bottom: 1px solid var(--workspace-border);
+  border-top: 1px solid var(--gray-150);
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--gray-0);
   padding: 10px 0;
   margin-bottom: 18px;
 }
@@ -746,7 +751,7 @@ onBeforeUnmount(invalidateRequests)
 }
 .strip-alias {
   margin-left: auto;
-  color: var(--workspace-text-muted);
+  color: var(--color-text-tertiary);
 }
 .catalog-grid {
   display: grid;
@@ -757,8 +762,12 @@ onBeforeUnmount(invalidateRequests)
   margin-bottom: 12px;
 }
 .advanced-settings :deep(.ant-collapse-content-box) {
+  border-top: 1px solid var(--gray-150);
+  background: var(--gray-0);
   padding: 16px;
 }
+.advanced-settings :deep(.ant-collapse) { border-color: var(--gray-150); background: var(--gray-10); }
+.advanced-settings :deep(.ant-collapse-header) { color: var(--color-text) !important; }
 .advanced-settings :deep(.ant-checkbox-group) {
   display: flex;
   flex-wrap: wrap;
@@ -774,7 +783,7 @@ onBeforeUnmount(invalidateRequests)
   margin: 0 auto;
 }
 .retained-resources {
-  border-top: 1px solid var(--workspace-border);
+  border-top: 1px solid var(--gray-150);
 }
 .retained-row {
   margin: 0;
@@ -783,7 +792,7 @@ onBeforeUnmount(invalidateRequests)
 .retained-row span:first-child {
   width: 142px;
   flex: 0 0 142px;
-  color: var(--workspace-text-muted);
+  color: var(--color-text-tertiary);
 }
 @media (max-width: 640px) {
   .workflow-steps :deep(.ant-steps-item-title) {

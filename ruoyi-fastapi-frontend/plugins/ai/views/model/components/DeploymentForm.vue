@@ -191,9 +191,14 @@ async function submit() {
 </script>
 
 <style scoped>
-.engine-form { padding: 0 4px 16px; }
+.engine-form { padding: 0 4px 16px; color: var(--color-text); }
+.engine-form :deep(.ant-form-item-label > label) { color: var(--color-text); }
+.engine-form :deep(.ant-input), .engine-form :deep(.ant-input-affix-wrapper), .engine-form :deep(.ant-select-selector), .engine-form :deep(.ant-input-number) { border-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.engine-form :deep(.ant-input::placeholder) { color: var(--color-text-tertiary); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
-.advanced-settings { margin-bottom: 12px; }
+.advanced-settings { margin-bottom: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-10); }
+.advanced-settings :deep(.ant-collapse-header) { color: var(--color-text) !important; }
+.advanced-settings :deep(.ant-collapse-content) { border-top-color: var(--gray-150); background: var(--gray-0); }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 12px; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }

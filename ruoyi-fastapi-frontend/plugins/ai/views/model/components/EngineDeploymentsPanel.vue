@@ -11,7 +11,7 @@
     <a-alert v-else-if="error" message="引擎部署加载失败" type="error" show-icon>
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>
-    <a-table v-if="rows.length || loading" :columns="columns" :data-source="rows" :loading="loading" :pagination="false" row-key="deploymentId" table-layout="fixed">
+    <a-table v-if="rows.length || loading" class="model-table" :columns="columns" :data-source="rows" :loading="loading" :pagination="false" row-key="deploymentId" table-layout="fixed">
       <template #bodyCell="{ column, record: row }">
         <template v-if="column.key === 'deploymentId'"><code :title="row.deploymentId">{{ row.deploymentId }}</code></template>
         <template v-else-if="column.key === 'alias'"><code :title="row.alias">{{ row.alias }}</code></template>
@@ -36,7 +36,7 @@
     </a-table>
     <a-empty v-else-if="!error && !notConfigured" description="暂无引擎部署" :image-style="{ height: '72px' }" />
 
-    <a-drawer v-model:open="drawerOpen" title="编辑引擎部署" width="min(720px, 100%)" destroy-on-close>
+    <a-drawer v-model:open="drawerOpen" root-class-name="model-form-drawer" title="编辑引擎部署" width="min(720px, 100%)" destroy-on-close>
       <DeploymentForm
         v-if="editing"
         :deployment="editing"
@@ -179,12 +179,19 @@ defineExpose({ refresh: load })
 </script>
 
 <style scoped>
-.workspace-panel { min-height: 360px; }
+.workspace-panel { min-height: 360px; color: var(--color-text); }
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--workspace-text-secondary); font-size: 12px; }
+.panel-summary { color: var(--color-text-secondary); font-size: 12px; }
+.model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
+.model-table :deep(.ant-table-thead > tr > th) { height: 44px; border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.model-table :deep(.ant-table-tbody > tr > td) { height: 46px; border-bottom-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--gray-50) !important; }
+.model-table :deep(.ant-tag) { border: 0; border-radius: 999px; }
 .row-actions { display: flex; justify-content: flex-end; gap: 5px; }
 .mobile-actions { display: none; }
-code { font-family: var(--ai-font-mono); font-size: 12px; }
+code { font-family: var(--ai-font-mono); color: var(--color-text); font-size: 12px; }
+:global(.model-form-drawer .ant-drawer-content) { background: var(--gray-0); }
+:global(.model-form-drawer .ant-drawer-header) { border-bottom: 1px solid var(--gray-150); background: var(--gray-0); }
 @media (max-width: 760px) {
   .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }

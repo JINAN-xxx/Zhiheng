@@ -12,6 +12,7 @@
       <template #action><a-button type="link" size="small" @click="load">重新加载</a-button></template>
     </a-alert>
     <a-table
+      class="model-table"
       :columns="columns"
       :data-source="statuses"
       :loading="loading"
@@ -76,7 +77,12 @@ defineExpose({ refresh: load })
 </script>
 
 <style scoped>
-.workspace-panel { min-height: 360px; }
+.workspace-panel { min-height: 360px; color: var(--color-text); }
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--workspace-text-secondary); font-size: 12px; }
+.panel-summary { color: var(--color-text-secondary); font-size: 12px; }
+.model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
+.model-table :deep(.ant-table-thead > tr > th) { height: 44px; border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.model-table :deep(.ant-table-tbody > tr > td) { height: 46px; border-bottom-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--gray-50) !important; }
+.model-table :deep(.ant-tag) { border: 0; border-radius: 999px; }
 </style>

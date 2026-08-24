@@ -79,6 +79,44 @@ assert.doesNotMatch(modelSources, /Model Service|Provider 凭据|Model ID|Model 
 assert.doesNotMatch(modelSources, /Management Key|title:\s*'Alias'|title:\s*'Blocked'/)
 assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /mobile-model-meta/)
 
+for (const fileName of modelFiles) {
+  const source = readFileSync(fileName, 'utf8')
+  assert.doesNotMatch(source, /#(?:2f7e78|226862|409eff)/i, `${fileName} must not use legacy brand colors`)
+  assert.doesNotMatch(source, /box-shadow\s*:/, `${fileName} must not add panel shadows`)
+  assert.match(source, /var\(--(?:gray-(?:0|10|25|50|150)|main-(?:50|700)|color-(?:text(?:-secondary|-tertiary)?|success-(?:50|700)|warning-(?:50|700|900)|error-(?:50|700)))\)/, `${fileName} must use Yuxi surface tokens`)
+}
+
+const modelIndex = readFileSync('plugins/ai/views/model/index.vue', 'utf8')
+assert.match(modelIndex, /\.model-workspace\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*(?:[0-8]px|var\(--workspace-radius-sm\))\s*;[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab\)\s*\{\s*height:\s*(?:44|45|46|47|48)px/)
+assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab-active[^\n]*\)[\s\S]*color:\s*var\(--main-700\)/)
+assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-table-tbody > tr > td\)\s*\{\s*height:\s*(?:44|45|46|47|48)px/)
+
+for (const fileName of [
+  'plugins/ai/views/model/components/PlatformModelsPanel.vue',
+  'plugins/ai/views/model/components/EngineDeploymentsPanel.vue',
+  'plugins/ai/views/model/components/CredentialsPanel.vue',
+]) {
+  const source = readFileSync(fileName, 'utf8')
+  assert.match(source, /(?:\.model-table|:deep\(\.ant-table)/, `${fileName} must style its resource table`)
+  assert.match(source, /var\(--gray-150\)/, `${fileName} must use a Yuxi table border`)
+  assert.match(source, /var\(--gray-(?:10|25)\)/, `${fileName} must use a Yuxi table header surface`)
+}
+
+const runtimeStatus = readFileSync('plugins/ai/views/model/components/RuntimeStatusPanel.vue', 'utf8')
+assert.match(runtimeStatus, /var\(--gray-0\)/)
+assert.match(runtimeStatus, /var\(--gray-150\)/)
+const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOnboardingDrawer.vue', 'utf8')
+assert.match(onboardingDrawer, /var\(--gray-0\)/)
+assert.match(onboardingDrawer, /var\(--gray-150\)/)
+for (const fileName of [
+  'plugins/ai/views/model/components/CredentialForm.vue',
+  'plugins/ai/views/model/components/DeploymentForm.vue',
+]) {
+  const source = readFileSync(fileName, 'utf8')
+  assert.match(source, /var\(--(?:gray-150|color-text-secondary)\)/, `${fileName} must use Yuxi form tokens`)
+}
+
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')
 assert.match(applicationView, /a-modal/)
