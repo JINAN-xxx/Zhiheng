@@ -141,7 +141,19 @@ def response_for(path: str, method: str, access: str) -> dict:
         return {"code": 200, "data": routes_for(access)}
     if path == "/ai/chat/session/list":
         return {"code": 200, "rows": SESSIONS}
-    if path.startswith("/ai/chat/session/"):
+    if path.startswith("/ai/chat/session/") and method == "PATCH":
+        return {
+            "code": 200,
+            "data": {
+                "sessionId": path.rsplit("/", 1)[-1],
+                "modelId": "mdl_11111111111141118111111111111111",
+                "title": "已重命名会话",
+                "status": "active",
+                "createdAt": "2026-08-20T07:00:00Z",
+                "updatedAt": "2026-08-24T02:00:00Z",
+            },
+        }
+    if path.startswith("/ai/chat/session/") and method == "GET":
         return {
             "code": 200,
             "data": {
@@ -355,8 +367,24 @@ async def check_desktop(browser: Browser) -> None:
     assert await page.get_by_text("分析会话", exact=True).count() == 1
     await page.unroute("**/dev-api/ai/chat/session/list", fail_session_refresh)
 
-    await page.get_by_text("分析会话", exact=True).click()
-    await page.wait_for_url("**/ai/chat?sessionId=session-analysis")
+    session_row = page.locator(".recent-session").filter(has_text="分析会话")
+    await session_row.get_by_role("button", name="更多操作").click()
+    await page.get_by_text("重命名", exact=True).click()
+    prompt = page.locator(".ant-modal").last
+    await prompt.locator("input").fill("已重命名会话")
+    await prompt.locator(".ant-btn-primary").click()
+    await page.get_by_text("已重命名会话", exact=True).wait_for()
+
+    renamed_row = page.locator(".recent-session").filter(has_text="已重命名会话")
+    await renamed_row.get_by_role("button", name="更多操作").click()
+    await page.get_by_text("删除会话", exact=True).click()
+    confirm = page.locator(".ant-modal").last
+    await confirm.get_by_text("删除后无法恢复", exact=False).wait_for()
+    await confirm.locator(".ant-btn-primary").click()
+    await page.get_by_text("已重命名会话", exact=True).wait_for(state="hidden")
+
+    await page.get_by_text("规划会话", exact=True).click()
+    await page.wait_for_url("**/ai/chat?sessionId=session-planning")
     await page.get_by_text("这是已保存的会话内容。", exact=True).wait_for()
     await page.go_back()
     await page.wait_for_url("**/ai/chat")
