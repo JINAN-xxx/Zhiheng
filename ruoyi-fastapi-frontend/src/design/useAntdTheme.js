@@ -12,10 +12,6 @@ export function useAntdTheme() {
     return {
       ...baseTheme,
       algorithm: settingsStore.isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-      token: {
-        ...baseTheme.token,
-        colorPrimary: settingsStore.theme || baseTheme.token.colorPrimary,
-      },
     }
   })
 

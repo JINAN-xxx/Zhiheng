@@ -1,10 +1,8 @@
-// 处理主题样式
-export function handleThemeStyle(theme) {
+// Sync the workspace theme marker with the document's dark-mode class.
+export function handleThemeStyle() {
   if (typeof document === 'undefined') return
 
   const isDark = document.documentElement.classList.contains('dark')
-  const primary = isDark ? softenPrimaryForDark(theme) : theme
-  document.documentElement.style.setProperty('--workspace-main', primary)
   document.documentElement.dataset.workspaceTheme = isDark ? 'dark' : 'light'
 }
 

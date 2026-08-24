@@ -16,7 +16,7 @@ const useSettingsStore = defineStore(
     state: () => ({
       title: '',
       platformShell: true,
-      theme: storageSetting.theme || '#3996AE',
+      theme: '#046A82',
       sideTheme: storageSetting.sideTheme || sideTheme,
       showSettings: showSettings,
       tagsView: true,
@@ -34,7 +34,7 @@ const useSettingsStore = defineStore(
       // 修改布局设置
       changeSetting(data) {
         const { key, value } = data
-        if (this.hasOwnProperty(key)) {
+        if (key !== 'theme' && this.hasOwnProperty(key)) {
           this[key] = value
         }
       },
@@ -48,7 +48,7 @@ const useSettingsStore = defineStore(
         this.isDark = !this.isDark
         toggleDark()
         nextTick(() => {
-          handleThemeStyle(this.theme)
+          handleThemeStyle()
         })
       }
     }

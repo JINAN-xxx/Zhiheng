@@ -6,11 +6,6 @@
     </div>
 
     <div class="drawer-item">
-      <span>主题颜色</span>
-      <el-color-picker v-model="theme" :predefine="predefineColors" @change="themeChange" />
-    </div>
-
-    <div class="drawer-item">
       <span>深色模式</span>
       <el-switch v-model="darkMode" />
     </div>
@@ -42,14 +37,11 @@
 <script setup>
 import useAppStore from '@/store/modules/app'
 import useSettingsStore from '@/store/modules/settings'
-import { handleThemeStyle } from '@/utils/theme'
 
 const { proxy } = getCurrentInstance()
 const appStore = useAppStore()
 const settingsStore = useSettingsStore()
 const showSettings = ref(false)
-const theme = ref(settingsStore.theme)
-const predefineColors = ['#3996AE', '#2563EB', '#0F766E', '#4F46E5', '#C2410C', '#BE123C']
 const sizeOptions = [
   { label: '紧凑', value: 'small' },
   { label: '标准', value: 'default' },
@@ -72,17 +64,11 @@ function dynamicTitleChange() {
   settingsStore.setTitle(settingsStore.title)
 }
 
-function themeChange(value) {
-  settingsStore.theme = value
-  handleThemeStyle(value)
-}
-
 function saveSetting() {
   proxy.$modal.loading('正在保存到本地，请稍候...')
   localStorage.setItem('layout-setting', JSON.stringify({
     fixedHeader: settingsStore.fixedHeader,
     dynamicTitle: settingsStore.dynamicTitle,
-    theme: settingsStore.theme,
   }))
   setTimeout(() => proxy.$modal.closeLoading(), 300)
 }

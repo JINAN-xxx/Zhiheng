@@ -113,9 +113,12 @@ assert.match(usageView, /listApplicationUsage/)
 assert.match(usageView, /数据可能已过期/)
 
 assert.doesNotMatch(settings, /navType|顶部菜单|混合菜单|侧边栏主题|标签页样式/)
+assert.doesNotMatch(settings, /el-color-picker|predefineColors|themeChange|主题颜色/)
 assert.match(settings, /深色模式/)
 assert.match(settingsStore, /platformShell:\s*true/)
 assert.doesNotMatch(settingsStore, /storageSetting\.navType/)
+assert.doesNotMatch(settingsStore, /storageSetting\.theme/)
+assert.doesNotMatch(settings, /theme:\s*settingsStore\.theme/)
 assert.match(defaultSettings, /tagsView:\s*true/)
 
 assert.match(styles, /--platform-sidebar-width:\s*184px/)
