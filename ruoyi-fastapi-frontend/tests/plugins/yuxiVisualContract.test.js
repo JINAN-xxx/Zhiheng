@@ -2,10 +2,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const readWorkspace = (fileName) => readFileSync(`src/components/Workspace/${fileName}`, 'utf8')
+const readGlobalStyle = (fileName) => readFileSync(`src/assets/styles/${fileName}`, 'utf8')
 
 const toolbar = readWorkspace('WorkspaceToolbar.vue')
 const panel = readWorkspace('WorkspacePanel.vue')
 const state = readWorkspace('WorkspaceState.vue')
+const globalStyles = [
+  ['ruoyi.scss', readGlobalStyle('ruoyi.scss')],
+  ['sidebar.scss', readGlobalStyle('sidebar.scss')],
+  ['index.scss', readGlobalStyle('index.scss')],
+]
+
+for (const [fileName, source] of globalStyles) {
+  assert.doesNotMatch(source, /#2f7e78|#226862|#409eff|#20b2aa|#48d1cc|#42b983/i, `${fileName} must not contain a legacy theme color`)
+}
 
 for (const source of [toolbar, panel, state]) {
   assert.doesNotMatch(source.toLowerCase(), /#2f7e78|#226862|#409eff/)

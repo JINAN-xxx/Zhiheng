@@ -124,14 +124,14 @@
           content: '';
           position: absolute;
           inset: 0;
-          background-color: var(--current-color-dark-bg, rgba(64, 158, 255, 0.2));
+          background-color: var(--current-color-dark-bg, color-mix(in srgb, var(--main-color) 20%, transparent));
           pointer-events: none;
           z-index: 1;
         }
       }
 
       .el-sub-menu.is-active > .el-sub-menu__title {
-        color: var(--current-color, #409eff) !important;
+        color: var(--current-color, var(--main-color)) !important;
       }
 
       .el-menu-item:not(.is-active),
@@ -150,52 +150,52 @@
         }
 
         &:hover::before {
-          background-color: var(--current-color-dark-bg, rgba(64, 158, 255, 0.2));
+          background-color: var(--current-color-dark-bg, color-mix(in srgb, var(--main-color) 20%, transparent));
         }
       }
     }
 
     // theme-light 浅色主题
     &.theme-light {
-      border-right: 1px solid #e8eaf0;
+      border-right: 1px solid var(--gray-150);
       box-shadow: none;
 
       .el-menu-item,
       .el-sub-menu__title {
-        color: rgba(0, 0, 0, 0.65);
+        color: var(--color-text-secondary);
       }
 
       .el-menu-item.is-active {
-        color: var(--current-color, #409eff) !important;
+        color: var(--current-color, var(--main-color)) !important;
         position: relative;
 
         &::before {
           content: '';
           position: absolute;
           inset: 0;
-          background-color: var(--current-color-light, #ecf5ff);
+          background-color: var(--current-color-light, color-mix(in srgb, var(--main-color) 10%, var(--gray-0)));
           pointer-events: none;
           z-index: 1;
         }
       }
 
       .el-sub-menu.is-active > .el-sub-menu__title {
-        color: var(--current-color, #409eff) !important;
+        color: var(--current-color, var(--main-color)) !important;
       }
 
       .el-menu-item:not(.is-active):hover,
       .submenu-title-noDropdown:hover,
       .el-sub-menu__title:hover {
-        background-color: #f5f7fa;
-        color: rgba(0, 0, 0, 0.85) !important;
+        background-color: var(--gray-50);
+        color: var(--color-text) !important;
       }
 
       .nest-menu .el-sub-menu > .el-sub-menu__title,
       .el-sub-menu .el-menu-item {
-        background-color: #fafafa;
+        background-color: var(--gray-10);
 
         &:hover {
-          background-color: #f0f5ff;
+          background-color: color-mix(in srgb, var(--main-color) 6%, var(--gray-0));
         }
       }
     }
@@ -313,7 +313,7 @@
     overflow-y: auto;
 
     &::-webkit-scrollbar-track-piece {
-      background: #d3dce6;
+      background: var(--gray-200);
     }
 
     &::-webkit-scrollbar {
@@ -321,7 +321,7 @@
     }
 
     &::-webkit-scrollbar-thumb {
-      background: #99a9bf;
+      background: var(--gray-500);
       border-radius: 20px;
     }
   }

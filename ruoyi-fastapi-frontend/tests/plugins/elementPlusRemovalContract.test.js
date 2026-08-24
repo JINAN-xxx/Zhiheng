@@ -36,7 +36,7 @@ export const scanElementPlusReferences = () => sourceRoots
 const references = scanElementPlusReferences()
 
 assert.ok(references.length > 0, '迁移基线应包含 Element Plus 引用')
-assert.ok(references.length <= 102, 'Task 7 后 Element Plus 引用文件不应回升')
+assert.ok(references.length <= 42, 'Task 9 后 Element Plus 引用文件不应回升')
 assert.ok(references.includes('src/main.js'))
 for (const migratedFile of [
   'plugins/ai/views/chat/index.vue',
