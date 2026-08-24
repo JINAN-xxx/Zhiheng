@@ -9,6 +9,9 @@ const assertNoLegacySurfaceBackground = (fileName, source) => {
 }
 const collectSourceFiles = (directory, extensions) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const fileName = join(directory, entry.name)
+  if (entry.isSymbolicLink()) {
+    throw new Error(`Refusing to scan symbolic link: ${fileName}`)
+  }
   if (entry.isDirectory()) return collectSourceFiles(fileName, extensions)
   return entry.isFile() && extensions.some((extension) => fileName.endsWith(extension)) ? [fileName] : []
 })
@@ -20,8 +23,10 @@ const legacyThemeColorPatterns = [
 const findLegacyThemeColors = (source) => legacyThemeColorPatterns
   .filter(([, pattern]) => pattern.test(source))
   .map(([color]) => color)
-const frontendStyleFiles = ['src', 'plugins/ai']
-  .flatMap((directory) => collectSourceFiles(directory, ['.vue', '.js', '.scss', '.css']))
+const frontendSourceRoots = ['src', 'plugins']
+const frontendSourceExtensions = ['.vue', '.js', '.ts', '.jsx', '.tsx', '.scss', '.css', '.less', '.sass']
+const frontendStyleFiles = frontendSourceRoots
+  .flatMap((directory) => collectSourceFiles(directory, frontendSourceExtensions))
   .sort()
 
 const toolbar = readWorkspace('WorkspaceToolbar.vue')
@@ -56,6 +61,10 @@ const globalStyles = [
   ['sidebar.scss', readGlobalStyle('sidebar.scss')],
   ['index.scss', readGlobalStyle('index.scss')],
 ]
+
+assert.deepEqual(frontendSourceRoots, ['src', 'plugins'], 'legacy theme scan must cover all frontend roots')
+assert.deepEqual(frontendSourceExtensions, ['.vue', '.js', '.ts', '.jsx', '.tsx', '.scss', '.css', '.less', '.sass'], 'legacy theme scan must cover frontend source extensions')
+assert.match(collectSourceFiles.toString(), /entry\.isSymbolicLink\(\)[\s\S]*?throw new Error/, 'source collector must reject symbolic links')
 
 for (const [fileName, source] of coreSurfaceFiles) {
   assertNoLegacySurfaceBackground(fileName, source)
@@ -124,6 +133,9 @@ assert.match(
 )
 
 assert.match(transportCrypto, /function resolveThemeColor\(token, fallback\)[\s\S]*?getComputedStyle\(document\.documentElement\)\.getPropertyValue\(token\)\.trim\(\)/)
+assert.match(transportCrypto, /import useSettingsStore from '@\/store\/modules\/settings'/)
+assert.match(transportCrypto, /const settingsStore = useSettingsStore\(\)/)
+assert.match(transportCrypto, /watch\(\(\) => settingsStore\.isDark, async \(\) => \{\s*await nextTick\(\)\s*renderFailureReasonChart\(\)\s*renderKidStatsChart\(\)\s*\}\)/)
 for (const [token, fallback] of [
   ['--color-error-500', '#ff4d4f'],
   ['--color-warning-500', '#faad14'],

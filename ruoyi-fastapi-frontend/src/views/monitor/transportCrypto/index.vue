@@ -271,10 +271,12 @@ import { parseTime } from '@/utils/ruoyi'
 import WorkspacePage from '@/components/Antd/WorkspacePage.vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
+import useSettingsStore from '@/store/modules/settings'
 import * as echarts from 'echarts'
 
 const loading = ref(false)
 const autoRefresh = ref(true)
+const settingsStore = useSettingsStore()
 const failureReasonChartRef = ref(null)
 const kidStatsChartRef = ref(null)
 const selectedFailureReason = ref('')
@@ -851,6 +853,12 @@ function getKidStatRowClassName({ row }) {
 
 watch(autoRefresh, () => {
   resetRefreshTimer()
+})
+
+watch(() => settingsStore.isDark, async () => {
+  await nextTick()
+  renderFailureReasonChart()
+  renderKidStatsChart()
 })
 
 watch(selectedFailureReason, () => {
