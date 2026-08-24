@@ -53,17 +53,9 @@ defineProps({
   place-items: center;
   padding: 84px 24px 64px;
   overflow-x: hidden;
-  background: var(--workspace-bg);
-  color: var(--workspace-text);
+  background: var(--gray-50);
+  color: var(--color-text);
   font-family: var(--workspace-font-family);
-}
-
-.auth-shell::before {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 4px;
-  background: var(--workspace-main);
-  content: '';
 }
 
 .auth-shell__brand {
@@ -73,7 +65,7 @@ defineProps({
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-size: 16px;
   font-weight: 650;
 }
@@ -83,19 +75,18 @@ defineProps({
   width: 32px;
   height: 32px;
   place-items: center;
-  border-radius: var(--workspace-radius-sm);
-  background: var(--workspace-main);
-  color: #fff;
+  border-radius: 8px;
+  background: var(--main-color);
+  color: var(--gray-0);
   font-size: 15px;
 }
 
 .auth-shell__panel {
   width: min(100%, 420px);
   padding: 32px;
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-md);
-  background: var(--workspace-surface);
-  box-shadow: var(--workspace-shadow-float);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--gray-0);
 }
 
 .auth-shell--wide .auth-shell__panel {
@@ -107,14 +98,14 @@ defineProps({
 }
 
 .auth-shell__eyebrow {
-  color: var(--workspace-main-deep);
+  color: var(--main-color);
   font-size: 12px;
   font-weight: 650;
 }
 
 .auth-shell__heading h1 {
   margin: 7px 0 8px;
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-size: 26px;
   font-weight: 650;
   line-height: 1.3;
@@ -122,7 +113,7 @@ defineProps({
 
 .auth-shell__heading p {
   margin: 0;
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 14px;
   line-height: 1.65;
 }
@@ -132,7 +123,7 @@ defineProps({
   right: 24px;
   bottom: 20px;
   left: 24px;
-  color: var(--workspace-text-muted);
+  color: var(--color-text-tertiary);
   font-size: 12px;
   text-align: center;
 }

@@ -1,7 +1,6 @@
 <template>
   <AuthShell
     class="register auth-shell"
-    eyebrow="AI WORKSPACE"
     :brand="title"
     :title="`注册 ${title}`"
     description="创建账户后即可接入模型、管理访问并开始智能协作。"
@@ -164,9 +163,9 @@ getCode()
   height: 40px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-sm);
-  background: var(--workspace-surface-muted);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--gray-50);
   cursor: pointer;
 }
 

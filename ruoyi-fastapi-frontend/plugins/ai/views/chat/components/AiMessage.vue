@@ -85,7 +85,7 @@ function toggleReasoning() {
   .ai-message-content {
     font-size: 14px;
     line-height: 1.6;
-    color: var(--workspace-text);
+    color: var(--color-text);
     overflow-wrap: break-word;
     word-break: break-word;
   }
@@ -93,7 +93,7 @@ function toggleReasoning() {
 
 .reasoning-section {
   margin-bottom: 15px;
-  border-left: 2px solid var(--workspace-border);
+  border-left: 2px solid var(--gray-150);
   padding-left: 10px;
 
   .reasoning-header {
@@ -104,7 +104,7 @@ function toggleReasoning() {
     border: 0;
     background: transparent;
     cursor: pointer;
-    color: var(--workspace-text-secondary);
+    color: var(--color-text-secondary);
     font: inherit;
     font-size: 13px;
     text-align: left;
@@ -122,17 +122,15 @@ function toggleReasoning() {
     .reasoning-status {
       margin-left: 10px;
       font-size: 12px;
-      color: #e6a23c;
+      color: var(--main-color);
       animation: blink 1.5s infinite;
     }
   }
 
   .reasoning-content {
     font-size: 13px;
-    color: var(--workspace-text-secondary);
-    padding: 8px;
-    background-color: var(--workspace-surface-muted);
-    border-radius: var(--workspace-radius-sm);
+    color: var(--color-text-secondary);
+    padding: 8px 0;
     overflow-wrap: break-word;
     word-break: break-word;
   }
@@ -159,7 +157,7 @@ function toggleReasoning() {
     display: inline-block;
     width: 6px;
     height: 6px;
-    background-color: var(--workspace-text-secondary);
+    background-color: var(--color-text-secondary);
     border-radius: 50%;
     animation: typing 1.4s infinite ease-in-out both;
     margin-right: 4px;

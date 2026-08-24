@@ -1,7 +1,6 @@
 <template>
   <AuthShell
     class="login auth-shell"
-    eyebrow="AI WORKSPACE"
     :brand="title"
     :title="`登录 ${title}`"
     description="统一模型接入、对话协作与开发者访问。"
@@ -183,9 +182,9 @@ getCookie()
   height: 40px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-sm);
-  background: var(--workspace-surface-muted);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--gray-50);
   cursor: pointer;
 }
 

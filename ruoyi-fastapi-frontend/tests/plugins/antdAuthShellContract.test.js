@@ -13,7 +13,19 @@ for (const fileName of authPages) {
   const source = readFileSync(fileName, 'utf8')
   assert.doesNotMatch(source, /element-plus|@element-plus\/icons-vue|<el-|--el-/)
   assert.match(source, /auth-shell/)
+  assert.doesNotMatch(source, /#(?:2f7e78|226862|409eff)/i)
+  assert.doesNotMatch(source, /AI WORKSPACE|eyebrow\s*=/)
 }
+
+const authShell = readFileSync('src/components/Antd/AuthShell.vue', 'utf8')
+assert.doesNotMatch(authShell, /auth-shell::before|workspace-shadow-float|box-shadow\s*:/)
+assert.match(authShell, /background:\s*var\(--gray-50\)/)
+assert.match(authShell, /background:\s*var\(--gray-0\)/)
+assert.match(authShell, /border:\s*1px solid var\(--gray-150\)/)
+assert.match(authShell, /border-radius:\s*8px/)
+assert.match(authShell, /color:\s*var\(--color-text\)/)
+assert.match(authShell, /color:\s*var\(--color-text-secondary\)/)
+assert.match(authShell, /auth-shell__brand/)
 
 const login = readFileSync('src/views/login.vue', 'utf8')
 for (const component of ['a-form', 'a-input', 'a-input-password', 'a-checkbox', 'a-button']) {

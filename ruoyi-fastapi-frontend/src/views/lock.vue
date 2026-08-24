@@ -1,7 +1,6 @@
 <template>
   <AuthShell
     class="lock-container auth-shell"
-    eyebrow="SESSION LOCKED"
     title="工作区已锁定"
     description="验证当前账户密码后继续使用。"
   >
@@ -121,11 +120,11 @@ onBeforeUnmount(() => window.clearInterval(timer))
   gap: 20px;
   margin: -6px 0 24px;
   padding-bottom: 18px;
-  border-bottom: 1px solid var(--workspace-border);
+  border-bottom: 1px solid var(--gray-150);
 }
 
 .lock-clock strong {
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-family: var(--workspace-mono);
   font-size: 34px;
   font-weight: 500;
@@ -133,7 +132,7 @@ onBeforeUnmount(() => window.clearInterval(timer))
 }
 
 .lock-clock span {
-  color: var(--workspace-text-muted);
+  color: var(--color-text-tertiary);
   font-size: 12px;
 }
 
@@ -150,12 +149,12 @@ onBeforeUnmount(() => window.clearInterval(timer))
 }
 
 .lock-user strong {
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-size: 16px;
 }
 
 .lock-user span {
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 
