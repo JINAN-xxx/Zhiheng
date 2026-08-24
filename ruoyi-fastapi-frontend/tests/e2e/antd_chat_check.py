@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import os
 
@@ -9,6 +10,7 @@ from platform_shell_check import (
     assert_mobile_profile_layout,
     assert_no_overflow,
     new_page,
+    take_screenshot,
 )
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15175")
@@ -16,14 +18,15 @@ DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 MOBILE_VIEWPORT = {"width": 375, "height": 812}
 
 
-async def take_screenshot(page: Page, page_name: str, viewport: dict[str, int]) -> None:
-    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    await page.screenshot(
-        path=str(
-            SCREENSHOT_DIR
-            / f"chat-{page_name}-{viewport['width']}x{viewport['height']}-light.png"
-        )
-    )
+def check_screenshot_contract() -> None:
+    source = inspect.getsource(take_screenshot)
+    for required_fragment in (
+        "document.fonts.ready",
+        "document.images",
+        "getAnimations",
+        "full_page=True",
+    ):
+        assert required_fragment in source, required_fragment
 
 
 async def install_chat_routes(page: Page) -> tuple[dict, asyncio.Event]:
@@ -143,11 +146,22 @@ async def check_streaming(browser: Browser) -> None:
         await page.get_by_text("已完成", exact=True).wait_for()
         await page.wait_for_url("**/ai/chat?sessionId=session-stream")
         assert trace["send_bodies"][0]["images"] == [{"fileId": "file-1"}]
-        await take_screenshot(page, "answer", DESKTOP_VIEWPORT)
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "chat-answer-1440x900-light.png")
 
         await send_message(page, "停止测试")
         stop_button = page.get_by_role("button", name="停止")
         await stop_button.wait_for()
+        await page.get_by_text("连接中", exact=True).wait_for()
+        assert await page.get_by_role("button", name="发送").count() == 0
+        composer = page.get_by_placeholder("输入消息，按回车发送，按住上档键回车换行")
+        assert await composer.is_disabled()
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "chat-generating-1440x900-light.png")
         stop_width = await stop_button.evaluate(
             "element => element.getBoundingClientRect().width"
         )
@@ -201,7 +215,9 @@ async def check_streaming(browser: Browser) -> None:
         await queue.wait_for(state="hidden")
         assert trace["upload_count"] == 2
         await assert_no_overflow(page)
-        await take_screenshot(page, "stream", DESKTOP_VIEWPORT)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "chat-failed-history-1440x900-light.png")
         assert console_errors == [], console_errors
         assert page_errors == [], page_errors
     finally:
@@ -220,7 +236,7 @@ async def check_mobile(browser: Browser) -> None:
         await page.get_by_text("从一个问题开始", exact=True).wait_for()
         await assert_mobile_profile_layout(page)
         await assert_no_overflow(page)
-        await take_screenshot(page, "mobile", MOBILE_VIEWPORT)
+        await take_screenshot(page, "chat-mobile-375x812-light.png")
         assert console_errors == [], console_errors
         assert page_errors == [], page_errors
     finally:
@@ -228,6 +244,7 @@ async def check_mobile(browser: Browser) -> None:
 
 
 async def main() -> None:
+    check_screenshot_contract()
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
