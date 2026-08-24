@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
@@ -143,6 +143,26 @@ class PlatformChatDao:
                 AiChatSession.user_id == user_id,
             )
             .values(**values)
+        )
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def delete_runs(cls, db: AsyncSession, session_id: str) -> int:
+        result = await db.execute(delete(AiChatRun).where(AiChatRun.session_id == session_id))
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def delete_messages(cls, db: AsyncSession, session_id: str) -> int:
+        result = await db.execute(delete(AiChatMessage).where(AiChatMessage.session_id == session_id))
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def delete_session(cls, db: AsyncSession, session_id: str, *, user_id: int) -> int:
+        result = await db.execute(
+            delete(AiChatSession).where(
+                AiChatSession.session_id == session_id,
+                AiChatSession.user_id == user_id,
+            )
         )
         return int(result.rowcount or 0)
 

@@ -16,6 +16,7 @@ from plugins.ai.entity.vo.ai_platform_chat_vo import (
     PlatformImageReferenceModel,
     PlatformRunModel,
     PlatformSessionPageQueryModel,
+    PlatformSessionRenameRequestModel,
 )
 
 MODEL_ID = 'mdl_00000000000040008000000000000001'
@@ -173,6 +174,9 @@ def test_platform_chat_request_accepts_only_platform_ids_and_file_references() -
         (CancelRunRequestModel, {'runId': SESSION_ID}),
         (PlatformSessionPageQueryModel, {'pageNum': 0}),
         (PlatformSessionPageQueryModel, {'pageSize': 101}),
+        (PlatformSessionRenameRequestModel, {'title': ''}),
+        (PlatformSessionRenameRequestModel, {'title': 'a' * 201}),
+        (PlatformSessionRenameRequestModel, {'title': 'bad\x00title'}),
     ],
 )
 def test_platform_chat_requests_reject_invalid_types_ranges_and_resource_prefixes(model: type, payload: dict) -> None:
@@ -258,6 +262,37 @@ async def test_platform_chat_dao_enforces_session_ownership_and_model_lock(
             )
             == 1
         )
+
+
+@pytest.mark.asyncio
+async def test_platform_chat_dao_permanently_deletes_session_graph_in_foreign_key_order(
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_maker() as session:
+        await _seed_model_and_binding(session)
+        await PlatformChatDao.create_session(session, _session(SESSION_ID, 7, updated_at=NOW))
+        await PlatformChatDao.create_message(
+            session,
+            _message(
+                MESSAGE_ID,
+                'client-delete',
+                role='user',
+                status='complete',
+                content='delete me',
+                created_at=NOW,
+            ),
+        )
+        await PlatformChatDao.create_run(session, _run())
+        await session.commit()
+
+        assert await PlatformChatDao.delete_runs(session, SESSION_ID) == 1
+        assert await PlatformChatDao.delete_messages(session, SESSION_ID) == 1
+        assert await PlatformChatDao.delete_session(session, SESSION_ID, user_id=7) == 1
+        await session.commit()
+
+        assert await PlatformChatDao.get_owned_session(session, SESSION_ID, user_id=7) is None
+        assert await PlatformChatDao.list_messages(session, SESSION_ID) == []
+        assert await PlatformChatDao.list_runs(session, SESSION_ID) == []
 
 
 @pytest.mark.asyncio

@@ -84,6 +84,20 @@ class PlatformSessionPageQueryModel(_StrictRequestModel):
     page_size: HttpQueryInteger = Field(default=20, ge=1, le=100)
 
 
+class PlatformSessionRenameRequestModel(_StrictRequestModel):
+    title: Annotated[
+        str,
+        StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=200),
+    ]
+
+    @field_validator('title')
+    @classmethod
+    def reject_unsafe_title(cls, value: str) -> str:
+        if any(unicodedata.category(character) in {'Cc', 'Zl', 'Zp'} for character in value):
+            raise ValueError('会话标题包含不支持的控制字符')
+        return value
+
+
 class PlatformChatPreferenceModel(_StrictRequestModel):
     temperature: float | None = Field(default=None, strict=True, ge=0, le=2)
     add_history: bool = Field(default=True, strict=True)

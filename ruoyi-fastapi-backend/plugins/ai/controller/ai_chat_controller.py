@@ -23,6 +23,7 @@ from plugins.ai.entity.vo.ai_platform_chat_vo import (
     PlatformSessionDetailModel,
     PlatformSessionModel,
     PlatformSessionPageQueryModel,
+    PlatformSessionRenameRequestModel,
 )
 from plugins.ai.infrastructure.platform_chat_provider import get_platform_chat_service
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
@@ -116,6 +117,25 @@ async def get_user_chat_config(
     return ResponseUtil.success(data=result)
 
 
+@ai_chat_controller.patch(
+    '/session/{session_id}',
+    summary='重命名平台对话会话',
+    response_model=DataResponseModel[PlatformSessionModel],
+)
+@Log(title='平台对话会话', business_type=BusinessType.UPDATE)
+async def rename_chat_session(
+    request: Request,
+    session_id: Annotated[str, Path(description='Platform Session ID')],
+    rename_req: PlatformSessionRenameRequestModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await _call(
+        _platform_chat_service(request, query_db).rename_session(_user_id(current_user), session_id, rename_req.title)
+    )
+    return ResponseUtil.success(data=result)
+
+
 @ai_chat_controller.put(
     '/config',
     summary='保存平台对话偏好',
@@ -184,7 +204,7 @@ async def get_chat_session_detail(
 
 @ai_chat_controller.delete(
     '/session/{session_id}',
-    summary='归档平台对话会话',
+    summary='永久删除平台对话会话',
     response_model=ResponseBaseModel,
 )
 @Log(title='平台对话会话', business_type=BusinessType.DELETE)
@@ -194,8 +214,8 @@ async def delete_chat_session(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    await _call(_platform_chat_service(request, query_db).archive_session(_user_id(current_user), session_id))
-    return ResponseUtil.success(msg='会话已归档')
+    await _call(_platform_chat_service(request, query_db).delete_session(_user_id(current_user), session_id))
+    return ResponseUtil.success(msg='会话已删除')
 
 
 @ai_chat_controller.post(

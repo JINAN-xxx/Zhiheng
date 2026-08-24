@@ -163,6 +163,7 @@ class FakeDao:
         self.messages: list[AiChatMessage] = []
         self.runs: list[AiChatRun] = []
         self.transitions: list[tuple[str, set[str], dict[str, object]]] = []
+        self.session_mutations: list[tuple[str, object]] = []
 
     async def get_owned_session_for_update(self, db: object, session_id: str, *, user_id: int) -> AiChatSession | None:
         del db
@@ -213,6 +214,44 @@ class FakeDao:
             if run.session_id == session_id:
                 return run
         return None
+
+    async def update_session(
+        self,
+        db: object,
+        session_id: str,
+        *,
+        user_id: int,
+        values: dict[str, object],
+    ) -> int:
+        del db
+        if self.session is None or self.session.session_id != session_id or self.session.user_id != user_id:
+            return 0
+        for key, value in values.items():
+            setattr(self.session, key, value)
+        self.session_mutations.append(('update', dict(values)))
+        return 1
+
+    async def delete_runs(self, db: object, session_id: str) -> int:
+        del db
+        self.session_mutations.append(('delete_runs', session_id))
+        count = len([run for run in self.runs if run.session_id == session_id])
+        self.runs = [run for run in self.runs if run.session_id != session_id]
+        return count
+
+    async def delete_messages(self, db: object, session_id: str) -> int:
+        del db
+        self.session_mutations.append(('delete_messages', session_id))
+        count = len([message for message in self.messages if message.session_id == session_id])
+        self.messages = [message for message in self.messages if message.session_id != session_id]
+        return count
+
+    async def delete_session(self, db: object, session_id: str, *, user_id: int) -> int:
+        del db
+        self.session_mutations.append(('delete_session', session_id))
+        if self.session is None or self.session.session_id != session_id or self.session.user_id != user_id:
+            return 0
+        self.session = None
+        return 1
 
     async def transition_run_status(
         self,
@@ -381,6 +420,49 @@ def _service(
         clock=lambda: NOW,
     )
     return service, db, fake_dao, fake_runtime, fake_coordinator
+
+
+@pytest.mark.asyncio
+async def test_rename_session_updates_owned_title_and_commits() -> None:
+    dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='旧标题', status='active', created_at=NOW, updated_at=NOW))
+    service, db, _, _, _ = _service(dao=dao)
+
+    result = await service.rename_session(USER_ID, SESSION_ID, '新标题')
+
+    assert result.title == '新标题'
+    assert dao.session_mutations[0][0] == 'update'
+    assert db.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_session_removes_runs_messages_then_session_and_commits() -> None:
+    dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='待删除'))
+    dao.runs.append(AiChatRun(run_id=RUN_ID, session_id=SESSION_ID, model_id=MODEL_ID, binding_id=BINDING_ID, engine_type='litellm', engine_model_snapshot='model', status='completed'))
+    dao.messages.append(AiChatMessage(message_id='msg_423e4567e89b42d3a456426614174444', session_id=SESSION_ID, client_message_id='delete-1', role='user', content='hello', images=[], status='complete'))
+    service, db, _, _, _ = _service(dao=dao)
+
+    await service.delete_session(USER_ID, SESSION_ID)
+
+    assert [event[0] for event in dao.session_mutations] == ['delete_runs', 'delete_messages', 'delete_session']
+    assert dao.session is None
+    assert dao.runs == []
+    assert dao.messages == []
+    assert db.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_session_rejects_running_run_without_mutation() -> None:
+    dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='运行中'))
+    dao.runs.append(AiChatRun(run_id=RUN_ID, session_id=SESSION_ID, model_id=MODEL_ID, binding_id=BINDING_ID, engine_type='litellm', engine_model_snapshot='model', status='running'))
+    service, db, _, _, _ = _service(dao=dao)
+    db._active = True
+
+    with pytest.raises(ChatCoordinationError) as raised:
+        await service.delete_session(USER_ID, SESSION_ID)
+
+    assert raised.value.code == 'CHAT_SESSION_BUSY'
+    assert dao.session_mutations == []
+    assert db.rollback_count == 1
 
 
 @pytest.mark.asyncio

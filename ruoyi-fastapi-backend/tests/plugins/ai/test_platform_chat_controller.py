@@ -25,6 +25,7 @@ def test_platform_chat_routes_are_fixed_and_authenticated() -> None:
         ('PUT', '/ai/chat/config'),
         ('GET', '/ai/chat/session/list'),
         ('GET', '/ai/chat/session/{session_id}'),
+        ('PATCH', '/ai/chat/session/{session_id}'),
         ('DELETE', '/ai/chat/session/{session_id}'),
         ('POST', '/ai/chat/cancel'),
     }

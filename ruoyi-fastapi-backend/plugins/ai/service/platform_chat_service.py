@@ -338,7 +338,30 @@ class PlatformChatService:
         finally:
             await self._rollback_if_active()
 
-    async def archive_session(self, user_id: int, session_id: str) -> None:
+    async def rename_session(self, user_id: int, session_id: str, title: str) -> PlatformSessionModel:
+        try:
+            session = await self._dao.get_owned_session_for_update(self._db, session_id, user_id=user_id)
+            if session is None:
+                raise PlatformChatError.session_not_found()
+            now = self._clock()
+            changed = await self._dao.update_session(
+                self._db,
+                session_id,
+                user_id=user_id,
+                values={'title': title, 'updated_at': now},
+            )
+            if changed != 1:
+                raise PlatformChatError.session_not_found()
+            session.title = title
+            session.updated_at = now
+            result = PlatformSessionModel.model_validate(session)
+            await self._commit()
+            return result
+        except BaseException:
+            await self._rollback_preserving_error()
+            raise
+
+    async def delete_session(self, user_id: int, session_id: str) -> None:
         try:
             session = await self._dao.get_owned_session_for_update(self._db, session_id, user_id=user_id)
             if session is None:
@@ -346,12 +369,9 @@ class PlatformChatService:
             latest = await self._dao.get_latest_run(self._db, session_id)
             if latest is not None and latest.status in {'pending', 'running'}:
                 raise ChatCoordinationError.session_busy()
-            changed = await self._dao.update_session(
-                self._db,
-                session_id,
-                user_id=user_id,
-                values={'status': 'archived', 'updated_at': self._clock()},
-            )
+            await self._dao.delete_runs(self._db, session_id)
+            await self._dao.delete_messages(self._db, session_id)
+            changed = await self._dao.delete_session(self._db, session_id, user_id=user_id)
             if changed != 1:
                 raise PlatformChatError.session_not_found()
             await self._commit()
