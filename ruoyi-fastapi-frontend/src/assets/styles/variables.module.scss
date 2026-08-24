@@ -115,7 +115,6 @@ html.dark {
   --tags-item-hover: var(--main-50);
   --tags-close-hover: var(--gray-500);
   /* 卡片模式激活页签 */
-  --tags-card-active-bg: var(--el-bg-color-overlay);
   --tags-card-active-bg: color-mix(in srgb, var(--el-color-primary) 22%, var(--el-bg-color-overlay) 78%);
   --tags-card-active-border: var(--tags-card-active-bg);
 

@@ -618,7 +618,6 @@ onBeforeUnmount(() => {
   gap: var(--workspace-space-3);
   padding: 12px 16px;
   border: 0;
-  border: 0;
   background: transparent;
   color: inherit;
   text-align: left;
