@@ -549,9 +549,18 @@ async def check_model_resource_drawer(browser: Browser) -> None:
     await modal.get_by_text("费率配置", exact=True).wait_for()
     await modal.evaluate(
         """async element => {
-            await Promise.all(element.getAnimations({ subtree: true }).map(
+            const completed = Promise.all(element.getAnimations({ subtree: true }).map(
                 animation => animation.finished.catch(() => undefined)
             ))
+            let timeoutId
+            const timeout = new Promise((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error('modal animation exceeded 3000ms')), 3000)
+            })
+            try {
+                await Promise.race([completed, timeout])
+            } finally {
+                clearTimeout(timeoutId)
+            }
         }"""
     )
     assert await modal.evaluate("element => getComputedStyle(element).opacity") == "1"
