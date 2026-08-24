@@ -89,8 +89,12 @@ class LiteLLMManagementAdapter:
         return list(cast('tuple[ProviderModel, ...]', outcome.value))
 
     @staticmethod
-    def normalize_credentials(payload: object) -> list[CredentialSummaryModel]:
-        outcome = _normalize_credentials(payload)
+    def normalize_credentials(
+        payload: object,
+        *,
+        provider_by_credential: Mapping[str, str] | None = None,
+    ) -> list[CredentialSummaryModel]:
+        outcome = _normalize_credentials(payload, provider_by_credential=provider_by_credential)
         del payload
         if outcome.value is None:
             _raise_upstream_invalid()
@@ -408,7 +412,11 @@ def _normalize_provider_field(raw_field: object) -> ProviderFieldModel | None:
     )
 
 
-def _normalize_credentials(payload: object) -> _ParseOutcome[tuple[CredentialSummaryModel, ...]]:
+def _normalize_credentials(
+    payload: object,
+    *,
+    provider_by_credential: Mapping[str, str] | None = None,
+) -> _ParseOutcome[tuple[CredentialSummaryModel, ...]]:
     try:
         items = payload if isinstance(payload, list) else _extract_items(payload, ('data', 'items', 'credentials'))
         if items is None:
@@ -428,6 +436,8 @@ def _normalize_credentials(payload: object) -> _ParseOutcome[tuple[CredentialSum
             provider_value = item.get('provider')
             if provider_value is None:
                 provider_value = raw_info.get('custom_llm_provider', raw_info.get('provider'))
+            if provider_value is None and provider_by_credential is not None:
+                provider_value = provider_by_credential.get(name)
             provider = _safe_identifier(provider_value)
             if provider is None:
                 return _ParseOutcome(value=None)

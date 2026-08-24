@@ -543,6 +543,34 @@ def test_real_litellm_credential_shape_extracts_provider_only_from_safe_info() -
     assert_response_is_sanitized([dump_alias(credential) for credential in credentials])
 
 
+def test_credential_list_accepts_provider_inferred_from_unique_deployment_reference() -> None:
+    _, adapter_module = load_contract()
+    payload = {
+        'success': True,
+        'credentials': [
+            {
+                'credential_name': 'siliconflow-embedding',
+                'credential_info': {'display_name': 'SiliconFlow Embedding'},
+            }
+        ],
+    }
+
+    credentials = adapter_module.LiteLLMManagementAdapter.normalize_credentials(
+        payload,
+        provider_by_credential={'siliconflow-embedding': 'openai'},
+    )
+
+    assert [dump_alias(credential) for credential in credentials] == [
+        {
+            'credentialName': 'siliconflow-embedding',
+            'provider': 'openai',
+            'referencedDeploymentCount': None,
+            'createdAt': None,
+            'updatedAt': None,
+        }
+    ]
+
+
 @pytest.mark.parametrize('count', (0, 2))
 def test_credential_summary_preserves_explicit_reference_count(count: int) -> None:
     _, adapter_module = load_contract()

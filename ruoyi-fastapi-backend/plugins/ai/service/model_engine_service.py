@@ -18,7 +18,10 @@ from plugins.ai.entity.vo.ai_model_engine_vo import (
     ProviderModel,
 )
 from plugins.ai.infrastructure.litellm_management_adapter import LiteLLMManagementAdapter
-from plugins.ai.infrastructure.litellm_management_errors import LiteLLMManagementMisconfiguredError
+from plugins.ai.infrastructure.litellm_management_errors import (
+    LiteLLMManagementMisconfiguredError,
+    LiteLLMManagementUpstreamInvalidError,
+)
 
 ResultT = TypeVar('ResultT')
 Clock = Callable[[], datetime]
@@ -421,9 +424,22 @@ async def _load_credentials(
 ) -> list[CredentialSummaryModel]:
     payload = await client.list_credentials()
     try:
-        return adapter.normalize_credentials(payload)
+        try:
+            return adapter.normalize_credentials(payload)
+        except LiteLLMManagementUpstreamInvalidError:
+            deployments = await _load_deployments(client, adapter)
+            provider_by_credential = _unique_credential_providers(deployments)
+            return adapter.normalize_credentials(payload, provider_by_credential=provider_by_credential)
     finally:
         del payload
+
+
+def _unique_credential_providers(deployments: Sequence[DeploymentModel]) -> dict[str, str]:
+    providers: dict[str, set[str]] = {}
+    for deployment in deployments:
+        if deployment.credential_name:
+            providers.setdefault(deployment.credential_name, set()).add(deployment.provider)
+    return {name: next(iter(values)) for name, values in providers.items() if len(values) == 1}
 
 
 async def _load_deployments(

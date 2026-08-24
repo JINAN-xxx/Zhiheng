@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { getToken } from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
+import { normalizeErrorMessage } from '@/utils/errorMessage'
 import { tansParams, blobValidate } from '@/utils/ruoyi'
 import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
@@ -100,7 +101,7 @@ service.interceptors.response.use(async res => {
     // 未设置状态码则默认成功状态
     const code = res.data.code || 200;
     // 获取错误信息
-    const msg = errorCode[code] || res.data.msg || errorCode['default']
+    const msg = errorCode[code] || normalizeErrorMessage(res.data.msg, errorCode['default'])
     // 二进制数据则直接返回
     if (res.request.responseType ===  'blob' || res.request.responseType ===  'arraybuffer') {
       return res.data
@@ -143,11 +144,11 @@ service.interceptors.response.use(async res => {
       resetTransportRequestConfig(error.config)
       return service.request(error.config)
     }
-    console.log('err' + error)
+    console.log('err', error)
     const response = error.response
     const responseStatus = response?.status
     const responseCode = response?.data?.code
-    const responseMsg = response?.data?.msg
+    const responseMsg = normalizeErrorMessage(response?.data?.msg ?? response?.data?.detail, '')
     if (responseMsg) {
       const messageType = responseStatus === 429 || responseCode === 429 ? 'warning' : 'error'
       if (messageType === 'warning') {
@@ -157,7 +158,7 @@ service.interceptors.response.use(async res => {
       }
       return Promise.reject(new Error(responseMsg))
     }
-    let { message } = error;
+    let message = normalizeErrorMessage(error?.message ?? error)
     if (message == "Network Error") {
       message = "后端接口连接异常";
     } else if (message.includes("timeout")) {
