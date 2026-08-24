@@ -71,12 +71,17 @@ const emit = defineEmits(['retry'])
 
   &.is-stale .workspace-state__icon {
     background: var(--color-warning-50);
-    color: var(--color-warning-700);
+    color: var(--color-warning-900);
   }
 
   &.is-warning .workspace-state__icon {
     background: var(--color-warning-50);
-    color: var(--color-warning-700);
+    color: var(--color-warning-900);
+  }
+
+  &.is-forbidden .workspace-state__icon {
+    background: var(--gray-100);
+    color: var(--gray-700);
   }
 
   .is-loading {

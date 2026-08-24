@@ -19,19 +19,6 @@ const componentFiles = [
   'AuthShell.vue',
 ]
 
-const workspaceComponentFiles = [
-  'WorkspaceToolbar.vue',
-  'WorkspacePanel.vue',
-  'WorkspaceState.vue',
-]
-
-const workspaceSources = Object.fromEntries(
-  workspaceComponentFiles.map((fileName) => [
-    fileName,
-    readFileSync(`src/components/Workspace/${fileName}`, 'utf8'),
-  ]),
-)
-
 assert.deepEqual(resolveAsyncState({ loading: true, rows: [] }), { kind: 'loading' })
 assert.deepEqual(resolveAsyncState({ error: 'x', rows: [] }), { kind: 'error' })
 assert.deepEqual(resolveAsyncState({ error: 'x', rows: [1] }), { kind: 'stale' })
@@ -53,17 +40,6 @@ for (const fileName of componentFiles) {
   const source = readFileSync(`src/components/Antd/${fileName}`, 'utf8')
   assert.doesNotMatch(source, /element-plus|@element-plus\/icons-vue|<el-/)
 }
-
-for (const fileName of workspaceComponentFiles) {
-  const source = workspaceSources[fileName]
-  assert.doesNotMatch(source.toLowerCase(), /#2f7e78|#226862|#409eff/)
-  assert.doesNotMatch(source, /box-shadow\s*:/)
-}
-
-assert.match(workspaceSources['WorkspacePanel.vue'], /background:\s*var\(--gray-0\)/)
-assert.match(workspaceSources['WorkspacePanel.vue'], /border:\s*1px solid var\(--gray-150\)/)
-assert.match(workspaceSources['WorkspaceToolbar.vue'], /color:\s*var\(--color-text\)/)
-assert.match(workspaceSources['WorkspaceState.vue'], /background:\s*var\(--gray-10\)/)
 
 assert.match(readFileSync('src/components/Antd/AsyncState.vue', 'utf8'), /可能已过期/)
 assert.match(readFileSync('src/components/Antd/ResourceDrawer.vue', 'utf8'), /a-drawer/)

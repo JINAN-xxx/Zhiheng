@@ -23,6 +23,8 @@ for (const [token, color] of Object.entries({
   assert.match(light.toLowerCase(), new RegExp(`${token}:\\s*${color}`))
 }
 
+assert.match(light.toLowerCase(), /--color-warning-900:\s*#ad6800/)
+
 assert.match(dark.toLowerCase(), /--main-color:\s*#4a9fb8/)
 assert.match(dark.toLowerCase(), /--gray-0:\s*#030303/)
 assert.match(dark.toLowerCase(), /--bg-sider:\s*#141414/)
@@ -65,6 +67,7 @@ for (const [token, color] of Object.entries({
   '--color-warning-50': '#2b2111',
   '--color-warning-500': '#faad14',
   '--color-warning-700': '#ffc53d',
+  '--color-warning-900': '#ffd666',
   '--color-info-50': '#111b26',
   '--color-info-500': '#3d8fff',
   '--color-info-700': '#40a9ff',
