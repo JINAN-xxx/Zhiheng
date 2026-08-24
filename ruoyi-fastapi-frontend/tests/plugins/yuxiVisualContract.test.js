@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const readWorkspace = (fileName) => readFileSync(`src/components/Workspace/${fileName}`, 'utf8')
@@ -13,7 +13,13 @@ const collectSourceFiles = (directory, extensions) => readdirSync(directory, { w
   return entry.isFile() && extensions.some((extension) => fileName.endsWith(extension)) ? [fileName] : []
 })
 const legacyThemeColors = ['#2f7e78', '#226862', '#409eff', '#20b2aa', '#48d1cc', '#42b983', '#67c23a', '#e6a23c', '#f56c6c']
-const findLegacyThemeColors = (source) => legacyThemeColors.filter((color) => source.toLowerCase().includes(color))
+const legacyThemeColorPatterns = [
+  ...legacyThemeColors.map((color) => [color, new RegExp(color, 'i')]),
+  ['rgb(64, 158, 255)', /rgba?\(\s*64\s*[, ]\s*158\s*[, ]\s*255/i],
+]
+const findLegacyThemeColors = (source) => legacyThemeColorPatterns
+  .filter(([, pattern]) => pattern.test(source))
+  .map(([color]) => color)
 const frontendStyleFiles = ['src', 'plugins/ai']
   .flatMap((directory) => collectSourceFiles(directory, ['.vue', '.js', '.scss', '.css']))
   .sort()
@@ -105,6 +111,17 @@ for (const color of legacyThemeColors) {
     `${color} mutation must be rejected`,
   )
 }
+assert.throws(
+  () => assert.deepEqual(findLegacyThemeColors('.mutation { background: rgba(64 158 255 / 30%); }'), [], 'legacy RGB color must be rejected'),
+  /legacy RGB color must be rejected/,
+)
+
+const gitAttributes = existsSync('../.gitattributes') ? readFileSync('../.gitattributes', 'utf8') : ''
+assert.match(
+  gitAttributes,
+  /^ruoyi-fastapi-frontend\/src\/views\/tool\/build\/index\.vue whitespace=cr-at-eol$/m,
+  'tool/build/index.vue must declare its CRLF whitespace rule',
+)
 
 assert.match(transportCrypto, /function resolveThemeColor\(token, fallback\)[\s\S]*?getComputedStyle\(document\.documentElement\)\.getPropertyValue\(token\)\.trim\(\)/)
 for (const [token, fallback] of [

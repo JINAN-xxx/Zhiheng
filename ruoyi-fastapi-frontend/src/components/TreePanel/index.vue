@@ -589,11 +589,11 @@ onBeforeUnmount(() => {
   transition: background 0.2s;
 
   &:hover {
-    background: rgba(64, 158, 255, 0.3);
+    background: color-mix(in srgb, var(--main-color) 30%, transparent);
   }
 
   &.active {
-    background: rgba(64, 158, 255, 0.5);
+    background: color-mix(in srgb, var(--main-color) 50%, transparent);
   }
 }
 
