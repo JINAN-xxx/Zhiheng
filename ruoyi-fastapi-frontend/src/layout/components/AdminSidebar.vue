@@ -85,4 +85,10 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 .admin-sidebar :deep(.ant-menu-submenu-title:hover) { color: var(--main-700); background: var(--main-30); }
 .admin-sidebar :deep(.ant-menu-item-selected),
 .admin-sidebar :deep(.ant-menu-submenu-selected > .ant-menu-submenu-title) { color: var(--main-700); background: var(--main-50); }
+.admin-sidebar.is-collapsed :deep(.ant-menu-item),
+.admin-sidebar.is-collapsed :deep(.ant-menu-submenu-title) { display: flex; align-items: center; justify-content: center; padding-inline: 0 !important; }
+.admin-sidebar.is-collapsed :deep(.sidebar-menu-link) { width: 100%; justify-content: center; gap: 0; }
+.admin-sidebar.is-collapsed :deep(.menu-title),
+.admin-sidebar.is-collapsed :deep(.ant-menu-title-content) { display: none; }
+.admin-sidebar.is-collapsed :deep(.svg-icon) { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
 </style>

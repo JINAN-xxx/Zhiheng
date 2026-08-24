@@ -328,6 +328,25 @@ async def assert_no_overflow(page: Page) -> None:
     )
 
 
+async def assert_mobile_profile_layout(page: Page) -> None:
+    layout = await page.locator(".platform-topbar__profile").evaluate(
+        """button => {
+            const avatar = button.querySelector('.ant-avatar')
+            const buttonRect = button.getBoundingClientRect()
+            const avatarRect = avatar.getBoundingClientRect()
+            return { button: buttonRect.toJSON(), avatar: avatarRect.toJSON() }
+        }"""
+    )
+    button = layout["button"]
+    avatar = layout["avatar"]
+    assert button["width"] >= 32 and button["height"] >= 32
+    assert avatar["width"] >= 28 and avatar["height"] >= 28
+    assert button["left"] <= avatar["left"]
+    assert button["top"] <= avatar["top"]
+    assert avatar["right"] <= button["right"] <= MOBILE_VIEWPORT["width"]
+    assert avatar["bottom"] <= button["bottom"] <= MOBILE_VIEWPORT["height"]
+
+
 async def take_screenshot(page: Page, page_name: str, viewport: dict[str, int], theme: str) -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     await page.screenshot(
@@ -444,6 +463,17 @@ async def check_admin(browser: Browser) -> None:
     assert await page.locator(".platform-shell__sidebar").evaluate(
         "element => element.getBoundingClientRect().width === 56"
     )
+    icon_layout = await page.locator(".admin-sidebar .svg-icon").evaluate_all(
+        """elements => elements.map(element => {
+            const rect = element.getBoundingClientRect()
+            const sidebar = element.closest('.admin-sidebar').getBoundingClientRect()
+            const width = Math.max(0, Math.min(rect.right, sidebar.right, innerWidth) - Math.max(rect.left, sidebar.left, 0))
+            const height = Math.max(0, Math.min(rect.bottom, sidebar.bottom, innerHeight) - Math.max(rect.top, sidebar.top, 0))
+            return { visible: getComputedStyle(element).visibility !== 'hidden' && getComputedStyle(element).display !== 'none' && rect.width > 0 && rect.height > 0, width, height }
+        }).filter(item => item.visible)"""
+    )
+    assert len(icon_layout) >= 1
+    assert all(icon["width"] >= 14 and icon["height"] >= 14 for icon in icon_layout)
     await assert_no_overflow(page)
     await take_screenshot(page, "shell-admin", ADMIN_VIEWPORT, "light")
     await page.get_by_role("button", name="返回智能工作台").first.click()
@@ -489,6 +519,7 @@ async def check_mobile(browser: Browser, width: int, height: int) -> None:
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
     await page.get_by_text("这是已保存的会话内容。", exact=True).wait_for()
+    await assert_mobile_profile_layout(page)
     await assert_no_overflow(page)
     await take_screenshot(page, "shell-mobile", {"width": width, "height": height}, "light")
     assert console_errors == []
@@ -514,7 +545,19 @@ async def check_model_resource_drawer(browser: Browser) -> None:
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
     await page.locator(".model-table").get_by_role("button", name="费率配置").click()
-    await page.locator(".ant-modal").get_by_text("费率配置", exact=True).wait_for()
+    modal = page.locator(".ant-modal").last
+    await modal.get_by_text("费率配置", exact=True).wait_for()
+    await modal.evaluate(
+        """async element => {
+            await Promise.all(element.getAnimations({ subtree: true }).map(
+                animation => animation.finished.catch(() => undefined)
+            ))
+        }"""
+    )
+    assert await modal.evaluate("element => getComputedStyle(element).opacity") == "1"
+    modal_box = await modal.bounding_box()
+    assert modal_box is not None and modal_box["width"] >= 360 and modal_box["height"] >= 320
+    await modal.get_by_role("button", name="创建价格版本").wait_for()
     await assert_no_overflow(page)
     await take_screenshot(page, "model-resource", TABLET_VIEWPORT, "light")
     assert console_errors == []

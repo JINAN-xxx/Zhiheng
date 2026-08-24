@@ -28,7 +28,7 @@
       <a-dropdown :trigger="['click']">
         <button type="button" class="platform-topbar__profile" aria-label="用户菜单">
           <a-avatar :size="28" :src="userStore.avatar" />
-          <span>{{ userStore.nickName }}</span>
+          <span class="platform-topbar__profile-name">{{ userStore.nickName }}</span>
         </button>
         <template #overlay>
           <a-menu @click="handleMenuClick">
@@ -119,9 +119,13 @@ defineExpose({ focusMenu })
 .platform-topbar__notice { height: 32px; display: flex; align-items: center; }
 @media (max-width: 760px) {
   .platform-topbar { padding: 0 8px; }
+  .platform-topbar__context { flex: 1 1 auto; }
+  .platform-topbar__actions { flex: 0 0 auto; }
   .platform-topbar__context span,
   .platform-topbar__mode span,
-  .platform-topbar__profile span { display: none; }
-  .platform-topbar__mode { width: 32px; justify-content: center; padding: 0; }
+  .platform-topbar__profile-name { display: none; }
+  .platform-topbar__mode,
+  .platform-topbar__profile { width: 32px; min-width: 32px; flex: 0 0 32px; justify-content: center; padding: 0; overflow: visible; }
+  .platform-topbar__profile :deep(.ant-avatar) { flex: 0 0 28px; }
 }
 </style>

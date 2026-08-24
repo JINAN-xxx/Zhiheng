@@ -4,7 +4,12 @@ import os
 
 from playwright.async_api import Browser, Page, Route, async_playwright
 
-from platform_shell_check import SCREENSHOT_DIR, assert_no_overflow, new_page
+from platform_shell_check import (
+    SCREENSHOT_DIR,
+    assert_mobile_profile_layout,
+    assert_no_overflow,
+    new_page,
+)
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15175")
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
@@ -201,6 +206,7 @@ async def check_mobile(browser: Browser) -> None:
     await install_chat_routes(page)
     await page.goto(f"{BASE_URL}/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
+    await assert_mobile_profile_layout(page)
     await assert_no_overflow(page)
     await take_screenshot(page, "mobile", MOBILE_VIEWPORT)
     assert console_errors == [], console_errors
