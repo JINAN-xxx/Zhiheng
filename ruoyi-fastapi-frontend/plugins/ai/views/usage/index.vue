@@ -234,19 +234,21 @@ onBeforeUnmount(() => { requestGeneration += 1 })
 </script>
 
 <style scoped lang="scss">
-.usage-ledger-page { min-width: 0; }
-.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 0; padding: 14px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-md); background: var(--workspace-surface); }
+.usage-ledger-page { min-width: 0; color: var(--color-text); }
+.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 0; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
 .usage-controls :deep(.ant-select) { width: 100%; min-width: 0; }
 .usage-controls :deep(.ant-select-selector),
 .usage-controls :deep(.ant-select-selection-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.usage-stale { margin: 0 0 10px; padding: 9px 12px; border-radius: var(--workspace-radius-sm); color: var(--workspace-warning); background: var(--workspace-warning-soft); font-size: 12px; }
-.usage-table-wrap { overflow: hidden; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-md); background: var(--workspace-surface); }
+.usage-stale { margin: 0 0 10px; padding: 9px 12px; border-radius: 8px; color: var(--color-warning-900); background: var(--color-warning-50); font-size: 12px; }
+.usage-table-wrap { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
+.usage-table-wrap :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.usage-table-wrap :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
 .usage-mobile-list { display: grid; gap: 10px; padding: 12px; }
-.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); }
+.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
 .usage-mobile-item__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .usage-mobile-item__header strong { font-size: 13px; }
-.usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--workspace-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.usage-mobile-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--workspace-text-secondary); font-size: 12px; }
+.usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--color-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.usage-mobile-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--color-text-secondary); font-size: 12px; }
 .usage-table-wrap :deep(.ant-pagination) { justify-content: flex-end; margin: 14px; }
 @media (max-width: 760px) {
   .usage-controls { grid-template-columns: 1fr; }

@@ -153,4 +153,30 @@ assert.match(applicationView, /if \(!canCreateKey\.value/)
 assert.match(applicationView, /if \(command === 'rotate' && !can\('ai:application:key:rotate'\)\) return/)
 assert.match(applicationView, /if \(command === 'revoke' && !can\('ai:application:key:revoke'\)\) return/)
 
+for (const [fileName, source] of [
+  ['plugins/ai/views/application/index.vue', applicationView],
+  ['plugins/ai/views/usage/index.vue', usageView],
+]) {
+  assert.doesNotMatch(source, /#(?:2f7e78|226862|409eff)/i, `${fileName} must not use legacy brand colors`)
+  assert.doesNotMatch(source, /box-shadow\s*:/, `${fileName} must not add panel shadows`)
+  assert.doesNotMatch(source, /(?:background|linear)-gradient|hover[\s\S]*transform/, `${fileName} must not add gradients or hover motion`)
+  assert.doesNotMatch(source, /--workspace-(?:surface|border(?:-strong)?|main-soft|warning(?:-soft)?)/, `${fileName} must use direct Yuxi visual tokens`)
+  assert.match(source, /var\(--gray-0\)/, `${fileName} must use the Yuxi surface token`)
+  assert.match(source, /var\(--gray-150\)/, `${fileName} must use the Yuxi border token`)
+}
+
+assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\)\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(applicationView, /\.application-row\.is-active\s*\{[\s\S]*background:\s*var\(--main-50\)[\s\S]*color:\s*var\(--main-700\)/)
+assert.match(applicationView, /\.application-row:hover\s*\{[\s\S]*background:\s*var\(--gray-50\)[\s\S]*color:\s*var\(--color-text\)/)
+assert.match(applicationView, /\.application-row\.is-active:hover\s*\{[\s\S]*background:\s*var\(--main-30\)[\s\S]*color:\s*var\(--main-700\)/)
+assert.match(applicationView, /\.stale-notice\s*\{[\s\S]*color:\s*var\(--color-warning-900\)[\s\S]*background:\s*var\(--color-warning-50\)/)
+assert.match(applicationView, /\.key-row code[\s\S]*font-family:\s*var\(--workspace-font-mono\)/)
+assert.match(applicationView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--gray-0\)/)
+
+assert.match(usageView, /\.usage-controls\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(usageView, /\.usage-table-wrap\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(usageView, /\.usage-table-wrap :deep\(\.ant-table-thead > tr > th\)\s*\{[\s\S]*background:\s*var\(--gray-10\)[\s\S]*border-bottom-color:\s*var\(--gray-150\)/)
+assert.match(usageView, /\.usage-stale\s*\{[\s\S]*color:\s*var\(--color-warning-900\)[\s\S]*background:\s*var\(--color-warning-50\)/)
+assert.match(usageView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--gray-0\)/)
+
 console.log('ok Ant Design AI views contract')
