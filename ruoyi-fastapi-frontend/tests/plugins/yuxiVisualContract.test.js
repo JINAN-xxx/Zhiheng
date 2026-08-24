@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 const readWorkspace = (fileName) => readFileSync(`src/components/Workspace/${fileName}`, 'utf8')
 const readGlobalStyle = (fileName) => readFileSync(`src/assets/styles/${fileName}`, 'utf8')
+const assertNoLegacySurfaceBackground = (fileName, source) => {
+  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+}
+const collectVueFiles = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+  const fileName = join(directory, entry.name)
+  if (entry.isDirectory()) return collectVueFiles(fileName)
+  return entry.isFile() && entry.name.endsWith('.vue') ? [fileName] : []
+})
 
 const toolbar = readWorkspace('WorkspaceToolbar.vue')
 const panel = readWorkspace('WorkspacePanel.vue')
@@ -16,7 +25,8 @@ const coreSurfaceFiles = [
   ['src/layout/components/TagsView/index.vue', readFileSync('src/layout/components/TagsView/index.vue', 'utf8')],
 ]
 const antdReset = readGlobalStyle('antd-reset.scss')
-const aiSurfaceFiles = [
+const aiViewFiles = collectVueFiles('plugins/ai/views').sort()
+const aiContainerFiles = [
   'plugins/ai/views/application/index.vue',
   'plugins/ai/views/chat/index.vue',
   'plugins/ai/views/model/index.vue',
@@ -36,12 +46,26 @@ const globalStyles = [
 ]
 
 for (const [fileName, source] of coreSurfaceFiles) {
-  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+  assertNoLegacySurfaceBackground(fileName, source)
   assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
 }
 
-for (const [fileName, source] of aiSurfaceFiles) {
-  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+assert.equal(aiViewFiles.length, 13)
+for (const fileName of [
+  'plugins/ai/views/chat/components/AiMessage.vue',
+  'plugins/ai/views/chat/components/ChatSessionPanel.vue',
+]) {
+  assert.ok(aiViewFiles.includes(fileName), `${fileName} must be included in the AI view scan`)
+}
+for (const fileName of aiViewFiles) {
+  assertNoLegacySurfaceBackground(fileName, readFileSync(fileName, 'utf8'))
+}
+assert.throws(
+  () => assertNoLegacySurfaceBackground('mutation.vue', '.surface { background: var(--gray-0); }'),
+  /mutation\.vue must use semantic surfaces for backgrounds/,
+)
+
+for (const [fileName, source] of aiContainerFiles) {
   assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
 }
 
@@ -49,7 +73,7 @@ assert.match(coreSurfaceFiles[0][1], /\.auth-shell__mark[\s\S]*?color:\s*var\(--
 assert.match(coreSurfaceFiles[5][1], /\.contextmenu\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)
 assert.match(antdReset, /\.antd-app-root\s*\{[\s\S]*?background:\s*var\(--bg-page\)/)
 assert.match(antdReset, /\.antd-global-loading__surface\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)
-for (const [fileName, source] of aiSurfaceFiles.filter(([fileName]) => /(?:CredentialsPanel|EngineDeploymentsPanel|model\/index)\.vue$/.test(fileName))) {
+for (const [fileName, source] of aiContainerFiles.filter(([fileName]) => /(?:CredentialsPanel|EngineDeploymentsPanel|model\/index)\.vue$/.test(fileName))) {
   assert.match(source, /ant-drawer-(?:content|header)[\s\S]*?background:\s*var\(--bg-elevated\)/, `${fileName} must elevate drawer surfaces`)
 }
 
