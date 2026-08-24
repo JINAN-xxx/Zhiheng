@@ -1,0 +1,50 @@
+html.dark {
+  --main-1000: #e1f6fb;
+  --main-900: #c4eaf5;
+  --main-800: #a3d8e8;
+  --main-700: #82c3d6;
+  --main-600: #5faec2;
+  --main-500: #3996ae;
+  --main-400: #24839a;
+  --main-300: #035065;
+  --main-200: #023944;
+  --main-100: #023944;
+  --main-color: #4a9fb8;
+  --main-50: #023944;
+  --main-30: #01151f;
+  --main-5: #080808;
+
+  --gray-1000: #ffffff;
+  --gray-900: #f5f7f7;
+  --gray-800: #eef0f0;
+  --gray-700: #d7d9d9;
+  --gray-600: #bdbfbf;
+  --gray-500: #979999;
+  --gray-400: #697070;
+  --gray-300: #4c4d4d;
+  --gray-200: #323333;
+  --gray-150: #323333;
+  --gray-100: #1e1f1f;
+  --gray-50: #151616;
+  --gray-25: #0c0d0d;
+  --gray-10: #080808;
+  --gray-0: #030303;
+
+  --color-success-50: #162312;
+  --color-success-500: #49aa19;
+  --color-success-700: #95de64;
+  --color-error-50: #2a1215;
+  --color-error-500: #a61d24;
+  --color-error-700: #ff7875;
+  --color-warning-50: #2b2111;
+  --color-warning-500: #d89614;
+  --color-warning-700: #ffd666;
+  --color-info-50: #111b26;
+  --color-info-500: #177ddc;
+  --color-info-700: #69c0ff;
+
+  --color-text: #fff;
+  --color-text-secondary: rgb(255 255 255 / 65%);
+  --color-text-tertiary: rgb(255 255 255 / 45%);
+  --bg-sider: #141414;
+}
