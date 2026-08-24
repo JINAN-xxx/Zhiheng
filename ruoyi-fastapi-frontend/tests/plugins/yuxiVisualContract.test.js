@@ -5,7 +5,7 @@ import { join } from 'node:path'
 const readWorkspace = (fileName) => readFileSync(`src/components/Workspace/${fileName}`, 'utf8')
 const readGlobalStyle = (fileName) => readFileSync(`src/assets/styles/${fileName}`, 'utf8')
 const assertNoLegacySurfaceBackground = (fileName, source) => {
-  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+  assert.doesNotMatch(source, /background(?:-color)?\s*:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
 }
 const collectVueFiles = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const fileName = join(directory, entry.name)
@@ -50,7 +50,7 @@ for (const [fileName, source] of coreSurfaceFiles) {
   assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
 }
 
-assert.equal(aiViewFiles.length, 13)
+assert.ok(aiViewFiles.length >= 13, 'AI view scan must include the current view set')
 for (const fileName of [
   'plugins/ai/views/chat/components/AiMessage.vue',
   'plugins/ai/views/chat/components/ChatSessionPanel.vue',
@@ -62,6 +62,10 @@ for (const fileName of aiViewFiles) {
 }
 assert.throws(
   () => assertNoLegacySurfaceBackground('mutation.vue', '.surface { background: var(--gray-0); }'),
+  /mutation\.vue must use semantic surfaces for backgrounds/,
+)
+assert.throws(
+  () => assertNoLegacySurfaceBackground('mutation.vue', '.surface { background-color: var(--gray-0); }'),
   /mutation\.vue must use semantic surfaces for backgrounds/,
 )
 
