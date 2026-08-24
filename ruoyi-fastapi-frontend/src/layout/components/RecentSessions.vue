@@ -39,8 +39,8 @@
           <small>{{ formatTime(session.updatedAt) }}</small>
         </button>
         <WorkspaceMoreMenu
-          :items="archiveActions"
-          @command="emit('archive-session', session.sessionId)"
+          :items="sessionActions"
+          @command="handleCommand($event, session.sessionId)"
         />
       </div>
       <a-empty
@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-import { DeleteOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { DeleteOutlined, EditOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
 
 const props = defineProps({
@@ -63,9 +63,17 @@ const props = defineProps({
   error: { type: String, default: '' },
 })
 
-const emit = defineEmits(['archive-session', 'open-session', 'refresh'])
+const emit = defineEmits(['delete-session', 'open-session', 'refresh', 'rename-session'])
 const query = ref('')
-const archiveActions = Object.freeze([{ command: 'archive', label: '归档会话', icon: DeleteOutlined }])
+const sessionActions = Object.freeze([
+  { command: 'rename', label: '重命名', icon: EditOutlined },
+  { command: 'delete', label: '删除会话', icon: DeleteOutlined, danger: true, divided: true },
+])
+
+function handleCommand(command, sessionId) {
+  if (command === 'rename') emit('rename-session', sessionId)
+  if (command === 'delete') emit('delete-session', sessionId)
+}
 
 const filteredSessions = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()

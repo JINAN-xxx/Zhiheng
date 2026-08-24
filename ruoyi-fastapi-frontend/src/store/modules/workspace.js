@@ -1,4 +1,4 @@
-import { archiveRecentSession, listRecentSessions } from '@/api/platformWorkspace'
+import { deleteRecentSession, listRecentSessions, renameRecentSession } from '@/api/platformWorkspace'
 import {
   normalizeWorkspaceSessions,
   shouldApplyGeneration,
@@ -34,8 +34,19 @@ const useWorkspaceStore = defineStore('workspace', {
         }
       }
     },
-    async archiveSession(sessionId) {
-      await archiveRecentSession(sessionId)
+    async renameSession(sessionId, title) {
+      const response = await renameRecentSession(sessionId, title)
+      const updated = response?.data || {}
+      this.sessions = this.sessions.map((session) => session.sessionId === sessionId
+        ? {
+            ...session,
+            title: updated.title || title,
+            updatedAt: updated.updatedAt || new Date().toISOString(),
+          }
+        : session)
+    },
+    async deleteSession(sessionId) {
+      await deleteRecentSession(sessionId)
       this.sessions = this.sessions.filter((session) => session.sessionId !== sessionId)
     },
     invalidateSessionRequests() {

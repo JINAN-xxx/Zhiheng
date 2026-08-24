@@ -19,6 +19,8 @@ const settingsStore = readFileSync('src/store/modules/settings.js', 'utf8')
 const defaultSettings = readFileSync('src/settings.js', 'utf8')
 const styles = readFileSync('src/assets/styles/workspace.scss', 'utf8')
 const workspaceTransforms = readFileSync('src/components/Workspace/workspaceTransforms.js', 'utf8')
+const workspaceApi = readFileSync('src/api/platformWorkspace.js', 'utf8')
+const workspaceStore = readFileSync('src/store/modules/workspace.js', 'utf8')
 const shellFiles = [
   'src/layout/index.vue',
   'src/layout/components/PlatformSidebar.vue',
@@ -53,7 +55,18 @@ assert.doesNotMatch(platformSidebar, />AI 对话<|>AI 资源<|智衡 AI|Develope
 assert.match(recentSessions, /可能已过期/)
 assert.match(recentSessions, /aria-label="搜索最近会话"/)
 assert.match(recentSessions, /open-session/)
-assert.match(recentSessions, /archive-session/)
+assert.match(recentSessions, /rename-session/)
+assert.match(recentSessions, /delete-session/)
+assert.match(recentSessions, /重命名/)
+assert.match(recentSessions, /删除会话/)
+assert.doesNotMatch(recentSessions, /归档会话/)
+assert.match(workspaceApi, /method:\s*'patch'/)
+assert.match(workspaceApi, /method:\s*'delete'/)
+assert.match(workspaceStore, /renameSession/)
+assert.match(workspaceStore, /deleteSession/)
+assert.doesNotMatch(workspaceStore, /archiveSession/)
+assert.match(platformSidebar, /feedback\.prompt/)
+assert.match(platformSidebar, /删除后无法恢复/)
 assert.doesNotMatch(recentSessions, /listRecentSessions/)
 
 assert.match(adminSidebar, /返回 AI 工作台/)

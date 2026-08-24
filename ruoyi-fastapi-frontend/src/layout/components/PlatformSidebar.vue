@@ -31,7 +31,8 @@
       :error="workspaceStore.sessionsError"
       @refresh="workspaceStore.loadSessions"
       @open-session="openSession"
-      @archive-session="archiveSession"
+      @rename-session="renameSession"
+      @delete-session="deleteSession"
     />
 
     <button type="button" class="platform-admin-entry" aria-label="管理后台" title="管理后台" @click="emit('open-admin')">
@@ -45,6 +46,7 @@
 import { BarChartOutlined, CodeOutlined, DatabaseOutlined, MessageOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import logo from '@/assets/logo/logo.png'
 import { resolveAiResourceTabs } from '@/components/Workspace/workspaceTransforms.js'
+import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'
 import RecentSessions from './RecentSessions.vue'
@@ -80,9 +82,34 @@ function openSession(sessionId) {
   router.push({ path: '/ai/chat', query: { sessionId } })
 }
 
-async function archiveSession(sessionId) {
-  await workspaceStore.archiveSession(sessionId)
-  if (activeSessionId.value === sessionId) await router.push('/ai/chat')
+async function renameSession(sessionId) {
+  try {
+    const result = await feedback.prompt('请输入新的会话名称')
+    const title = String(result?.value || '').trim()
+    if (!title) {
+      feedback.msgWarning('会话名称不能为空')
+      return
+    }
+    if (title.length > 200) {
+      feedback.msgWarning('会话名称不能超过 200 字')
+      return
+    }
+    await workspaceStore.renameSession(sessionId, title)
+    feedback.msgSuccess('会话已重命名')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+  }
+}
+
+async function deleteSession(sessionId) {
+  try {
+    await feedback.confirm('删除后无法恢复，确定删除这个会话吗？')
+    await workspaceStore.deleteSession(sessionId)
+    if (activeSessionId.value === sessionId) await router.push('/ai/chat')
+    feedback.msgSuccess('会话已删除')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+  }
 }
 
 onMounted(() => {
