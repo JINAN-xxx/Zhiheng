@@ -11,8 +11,8 @@ html.dark {
   width: 100%;
   min-width: 0;
   min-height: 100%;
-  background: var(--workspace-bg);
-  color: var(--workspace-text);
+  background: var(--gray-50);
+  color: var(--color-text);
 }
 
 .ant-btn,
@@ -36,7 +36,7 @@ html.dark {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgb(12 13 13 / 58%);
+  background: color-mix(in srgb, var(--color-text) 58%, transparent);
   backdrop-filter: blur(2px);
 }
 
@@ -47,18 +47,18 @@ html.dark {
   justify-content: center;
   gap: 12px;
   padding: 18px 22px;
-  border: 1px solid var(--workspace-border);
+  border: 1px solid var(--gray-150);
   border-radius: 8px;
-  background: var(--workspace-surface);
+  background: var(--gray-0);
   box-shadow: var(--workspace-shadow-float);
 }
 
 .antd-global-loading__text {
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-size: 14px;
 }
 
 .antd-feedback-prompt__label {
   margin: 0 0 12px;
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
 }

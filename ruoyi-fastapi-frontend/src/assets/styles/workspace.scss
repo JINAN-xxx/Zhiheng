@@ -1,23 +1,23 @@
 :root {
-  --workspace-main: #2f7e78;
-  --workspace-main-deep: #226862;
-  --workspace-main-soft: #e5f3f1;
-  --workspace-bg: #f5f7f8;
-  --workspace-surface: #ffffff;
-  --workspace-surface-muted: #fbfcfc;
-  --workspace-border: #e4e6e6;
-  --workspace-border-strong: #d7d9d9;
-  --workspace-text: #151616;
-  --workspace-text-secondary: #697070;
-  --workspace-text-muted: #979999;
-  --workspace-success: #389e0d;
-  --workspace-success-soft: #e6f7e6;
-  --workspace-warning: #d48806;
-  --workspace-warning-soft: #fffbe6;
-  --workspace-danger: #cf1322;
-  --workspace-danger-soft: #fff2f0;
-  --workspace-info: #096dd9;
-  --workspace-info-soft: #e6f7ff;
+  --workspace-main: var(--main-color);
+  --workspace-main-deep: var(--main-800);
+  --workspace-main-soft: var(--main-50);
+  --workspace-bg: var(--gray-50);
+  --workspace-surface: var(--gray-0);
+  --workspace-surface-muted: var(--gray-10);
+  --workspace-border: var(--gray-150);
+  --workspace-border-strong: var(--gray-200);
+  --workspace-text: var(--color-text);
+  --workspace-text-secondary: var(--color-text-secondary);
+  --workspace-text-muted: var(--color-text-tertiary);
+  --workspace-success: var(--color-success-700);
+  --workspace-success-soft: var(--color-success-50);
+  --workspace-warning: var(--color-warning-700);
+  --workspace-warning-soft: var(--color-warning-50);
+  --workspace-danger: var(--color-error-700);
+  --workspace-danger-soft: var(--color-error-50);
+  --workspace-info: var(--color-info-700);
+  --workspace-info-soft: var(--color-info-50);
   --workspace-radius-sm: 4px;
   --workspace-radius-md: 8px;
   --workspace-space-1: 4px;
@@ -26,11 +26,11 @@
   --workspace-space-4: 16px;
   --workspace-space-5: 20px;
   --workspace-space-6: 24px;
-  --workspace-sidebar-bg: #172a2e;
-  --workspace-sidebar-surface: #20383c;
-  --workspace-sidebar-border: #385055;
-  --workspace-sidebar-text: #dce8e7;
-  --workspace-sidebar-muted: #9fb4b5;
+  --workspace-sidebar-bg: var(--bg-sider);
+  --workspace-sidebar-surface: var(--gray-50);
+  --workspace-sidebar-border: var(--gray-150);
+  --workspace-sidebar-text: var(--color-text);
+  --workspace-sidebar-muted: var(--color-text-secondary);
   --platform-sidebar-width: 184px;
   --platform-sidebar-collapsed-width: 56px;
   --platform-topbar-height: 54px;
@@ -44,67 +44,34 @@
   --workspace-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --workspace-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 
-  --el-color-primary: var(--workspace-main);
-  --el-color-primary-light-3: #5faec2;
-  --el-color-primary-light-5: #82c3d6;
-  --el-color-primary-light-7: #a3d8e8;
-  --el-color-primary-light-8: #c4eaf5;
-  --el-color-primary-light-9: var(--workspace-main-soft);
-  --el-color-primary-dark-2: var(--workspace-main-deep);
+  --el-color-primary: var(--main-color);
+  --el-color-primary-light-3: var(--main-400);
+  --el-color-primary-light-5: var(--main-300);
+  --el-color-primary-light-7: var(--main-200);
+  --el-color-primary-light-8: var(--main-100);
+  --el-color-primary-light-9: var(--main-50);
+  --el-color-primary-dark-2: var(--main-800);
+  --el-color-success: var(--color-success-500);
+  --el-color-success-light-9: var(--color-success-50);
+  --el-color-warning: var(--color-warning-500);
+  --el-color-warning-light-9: var(--color-warning-50);
+  --el-color-danger: var(--color-error-500);
+  --el-color-danger-light-9: var(--color-error-50);
+  --el-color-info: var(--color-info-500);
+  --el-color-info-light-9: var(--color-info-50);
   --el-border-radius-base: var(--workspace-radius-sm);
   --el-border-radius-small: var(--workspace-radius-sm);
   --el-border-radius-round: 999px;
-  --el-border-color: var(--workspace-border);
-  --el-border-color-light: var(--workspace-border);
-  --el-border-color-lighter: var(--workspace-surface-muted);
-  --el-bg-color: var(--workspace-surface);
-  --el-bg-color-page: var(--workspace-bg);
-  --el-fill-color-light: var(--workspace-surface-muted);
-  --el-text-color-primary: var(--workspace-text);
-  --el-text-color-regular: #323333;
-  --el-text-color-secondary: var(--workspace-text-secondary);
-  --el-text-color-placeholder: var(--workspace-text-muted);
-}
-
-html.dark {
-  --workspace-main: #5faec2;
-  --workspace-main-deep: #3996ae;
-  --workspace-main-soft: #023944;
-  --workspace-bg: #0c0d0d;
-  --workspace-surface: #151616;
-  --workspace-surface-muted: #1e1f1f;
-  --workspace-border: #323333;
-  --workspace-border-strong: #4c4d4d;
-  --workspace-text: #f5f7f7;
-  --workspace-text-secondary: #d7d9d9;
-  --workspace-text-muted: #979999;
-  --workspace-success-soft: #162312;
-  --workspace-warning-soft: #2b2111;
-  --workspace-danger-soft: #2a1215;
-  --workspace-info-soft: #0c0d0d;
-  --workspace-sidebar-bg: #101d20;
-  --workspace-sidebar-surface: #192c30;
-  --workspace-sidebar-border: #30474b;
-  --workspace-sidebar-text: #e1ebea;
-  --workspace-sidebar-muted: #9eb1b2;
-
-  --el-color-primary: var(--workspace-main);
-  --el-color-primary-light-3: #82c3d6;
-  --el-color-primary-light-5: #a3d8e8;
-  --el-color-primary-light-7: #c4eaf5;
-  --el-color-primary-light-8: #e1f6fb;
-  --el-color-primary-light-9: #023944;
-  --el-color-primary-dark-2: var(--workspace-main-deep);
-  --el-border-color: var(--workspace-border);
-  --el-border-color-light: var(--workspace-border);
-  --el-border-color-lighter: var(--workspace-surface-muted);
-  --el-bg-color: var(--workspace-surface);
-  --el-bg-color-page: var(--workspace-bg);
-  --el-fill-color-light: var(--workspace-surface-muted);
-  --el-text-color-primary: var(--workspace-text);
-  --el-text-color-regular: var(--workspace-text-secondary);
-  --el-text-color-secondary: var(--workspace-text-muted);
-  --el-text-color-placeholder: #697070;
+  --el-border-color: var(--gray-150);
+  --el-border-color-light: var(--gray-150);
+  --el-border-color-lighter: var(--gray-10);
+  --el-bg-color: var(--gray-0);
+  --el-bg-color-page: var(--gray-50);
+  --el-fill-color-light: var(--gray-10);
+  --el-text-color-primary: var(--color-text);
+  --el-text-color-regular: var(--gray-800);
+  --el-text-color-secondary: var(--color-text-secondary);
+  --el-text-color-placeholder: var(--color-text-tertiary);
 }
 
 body {
@@ -148,7 +115,7 @@ code,
 }
 
 .el-button--primary {
-  color: #ffffff;
+  color: var(--gray-0);
 }
 
 .el-card,
@@ -157,7 +124,16 @@ code,
 .el-popover {
   border-radius: var(--workspace-radius-md);
   border-color: var(--workspace-border);
+}
+
+.el-dialog,
+.el-drawer,
+.el-popover {
   box-shadow: var(--workspace-shadow-float);
+}
+
+.el-card {
+  box-shadow: none;
 }
 
 .el-table {

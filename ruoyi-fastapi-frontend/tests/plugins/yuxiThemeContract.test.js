@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 
 const light = readFileSync('src/assets/styles/yuxi-tokens.css', 'utf8')
 const dark = readFileSync('src/assets/styles/yuxi-tokens.dark.css', 'utf8')
+const workspace = readFileSync('src/assets/styles/workspace.scss', 'utf8')
+const variables = readFileSync('src/assets/styles/variables.module.scss', 'utf8')
+const antdReset = readFileSync('src/assets/styles/antd-reset.scss', 'utf8')
 const notice = readFileSync('THIRD_PARTY_NOTICES.md', 'utf8')
 const main = readFileSync('src/main.js', 'utf8')
 
@@ -75,3 +78,37 @@ assert.ok(workspaceImport > darkImport)
 
 assert.match(notice, /Copyright \(c\) 2025 Yuxi Project Contributors/)
 assert.match(notice, /MIT License/)
+
+for (const [alias, token] of Object.entries({
+  '--workspace-main': '--main-color',
+  '--workspace-main-deep': '--main-800',
+  '--workspace-main-soft': '--main-50',
+  '--workspace-bg': '--gray-50',
+  '--workspace-surface': '--gray-0',
+  '--workspace-surface-muted': '--gray-10',
+  '--workspace-border': '--gray-150',
+  '--workspace-border-strong': '--gray-200',
+  '--workspace-text': '--color-text',
+  '--workspace-text-secondary': '--color-text-secondary',
+  '--workspace-text-muted': '--color-text-tertiary',
+  '--workspace-sidebar-bg': '--bg-sider',
+  '--workspace-sidebar-surface': '--gray-50',
+  '--workspace-sidebar-border': '--gray-150',
+  '--workspace-sidebar-text': '--color-text',
+  '--workspace-sidebar-muted': '--color-text-secondary',
+  '--el-color-primary': '--main-color',
+  '--el-bg-color-page': '--gray-50',
+  '--el-bg-color': '--gray-0',
+  '--el-border-color': '--gray-150',
+})) {
+  assert.match(workspace, new RegExp(`${alias}:\\s*var\\(${token}\\)`))
+}
+
+for (const color of ['#2f7e78', '#226862', '#172a2e', '#20383c', '#101d20', '#192c30']) {
+  assert.doesNotMatch(workspace.toLowerCase(), new RegExp(color))
+}
+
+assert.match(variables, /\$menuActiveText:\s*#046a82/)
+assert.match(variables, /\$--color-primary:\s*#046a82/)
+assert.doesNotMatch(variables.toLowerCase(), /#409eff/)
+assert.doesNotMatch(antdReset.toLowerCase(), /#2f7e78|#226862|#172a2e|#20383c|#101d20|#192c30/)
