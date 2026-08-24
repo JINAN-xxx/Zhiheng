@@ -9,7 +9,7 @@ $yellow: #d48806;
 $panGreen: #389e0d;
 
 // 默认主题变量
-$menuText: #697070;
+$menuText: #d7d9d9;
 $menuActiveText: #046a82;
 $menuBg: #151616;
 $menuHover: #e1f6fb;
@@ -70,6 +70,7 @@ $--color-info: #1890ff;
   /* 亮色模式变量 */
   --sidebar-bg: var(--workspace-surface);
   --sidebar-text: #{$menuText};
+  --menu-active-text: var(--main-700);
   --menu-hover: var(--workspace-main-soft);
   
   --navbar-bg: var(--workspace-surface);
@@ -99,7 +100,7 @@ html.dark {
   --sidebar-bg: var(--bg-sider);
   --sidebar-text: var(--color-text);
   --menu-hover: var(--main-50);
-  --menu-active-text: #{$menuActiveText};
+  --menu-active-text: var(--main-700);
 
   /* 顶部导航栏 */
   --navbar-bg: var(--gray-0);

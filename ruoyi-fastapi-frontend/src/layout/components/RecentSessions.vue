@@ -103,12 +103,13 @@ function formatTime(value) {
 .recent-sessions__loading :deep(.ant-spin-container) { height: 100%; }
 .recent-session { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; padding: 7px 6px 7px 9px; border-radius: var(--workspace-radius-sm); }
 .recent-session:hover { background: var(--workspace-sidebar-surface); }
-.recent-session.active { background: var(--workspace-main); color: #fff; }
+.recent-session.active { background: var(--main-50); color: var(--main-700); }
 .recent-session__open { min-width: 0; display: grid; flex: 1; gap: 3px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .recent-session__open strong,
 .recent-session__open small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent-session__open strong { font-size: 13px; font-weight: 500; }
 .recent-session__open small { color: var(--workspace-sidebar-muted); font-size: 11px; }
+.recent-session.active .recent-session__open small { color: var(--color-text-secondary); }
 .recent-sessions :deep(.ant-input-affix-wrapper) { border-color: var(--workspace-sidebar-border); background: var(--workspace-sidebar-surface); box-shadow: none; }
 .recent-sessions :deep(.ant-input-affix-wrapper input),
 .recent-sessions :deep(.ant-input-prefix),

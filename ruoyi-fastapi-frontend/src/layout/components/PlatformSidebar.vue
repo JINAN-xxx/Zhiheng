@@ -119,16 +119,16 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--workspace-sidebar-bg); border-right: 1px solid var(--workspace-sidebar-border); color: var(--workspace-sidebar-text); font: inherit; line-height: normal; }
-.platform-brand { min-height: 66px; display: flex; align-items: center; gap: 9px; padding: 0 16px; color: #fff; font-size: 15px; font-weight: 700; text-decoration: none; }
+.platform-brand { min-height: 66px; display: flex; align-items: center; gap: 9px; padding: 0 16px; color: var(--workspace-sidebar-text); font-size: 15px; font-weight: 700; text-decoration: none; }
 .platform-brand img { width: 27px; height: 27px; object-fit: contain; filter: brightness(1.12); }
 .platform-primary-nav { display: grid; gap: 3px; padding: 6px 10px 14px; border-bottom: 1px solid var(--workspace-sidebar-border); }
 .platform-nav-link,
 .platform-new-chat,
 .platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--workspace-sidebar-muted); text-decoration: none; cursor: pointer; white-space: nowrap; }
-.platform-new-chat { margin-bottom: 5px; border-color: var(--workspace-sidebar-border); background: var(--workspace-sidebar-surface); color: #fff; }
+.platform-new-chat { margin-bottom: 5px; border-color: var(--workspace-sidebar-border); background: var(--workspace-sidebar-surface); color: var(--workspace-sidebar-text); }
 .platform-nav-link:hover,
-.platform-admin-entry:hover { background: var(--workspace-sidebar-surface); color: #fff; }
-.platform-nav-link.router-link-active { background: var(--workspace-main); color: #fff; }
+.platform-admin-entry:hover { background: var(--workspace-sidebar-surface); color: var(--workspace-sidebar-text); }
+.platform-nav-link.router-link-active { background: var(--main-50); color: var(--main-700); }
 .platform-admin-entry { margin: 8px 10px 12px; border-top: 1px solid var(--workspace-sidebar-border); border-radius: 0; padding-top: 8px; }
 .platform-sidebar.collapsed .platform-brand,
 .platform-sidebar.collapsed .platform-nav-link,
