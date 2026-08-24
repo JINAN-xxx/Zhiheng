@@ -37,6 +37,7 @@
 <script setup>
 import useAppStore from '@/store/modules/app'
 import useSettingsStore from '@/store/modules/settings'
+import { createLayoutSettingPayload } from '@/design/themeSettings'
 
 const { proxy } = getCurrentInstance()
 const appStore = useAppStore()
@@ -66,10 +67,7 @@ function dynamicTitleChange() {
 
 function saveSetting() {
   proxy.$modal.loading('正在保存到本地，请稍候...')
-  localStorage.setItem('layout-setting', JSON.stringify({
-    fixedHeader: settingsStore.fixedHeader,
-    dynamicTitle: settingsStore.dynamicTitle,
-  }))
+  localStorage.setItem('layout-setting', JSON.stringify(createLayoutSettingPayload(settingsStore)))
   setTimeout(() => proxy.$modal.closeLoading(), 300)
 }
 

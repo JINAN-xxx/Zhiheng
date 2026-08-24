@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { componentSize, darkTheme, lightTheme } from '../../src/design/antdTheme.js'
+import { FIXED_PRIMARY_COLOR } from '../../src/design/themeSettings.js'
 
 const antdRoot = readFileSync('src/design/AntdRoot.vue', 'utf8')
 const main = readFileSync('src/main.js', 'utf8')
@@ -9,6 +10,7 @@ const themeUtils = readFileSync('src/utils/theme.js', 'utf8')
 const useAntdTheme = readFileSync('src/design/useAntdTheme.js', 'utf8')
 const settings = readFileSync('src/layout/components/Settings/index.vue', 'utf8')
 const settingsStore = readFileSync('src/store/modules/settings.js', 'utf8')
+const themeSettings = readFileSync('src/design/themeSettings.js', 'utf8')
 
 assert.equal(lightTheme.token.colorPrimary, '#046A82')
 assert.equal(lightTheme.token.colorInfo, '#1890FF')
@@ -56,7 +58,10 @@ assert.doesNotMatch(useAntdTheme, /settingsStore\.theme/)
 assert.doesNotMatch(settings, /el-color-picker|predefineColors|themeChange|const theme\s*=/)
 assert.doesNotMatch(settingsStore, /storageSetting\.theme/)
 assert.doesNotMatch(settingsStore, /theme:\s*settingsStore\.theme/)
-assert.match(settingsStore, /theme:\s*'#046A82'/)
-assert.match(settingsStore, /key !== 'theme'/)
+assert.equal(FIXED_PRIMARY_COLOR, '#046A82')
+assert.match(settingsStore, /parseLayoutSetting/)
+assert.match(settingsStore, /applySettingChange/)
+assert.match(settings, /createLayoutSettingPayload/)
+assert.match(themeSettings, /key === 'theme'/)
 assert.doesNotMatch(themeUtils, /setProperty\(\s*['"]--workspace-main/)
 assert.match(themeUtils, /dataset\.workspaceTheme\s*=\s*isDark\s*\?\s*'dark'\s*:\s*'light'/)

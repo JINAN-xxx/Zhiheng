@@ -2,13 +2,14 @@ import defaultSettings from '@/settings'
 import { useDark, useToggle } from '@vueuse/core'
 import { useDynamicTitle } from '@/utils/dynamicTitle'
 import { handleThemeStyle } from '@/utils/theme'
+import { FIXED_PRIMARY_COLOR, applySettingChange, parseLayoutSetting } from '@/design/themeSettings'
 
 const isDark = useDark()
 const toggleDark = useToggle(isDark)
 
 const { sideTheme, showSettings, tagsViewPersist, tagsIcon, tagsViewStyle, fixedHeader, sidebarLogo, dynamicTitle, footerVisible, footerContent } = defaultSettings
 
-const storageSetting = JSON.parse(localStorage.getItem('layout-setting')) || ''
+const storageSetting = parseLayoutSetting(localStorage.getItem('layout-setting'))
 
 const useSettingsStore = defineStore(
   'settings',
@@ -16,7 +17,7 @@ const useSettingsStore = defineStore(
     state: () => ({
       title: '',
       platformShell: true,
-      theme: '#046A82',
+      theme: FIXED_PRIMARY_COLOR,
       sideTheme: storageSetting.sideTheme || sideTheme,
       showSettings: showSettings,
       tagsView: true,
@@ -33,10 +34,7 @@ const useSettingsStore = defineStore(
     actions: {
       // 修改布局设置
       changeSetting(data) {
-        const { key, value } = data
-        if (key !== 'theme' && this.hasOwnProperty(key)) {
-          this[key] = value
-        }
+        this.$patch(applySettingChange(this.$state, data))
       },
       // 设置网页标题
       setTitle(title) {
