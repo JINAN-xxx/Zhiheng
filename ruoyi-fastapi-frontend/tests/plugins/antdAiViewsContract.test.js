@@ -115,7 +115,12 @@ for (const fileName of [
 ]) {
   const source = readFileSync(fileName, 'utf8')
   assert.match(source, /var\(--(?:gray-150|color-text-secondary)\)/, `${fileName} must use Yuxi form tokens`)
+  assert.match(source, /<a-form[^>]*:class="\{ 'is-quick': quick \}"/, `${fileName} must mark quick forms for sticky actions`)
+  assert.match(source, /\.engine-form\.is-quick \.form-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--gray-0\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)[\s\S]*padding:\s*12px 0/, `${fileName} must keep quick actions visible`)
+  assert.match(source, /@media \(max-width: 640px\)[\s\S]*\.form-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/, `${fileName} must keep mobile actions from overlapping`)
 }
+assert.match(onboardingDrawer, /\.step-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--gray-0\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)/)
+assert.match(onboardingDrawer, /@media \(max-width: 640px\)[\s\S]*\.step-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/)
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')

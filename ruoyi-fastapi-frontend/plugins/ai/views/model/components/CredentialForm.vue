@@ -1,5 +1,5 @@
 <template>
-  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form">
+  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form" :class="{ 'is-quick': quick }">
     <a-form-item v-if="!quick" label="凭据名称" name="credentialName">
       <a-input
         v-model:value="form.credentialName"
@@ -236,4 +236,9 @@ onBeforeUnmount(invalidateFileReads)
 .upload-field { display: flex; min-width: 0; align-items: center; gap: 10px; }
 .file-name { min-width: 0; overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; }
+.engine-form.is-quick .form-actions { position: sticky; bottom: 0; z-index: 1; background: var(--gray-0); border-top: 1px solid var(--gray-150); padding: 12px 0; }
+@media (max-width: 640px) {
+  .form-actions { flex-wrap: wrap; }
+  .engine-form.is-quick .form-actions :deep(.ant-btn) { flex: 1 1 100%; margin-left: 0; }
+}
 </style>

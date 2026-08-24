@@ -1,5 +1,5 @@
 <template>
-  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form">
+  <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form" :class="{ 'is-quick': quick }">
     <div class="form-grid">
       <a-form-item v-if="!quick" label="路由别名" name="modelAlias">
         <a-input v-model:value="form.modelAlias" placeholder="例如 chat-default" @input="markChanged" />
@@ -200,8 +200,11 @@ async function submit() {
 .advanced-settings :deep(.ant-collapse-header) { color: var(--color-text) !important; }
 .advanced-settings :deep(.ant-collapse-content) { border-top-color: var(--gray-150); background: var(--gray-0); }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 12px; }
+.engine-form.is-quick .form-actions { position: sticky; bottom: 0; z-index: 1; background: var(--gray-0); border-top: 1px solid var(--gray-150); padding: 12px 0; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .form-actions { flex-wrap: wrap; }
   .form-actions :deep(.ant-btn) { flex: 1 1 auto; margin-left: 0; }
+  .engine-form.is-quick .form-actions :deep(.ant-btn) { flex-basis: 100%; }
 }
 </style>

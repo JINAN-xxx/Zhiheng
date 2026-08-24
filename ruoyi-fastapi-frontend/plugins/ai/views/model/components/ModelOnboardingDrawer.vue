@@ -775,8 +775,14 @@ onBeforeUnmount(invalidateRequests)
 }
 .step-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  padding-top: 12px;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--gray-0);
+  border-top: 1px solid var(--gray-150);
+  padding: 12px 0;
 }
 .result-section {
   max-width: 620px;
@@ -808,6 +814,13 @@ onBeforeUnmount(invalidateRequests)
   }
   .catalog-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .step-actions {
+    flex-wrap: wrap;
+  }
+  .step-actions :deep(.ant-btn) {
+    flex: 1 1 100%;
+    margin-left: 0;
   }
   .resource-strip {
     align-items: flex-start;
