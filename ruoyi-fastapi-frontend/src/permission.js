@@ -60,9 +60,9 @@ router.beforeEach(async (to, from) => {
         // 重新导航到目标路由，确保动态路由已注册
         return { ...to, replace: true }
       } catch (err) {
-        await useUserStore().logOut()
+        useUserStore().clearSession()
         feedback.msgError(err?.message ?? String(err))
-        return { path: '/' }
+        return { path: '/login', query: { redirect: to.fullPath }, replace: true }
       }
     }
     const landingPath = resolveWorkspaceLandingPath(

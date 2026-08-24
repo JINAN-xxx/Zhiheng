@@ -3,6 +3,7 @@ import cache from '@/plugins/cache'
 import feedback from '@/plugins/antdFeedback'
 import { login, logout, getInfo } from '@/api/login'
 import { getToken, setToken, removeToken } from '@/utils/auth'
+import { bestEffortLogout } from '@/utils/sessionLogout'
 import { isHttp, isEmpty } from "@/utils/validate"
 import useLockStore from '@/store/modules/lock'
 import defAva from '@/assets/images/profile.jpg'
@@ -75,19 +76,17 @@ const useUserStore = defineStore(
           })
         })
       },
-      // 退出系统
-      logOut() {
-        return new Promise((resolve, reject) => {
-          logout(this.token).then(() => {
-            this.token = ''
-            this.roles = []
-            this.permissions = []
-            removeToken()
-            resolve()
-          }).catch(error => {
-            reject(error)
-          })
-        })
+      clearSession() {
+        this.token = ''
+        this.roles = []
+        this.permissions = []
+        removeToken()
+      },
+      // 先清理本地会话，避免后端不可用或令牌失效时卡在退出请求。
+      async logOut() {
+        const token = this.token
+        this.clearSession()
+        await bestEffortLogout(logout, token)
       }
     }
   })

@@ -11,6 +11,7 @@ database_name=ruoyi-fastapi
 database_user=ruoyi
 bootstrap_marker=ruoyi_bootstrap_state
 temporary_file=
+lock_file="${platform_environment}.lock"
 
 cleanup() {
     if [ -n "$temporary_file" ] && [ -f "$temporary_file" ]; then
@@ -24,29 +25,41 @@ fail() {
     exit 1
 }
 
-read_database_password() {
+acquire_platform_lock() {
+    environment_directory=$(dirname "$platform_environment")
+    [ -d "$environment_directory" ] || fail "Platform environment directory does not exist."
+    command -v flock >/dev/null 2>&1 || fail "flock is required to initialize platform secrets safely."
+    umask 077
+    exec 9>"$lock_file"
+    chmod 600 "$lock_file"
+    flock 9
+}
+
+read_platform_value() {
+    environment_key=$1
     if [ ! -f "$platform_environment" ]; then
         return
     fi
-    awk '
-        /^[[:space:]]*RUOYI_DB_PASSWORD[[:space:]]*=/ {
-            sub(/^[[:space:]]*RUOYI_DB_PASSWORD[[:space:]]*=[[:space:]]*/, "")
+    awk -v expected_key="$environment_key" '
+        $0 ~ "^[[:space:]]*" expected_key "[[:space:]]*=" {
+            sub("^[[:space:]]*" expected_key "[[:space:]]*=[[:space:]]*", "")
             value = $0
         }
         END { print value }
     ' "$platform_environment"
 }
 
-write_database_password() {
+write_platform_secrets() {
     environment_directory=$(dirname "$platform_environment")
     [ -d "$environment_directory" ] || fail "Platform environment directory does not exist."
     umask 077
     temporary_file=$(mktemp "$platform_environment.tmp.XXXXXX")
     if [ -f "$platform_environment" ]; then
-        awk '$0 !~ /^[[:space:]]*RUOYI_DB_PASSWORD[[:space:]]*=/' \
+        awk '$0 !~ /^[[:space:]]*(RUOYI_DB_PASSWORD|JWT_SECRET_KEY)[[:space:]]*=/' \
             "$platform_environment" > "$temporary_file"
     fi
     printf 'RUOYI_DB_PASSWORD=%s\n' "$ruoyi_password" >> "$temporary_file"
+    printf 'JWT_SECRET_KEY=%s\n' "$jwt_secret" >> "$temporary_file"
     chmod 600 "$temporary_file"
     mv "$temporary_file" "$platform_environment"
     temporary_file=
@@ -55,11 +68,21 @@ write_database_password() {
 [ -f "$database_sql" ] || fail "RuoYi PostgreSQL baseline SQL was not found."
 container_running=$($docker_command inspect -f '{{.State.Running}}' "$postgres_container" 2>/dev/null || true)
 [ "$container_running" = 'true' ] || fail "Shared PostgreSQL container is not running."
+acquire_platform_lock
 
-ruoyi_password=$(read_database_password)
+ruoyi_password=$(read_platform_value RUOYI_DB_PASSWORD)
+jwt_secret=$(read_platform_value JWT_SECRET_KEY)
+secrets_changed=false
 if [ -z "$ruoyi_password" ]; then
     ruoyi_password=$(openssl rand -hex 24)
-    write_database_password
+    secrets_changed=true
+fi
+if [ -z "$jwt_secret" ]; then
+    jwt_secret=$(openssl rand -hex 32)
+    secrets_changed=true
+fi
+if [ "$secrets_changed" = true ]; then
+    write_platform_secrets
 else
     chmod 600 "$platform_environment"
 fi
@@ -68,6 +91,10 @@ case "$ruoyi_password" in
     *[!0-9a-f]*|'') fail "RUOYI_DB_PASSWORD must be a lowercase hexadecimal value." ;;
 esac
 [ "${#ruoyi_password}" -eq 48 ] || fail "RUOYI_DB_PASSWORD must contain exactly 48 characters."
+case "$jwt_secret" in
+    *[!0-9a-f]*|'') fail "JWT_SECRET_KEY must be a lowercase hexadecimal value." ;;
+esac
+[ "${#jwt_secret}" -eq 64 ] || fail "JWT_SECRET_KEY must contain exactly 64 characters."
 
 if ! {
     printf "\\set db_password '%s'\n" "$ruoyi_password"

@@ -82,7 +82,14 @@ esac
     fake_docker.chmod(0o755)
     fake_openssl = fake_bin / 'openssl'
     fake_openssl.write_text(
-        "#!/bin/sh\nprintf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef'\n",
+        """#!/bin/sh
+set -eu
+case "${3:-}" in
+    24) printf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef' ;;
+    32) printf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' ;;
+    *) exit 1 ;;
+esac
+""",
         encoding='utf-8',
     )
     fake_openssl.chmod(0o755)
@@ -227,6 +234,15 @@ def test_ruoyi_backend_joins_external_litellm_network_with_dual_control_credenti
     assert services['ruoyi-redis']['networks'] == ['ruoyi-network']
 
 
+def test_ruoyi_backend_requires_persistent_jwt_secret() -> None:
+    """容器重建必须复用平台环境中的 JWT 签名密钥。"""
+    backend = load_repository_yaml('docker-compose.pg.yml')['services']['ruoyi-backend-pg']
+
+    assert backend['environment']['JWT_SECRET_KEY'] == (
+        '${JWT_SECRET_KEY:?run deploy/ruoyi/init-shared-postgres.sh first}'
+    )
+
+
 def test_ruoyi_compose_reuses_litellm_postgres_with_separate_credentials() -> None:
     """RuoYi 复用 PostgreSQL 实例，但只持有自己的数据库凭据。"""
     compose = load_repository_yaml('docker-compose.pg.yml')
@@ -299,12 +315,60 @@ def test_shared_postgres_initializer_generates_private_password_without_leaking(
     )
 
     password = '0123456789abcdef0123456789abcdef0123456789abcdef'
+    jwt_secret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
     assert platform_environment.read_text(encoding='utf-8') == first_content
     assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
     assert 'LITELLM_RUNTIME_KEY=sk-runtime-test' in first_content
     assert f'RUOYI_DB_PASSWORD={password}' in first_content
-    assert password not in first.stdout + first.stderr + second.stdout + second.stderr
+    assert f'JWT_SECRET_KEY={jwt_secret}' in first_content
+    command_output = first.stdout + first.stderr + second.stdout + second.stderr
+    assert password not in command_output
+    assert jwt_secret not in command_output
     assert capture_path.read_text(encoding='utf-8').count('drop table if exists sys_dept;') == 1
+
+
+def test_shared_postgres_initializer_serializes_concurrent_secret_generation(tmp_path: Path) -> None:
+    """两个初始化进程并发启动时只能生成一组平台密钥。"""
+    environment, _ = make_shared_postgres_test_environment(tmp_path)
+    environment['FAKE_BOOTSTRAP_STATE'] = 'complete'
+    platform_environment = tmp_path / '.env'
+    platform_environment.write_text('LITELLM_RUNTIME_KEY=sk-runtime-test\n', encoding='utf-8')
+    openssl_calls = tmp_path / 'openssl-calls'
+    fake_openssl = Path(environment['PATH'].split(os.pathsep, 1)[0]) / 'openssl'
+    fake_openssl.write_text(
+        """#!/bin/sh
+set -eu
+printf 'call\n' >> "$FAKE_OPENSSL_CALLS"
+sleep 0.2
+case "${3:-}" in
+    24) printf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef' ;;
+    32) printf '%s\n' '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' ;;
+    *) exit 1 ;;
+esac
+""",
+        encoding='utf-8',
+    )
+    fake_openssl.chmod(0o755)
+    environment['FAKE_OPENSSL_CALLS'] = str(openssl_calls)
+    script = REPOSITORY_ROOT / 'deploy/ruoyi/init-shared-postgres.sh'
+
+    processes = [
+        subprocess.Popen(
+            [str(script), str(platform_environment)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        for _ in range(2)
+    ]
+    results = [process.communicate(timeout=10) for process in processes]
+
+    assert [process.returncode for process in processes] == [0, 0], results
+    assert openssl_calls.read_text(encoding='utf-8').splitlines() == ['call', 'call']
+    content = platform_environment.read_text(encoding='utf-8')
+    assert content.count('RUOYI_DB_PASSWORD=') == 1
+    assert content.count('JWT_SECRET_KEY=') == 1
 
 
 def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp_path: Path) -> None:

@@ -19,6 +19,17 @@ import {
 // 是否显示重新登录
 export let isRelogin = { show: false };
 
+function handleExpiredSession() {
+  useUserStore().clearSession()
+  if (isRelogin.show) return
+
+  isRelogin.show = true
+  const currentPath = `${location.pathname}${location.search}${location.hash}`
+  if (location.pathname !== '/login') {
+    location.replace(`/login?redirect=${encodeURIComponent(currentPath)}`)
+  }
+}
+
 axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 // 创建axios实例
 const service = axios.create({
@@ -107,18 +118,8 @@ service.interceptors.response.use(async res => {
       return res.data
     }
     if (code === 401) {
-      if (!isRelogin.show) {
-        isRelogin.show = true;
-        feedback.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录').then(() => {
-          isRelogin.show = false;
-          useUserStore().logOut().then(() => {
-            location.href = '/index';
-          })
-      }).catch(() => {
-        isRelogin.show = false;
-      });
-    }
-      return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+      handleExpiredSession()
+      return Promise.reject(new Error('登录状态已失效，请重新登录。'))
     } else if (code === 500) {
       feedback.msgError(msg)
       return Promise.reject(new Error(msg))
@@ -149,6 +150,10 @@ service.interceptors.response.use(async res => {
     const responseStatus = response?.status
     const responseCode = response?.data?.code
     const responseMsg = normalizeErrorMessage(response?.data?.msg ?? response?.data?.detail, '')
+    if (responseStatus === 401 || responseCode === 401) {
+      handleExpiredSession()
+      return Promise.reject(new Error('登录状态已失效，请重新登录。'))
+    }
     if (responseMsg) {
       const messageType = responseStatus === 429 || responseCode === 429 ? 'warning' : 'error'
       if (messageType === 'warning') {
