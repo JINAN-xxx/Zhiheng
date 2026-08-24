@@ -45,13 +45,29 @@ assert.deepEqual(applySettingChange(state, { key: 'fixedHeader', value: true }),
 })
 assert.deepEqual(applySettingChange(state, { key: 'unknown', value: true }), state)
 
-const payload = createLayoutSettingPayload({
+const payloadSource = {
   theme: '#BE123C',
+  sideTheme: 'theme-dark',
+  tagsViewPersist: true,
+  tagsIcon: false,
+  tagsViewStyle: 'card',
   fixedHeader: true,
+  sidebarLogo: false,
   dynamicTitle: false,
-})
+  footerVisible: false,
+  unexpected: 'discard',
+}
+const payload = createLayoutSettingPayload(payloadSource)
 assert.deepEqual(payload, {
+  sideTheme: 'theme-dark',
+  tagsViewPersist: true,
+  tagsIcon: false,
+  tagsViewStyle: 'card',
   fixedHeader: true,
+  sidebarLogo: false,
   dynamicTitle: false,
+  footerVisible: false,
 })
 assert.ok(!Object.hasOwn(payload, 'theme'))
+assert.ok(!Object.hasOwn(payload, 'unexpected'))
+assert.deepEqual(parseLayoutSetting(JSON.stringify(payload)), payload)

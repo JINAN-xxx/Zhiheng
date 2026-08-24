@@ -28,10 +28,10 @@ export function parseLayoutSetting(serialized) {
 }
 
 export function createLayoutSettingPayload(settings) {
-  return {
-    fixedHeader: settings.fixedHeader,
-    dynamicTitle: settings.dynamicTitle,
-  }
+  return persistedLayoutKeys.reduce((payload, key) => {
+    if (Object.hasOwn(settings, key)) payload[key] = settings[key]
+    return payload
+  }, {})
 }
 
 export function applySettingChange(state, { key, value }) {
