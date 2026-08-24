@@ -22,9 +22,9 @@ defineProps({
 <style scoped lang="scss">
 .workspace-panel {
   overflow: hidden;
-  background: var(--workspace-surface);
-  border: 1px solid var(--workspace-border);
-  border-radius: var(--workspace-radius-md);
+  background: var(--gray-0);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
 
   &__header {
     display: flex;
@@ -32,19 +32,20 @@ defineProps({
     justify-content: space-between;
     gap: var(--workspace-space-4);
     padding: var(--workspace-space-4) var(--workspace-space-5);
-    border-bottom: 1px solid var(--workspace-border);
+    border-bottom: 1px solid var(--gray-150);
   }
 
   &__title {
     margin: 0;
-    color: var(--workspace-text);
-    font-size: 15px;
+    color: var(--color-text);
+    font-size: 16px;
+    font-weight: 600;
     line-height: 1.4;
   }
 
   &__subtitle {
     margin: 3px 0 0;
-    color: var(--workspace-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
   }
 

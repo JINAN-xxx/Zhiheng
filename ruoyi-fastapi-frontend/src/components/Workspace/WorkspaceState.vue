@@ -32,7 +32,7 @@ const emit = defineEmits(['retry'])
   justify-items: center;
   gap: var(--workspace-space-2);
   padding: var(--workspace-space-6);
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
   text-align: center;
 
   &__icon {
@@ -41,21 +41,42 @@ const emit = defineEmits(['retry'])
     height: 36px;
     place-items: center;
     border-radius: 50%;
-    background: var(--workspace-surface-muted);
-    color: var(--workspace-main-deep);
+    background: var(--gray-10);
+    color: var(--main-color);
     font-size: 18px;
   }
 
   strong {
-    color: var(--workspace-text);
+    color: var(--color-text);
     font-size: 14px;
   }
 
   p {
     max-width: 360px;
     margin: 0;
-    color: var(--workspace-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 12px;
+  }
+
+  &.is-loading .workspace-state__icon,
+  &.is-empty .workspace-state__icon {
+    background: var(--main-50);
+    color: var(--main-color);
+  }
+
+  &.is-error .workspace-state__icon {
+    background: var(--color-error-50);
+    color: var(--color-error-700);
+  }
+
+  &.is-stale .workspace-state__icon {
+    background: var(--color-warning-50);
+    color: var(--color-warning-700);
+  }
+
+  &.is-warning .workspace-state__icon {
+    background: var(--color-warning-50);
+    color: var(--color-warning-700);
   }
 
   .is-loading {

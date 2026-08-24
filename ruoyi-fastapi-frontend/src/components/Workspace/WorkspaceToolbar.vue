@@ -54,14 +54,15 @@ const emit = defineEmits(['open-sidebar'])
 
   &__title {
     margin: 0;
-    color: var(--workspace-text);
-    font-size: 24px;
+    color: var(--color-text);
+    font-size: 22px;
+    font-weight: 600;
     line-height: 1.35;
   }
 
   &__subtitle {
     margin: 3px 0 0;
-    color: var(--workspace-text-secondary);
+    color: var(--color-text-secondary);
     font-size: 13px;
   }
 
@@ -71,11 +72,21 @@ const emit = defineEmits(['open-sidebar'])
     height: 32px;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--workspace-border);
+    border: 1px solid var(--gray-150);
     border-radius: var(--workspace-radius-sm);
     background: transparent;
-    color: var(--workspace-text-secondary);
+    color: var(--color-text-secondary);
     cursor: pointer;
+
+    &:hover {
+      background: var(--gray-10);
+      color: var(--color-text);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--main-color);
+      outline-offset: 2px;
+    }
   }
 }
 
