@@ -25,10 +25,10 @@
     <div class="el-upload__tip" v-if="showTip && !disabled">
       请上传
       <template v-if="fileSize">
-        大小不超过 <b style="color: #f56c6c">{{ fileSize }}MB</b>
+        大小不超过 <b class="upload-tip-emphasis">{{ fileSize }}MB</b>
       </template>
       <template v-if="fileType">
-        格式为 <b style="color: #f56c6c">{{ fileType.join("/") }}</b>
+        格式为 <b class="upload-tip-emphasis">{{ fileType.join("/") }}</b>
       </template>
       的文件
     </div>
@@ -254,5 +254,9 @@ onMounted(() => {
 
 :deep(.el-upload.el-upload--picture-card.is-disabled) {
   display: none !important;
+}
+
+.upload-tip-emphasis {
+  color: var(--color-error-700);
 }
 </style>

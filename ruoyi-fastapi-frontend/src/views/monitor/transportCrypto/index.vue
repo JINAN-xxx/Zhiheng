@@ -570,15 +570,22 @@ function getFailureTagType(reason) {
   return 'info'
 }
 
+function resolveThemeColor(token, fallback) {
+  if (typeof document === 'undefined' || !document.documentElement || typeof getComputedStyle !== 'function') {
+    return fallback
+  }
+  return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback
+}
+
 function getFailureChartColor(reason) {
   const tagType = getFailureTagType(reason)
   if (tagType === 'danger') {
-    return '#f56c6c'
+    return resolveThemeColor('--color-error-500', '#ff4d4f')
   }
   if (tagType === 'warning') {
-    return '#e6a23c'
+    return resolveThemeColor('--color-warning-500', '#faad14')
   }
-  return '#409eff'
+  return resolveThemeColor('--color-info-500', '#1890ff')
 }
 
 function buildKidChartBarData(item, value, color) {
@@ -731,9 +738,14 @@ function renderKidStatsChart() {
     return
   }
 
+  const infoColor = resolveThemeColor('--color-info-500', '#1890ff')
+  const successColor = resolveThemeColor('--color-success-500', '#52c41a')
+  const errorColor = resolveThemeColor('--color-error-500', '#ff4d4f')
+  const tertiaryColor = resolveThemeColor('--gray-400', '#979999')
+
   chartInstance.setOption({
     animationDuration: 400,
-    color: ['#409eff', '#67c23a', '#f56c6c', '#909399'],
+    color: [infoColor, successColor, errorColor, tertiaryColor],
     legend: {
       top: 0
     },
@@ -771,25 +783,25 @@ function renderKidStatsChart() {
         name: '加密请求',
         type: 'bar',
         barMaxWidth: 18,
-        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.encryptedRequests, '#409eff'))
+        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.encryptedRequests, infoColor))
       },
       {
         name: '解密成功',
         type: 'bar',
         barMaxWidth: 18,
-        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.decryptSuccess, '#67c23a'))
+        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.decryptSuccess, successColor))
       },
       {
         name: '解密失败',
         type: 'bar',
         barMaxWidth: 18,
-        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.decryptFailure, '#f56c6c'))
+        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.decryptFailure, errorColor))
       },
       {
         name: '加密响应',
         type: 'bar',
         barMaxWidth: 18,
-        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.encryptedResponses, '#909399'))
+        data: kidStatRows.value.map(item => buildKidChartBarData(item, item.encryptedResponses, tertiaryColor))
       }
     ]
   })

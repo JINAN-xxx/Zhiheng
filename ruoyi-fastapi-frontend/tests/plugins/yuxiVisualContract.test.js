@@ -7,15 +7,21 @@ const readGlobalStyle = (fileName) => readFileSync(`src/assets/styles/${fileName
 const assertNoLegacySurfaceBackground = (fileName, source) => {
   assert.doesNotMatch(source, /background(?:-color)?\s*:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
 }
-const collectVueFiles = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+const collectSourceFiles = (directory, extensions) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
   const fileName = join(directory, entry.name)
-  if (entry.isDirectory()) return collectVueFiles(fileName)
-  return entry.isFile() && entry.name.endsWith('.vue') ? [fileName] : []
+  if (entry.isDirectory()) return collectSourceFiles(fileName, extensions)
+  return entry.isFile() && extensions.some((extension) => fileName.endsWith(extension)) ? [fileName] : []
 })
+const legacyThemeColors = ['#2f7e78', '#226862', '#409eff', '#20b2aa', '#48d1cc', '#42b983', '#67c23a', '#e6a23c', '#f56c6c']
+const findLegacyThemeColors = (source) => legacyThemeColors.filter((color) => source.toLowerCase().includes(color))
+const frontendStyleFiles = ['src', 'plugins/ai']
+  .flatMap((directory) => collectSourceFiles(directory, ['.vue', '.js', '.scss', '.css']))
+  .sort()
 
 const toolbar = readWorkspace('WorkspaceToolbar.vue')
 const panel = readWorkspace('WorkspacePanel.vue')
 const state = readWorkspace('WorkspaceState.vue')
+const transportCrypto = readFileSync('src/views/monitor/transportCrypto/index.vue', 'utf8')
 const coreSurfaceFiles = [
   ['src/components/Antd/AuthShell.vue', readFileSync('src/components/Antd/AuthShell.vue', 'utf8')],
   ['src/components/Workspace/WorkspacePanel.vue', panel],
@@ -25,7 +31,7 @@ const coreSurfaceFiles = [
   ['src/layout/components/TagsView/index.vue', readFileSync('src/layout/components/TagsView/index.vue', 'utf8')],
 ]
 const antdReset = readGlobalStyle('antd-reset.scss')
-const aiViewFiles = collectVueFiles('plugins/ai/views').sort()
+const aiViewFiles = collectSourceFiles('plugins/ai/views', ['.vue']).sort()
 const aiContainerFiles = [
   'plugins/ai/views/application/index.vue',
   'plugins/ai/views/chat/index.vue',
@@ -83,6 +89,32 @@ for (const [fileName, source] of aiContainerFiles.filter(([fileName]) => /(?:Cre
 
 for (const [fileName, source] of globalStyles) {
   assert.doesNotMatch(source, /#2f7e78|#226862|#409eff|#20b2aa|#48d1cc|#42b983/i, `${fileName} must not contain a legacy theme color`)
+}
+
+const legacyThemeColorViolations = frontendStyleFiles.flatMap((fileName) => findLegacyThemeColors(readFileSync(fileName, 'utf8'))
+  .map((color) => `${fileName}: ${color}`))
+assert.deepEqual(
+  legacyThemeColorViolations,
+  [],
+  `frontend source must not contain legacy theme colors:\n${legacyThemeColorViolations.join('\n')}`,
+)
+for (const color of legacyThemeColors) {
+  assert.throws(
+    () => assert.deepEqual(findLegacyThemeColors(`.mutation { color: ${color}; }`), [], 'legacy color must be rejected'),
+    /legacy color must be rejected/,
+    `${color} mutation must be rejected`,
+  )
+}
+
+assert.match(transportCrypto, /function resolveThemeColor\(token, fallback\)[\s\S]*?getComputedStyle\(document\.documentElement\)\.getPropertyValue\(token\)\.trim\(\)/)
+for (const [token, fallback] of [
+  ['--color-error-500', '#ff4d4f'],
+  ['--color-warning-500', '#faad14'],
+  ['--color-info-500', '#1890ff'],
+  ['--color-success-500', '#52c41a'],
+  ['--gray-400', '#979999'],
+]) {
+  assert.match(transportCrypto, new RegExp(`resolveThemeColor\\('${token}', '${fallback}'\\)`), `${token} must resolve to a Canvas-safe fallback`)
 }
 
 for (const source of [toolbar, panel, state]) {

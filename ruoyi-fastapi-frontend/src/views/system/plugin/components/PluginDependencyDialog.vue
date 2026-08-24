@@ -228,7 +228,7 @@ async function copyText(text) {
 }
 
 .dependency-summary-value.is-danger {
-  color: #f56c6c;
+  color: var(--color-error-700);
 }
 
 .dependency-policy-messages {

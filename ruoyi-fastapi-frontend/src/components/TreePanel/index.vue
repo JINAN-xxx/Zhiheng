@@ -551,7 +551,7 @@ onBeforeUnmount(() => {
 .tree-sidebar {
   flex-shrink: 0;
   width: 220px;
-  background: #fff;
+  background: var(--bg-container);
   border-right: 1px solid #e8eaed;
   display: flex;
   flex-direction: column;
@@ -615,7 +615,7 @@ onBeforeUnmount(() => {
 
   .tree-sidebar.collapsed & {
     right: 0;
-    background: #f7f8fa;
+    background: var(--gray-50);
     border-radius: 0 4px 4px 0;
   }
 
@@ -633,8 +633,8 @@ onBeforeUnmount(() => {
   transition: all 0.2s;
 
   &:hover {
-    color: #409eff;
-    background: #ecf5ff;
+    color: var(--main-color);
+    background: var(--main-50);
   }
 }
 
@@ -644,14 +644,14 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: 0 10px;
   height: 40px;
-  border-bottom: 1px solid #e8eaed;
-  background: #f7f8fa;
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--gray-50);
   flex-shrink: 0;
 
   .tree-title {
     font-size: 13px;
     font-weight: 600;
-    color: #303133;
+    color: var(--color-text);
     white-space: nowrap;
     overflow: hidden;
     display: flex;
@@ -659,7 +659,7 @@ onBeforeUnmount(() => {
     gap: 5px;
 
     .el-icon {
-      color: #409eff;
+      color: var(--main-color);
       font-size: 16px;
     }
   }
@@ -681,8 +681,8 @@ onBeforeUnmount(() => {
   transition: all 0.2s;
 
   &:hover {
-    color: #409eff;
-    background: #ecf5ff;
+    color: var(--main-color);
+    background: var(--main-50);
   }
 }
 
@@ -719,17 +719,17 @@ onBeforeUnmount(() => {
     margin-bottom: 1px;
 
     &:hover {
-      background: #f0f7ff;
+      background: var(--main-30);
     }
   }
 
   :deep(.el-tree-node.is-current > .el-tree-node__content) {
-    background: #e6f0fd;
-    color: #409eff;
+    background: var(--main-50);
+    color: var(--main-color);
     font-weight: 600;
 
     .node-icon {
-      color: #409eff !important;
+      color: var(--main-color) !important;
     }
   }
 }

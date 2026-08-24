@@ -22,8 +22,8 @@
     <!-- 上传提示 -->
     <div class="el-upload__tip" v-if="showTip && !disabled">
       请上传
-      <template v-if="fileSize"> 大小不超过 <b style="color: #f56c6c">{{ fileSize }}MB</b> </template>
-      <template v-if="fileType"> 格式为 <b style="color: #f56c6c">{{ fileType.join("/") }}</b> </template>
+      <template v-if="fileSize"> 大小不超过 <b class="upload-tip-emphasis">{{ fileSize }}MB</b> </template>
+      <template v-if="fileType"> 格式为 <b class="upload-tip-emphasis">{{ fileType.join("/") }}</b> </template>
       的文件
     </div>
     <!-- 文件列表 -->
@@ -256,6 +256,9 @@ onMounted(() => {
 }
 .upload-file-uploader {
   margin-bottom: 5px;
+}
+.upload-tip-emphasis {
+  color: var(--color-error-700);
 }
 .upload-file-list .el-upload-list__item {
   border: 1px solid #e4e7ed;

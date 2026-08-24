@@ -314,7 +314,7 @@ onUnmounted(() => {
 </script>
 
 <style lang='scss'>
-$lighterBlue: #409EFF;
+$lighterBlue: var(--main-color);
 
 .container {
   position: relative;
@@ -448,7 +448,7 @@ $lighterBlue: #409EFF;
       justify-content: flex-end;
 
       u .delete-btn {
-        color: #F56C6C;
+        color: var(--color-error-700);
       }
     }
 
@@ -630,12 +630,12 @@ $lighterBlue: #409EFF;
 
             &>.drawing-item-delete {
               right: 24px;
-              border-color: #F56C6C;
-              color: #F56C6C;
+              border-color: var(--color-error-700);
+              color: var(--color-error-700);
               background: #fff;
 
               &:hover {
-                background: #F56C6C;
+                background: var(--color-error-500);
                 color: #fff;
               }
             }

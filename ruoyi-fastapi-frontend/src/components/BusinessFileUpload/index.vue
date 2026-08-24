@@ -518,7 +518,7 @@ defineExpose({ getFileIds });
 }
 
 .upload-tip-emphasis {
-  color: #f56c6c;
+  color: var(--color-error-700);
 }
 
 .business-file-list {

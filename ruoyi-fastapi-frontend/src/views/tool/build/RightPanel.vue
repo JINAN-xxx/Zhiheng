@@ -831,7 +831,7 @@ function tagChange(tagIcon) {
 
   & .close-btn {
     cursor: pointer;
-    color: #f56c6c;
+    color: var(--color-error-700);
   }
 
   & .el-input+.el-input {
@@ -844,7 +844,7 @@ function tagChange(tagIcon) {
 }
 
 .select-item.sortable-chosen {
-  border: 1px dashed #409eff;
+  border: 1px dashed var(--main-color);
 }
 
 .select-line-icon {
@@ -878,7 +878,7 @@ function tagChange(tagIcon) {
   top: 0;
   left: 0;
   cursor: pointer;
-  background: #409eff;
+  background: var(--main-color);
   z-index: 1;
   border-radius: 0 0 6px 0;
   justify-content: center;
