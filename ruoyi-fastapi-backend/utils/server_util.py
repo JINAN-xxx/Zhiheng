@@ -29,6 +29,8 @@ class APIDocsUtil:
     _PROXY_REDOC_URL = '/proxy-redoc'
     _OAUTH2_REDIRECT_URL = '/docs/oauth2-redirect'
     _PROXY_OAUTH2_REDIRECT_URL = '/proxy-docs/oauth2-redirect'
+    _RELATIVE_OPENAPI_URL = './openapi.json'
+    _RELATIVE_OAUTH2_REDIRECT_URL = './docs/oauth2-redirect'
 
     # 文档静态资源URLs
     DEFAULT_REDOC_JS_URL = 'https://registry.npmmirror.com/redoc/2/files/bundles/redoc.standalone.js'
@@ -199,7 +201,7 @@ class APIDocsUtil:
         """
         if not AppConfig.app_disable_redoc:
             return get_redoc_html(
-                openapi_url=cls._OPENAPI_URL,
+                openapi_url=cls._RELATIVE_OPENAPI_URL,
                 title=f'{app.title} - ReDoc',
                 redoc_js_url=redoc_js_url,
                 redoc_favicon_url=redoc_favicon_url,
@@ -229,12 +231,12 @@ class APIDocsUtil:
         """
         if not AppConfig.app_disable_swagger:
             return get_swagger_ui_html(
-                openapi_url=cls._OPENAPI_URL,
+                openapi_url=cls._RELATIVE_OPENAPI_URL,
                 title=f'{app.title} - Swagger UI',
                 swagger_js_url=swagger_js_url,
                 swagger_css_url=swagger_css_url,
                 swagger_favicon_url=swagger_favicon_url,
-                oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
+                oauth2_redirect_url=cls._RELATIVE_OAUTH2_REDIRECT_URL,
                 init_oauth=app.swagger_ui_init_oauth,
                 swagger_ui_parameters=app.swagger_ui_parameters,
             )
