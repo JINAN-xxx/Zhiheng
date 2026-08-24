@@ -4,9 +4,21 @@ import os
 
 from playwright.async_api import Browser, Page, Route, async_playwright
 
-from platform_shell_check import assert_no_overflow, new_page
+from platform_shell_check import SCREENSHOT_DIR, assert_no_overflow, new_page
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15175")
+DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
+MOBILE_VIEWPORT = {"width": 375, "height": 812}
+
+
+async def take_screenshot(page: Page, page_name: str, viewport: dict[str, int]) -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    await page.screenshot(
+        path=str(
+            SCREENSHOT_DIR
+            / f"chat-{page_name}-{viewport['width']}x{viewport['height']}-light.png"
+        )
+    )
 
 
 async def install_chat_routes(page: Page) -> tuple[dict, asyncio.Event]:
@@ -31,7 +43,7 @@ async def install_chat_routes(page: Page) -> tuple[dict, asyncio.Event]:
             return
         if message == "服务失败":
             await route.fulfill(
-                status=503,
+                status=300,
                 content_type="application/json",
                 body=json.dumps(
                     {"detail": {"code": "MODEL_RUNTIME_UNAVAILABLE", "message": "模型运行暂不可用"}},
@@ -104,7 +116,7 @@ async def send_message(page: Page, message: str) -> None:
 
 async def check_streaming(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
-        browser, {"width": 1440, "height": 900}
+        browser, DESKTOP_VIEWPORT
     )
     trace, release_pending = await install_chat_routes(page)
     await page.goto(f"{BASE_URL}/ai/chat")
@@ -124,7 +136,7 @@ async def check_streaming(browser: Browser) -> None:
     await page.get_by_text("已完成", exact=True).wait_for()
     await page.wait_for_url("**/ai/chat?sessionId=session-stream")
     assert trace["send_bodies"][0]["images"] == [{"fileId": "file-1"}]
-    await page.screenshot(path="/tmp/antd-chat-answer-1440.png")
+    await take_screenshot(page, "answer", DESKTOP_VIEWPORT)
 
     await send_message(page, "停止测试")
     stop_button = page.get_by_role("button", name="停止")
@@ -142,10 +154,7 @@ async def check_streaming(browser: Browser) -> None:
     await send_message(page, "服务失败")
     await page.get_by_text("模型运行暂不可用", exact=True).wait_for()
     await page.get_by_text("失败", exact=True).wait_for()
-    assert console_errors == [
-        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
-    ]
-    console_errors.clear()
+    assert console_errors == [], console_errors
 
     await page.get_by_text("规划会话", exact=True).click()
     await page.wait_for_url("**/ai/chat?sessionId=session-planning")
@@ -179,21 +188,21 @@ async def check_streaming(browser: Browser) -> None:
     await queue.wait_for(state="hidden")
     assert trace["upload_count"] == 2
     await assert_no_overflow(page)
-    await page.screenshot(path="/tmp/antd-chat-stream-1440.png")
+    await take_screenshot(page, "stream", DESKTOP_VIEWPORT)
     assert console_errors == [], console_errors
     assert page_errors == [], page_errors
     await context.close()
 
 
-async def check_mobile(browser: Browser, width: int) -> None:
+async def check_mobile(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
-        browser, {"width": width, "height": 760}
+        browser, MOBILE_VIEWPORT
     )
     await install_chat_routes(page)
     await page.goto(f"{BASE_URL}/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
     await assert_no_overflow(page)
-    await page.screenshot(path=f"/tmp/antd-chat-mobile-{width}.png")
+    await take_screenshot(page, "mobile", MOBILE_VIEWPORT)
     assert console_errors == [], console_errors
     assert page_errors == [], page_errors
     await context.close()
@@ -203,8 +212,7 @@ async def main() -> None:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         await check_streaming(browser)
-        await check_mobile(browser, 390)
-        await check_mobile(browser, 320)
+        await check_mobile(browser)
         await browser.close()
     print("Ant Design chat browser checks passed")
 

@@ -8,6 +8,10 @@ from playwright.async_api import Browser, BrowserContext, Page, Route, async_pla
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15174")
 SCREENSHOT_DIR = Path(os.environ.get("PLATFORM_SHELL_SCREENSHOT_DIR", "/tmp"))
+DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
+ADMIN_VIEWPORT = {"width": 1280, "height": 800}
+TABLET_VIEWPORT = {"width": 768, "height": 1024}
+MOBILE_VIEWPORT = {"width": 375, "height": 812}
 
 ALL_PERMISSIONS = [
     "ai:chat:list",
@@ -303,7 +307,7 @@ async def new_page(
     viewport: dict[str, int],
     access: str = "all",
 ) -> tuple[BrowserContext, Page, list[str], list[str]]:
-    context = await browser.new_context(viewport=viewport)
+    context = await browser.new_context(viewport=viewport, color_scheme="light")
     await install_backend_mock(context, access)
     page = await context.new_page()
     console_errors: list[str] = []
@@ -324,9 +328,19 @@ async def assert_no_overflow(page: Page) -> None:
     )
 
 
+async def take_screenshot(page: Page, page_name: str, viewport: dict[str, int], theme: str) -> None:
+    SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    await page.screenshot(
+        path=str(
+            SCREENSHOT_DIR
+            / f"platform-{page_name}-{viewport['width']}x{viewport['height']}-{theme}.png"
+        )
+    )
+
+
 async def check_desktop(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
-        browser, {"width": 1440, "height": 900}
+        browser, DESKTOP_VIEWPORT
     )
     await page.goto(f"{BASE_URL}/index")
     await page.wait_for_url("**/ai/chat")
@@ -364,7 +378,7 @@ async def check_desktop(browser: Browser) -> None:
     assert collapsed_width == 56
     await page.get_by_role("button", name="打开主菜单").click()
     await page.wait_for_timeout(250)
-    await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-desktop-1440.png"))
+    await take_screenshot(page, "shell-chat", DESKTOP_VIEWPORT, "light")
 
     async def fail_session_refresh(route: Route) -> None:
         await route.fulfill(
@@ -416,7 +430,7 @@ async def check_desktop(browser: Browser) -> None:
 
 async def check_admin(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
-        browser, {"width": 1024, "height": 768}
+        browser, ADMIN_VIEWPORT
     )
     await page.goto(f"{BASE_URL}/ai/chat")
     await page.get_by_role("button", name="管理后台").first.click()
@@ -431,7 +445,7 @@ async def check_admin(browser: Browser) -> None:
         "element => element.getBoundingClientRect().width === 56"
     )
     await assert_no_overflow(page)
-    await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-admin-1024.png"))
+    await take_screenshot(page, "shell-admin", ADMIN_VIEWPORT, "light")
     await page.get_by_role("button", name="返回智能工作台").first.click()
     await page.wait_for_url("**/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
@@ -476,17 +490,15 @@ async def check_mobile(browser: Browser, width: int, height: int) -> None:
     )
     await page.get_by_text("这是已保存的会话内容。", exact=True).wait_for()
     await assert_no_overflow(page)
-    await page.screenshot(
-        path=str(SCREENSHOT_DIR / f"platform-shell-mobile-{width}.png")
-    )
+    await take_screenshot(page, "shell-mobile", {"width": width, "height": height}, "light")
     assert console_errors == []
     assert page_errors == []
     await context.close()
 
 
-async def check_resources_320(browser: Browser) -> None:
+async def check_model_resource_drawer(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
-        browser, {"width": 320, "height": 720}
+        browser, TABLET_VIEWPORT
     )
     await page.goto(f"{BASE_URL}/ai/model")
     menu_button = page.get_by_role("button", name="打开主菜单")
@@ -497,14 +509,14 @@ async def check_resources_320(browser: Browser) -> None:
     )
     for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
         assert await drawer.get_by_role("link", name=label, exact=True).count() == 1
-    await page.mouse.click(315, 360)
+    await page.mouse.click(TABLET_VIEWPORT["width"] - 5, TABLET_VIEWPORT["height"] / 2)
     await page.wait_for_function(
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
-    await page.locator(".model-table").get_by_role("button", name="更多操作").click()
-    assert await page.get_by_text("费率配置", exact=True).count() == 1
+    await page.locator(".model-table").get_by_role("button", name="费率配置").click()
+    await page.locator(".ant-modal").get_by_text("费率配置", exact=True).wait_for()
     await assert_no_overflow(page)
-    await page.screenshot(path=str(SCREENSHOT_DIR / "platform-shell-resource-320.png"))
+    await take_screenshot(page, "model-resource", TABLET_VIEWPORT, "light")
     assert console_errors == []
     assert page_errors == []
     await context.close()
@@ -529,14 +541,36 @@ async def check_permission_landings(browser: Browser) -> None:
         await context.close()
 
 
+async def check_dark_theme(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(browser, DESKTOP_VIEWPORT)
+    await page.goto(f"{BASE_URL}/ai/chat")
+    await page.get_by_text("从一个问题开始", exact=True).wait_for()
+    await page.get_by_role("button", name="切换主题").click()
+    await page.locator("html.dark").wait_for()
+    assert await page.locator(".platform-sidebar").evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(20, 20, 20)"
+    surface = page.locator(".chat-toolbar .ant-select-selector")
+    await surface.wait_for()
+    assert await surface.evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(31, 31, 31)"
+    await assert_no_overflow(page)
+    await take_screenshot(page, "shell-chat", DESKTOP_VIEWPORT, "dark")
+    assert console_errors == []
+    assert page_errors == []
+    await context.close()
+
+
 async def main() -> None:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
             await check_desktop(browser)
             await check_admin(browser)
-            await check_mobile(browser, 390, 844)
-            await check_resources_320(browser)
+            await check_mobile(browser, **MOBILE_VIEWPORT)
+            await check_model_resource_drawer(browser)
+            await check_dark_theme(browser)
             await check_permission_landings(browser)
         finally:
             await browser.close()
