@@ -336,6 +336,9 @@ async def check_desktop(browser: Browser) -> None:
         assert await page.get_by_role("link", name=label, exact=True).count() == 1
     assert await page.get_by_text("分析会话", exact=True).count() == 1
     await assert_no_overflow(page)
+    assert not await page.locator("html").evaluate(
+        "element => element.classList.contains('dark')"
+    )
 
     sidebar_colors = await page.locator(".platform-sidebar").evaluate(
         """element => ({

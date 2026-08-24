@@ -1,5 +1,13 @@
 <template>
-  <nav id="tags-view-container" class="tags-view-container" aria-label="管理页面标签">
+  <nav
+    id="tags-view-container"
+    class="tags-view-container"
+    :class="{
+      'tags-view-container--card': tagsViewStyle === 'card',
+      'tags-view-container--chrome': tagsViewStyle === 'chrome',
+    }"
+    aria-label="管理页面标签"
+  >
     <button class="tags-icon-button" :disabled="!canScrollLeft" aria-label="向左滚动" @click="scrollLeft">
       <LeftOutlined />
     </button>
@@ -325,9 +333,16 @@ function handleScroll() {
   color: var(--color-text);
 }
 
-.tags-view-item.active {
+.tags-view-container--card .tags-view-item.active {
   border-color: var(--main-50);
   background: var(--main-50);
+  color: var(--main-700);
+  font-weight: 600;
+}
+
+.tags-view-container--chrome .tags-view-item.active {
+  border-bottom: 2px solid var(--main-700);
+  background: var(--gray-0);
   color: var(--main-700);
   font-weight: 600;
 }
