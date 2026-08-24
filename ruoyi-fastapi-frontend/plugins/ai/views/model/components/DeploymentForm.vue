@@ -193,14 +193,14 @@ async function submit() {
 <style scoped>
 .engine-form { padding: 0 4px 16px; color: var(--color-text); }
 .engine-form :deep(.ant-form-item-label > label) { color: var(--color-text); }
-.engine-form :deep(.ant-input), .engine-form :deep(.ant-input-affix-wrapper), .engine-form :deep(.ant-select-selector), .engine-form :deep(.ant-input-number) { border-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.engine-form :deep(.ant-input), .engine-form :deep(.ant-input-affix-wrapper), .engine-form :deep(.ant-select-selector), .engine-form :deep(.ant-input-number) { border-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .engine-form :deep(.ant-input::placeholder) { color: var(--color-text-tertiary); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
 .advanced-settings { margin-bottom: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-10); }
 .advanced-settings :deep(.ant-collapse-header) { color: var(--color-text) !important; }
-.advanced-settings :deep(.ant-collapse-content) { border-top-color: var(--gray-150); background: var(--gray-0); }
+.advanced-settings :deep(.ant-collapse-content) { border-top-color: var(--gray-150); background: var(--bg-container); }
 .form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 12px; }
-.engine-form.is-quick .form-actions { position: sticky; bottom: 0; z-index: 1; background: var(--gray-0); border-top: 1px solid var(--gray-150); padding: 12px 0; }
+.engine-form.is-quick .form-actions { position: sticky; bottom: 0; z-index: 1; background: var(--bg-container); border-top: 1px solid var(--gray-150); padding: 12px 0; }
 @media (max-width: 640px) {
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .form-actions { flex-wrap: wrap; }

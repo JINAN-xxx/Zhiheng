@@ -112,7 +112,7 @@ function refreshAfterOnboarding() {
   margin-top: 16px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
-  background: var(--gray-0);
+  background: var(--bg-container);
   padding: 0 18px 18px;
 }
 .workspace-tabs :deep(.ant-tabs-nav) { margin: 0 0 12px; border-bottom: 1px solid var(--gray-150); }
@@ -133,8 +133,8 @@ function refreshAfterOnboarding() {
   font-size: 13px;
   letter-spacing: 0;
 }
-:global(.model-onboarding-drawer .ant-drawer-content) { background: var(--gray-0); color: var(--color-text); }
-:global(.model-onboarding-drawer .ant-drawer-header) { margin-bottom: 16px; border-bottom: 1px solid var(--gray-150); background: var(--gray-0); padding-bottom: 16px; }
+:global(.model-onboarding-drawer .ant-drawer-content) { background: var(--bg-elevated); color: var(--color-text); }
+:global(.model-onboarding-drawer .ant-drawer-header) { margin-bottom: 16px; border-bottom: 1px solid var(--gray-150); background: var(--bg-elevated); padding-bottom: 16px; }
 :global(.model-onboarding-drawer .ant-drawer-title) { color: var(--color-text); font-size: 16px; font-weight: 600; }
 :global(.model-onboarding-drawer .ant-segmented), :global(.model-onboarding-drawer .ant-btn) { border-radius: 6px; }
 @media (max-width: 760px) {

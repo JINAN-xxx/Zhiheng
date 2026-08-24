@@ -20,7 +20,7 @@ for (const fileName of authPages) {
 const authShell = readFileSync('src/components/Antd/AuthShell.vue', 'utf8')
 assert.doesNotMatch(authShell, /auth-shell::before|workspace-shadow-float|box-shadow\s*:/)
 assert.match(authShell, /background:\s*var\(--gray-50\)/)
-assert.match(authShell, /background:\s*var\(--gray-0\)/)
+assert.match(authShell, /background:\s*var\(--bg-container\)/)
 assert.match(authShell, /border:\s*1px solid var\(--gray-150\)/)
 assert.match(authShell, /border-radius:\s*8px/)
 assert.match(authShell, /color:\s*var\(--color-text\)/)

@@ -47,6 +47,9 @@
   --color-text: var(--gray-1000);
   --color-text-secondary: var(--gray-600);
   --color-text-tertiary: var(--gray-500);
+  --bg-page: var(--gray-50);
+  --bg-container: var(--gray-0);
+  --bg-elevated: var(--gray-0);
   --bg-sider: var(--main-5);
   --page-padding: 22px;
 }

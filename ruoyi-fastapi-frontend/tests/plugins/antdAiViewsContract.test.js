@@ -62,7 +62,7 @@ for (const source of [chatView, chatMessage]) {
 }
 assert.doesNotMatch(chatView, /workspace-shadow-soft/)
 assert.match(chatView, /background:\s*var\(--gray-50\)/)
-assert.match(chatView, /background:\s*var\(--gray-0\)/)
+assert.match(chatView, /background:\s*var\(--bg-container\)/)
 assert.match(chatView, /border:\s*1px solid var\(--gray-(?:150|200)\)/)
 assert.match(chatView, /focus-within[\s\S]*border-color:\s*var\(--main-color\)/)
 assert.doesNotMatch(chatView, /(?:background|linear)-gradient|hover[\s\S]*transform/)
@@ -88,11 +88,12 @@ for (const fileName of modelFiles) {
   const source = readFileSync(fileName, 'utf8')
   assert.doesNotMatch(source, /#(?:2f7e78|226862|409eff)/i, `${fileName} must not use legacy brand colors`)
   assert.doesNotMatch(source, /box-shadow\s*:/, `${fileName} must not add panel shadows`)
-  assert.match(source, /var\(--(?:gray-(?:0|10|25|50|150)|main-(?:50|700)|color-(?:text(?:-secondary|-tertiary)?|success-(?:50|700)|warning-(?:50|700|900)|error-(?:50|700)))\)/, `${fileName} must use Yuxi surface tokens`)
+  assert.match(source, /var\(--(?:bg-(?:container|elevated)|gray-(?:10|25|50|150)|main-(?:50|700)|color-(?:text(?:-secondary|-tertiary)?|success-(?:50|700)|warning-(?:50|700|900)|error-(?:50|700)))\)/, `${fileName} must use Yuxi surface tokens`)
 }
 
 const modelIndex = readFileSync('plugins/ai/views/model/index.vue', 'utf8')
-assert.match(modelIndex, /\.model-workspace\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*(?:[0-8]px|var\(--workspace-radius-sm\))\s*;[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(modelIndex, /\.model-workspace\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*(?:[0-8]px|var\(--workspace-radius-sm\))\s*;[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(modelIndex, /model-onboarding-drawer \.ant-drawer-content\)[\s\S]*?background:\s*var\(--bg-elevated\)/)
 assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab\)\s*\{\s*height:\s*(?:44|45|46|47|48)px/)
 assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab-active[^\n]*\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-table-tbody > tr > td\)\s*\{\s*height:\s*(?:44|45|46|47|48)px/)
@@ -109,10 +110,10 @@ for (const fileName of [
 }
 
 const runtimeStatus = readFileSync('plugins/ai/views/model/components/RuntimeStatusPanel.vue', 'utf8')
-assert.match(runtimeStatus, /var\(--gray-0\)/)
+assert.match(runtimeStatus, /var\(--bg-container\)/)
 assert.match(runtimeStatus, /var\(--gray-150\)/)
 const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOnboardingDrawer.vue', 'utf8')
-assert.match(onboardingDrawer, /var\(--gray-0\)/)
+assert.match(onboardingDrawer, /var\(--bg-container\)/)
 assert.match(onboardingDrawer, /var\(--gray-150\)/)
 for (const fileName of [
   'plugins/ai/views/model/components/CredentialForm.vue',
@@ -121,10 +122,10 @@ for (const fileName of [
   const source = readFileSync(fileName, 'utf8')
   assert.match(source, /var\(--(?:gray-150|color-text-secondary)\)/, `${fileName} must use Yuxi form tokens`)
   assert.match(source, /<a-form[^>]*:class="\{ 'is-quick': quick \}"/, `${fileName} must mark quick forms for sticky actions`)
-  assert.match(source, /\.engine-form\.is-quick \.form-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--gray-0\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)[\s\S]*padding:\s*12px 0/, `${fileName} must keep quick actions visible`)
+  assert.match(source, /\.engine-form\.is-quick \.form-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--bg-container\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)[\s\S]*padding:\s*12px 0/, `${fileName} must keep quick actions visible`)
   assert.match(source, /@media \(max-width: 640px\)[\s\S]*\.form-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/, `${fileName} must keep mobile actions from overlapping`)
 }
-assert.match(onboardingDrawer, /\.step-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--gray-0\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)/)
+assert.match(onboardingDrawer, /\.step-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--bg-container\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)/)
 assert.match(onboardingDrawer, /@media \(max-width: 640px\)[\s\S]*\.step-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/)
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
@@ -174,22 +175,22 @@ for (const [fileName, source] of [
   assert.doesNotMatch(source, /box-shadow\s*:/, `${fileName} must not add panel shadows`)
   assertNoDecorativeEffects(source, fileName)
   assert.doesNotMatch(source, /--workspace-(?:surface|border(?:-strong)?|main-soft|warning(?:-soft)?)/, `${fileName} must use direct Yuxi visual tokens`)
-  assert.match(source, /var\(--gray-0\)/, `${fileName} must use the Yuxi surface token`)
+  assert.match(source, /var\(--bg-container\)/, `${fileName} must use the Yuxi container surface`)
   assert.match(source, /var\(--gray-150\)/, `${fileName} must use the Yuxi border token`)
 }
 
-assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\)\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\)\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
 assert.match(applicationView, /\.application-row\.is-active\s*\{[\s\S]*background:\s*var\(--main-50\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(applicationView, /\.application-row:hover\s*\{[\s\S]*background:\s*var\(--gray-50\)[\s\S]*color:\s*var\(--color-text\)/)
 assert.match(applicationView, /\.application-row\.is-active:hover\s*\{[\s\S]*background:\s*var\(--main-30\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(applicationView, /\.stale-notice\s*\{[\s\S]*color:\s*var\(--color-warning-900\)[\s\S]*background:\s*var\(--color-warning-50\)/)
 assert.match(applicationView, /\.key-row code[\s\S]*font-family:\s*var\(--workspace-font-mono\)/)
-assert.match(applicationView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(applicationView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--bg-container\)/)
 
-assert.match(usageView, /\.usage-controls\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
-assert.match(usageView, /\.usage-table-wrap\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(usageView, /\.usage-controls\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(usageView, /\.usage-table-wrap\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
 assert.match(usageView, /\.usage-table-wrap :deep\(\.ant-table-thead > tr > th\)\s*\{[\s\S]*background:\s*var\(--gray-10\)[\s\S]*border-bottom-color:\s*var\(--gray-150\)/)
 assert.match(usageView, /\.usage-stale\s*\{[\s\S]*color:\s*var\(--color-warning-900\)[\s\S]*background:\s*var\(--color-warning-50\)/)
-assert.match(usageView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--gray-0\)/)
+assert.match(usageView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--bg-container\)/)
 
 console.log('ok Ant Design AI views contract')

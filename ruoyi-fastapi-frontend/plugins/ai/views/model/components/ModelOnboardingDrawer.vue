@@ -737,7 +737,7 @@ onBeforeUnmount(invalidateRequests)
   gap: 10px;
   border-top: 1px solid var(--gray-150);
   border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
   padding: 10px 0;
   margin-bottom: 18px;
 }
@@ -763,7 +763,7 @@ onBeforeUnmount(invalidateRequests)
 }
 .advanced-settings :deep(.ant-collapse-content-box) {
   border-top: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
   padding: 16px;
 }
 .advanced-settings :deep(.ant-collapse) { border-color: var(--gray-150); background: var(--gray-10); }
@@ -780,7 +780,7 @@ onBeforeUnmount(invalidateRequests)
   position: sticky;
   bottom: 0;
   z-index: 1;
-  background: var(--gray-0);
+  background: var(--bg-container);
   border-top: 1px solid var(--gray-150);
   padding: 12px 0;
 }

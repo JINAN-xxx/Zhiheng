@@ -588,7 +588,7 @@ onBeforeUnmount(() => {
 .developer-grid > :deep(.workspace-panel) {
   border: 1px solid var(--gray-150);
   border-radius: 8px;
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 .developer-grid > :first-child { grid-row: 1 / span 2; align-self: start; }
 .usage-panel { grid-column: 2; }
@@ -596,7 +596,7 @@ onBeforeUnmount(() => {
 .application-tools {
   padding: var(--workspace-space-3);
   border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .key-list {
@@ -627,7 +627,7 @@ onBeforeUnmount(() => {
 .application-table :deep(.ant-table-tbody > tr > td) {
   padding: 0;
   border-bottom-color: var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .application-table :deep(.ant-table-thead > tr > th),
@@ -639,7 +639,7 @@ onBeforeUnmount(() => {
 
 .usage-panel :deep(.ant-table-tbody > tr > td) {
   border-bottom-color: var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .application-row:hover {
@@ -712,7 +712,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .usage-mobile-list { display: grid; gap: 10px; padding: 12px; }
-.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
+.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-mobile-item__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .usage-mobile-item__header strong { font-size: 13px; }
 .usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--color-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }

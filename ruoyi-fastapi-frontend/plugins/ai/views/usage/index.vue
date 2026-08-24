@@ -235,16 +235,16 @@ onBeforeUnmount(() => { requestGeneration += 1 })
 
 <style scoped lang="scss">
 .usage-ledger-page { min-width: 0; color: var(--color-text); }
-.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 0; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
+.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 0; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-controls :deep(.ant-select) { width: 100%; min-width: 0; }
 .usage-controls :deep(.ant-select-selector),
 .usage-controls :deep(.ant-select-selection-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-stale { margin: 0 0 10px; padding: 9px 12px; border-radius: 8px; color: var(--color-warning-900); background: var(--color-warning-50); font-size: 12px; }
-.usage-table-wrap { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
+.usage-table-wrap { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-table-wrap :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
-.usage-table-wrap :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.usage-table-wrap :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .usage-mobile-list { display: grid; gap: 10px; padding: 12px; }
-.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--gray-0); }
+.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-mobile-item__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .usage-mobile-item__header strong { font-size: 13px; }
 .usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--color-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }

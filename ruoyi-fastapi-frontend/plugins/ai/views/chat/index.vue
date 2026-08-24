@@ -375,7 +375,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 0;
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .toolbar-title {
@@ -397,7 +397,7 @@ onBeforeUnmount(() => {
   min-height: 64px;
   padding: 0 28px;
   border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .toolbar-actions {
@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow: auto;
   padding: 28px clamp(16px, 6vw, 96px);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .empty-chat {
@@ -489,14 +489,14 @@ onBeforeUnmount(() => {
 .composer {
   padding: 12px clamp(16px, 6vw, 96px) 16px;
   border-top: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .composer-surface {
   padding: 10px 12px 8px;
   border: 1px solid var(--gray-200);
   border-radius: 8px;
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .composer-surface:focus-within {

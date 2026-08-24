@@ -24,10 +24,16 @@ for (const [token, color] of Object.entries({
 }
 
 assert.match(light.toLowerCase(), /--color-warning-900:\s*#ad6800/)
+assert.match(light, /--bg-page:\s*var\(--gray-50\)/)
+assert.match(light, /--bg-container:\s*var\(--gray-0\)/)
+assert.match(light, /--bg-elevated:\s*var\(--gray-0\)/)
 
 assert.match(dark.toLowerCase(), /--main-color:\s*#4a9fb8/)
 assert.match(dark.toLowerCase(), /--gray-0:\s*#030303/)
 assert.match(dark.toLowerCase(), /--bg-sider:\s*#141414/)
+assert.match(dark.toLowerCase(), /--bg-page:\s*#030303/)
+assert.match(dark.toLowerCase(), /--bg-container:\s*#1f1f1f/)
+assert.match(dark.toLowerCase(), /--bg-elevated:\s*#262626/)
 
 for (const [token, color] of Object.entries({
   '--main-1000': '#e1f6fb',
@@ -89,8 +95,9 @@ for (const [alias, token] of Object.entries({
   '--workspace-main': '--main-color',
   '--workspace-main-deep': '--main-800',
   '--workspace-main-soft': '--main-50',
-  '--workspace-bg': '--gray-50',
-  '--workspace-surface': '--gray-0',
+  '--workspace-bg': '--bg-page',
+  '--workspace-surface': '--bg-container',
+  '--workspace-surface-elevated': '--bg-elevated',
   '--workspace-surface-muted': '--gray-10',
   '--workspace-border': '--gray-150',
   '--workspace-border-strong': '--gray-200',
@@ -103,8 +110,8 @@ for (const [alias, token] of Object.entries({
   '--workspace-sidebar-text': '--color-text',
   '--workspace-sidebar-muted': '--color-text-secondary',
   '--el-color-primary': '--main-color',
-  '--el-bg-color-page': '--gray-50',
-  '--el-bg-color': '--gray-0',
+  '--el-bg-color-page': '--bg-page',
+  '--el-bg-color': '--bg-container',
   '--el-border-color': '--gray-150',
 })) {
   assert.match(workspace, new RegExp(`${alias}:\\s*var\\(${token}\\)`))

@@ -110,7 +110,7 @@ function formatTime(value) {
 .recent-session__open strong { font-size: 13px; font-weight: 500; }
 .recent-session__open small { color: var(--color-text-secondary); font-size: 11px; }
 .recent-session.active .recent-session__open small { color: var(--color-text-secondary); }
-.recent-sessions :deep(.ant-input-affix-wrapper) { border-color: var(--gray-150); background: var(--gray-0); box-shadow: none; }
+.recent-sessions :deep(.ant-input-affix-wrapper) { border-color: var(--gray-150); background: var(--bg-container); box-shadow: none; }
 .recent-sessions :deep(.ant-input-affix-wrapper input),
 .recent-sessions :deep(.ant-input-prefix),
 .recent-sessions :deep(.ant-input-clear-icon) { color: var(--color-text); background: transparent; }

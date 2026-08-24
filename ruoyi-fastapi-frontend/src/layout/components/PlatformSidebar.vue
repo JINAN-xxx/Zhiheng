@@ -125,7 +125,7 @@ onMounted(() => {
 .platform-nav-link,
 .platform-new-chat,
 .platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: none; cursor: pointer; white-space: nowrap; }
-.platform-new-chat { margin-bottom: 5px; border-color: var(--gray-150); background: var(--gray-0); color: var(--color-text); }
+.platform-new-chat { margin-bottom: 5px; border-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .platform-nav-link:hover,
 .platform-admin-entry:hover { background: var(--gray-50); color: var(--color-text); }
 .platform-nav-link.router-link-active { background: var(--main-50); color: var(--main-700); }

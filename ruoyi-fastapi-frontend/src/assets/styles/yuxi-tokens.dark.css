@@ -47,5 +47,8 @@ html.dark {
   --color-text: #fff;
   --color-text-secondary: rgb(255 255 255 / 65%);
   --color-text-tertiary: rgb(255 255 255 / 45%);
+  --bg-page: #030303;
+  --bg-container: #1f1f1f;
+  --bg-elevated: #262626;
   --bg-sider: #141414;
 }

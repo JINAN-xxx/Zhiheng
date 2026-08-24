@@ -22,7 +22,7 @@ defineProps({
 <style scoped lang="scss">
 .workspace-panel {
   overflow: hidden;
-  background: var(--gray-0);
+  background: var(--bg-container);
   border: 1px solid var(--gray-150);
   border-radius: 8px;
 

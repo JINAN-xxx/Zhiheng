@@ -86,7 +86,7 @@ defineProps({
   padding: 32px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .auth-shell--wide .auth-shell__panel {

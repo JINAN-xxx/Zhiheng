@@ -152,13 +152,13 @@ assert.doesNotMatch(platformSidebar, /#fff/)
 
 assert.match(recentSessions, /\.recent-session:hover\s*\{\s*background:\s*var\(--(?:gray-50|main-30)\)/)
 assert.match(recentSessions, /\.recent-session\.active\s*\{\s*background:\s*var\(--main-50\);\s*color:\s*var\(--main-700\)/)
-assert.match(recentSessions, /\.ant-input-affix-wrapper\)\s*\{\s*border-color:\s*var\(--gray-150\);\s*background:\s*var\(--gray-0\)/)
+assert.match(recentSessions, /\.ant-input-affix-wrapper\)\s*\{\s*border-color:\s*var\(--gray-150\);\s*background:\s*var\(--bg-container\)/)
 assert.doesNotMatch(recentSessions, /workspace-sidebar-surface/)
 
 assert.match(adminSidebar, /\.admin-sidebar\s*\{[^}]*background:\s*var\(--(?:bg-sider|gray-0)\)[^}]*border-right:\s*1px solid var\(--gray-150\)/s)
 assert.match(adminSidebar, /:deep\(\.ant-menu-item-selected\),[\s\S]*?color:\s*var\(--main-700\);\s*background:\s*var\(--main-50\)/)
 
-assert.match(topbar, /\.platform-topbar\s*\{[^}]*background:\s*var\(--gray-0\)[^}]*border-bottom:\s*1px solid var\(--gray-150\)/s)
+assert.match(topbar, /\.platform-topbar\s*\{[^}]*background:\s*var\(--bg-container\)[^}]*border-bottom:\s*1px solid var\(--gray-150\)/s)
 assert.match(topbar, /\.platform-topbar__menu,[\s\S]*?color:\s*var\(--color-text-secondary\)/)
 assert.match(topbar, /\.platform-topbar__menu:hover,[\s\S]*?background:\s*var\(--gray-50\)[\s\S]*?color:\s*var\(--color-text\)/)
 
@@ -168,7 +168,7 @@ assert.doesNotMatch(tagsView, /:style="tagActiveStyle\(tag\)"/)
 assert.doesNotMatch(tagsView, /function tagActiveStyle/)
 assert.match(tagsView, /:class="\{\s*'tags-view-container--card':\s*tagsViewStyle\s*===\s*'card',[\s\S]*?'tags-view-container--chrome':\s*tagsViewStyle\s*===\s*'chrome'/)
 assert.match(tagsView, /\.tags-view-container--card\s+\.tags-view-item\.active\s*\{\s*border-color:\s*var\(--main-50\);\s*background:\s*var\(--main-50\);\s*color:\s*var\(--main-700\)/)
-assert.match(tagsView, /\.tags-view-container--chrome\s+\.tags-view-item\.active\s*\{\s*border-bottom:\s*2px solid var\(--main-700\);\s*background:\s*var\(--gray-0\);\s*color:\s*var\(--main-700\)/)
+assert.match(tagsView, /\.tags-view-container--chrome\s+\.tags-view-item\.active\s*\{\s*border-bottom:\s*2px solid var\(--main-700\);\s*background:\s*var\(--bg-container\);\s*color:\s*var\(--main-700\)/)
 
 assert.match(resourceShell, /padding:\s*var\(--page-padding\)/)
 assert.match(resourceShell, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.ai-resource-shell\s*\{\s*padding:\s*14px/)

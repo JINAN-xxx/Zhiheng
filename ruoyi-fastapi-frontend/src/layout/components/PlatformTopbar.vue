@@ -102,7 +102,7 @@ defineExpose({ focusMenu })
 </script>
 
 <style scoped lang="scss">
-.platform-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--gray-0); border-bottom: 1px solid var(--gray-150); }
+.platform-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--bg-container); border-bottom: 1px solid var(--gray-150); }
 .platform-topbar button { font: inherit; }
 .platform-topbar__menu,
 .platform-topbar__icon { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
@@ -113,7 +113,7 @@ defineExpose({ focusMenu })
 .platform-topbar__context strong { overflow: hidden; color: var(--color-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-topbar__actions { min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .platform-topbar__mode,
-.platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); background: var(--gray-0); color: var(--color-text-secondary); cursor: pointer; }
+.platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); background: var(--bg-container); color: var(--color-text-secondary); cursor: pointer; }
 .platform-topbar__mode:hover,
 .platform-topbar__profile:hover { background: var(--gray-50); color: var(--color-text); }
 .platform-topbar__notice { height: 32px; display: flex; align-items: center; }

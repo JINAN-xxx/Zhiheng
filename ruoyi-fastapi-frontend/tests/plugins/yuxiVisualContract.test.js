@@ -7,11 +7,51 @@ const readGlobalStyle = (fileName) => readFileSync(`src/assets/styles/${fileName
 const toolbar = readWorkspace('WorkspaceToolbar.vue')
 const panel = readWorkspace('WorkspacePanel.vue')
 const state = readWorkspace('WorkspaceState.vue')
+const coreSurfaceFiles = [
+  ['src/components/Antd/AuthShell.vue', readFileSync('src/components/Antd/AuthShell.vue', 'utf8')],
+  ['src/components/Workspace/WorkspacePanel.vue', panel],
+  ['src/layout/components/PlatformSidebar.vue', readFileSync('src/layout/components/PlatformSidebar.vue', 'utf8')],
+  ['src/layout/components/PlatformTopbar.vue', readFileSync('src/layout/components/PlatformTopbar.vue', 'utf8')],
+  ['src/layout/components/RecentSessions.vue', readFileSync('src/layout/components/RecentSessions.vue', 'utf8')],
+  ['src/layout/components/TagsView/index.vue', readFileSync('src/layout/components/TagsView/index.vue', 'utf8')],
+]
+const antdReset = readGlobalStyle('antd-reset.scss')
+const aiSurfaceFiles = [
+  'plugins/ai/views/application/index.vue',
+  'plugins/ai/views/chat/index.vue',
+  'plugins/ai/views/model/index.vue',
+  'plugins/ai/views/model/components/CredentialForm.vue',
+  'plugins/ai/views/model/components/CredentialsPanel.vue',
+  'plugins/ai/views/model/components/DeploymentForm.vue',
+  'plugins/ai/views/model/components/EngineDeploymentsPanel.vue',
+  'plugins/ai/views/model/components/ModelOnboardingDrawer.vue',
+  'plugins/ai/views/model/components/PlatformModelsPanel.vue',
+  'plugins/ai/views/model/components/RuntimeStatusPanel.vue',
+  'plugins/ai/views/usage/index.vue',
+].map((fileName) => [fileName, readFileSync(fileName, 'utf8')])
 const globalStyles = [
   ['ruoyi.scss', readGlobalStyle('ruoyi.scss')],
   ['sidebar.scss', readGlobalStyle('sidebar.scss')],
   ['index.scss', readGlobalStyle('index.scss')],
 ]
+
+for (const [fileName, source] of coreSurfaceFiles) {
+  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+  assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
+}
+
+for (const [fileName, source] of aiSurfaceFiles) {
+  assert.doesNotMatch(source, /background:\s*var\(--gray-0\)/, `${fileName} must use semantic surfaces for backgrounds`)
+  assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
+}
+
+assert.match(coreSurfaceFiles[0][1], /\.auth-shell__mark[\s\S]*?color:\s*var\(--gray-0\)/)
+assert.match(coreSurfaceFiles[5][1], /\.contextmenu\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)
+assert.match(antdReset, /\.antd-app-root\s*\{[\s\S]*?background:\s*var\(--bg-page\)/)
+assert.match(antdReset, /\.antd-global-loading__surface\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)
+for (const [fileName, source] of aiSurfaceFiles.filter(([fileName]) => /(?:CredentialsPanel|EngineDeploymentsPanel|model\/index)\.vue$/.test(fileName))) {
+  assert.match(source, /ant-drawer-(?:content|header)[\s\S]*?background:\s*var\(--bg-elevated\)/, `${fileName} must elevate drawer surfaces`)
+}
 
 for (const [fileName, source] of globalStyles) {
   assert.doesNotMatch(source, /#2f7e78|#226862|#409eff|#20b2aa|#48d1cc|#42b983/i, `${fileName} must not contain a legacy theme color`)
@@ -22,7 +62,7 @@ for (const source of [toolbar, panel, state]) {
   assert.doesNotMatch(source, /box-shadow\s*:/)
 }
 
-assert.match(panel, /background:\s*var\(--gray-0\)/)
+assert.match(panel, /background:\s*var\(--bg-container\)/)
 assert.match(panel, /border:\s*1px solid var\(--gray-150\)/)
 assert.match(panel, /border-radius:\s*8px/)
 assert.match(panel, /&__header[\s\S]*?border-bottom:\s*1px solid var\(--gray-150\)/)

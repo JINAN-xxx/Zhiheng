@@ -305,7 +305,7 @@ function handleScroll() {
   align-items: center;
   overflow: hidden;
   border-bottom: 1px solid var(--gray-150);
-  background: var(--gray-0);
+  background: var(--bg-container);
 }
 
 .tags-view-wrapper {
@@ -342,7 +342,7 @@ function handleScroll() {
 
 .tags-view-container--chrome .tags-view-item.active {
   border-bottom: 2px solid var(--main-700);
-  background: var(--gray-0);
+  background: var(--bg-container);
   color: var(--main-700);
   font-weight: 600;
 }
@@ -400,7 +400,7 @@ function handleScroll() {
   padding: 5px;
   border: 1px solid var(--gray-150);
   border-radius: var(--workspace-radius-md);
-  background: var(--gray-0);
+  background: var(--bg-elevated);
   box-shadow: var(--workspace-shadow-float);
   color: var(--color-text);
   font-size: 12px;

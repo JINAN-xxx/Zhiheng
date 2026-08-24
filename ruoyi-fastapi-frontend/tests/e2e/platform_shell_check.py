@@ -602,11 +602,25 @@ async def check_dark_theme(browser: Browser) -> None:
     assert await page.locator(".platform-sidebar").evaluate(
         "element => getComputedStyle(element).backgroundColor"
     ) == "rgb(20, 20, 20)"
+    assert await page.locator(".platform-shell").evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(3, 3, 3)"
+    assert await page.locator(".platform-topbar").evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(31, 31, 31)"
     surface = page.locator(".chat-toolbar .ant-select-selector")
     await surface.wait_for()
     assert await surface.evaluate(
         "element => getComputedStyle(element).backgroundColor"
     ) == "rgb(31, 31, 31)"
+    session_row = page.locator(".recent-session").filter(has_text="分析会话")
+    await session_row.get_by_role("button", name="更多操作").click()
+    await page.get_by_text("重命名", exact=True).click()
+    modal = page.locator(".ant-modal").last
+    await modal.wait_for()
+    assert await modal.locator(".ant-modal-content").evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(38, 38, 38)"
     await assert_no_overflow(page)
     await take_screenshot(page, "shell-chat", DESKTOP_VIEWPORT, "dark")
     assert console_errors == []

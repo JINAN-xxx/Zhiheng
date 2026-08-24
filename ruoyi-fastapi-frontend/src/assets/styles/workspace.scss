@@ -2,8 +2,9 @@
   --workspace-main: var(--main-color);
   --workspace-main-deep: var(--main-800);
   --workspace-main-soft: var(--main-50);
-  --workspace-bg: var(--gray-50);
-  --workspace-surface: var(--gray-0);
+  --workspace-bg: var(--bg-page);
+  --workspace-surface: var(--bg-container);
+  --workspace-surface-elevated: var(--bg-elevated);
   --workspace-surface-muted: var(--gray-10);
   --workspace-border: var(--gray-150);
   --workspace-border-strong: var(--gray-200);
@@ -66,8 +67,8 @@
   --el-border-color: var(--gray-150);
   --el-border-color-light: var(--gray-150);
   --el-border-color-lighter: var(--gray-10);
-  --el-bg-color: var(--gray-0);
-  --el-bg-color-page: var(--gray-50);
+  --el-bg-color: var(--bg-container);
+  --el-bg-color-page: var(--bg-page);
   --el-fill-color-light: var(--gray-10);
   --el-text-color-primary: var(--color-text);
   --el-text-color-regular: var(--gray-800);
