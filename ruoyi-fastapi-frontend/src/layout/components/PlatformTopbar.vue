@@ -102,18 +102,20 @@ defineExpose({ focusMenu })
 </script>
 
 <style scoped lang="scss">
-.platform-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--workspace-surface); border-bottom: 1px solid var(--workspace-border); }
+.platform-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--gray-0); border-bottom: 1px solid var(--gray-150); }
 .platform-topbar button { font: inherit; }
 .platform-topbar__menu,
-.platform-topbar__icon { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--workspace-text-secondary); cursor: pointer; }
+.platform-topbar__icon { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .platform-topbar__menu:hover,
-.platform-topbar__icon:hover { border-color: var(--workspace-border); background: var(--workspace-surface-muted); color: var(--workspace-text); }
+.platform-topbar__icon:hover { border-color: var(--gray-150); background: var(--gray-50); color: var(--color-text); }
 .platform-topbar__context { min-width: 0; display: grid; gap: 1px; }
-.platform-topbar__context span { color: var(--workspace-text-muted); font-size: 11px; }
-.platform-topbar__context strong { overflow: hidden; color: var(--workspace-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.platform-topbar__context span { color: var(--color-text-tertiary); font-size: 11px; }
+.platform-topbar__context strong { overflow: hidden; color: var(--color-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-topbar__actions { min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .platform-topbar__mode,
-.platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--workspace-border); border-radius: var(--workspace-radius-sm); background: var(--workspace-surface); color: var(--workspace-text-secondary); cursor: pointer; }
+.platform-topbar__profile { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); background: var(--gray-0); color: var(--color-text-secondary); cursor: pointer; }
+.platform-topbar__mode:hover,
+.platform-topbar__profile:hover { background: var(--gray-50); color: var(--color-text); }
 .platform-topbar__notice { height: 32px; display: flex; align-items: center; }
 @media (max-width: 760px) {
   .platform-topbar { padding: 0 8px; }

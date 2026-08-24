@@ -12,7 +12,6 @@
         :class="{ active: isActive(tag), 'has-icon': tagsIcon }"
         :to="{ path: tag.path, query: tag.query, fullPath: tag.fullPath }"
         class="tags-view-item"
-        :style="tagActiveStyle(tag)"
         :aria-current="isActive(tag) ? 'page' : undefined"
         @click.middle="!isAffix(tag) && closeSelectedTag(tag)"
         @contextmenu.prevent="openMenu(tag, $event)"
@@ -105,7 +104,6 @@ const tagsViewStore = useTagsViewStore()
 
 const visitedViews = computed(() => tagsViewStore.visitedViews)
 const routes = computed(() => usePermissionStore().routes)
-const theme = computed(() => settingsStore.theme)
 const tagsIcon = computed(() => settingsStore.tagsIcon)
 const tagsViewPersist = computed(() => settingsStore.tagsViewPersist)
 const tagsViewStyle = computed(() => settingsStore.tagsViewStyle)
@@ -134,11 +132,6 @@ onBeforeUnmount(() => {
 
 function isActive(view) {
   return view.path === route.path
-}
-
-function tagActiveStyle(tag) {
-  if (!isActive(tag) || tagsViewStyle.value !== 'card') return {}
-  return { backgroundColor: theme.value, borderColor: theme.value, color: '#fff' }
 }
 
 function isAffix(tag) {
@@ -303,8 +296,8 @@ function handleScroll() {
   min-height: 35px;
   align-items: center;
   overflow: hidden;
-  border-bottom: 1px solid var(--workspace-border);
-  background: var(--workspace-surface);
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--gray-0);
 }
 
 .tags-view-wrapper {
@@ -321,21 +314,21 @@ function handleScroll() {
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--workspace-radius-sm);
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
   text-decoration: none;
 }
 
 .tags-view-item:hover {
-  border-color: var(--workspace-border);
-  background: var(--workspace-surface-muted);
-  color: var(--workspace-text);
+  border-color: var(--gray-150);
+  background: var(--gray-50);
+  color: var(--color-text);
 }
 
 .tags-view-item.active {
-  border-color: var(--workspace-main-soft);
-  background: var(--workspace-main-soft);
-  color: var(--workspace-main-deep);
+  border-color: var(--main-50);
+  background: var(--main-50);
+  color: var(--main-700);
   font-weight: 600;
 }
 
@@ -347,7 +340,7 @@ function handleScroll() {
   justify-content: center;
   border: 0;
   background: transparent;
-  color: var(--workspace-text-secondary);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
@@ -355,11 +348,11 @@ function handleScroll() {
   width: 32px;
   height: 34px;
   flex: 0 0 32px;
-  border-inline-start: 1px solid var(--workspace-border);
+  border-inline-start: 1px solid var(--gray-150);
 }
 
 .tags-icon-button:disabled {
-  color: var(--workspace-text-muted);
+  color: var(--color-text-tertiary);
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -368,7 +361,7 @@ function handleScroll() {
   height: 34px;
   gap: 5px;
   padding: 0 10px;
-  border-inline-start: 1px solid var(--workspace-border);
+  border-inline-start: 1px solid var(--gray-150);
   font-size: 12px;
 }
 
@@ -380,8 +373,8 @@ function handleScroll() {
 }
 
 .tags-close-button:hover {
-  background: var(--workspace-border);
-  color: var(--workspace-text);
+  background: var(--gray-150);
+  color: var(--color-text);
 }
 
 .contextmenu {
@@ -390,11 +383,11 @@ function handleScroll() {
   min-width: 140px;
   margin: 0;
   padding: 5px;
-  border: 1px solid var(--workspace-border);
+  border: 1px solid var(--gray-150);
   border-radius: var(--workspace-radius-md);
-  background: var(--workspace-surface);
+  background: var(--gray-0);
   box-shadow: var(--workspace-shadow-float);
-  color: var(--workspace-text);
+  color: var(--color-text);
   font-size: 12px;
   list-style: none;
 }
@@ -409,7 +402,7 @@ function handleScroll() {
 }
 
 .contextmenu li:hover {
-  background: var(--workspace-surface-muted);
+  background: var(--gray-50);
 }
 
 @media (max-width: 760px) {

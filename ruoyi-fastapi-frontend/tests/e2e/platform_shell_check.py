@@ -337,6 +337,18 @@ async def check_desktop(browser: Browser) -> None:
     assert await page.get_by_text("分析会话", exact=True).count() == 1
     await assert_no_overflow(page)
 
+    sidebar_colors = await page.locator(".platform-sidebar").evaluate(
+        """element => ({
+            background: getComputedStyle(element).backgroundColor,
+            color: getComputedStyle(element).color,
+        })"""
+    )
+    assert sidebar_colors == {"background": "rgb(252, 254, 254)", "color": "rgb(21, 22, 22)"}
+    active_chat_background = await page.get_by_role(
+        "link", name="智能对话", exact=True
+    ).evaluate("element => getComputedStyle(element).backgroundColor")
+    assert active_chat_background == "rgb(225, 246, 251)"
+
     expanded_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
     )

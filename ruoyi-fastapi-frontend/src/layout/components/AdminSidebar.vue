@@ -75,12 +75,14 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 </script>
 
 <style scoped lang="scss">
-.admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--workspace-surface); border-right: 1px solid var(--workspace-border); color: var(--workspace-text); font: inherit; line-height: normal; }
-.admin-sidebar__back { width: 100%; min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; overflow: hidden; border: 0; border-bottom: 1px solid var(--workspace-border); background: transparent; color: var(--workspace-text); white-space: nowrap; cursor: pointer; }
+.admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font: inherit; line-height: normal; }
+.admin-sidebar__back { width: 100%; min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; overflow: hidden; border: 0; border-bottom: 1px solid var(--gray-150); background: transparent; color: var(--color-text); white-space: nowrap; cursor: pointer; }
 .admin-sidebar__scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 6px 0; }
 .admin-sidebar :deep(.ant-menu) { width: 100%; border-inline-end: 0; background: transparent; }
 .admin-sidebar :deep(.ant-menu-item),
-.admin-sidebar :deep(.ant-menu-submenu-title) { height: var(--platform-menu-item-height); line-height: var(--platform-menu-item-height); margin: 3px 8px; border-radius: var(--workspace-radius-sm); }
+.admin-sidebar :deep(.ant-menu-submenu-title) { height: var(--platform-menu-item-height); line-height: var(--platform-menu-item-height); margin: 3px 8px; border-radius: var(--workspace-radius-sm); color: var(--color-text-secondary); }
+.admin-sidebar :deep(.ant-menu-item:hover),
+.admin-sidebar :deep(.ant-menu-submenu-title:hover) { color: var(--main-700); background: var(--main-30); }
 .admin-sidebar :deep(.ant-menu-item-selected),
-.admin-sidebar :deep(.ant-menu-submenu-selected > .ant-menu-submenu-title) { color: var(--workspace-main-deep); background: var(--workspace-main-soft); }
+.admin-sidebar :deep(.ant-menu-submenu-selected > .ant-menu-submenu-title) { color: var(--main-700); background: var(--main-50); }
 </style>
