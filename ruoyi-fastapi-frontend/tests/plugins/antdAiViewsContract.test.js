@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs'
 
 import { beginSend } from '../../plugins/ai/utils/chatTransforms.js'
 
+function assertNoDecorativeEffects(source, label) {
+  assert.doesNotMatch(source, /\btransform\s*:/i, `${label} must not add transforms`)
+  assert.doesNotMatch(source, /(?:linear|radial|conic)-gradient\s*\(/i, `${label} must not add gradients`)
+}
+
 const chatView = readFileSync('plugins/ai/views/chat/index.vue', 'utf8')
 const chatMessage = readFileSync('plugins/ai/views/chat/components/AiMessage.vue', 'utf8')
 const chatSessions = readFileSync('plugins/ai/views/chat/components/ChatSessionPanel.vue', 'utf8')
@@ -124,6 +129,14 @@ assert.match(onboardingDrawer, /@media \(max-width: 640px\)[\s\S]*\.step-actions
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')
+assert.throws(
+  () => assertNoDecorativeEffects('.bad { transform: translateY(1px); }', 'mutation transform'),
+  /mutation transform.*transform/i,
+)
+assert.throws(
+  () => assertNoDecorativeEffects('.bad { background: radial-gradient(circle, red, blue); }', 'mutation gradient'),
+  /mutation gradient.*gradient/i,
+)
 assert.match(applicationView, /a-modal/)
 assert.match(applicationView, /ResourceTable/)
 assert.match(applicationView, /:columns="applicationColumns"/)
@@ -159,7 +172,7 @@ for (const [fileName, source] of [
 ]) {
   assert.doesNotMatch(source, /#(?:2f7e78|226862|409eff)/i, `${fileName} must not use legacy brand colors`)
   assert.doesNotMatch(source, /box-shadow\s*:/, `${fileName} must not add panel shadows`)
-  assert.doesNotMatch(source, /(?:background|linear)-gradient|hover[\s\S]*transform/, `${fileName} must not add gradients or hover motion`)
+  assertNoDecorativeEffects(source, fileName)
   assert.doesNotMatch(source, /--workspace-(?:surface|border(?:-strong)?|main-soft|warning(?:-soft)?)/, `${fileName} must use direct Yuxi visual tokens`)
   assert.match(source, /var\(--gray-0\)/, `${fileName} must use the Yuxi surface token`)
   assert.match(source, /var\(--gray-150\)/, `${fileName} must use the Yuxi border token`)
