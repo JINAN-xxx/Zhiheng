@@ -27,3 +27,18 @@ export function chatMessageLabel(role) {
 export function beginSend() {
   return { runId: null, status: 'connecting' }
 }
+
+export function resolveChatModelOptions(models = []) {
+  if (!Array.isArray(models)) return []
+  return models
+    .filter((model) => model?.modelType === 'chat')
+    .map((model) => {
+      const title = model.title || model.modelCode
+      return {
+        label: title,
+        title,
+        modelCode: model.modelCode,
+        value: model.modelId,
+      }
+    })
+}

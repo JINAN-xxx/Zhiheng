@@ -26,6 +26,12 @@ assert.match(authShell, /border-radius:\s*8px/)
 assert.match(authShell, /color:\s*var\(--color-text\)/)
 assert.match(authShell, /color:\s*var\(--color-text-secondary\)/)
 assert.match(authShell, /auth-shell__brand/)
+assert.match(authShell, /box-sizing:\s*border-box/)
+assert.match(authShell, /min-height:\s*100vh/)
+assert.match(authShell, /display:\s*flex/)
+assert.match(authShell, /flex-direction:\s*column/)
+assert.match(authShell, /justify-content:\s*center/)
+assert.match(authShell, /align-items:\s*center/)
 
 const login = readFileSync('src/views/login.vue', 'utf8')
 for (const component of ['a-form', 'a-input', 'a-input-password', 'a-checkbox', 'a-button']) {

@@ -48,9 +48,12 @@ defineProps({
 <style scoped>
 .auth-shell {
   position: relative;
-  display: grid;
-  min-height: 100%;
-  place-items: center;
+  box-sizing: border-box;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
   padding: 84px 24px 64px;
   overflow-x: hidden;
   background: var(--gray-50);

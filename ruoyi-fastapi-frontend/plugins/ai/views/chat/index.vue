@@ -127,7 +127,7 @@ import {
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
-import { beginSend, chatMessageLabel } from "../../utils/chatTransforms.js";
+import { beginSend, chatMessageLabel, resolveChatModelOptions } from "../../utils/chatTransforms.js";
 
 const { proxy } = getCurrentInstance();
 const route = useRoute();
@@ -163,10 +163,7 @@ function defaultPreferences() {
 }
 
 const stateLabel = computed(() => ({ idle: "就绪", connecting: "连接中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || "就绪"));
-const modelOptions = computed(() => models.value.map((model) => ({
-  label: model.title || model.modelCode,
-  value: model.modelId,
-})))
+const modelOptions = computed(() => resolveChatModelOptions(models.value))
 
 function filterModelOption(input, option) {
   return String(option?.label ?? '').toLowerCase().includes(String(input).toLowerCase())
@@ -175,7 +172,8 @@ function filterModelOption(input, option) {
 async function loadModels() {
   const response = await listPlatformModels({ pageNum: 1, pageSize: 100 });
   models.value = response.rows || response.data?.rows || [];
-  if (!modelId.value && models.value.length) modelId.value = models.value[0].modelId;
+  const chatModels = models.value.filter((model) => model?.modelType === "chat");
+  if (!chatModels.some((model) => model.modelId === modelId.value)) modelId.value = chatModels[0]?.modelId || "";
 }
 
 async function loadPreferences() {
@@ -238,10 +236,11 @@ async function send() {
   const clientMessageId = crypto.randomUUID();
   const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
   messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages });
-  const assistantId = `assistant-${clientMessageId}`;
-  messages.value.push({ localId: assistantId, role: "assistant", content: "", reasoningContent: "", status: "pending" });
   draft.value = "";
   imageIds.value = [];
+  await nextTick();
+  const assistantId = `assistant-${clientMessageId}`;
+  messages.value.push({ localId: assistantId, role: "assistant", content: "", reasoningContent: "", status: "pending" });
   activeAssistantId.value = assistantId;
   runState.value = nextState.status;
   loading.value = true;
