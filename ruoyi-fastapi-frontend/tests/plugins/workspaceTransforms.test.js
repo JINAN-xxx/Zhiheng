@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   collectWorkspaceRoutePaths,
+  collectWorkspaceLeafPaths,
   filterAdminWorkspaceRoutes,
   groupWorkspaceActions,
   normalizeWorkspaceSessions,
@@ -68,6 +69,29 @@ assert.equal(shouldApplyGeneration(1, 2), false)
 assert.deepEqual(collectWorkspaceRoutePaths([
   { path: '/ai', children: [{ path: 'chat' }, { path: '/absolute' }] },
 ]), ['/ai', '/ai/chat', '/absolute'])
+assert.deepEqual(collectWorkspaceLeafPaths([
+  { path: '/system', children: [{ path: 'user' }, { path: 'role' }] },
+]), ['/system/user', '/system/role'])
+assert.deepEqual(collectWorkspaceLeafPaths([
+  { path: '/system', children: [{ path: 'user', hidden: true }, { path: 'role' }] },
+]), ['/system/role'])
+assert.deepEqual(collectWorkspaceLeafPaths([
+  { path: '/ai', children: [{ path: 'chat' }] },
+  { path: '/system', children: [{ path: 'overview' }] },
+]), ['/ai/chat', '/system/overview'])
+assert.deepEqual(collectWorkspaceLeafPaths([
+  { path: '', children: [{ path: '/index' }] },
+  { path: 'https://example.com/admin' },
+  { path: '//example.com/admin' },
+  { path: '' },
+]), ['/index'])
+assert.deepEqual(
+  collectWorkspaceLeafPaths(filterAdminWorkspaceRoutes([
+    { path: '/ai', children: [{ path: 'chat' }] },
+    { path: '/system', children: [{ path: 'overview' }] },
+  ])),
+  ['/system/overview'],
+)
 assert.deepEqual(normalizeChatSessions({ data: { rows: [{ id: 's-1', name: '项目讨论', updated_at: '2026-08-18T10:00:00Z' }] } }), [
   { id: 's-1', name: '项目讨论', updated_at: '2026-08-18T10:00:00Z', sessionId: 's-1', title: '项目讨论', updatedAt: '2026-08-18T10:00:00Z' },
 ])

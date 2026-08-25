@@ -101,6 +101,30 @@ export function collectWorkspaceRoutePaths(routes = [], parentPath = '') {
   })
 }
 
+function isExternalWorkspacePath(path) {
+  return /^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(path)
+}
+
+export function collectWorkspaceLeafPaths(routes = [], parentPath = '') {
+  if (!Array.isArray(routes)) return []
+
+  return routes.flatMap((route) => {
+    if (!route || route.hidden === true || route.meta?.hidden === true) return []
+
+    const routePath = typeof route.path === 'string' ? route.path : ''
+    if (isExternalWorkspacePath(routePath)) return []
+
+    const fullPath = routePath.startsWith('/')
+      ? routePath
+      : [parentPath.replace(/\/$/u, ''), routePath].filter(Boolean).join('/')
+    const normalizedPath = fullPath ? `/${fullPath.replace(/^\/+/, '')}` : parentPath
+    const children = Array.isArray(route.children) ? route.children : []
+
+    if (children.length) return collectWorkspaceLeafPaths(children, normalizedPath)
+    return routePath && normalizedPath ? [normalizedPath] : []
+  })
+}
+
 export function resolvePaginationLayout(width, desktopLayout) {
   if (width < 600) return 'prev, pager, next'
   if (width < 900) return 'total, prev, pager, next'

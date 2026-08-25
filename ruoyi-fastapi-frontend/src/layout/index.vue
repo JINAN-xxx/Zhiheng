@@ -44,6 +44,7 @@
 <script setup>
 import { useWindowSize } from '@vueuse/core'
 import {
+  collectWorkspaceLeafPaths,
   collectWorkspaceRoutePaths,
   filterAdminWorkspaceRoutes,
   resolveAiResourceTabs,
@@ -103,7 +104,8 @@ function handleMobileDrawerChange(open) {
 
 function openAdmin() {
   const routes = filterAdminWorkspaceRoutes(permissionStore.addRoutes)
-  const target = collectWorkspaceRoutePaths(routes).find((path) => path !== '/index')
+  const target = collectWorkspaceLeafPaths(routes)[0]
+    || collectWorkspaceRoutePaths(routes).find((path) => path !== '/index')
   if (target) router.push(target)
 }
 
