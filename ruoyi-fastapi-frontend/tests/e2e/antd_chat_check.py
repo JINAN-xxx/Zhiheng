@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import inspect
 import json
 import os
@@ -10,12 +11,14 @@ from platform_shell_check import (
     assert_mobile_profile_layout,
     assert_no_overflow,
     new_page,
+    screenshot_hash,
     take_screenshot,
 )
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15175")
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 MOBILE_VIEWPORT = {"width": 375, "height": 812}
+CHAT_STABLE_SCREENSHOTS = ("chat-generating-1440x900-light.png",)
 
 
 def check_screenshot_contract() -> None:
@@ -34,6 +37,13 @@ def check_screenshot_contract() -> None:
         "full_page=True",
     ):
         assert required_fragment in source, required_fragment
+    assert "hashlib.sha256" in inspect.getsource(__import__("platform_shell_check"))
+    for required_fragment in ("deadline = time.monotonic() + 3.0", "remaining_ms"):
+        assert required_fragment in source, required_fragment
+    platform_source = inspect.getsource(__import__("platform_shell_check"))
+    assert "check_screenshot_helper_behavior" in platform_source
+    assert "run_platform_checks" in platform_source
+    assert "run_chat_checks" in inspect.getsource(run_chat_checks)
 
 
 async def install_chat_routes(page: Page) -> tuple[dict, asyncio.Event]:
@@ -250,13 +260,25 @@ async def check_mobile(browser: Browser) -> None:
         await context.close()
 
 
+async def run_chat_checks(browser: Browser) -> str:
+    await check_streaming(browser)
+    await check_mobile(browser)
+    screenshot = SCREENSHOT_DIR / CHAT_STABLE_SCREENSHOTS[0]
+    assert screenshot.exists(), screenshot
+    digest = hashlib.sha256(screenshot.read_bytes()).hexdigest()
+    print(f"chat generating screenshot hash: {digest}")
+    return digest
+
+
 async def main() -> None:
     check_screenshot_contract()
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(headless=True, args=["--disable-gpu"])
         try:
-            await check_streaming(browser)
-            await check_mobile(browser)
+            first_hash = await run_chat_checks(browser)
+            second_hash = await run_chat_checks(browser)
+            assert second_hash == first_hash, (first_hash, second_hash)
+            print("chat screenshot reproducibility passed (2 rounds)")
         finally:
             await browser.close()
     print("Ant Design chat browser checks passed")

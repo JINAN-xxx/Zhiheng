@@ -1,11 +1,19 @@
 import asyncio
+import hashlib
 import json
 import os
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from playwright.async_api import Browser, BrowserContext, Page, Route, async_playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Page,
+    Route,
+    TimeoutError as PlaywrightTimeoutError,
+    async_playwright,
+)
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15174")
 SCREENSHOT_DIR = Path(os.environ.get("PLATFORM_SHELL_SCREENSHOT_DIR", "/tmp"))
@@ -13,6 +21,13 @@ DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 ADMIN_VIEWPORT = {"width": 1280, "height": 800}
 TABLET_VIEWPORT = {"width": 768, "height": 1024}
 MOBILE_VIEWPORT = {"width": 375, "height": 812}
+PLATFORM_STABLE_SCREENSHOTS = (
+    "platform-auth-login-1280x800-dark.png",
+    "platform-shell-admin-1280x800-dark.png",
+    "platform-model-rate-1280x800-dark.png",
+    "platform-application-1280x800-dark.png",
+    "platform-usage-1280x800-dark.png",
+)
 
 ALL_PERMISSIONS = [
     "ai:chat:list",
@@ -434,21 +449,41 @@ async def assert_mobile_profile_layout(page: Page) -> None:
 
 async def take_screenshot(page: Page, filename: str) -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 3.0
+
+    def remaining_ms() -> int:
+        remaining = int((deadline - time.monotonic()) * 1000)
+        if remaining <= 0:
+            raise AssertionError("screenshot helper deadline exceeded 3000ms")
+        return remaining
+
+    async def bounded(operation):
+        try:
+            return await operation(remaining_ms())
+        except PlaywrightTimeoutError as error:
+            raise AssertionError("screenshot helper deadline exceeded 3000ms") from error
+        except Exception as error:
+            if "deadline" in str(error).lower() or "exceeded" in str(error).lower():
+                raise AssertionError("screenshot helper deadline exceeded 3000ms") from error
+            raise
+
     nprogress = page.locator("#nprogress")
     if await nprogress.count():
-        await nprogress.wait_for(state="detached", timeout=3000)
+        await bounded(lambda timeout: nprogress.wait_for(state="detached", timeout=timeout))
     else:
-        await page.wait_for_function(
-            "!document.querySelector('#nprogress')", timeout=3000
+        await bounded(
+            lambda timeout: page.wait_for_function(
+                "!document.querySelector('#nprogress')", timeout=timeout
+            )
         )
-    await page.evaluate(
-        """async () => {
-            const deadline = performance.now() + 3000
-            const withinBudget = (promise, label) => {
-                const remaining = Math.max(1, deadline - performance.now())
-                return new Promise((resolve, reject) => {
+    await bounded(
+        lambda timeout: page.evaluate(
+            """async remainingMs => {
+                const deadline = performance.now() + remainingMs
+                const withinBudget = (promise, label) => new Promise((resolve, reject) => {
+                    const remaining = Math.max(1, deadline - performance.now())
                     const timer = setTimeout(
-                        () => reject(new Error(`${label} exceeded 3000ms`)),
+                        () => reject(new Error(`${label} exceeded the shared screenshot deadline`)),
                         remaining,
                     )
                     Promise.resolve(promise).then(
@@ -456,87 +491,140 @@ async def take_screenshot(page: Page, filename: str) -> None:
                         error => { clearTimeout(timer); reject(error) },
                     )
                 })
-            }
-            if (document.fonts?.ready) await withinBudget(document.fonts.ready, 'font readiness')
-            const images = Array.from(document.images)
-            await withinBudget(Promise.all(images.map(image => {
-                if (image.complete) {
-                    if (image.naturalWidth > 0) return Promise.resolve()
-                    return Promise.reject(new Error(`image failed: ${image.currentSrc || image.src}`))
-                }
-                return new Promise((resolve, reject) => {
-                    image.addEventListener('load', () => {
-                        if (image.naturalWidth > 0) {
-                            resolve()
-                        } else {
-                            reject(new Error(`image failed: ${image.currentSrc || image.src}`))
+                if (document.fonts?.ready) await withinBudget(document.fonts.ready, 'font readiness')
+                const images = Array.from(document.images)
+                await withinBudget(Promise.all(images.map(image => {
+                    if (image.complete) {
+                        if (image.naturalWidth > 0) return Promise.resolve()
+                        return Promise.reject(new Error(`image failed: ${image.currentSrc || image.src}`))
+                    }
+                    return new Promise((resolve, reject) => {
+                        const finish = () => {
+                            if (image.naturalWidth > 0) resolve()
+                            else reject(new Error(`image failed: ${image.currentSrc || image.src}`))
                         }
-                    }, { once: true })
-                    image.addEventListener('error', () => reject(new Error(`image failed: ${image.currentSrc || image.src}`)), { once: true })
+                        image.addEventListener('load', finish, { once: true })
+                        image.addEventListener('error', () => reject(new Error(`image failed: ${image.currentSrc || image.src}`)), { once: true })
+                        if (image.complete) finish()
+                    })
+                })), 'image readiness')
+                const finiteAnimations = () => document.getAnimations({ subtree: true }).filter(animation => {
+                    const timing = animation.effect?.getComputedTiming?.()
+                    const configured = animation.effect?.getTiming?.()
+                    const iterations = configured?.iterations ?? timing?.iterations
+                    if (iterations === Infinity) return false
+                    if (animation.playState === 'running' && !Number.isFinite(timing?.endTime)) return false
+                    return animation.playState !== 'idle' && Number.isFinite(timing?.endTime)
                 })
-            })), 'image readiness')
-
-            const finiteAnimations = () => document.getAnimations({ subtree: true }).filter(animation => {
-                const timing = animation.effect?.getComputedTiming?.()
-                const configured = animation.effect?.getTiming?.()
-                const iterations = configured?.iterations ?? timing?.iterations
-                if (iterations === Infinity) return false
-                if (animation.playState === 'running' && !Number.isFinite(timing?.endTime)) return false
-                return animation.playState !== 'idle' && Number.isFinite(timing?.endTime)
-            })
-            const seen = new Set()
-            let stableRounds = 0
-            while (performance.now() < deadline) {
-                const animations = finiteAnimations()
-                const newAnimations = animations.filter(animation => !seen.has(animation))
-                animations.forEach(animation => seen.add(animation))
-                stableRounds = newAnimations.length === 0 ? stableRounds + 1 : 0
-                if (animations.length) {
-                    await withinBudget(
-                        Promise.all(animations.map(animation => animation.finished.catch(() => undefined))),
-                        'animation readiness',
-                    )
+                const seen = new Set()
+                let stableRounds = 0
+                while (performance.now() < deadline) {
+                    const animations = finiteAnimations()
+                    const newAnimations = animations.filter(animation => !seen.has(animation))
+                    animations.forEach(animation => seen.add(animation))
+                    stableRounds = newAnimations.length === 0 ? stableRounds + 1 : 0
+                    if (animations.length) {
+                        await withinBudget(
+                            Promise.all(animations.map(animation => animation.finished.catch(() => undefined))),
+                            'animation readiness',
+                        )
+                    }
+                    await withinBudget(new Promise(resolve => requestAnimationFrame(resolve)), 'animation sampling')
+                    if (stableRounds >= 2) break
                 }
-                await withinBudget(new Promise(resolve => requestAnimationFrame(resolve)), 'animation sampling')
-                if (stableRounds >= 2) break
-            }
-            if (stableRounds < 2) throw new Error('finite animation stability exceeded 3000ms')
-        }"""
+                if (stableRounds < 2) throw new Error('finite animation stability exceeded shared deadline')
+            }""",
+            timeout,
+        )
     )
-    await page.wait_for_function(
-        "!document.querySelector('#nprogress')", timeout=3000
+    await bounded(
+        lambda timeout: page.wait_for_function(
+            "!document.querySelector('#nprogress')", timeout=timeout
+        )
     )
-    await page.evaluate(
-        """async () => {
-            await new Promise(resolve => requestAnimationFrame(
-                () => requestAnimationFrame(resolve)
-            ))
-            if (document.querySelector('#nprogress')) {
-                throw new Error('NProgress appeared during screenshot sampling')
-            }
-        }"""
+    await bounded(
+        lambda timeout: page.evaluate(
+            """async remainingMs => {
+                const deadline = performance.now() + remainingMs
+                const wait = () => new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)
+                ))
+                await Promise.race([
+                    wait(),
+                    new Promise((_, reject) => setTimeout(
+                        () => reject(new Error('double RAF exceeded shared screenshot deadline')),
+                        Math.max(1, deadline - performance.now()),
+                    )),
+                ])
+                if (document.querySelector('#nprogress')) {
+                    throw new Error('NProgress appeared during screenshot sampling')
+                }
+            }""",
+            timeout,
+        )
     )
-    screenshot_deadline = time.monotonic() + 3
     previous_screenshot = None
-    while time.monotonic() < screenshot_deadline:
-        current_screenshot = await page.screenshot(
-            path=str(SCREENSHOT_DIR / filename),
-            animations="disabled",
-            style="*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }",
-            scale="css",
-            full_page=True,
+    while True:
+        current_screenshot = await bounded(
+            lambda timeout: page.screenshot(
+                path=str(SCREENSHOT_DIR / filename),
+                timeout=timeout,
+                animations="disabled",
+                style="*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }",
+                scale="css",
+                full_page=True,
+            )
         )
         if previous_screenshot == current_screenshot:
             return
         previous_screenshot = current_screenshot
-        await page.evaluate(
-            """async () => {
-                await new Promise(resolve => requestAnimationFrame(
-                    () => requestAnimationFrame(resolve)
-                ))
-            }"""
+        await bounded(
+            lambda timeout: page.evaluate(
+                """async remainingMs => {
+                    await Promise.race([
+                        new Promise(resolve => requestAnimationFrame(
+                            () => requestAnimationFrame(resolve)
+                        )),
+                        new Promise((_, reject) => setTimeout(
+                            () => reject(new Error('screenshot resampling exceeded shared deadline')),
+                            remainingMs,
+                        )),
+                    ])
+                }""",
+                timeout,
+            )
         )
-    raise AssertionError("screenshot pixels did not stabilize within 3000ms")
+
+
+async def check_screenshot_helper_behavior(browser: Browser) -> None:
+    context = await browser.new_context(viewport={"width": 320, "height": 240})
+    page = await context.new_page()
+    try:
+        await page.set_content(
+            """
+            <style>
+              @keyframes finite { from { opacity: .2 } to { opacity: 1 } }
+              @keyframes spinner { to { transform: rotate(360deg) } }
+              #finite { animation: finite 25ms 1 linear }
+              #spinner { animation: spinner 1s linear infinite }
+            </style>
+            <div id="nprogress"></div><div id="finite"></div><div id="spinner"></div>
+            <img alt="pixel" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" />
+            <script>setTimeout(() => document.querySelector('#nprogress').remove(), 40)</script>
+            """
+        )
+        filename = "screenshot-helper-behavior.png"
+        await take_screenshot(page, filename)
+        screenshot = SCREENSHOT_DIR / filename
+        assert screenshot.exists() and screenshot.stat().st_size > 100
+    finally:
+        await context.close()
+
+
+def screenshot_hash(filename: str) -> str:
+    screenshot = SCREENSHOT_DIR / filename
+    assert screenshot.exists(), screenshot
+    return hashlib.sha256(screenshot.read_bytes()).hexdigest()
 
 
 async def check_desktop(browser: Browser) -> None:
@@ -922,19 +1010,30 @@ async def check_dark_theme(browser: Browser) -> None:
     await context.close()
 
 
+async def run_platform_checks(browser: Browser) -> dict[str, str]:
+    await check_desktop(browser)
+    await check_admin(browser)
+    await check_mobile(browser, **MOBILE_VIEWPORT)
+    await check_model_resource_drawer(browser)
+    await check_dark_theme(browser)
+    await check_model_dark(browser)
+    await check_application_usage_dark(browser)
+    await check_auth_dark(browser)
+    await check_permission_landings(browser)
+    hashes = {filename: screenshot_hash(filename) for filename in PLATFORM_STABLE_SCREENSHOTS}
+    print(f"platform stable screenshot hashes: {hashes}")
+    return hashes
+
+
 async def main() -> None:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
-            await check_desktop(browser)
-            await check_admin(browser)
-            await check_mobile(browser, **MOBILE_VIEWPORT)
-            await check_model_resource_drawer(browser)
-            await check_dark_theme(browser)
-            await check_model_dark(browser)
-            await check_application_usage_dark(browser)
-            await check_auth_dark(browser)
-            await check_permission_landings(browser)
+            await check_screenshot_helper_behavior(browser)
+            first_hashes = await run_platform_checks(browser)
+            second_hashes = await run_platform_checks(browser)
+            assert second_hashes == first_hashes, (first_hashes, second_hashes)
+            print("platform screenshot reproducibility passed (2 rounds)")
         finally:
             await browser.close()
     print("platform shell browser checks passed")
