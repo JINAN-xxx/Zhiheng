@@ -61,6 +61,13 @@ export function normalizeApplicationPage(source = {}) {
   return { rows: rows.map(normalizeApplication), total }
 }
 
+export function normalizeApplicationModelPage(source = {}) {
+  const payload = source?.data && !Array.isArray(source.data) ? source.data : source
+  const rows = Array.isArray(payload?.rows) ? payload.rows : []
+  const total = Number.isInteger(payload?.total) && payload.total >= 0 ? payload.total : rows.length
+  return { rows, total }
+}
+
 function normalizeGrant(source = {}) {
   return {
     grantId: text(source.grantId ?? source.grant_id),
@@ -117,6 +124,13 @@ export function applicationTabResources(value) {
   }[normalizeApplicationTab(value)]
 }
 
+export function isCallablePlatformModel(model = {}) {
+  const source = model && typeof model === 'object' ? model : {}
+  const lifecycleStatus = source.lifecycleStatus ?? source.lifecycle_status
+  const publishedAt = source.publishedAt ?? source.published_at
+  return lifecycleStatus === 'active' && Boolean(publishedAt)
+}
+
 export async function resolvePreferredApplication(rows = [], preferredId, fetchApplication) {
   const fallback = rows[0] || null
   const applicationId = Array.isArray(preferredId) ? preferredId[0] : preferredId
@@ -140,8 +154,9 @@ export function aggregateGrantedModels(keys = [], models = []) {
     const modelId = text(model.modelId ?? model.model_id)
     return [modelId, {
       modelId,
-      modelName: text(model.modelName ?? model.displayName ?? model.title, '未命名模型'),
+      modelName: text(model.modelName ?? model.model_name ?? model.displayName ?? model.display_name ?? model.title, '未命名模型'),
       modelCode: text(model.modelCode ?? model.model_code, modelId),
+      available: isCallablePlatformModel(model),
     }]
   }))
   const grants = new Map()
@@ -149,12 +164,12 @@ export function aggregateGrantedModels(keys = [], models = []) {
     for (const grant of Array.isArray(key?.grants) ? key.grants : []) {
       if (grant?.status !== 'active' || !grant?.modelId) continue
       const row = grants.get(grant.modelId) || {
-        ...(modelMap.get(grant.modelId) || { modelId: grant.modelId, modelName: '模型信息不可用', modelCode: grant.modelId }),
+        ...(modelMap.get(grant.modelId) || { modelId: grant.modelId, modelName: '模型信息不可用', modelCode: grant.modelId, available: false }),
         keyCount: 0,
         activeKeyCount: 0,
       }
       row.keyCount += 1
-      if (key.status === 'active') row.activeKeyCount += 1
+      if (row.available && key.status === 'active') row.activeKeyCount += 1
       grants.set(grant.modelId, row)
     }
   }

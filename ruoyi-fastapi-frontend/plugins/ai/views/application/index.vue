@@ -155,10 +155,10 @@ import {
   listApplicationUsage, listDeveloperKeys, revokeDeveloperKey, rotateDeveloperKey, updateApplication,
 } from '../../api/application.js'
 import {
-  applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, extractIssuedKey, normalizeApplication,
-  normalizeApplicationPage, normalizeApplicationTab, normalizeDeveloperKeys, resolvePreferredApplication, shouldResetDeveloperKeys,
+  applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, extractIssuedKey, isCallablePlatformModel, normalizeApplication,
+  normalizeApplicationModelPage, normalizeApplicationPage, normalizeApplicationTab, normalizeDeveloperKeys, resolvePreferredApplication, shouldResetDeveloperKeys,
 } from '../../utils/application.js'
-import { hasPermission } from '../../utils/modelEngine.js'
+import { collectAllPages, hasPermission } from '../../utils/modelEngine.js'
 import ApplicationKeysPanel from './components/ApplicationKeysPanel.vue'
 import ApplicationModelsPanel from './components/ApplicationModelsPanel.vue'
 import ApplicationOverviewPanel from './components/ApplicationOverviewPanel.vue'
@@ -221,9 +221,9 @@ const keyActions = computed(() => [
   can('ai:application:key:rotate') && { command: 'rotate', label: '轮换密钥', icon: ReloadOutlined },
   can('ai:application:key:revoke') && { command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true, divided: true },
 ].filter(Boolean))
-const modelOptions = computed(() => models.value.map((model) => ({
-  label: model.displayName || model.modelName || model.title || model.modelCode,
-  value: model.modelId,
+const modelOptions = computed(() => models.value.filter(isCallablePlatformModel).map((model) => ({
+  label: model.displayName || model.display_name || model.modelName || model.model_name || model.title || model.modelCode || model.model_code,
+  value: model.modelId || model.model_id,
 })))
 
 function defaultKeyForm() {
@@ -255,7 +255,7 @@ async function loadApplications(preferredId = route.query.applicationId || selec
     total.value = page.total
     const next = await resolvePreferredApplication(page.rows, preferredId, getApplication)
     if (requestId !== applicationRequest) return
-    await selectApplication(next, true)
+    await selectApplication(next, true, 'load')
   } catch (reason) {
     if (requestId === applicationRequest) error.value = reason?.message || '应用列表加载失败'
   } finally {
@@ -263,7 +263,11 @@ async function loadApplications(preferredId = route.query.applicationId || selec
   }
 }
 
-async function selectApplication(application, forceRefresh = false) {
+async function selectApplication(application, forceRefresh = false, source = 'manual') {
+  if (source === 'manual') {
+    applicationRequest += 1
+    loading.value = false
+  }
   const currentApplicationId = selectedApplication.value?.applicationId || null
   const nextApplicationId = application?.applicationId || null
   const changed = shouldResetDeveloperKeys(currentApplicationId, nextApplicationId)
@@ -317,9 +321,12 @@ async function loadModels() {
   modelLoading.value = true
   modelError.value = ''
   try {
-    const response = await listPlatformModels({ pageNum: 1, pageSize: 100 })
+    const modelRows = await collectAllPages(
+      async ({ pageNum, pageSize }) => normalizeApplicationModelPage(await listPlatformModels({ pageNum, pageSize })),
+      { pageSize: 100 },
+    )
     if (requestId !== modelRequest) return
-    models.value = response.rows || response.data?.rows || []
+    models.value = modelRows
   } catch (reason) {
     if (requestId === modelRequest) modelError.value = reason?.message || '模型目录加载失败'
   } finally {

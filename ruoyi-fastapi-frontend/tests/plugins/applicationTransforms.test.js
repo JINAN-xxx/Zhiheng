@@ -8,7 +8,9 @@ import {
   extractIssuedKey,
   normalizeApplicationTab,
   normalizeApplicationPage,
+  normalizeApplicationModelPage,
   normalizeDeveloperKeys,
+  isCallablePlatformModel,
   resolvePreferredApplication,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
@@ -59,17 +61,35 @@ assert.deepEqual(aggregateGrantedModels([
   { keyId: 'key-2', keyName: '定时任务', status: 'revoked', grants: [{ modelId: 'mdl-1', status: 'active' }] },
   { keyId: 'key-3', keyName: '数据服务', status: 'active', grants: [{ modelId: 'mdl-1', status: 'disabled' }] },
 ], [
-  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main' },
-  { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main' },
+  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main', lifecycleStatus: 'active', publishedAt: '2026-08-01T08:00:00Z' },
+  { model_id: 'mdl-2', display_name: '文本向量', model_code: 'embedding-main', lifecycle_status: 'active', published_at: '2026-08-02T08:00:00Z' },
 ]), [
-  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main', keyCount: 2, activeKeyCount: 1 },
-  { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main', keyCount: 1, activeKeyCount: 1 },
+  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main', available: true, keyCount: 2, activeKeyCount: 1 },
+  { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main', available: true, keyCount: 1, activeKeyCount: 1 },
+])
+
+assert.equal(isCallablePlatformModel({ lifecycleStatus: 'active', publishedAt: '2026-08-01T08:00:00Z' }), true)
+assert.equal(isCallablePlatformModel({ lifecycle_status: 'active', published_at: '2026-08-01T08:00:00Z' }), true)
+assert.equal(isCallablePlatformModel({ lifecycleStatus: 'active', publishedAt: null }), false)
+assert.equal(isCallablePlatformModel({ lifecycleStatus: 'disabled', publishedAt: '2026-08-01T08:00:00Z' }), false)
+
+assert.deepEqual(aggregateGrantedModels([
+  { keyId: 'key-1', status: 'active', grants: [{ modelId: 'mdl-disabled', status: 'active' }, { modelId: 'mdl-missing', status: 'active' }] },
+], [
+  { modelId: 'mdl-disabled', displayName: '已下线模型', modelCode: 'disabled-model', lifecycleStatus: 'disabled', publishedAt: '2026-08-01T08:00:00Z' },
+]), [
+  { modelId: 'mdl-disabled', modelName: '已下线模型', modelCode: 'disabled-model', available: false, keyCount: 1, activeKeyCount: 0 },
+  { modelId: 'mdl-missing', modelName: '模型信息不可用', modelCode: 'mdl-missing', available: false, keyCount: 1, activeKeyCount: 0 },
 ])
 
 assert.deepEqual(applicationTabResources('overview'), [])
 assert.deepEqual(applicationTabResources('keys'), ['keys'])
 assert.deepEqual(applicationTabResources('models'), ['keys', 'models'])
 assert.deepEqual(applicationTabResources('usage'), ['usage'])
+assert.deepEqual(normalizeApplicationModelPage({ data: { rows: [{ modelId: 'mdl-1' }], total: 1 } }), {
+  rows: [{ modelId: 'mdl-1' }],
+  total: 1,
+})
 
 let requestedApplicationId = null
 const deepLinkedApplication = await resolvePreferredApplication(

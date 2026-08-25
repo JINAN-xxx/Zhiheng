@@ -1,6 +1,6 @@
 <template>
   <section class="models-panel">
-    <div class="models-summary"><strong>模型授权</strong><span>汇总当前应用所有访问密钥中的有效授权</span></div>
+    <div class="models-summary"><strong>模型授权</strong><span>汇总访问密钥授权关系与模型当前可用状态</span></div>
     <WorkspaceState v-if="!canList" kind="forbidden" title="无权查看模型授权" message="当前账号缺少访问密钥列表权限。" />
     <WorkspaceState v-else-if="loading && !rows.length" kind="loading" />
     <WorkspaceState v-else-if="error && !rows.length" kind="error" :message="error" @retry="$emit('retry')" />
@@ -11,6 +11,7 @@
           <div class="model-identity"><strong>{{ record.modelName }}</strong><code>{{ record.modelCode }}</code></div>
         </template>
         <template v-else-if="column.key === 'activeKeyCount'">{{ record.activeKeyCount }} / {{ record.keyCount }}</template>
+        <template v-else-if="column.key === 'availability'"><WorkspaceStatus :status="record.available ? 'active' : 'disabled'" :label="record.available ? '可用' : '不可用'" /></template>
       </template>
     </ResourceTable>
   </section>
@@ -19,6 +20,7 @@
 <script setup>
 import ResourceTable from '@/components/Antd/ResourceTable.vue'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
+import WorkspaceStatus from '@/components/Workspace/WorkspaceStatus.vue'
 import { aggregateGrantedModels } from '../../../utils/application.js'
 
 const props = defineProps({
@@ -33,6 +35,7 @@ defineEmits(['retry'])
 const rows = computed(() => aggregateGrantedModels(props.keys, props.models))
 const columns = [
   { title: '模型', key: 'model' },
+  { title: '状态', key: 'availability', width: 100 },
   { title: '有效密钥 / 授权密钥', key: 'activeKeyCount', width: 180 },
 ]
 </script>
