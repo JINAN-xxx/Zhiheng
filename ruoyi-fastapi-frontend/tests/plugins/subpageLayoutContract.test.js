@@ -16,7 +16,7 @@ const modelPanels = [
 assert.match(modelView, /<WorkspaceToolbar\s+title="模型中心"\s+subtitle="管理模型绑定、发布状态和计费规则"/)
 assert.match(usageView, /<WorkspaceToolbar\s+title="用量记录"\s+subtitle="查看调用结果、消耗与费用"/)
 assert.match(applicationView, /import WorkspaceToolbar from ['"]@\/components\/Workspace\/WorkspaceToolbar\.vue['"]/)
-assert.match(applicationView, /<WorkspaceToolbar\s+title="开发接入"\s+subtitle="管理开发接入应用、模型授权与访问密钥"[\s\S]*?<\/WorkspaceToolbar>/)
+assert.match(applicationView, /<WorkspaceToolbar\s+title="开发接入"\s+subtitle="管理应用、模型授权、访问密钥与调用记录"[\s\S]*?<\/WorkspaceToolbar>/)
 assert.doesNotMatch(applicationView, /<header class="developer-header">/)
 assert.doesNotMatch(applicationView, /\.developer-header\s*\{/)
 

@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict'
 
 import {
+  aggregateGrantedModels,
   buildApplicationPath,
   buildDeveloperKeyPayload,
   extractIssuedKey,
+  normalizeApplicationTab,
   normalizeApplicationPage,
   normalizeDeveloperKeys,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
 
 assert.deepEqual(normalizeApplicationPage({ data: { rows: [{ application_id: 'app-1', application_name: '内部工具', status: 'active' }], total: 1 } }), {
-  rows: [{ applicationId: 'app-1', applicationCode: '', applicationName: '内部工具', status: 'active', version: 1, updatedAt: null }],
+  rows: [{ applicationId: 'app-1', applicationCode: '', applicationName: '内部工具', status: 'active', version: 1, createdAt: null, updatedAt: null }],
   total: 1,
 })
 
@@ -45,3 +47,19 @@ assert.deepEqual(buildDeveloperKeyPayload({
 assert.equal(shouldResetDeveloperKeys('app_1', 'app_1'), false)
 assert.equal(shouldResetDeveloperKeys('app_1', 'app_2'), true)
 assert.equal(shouldResetDeveloperKeys('app_1', null), true)
+
+assert.equal(normalizeApplicationTab('keys'), 'keys')
+assert.equal(normalizeApplicationTab('unexpected'), 'overview')
+assert.equal(normalizeApplicationTab(['usage']), 'usage')
+
+assert.deepEqual(aggregateGrantedModels([
+  { keyId: 'key-1', keyName: '生产服务', status: 'active', grants: [{ modelId: 'mdl-1', status: 'active' }, { modelId: 'mdl-2', status: 'active' }] },
+  { keyId: 'key-2', keyName: '定时任务', status: 'revoked', grants: [{ modelId: 'mdl-1', status: 'active' }] },
+  { keyId: 'key-3', keyName: '数据服务', status: 'active', grants: [{ modelId: 'mdl-1', status: 'disabled' }] },
+], [
+  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main' },
+  { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main' },
+]), [
+  { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main', keyCount: 2, activeKeyCount: 1 },
+  { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main', keyCount: 1, activeKeyCount: 1 },
+])

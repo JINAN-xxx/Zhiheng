@@ -48,6 +48,7 @@ export function normalizeApplication(source = {}) {
     applicationName: text(source.applicationName ?? source.application_name, '未命名应用'),
     status: text(source.status, 'unknown'),
     version: positiveInteger(source.version),
+    createdAt: optionalText(source.createdAt ?? source.created_at),
     updatedAt: optionalText(source.updatedAt ?? source.updated_at),
   }
 }
@@ -97,6 +98,39 @@ export function normalizeDeveloperKey(source = {}) {
 export function normalizeDeveloperKeys(source = {}) {
   const rows = Array.isArray(source) ? source : Array.isArray(source?.data) ? source.data : source?.rows || []
   return rows.filter(Boolean).map(normalizeDeveloperKey)
+}
+
+const APPLICATION_TABS = new Set(['overview', 'keys', 'models', 'usage'])
+
+export function normalizeApplicationTab(value) {
+  const tab = Array.isArray(value) ? value[0] : value
+  return APPLICATION_TABS.has(tab) ? tab : 'overview'
+}
+
+export function aggregateGrantedModels(keys = [], models = []) {
+  const modelMap = new Map(models.map((model) => {
+    const modelId = text(model.modelId ?? model.model_id)
+    return [modelId, {
+      modelId,
+      modelName: text(model.modelName ?? model.displayName ?? model.title, '未命名模型'),
+      modelCode: text(model.modelCode ?? model.model_code, modelId),
+    }]
+  }))
+  const grants = new Map()
+  for (const key of keys) {
+    for (const grant of Array.isArray(key?.grants) ? key.grants : []) {
+      if (grant?.status !== 'active' || !grant?.modelId) continue
+      const row = grants.get(grant.modelId) || {
+        ...(modelMap.get(grant.modelId) || { modelId: grant.modelId, modelName: '模型信息不可用', modelCode: grant.modelId }),
+        keyCount: 0,
+        activeKeyCount: 0,
+      }
+      row.keyCount += 1
+      if (key.status === 'active') row.activeKeyCount += 1
+      grants.set(grant.modelId, row)
+    }
+  }
+  return [...grants.values()].sort((left, right) => left.modelCode.localeCompare(right.modelCode, 'zh-CN'))
 }
 
 export function extractIssuedKey(source = {}) {

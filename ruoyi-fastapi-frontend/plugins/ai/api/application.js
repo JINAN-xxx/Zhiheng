@@ -17,6 +17,14 @@ export function disableApplication(applicationId) {
   return request({ url: buildApplicationPath(applicationId, 'disable'), method: 'post' })
 }
 
+export function enableApplication(applicationId) {
+  return request({ url: buildApplicationPath(applicationId, 'enable'), method: 'post' })
+}
+
+export function deleteApplication(applicationId) {
+  return request({ url: buildApplicationPath(applicationId), method: 'delete' })
+}
+
 export function listDeveloperKeys(applicationId) {
   return request({ url: buildApplicationPath(applicationId, 'keys'), method: 'get' })
 }

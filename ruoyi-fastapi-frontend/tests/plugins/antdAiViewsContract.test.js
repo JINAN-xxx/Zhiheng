@@ -30,6 +30,10 @@ const modelFiles = [
 const modelSources = modelFiles.map((fileName) => readFileSync(fileName, 'utf8')).join('\n')
 const applicationFiles = [
   'plugins/ai/views/application/index.vue',
+  'plugins/ai/views/application/components/ApplicationOverviewPanel.vue',
+  'plugins/ai/views/application/components/ApplicationKeysPanel.vue',
+  'plugins/ai/views/application/components/ApplicationModelsPanel.vue',
+  'plugins/ai/views/application/components/ApplicationUsagePanel.vue',
   'plugins/ai/views/usage/index.vue',
 ]
 
@@ -129,6 +133,11 @@ assert.match(onboardingDrawer, /\.step-actions\s*\{[\s\S]*position:\s*sticky[\s\
 assert.match(onboardingDrawer, /@media \(max-width: 640px\)[\s\S]*\.step-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/)
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
+const applicationApi = readFileSync('plugins/ai/api/application.js', 'utf8')
+const applicationUtils = readFileSync('plugins/ai/utils/application.js', 'utf8')
+const applicationKeysPanel = readFileSync('plugins/ai/views/application/components/ApplicationKeysPanel.vue', 'utf8')
+const applicationModelsPanel = readFileSync('plugins/ai/views/application/components/ApplicationModelsPanel.vue', 'utf8')
+const applicationUsagePanel = readFileSync('plugins/ai/views/application/components/ApplicationUsagePanel.vue', 'utf8')
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')
 assert.throws(
   () => assertNoDecorativeEffects('.bad { transform: translateY(1px); }', 'mutation transform'),
@@ -144,7 +153,7 @@ assert.match(applicationView, /:columns="applicationColumns"/)
 assert.match(applicationView, /:rows="applications"/)
 assert.match(applicationView, /can\('ai:application:key:add'\).*can\('ai:model:list'\)/s)
 assert.match(applicationView, /canQueryUsage/)
-assert.match(applicationView, /当前用量数据可能已过期/)
+assert.match(applicationUsagePanel, /当前用量数据可能已过期/)
 assert.match(applicationView, /:after-close="handleKeyFormClosed"/)
 assert.match(applicationView, /:after-close="clearIssuedKey"/)
 assert.match(applicationView, /function clearIssuedKey\(\)[\s\S]*issuedKey\.value = null/)
@@ -152,7 +161,23 @@ assert.match(applicationView, /onBeforeUnmount\(\(\) => \{[^}]*usageRequest \+= 
 assert.doesNotMatch(applicationView, /Developer API|API Key|Embedding|Rerank/)
 assert.match(applicationView, /开发接入/)
 assert.match(applicationView, /访问密钥/)
-assert.match(applicationView, /class="usage-mobile-list"/)
+assert.match(applicationView, /概览/)
+assert.match(applicationView, /模型授权/)
+assert.match(applicationView, /调用记录/)
+assert.match(applicationView, /route\.query\.tab/)
+assert.match(applicationView, /router\.replace\([\s\S]*applicationId[\s\S]*tab/)
+assert.match(applicationView, /can\('ai:application:enable'\)/)
+assert.match(applicationView, /can\('ai:application:delete'\)/)
+assert.match(applicationView, /selectedApplication\.status === 'disabled'/)
+assert.match(applicationView, /重新启用/)
+assert.match(applicationView, /删除应用/)
+assert.match(applicationView, /仅停用应用可以删除/)
+assert.match(applicationApi, /export function enableApplication\(applicationId\)[\s\S]*buildApplicationPath\(applicationId, 'enable'\)[\s\S]*method: 'post'/)
+assert.match(applicationApi, /export function deleteApplication\(applicationId\)[\s\S]*buildApplicationPath\(applicationId\)[\s\S]*method: 'delete'/)
+assert.match(applicationUtils, /export function aggregateGrantedModels/)
+assert.match(applicationKeysPanel, /访问密钥/)
+assert.match(applicationModelsPanel, /aggregateGrantedModels/)
+assert.match(applicationUsagePanel, /class="usage-mobile-list"/)
 assert.match(usageView, /ResourceTable/)
 assert.match(usageView, /a-select/)
 assert.match(usageView, /canQueryUsage/)
@@ -161,11 +186,18 @@ assert.match(usageView, /mobileHidden: true/)
 assert.doesNotMatch(usageView, /Usage Ledger|\bChat\b|\bEmbedding\b|\bRerank\b|\bToken\b|Search Unit/)
 assert.match(usageView, /用量记录/)
 assert.match(usageView, /class="usage-mobile-list"/)
-assert.match(applicationView, /if \(!can\('ai:application:add'\)\) return/)
+assert.match(applicationView, /if \(!application && !can\('ai:application:add'\)\) return/)
 assert.match(applicationView, /if \(!can\('ai:application:disable'\)/)
+assert.match(applicationView, /if \(!can\('ai:application:enable'\)/)
+assert.match(applicationView, /if \(!can\('ai:application:delete'\)/)
 assert.match(applicationView, /if \(!canCreateKey\.value/)
 assert.match(applicationView, /if \(command === 'rotate' && !can\('ai:application:key:rotate'\)\) return/)
 assert.match(applicationView, /if \(command === 'revoke' && !can\('ai:application:key:revoke'\)\) return/)
+assert.match(applicationView, /if \(!selectedApplication\.value \|\| activeTab\.value === 'overview'\) return/)
+assert.match(applicationView, /if \(activeTab\.value === 'keys'\) await loadKeys\(\)/)
+assert.match(applicationView, /else if \(activeTab\.value === 'models'\) await loadModelAuthorizations\(\)/)
+assert.match(applicationView, /else if \(activeTab\.value === 'usage'\) await loadUsage\(\)/)
+assert.match(applicationView, /keyForm\.expiresAt\?\.toDate\?\.\(\)/)
 
 for (const [fileName, source] of [
   ['plugins/ai/views/application/index.vue', applicationView],
@@ -179,13 +211,13 @@ for (const [fileName, source] of [
   assert.match(source, /var\(--gray-150\)/, `${fileName} must use the Yuxi border token`)
 }
 
-assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\)\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\),[\s\S]*\.application-detail\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
 assert.match(applicationView, /\.application-row\.is-active\s*\{[\s\S]*background:\s*var\(--main-50\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(applicationView, /\.application-row:hover\s*\{[\s\S]*background:\s*var\(--gray-50\)[\s\S]*color:\s*var\(--color-text\)/)
 assert.match(applicationView, /\.application-row\.is-active:hover\s*\{[\s\S]*background:\s*var\(--main-30\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(applicationView, /\.stale-notice\s*\{[\s\S]*color:\s*var\(--color-warning-900\)[\s\S]*background:\s*var\(--color-warning-50\)/)
-assert.match(applicationView, /\.key-row code[\s\S]*font-family:\s*var\(--workspace-font-mono\)/)
-assert.match(applicationView, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(applicationKeysPanel, /\.key-row code[\s\S]*font-family:\s*var\(--workspace-font-mono\)/)
+assert.match(applicationUsagePanel, /\.usage-mobile-item\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*8px[\s\S]*background:\s*var\(--bg-container\)/)
 
 assert.match(usageView, /\.usage-controls\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
 assert.match(usageView, /\.usage-table-wrap\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
