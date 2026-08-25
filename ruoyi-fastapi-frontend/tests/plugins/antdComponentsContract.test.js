@@ -45,3 +45,7 @@ assert.match(readFileSync('src/components/Antd/AsyncState.vue', 'utf8'), /可能
 assert.match(readFileSync('src/components/Antd/ResourceDrawer.vue', 'utf8'), /a-drawer/)
 assert.match(readFileSync('src/components/Antd/SecretField.vue', 'utf8'), /autocomplete="new-password"/)
 assert.match(readFileSync('src/components/Antd/PlatformIcon.vue', 'utf8'), /QuestionOutlined/)
+
+const workspaceStatus = readFileSync('src/components/Workspace/WorkspaceStatus.vue', 'utf8')
+assert.match(workspaceStatus, /\.workspace-status\s*\{[\s\S]*white-space:\s*nowrap/)
+assert.match(workspaceStatus, /&__dot\s*\{[\s\S]*flex:\s*0 0 6px/)

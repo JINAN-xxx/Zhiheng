@@ -21,9 +21,10 @@ defineProps({
   gap: 6px;
   color: var(--workspace-text-secondary);
   font-size: 12px;
+  white-space: nowrap;
 
   &__dot {
-    width: 6px;
+    flex: 0 0 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--workspace-text-muted);
