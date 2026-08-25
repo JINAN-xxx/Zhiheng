@@ -21,9 +21,16 @@ MOBILE_VIEWPORT = {"width": 375, "height": 812}
 def check_screenshot_contract() -> None:
     source = inspect.getsource(take_screenshot)
     for required_fragment in (
+        "#nprogress",
+        "document.querySelector('#nprogress')",
         "document.fonts.ready",
         "document.images",
         "getAnimations",
+        "requestAnimationFrame",
+        "Number.isFinite",
+        "iterations",
+        "animation.finished",
+        "animations=\"disabled\"",
         "full_page=True",
     ):
         assert required_fragment in source, required_fragment

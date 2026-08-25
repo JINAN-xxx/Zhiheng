@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -433,37 +434,109 @@ async def assert_mobile_profile_layout(page: Page) -> None:
 
 async def take_screenshot(page: Page, filename: str) -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    nprogress = page.locator("#nprogress")
+    if await nprogress.count():
+        await nprogress.wait_for(state="detached", timeout=3000)
+    else:
+        await page.wait_for_function(
+            "!document.querySelector('#nprogress')", timeout=3000
+        )
     await page.evaluate(
         """async () => {
-            const within = (promise, label) => new Promise((resolve, reject) => {
-                const timer = setTimeout(() => reject(new Error(`${label} exceeded 3000ms`)), 3000)
-                Promise.resolve(promise).then(
-                    value => { clearTimeout(timer); resolve(value) },
-                    error => { clearTimeout(timer); reject(error) },
-                )
-            })
-            if (document.fonts?.ready) await within(document.fonts.ready, 'font readiness')
+            const deadline = performance.now() + 3000
+            const withinBudget = (promise, label) => {
+                const remaining = Math.max(1, deadline - performance.now())
+                return new Promise((resolve, reject) => {
+                    const timer = setTimeout(
+                        () => reject(new Error(`${label} exceeded 3000ms`)),
+                        remaining,
+                    )
+                    Promise.resolve(promise).then(
+                        value => { clearTimeout(timer); resolve(value) },
+                        error => { clearTimeout(timer); reject(error) },
+                    )
+                })
+            }
+            if (document.fonts?.ready) await withinBudget(document.fonts.ready, 'font readiness')
             const images = Array.from(document.images)
-            await within(Promise.all(images.map(image => {
+            await withinBudget(Promise.all(images.map(image => {
                 if (image.complete) {
                     if (image.naturalWidth > 0) return Promise.resolve()
                     return Promise.reject(new Error(`image failed: ${image.currentSrc || image.src}`))
                 }
                 return new Promise((resolve, reject) => {
-                    image.addEventListener('load', resolve, { once: true })
+                    image.addEventListener('load', () => {
+                        if (image.naturalWidth > 0) {
+                            resolve()
+                        } else {
+                            reject(new Error(`image failed: ${image.currentSrc || image.src}`))
+                        }
+                    }, { once: true })
                     image.addEventListener('error', () => reject(new Error(`image failed: ${image.currentSrc || image.src}`)), { once: true })
                 })
             })), 'image readiness')
-            const animations = document.getAnimations({ subtree: true }).filter(animation => {
-                const timing = animation.effect?.getComputedTiming()
+
+            const finiteAnimations = () => document.getAnimations({ subtree: true }).filter(animation => {
+                const timing = animation.effect?.getComputedTiming?.()
+                const configured = animation.effect?.getTiming?.()
+                const iterations = configured?.iterations ?? timing?.iterations
+                if (iterations === Infinity) return false
+                if (animation.playState === 'running' && !Number.isFinite(timing?.endTime)) return false
                 return animation.playState !== 'idle' && Number.isFinite(timing?.endTime)
             })
-            await within(Promise.all(animations.map(animation => animation.finished.catch(() => undefined))), 'animation readiness')
+            const seen = new Set()
+            let stableRounds = 0
+            while (performance.now() < deadline) {
+                const animations = finiteAnimations()
+                const newAnimations = animations.filter(animation => !seen.has(animation))
+                animations.forEach(animation => seen.add(animation))
+                stableRounds = newAnimations.length === 0 ? stableRounds + 1 : 0
+                if (animations.length) {
+                    await withinBudget(
+                        Promise.all(animations.map(animation => animation.finished.catch(() => undefined))),
+                        'animation readiness',
+                    )
+                }
+                await withinBudget(new Promise(resolve => requestAnimationFrame(resolve)), 'animation sampling')
+                if (stableRounds >= 2) break
+            }
+            if (stableRounds < 2) throw new Error('finite animation stability exceeded 3000ms')
         }"""
     )
-    await page.screenshot(
-        path=str(SCREENSHOT_DIR / filename), full_page=True
+    await page.wait_for_function(
+        "!document.querySelector('#nprogress')", timeout=3000
     )
+    await page.evaluate(
+        """async () => {
+            await new Promise(resolve => requestAnimationFrame(
+                () => requestAnimationFrame(resolve)
+            ))
+            if (document.querySelector('#nprogress')) {
+                throw new Error('NProgress appeared during screenshot sampling')
+            }
+        }"""
+    )
+    screenshot_deadline = time.monotonic() + 3
+    previous_screenshot = None
+    while time.monotonic() < screenshot_deadline:
+        current_screenshot = await page.screenshot(
+            path=str(SCREENSHOT_DIR / filename),
+            animations="disabled",
+            style="*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }",
+            scale="css",
+            full_page=True,
+        )
+        if previous_screenshot == current_screenshot:
+            return
+        previous_screenshot = current_screenshot
+        await page.evaluate(
+            """async () => {
+                await new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)
+                ))
+            }"""
+        )
+    raise AssertionError("screenshot pixels did not stabilize within 3000ms")
 
 
 async def check_desktop(browser: Browser) -> None:
