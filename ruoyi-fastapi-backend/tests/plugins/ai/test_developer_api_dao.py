@@ -37,11 +37,29 @@ REQUEST_ID = 'use_00000000000040008000000000000001'
 EXPECTED_APPLICATION_COUNT = 2
 EXPECTED_UPDATED_VERSION = 2
 DEFAULT_RPM_LIMIT = 60
+PUBLIC_APPLICATION_QUERY_COUNT = 4
 
 
 class CommitForbiddenAsyncSession(AsyncSession):
     async def commit(self) -> None:
         raise AssertionError('DAO must not commit transactions')
+
+
+class EmptyQueryResult:
+    def first(self) -> None:
+        return None
+
+    def all(self) -> list[object]:
+        return []
+
+
+class QueryCaptureSession:
+    def __init__(self) -> None:
+        self.statements: list[object] = []
+
+    async def execute(self, statement: object) -> EmptyQueryResult:
+        self.statements.append(statement)
+        return EmptyQueryResult()
 
 
 @pytest_asyncio.fixture
@@ -321,6 +339,21 @@ async def test_application_enable_delete_and_soft_delete_filters_management_and_
     assert await AiDeveloperApiDao.get_key_auth_record(session, key.key_prefix) is None
     stored_key = await AiDeveloperApiDao.get_key_by_id(session, APPLICATION_ID, KEY_ID)
     assert stored_key is not None and stored_key.api_key_id == KEY_ID
+
+
+@pytest.mark.asyncio
+async def test_public_application_queries_exclude_soft_deleted_applications() -> None:
+    session = QueryCaptureSession()
+
+    await AiDeveloperApiDao.get_key_auth_record(session, 'sk-zh_test')  # type: ignore[arg-type]
+    await AiDeveloperApiDao.list_public_models_for_key(session, KEY_ID)  # type: ignore[arg-type]
+    await AiDeveloperApiDao.get_public_model_for_key(session, KEY_ID, 'chat-main')  # type: ignore[arg-type]
+    await AiDeveloperApiDao.get_invocation_snapshot(session, KEY_ID, 'chat-main', 'chat', NOW)  # type: ignore[arg-type]
+
+    assert len(session.statements) == PUBLIC_APPLICATION_QUERY_COUNT
+    for statement in session.statements:
+        sql = str(statement).lower()
+        assert 'ai_application.deleted_at is null' in sql
 
 
 @pytest.mark.asyncio

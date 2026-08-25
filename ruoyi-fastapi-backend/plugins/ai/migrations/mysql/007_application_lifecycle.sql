@@ -4,7 +4,5 @@
 -- ----------------------------
 
 alter table ai_application
-  add column deleted_at datetime default null comment '软删除时间';
-
-create index idx_ai_application_deleted_at
-  on ai_application (deleted_at);
+  add column deleted_at datetime default null comment '软删除时间',
+  add index idx_ai_application_deleted_at (deleted_at);

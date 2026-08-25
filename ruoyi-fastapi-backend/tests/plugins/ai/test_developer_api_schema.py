@@ -115,8 +115,20 @@ def test_application_lifecycle_uses_additive_soft_delete_migration() -> None:
 
         assert 'drop table' not in sql
         assert 'add column deleted_at' in sql
-        assert 'create index idx_ai_application_deleted_at' in sql
+        assert 'index idx_ai_application_deleted_at' in sql
         assert f'migrations/{database}/007_application_lifecycle.sql' in plugin.manifest.backend.migrations
+
+
+def test_mysql_application_lifecycle_migration_is_single_retryable_ddl() -> None:
+    sql = _normalize_sql(_read_named_migration('mysql', '007_application_lifecycle.sql'))
+
+    assert sql.count(';') == 1
+    assert 'create index' not in sql
+    assert re.search(
+        r"alter table ai_application add column deleted_at datetime default null comment '软删除时间', "
+        r'add index idx_ai_application_deleted_at \(deleted_at\);$',
+        sql,
+    )
 
 
 def test_developer_api_migrations_are_additive_and_define_all_tables() -> None:
