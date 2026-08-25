@@ -107,6 +107,33 @@ export function normalizeApplicationTab(value) {
   return APPLICATION_TABS.has(tab) ? tab : 'overview'
 }
 
+export function applicationTabResources(value) {
+  return {
+    overview: [],
+    keys: ['keys'],
+    models: ['keys', 'models'],
+    usage: ['usage'],
+  }[normalizeApplicationTab(value)]
+}
+
+export async function resolvePreferredApplication(rows = [], preferredId, fetchApplication) {
+  const fallback = rows[0] || null
+  const applicationId = Array.isArray(preferredId) ? preferredId[0] : preferredId
+  if (typeof applicationId !== 'string' || !applicationId) return fallback
+  if (applicationId === '.' || applicationId === '..' || /[\u0000-\u001f\u007f]/u.test(applicationId)) return fallback
+  const pageApplication = rows.find((item) => item.applicationId === applicationId)
+  if (pageApplication) return pageApplication
+  try {
+    const response = await fetchApplication(applicationId)
+    const application = normalizeApplication(response?.data ?? response)
+    return application.applicationId === applicationId ? application : fallback
+  } catch (reason) {
+    const status = reason?.response?.status ?? reason?.status
+    if (status === 404) return fallback
+    throw reason
+  }
+}
+
 export function aggregateGrantedModels(keys = [], models = []) {
   const modelMap = new Map(models.map((model) => {
     const modelId = text(model.modelId ?? model.model_id)

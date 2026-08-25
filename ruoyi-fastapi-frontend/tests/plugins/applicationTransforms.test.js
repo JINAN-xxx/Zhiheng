@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 
 import {
   aggregateGrantedModels,
+  applicationTabResources,
   buildApplicationPath,
   buildDeveloperKeyPayload,
   extractIssuedKey,
   normalizeApplicationTab,
   normalizeApplicationPage,
   normalizeDeveloperKeys,
+  resolvePreferredApplication,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
 
@@ -63,3 +65,61 @@ assert.deepEqual(aggregateGrantedModels([
   { modelId: 'mdl-1', modelName: '通用对话', modelCode: 'chat-main', keyCount: 2, activeKeyCount: 1 },
   { modelId: 'mdl-2', modelName: '文本向量', modelCode: 'embedding-main', keyCount: 1, activeKeyCount: 1 },
 ])
+
+assert.deepEqual(applicationTabResources('overview'), [])
+assert.deepEqual(applicationTabResources('keys'), ['keys'])
+assert.deepEqual(applicationTabResources('models'), ['keys', 'models'])
+assert.deepEqual(applicationTabResources('usage'), ['usage'])
+
+let requestedApplicationId = null
+const deepLinkedApplication = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  'app-42',
+  async (applicationId) => {
+    requestedApplicationId = applicationId
+    return { data: { applicationId, applicationName: '分页外应用', status: 'active' } }
+  },
+)
+assert.equal(requestedApplicationId, 'app-42')
+assert.equal(deepLinkedApplication.applicationId, 'app-42')
+assert.equal(deepLinkedApplication.applicationName, '分页外应用')
+
+let pageHitRequestedDetail = false
+const pageApplication = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  'app-1',
+  async () => { pageHitRequestedDetail = true },
+)
+assert.equal(pageApplication.applicationId, 'app-1')
+assert.equal(pageHitRequestedDetail, false)
+
+let invalidIdRequestedDetail = false
+const invalidIdFallback = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  '..',
+  async () => { invalidIdRequestedDetail = true },
+)
+assert.equal(invalidIdFallback.applicationId, 'app-1')
+assert.equal(invalidIdRequestedDetail, false)
+
+const fallbackApplication = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  'app-missing',
+  async () => { throw { response: { status: 404 } } },
+)
+assert.equal(fallbackApplication.applicationId, 'app-1')
+
+const invalidDetailFallback = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  'app-invalid',
+  async () => ({ data: {} }),
+)
+assert.equal(invalidDetailFallback.applicationId, 'app-1')
+
+await assert.rejects(
+  resolvePreferredApplication(
+    [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+    'app-error',
+    async () => { throw { response: { status: 500 } } },
+  ),
+)

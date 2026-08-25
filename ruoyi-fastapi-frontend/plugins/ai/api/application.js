@@ -5,6 +5,15 @@ export function listApplications(query) {
   return request({ url: '/ai/applications', method: 'get', params: query })
 }
 
+export function getApplication(applicationId) {
+  return request({
+    url: buildApplicationPath(applicationId),
+    method: 'get',
+    acceptNotFound: true,
+    validateStatus: (status) => (status >= 200 && status < 300) || status === 404,
+  })
+}
+
 export function createApplication(data) {
   return request({ url: '/ai/applications', method: 'post', data })
 }

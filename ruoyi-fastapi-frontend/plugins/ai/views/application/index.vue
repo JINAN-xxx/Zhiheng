@@ -151,12 +151,12 @@ import WorkspaceStatus from '@/components/Workspace/WorkspaceStatus.vue'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { listPlatformModels } from '../../api/modelCatalog.js'
 import {
-  createApplication, createDeveloperKey, deleteApplication, disableApplication, enableApplication, listApplications,
+  createApplication, createDeveloperKey, deleteApplication, disableApplication, enableApplication, getApplication, listApplications,
   listApplicationUsage, listDeveloperKeys, revokeDeveloperKey, rotateDeveloperKey, updateApplication,
 } from '../../api/application.js'
 import {
-  applicationStatusLabel, buildDeveloperKeyPayload, extractIssuedKey, normalizeApplication, normalizeApplicationPage,
-  normalizeApplicationTab, normalizeDeveloperKeys, shouldResetDeveloperKeys,
+  applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, extractIssuedKey, normalizeApplication,
+  normalizeApplicationPage, normalizeApplicationTab, normalizeDeveloperKeys, resolvePreferredApplication, shouldResetDeveloperKeys,
 } from '../../utils/application.js'
 import { hasPermission } from '../../utils/modelEngine.js'
 import ApplicationKeysPanel from './components/ApplicationKeysPanel.vue'
@@ -253,7 +253,8 @@ async function loadApplications(preferredId = route.query.applicationId || selec
     if (requestId !== applicationRequest) return
     applications.value = page.rows
     total.value = page.total
-    const next = page.rows.find((item) => item.applicationId === preferredId) || page.rows[0] || null
+    const next = await resolvePreferredApplication(page.rows, preferredId, getApplication)
+    if (requestId !== applicationRequest) return
     await selectApplication(next, true)
   } catch (reason) {
     if (requestId === applicationRequest) error.value = reason?.message || '应用列表加载失败'
@@ -286,10 +287,11 @@ function clearApplicationResources() {
 }
 
 async function loadActiveTabData() {
-  if (!selectedApplication.value || activeTab.value === 'overview') return
-  if (activeTab.value === 'keys') await loadKeys()
-  else if (activeTab.value === 'models') await loadModelAuthorizations()
-  else if (activeTab.value === 'usage') await loadUsage()
+  if (!selectedApplication.value) return
+  const resources = applicationTabResources(activeTab.value)
+  if (resources.includes('models')) await loadModelAuthorizations()
+  else if (resources.includes('keys')) await loadKeys()
+  else if (resources.includes('usage')) await loadUsage()
 }
 
 async function loadKeys() {
