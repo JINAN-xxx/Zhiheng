@@ -598,11 +598,11 @@ onBeforeUnmount(() => {
 .application-row {
   display: flex;
   width: 100%;
-  min-height: 68px;
+  min-height: 48px;
   align-items: center;
   justify-content: space-between;
   gap: var(--workspace-space-3);
-  padding: 12px 16px;
+  padding: 10px 16px;
   border: 0;
   background: transparent;
   color: inherit;

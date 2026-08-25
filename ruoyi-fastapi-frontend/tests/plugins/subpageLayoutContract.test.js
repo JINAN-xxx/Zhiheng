@@ -6,6 +6,12 @@ const applicationView = readFileSync('plugins/ai/views/application/index.vue', '
 const usageView = readFileSync('plugins/ai/views/usage/index.vue', 'utf8')
 const resourceTable = readFileSync('src/components/Antd/ResourceTable.vue', 'utf8')
 const workspaceToolbar = readFileSync('src/components/Workspace/WorkspaceToolbar.vue', 'utf8')
+const modelPanels = [
+  'PlatformModelsPanel.vue',
+  'EngineDeploymentsPanel.vue',
+  'CredentialsPanel.vue',
+  'RuntimeStatusPanel.vue',
+].map((name) => readFileSync(`plugins/ai/views/model/components/${name}`, 'utf8'))
 
 assert.match(modelView, /<WorkspaceToolbar\s+title="模型中心"\s+subtitle="管理模型绑定、发布状态和计费规则"/)
 assert.match(usageView, /<WorkspaceToolbar\s+title="用量记录"\s+subtitle="查看调用结果、消耗与费用"/)
@@ -17,6 +23,13 @@ assert.doesNotMatch(applicationView, /\.developer-header\s*\{/)
 assert.match(resourceTable, /:deep\(\.ant-table\)\s*\{[^}]*font-size:\s*14px/)
 assert.match(resourceTable, /:deep\(\.ant-table-thead[^}]*\{[^}]*font-size:\s*13px/)
 assert.match(resourceTable, /:deep\(\.ant-table-tbody[^}]*\{[^}]*min-height:\s*48px|:deep\(\.ant-table-tbody[^}]*\{[^}]*line-height:\s*48px/)
+assert.match(resourceTable, /:deep\(\.ant-table-tbody > tr\)\s*\{[^}]*height:\s*48px/)
+assert.match(resourceTable, /:deep\(\.ant-table-tbody > tr > td\)\s*\{[^}]*min-height:\s*48px/)
+for (const modelPanel of modelPanels) {
+  assert.doesNotMatch(modelPanel, /\.model-table[^}]*\.ant-table-thead[^}]*height:\s*44px/)
+  assert.doesNotMatch(modelPanel, /\.model-table[^}]*\.ant-table-tbody[^}]*height:\s*46px/)
+}
+assert.match(applicationView, /\.application-row\s*\{[^}]*min-height:\s*48px[^}]*padding:\s*10px\s+16px/s)
 assert.doesNotMatch(modelView, /\.workspace-tabs :deep\(\.ant-table\)\s*\{\s*font-size:\s*12px/)
 assert.doesNotMatch(modelView, /\.workspace-tabs :deep\(\.ant-table-thead[^}]*font-size:\s*12px/)
 assert.match(modelView, /\.workspace-tabs :deep\(\.ant-table\)\s*\{\s*font-size:\s*14px/)
