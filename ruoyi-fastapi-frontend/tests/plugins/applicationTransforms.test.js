@@ -116,6 +116,13 @@ const invalidDetailFallback = await resolvePreferredApplication(
 )
 assert.equal(invalidDetailFallback.applicationId, 'app-1')
 
+const acceptedNotFoundFallback = await resolvePreferredApplication(
+  [{ applicationId: 'app-1', applicationName: '当前页应用' }],
+  'app-not-found',
+  async () => null,
+)
+assert.equal(acceptedNotFoundFallback.applicationId, 'app-1')
+
 await assert.rejects(
   resolvePreferredApplication(
     [{ applicationId: 'app-1', applicationName: '当前页应用' }],

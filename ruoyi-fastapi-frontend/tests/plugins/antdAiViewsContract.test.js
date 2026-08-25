@@ -181,6 +181,7 @@ assert.match(requestSource, /res\.status === 404 && res\.config\?\.acceptNotFoun
 assert.match(applicationUtils, /export function aggregateGrantedModels/)
 assert.match(applicationView, /resolvePreferredApplication\(page\.rows, preferredId, getApplication\)/)
 assert.match(applicationView, /await resolvePreferredApplication\(page\.rows, preferredId, getApplication\)[\s\S]*if \(requestId !== applicationRequest\) return[\s\S]*await selectApplication\(next, true\)/)
+assert.match(applicationView, /watch\(\(\) => route\.query\.applicationId,[\s\S]*if \(applicationId === selectedApplication\.value\?\.applicationId\) return[\s\S]*await loadApplications\(applicationId \|\| null\)/)
 assert.match(applicationKeysPanel, /访问密钥/)
 assert.match(applicationModelsPanel, /aggregateGrantedModels/)
 assert.match(applicationUsagePanel, /class="usage-mobile-list"/)

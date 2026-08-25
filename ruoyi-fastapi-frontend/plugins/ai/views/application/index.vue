@@ -473,9 +473,8 @@ async function copyIssuedKey() {
 
 watch(() => route.query.tab, loadActiveTabData)
 watch(() => route.query.applicationId, async (applicationId) => {
-  if (!applicationId || applicationId === selectedApplication.value?.applicationId) return
-  const application = applications.value.find((item) => item.applicationId === applicationId)
-  if (application) await selectApplication(application)
+  if (applicationId === selectedApplication.value?.applicationId) return
+  await loadApplications(applicationId || null)
 })
 onMounted(() => loadApplications())
 onBeforeUnmount(() => {

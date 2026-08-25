@@ -42,6 +42,7 @@ export function shouldResetDeveloperKeys(currentApplicationId, nextApplicationId
 }
 
 export function normalizeApplication(source = {}) {
+  source = source && typeof source === 'object' ? source : {}
   return {
     applicationId: text(source.applicationId ?? source.application_id),
     applicationCode: text(source.applicationCode ?? source.application_code),
