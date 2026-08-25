@@ -12,6 +12,8 @@ _FIXED_ERROR_CONTRACTS = (
     (409, 'QUOTA_VERSION_CONFLICT', '配额已被其他操作修改'),
     (503, 'DEVELOPER_API_MISCONFIGURED', 'Developer API 尚未完成安全配置'),
     (409, 'APPLICATION_VERSION_CONFLICT', '应用已被其他操作修改'),
+    (409, 'APPLICATION_NOT_DISABLED', '应用必须先停用'),
+    (409, 'APPLICATION_ACTIVE', '应用已启用'),
 )
 _ERROR_NAMES = (
     'application_not_found',
@@ -23,6 +25,8 @@ _ERROR_NAMES = (
     'quota_conflict',
     'configuration_error',
     'application_conflict',
+    'application_not_disabled',
+    'application_active',
 )
 _ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _FIXED_ERROR_CONTRACTS, strict=True)))
 _CONSTRUCTION_TOKEN = object()
@@ -138,3 +142,11 @@ class DeveloperApiError(Exception):
     @staticmethod
     def application_conflict() -> 'DeveloperApiError':
         return _new_developer_api_error(8)
+
+    @staticmethod
+    def application_not_disabled() -> 'DeveloperApiError':
+        return _new_developer_api_error(9)
+
+    @staticmethod
+    def application_active() -> 'DeveloperApiError':
+        return _new_developer_api_error(10)

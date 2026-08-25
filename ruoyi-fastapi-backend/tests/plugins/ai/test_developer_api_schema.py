@@ -70,7 +70,7 @@ def _assert_restrict_foreign_key(column: object, target: str) -> None:
 def test_developer_api_migrations_are_registered_after_platform_chat() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.6.1'
+    assert plugin.manifest.version == '0.7.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
@@ -78,12 +78,14 @@ def test_developer_api_migrations_are_registered_after_platform_chat() -> None:
         'migrations/mysql/004_developer_api_foundation.sql',
         'migrations/mysql/005_embedding_rerank_gateway.sql',
         'migrations/mysql/006_quota_reservation.sql',
+        'migrations/mysql/007_application_lifecycle.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
         'migrations/postgresql/004_developer_api_foundation.sql',
         'migrations/postgresql/005_embedding_rerank_gateway.sql',
         'migrations/postgresql/006_quota_reservation.sql',
+        'migrations/postgresql/007_application_lifecycle.sql',
     ]
 
 
@@ -104,6 +106,17 @@ def test_quota_reservation_uses_a_new_migration_without_rewriting_embedding_rera
         assert 'quota_minute_window' in quota_reservation_sql
         assert 'quota_month_window' in quota_reservation_sql
         assert f'migrations/{database}/006_quota_reservation.sql' in plugin.manifest.backend.migrations
+
+
+def test_application_lifecycle_uses_additive_soft_delete_migration() -> None:
+    plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
+    for database in ('mysql', 'postgresql'):
+        sql = _normalize_sql(_read_named_migration(database, '007_application_lifecycle.sql'))
+
+        assert 'drop table' not in sql
+        assert 'add column deleted_at' in sql
+        assert 'create index idx_ai_application_deleted_at' in sql
+        assert f'migrations/{database}/007_application_lifecycle.sql' in plugin.manifest.backend.migrations
 
 
 def test_developer_api_migrations_are_additive_and_define_all_tables() -> None:
@@ -218,6 +231,7 @@ def test_developer_api_entities_use_fresh_time_defaults_and_required_indexes() -
     index_names = {index.name for entity in entities.values() for index in entity.__table__.indexes}
     assert {
         'idx_ai_application_owner_status',
+        'idx_ai_application_deleted_at',
         'idx_ai_api_key_application_status',
         'idx_ai_api_usage_key_started',
         'idx_ai_api_usage_status_started',

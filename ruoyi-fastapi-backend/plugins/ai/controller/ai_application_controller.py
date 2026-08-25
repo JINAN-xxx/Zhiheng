@@ -264,6 +264,74 @@ async def disable_application(
     return ResponseUtil.success(data=result)
 
 
+@ai_application_controller.post(
+    '/{application_id}/enable',
+    summary='启用开发者应用',
+    response_model=DataResponseModel[ApplicationModel],
+    dependencies=[UserInterfaceAuthDependency('ai:application:enable')],
+)
+@Log(
+    title='开发者应用管理',
+    business_type=BusinessType.UPDATE,
+    request_log_mode='include',
+    request_include_fields=(APPLICATION_ID_REQUEST_FIELD,),
+    response_log_mode='include',
+    response_include_fields=APPLICATION_RESPONSE_FIELDS,
+)
+async def enable_application(
+    request: Request,
+    application_id: Annotated[ApplicationResourceId, Path(description='Application ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    del request
+    actor = _current_actor(current_user)
+    result = await _call_developer_api(
+        get_application_service(query_db).enable_application(
+            application_id,
+            actor_user_id=actor.user_id,
+            is_admin=actor.is_admin,
+            username=actor.username,
+            now=_current_time(),
+        )
+    )
+    return ResponseUtil.success(data=result)
+
+
+@ai_application_controller.delete(
+    '/{application_id}',
+    summary='删除开发者应用',
+    response_model=DataResponseModel[ApplicationModel],
+    dependencies=[UserInterfaceAuthDependency('ai:application:delete')],
+)
+@Log(
+    title='开发者应用管理',
+    business_type=BusinessType.DELETE,
+    request_log_mode='include',
+    request_include_fields=(APPLICATION_ID_REQUEST_FIELD,),
+    response_log_mode='include',
+    response_include_fields=APPLICATION_RESPONSE_FIELDS,
+)
+async def delete_application(
+    request: Request,
+    application_id: Annotated[ApplicationResourceId, Path(description='Application ID')],
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    del request
+    actor = _current_actor(current_user)
+    result = await _call_developer_api(
+        get_application_service(query_db).delete_application(
+            application_id,
+            actor_user_id=actor.user_id,
+            is_admin=actor.is_admin,
+            username=actor.username,
+            now=_current_time(),
+        )
+    )
+    return ResponseUtil.success(data=result)
+
+
 @ai_application_controller.get(
     '/{application_id}/keys',
     summary='获取开发者 API Key 列表',

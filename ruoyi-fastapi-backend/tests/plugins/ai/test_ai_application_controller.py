@@ -23,7 +23,9 @@ from plugins.ai.controller.ai_application_controller import (
     ai_application_controller,
     create_application,
     create_developer_key,
+    delete_application,
     disable_application,
+    enable_application,
     get_application,
     list_applications,
     list_developer_keys,
@@ -49,8 +51,8 @@ APPLICATION_ID = 'app_00000000000040008000000000000001'
 KEY_ID = 'key_00000000000040008000000000000001'
 MODEL_ID = 'mdl_00000000000040008000000000000001'
 SECRET_KEY = f'sk-zh_{KEY_ID}_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
-EXPECTED_ROUTE_COUNT = 10
-EXPECTED_WRITE_COUNT = 6
+EXPECTED_ROUTE_COUNT = 12
+EXPECTED_WRITE_COUNT = 8
 OWNER_USER_ID = 7
 NOT_FOUND_STATUS = 404
 
@@ -130,6 +132,7 @@ def application_data() -> dict[str, Any]:
         'status': 'active',
         'version': 1,
         'disabledAt': None,
+        'deletedAt': None,
         'createdBy': 'alice',
         'createdAt': NOW,
         'updatedBy': 'alice',
@@ -194,6 +197,12 @@ class FakeApplicationService:
 
     async def disable_application(self, *args: object, **kwargs: object) -> object:
         return await self._result('disable_application', *args, **kwargs)
+
+    async def enable_application(self, *args: object, **kwargs: object) -> object:
+        return await self._result('enable_application', *args, **kwargs)
+
+    async def delete_application(self, *args: object, **kwargs: object) -> object:
+        return await self._result('delete_application', *args, **kwargs)
 
 
 class FakeKeyService:
@@ -280,6 +289,8 @@ def test_routes_use_exact_methods_permissions_login_and_no_data_scope() -> None:
         ('POST', '/ai/applications'): 'ai:application:add',
         ('PATCH', '/ai/applications/{application_id}'): 'ai:application:edit',
         ('POST', '/ai/applications/{application_id}/disable'): 'ai:application:disable',
+        ('POST', '/ai/applications/{application_id}/enable'): 'ai:application:enable',
+        ('DELETE', '/ai/applications/{application_id}'): 'ai:application:delete',
         ('GET', '/ai/applications/{application_id}/keys'): 'ai:application:key:list',
         ('POST', '/ai/applications/{application_id}/keys'): 'ai:application:key:add',
         ('POST', '/ai/applications/{application_id}/keys/{key_id}/rotate'): 'ai:application:key:rotate',
@@ -299,7 +310,7 @@ def test_routes_use_exact_methods_permissions_login_and_no_data_scope() -> None:
 
 def test_write_routes_use_path_only_request_and_secret_safe_response_allowlists() -> None:
     routes = route_map()
-    write_routes = {key: log_decorator(route) for key, route in routes.items() if key[0] in {'POST', 'PATCH'}}
+    write_routes = {key: log_decorator(route) for key, route in routes.items() if key[0] in {'POST', 'PATCH', 'DELETE'}}
     assert len(write_routes) == EXPECTED_WRITE_COUNT
     for key, decorator in write_routes.items():
         assert decorator is not None
@@ -371,6 +382,26 @@ async def test_controller_delegates_all_operations_with_actor_and_time(
         db,
         owner,
     )
+    await enable_application(
+        build_request(
+            f'/ai/applications/{APPLICATION_ID}/enable',
+            'POST',
+            path_params={'application_id': APPLICATION_ID},
+        ),
+        APPLICATION_ID,
+        db,
+        owner,
+    )
+    await delete_application(
+        build_request(
+            f'/ai/applications/{APPLICATION_ID}',
+            'DELETE',
+            path_params={'application_id': APPLICATION_ID},
+        ),
+        APPLICATION_ID,
+        db,
+        owner,
+    )
     await list_developer_keys(build_request(f'/ai/applications/{APPLICATION_ID}/keys'), APPLICATION_ID, db, owner)
     await create_developer_key(
         build_request(
@@ -413,6 +444,8 @@ async def test_controller_delegates_all_operations_with_actor_and_time(
         'create_application',
         'update_application',
         'disable_application',
+        'enable_application',
+        'delete_application',
     ]
     assert [call[0] for call in key_service.calls] == ['list_keys', 'create_key', 'rotate_key', 'revoke_key']
     for method, _args, kwargs in key_service.calls:

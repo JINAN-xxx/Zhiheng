@@ -27,6 +27,7 @@ class AiApplication(Base):
         CheckConstraint("status in ('active', 'disabled')", name='ck_ai_application_status'),
         CheckConstraint('version > 0', name='ck_ai_application_version'),
         Index('idx_ai_application_owner_status', 'owner_user_id', 'status'),
+        Index('idx_ai_application_deleted_at', 'deleted_at'),
         {'comment': 'Developer API应用表'},
     )
 
@@ -39,6 +40,7 @@ class AiApplication(Base):
     status = Column(String(16), nullable=False, default='active', server_default='active', comment='应用状态')
     version = Column(Integer, nullable=False, default=1, server_default=text('1'), comment='乐观锁版本')
     disabled_at = Column(DateTime, nullable=True, comment='停用时间')
+    deleted_at = Column(DateTime, nullable=True, comment='软删除时间')
     created_by = Column(String(64), nullable=False, server_default='', comment='创建者')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_by = Column(String(64), nullable=False, server_default='', comment='更新者')

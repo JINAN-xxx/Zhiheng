@@ -186,6 +186,7 @@ class ApplicationModel(_ResponseModel):
     status: ApplicationStatus
     version: PositiveInteger
     disabled_at: datetime | None = None
+    deleted_at: datetime | None = None
     created_by: str
     created_at: datetime
     updated_by: str

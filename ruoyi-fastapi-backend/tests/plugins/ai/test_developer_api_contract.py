@@ -234,6 +234,7 @@ def test_application_response_accepts_orm_style_names_and_serializes_camel_case(
             'status': 'active',
             'version': 1,
             'disabled_at': None,
+            'deleted_at': NOW,
             'created_by': 'alice',
             'created_at': NOW,
             'updated_by': 'alice',
@@ -241,7 +242,9 @@ def test_application_response_accepts_orm_style_names_and_serializes_camel_case(
         }
     )
 
-    assert response.model_dump(by_alias=True)['applicationId'] == VALID_APPLICATION_ID
+    dumped = response.model_dump(by_alias=True)
+    assert dumped['applicationId'] == VALID_APPLICATION_ID
+    assert dumped['deletedAt'] == NOW
 
 
 @pytest.mark.parametrize(
@@ -256,6 +259,8 @@ def test_application_response_accepts_orm_style_names_and_serializes_camel_case(
         ('quota_conflict', 409, 'QUOTA_VERSION_CONFLICT'),
         ('configuration_error', 503, 'DEVELOPER_API_MISCONFIGURED'),
         ('application_conflict', 409, 'APPLICATION_VERSION_CONFLICT'),
+        ('application_not_disabled', 409, 'APPLICATION_NOT_DISABLED'),
+        ('application_active', 409, 'APPLICATION_ACTIVE'),
     ),
 )
 def test_developer_api_errors_have_fixed_public_contract(

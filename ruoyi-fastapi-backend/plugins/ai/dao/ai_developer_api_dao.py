@@ -29,6 +29,7 @@ APPLICATION_UPDATE_FIELDS = frozenset(
     }
 )
 APPLICATION_DISABLE_FIELDS = frozenset({'disabled_at', 'updated_by', 'updated_at'})
+APPLICATION_DELETE_FIELDS = frozenset({'deleted_at', 'updated_by', 'updated_at'})
 KEY_MUTABLE_FIELDS = frozenset(
     {
         'status',
@@ -115,7 +116,14 @@ class AiDeveloperApiDao:
     @classmethod
     async def get_application_by_id(cls, db: AsyncSession, application_id: str) -> AiApplication | None:
         return (
-            (await db.execute(select(AiApplication).where(AiApplication.application_id == application_id)))
+            (
+                await db.execute(
+                    select(AiApplication).where(
+                        AiApplication.application_id == application_id,
+                        AiApplication.deleted_at.is_(None),
+                    )
+                )
+            )
             .scalars()
             .first()
         )
@@ -134,7 +142,10 @@ class AiDeveloperApiDao:
             (
                 await db.execute(
                     select(AiApplication)
-                    .where(AiApplication.application_id == application_id)
+                    .where(
+                        AiApplication.application_id == application_id,
+                        AiApplication.deleted_at.is_(None),
+                    )
                     .with_for_update()
                     .execution_options(populate_existing=True)
                 )
@@ -156,6 +167,7 @@ class AiDeveloperApiDao:
             select(AiApplication)
             .where(
                 AiApplication.owner_user_id == owner_user_id if owner_user_id is not None else True,
+                AiApplication.deleted_at.is_(None),
                 AiApplication.application_code.contains(query_object.application_code, autoescape=True)
                 if query_object.application_code
                 else True,
@@ -191,6 +203,7 @@ class AiDeveloperApiDao:
             .where(
                 AiApplication.application_id == application_id,
                 AiApplication.version == expected_version,
+                AiApplication.deleted_at.is_(None),
             )
             .values(**values, version=expected_version + 1)
         )
@@ -201,6 +214,8 @@ class AiDeveloperApiDao:
         cls,
         db: AsyncSession,
         application_id: str,
+        *,
+        expected_version: int,
         values: dict[str, Any],
     ) -> int:
         cls._validate_fields(values, APPLICATION_DISABLE_FIELDS, '应用停用')
@@ -209,8 +224,54 @@ class AiDeveloperApiDao:
             .where(
                 AiApplication.application_id == application_id,
                 AiApplication.status == 'active',
+                AiApplication.version == expected_version,
+                AiApplication.deleted_at.is_(None),
             )
             .values(**values, status='disabled', version=AiApplication.version + 1)
+        )
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def enable_application_if_disabled(
+        cls,
+        db: AsyncSession,
+        application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int:
+        cls._validate_fields(values, APPLICATION_DISABLE_FIELDS, '应用启用')
+        result = await db.execute(
+            update(AiApplication)
+            .where(
+                AiApplication.application_id == application_id,
+                AiApplication.status == 'disabled',
+                AiApplication.version == expected_version,
+                AiApplication.deleted_at.is_(None),
+            )
+            .values(**values, status='active', version=expected_version + 1)
+        )
+        return int(result.rowcount or 0)
+
+    @classmethod
+    async def soft_delete_application_if_disabled(
+        cls,
+        db: AsyncSession,
+        application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int:
+        cls._validate_fields(values, APPLICATION_DELETE_FIELDS, '应用删除')
+        result = await db.execute(
+            update(AiApplication)
+            .where(
+                AiApplication.application_id == application_id,
+                AiApplication.status == 'disabled',
+                AiApplication.version == expected_version,
+                AiApplication.deleted_at.is_(None),
+            )
+            .values(**values, version=expected_version + 1)
         )
         return int(result.rowcount or 0)
 
@@ -293,7 +354,10 @@ class AiDeveloperApiDao:
                     AiApplication.status,
                 )
                 .join(AiApplication, AiApplication.application_id == AiApiKey.application_id)
-                .where(AiApiKey.key_prefix == key_prefix)
+                .where(
+                    AiApiKey.key_prefix == key_prefix,
+                    AiApplication.deleted_at.is_(None),
+                )
             )
         ).first()
         if row is None:
@@ -330,6 +394,7 @@ class AiDeveloperApiDao:
                     AiApiKey.api_key_id == api_key_id,
                     AiApiKey.status.in_({'active', 'retiring'}),
                     AiApplication.status == 'active',
+                    AiApplication.deleted_at.is_(None),
                     AiApiKeyModelGrant.status == 'active',
                     AiModelCatalog.lifecycle_status == 'active',
                     AiModelCatalog.published_at.is_not(None),
@@ -368,6 +433,7 @@ class AiDeveloperApiDao:
                     AiApiKey.api_key_id == api_key_id,
                     AiApiKey.status.in_({'active', 'retiring'}),
                     AiApplication.status == 'active',
+                    AiApplication.deleted_at.is_(None),
                     AiApiKeyModelGrant.status == 'active',
                     AiModelCatalog.lifecycle_status == 'active',
                     AiModelCatalog.published_at.is_not(None),
@@ -425,6 +491,7 @@ class AiDeveloperApiDao:
                     AiApiKey.api_key_id == api_key_id,
                     AiApiKey.status.in_({'active', 'retiring'}),
                     AiApplication.status == 'active',
+                    AiApplication.deleted_at.is_(None),
                     AiApiKeyModelGrant.status == 'active',
                     AiModelCatalog.lifecycle_status == 'active',
                     AiModelCatalog.published_at.is_not(None),

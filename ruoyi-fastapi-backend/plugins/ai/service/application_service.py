@@ -53,6 +53,26 @@ class ApplicationDao(Protocol):
         self,
         db: AsyncSession,
         application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int: ...
+
+    async def enable_application_if_disabled(
+        self,
+        db: AsyncSession,
+        application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int: ...
+
+    async def soft_delete_application_if_disabled(
+        self,
+        db: AsyncSession,
+        application_id: str,
+        *,
+        expected_version: int,
         values: dict[str, Any],
     ) -> int: ...
 
@@ -141,6 +161,7 @@ class ApplicationService:
                 status='active',
                 version=1,
                 disabled_at=None,
+                deleted_at=None,
                 created_by=username,
                 created_at=database_now,
                 updated_by=username,
@@ -214,13 +235,102 @@ class ApplicationService:
                 'updated_at': database_now,
             }
             snapshot = ApplicationModel.model_validate(application).model_dump()
-            if await self._application_dao.disable_application_if_active(self._db, application_id, values) != 1:
+            if (
+                await self._application_dao.disable_application_if_active(
+                    self._db,
+                    application_id,
+                    expected_version=snapshot['version'],
+                    values=values,
+                )
+                != 1
+            ):
                 raise DeveloperApiError.application_conflict()
             return ApplicationModel.model_validate(
                 {
                     **snapshot,
                     **values,
                     'status': 'disabled',
+                    'version': snapshot['version'] + 1,
+                }
+            )
+
+        return await self._run_write(operation)
+
+    async def enable_application(
+        self,
+        application_id: str,
+        *,
+        actor_user_id: int,
+        is_admin: bool,
+        username: str,
+        now: datetime,
+    ) -> ApplicationModel:
+        database_now = self._database_time(now)
+
+        async def operation() -> ApplicationModel:
+            application = await self._application_dao.get_application_for_update(self._db, application_id)
+            self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
+            if application.status == 'active':
+                raise DeveloperApiError.application_active()
+            values = {
+                'disabled_at': None,
+                'updated_by': username,
+                'updated_at': database_now,
+            }
+            snapshot = ApplicationModel.model_validate(application).model_dump()
+            changed = await self._application_dao.enable_application_if_disabled(
+                self._db,
+                application_id,
+                expected_version=snapshot['version'],
+                values=values,
+            )
+            if changed != 1:
+                raise DeveloperApiError.application_conflict()
+            return ApplicationModel.model_validate(
+                {
+                    **snapshot,
+                    **values,
+                    'status': 'active',
+                    'version': snapshot['version'] + 1,
+                }
+            )
+
+        return await self._run_write(operation)
+
+    async def delete_application(
+        self,
+        application_id: str,
+        *,
+        actor_user_id: int,
+        is_admin: bool,
+        username: str,
+        now: datetime,
+    ) -> ApplicationModel:
+        database_now = self._database_time(now)
+
+        async def operation() -> ApplicationModel:
+            application = await self._application_dao.get_application_for_update(self._db, application_id)
+            self._require_access(application, actor_user_id=actor_user_id, is_admin=is_admin)
+            if application.status != 'disabled':
+                raise DeveloperApiError.application_not_disabled()
+            values = {
+                'deleted_at': database_now,
+                'updated_by': username,
+                'updated_at': database_now,
+            }
+            snapshot = ApplicationModel.model_validate(application).model_dump()
+            changed = await self._application_dao.soft_delete_application_if_disabled(
+                self._db,
+                application_id,
+                expected_version=snapshot['version'],
+                values=values,
+            )
+            if changed != 1:
+                raise DeveloperApiError.application_conflict()
+            return ApplicationModel.model_validate(
+                {
+                    **snapshot,
+                    **values,
                     'version': snapshot['version'] + 1,
                 }
             )

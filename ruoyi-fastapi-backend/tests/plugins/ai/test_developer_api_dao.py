@@ -235,11 +235,20 @@ async def test_application_disable_is_conditional_and_update_allowlist_rejects_i
         await AiDeveloperApiDao.disable_application_if_active(
             session,
             APPLICATION_ID,
-            {'disabled_at': NOW, 'updated_by': 'alice', 'updated_at': NOW},
+            expected_version=1,
+            values={'disabled_at': NOW, 'updated_by': 'alice', 'updated_at': NOW},
         )
         == 1
     )
-    assert await AiDeveloperApiDao.disable_application_if_active(session, APPLICATION_ID, {'disabled_at': NOW}) == 0
+    assert (
+        await AiDeveloperApiDao.disable_application_if_active(
+            session,
+            APPLICATION_ID,
+            expected_version=1,
+            values={'disabled_at': NOW},
+        )
+        == 0
+    )
     with pytest.raises(ValueError, match='owner_user_id'):
         await AiDeveloperApiDao.update_application_with_version(
             session,
@@ -254,6 +263,64 @@ async def test_application_disable_is_conditional_and_update_allowlist_rejects_i
             expected_version=2,
             values={'status': 'active'},
         )
+
+
+@pytest.mark.asyncio
+async def test_application_enable_delete_and_soft_delete_filters_management_and_auth(
+    database: tuple[AsyncEngine, CommitForbiddenAsyncSession],
+) -> None:
+    _, session = database
+    application = _application()
+    key = _key()
+    await AiDeveloperApiDao.create_application(session, application)
+    await AiDeveloperApiDao.create_key(session, key)
+    await AiDeveloperApiDao.disable_application_if_active(
+        session,
+        APPLICATION_ID,
+        expected_version=1,
+        values={'disabled_at': NOW, 'updated_by': 'alice', 'updated_at': NOW},
+    )
+
+    assert (
+        await AiDeveloperApiDao.enable_application_if_disabled(
+            session,
+            APPLICATION_ID,
+            expected_version=2,
+            values={'disabled_at': None, 'updated_by': 'alice', 'updated_at': NOW},
+        )
+        == 1
+    )
+    assert (
+        await AiDeveloperApiDao.disable_application_if_active(
+            session,
+            APPLICATION_ID,
+            expected_version=3,
+            values={'disabled_at': NOW, 'updated_by': 'alice', 'updated_at': NOW},
+        )
+        == 1
+    )
+    assert (
+        await AiDeveloperApiDao.soft_delete_application_if_disabled(
+            session,
+            APPLICATION_ID,
+            expected_version=4,
+            values={'deleted_at': NOW, 'updated_by': 'alice', 'updated_at': NOW},
+        )
+        == 1
+    )
+
+    assert await AiDeveloperApiDao.get_application_by_id(session, APPLICATION_ID) is None
+    assert await AiDeveloperApiDao.get_application_for_update(session, APPLICATION_ID) is None
+    page = await AiDeveloperApiDao.list_applications(
+        session,
+        ApplicationPageQueryModel(pageNum=1, pageSize=10),
+        owner_user_id=None,
+        is_page=True,
+    )
+    assert page.total == 0
+    assert await AiDeveloperApiDao.get_key_auth_record(session, key.key_prefix) is None
+    stored_key = await AiDeveloperApiDao.get_key_by_id(session, APPLICATION_ID, KEY_ID)
+    assert stored_key is not None and stored_key.api_key_id == KEY_ID
 
 
 @pytest.mark.asyncio

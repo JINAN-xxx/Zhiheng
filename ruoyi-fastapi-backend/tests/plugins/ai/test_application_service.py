@@ -55,6 +55,8 @@ class FakeApplicationDao:
         self.create_error: BaseException | None = None
         self.update_rowcount = 1
         self.disable_rowcount = 1
+        self.enable_rowcount = 1
+        self.delete_rowcount = 1
         self.last_owner_filter: int | None = None
 
     async def create_application(self, _db: FakeSession, application: AiApplication) -> AiApplication:
@@ -66,7 +68,8 @@ class FakeApplicationDao:
 
     async def get_application_by_id(self, _db: FakeSession, application_id: str) -> AiApplication | None:
         self.events.append('get_application_by_id')
-        return self.applications.get(application_id)
+        application = self.applications.get(application_id)
+        return application if application is not None and application.deleted_at is None else None
 
     async def get_application_by_code(self, _db: FakeSession, application_code: str) -> AiApplication | None:
         self.events.append('get_application_by_code')
@@ -90,7 +93,9 @@ class FakeApplicationDao:
         self.events.append('list_applications')
         self.last_owner_filter = owner_user_id
         rows = [
-            item for item in self.applications.values() if owner_user_id is None or item.owner_user_id == owner_user_id
+            item
+            for item in self.applications.values()
+            if item.deleted_at is None and (owner_user_id is None or item.owner_user_id == owner_user_id)
         ]
         if is_page:
             return PageModel(
@@ -123,15 +128,69 @@ class FakeApplicationDao:
         self,
         _db: FakeSession,
         application_id: str,
+        *,
+        expected_version: int,
         values: dict[str, Any],
     ) -> int:
         self.events.append('disable_application_if_active')
         application = self.applications.get(application_id)
-        if application is None or application.status != 'active' or self.disable_rowcount == 0:
+        if (
+            application is None
+            or application.status != 'active'
+            or application.version != expected_version
+            or self.disable_rowcount == 0
+        ):
             return 0
         for field, value in values.items():
             setattr(application, field, value)
         application.status = 'disabled'
+        application.version += 1
+        return 1
+
+    async def enable_application_if_disabled(
+        self,
+        _db: FakeSession,
+        application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int:
+        self.events.append('enable_application_if_disabled')
+        application = self.applications.get(application_id)
+        if (
+            application is None
+            or application.status != 'disabled'
+            or application.deleted_at is not None
+            or application.version != expected_version
+            or self.enable_rowcount == 0
+        ):
+            return 0
+        for field, value in values.items():
+            setattr(application, field, value)
+        application.status = 'active'
+        application.version += 1
+        return 1
+
+    async def soft_delete_application_if_disabled(
+        self,
+        _db: FakeSession,
+        application_id: str,
+        *,
+        expected_version: int,
+        values: dict[str, Any],
+    ) -> int:
+        self.events.append('soft_delete_application_if_disabled')
+        application = self.applications.get(application_id)
+        if (
+            application is None
+            or application.status != 'disabled'
+            or application.deleted_at is not None
+            or application.version != expected_version
+            or self.delete_rowcount == 0
+        ):
+            return 0
+        for field, value in values.items():
+            setattr(application, field, value)
         application.version += 1
         return 1
 
@@ -176,6 +235,7 @@ def _application(
         status=status,
         version=1,
         disabled_at=NOW if status == 'disabled' else None,
+        deleted_at=None,
         created_by='alice',
         created_at=NOW,
         updated_by='alice',
@@ -396,6 +456,74 @@ async def test_disable_is_conditional_and_returns_known_values_without_entity_sy
             now=NOW,
         )
     assert repeated.value.code == 'APPLICATION_DISABLED'
+
+
+@pytest.mark.asyncio
+async def test_enable_transitions_disabled_application_and_rejects_active_repeat() -> None:
+    service, session, dao = _service()
+    dao.applications[APPLICATION_ID] = _application(status='disabled')
+
+    result = await service.enable_application(
+        APPLICATION_ID,
+        actor_user_id=OWNER_USER_ID,
+        is_admin=False,
+        username='alice',
+        now=NOW,
+    )
+
+    assert result.status == 'active'
+    assert result.disabled_at is None
+    assert result.version == UPDATED_VERSION
+    assert session.commit_count == 1
+    assert dao.events == ['get_application_for_update', 'enable_application_if_disabled']
+
+    with pytest.raises(DeveloperApiError) as repeated:
+        await service.enable_application(
+            APPLICATION_ID,
+            actor_user_id=OWNER_USER_ID,
+            is_admin=False,
+            username='alice',
+            now=NOW,
+        )
+    assert repeated.value.code == 'APPLICATION_ACTIVE'
+
+
+@pytest.mark.asyncio
+async def test_delete_requires_disabled_and_soft_deleted_application_is_hidden() -> None:
+    service, session, dao = _service()
+    dao.applications[APPLICATION_ID] = _application()
+
+    with pytest.raises(DeveloperApiError) as active:
+        await service.delete_application(
+            APPLICATION_ID,
+            actor_user_id=OWNER_USER_ID,
+            is_admin=False,
+            username='alice',
+            now=NOW,
+        )
+    assert active.value.code == 'APPLICATION_NOT_DISABLED'
+
+    dao.applications[APPLICATION_ID] = _application(status='disabled')
+    deleted = await service.delete_application(
+        APPLICATION_ID,
+        actor_user_id=OWNER_USER_ID,
+        is_admin=False,
+        username='alice',
+        now=NOW,
+    )
+    assert deleted.deleted_at == NOW
+    assert deleted.version == UPDATED_VERSION
+    assert session.commit_count == 1
+
+    page = await service.list_applications(
+        ApplicationPageQueryModel(pageNum=1, pageSize=10),
+        actor_user_id=OWNER_USER_ID,
+        is_admin=False,
+    )
+    assert page.total == 0
+    with pytest.raises(DeveloperApiError) as hidden:
+        await service.get_application(APPLICATION_ID, actor_user_id=OWNER_USER_ID, is_admin=False)
+    assert hidden.value.code == 'APPLICATION_NOT_FOUND'
 
 
 @pytest.mark.asyncio
