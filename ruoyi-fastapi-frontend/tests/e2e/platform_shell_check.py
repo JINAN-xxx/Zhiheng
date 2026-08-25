@@ -41,6 +41,8 @@ ALL_PERMISSIONS = [
     "ai:application:list",
     "ai:application:add",
     "ai:application:edit",
+    "ai:application:enable",
+    "ai:application:delete",
     "ai:application:key:list",
     "ai:application:key:add",
     "ai:application:key:rotate",
@@ -904,8 +906,18 @@ async def check_application_usage_dark(browser: Browser) -> None:
         await page.locator(".application-row").wait_for()
         await page.get_by_role("button", name="切换主题").click()
         await page.locator("html.dark").wait_for()
+        await page.locator(".overview-panel").wait_for()
+        await page.get_by_text("调用入口", exact=True).wait_for()
+
+        await page.get_by_role("tab", name="访问密钥").click()
         await page.locator(".key-row").wait_for()
-        await page.locator(".usage-list .ant-table-tbody > tr").count()
+
+        await page.get_by_role("tab", name="调用记录").click()
+        usage_rows_locator = page.locator(
+            ".usage-list .ant-table-tbody > tr.ant-table-row"
+        )
+        await usage_rows_locator.first.wait_for()
+        assert await usage_rows_locator.count() >= 12
         await assert_text_is_constrained(page, LONG_APPLICATION_NAME)
         assert await page.locator(".developer-grid .workspace-panel").first.evaluate(
             "element => getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)'"
