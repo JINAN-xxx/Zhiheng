@@ -124,6 +124,10 @@ export function applicationTabResources(value) {
   }[normalizeApplicationTab(value)]
 }
 
+export function canViewApplicationModels(canListKeys, canListModels) {
+  return canListKeys === true && canListModels === true
+}
+
 export function isCallablePlatformModel(model = {}) {
   const source = model && typeof model === 'object' ? model : {}
   const lifecycleStatus = source.lifecycleStatus ?? source.lifecycle_status

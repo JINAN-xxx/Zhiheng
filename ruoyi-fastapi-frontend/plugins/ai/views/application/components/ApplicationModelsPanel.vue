@@ -1,7 +1,7 @@
 <template>
   <section class="models-panel">
     <div class="models-summary"><strong>模型授权</strong><span>汇总访问密钥授权关系与模型当前可用状态</span></div>
-    <WorkspaceState v-if="!canList" kind="forbidden" title="无权查看模型授权" message="当前账号缺少访问密钥列表权限。" />
+    <WorkspaceState v-if="!canView" kind="forbidden" title="无权查看模型授权" message="当前账号缺少访问密钥或模型目录权限。" />
     <WorkspaceState v-else-if="loading && !rows.length" kind="loading" />
     <WorkspaceState v-else-if="error && !rows.length" kind="error" :message="error" @retry="$emit('retry')" />
     <WorkspaceState v-else-if="!rows.length" kind="empty" title="暂无模型授权" message="创建访问密钥并选择模型后，授权关系会展示在这里。" />
@@ -28,7 +28,7 @@ const props = defineProps({
   models: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
-  canList: { type: Boolean, default: false },
+  canView: { type: Boolean, default: false },
 })
 defineEmits(['retry'])
 

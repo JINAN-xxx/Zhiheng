@@ -5,6 +5,7 @@ import {
   applicationTabResources,
   buildApplicationPath,
   buildDeveloperKeyPayload,
+  canViewApplicationModels,
   extractIssuedKey,
   normalizeApplicationTab,
   normalizeApplicationPage,
@@ -86,6 +87,10 @@ assert.deepEqual(applicationTabResources('overview'), [])
 assert.deepEqual(applicationTabResources('keys'), ['keys'])
 assert.deepEqual(applicationTabResources('models'), ['keys', 'models'])
 assert.deepEqual(applicationTabResources('usage'), ['usage'])
+assert.equal(canViewApplicationModels(true, true), true)
+assert.equal(canViewApplicationModels(true, false), false)
+assert.equal(canViewApplicationModels(false, true), false)
+assert.equal(canViewApplicationModels(false, false), false)
 assert.deepEqual(normalizeApplicationModelPage({ data: { rows: [{ modelId: 'mdl-1' }], total: 1 } }), {
   rows: [{ modelId: 'mdl-1' }],
   total: 1,

@@ -90,7 +90,7 @@
             :models="models"
             :loading="keyLoading || modelLoading"
             :error="keyError || modelError"
-            :can-list="canListKeys"
+            :can-view="canViewModelAuthorizations"
             @retry="loadModelAuthorizations"
           />
           <ApplicationUsagePanel
@@ -155,7 +155,7 @@ import {
   listApplicationUsage, listDeveloperKeys, revokeDeveloperKey, rotateDeveloperKey, updateApplication,
 } from '../../api/application.js'
 import {
-  applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, extractIssuedKey, isCallablePlatformModel, normalizeApplication,
+  applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, canViewApplicationModels, extractIssuedKey, isCallablePlatformModel, normalizeApplication,
   normalizeApplicationModelPage, normalizeApplicationPage, normalizeApplicationTab, normalizeDeveloperKeys, resolvePreferredApplication, shouldResetDeveloperKeys,
 } from '../../utils/application.js'
 import { collectAllPages, hasPermission } from '../../utils/modelEngine.js'
@@ -170,6 +170,7 @@ const userStore = useUserStore()
 const can = (permission) => hasPermission(userStore.permissions || [], permission)
 const canListKeys = computed(() => can('ai:application:key:list'))
 const canCreateKey = computed(() => can('ai:application:key:add') && can('ai:model:list'))
+const canViewModelAuthorizations = computed(() => canViewApplicationModels(canListKeys.value, can('ai:model:list')))
 const canQueryUsage = computed(() => can('ai:application:query'))
 const activeTab = computed(() => normalizeApplicationTab(route.query.tab))
 const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 })
@@ -335,6 +336,7 @@ async function loadModels() {
 }
 
 async function loadModelAuthorizations() {
+  if (!canViewModelAuthorizations.value) return
   await Promise.all([loadKeys(), loadModels()])
 }
 
