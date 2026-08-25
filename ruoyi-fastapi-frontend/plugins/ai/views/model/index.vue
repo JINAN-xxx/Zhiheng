@@ -1,6 +1,6 @@
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar subtitle="管理模型绑定、发布状态和计费规则">
+    <WorkspaceToolbar title="模型中心" subtitle="管理模型绑定、发布状态和计费规则">
       <template #actions>
         <a-tooltip title="刷新当前视图" placement="bottom">
           <a-button shape="circle" aria-label="刷新当前视图" @click="refreshCurrent">
@@ -109,7 +109,7 @@ function refreshAfterOnboarding() {
 .header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .model-workspace {
   min-width: 0;
-  margin-top: 16px;
+  margin-top: 24px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
@@ -121,9 +121,9 @@ function refreshAfterOnboarding() {
 .workspace-tabs :deep(.ant-tabs-tab:hover) { background: var(--gray-10); color: var(--color-text); }
 .workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) { color: var(--main-700); }
 .workspace-tabs :deep(.ant-tabs-ink-bar) { background: var(--main-700); }
-.workspace-tabs :deep(.ant-table) { font-size: 12px; }
-.workspace-tabs :deep(.ant-table-thead > tr > th) { height: 44px; background: var(--gray-10); color: var(--color-text-secondary); font-size: 12px; font-weight: 500; }
-.workspace-tabs :deep(.ant-table-tbody > tr > td) { height: 46px; }
+.workspace-tabs :deep(.ant-table) { font-size: 14px; }
+.workspace-tabs :deep(.ant-table-thead > tr > th) { height: 48px; background: var(--gray-10); color: var(--color-text-secondary); font-size: 13px; font-weight: 500; }
+.workspace-tabs :deep(.ant-table-tbody > tr > td) { height: 48px; }
 .workspace-tabs :deep(.ant-tag) { border-radius: 4px; }
 .workspace-tabs :deep(.ant-alert), :global(.model-onboarding-drawer .ant-alert) { border-radius: 6px; }
 :global(.model-onboarding-drawer) {

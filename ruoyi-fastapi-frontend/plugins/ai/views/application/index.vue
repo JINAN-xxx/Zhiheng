@@ -1,18 +1,15 @@
 <template>
   <main class="app-container developer-api-page">
-    <header class="developer-header">
-      <div>
-        <p>管理开发接入应用、模型授权与访问密钥</p>
-      </div>
-      <div class="developer-header__actions">
+    <WorkspaceToolbar title="开发接入" subtitle="管理开发接入应用、模型授权与访问密钥">
+      <template #actions>
         <a-tooltip title="刷新应用" placement="bottom">
           <a-button shape="circle" aria-label="刷新应用" @click="loadApplications">
             <template #icon><ReloadOutlined /></template>
           </a-button>
         </a-tooltip>
         <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined /><span class="button-label">新建应用</span></a-button>
-      </div>
-    </header>
+      </template>
+    </WorkspaceToolbar>
 
     <section class="developer-grid">
       <WorkspacePanel title="应用" subtitle="每个应用拥有独立访问密钥与模型权限" flush>
@@ -242,6 +239,7 @@ import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
 import WorkspacePanel from '@/components/Workspace/WorkspacePanel.vue'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import WorkspaceStatus from '@/components/Workspace/WorkspaceStatus.vue'
+import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 import { listPlatformModels } from '../../api/modelCatalog.js'
 import {
   createApplication,
@@ -556,22 +554,10 @@ onBeforeUnmount(() => {
   font-family: var(--workspace-font-family);
 }
 
-.developer-header {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--workspace-space-4);
-  margin-bottom: var(--workspace-space-4);
+.developer-api-page > :deep(.workspace-toolbar) {
+  margin-bottom: 24px;
 }
 
-.developer-header p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-
-.developer-header__actions,
 .key-toolbar,
 .key-row__title,
 .key-row__quota {
@@ -749,11 +735,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 560px) {
-  .developer-header {
-    align-items: flex-start;
-  }
-
-  .developer-header__actions .button-label {
+  .developer-api-page > :deep(.workspace-toolbar__actions) .button-label {
     display: none;
   }
 

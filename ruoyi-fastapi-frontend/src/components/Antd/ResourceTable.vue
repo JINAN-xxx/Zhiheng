@@ -41,4 +41,15 @@ const visibleColumns = computed(() => width.value < 768
 .antd-resource-table { min-width: 0; }
 .antd-resource-table :deep(.ant-table-wrapper),
 .antd-resource-table :deep(.ant-spin-nested-loading) { min-width: 0; }
+.antd-resource-table :deep(.ant-table) { font-size: 14px; }
+.antd-resource-table :deep(.ant-table-thead > tr > th) {
+  min-height: 48px;
+  font-size: 13px;
+  line-height: 24px;
+}
+.antd-resource-table :deep(.ant-table-tbody > tr) { height: 48px; }
+.antd-resource-table :deep(.ant-table-tbody > tr > td) {
+  min-height: 48px;
+  line-height: 24px;
+}
 </style>

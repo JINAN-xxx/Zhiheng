@@ -1,6 +1,6 @@
 <template>
   <main class="usage-ledger-page" aria-label="用量记录">
-    <WorkspaceToolbar subtitle="查看调用结果、消耗与费用">
+    <WorkspaceToolbar title="用量记录" subtitle="查看调用结果、消耗与费用">
       <template #actions>
         <a-button v-if="canQueryUsage" :loading="loading" @click="loadUsage">
           <template #icon><ReloadOutlined /></template>
@@ -235,7 +235,7 @@ onBeforeUnmount(() => { requestGeneration += 1 })
 
 <style scoped lang="scss">
 .usage-ledger-page { min-width: 0; color: var(--color-text); }
-.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 0; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 24px 0; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-controls :deep(.ant-select) { width: 100%; min-width: 0; }
 .usage-controls :deep(.ant-select-selector),
 .usage-controls :deep(.ant-select-selection-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

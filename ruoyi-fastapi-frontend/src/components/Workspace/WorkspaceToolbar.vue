@@ -63,7 +63,7 @@ const emit = defineEmits(['open-sidebar'])
   &__subtitle {
     margin: 3px 0 0;
     color: var(--color-text-secondary);
-    font-size: 13px;
+    font-size: 14px;
   }
 
   &__menu {
