@@ -304,7 +304,8 @@ export function getCapabilityMeta(capability) {
 export function defaultModelCapabilities(type) {
   if (type === 'chat') return { streaming: true, vision: false, reasoning: false, tools: false }
   if (type === 'embedding') return { dimensionsOverride: false }
-  return { returnDocuments: false }
+  if (type === 'rerank') return { returnDocuments: false }
+  return {}
 }
 
 export function getBindingStatusMeta(status) {

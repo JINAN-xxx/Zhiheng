@@ -348,6 +348,8 @@ assert.deepEqual(defaultModelCapabilities('chat'), {
 })
 assert.deepEqual(defaultModelCapabilities('embedding'), { dimensionsOverride: false })
 assert.deepEqual(defaultModelCapabilities('rerank'), { returnDocuments: false })
+assert.deepEqual(defaultModelCapabilities('unknown'), {})
+assert.deepEqual(defaultModelCapabilities(undefined), {})
 assert.deepEqual(getCapabilityMeta('vision'), { label: '视觉', type: 'primary' })
 assert.deepEqual(getBindingStatusMeta('active'), { label: '已绑定', type: 'success' })
 assert.deepEqual(getBindingStatusMeta(null), { label: '未绑定', type: 'info' })
