@@ -10,7 +10,7 @@ import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
 import {
-  collectWorkspaceRoutePaths,
+  collectWorkspaceLeafPaths,
   resolveAuthorizedWorkspacePath,
 } from '@/components/Workspace/workspaceTransforms.js'
 
@@ -55,7 +55,7 @@ router.beforeEach(async (to, from) => {
             router.addRoute(route)
           }
         })
-        const accessiblePaths = collectWorkspaceRoutePaths(accessRoutes)
+        const accessiblePaths = collectWorkspaceLeafPaths(accessRoutes)
         const authorizedPath = resolveAuthorizedWorkspacePath(to.path, accessiblePaths)
         if (authorizedPath !== to.path) {
           return { path: authorizedPath, replace: true }
@@ -68,7 +68,7 @@ router.beforeEach(async (to, from) => {
         return { path: '/login', query: { redirect: to.fullPath }, replace: true }
       }
     }
-    const accessiblePaths = collectWorkspaceRoutePaths(usePermissionStore().addRoutes)
+    const accessiblePaths = collectWorkspaceLeafPaths(usePermissionStore().addRoutes)
     const authorizedPath = resolveAuthorizedWorkspacePath(
       to.path,
       accessiblePaths,

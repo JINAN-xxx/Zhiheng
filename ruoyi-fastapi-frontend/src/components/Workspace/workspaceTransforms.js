@@ -79,6 +79,7 @@ export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []
 
   const isAccessible = accessiblePaths.some((path) => (
     typeof path === 'string'
+    && path.replace(/\/+$/u, '') !== '/ai'
     && (currentPath === path || currentPath.startsWith(`${path}/`))
   ))
   if (isAccessible) return currentPath

@@ -91,6 +91,14 @@ assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/chat']), '/ai/chat')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application/detail', ['/ai/chat']), '/ai/chat')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/application']), '/ai/application')
+assert.equal(
+  resolveAuthorizedWorkspacePath('/ai/usage', ['/ai', '/ai/application']),
+  '/ai/application',
+)
+assert.equal(
+  resolveAuthorizedWorkspacePath('/ai/application/detail', ['/ai', '/ai/application']),
+  '/ai/application/detail',
+)
 assert.equal(resolveAuthorizedWorkspacePath('/system/user', ['/ai/chat']), '/system/user')
 assert.deepEqual(
   filterAdminWorkspaceRoutes([
