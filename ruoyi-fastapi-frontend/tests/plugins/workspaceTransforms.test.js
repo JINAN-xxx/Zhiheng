@@ -6,6 +6,7 @@ import {
   filterAdminWorkspaceRoutes,
   groupWorkspaceActions,
   normalizeWorkspaceSessions,
+  resolveAiResourceGroups,
   resolveAiResourceTabs,
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
@@ -42,6 +43,28 @@ assert.deepEqual(
   resolveAiResourceTabs(new Set(['*:*:*'])).map((item) => item.path),
   ['/ai/model', '/ai/application', '/ai/usage'],
 )
+assert.deepEqual(
+  resolveAiResourceGroups(new Set(['*:*:*'])),
+  [{
+    key: 'model-center',
+    label: '模型中心',
+    path: '/ai/model',
+    children: [
+      { key: 'model', label: '模型目录', path: '/ai/model', permission: 'ai:model:list' },
+      { key: 'application', label: '开发接入', path: '/ai/application', permission: 'ai:application:list' },
+      { key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:list' },
+    ],
+  }],
+)
+assert.deepEqual(
+  resolveAiResourceGroups(new Set(['ai:model:list']))[0]?.children.map((item) => item.key),
+  ['model'],
+)
+assert.deepEqual(
+  resolveAiResourceGroups(new Set(['ai:application:list']))[0]?.children.map((item) => item.key),
+  ['application', 'usage'],
+)
+assert.deepEqual(resolveAiResourceGroups(new Set()), [])
 assert.deepEqual(
   filterAdminWorkspaceRoutes([
     { path: '/ai', children: [{ path: 'chat' }] },

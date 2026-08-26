@@ -5,7 +5,7 @@ const NAV_PERMISSION_KEYS = Object.freeze({
 })
 
 const AI_RESOURCE_TABS = Object.freeze([
-  Object.freeze({ key: 'model', label: '模型中心', path: '/ai/model', permission: 'ai:model:list' }),
+  Object.freeze({ key: 'model', label: '模型目录', path: '/ai/model', permission: 'ai:model:list' }),
   Object.freeze({ key: 'application', label: '开发接入', path: '/ai/application', permission: 'ai:application:list' }),
   Object.freeze({ key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:list' }),
 ])
@@ -53,6 +53,18 @@ export function resolveAiResourceTabs(permissions = new Set()) {
   return AI_RESOURCE_TABS.filter(
     (item) => permissions.has('*:*:*') || permissions.has(item.permission),
   )
+}
+
+export function resolveAiResourceGroups(permissions = new Set()) {
+  const children = resolveAiResourceTabs(permissions)
+  if (!children.length) return []
+
+  return [{
+    key: 'model-center',
+    label: '模型中心',
+    path: '/ai/model',
+    children,
+  }]
 }
 
 export function filterAdminWorkspaceRoutes(routes = []) {
