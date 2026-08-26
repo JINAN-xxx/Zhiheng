@@ -80,7 +80,7 @@
 <script setup>
 import { DatabaseOutlined, MessageOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import logo from '@/assets/logo/logo.png'
-import { resolveAiResourceGroups } from '@/components/Workspace/workspaceTransforms.js'
+import { isAiResourceGroupActive, resolveAiResourceGroups } from '@/components/Workspace/workspaceTransforms.js'
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'
@@ -112,7 +112,7 @@ function openSession(sessionId) {
 }
 
 function resourceGroupIsActive(group) {
-  return group.children.some((child) => route.path === child.path)
+  return isAiResourceGroupActive(group, route.path)
 }
 
 async function renameSession(sessionId) {

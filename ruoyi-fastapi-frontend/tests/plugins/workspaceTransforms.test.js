@@ -5,6 +5,7 @@ import {
   collectWorkspaceLeafPaths,
   filterAdminWorkspaceRoutes,
   groupWorkspaceActions,
+  isAiResourceGroupActive,
   normalizeWorkspaceSessions,
   resolveAiResourceGroups,
   resolveAiResourceTabs,
@@ -37,7 +38,7 @@ assert.equal(resolveWorkspaceMode('/ai'), 'ai')
 assert.equal(resolveWorkspaceMode('/system/user'), 'admin')
 assert.deepEqual(
   resolveAiResourceTabs(new Set(['ai:model:list', 'ai:application:list'])).map((item) => item.key),
-  ['model', 'application', 'usage'],
+  ['model', 'application'],
 )
 assert.deepEqual(
   resolveAiResourceTabs(new Set(['*:*:*'])).map((item) => item.path),
@@ -52,7 +53,7 @@ assert.deepEqual(
     children: [
       { key: 'model', label: '模型目录', path: '/ai/model', permission: 'ai:model:list' },
       { key: 'application', label: '开发接入', path: '/ai/application', permission: 'ai:application:list' },
-      { key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:list' },
+      { key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:query' },
     ],
   }],
 )
@@ -61,10 +62,31 @@ assert.deepEqual(
   ['model'],
 )
 assert.deepEqual(
-  resolveAiResourceGroups(new Set(['ai:application:list']))[0]?.children.map((item) => item.key),
-  ['application', 'usage'],
+  resolveAiResourceGroups(new Set(['ai:application:list'])),
+  [{
+    key: 'model-center',
+    label: '模型中心',
+    path: '/ai/application',
+    children: [
+      { key: 'application', label: '开发接入', path: '/ai/application', permission: 'ai:application:list' },
+    ],
+  }],
+)
+assert.deepEqual(
+  resolveAiResourceGroups(new Set(['ai:application:query'])),
+  [{
+    key: 'model-center',
+    label: '模型中心',
+    path: '/ai/usage',
+    children: [
+      { key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:query' },
+    ],
+  }],
 )
 assert.deepEqual(resolveAiResourceGroups(new Set()), [])
+assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application'), true)
+assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application/detail'), true)
+assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application-old'), false)
 assert.deepEqual(
   filterAdminWorkspaceRoutes([
     { path: '/ai', children: [{ path: 'chat' }] },

@@ -56,6 +56,7 @@ assert.match(platformSidebar, /class="platform-nav-group-link"/)
 assert.match(platformSidebar, /class="platform-nav-link platform-nav-child"/)
 assert.match(platformSidebar, /v-if="!collapsed"/)
 assert.match(platformSidebar, /v-else[\s\S]*?class="platform-nav-link platform-nav-group-collapsed"[\s\S]*?:to="group\.path"/)
+assert.match(platformSidebar, /isAiResourceGroupActive/)
 assert.match(platformSidebar, /useWorkspaceStore/)
 assert.doesNotMatch(platformSidebar, />AI 对话<|>AI 资源<|智衡 AI|Developer API/)
 

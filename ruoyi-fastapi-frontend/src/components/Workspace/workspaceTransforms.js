@@ -7,7 +7,7 @@ const NAV_PERMISSION_KEYS = Object.freeze({
 const AI_RESOURCE_TABS = Object.freeze([
   Object.freeze({ key: 'model', label: '模型目录', path: '/ai/model', permission: 'ai:model:list' }),
   Object.freeze({ key: 'application', label: '开发接入', path: '/ai/application', permission: 'ai:application:list' }),
-  Object.freeze({ key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:list' }),
+  Object.freeze({ key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:query' }),
 ])
 
 const LANDING_PATH_PRIORITY = Object.freeze([
@@ -62,9 +62,15 @@ export function resolveAiResourceGroups(permissions = new Set()) {
   return [{
     key: 'model-center',
     label: '模型中心',
-    path: '/ai/model',
+    path: children[0].path,
     children,
   }]
+}
+
+export function isAiResourceGroupActive(group, currentPath = '') {
+  return Array.isArray(group?.children) && group.children.some((child) => (
+    currentPath === child.path || currentPath.startsWith(`${child.path}/`)
+  ))
 }
 
 export function filterAdminWorkspaceRoutes(routes = []) {
