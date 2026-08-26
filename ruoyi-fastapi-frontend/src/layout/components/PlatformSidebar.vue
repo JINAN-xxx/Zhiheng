@@ -44,17 +44,31 @@
             </router-link>
           </div>
         </div>
-        <router-link
+        <a-dropdown
           v-else
-          class="platform-nav-link platform-nav-group-collapsed"
-          :class="{ active: resourceGroupIsActive(group) }"
-          :to="group.path"
-          :aria-label="group.label"
-          :aria-current="resourceGroupIsActive(group) ? 'page' : undefined"
-          :title="group.label"
+          class="platform-nav-group-dropdown"
+          :trigger="['click']"
+          placement="rightTop"
         >
-          <DatabaseOutlined />
-        </router-link>
+          <span
+            class="platform-nav-link platform-nav-group-collapsed"
+            :class="{ active: resourceGroupIsActive(group) }"
+            role="button"
+            tabindex="0"
+            :aria-label="group.label"
+            aria-haspopup="menu"
+            :title="group.label"
+          >
+            <DatabaseOutlined />
+          </span>
+          <template #overlay>
+            <a-menu :selected-keys="[route.path]" @click="handleResourceMenuClick">
+              <a-menu-item v-for="child in group.children" :key="child.path">
+                {{ child.label }}
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
       </template>
     </nav>
 
@@ -113,6 +127,10 @@ function openSession(sessionId) {
 
 function resourceGroupIsActive(group) {
   return isAiResourceGroupActive(group, route.path)
+}
+
+function handleResourceMenuClick({ key }) {
+  router.push(String(key))
 }
 
 async function renameSession(sessionId) {

@@ -73,6 +73,19 @@ export function isAiResourceGroupActive(group, currentPath = '') {
   ))
 }
 
+export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []) {
+  const isAiPath = currentPath === '/ai' || currentPath.startsWith('/ai/')
+  if (!isAiPath) return currentPath
+
+  const isAccessible = accessiblePaths.some((path) => (
+    typeof path === 'string'
+    && (currentPath === path || currentPath.startsWith(`${path}/`))
+  ))
+  if (isAccessible) return currentPath
+
+  return resolveWorkspaceLandingPath('/index', accessiblePaths)
+}
+
 export function filterAdminWorkspaceRoutes(routes = []) {
   return routes.filter((route) => {
     const path = typeof route?.path === 'string' ? route.path : ''

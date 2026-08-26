@@ -9,7 +9,10 @@ import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
-import { collectWorkspaceRoutePaths, resolveWorkspaceLandingPath } from '@/components/Workspace/workspaceTransforms.js'
+import {
+  collectWorkspaceRoutePaths,
+  resolveAuthorizedWorkspacePath,
+} from '@/components/Workspace/workspaceTransforms.js'
 
 NProgress.configure({ showSpinner: false })
 
@@ -53,9 +56,9 @@ router.beforeEach(async (to, from) => {
           }
         })
         const accessiblePaths = collectWorkspaceRoutePaths(accessRoutes)
-        const landingPath = resolveWorkspaceLandingPath(to.path, accessiblePaths)
-        if (landingPath !== to.path) {
-          return { path: landingPath, replace: true }
+        const authorizedPath = resolveAuthorizedWorkspacePath(to.path, accessiblePaths)
+        if (authorizedPath !== to.path) {
+          return { path: authorizedPath, replace: true }
         }
         // 重新导航到目标路由，确保动态路由已注册
         return { ...to, replace: true }
@@ -65,12 +68,13 @@ router.beforeEach(async (to, from) => {
         return { path: '/login', query: { redirect: to.fullPath }, replace: true }
       }
     }
-    const landingPath = resolveWorkspaceLandingPath(
+    const accessiblePaths = collectWorkspaceRoutePaths(usePermissionStore().addRoutes)
+    const authorizedPath = resolveAuthorizedWorkspacePath(
       to.path,
-      collectWorkspaceRoutePaths(usePermissionStore().addRoutes),
+      accessiblePaths,
     )
-    if (landingPath !== to.path) {
-      return { path: landingPath, replace: true }
+    if (authorizedPath !== to.path) {
+      return { path: authorizedPath, replace: true }
     }
     return true
   } else {

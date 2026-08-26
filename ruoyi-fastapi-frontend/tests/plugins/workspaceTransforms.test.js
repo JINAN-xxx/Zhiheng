@@ -9,6 +9,7 @@ import {
   normalizeWorkspaceSessions,
   resolveAiResourceGroups,
   resolveAiResourceTabs,
+  resolveAuthorizedWorkspacePath,
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
   resolveWorkspaceMode,
@@ -87,6 +88,10 @@ assert.deepEqual(resolveAiResourceGroups(new Set()), [])
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application/detail'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application-old'), false)
+assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/chat']), '/ai/chat')
+assert.equal(resolveAuthorizedWorkspacePath('/ai/application/detail', ['/ai/chat']), '/ai/chat')
+assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/application']), '/ai/application')
+assert.equal(resolveAuthorizedWorkspacePath('/system/user', ['/ai/chat']), '/system/user')
 assert.deepEqual(
   filterAdminWorkspaceRoutes([
     { path: '/ai', children: [{ path: 'chat' }] },
