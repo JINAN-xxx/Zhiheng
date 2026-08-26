@@ -50,19 +50,18 @@
           :trigger="['click']"
           placement="rightTop"
         >
-          <span
+          <button
+            type="button"
             class="platform-nav-link platform-nav-group-collapsed"
             :class="{ active: resourceGroupIsActive(group) }"
-            role="button"
-            tabindex="0"
             :aria-label="group.label"
             aria-haspopup="menu"
             :title="group.label"
           >
             <DatabaseOutlined />
-          </span>
+          </button>
           <template #overlay>
-            <a-menu :selected-keys="[route.path]" @click="handleResourceMenuClick">
+            <a-menu :selected-keys="[getActiveAiResourceChildPath(group, route.path)].filter(Boolean)" @click="handleResourceMenuClick">
               <a-menu-item v-for="child in group.children" :key="child.path">
                 {{ child.label }}
               </a-menu-item>
@@ -94,7 +93,11 @@
 <script setup>
 import { DatabaseOutlined, MessageOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import logo from '@/assets/logo/logo.png'
-import { isAiResourceGroupActive, resolveAiResourceGroups } from '@/components/Workspace/workspaceTransforms.js'
+import {
+  getActiveAiResourceChildPath,
+  isAiResourceGroupActive,
+  resolveAiResourceGroups,
+} from '@/components/Workspace/workspaceTransforms.js'
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'

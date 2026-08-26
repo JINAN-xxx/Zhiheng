@@ -68,9 +68,25 @@ export function resolveAiResourceGroups(permissions = new Set()) {
 }
 
 export function isAiResourceGroupActive(group, currentPath = '') {
-  return Array.isArray(group?.children) && group.children.some((child) => (
-    currentPath === child.path || currentPath.startsWith(`${child.path}/`)
-  ))
+  return Boolean(getActiveAiResourceChildPath(group, currentPath))
+}
+
+/**
+ * Resolve the deepest resource child that owns the current path.
+ * Segment-aware matching prevents `/ai/application-old` from activating
+ * the `/ai/application` menu item.
+ */
+export function getActiveAiResourceChildPath(group, currentPath = '') {
+  if (!Array.isArray(group?.children) || typeof currentPath !== 'string') return null
+
+  return group.children
+    .filter((child) => {
+      if (typeof child?.path !== 'string' || !child.path) return false
+      const path = child.path.replace(/\/+$/u, '') || '/'
+      return currentPath === path || currentPath.startsWith(`${path}/`)
+    })
+    .sort((left, right) => right.path.length - left.path.length)
+    .at(0)?.path || null
 }
 
 export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []) {

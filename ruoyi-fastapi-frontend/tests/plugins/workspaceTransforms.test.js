@@ -4,6 +4,7 @@ import {
   collectWorkspaceRoutePaths,
   collectWorkspaceLeafPaths,
   filterAdminWorkspaceRoutes,
+  getActiveAiResourceChildPath,
   groupWorkspaceActions,
   isAiResourceGroupActive,
   normalizeWorkspaceSessions,
@@ -88,6 +89,18 @@ assert.deepEqual(resolveAiResourceGroups(new Set()), [])
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application/detail'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application-old'), false)
+assert.equal(
+  getActiveAiResourceChildPath({ children: [{ path: '/ai/application' }, { path: '/ai/application/detail' }] }, '/ai/application/detail'),
+  '/ai/application/detail',
+)
+assert.equal(
+  getActiveAiResourceChildPath({ children: [{ path: '/ai/application' }] }, '/ai/application/detail'),
+  '/ai/application',
+)
+assert.equal(
+  getActiveAiResourceChildPath({ children: [{ path: '/ai/application' }] }, '/ai/application-old'),
+  null,
+)
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/chat']), '/ai/chat')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application/detail', ['/ai/chat']), '/ai/chat')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/application']), '/ai/application')
