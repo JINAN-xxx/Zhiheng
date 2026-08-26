@@ -13,6 +13,12 @@ const LIFECYCLE_META = Object.freeze({
   disabled: Object.freeze({ label: '已停用', type: 'warning' }),
 })
 
+const LIFECYCLE_ACTION = Object.freeze({
+  active: '停用',
+  draft: '发布',
+  disabled: '重新启用',
+})
+
 const BINDING_META = Object.freeze({
   active: Object.freeze({ label: '已绑定', type: 'success' }),
   disabled: Object.freeze({ label: '已禁用', type: 'warning' }),
@@ -285,6 +291,10 @@ export function getLastAvailablePage({ pageNum, pageSize, total, rowsLength }) {
 
 export function getLifecycleStatusMeta(status) {
   return LIFECYCLE_META[status] || { label: '未知', type: 'info' }
+}
+
+export function getLifecycleAction(status) {
+  return LIFECYCLE_ACTION[status] || ''
 }
 
 export function getCapabilityMeta(capability) {

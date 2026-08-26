@@ -12,6 +12,7 @@ import {
   createRequestGate,
   getBindingStatusMeta,
   getCapabilityMeta,
+  getLifecycleAction,
   getLifecycleStatusMeta,
   getLastAvailablePage,
   getQuickOnboardingStep,
@@ -335,6 +336,9 @@ assert.deepEqual(getLifecycleStatusMeta('active'), { label: '已发布', type: '
 assert.deepEqual(getLifecycleStatusMeta('draft'), { label: '草稿', type: 'info' })
 assert.deepEqual(getLifecycleStatusMeta('disabled'), { label: '已停用', type: 'warning' })
 assert.deepEqual(getLifecycleStatusMeta('other'), { label: '未知', type: 'info' })
+assert.equal(getLifecycleAction('draft'), '发布')
+assert.equal(getLifecycleAction('active'), '停用')
+assert.equal(getLifecycleAction('disabled'), '重新启用')
 assert.deepEqual(getCapabilityMeta('vision'), { label: '视觉', type: 'primary' })
 assert.deepEqual(getBindingStatusMeta('active'), { label: '已绑定', type: 'success' })
 assert.deepEqual(getBindingStatusMeta(null), { label: '未绑定', type: 'info' })

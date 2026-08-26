@@ -78,7 +78,7 @@
           <div class="row-actions desktop-actions">
             <a-tooltip v-if="canEdit" title="费率配置" placement="top"><a-button type="link" aria-label="费率配置" @click="openRateCards(row)"><template #icon><DollarOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canTest && row.lifecycleStatus === 'active'" title="类型化连接测试" placement="top"><a-button type="link" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)"><template #icon><ApiOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canPublish && row.lifecycleStatus === 'draft'" title="发布" placement="top"><a-button type="link" aria-label="发布" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" :title="getLifecycleAction(row.lifecycleStatus)" placement="top"><a-button type="link" :aria-label="getLifecycleAction(row.lifecycleStatus)" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canEdit && row.lifecycleStatus === 'active'" title="停用" placement="top"><a-button type="link" class="warning-action" aria-label="停用" @click="disable(row)"><template #icon><PauseCircleOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canRemove && row.lifecycleStatus === 'draft'" title="删除草稿" placement="top"><a-button type="link" danger aria-label="删除草稿" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
           </div>
@@ -87,7 +87,7 @@
             <template #overlay><a-menu @click="({ key }) => handleRowAction(key, row)">
               <a-menu-item v-if="canEdit" key="rate">费率配置</a-menu-item>
               <a-menu-item v-if="canTest && row.lifecycleStatus === 'active'" key="test">类型化连接测试</a-menu-item>
-              <a-menu-item v-if="canPublish && row.lifecycleStatus === 'draft'" key="publish" :disabled="!canPublishPlatformModel(row)">发布</a-menu-item>
+              <a-menu-item v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" key="publish" :disabled="!canPublishPlatformModel(row)">{{ getLifecycleAction(row.lifecycleStatus) }}</a-menu-item>
               <a-menu-item v-if="canEdit && row.lifecycleStatus === 'active'" key="disable">停用</a-menu-item>
               <a-menu-item v-if="canRemove && row.lifecycleStatus === 'draft'" key="remove" danger>删除草稿</a-menu-item>
             </a-menu></template>
@@ -159,7 +159,7 @@ import {
   smokeTestPlatformModel,
 } from '../../../api/modelCatalog.js'
 import {
-  canPublishPlatformModel, createRequestGate, getBindingStatusMeta, getLastAvailablePage, getLifecycleStatusMeta,
+  canPublishPlatformModel, createRequestGate, getBindingStatusMeta, getLastAvailablePage, getLifecycleAction, getLifecycleStatusMeta,
   hasPermission, normalizePlatformModel,
 } from '../../../utils/modelEngine.js'
 
@@ -345,11 +345,12 @@ async function publish(row) {
     feedback.msgWarning('仅可发布已激活运行时绑定的模型')
     return
   }
+  const isReenable = row.lifecycleStatus === 'disabled'
   try {
     await publishPlatformModel(row.modelId)
-    feedback.msgSuccess('模型已发布')
+    feedback.msgSuccess(isReenable ? '模型已重新启用' : '模型已发布')
     await load()
-  } catch { feedback.msgError('发布失败') }
+  } catch { feedback.msgError(isReenable ? '重新启用失败' : '发布失败') }
 }
 
 async function disable(row) {
