@@ -301,6 +301,12 @@ export function getCapabilityMeta(capability) {
   return CAPABILITY_META[capability] || { label: capability || '未知', type: 'info' }
 }
 
+export function defaultModelCapabilities(type) {
+  if (type === 'chat') return { streaming: true, vision: false, reasoning: false, tools: false }
+  if (type === 'embedding') return { dimensionsOverride: false }
+  return { returnDocuments: false }
+}
+
 export function getBindingStatusMeta(status) {
   return BINDING_META[status] || BINDING_META.missing
 }

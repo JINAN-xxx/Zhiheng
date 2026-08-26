@@ -10,6 +10,7 @@ import {
   canPublishPlatformModel,
   collectAllPages,
   createRequestGate,
+  defaultModelCapabilities,
   getBindingStatusMeta,
   getCapabilityMeta,
   getLifecycleAction,
@@ -339,6 +340,14 @@ assert.deepEqual(getLifecycleStatusMeta('other'), { label: '未知', type: 'info
 assert.equal(getLifecycleAction('draft'), '发布')
 assert.equal(getLifecycleAction('active'), '停用')
 assert.equal(getLifecycleAction('disabled'), '重新启用')
+assert.deepEqual(defaultModelCapabilities('chat'), {
+  streaming: true,
+  vision: false,
+  reasoning: false,
+  tools: false,
+})
+assert.deepEqual(defaultModelCapabilities('embedding'), { dimensionsOverride: false })
+assert.deepEqual(defaultModelCapabilities('rerank'), { returnDocuments: false })
 assert.deepEqual(getCapabilityMeta('vision'), { label: '视觉', type: 'primary' })
 assert.deepEqual(getBindingStatusMeta('active'), { label: '已绑定', type: 'success' })
 assert.deepEqual(getBindingStatusMeta(null), { label: '未绑定', type: 'info' })

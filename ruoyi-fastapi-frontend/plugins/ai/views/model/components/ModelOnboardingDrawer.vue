@@ -136,22 +136,6 @@
                         @change="applyTypedDefaults"
                       />
                     </a-form-item>
-                    <a-form-item label="能力">
-                      <a-checkbox-group v-model:value="catalogForm.capabilities" :disabled="Boolean(resources.model)">
-                        <template v-if="catalogForm.modelType === 'chat'">
-                          <a-checkbox value="streaming">流式</a-checkbox>
-                          <a-checkbox value="reasoning">推理</a-checkbox>
-                          <a-checkbox value="vision">视觉</a-checkbox>
-                          <a-checkbox value="tools">工具</a-checkbox>
-                        </template>
-                        <template v-else-if="catalogForm.modelType === 'embedding'">
-                          <a-checkbox value="dimensionsOverride">维度覆盖</a-checkbox>
-                        </template>
-                        <template v-else-if="catalogForm.modelType === 'rerank'">
-                          <a-checkbox value="returnDocuments">返回文档</a-checkbox>
-                        </template>
-                      </a-checkbox-group>
-                    </a-form-item>
                   </div>
                   <div v-if="catalogForm.modelType !== 'chat'" class="catalog-grid">
                     <a-form-item v-if="catalogForm.modelType === 'embedding'" label="默认向量维度">
@@ -231,6 +215,7 @@ import {
   buildQuickResourceIdentity,
   collectAllPages,
   createRequestGate,
+  defaultModelCapabilities,
   getQuickOnboardingStep,
   isCredentialCompatible,
   isManagementMisconfiguredError,
@@ -281,7 +266,6 @@ const catalogForm = reactive({
   modelCode: '',
   displayName: '',
   modelType: 'chat',
-  capabilities: ['streaming'],
   defaultParameters: {
     temperature: null,
     topP: null,
@@ -371,7 +355,6 @@ function resetWorkflow() {
     modelCode: '',
     displayName: '',
     modelType: 'chat',
-    capabilities: ['streaming'],
     defaultParameters: {
       temperature: null,
       topP: null,
@@ -385,8 +368,6 @@ function resetWorkflow() {
 
 function applyTypedDefaults() {
   if (resources.model) return
-  const type = catalogForm.modelType
-  catalogForm.capabilities = type === 'chat' ? ['streaming'] : type === 'embedding' ? [] : []
   catalogForm.defaultParameters = {
     temperature: null,
     topP: null,
@@ -559,19 +540,6 @@ async function createDeployment(payload) {
   }
 }
 
-function capabilityPayload() {
-  const selected = new Set(catalogForm.capabilities)
-  const type = catalogForm.modelType
-  if (type === 'embedding') return { dimensionsOverride: selected.has('dimensionsOverride') }
-  if (type === 'rerank') return { returnDocuments: selected.has('returnDocuments') }
-  return {
-    vision: selected.has('vision'),
-    reasoning: selected.has('reasoning'),
-    tools: selected.has('tools'),
-    streaming: selected.has('streaming'),
-  }
-}
-
 function defaultParametersPayload() {
   const type = catalogForm.modelType
   if (type === 'embedding') {
@@ -599,7 +567,7 @@ async function ensureCatalogModel(requestGeneration) {
     modelCode: catalogForm.modelCode,
     displayName: catalogForm.displayName,
     modelType: catalogForm.modelType,
-    capabilities: capabilityPayload(),
+    capabilities: defaultModelCapabilities(catalogForm.modelType),
     defaultParameters: defaultParametersPayload(),
   })
   if (!requestGate.isCurrent(requestGeneration)) return null

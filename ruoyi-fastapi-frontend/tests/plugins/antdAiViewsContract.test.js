@@ -117,6 +117,10 @@ const runtimeStatus = readFileSync('plugins/ai/views/model/components/RuntimeSta
 assert.match(runtimeStatus, /var\(--bg-container\)/)
 assert.match(runtimeStatus, /var\(--gray-150\)/)
 const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOnboardingDrawer.vue', 'utf8')
+const platformModelsPanel = readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8')
+assert.doesNotMatch(platformModelsPanel, /title:\s*['"]能力['"]|title="能力"/)
+assert.doesNotMatch(onboardingDrawer, /label="能力"/)
+assert.match(onboardingDrawer, /capabilities:\s*defaultModelCapabilities\(catalogForm\.modelType\)/)
 assert.match(onboardingDrawer, /var\(--bg-container\)/)
 assert.match(onboardingDrawer, /var\(--gray-150\)/)
 for (const fileName of [

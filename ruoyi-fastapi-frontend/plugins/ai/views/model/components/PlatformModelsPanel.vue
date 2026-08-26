@@ -52,12 +52,6 @@
         <template v-else-if="column.key === 'modelType'">
           <a-tag :color="tagColor(modelTypeMeta(row.modelType).type)">{{ modelTypeMeta(row.modelType).label }}</a-tag>
         </template>
-        <template v-else-if="column.key === 'capabilities'">
-          <div class="tag-list">
-            <a-tag v-for="item in row.capabilities" :key="item.key" :color="tagColor(item.type)">{{ item.label }}</a-tag>
-            <span v-if="row.capabilities.length === 0" class="muted">-</span>
-          </div>
-        </template>
         <template v-else-if="column.key === 'bindingAlias'">
           <div class="binding-value">
             <div v-if="row.bindingAlias" class="resource-value">
@@ -187,7 +181,6 @@ const columns = computed(() => [
   !props.mobile && { title: '模型编号', key: 'modelId', width: 180 },
   { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160 },
   !props.mobile && { title: '类型', key: 'modelType', width: 110 },
-  !props.mobile && { title: '能力', key: 'capabilities', width: 194 },
   !props.mobile && { title: '绑定状态', key: 'bindingAlias', width: 160 },
   !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140 },
