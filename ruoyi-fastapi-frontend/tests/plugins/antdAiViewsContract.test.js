@@ -231,7 +231,8 @@ for (const [fileName, source] of [
   assert.match(source, /var\(--gray-150\)/, `${fileName} must use the Yuxi border token`)
 }
 
-assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\),[\s\S]*\.application-detail\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(applicationView, /\.developer-grid > :deep\(\.workspace-panel\)\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
+assert.match(applicationView, /\.application-detail\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*background:\s*var\(--bg-container\)/)
 assert.match(applicationView, /\.application-row\.is-active\s*\{[\s\S]*background:\s*var\(--main-50\)[\s\S]*color:\s*var\(--main-700\)/)
 assert.match(applicationView, /\.application-row:hover\s*\{[\s\S]*background:\s*var\(--gray-50\)[\s\S]*color:\s*var\(--color-text\)/)
 assert.match(applicationView, /\.application-row\.is-active:hover\s*\{[\s\S]*background:\s*var\(--main-30\)[\s\S]*color:\s*var\(--main-700\)/)

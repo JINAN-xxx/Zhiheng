@@ -48,6 +48,10 @@ assert.match(applicationView, /\.developer-api-page\s*\{[\s\S]*height:\s*100%[\s
 assert.match(usageView, /\.usage-ledger-page\s*\{[\s\S]*height:\s*100%[\s\S]*min-height:\s*0/)
 assert.match(modelView, /\.model-workspace\s*\{[\s\S]*overflow:\s*auto/)
 assert.match(applicationView, /\.developer-grid\s*\{[\s\S]*overflow:\s*auto/)
+assert.match(applicationView, /\.application-detail\s*\{[\s\S]*display:\s*flex[\s\S]*flex-direction:\s*column[\s\S]*min-height:\s*0/)
+assert.match(applicationView, /\.application-detail\s*>\s*:deep\(\.(?:overview|keys|models|usage)-panel\)[\s\S]*\{[^}]*flex:\s*1[^}]*\}/)
+assert.match(applicationView, /\.application-detail\s*>\s*:deep\(\.(?:overview|keys|models|usage)-panel\)[\s\S]*\{[^}]*min-height:\s*0[^}]*\}/)
+assert.match(applicationView, /\.application-detail\s*>\s*:deep\(\.(?:overview|keys|models|usage)-panel\)[\s\S]*\{[^}]*overflow:\s*auto[^}]*\}/)
 assert.match(usageView, /\.usage-table-wrap\s*\{[\s\S]*overflow:\s*auto/)
 
 console.log('ok subpage layout contract')

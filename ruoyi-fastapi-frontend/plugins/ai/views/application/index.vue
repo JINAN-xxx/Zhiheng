@@ -515,8 +515,7 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
-.developer-grid > :deep(.workspace-panel),
-.application-detail {
+.developer-grid > :deep(.workspace-panel) {
   overflow: hidden;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
@@ -580,7 +579,22 @@ onBeforeUnmount(() => {
 }
 
 .application-detail {
+  display: flex;
   min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+
+.application-detail > :deep(.overview-panel),
+.application-detail > :deep(.keys-panel),
+.application-detail > :deep(.models-panel),
+.application-detail > :deep(.usage-panel) {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
 }
 
 .detail-header,
