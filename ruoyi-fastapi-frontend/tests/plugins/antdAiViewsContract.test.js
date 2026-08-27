@@ -34,6 +34,7 @@ const applicationFiles = [
   'plugins/ai/views/application/components/ApplicationKeysPanel.vue',
   'plugins/ai/views/application/components/ApplicationModelsPanel.vue',
   'plugins/ai/views/application/components/ApplicationUsagePanel.vue',
+  'plugins/ai/views/application/components/ApplicationApiDocs.vue',
   'plugins/ai/views/usage/index.vue',
 ]
 
@@ -169,6 +170,7 @@ assert.doesNotMatch(applicationView, /Developer API|API Key|Embedding|Rerank/)
 assert.match(applicationView, /开发接入/)
 assert.match(applicationView, /route\.query\.view === ['"]docs['"]|showDocs/)
 assert.match(applicationView, /API 说明/)
+assert.match(applicationView, /ReloadOutlined[\s\S]*API 说明[\s\S]*新建应用/)
 assert.match(applicationView, /view:\s*['"]docs['"]|view=docs/)
 assert.match(applicationView, /delete.*view|view.*undefined|closeApiDocs/s)
 assert.match(applicationApiDocs, /GET \/v1\/models/)
@@ -176,7 +178,16 @@ assert.match(applicationApiDocs, /POST \/v1\/chat\/completions/)
 assert.match(applicationApiDocs, /POST \/v1\/embeddings/)
 assert.match(applicationApiDocs, /POST \/v1\/rerank/)
 assert.match(applicationApiDocs, /复制调用地址/)
+assert.match(applicationApiDocs, /api-overview/)
+assert.match(applicationApiDocs, /api-auth/)
+assert.match(applicationApiDocs, /api-streaming/)
+assert.match(applicationApiDocs, /api-errors/)
+assert.match(applicationApiDocs, /普通响应字段/)
+assert.match(applicationApiDocs, /流式响应字段/)
+assert.match(applicationApiDocs, /presence_penalty|apiDocs/)
 assert.doesNotMatch(applicationApiDocs, /issuedKey|localStorage|sk-zh|sk-live/)
+assertNoDecorativeEffects(applicationApiDocs, 'plugins/ai/views/application/components/ApplicationApiDocs.vue')
+assert.doesNotMatch(applicationApiDocs, /box-shadow\s*:/)
 assert.match(applicationView, /访问密钥/)
 assert.match(applicationView, /概览/)
 assert.match(applicationView, /模型授权/)

@@ -15,7 +15,7 @@ import {
   resolvePreferredApplication,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
-import { apiDocs, buildPublicApiBase } from '../../plugins/ai/utils/apiDocs.js'
+import { apiDocNavigation, apiDocs, buildPublicApiBase, chatStreamFrames, publicApiErrors } from '../../plugins/ai/utils/apiDocs.js'
 
 assert.equal(buildPublicApiBase('http://127.0.0.1:12580/', '/docker-api/'), 'http://127.0.0.1:12580/docker-api/v1')
 assert.equal(buildPublicApiBase('http://127.0.0.1:12580', 'docker-api'), 'http://127.0.0.1:12580/docker-api/v1')
@@ -29,6 +29,40 @@ assert.deepEqual(apiDocs.map((item) => `${item.method} ${item.path}`), [
 assert.equal(apiDocs.find((item) => item.id === 'chat-completions').streaming, true)
 assert.ok(apiDocs.every((item) => !JSON.stringify(item).match(/sk-(?:zh|live|test)|sk-[A-Za-z0-9]{10,}/)))
 assert.ok(apiDocs.every((item) => typeof item.curlExample === 'string' && typeof item.pythonExample === 'string'))
+
+const chatDocs = apiDocs.find((item) => item.id === 'chat-completions')
+assert.deepEqual(chatDocs.fields.filter((field) => ['presence_penalty', 'frequency_penalty'].includes(field.name)).map((field) => field.name), ['presence_penalty', 'frequency_penalty'])
+assert.deepEqual(chatDocs.normalResponseFields.map((field) => field.name), [
+  'id', 'object', 'created', 'model', 'choices[].message', 'choices[].finish_reason', 'usage',
+])
+assert.deepEqual(chatDocs.streamResponseFields.map((field) => field.name), [
+  'id', 'object', 'created', 'model', 'choices[].delta', 'choices[].finish_reason',
+])
+assert.match(chatDocs.normalRequestExample, /"stream": false/)
+assert.match(chatDocs.streamRequestExample, /"stream": true/)
+assert.equal(chatStreamFrames.length, 4)
+for (const frame of chatStreamFrames.slice(0, 3)) {
+  assert.equal(frame.object, 'chat.completion.chunk')
+  assert.equal(typeof frame.created, 'number')
+  assert.equal(frame.model, '<MODEL_CODE>')
+  assert.equal(frame.choices.length, 1)
+}
+assert.deepEqual(chatStreamFrames[0].choices[0], { index: 0, delta: { role: 'assistant' }, finish_reason: null })
+assert.deepEqual(chatStreamFrames[1].choices[0], { index: 0, delta: { content: '你好' }, finish_reason: null })
+assert.deepEqual(chatStreamFrames[2].choices[0], { index: 0, delta: {}, finish_reason: 'stop' })
+assert.equal(chatStreamFrames[3], '[DONE]')
+assert.deepEqual(publicApiErrors.map((item) => item.code), [
+  'not_found', 'invalid_api_key', 'permission_denied', 'model_not_found', 'invalid_request', 'upstream_error',
+  'service_unavailable', 'request_too_large', 'rate_limit_exceeded', 'concurrency_limit_exceeded', 'budget_exceeded',
+])
+assert.deepEqual(publicApiErrors.map(({ status, type }) => [status, type]), [
+  [404, 'invalid_request_error'], [401, 'authentication_error'], [403, 'permission_error'], [404, 'invalid_request_error'],
+  [400, 'invalid_request_error'], [502, 'api_error'], [503, 'api_error'], [413, 'invalid_request_error'],
+  [429, 'rate_limit_error'], [429, 'rate_limit_error'], [429, 'rate_limit_error'],
+])
+assert.deepEqual(apiDocNavigation.map((item) => item.anchor), [
+  'api-overview', 'api-auth', 'api-models', 'api-chat-completions', 'api-embeddings', 'api-rerank', 'api-streaming', 'api-errors',
+])
 
 assert.deepEqual(normalizeApplicationPage({ data: { rows: [{ application_id: 'app-1', application_name: '内部工具', status: 'active' }], total: 1 } }), {
   rows: [{ applicationId: 'app-1', applicationCode: '', applicationName: '内部工具', status: 'active', version: 1, createdAt: null, updatedAt: null }],

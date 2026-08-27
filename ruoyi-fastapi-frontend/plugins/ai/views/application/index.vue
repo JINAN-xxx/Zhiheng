@@ -7,8 +7,8 @@
         <a-tooltip title="刷新应用" placement="bottom">
           <a-button shape="circle" aria-label="刷新应用" @click="refreshCurrentView"><template #icon><ReloadOutlined /></template></a-button>
         </a-tooltip>
-        <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined />新建应用</a-button>
         <a-button @click="openApiDocs"><FileTextOutlined />API 说明</a-button>
+        <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined />新建应用</a-button>
       </template>
     </WorkspaceToolbar>
 

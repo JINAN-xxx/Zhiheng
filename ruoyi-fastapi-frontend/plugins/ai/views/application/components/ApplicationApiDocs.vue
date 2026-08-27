@@ -14,24 +14,30 @@
       <nav class="api-docs-nav" aria-label="接口目录">
         <div class="api-docs-nav__title">接口目录</div>
         <a
-          v-for="item in apiDocs"
-          :key="item.id"
+          v-for="item in apiDocNavigation"
+          :key="item.anchor"
           class="api-docs-nav__item"
-          :class="{ 'is-active': item.id === selectedId }"
-          :href="`#api-${item.id}`"
-          @click="selectedId = item.id"
+          :class="{ 'is-active': item.anchor === selectedId }"
+          :href="`#${item.anchor}`"
+          @click="selectedId = item.anchor"
         >
-          <span class="method" :class="`method--${item.method.toLowerCase()}`">{{ item.method }}</span>
-          <span>{{ item.title }}</span>
+          <span v-if="item.method" class="method" :class="`method--${item.method.toLowerCase()}`">{{ item.method }}</span>
+          <span>{{ item.label }}</span>
         </a>
       </nav>
 
       <div class="api-docs-content">
-        <div class="api-docs-intro">
-          <p>所有请求都需要在 <code>Authorization</code> 请求头中携带访问密钥：</p>
-          <pre><code>Authorization: Bearer &lt;DEVELOPER_API_KEY&gt;</code></pre>
+        <article id="api-overview" class="api-docs-intro api-doc-anchor">
+          <h2>接入说明</h2>
           <p>调用地址：<code>{{ apiBase }}</code></p>
-        </div>
+          <p>先在开发接入中创建应用和访问密钥，再使用密钥授权范围内的模型编码调用以下接口。</p>
+        </article>
+
+        <article id="api-auth" class="api-doc-section api-doc-anchor">
+          <h2>鉴权方式</h2>
+          <p class="api-doc-description">所有请求都需要在 <code>Authorization</code> 请求头中携带访问密钥。</p>
+          <pre><code>Authorization: Bearer &lt;DEVELOPER_API_KEY&gt;</code></pre>
+        </article>
 
         <article v-for="item in apiDocs" :id="`api-${item.id}`" :key="item.id" class="api-doc-section">
           <header class="api-doc-section__header">
@@ -51,6 +57,18 @@
             </tbody>
           </table>
 
+          <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">普通响应字段（stream=false）</h3>
+          <table v-if="item.id === 'chat-completions'" class="api-doc-fields">
+            <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+            <tbody><tr v-for="field in item.normalResponseFields" :key="field.name"><td><code>{{ field.name }}</code></td><td>{{ field.type }}</td><td>{{ field.description }}</td></tr></tbody>
+          </table>
+
+          <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">流式响应字段（stream=true）</h3>
+          <table v-if="item.id === 'chat-completions'" class="api-doc-fields">
+            <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+            <tbody><tr v-for="field in item.streamResponseFields" :key="field.name"><td><code>{{ field.name }}</code></td><td>{{ field.type }}</td><td>{{ field.description }}</td></tr></tbody>
+          </table>
+
           <h3 v-if="item.responseFields?.length" class="api-doc-subtitle">响应字段</h3>
           <table v-if="item.responseFields?.length" class="api-doc-fields">
             <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
@@ -61,11 +79,19 @@
             </tbody>
           </table>
 
-          <div v-if="item.requestExample" class="api-doc-code">
+          <div v-if="item.id === 'chat-completions'" class="api-doc-code">
+            <div class="api-doc-code__title">普通请求示例（stream=false） <button type="button" @click="copyCode(item.normalRequestExample)"><CopyOutlined />复制</button></div>
+            <pre><code>{{ item.normalRequestExample }}</code></pre>
+          </div>
+          <div v-if="item.id === 'chat-completions'" class="api-doc-code">
+            <div class="api-doc-code__title">普通响应示例</div>
+            <pre><code>{{ item.normalResponseExample }}</code></pre>
+          </div>
+          <div v-if="item.id !== 'chat-completions' && item.requestExample" class="api-doc-code">
             <div class="api-doc-code__title">请求示例 <button type="button" @click="copyCode(item.requestExample)"><CopyOutlined />复制</button></div>
             <pre><code>{{ item.requestExample }}</code></pre>
           </div>
-          <div class="api-doc-code">
+          <div v-if="item.id !== 'chat-completions'" class="api-doc-code">
             <div class="api-doc-code__title">响应示例</div>
             <pre><code>{{ item.responseExample }}</code></pre>
           </div>
@@ -79,12 +105,25 @@
           </div>
         </article>
 
+        <article id="api-streaming" class="api-doc-section api-doc-anchor">
+          <h2>流式调用</h2>
+          <p class="api-doc-description">对话请求设置 <code>stream=true</code> 后返回 <code>text/event-stream</code>。依次接收角色帧、内容帧、完成帧，最后收到 <code>[DONE]</code>。</p>
+          <div class="api-doc-code">
+            <div class="api-doc-code__title">流式请求示例</div>
+            <pre><code>{{ chatDocs.streamRequestExample }}</code></pre>
+          </div>
+          <div class="api-doc-code">
+            <div class="api-doc-code__title">SSE 响应顺序</div>
+            <pre><code>{{ chatDocs.streamResponseExample }}</code></pre>
+          </div>
+        </article>
+
         <article id="api-errors" class="api-doc-section api-doc-errors">
-          <h2>错误处理</h2>
+          <h2>错误码</h2>
           <p class="api-doc-description">接口失败时返回统一 JSON 结构，HTTP 状态码用于区分鉴权、参数和服务错误。</p>
           <table class="api-doc-fields">
-            <thead><tr><th>状态码</th><th>错误码</th><th>说明</th></tr></thead>
-            <tbody><tr v-for="item in errorCodes" :key="item.code"><td>{{ item.status }}</td><td><code>{{ item.code }}</code></td><td>{{ item.description }}</td></tr></tbody>
+            <thead><tr><th>状态码</th><th>错误码</th><th>类型</th><th>说明</th></tr></thead>
+            <tbody><tr v-for="item in publicApiErrors" :key="item.code"><td>{{ item.status }}</td><td><code>{{ item.code }}</code></td><td><code>{{ item.type }}</code></td><td>{{ item.description }}</td></tr></tbody>
           </table>
           <pre><code>{
   "error": {
@@ -104,24 +143,16 @@
 import { CopyOutlined, LeftOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
-import { apiDocs, buildPublicApiBase } from '../../../utils/apiDocs.js'
+import { apiDocNavigation, apiDocs, buildPublicApiBase, publicApiErrors } from '../../../utils/apiDocs.js'
 
 defineEmits(['close'])
-const selectedId = ref(apiDocs[0]?.id || '')
+const selectedId = ref(apiDocNavigation[0]?.anchor || '')
 const baseApi = String(import.meta.env.VITE_APP_BASE_API || '')
 const apiBase = computed(() => buildPublicApiBase(window.location.origin, baseApi))
 const docsBase = computed(() => apiBase.value.replace(/\/v1$/, ''))
 const swaggerUrl = computed(() => `${docsBase.value}/docs`)
 const redocUrl = computed(() => `${docsBase.value}/redoc`)
-const errorCodes = [
-  { status: 401, code: 'invalid_api_key', description: '访问密钥无效、已撤销或所属应用已停用。' },
-  { status: 403, code: 'permission_denied', description: '当前密钥没有目标模型权限。' },
-  { status: 404, code: 'model_not_found', description: '模型不存在或未发布。' },
-  { status: 400, code: 'invalid_request', description: '请求结构或字段不符合协议。' },
-  { status: 429, code: 'rate_limit_exceeded', description: '超过请求、并发或预算限额。' },
-  { status: 502, code: 'upstream_error', description: '模型服务提供方请求失败。' },
-  { status: 503, code: 'service_unavailable', description: '模型服务暂时不可用。' },
-]
+const chatDocs = apiDocs.find((item) => item.id === 'chat-completions')
 
 function renderCode(code) {
   return String(code || '').replaceAll('{{API_BASE}}', apiBase.value)
@@ -147,6 +178,8 @@ async function copyCode(code) {
 .api-docs-nav__item:hover, .api-docs-nav__item.is-active { background: var(--main-50); color: var(--main-700); }
 .api-docs-content { min-width: 0; overflow: auto; padding: 22px 32px 48px; background: var(--bg-container); }
 .api-docs-intro { max-width: 920px; padding-bottom: 18px; border-bottom: 1px solid var(--gray-150); color: var(--color-text-secondary); line-height: 1.7; }
+.api-docs-intro h2 { margin: 0 0 8px; color: var(--color-text); font-size: 18px; font-weight: 600; }
+.api-doc-anchor { scroll-margin-top: 16px; }
 .api-docs-intro p { margin: 0 0 8px; }
 .api-docs-content code { font-family: var(--workspace-font-mono); font-size: 12px; }
 .api-docs-content pre { margin: 8px 0 0; overflow: auto; padding: 12px 14px; border: 1px solid var(--gray-150); background: var(--gray-10); color: var(--color-text); line-height: 1.6; white-space: pre-wrap; }

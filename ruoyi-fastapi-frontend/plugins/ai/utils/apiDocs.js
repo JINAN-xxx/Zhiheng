@@ -8,7 +8,15 @@ export function buildPublicApiBase(origin, baseApi) {
   return `${normalizedOrigin}${path ? `/${path}` : ''}/v1`
 }
 
-const chatRequest = `{
+const normalChatRequest = `{
+  "model": "<MODEL_CODE>",
+  "messages": [
+    {"role": "user", "content": "你好"}
+  ],
+  "stream": false
+}`
+
+const streamChatRequest = `{
   "model": "<MODEL_CODE>",
   "messages": [
     {"role": "user", "content": "你好"}
@@ -20,6 +28,41 @@ const pythonHeaders = `headers = {
     "Authorization": "Bearer <DEVELOPER_API_KEY>",
     "Content-Type": "application/json",
 }`
+
+const completionId = 'chatcmpl_0123456789abcdef0123456789abcdef'
+const created = 1787587200
+
+export const chatStreamFrames = [
+  { id: completionId, object: 'chat.completion.chunk', created, model: '<MODEL_CODE>', choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }] },
+  { id: completionId, object: 'chat.completion.chunk', created, model: '<MODEL_CODE>', choices: [{ index: 0, delta: { content: '你好' }, finish_reason: null }] },
+  { id: completionId, object: 'chat.completion.chunk', created, model: '<MODEL_CODE>', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+  '[DONE]',
+]
+
+export const publicApiErrors = [
+  { status: 404, code: 'not_found', type: 'invalid_request_error', description: '公开 API 入口已关闭或请求资源不存在。' },
+  { status: 401, code: 'invalid_api_key', type: 'authentication_error', description: '访问密钥无效、已撤销或所属应用已停用。' },
+  { status: 403, code: 'permission_denied', type: 'permission_error', description: '当前密钥没有目标模型权限。' },
+  { status: 404, code: 'model_not_found', type: 'invalid_request_error', description: '模型不存在或未发布。' },
+  { status: 400, code: 'invalid_request', type: 'invalid_request_error', description: '请求结构或字段不符合协议。' },
+  { status: 502, code: 'upstream_error', type: 'api_error', description: '模型服务提供方请求失败。' },
+  { status: 503, code: 'service_unavailable', type: 'api_error', description: '模型服务暂时不可用。' },
+  { status: 413, code: 'request_too_large', type: 'invalid_request_error', description: '请求正文超过平台允许的大小。' },
+  { status: 429, code: 'rate_limit_exceeded', type: 'rate_limit_error', description: '超过当前每分钟请求或令牌限额。' },
+  { status: 429, code: 'concurrency_limit_exceeded', type: 'rate_limit_error', description: '超过当前并发调用限额。' },
+  { status: 429, code: 'budget_exceeded', type: 'rate_limit_error', description: '达到当前月度预算限额。' },
+]
+
+export const apiDocNavigation = [
+  { anchor: 'api-overview', label: '接入说明' },
+  { anchor: 'api-auth', label: '鉴权方式' },
+  { anchor: 'api-models', label: '查询可用模型', method: 'GET' },
+  { anchor: 'api-chat-completions', label: '对话生成', method: 'POST' },
+  { anchor: 'api-embeddings', label: '向量生成', method: 'POST' },
+  { anchor: 'api-rerank', label: '文本排序', method: 'POST' },
+  { anchor: 'api-streaming', label: '流式调用' },
+  { anchor: 'api-errors', label: '错误码' },
+]
 
 export const apiDocs = [
   {
@@ -57,30 +100,61 @@ print(response.json())`,
       { name: 'stream', type: 'boolean', required: false, description: '是否流式返回，默认 false。' },
       { name: 'temperature / top_p', type: 'number', required: false, description: '采样参数。' },
       { name: 'max_tokens', type: 'integer', required: false, description: '最大输出令牌数。' },
+      { name: 'presence_penalty', type: 'number', required: false, description: '主题重复惩罚，范围 -2 到 2。' },
+      { name: 'frequency_penalty', type: 'number', required: false, description: '词频重复惩罚，范围 -2 到 2。' },
       { name: 'stop', type: 'string | array', required: false, description: '停止序列，最多四个。' },
       { name: 'user', type: 'string', required: false, description: '调用方标识。' },
     ],
-    requestExample: chatRequest,
-    responseFields: [
+    normalRequestExample: normalChatRequest,
+    streamRequestExample: streamChatRequest,
+    requestExample: normalChatRequest,
+    normalResponseFields: [
       { name: 'id', type: 'string', description: '本次对话请求标识。' },
-      { name: 'choices[].delta', type: 'object', description: '流式增量内容。' },
-      { name: 'choices[].finish_reason', type: 'string | null', description: '结束原因。' },
-      { name: 'usage', type: 'object', description: '非流式响应的令牌用量。' },
+      { name: 'object', type: 'string', description: '固定为 chat.completion。' },
+      { name: 'created', type: 'integer', description: '响应创建时间戳。' },
+      { name: 'model', type: 'string', description: '实际调用的模型编码。' },
+      { name: 'choices[].message', type: 'object', description: '助手回复，包含 role 和 content。' },
+      { name: 'choices[].finish_reason', type: 'string', description: '结束原因：stop 或 length。' },
+      { name: 'usage', type: 'object', description: '输入、输出和总令牌用量。' },
     ],
+    streamResponseFields: [
+      { name: 'id', type: 'string', description: '本次对话请求标识。' },
+      { name: 'object', type: 'string', description: '固定为 chat.completion.chunk。' },
+      { name: 'created', type: 'integer', description: '响应创建时间戳。' },
+      { name: 'model', type: 'string', description: '实际调用的模型编码。' },
+      { name: 'choices[].delta', type: 'object', description: '角色、文本或空对象增量。' },
+      { name: 'choices[].finish_reason', type: 'string | null', description: '内容帧为 null，完成帧为 stop 或 length。' },
+    ],
+    normalResponseExample: `{
+  "id": "${completionId}",
+  "object": "chat.completion",
+  "created": ${created},
+  "model": "<MODEL_CODE>",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "你好"}, "finish_reason": "stop"}],
+  "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}
+}`,
+    streamResponseExample: chatStreamFrames.map((frame) => `data: ${typeof frame === 'string' ? frame : JSON.stringify(frame)}`).join('\n\n'),
     curlExample: `curl "{{API_BASE}}/chat/completions" \\
   -H "Authorization: Bearer <DEVELOPER_API_KEY>" \\
   -H "Content-Type: application/json" \\
-  -d '${chatRequest.replace(/\n/g, '')}'`,
+  -d '${streamChatRequest.replace(/\n/g, '')}'`,
     pythonExample: `import requests
 
 ${pythonHeaders}
-payload = ${chatRequest.replace(/\btrue\b/, 'True')}
+payload = ${streamChatRequest.replace(/\btrue\b/, 'True')}
 with requests.post("{{API_BASE}}/chat/completions", headers=headers, json=payload, stream=True) as response:
     response.raise_for_status()
     for line in response.iter_lines(decode_unicode=True):
         if line:
             print(line)`,
-    responseExample: 'data: {"id":"chatcmpl_<id>","object":"chat.completion.chunk","model":"<MODEL_CODE>","choices":[{"index":0,"delta":{"content":"你好"}}]}\n\ndata: [DONE]',
+    responseExample: `{
+  "id": "${completionId}",
+  "object": "chat.completion",
+  "created": ${created},
+  "model": "<MODEL_CODE>",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "你好"}, "finish_reason": "stop"}],
+  "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}
+}`,
   },
   {
     id: 'embeddings',
