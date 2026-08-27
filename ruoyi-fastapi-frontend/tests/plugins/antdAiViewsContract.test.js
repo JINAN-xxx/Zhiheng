@@ -96,7 +96,8 @@ for (const fileName of modelFiles) {
 }
 
 const modelIndex = readFileSync('plugins/ai/views/model/index.vue', 'utf8')
-assert.match(modelIndex, /\.model-workspace\s*\{[\s\S]*border:\s*1px solid var\(--gray-150\)[\s\S]*border-radius:\s*(?:[0-8]px|var\(--workspace-radius-sm\))\s*;[\s\S]*background:\s*var\(--bg-container\)/)
+assert.doesNotMatch(modelIndex, /\.model-workspace\s*\{[^}]*border:\s*1px solid var\(--gray-150\)/)
+assert.doesNotMatch(modelIndex, /\.model-workspace\s*\{[^}]*border-radius:/)
 assert.match(modelIndex, /model-onboarding-drawer \.ant-drawer-content\)[\s\S]*?background:\s*var\(--bg-elevated\)/)
 assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab\)\s*\{\s*height:\s*(?:44|45|46|47|48)px/)
 assert.match(modelIndex, /\.workspace-tabs :deep\(\.ant-tabs-tab-active[^\n]*\)[\s\S]*color:\s*var\(--main-700\)/)

@@ -228,5 +228,6 @@ assert.match(tagsView, /:class="\{\s*'tags-view-container--card':\s*tagsViewStyl
 assert.match(tagsView, /\.tags-view-container--card\s+\.tags-view-item\.active\s*\{\s*border-color:\s*var\(--main-50\);\s*background:\s*var\(--main-50\);\s*color:\s*var\(--main-700\)/)
 assert.match(tagsView, /\.tags-view-container--chrome\s+\.tags-view-item\.active\s*\{\s*border-bottom:\s*2px solid var\(--main-700\);\s*background:\s*var\(--bg-container\);\s*color:\s*var\(--main-700\)/)
 
-assert.match(resourceShell, /padding:\s*var\(--page-padding\)/)
+assert.match(resourceShell, /padding:\s*0/)
+assert.doesNotMatch(resourceShell, /max-width:\s*var\(--workspace-content-max-width\)/)
 assert.match(resourceShell, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.ai-resource-shell\s*\{\s*padding:\s*14px/)

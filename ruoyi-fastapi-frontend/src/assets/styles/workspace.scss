@@ -222,7 +222,7 @@ code,
     --el-table-border-color: var(--workspace-border);
     --el-table-header-bg-color: var(--workspace-surface-muted);
     border: 1px solid var(--workspace-border);
-    border-radius: var(--workspace-radius-md);
+    border-radius: 0;
     background: var(--workspace-surface);
   }
 

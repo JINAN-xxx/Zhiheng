@@ -36,13 +36,13 @@ const emit = defineEmits(['open-sidebar'])
 <style scoped lang="scss">
 .workspace-toolbar {
   display: flex;
-  min-height: 0;
-  align-items: flex-end;
+  min-height: 56px;
+  align-items: center;
   justify-content: space-between;
   gap: var(--workspace-space-4);
-  padding: 0;
+  padding: 0 24px;
   background: transparent;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--gray-150);
 
   &__leading,
   &__actions {
@@ -55,7 +55,7 @@ const emit = defineEmits(['open-sidebar'])
   &__title {
     margin: 0;
     color: var(--color-text);
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
     line-height: 1.35;
   }
@@ -94,7 +94,7 @@ const emit = defineEmits(['open-sidebar'])
   .workspace-toolbar {
     align-items: flex-start;
     flex-wrap: wrap;
-    padding: 0;
+    padding: 0 14px;
 
     &__actions {
       width: 100%;

@@ -498,15 +498,21 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .developer-api-page {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
 
 .developer-grid {
   display: grid;
+  flex: 1;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
-  min-height: 600px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .developer-grid > :deep(.workspace-panel),
