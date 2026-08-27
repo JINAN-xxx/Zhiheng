@@ -15,6 +15,20 @@ import {
   resolvePreferredApplication,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
+import { apiDocs, buildPublicApiBase } from '../../plugins/ai/utils/apiDocs.js'
+
+assert.equal(buildPublicApiBase('http://127.0.0.1:12580/', '/docker-api/'), 'http://127.0.0.1:12580/docker-api/v1')
+assert.equal(buildPublicApiBase('http://127.0.0.1:12580', 'docker-api'), 'http://127.0.0.1:12580/docker-api/v1')
+assert.equal(buildPublicApiBase('http://127.0.0.1:12580/', ''), 'http://127.0.0.1:12580/v1')
+assert.deepEqual(apiDocs.map((item) => `${item.method} ${item.path}`), [
+  'GET /v1/models',
+  'POST /v1/chat/completions',
+  'POST /v1/embeddings',
+  'POST /v1/rerank',
+])
+assert.equal(apiDocs.find((item) => item.id === 'chat-completions').streaming, true)
+assert.ok(apiDocs.every((item) => !JSON.stringify(item).match(/sk-(?:zh|live|test)|sk-[A-Za-z0-9]{10,}/)))
+assert.ok(apiDocs.every((item) => typeof item.curlExample === 'string' && typeof item.pythonExample === 'string'))
 
 assert.deepEqual(normalizeApplicationPage({ data: { rows: [{ application_id: 'app-1', application_name: '内部工具', status: 'active' }], total: 1 } }), {
   rows: [{ applicationId: 'app-1', applicationCode: '', applicationName: '内部工具', status: 'active', version: 1, createdAt: null, updatedAt: null }],

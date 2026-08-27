@@ -1,11 +1,14 @@
 <template>
   <main class="app-container developer-api-page">
+    <ApplicationApiDocs v-if="showDocs" @close="closeApiDocs" />
+    <template v-else>
     <WorkspaceToolbar title="开发接入" subtitle="管理应用、模型授权、访问密钥与调用记录">
       <template #actions>
         <a-tooltip title="刷新应用" placement="bottom">
           <a-button shape="circle" aria-label="刷新应用" @click="refreshCurrentView"><template #icon><ReloadOutlined /></template></a-button>
         </a-tooltip>
         <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined />新建应用</a-button>
+        <a-button @click="openApiDocs"><FileTextOutlined />API 说明</a-button>
       </template>
     </WorkspaceToolbar>
 
@@ -136,11 +139,12 @@
       <div class="issued-key"><code>{{ issuedKey?.apiKey }}</code><a-button aria-label="复制访问密钥" title="复制访问密钥" @click="copyIssuedKey"><template #icon><CopyOutlined /></template></a-button></div>
       <template #footer><a-button type="primary" @click="issuedKeyOpen = false">我已保存</a-button></template>
     </a-modal>
+    </template>
   </main>
 </template>
 
 <script setup name="AiApplication">
-import { CopyOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons-vue'
+import { CopyOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import useUserStore from '@/store/modules/user'
 import feedback from '@/plugins/antdFeedback'
@@ -163,6 +167,7 @@ import ApplicationKeysPanel from './components/ApplicationKeysPanel.vue'
 import ApplicationModelsPanel from './components/ApplicationModelsPanel.vue'
 import ApplicationOverviewPanel from './components/ApplicationOverviewPanel.vue'
 import ApplicationUsagePanel from './components/ApplicationUsagePanel.vue'
+import ApplicationApiDocs from './components/ApplicationApiDocs.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -172,6 +177,7 @@ const canListKeys = computed(() => can('ai:application:key:list'))
 const canCreateKey = computed(() => can('ai:application:key:add') && can('ai:model:list'))
 const canViewModelAuthorizations = computed(() => canViewApplicationModels(canListKeys.value, can('ai:model:list')))
 const canQueryUsage = computed(() => can('ai:application:query'))
+const showDocs = computed(() => route.query.view === 'docs')
 const activeTab = computed(() => normalizeApplicationTab(route.query.tab))
 const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 })
 const applications = ref([])
@@ -246,6 +252,7 @@ async function refreshCurrentView() {
 }
 
 async function loadApplications(preferredId = route.query.applicationId || selectedApplication.value?.applicationId) {
+  if (showDocs.value) return
   const requestId = ++applicationRequest
   loading.value = true
   error.value = ''
@@ -292,7 +299,7 @@ function clearApplicationResources() {
 }
 
 async function loadActiveTabData() {
-  if (!selectedApplication.value) return
+  if (showDocs.value || !selectedApplication.value) return
   const resources = applicationTabResources(activeTab.value)
   if (resources.includes('models')) await loadModelAuthorizations()
   else if (resources.includes('keys')) await loadKeys()
@@ -482,10 +489,35 @@ async function copyIssuedKey() {
 
 watch(() => route.query.tab, loadActiveTabData)
 watch(() => route.query.applicationId, async (applicationId) => {
+  if (showDocs.value) return
   if (applicationId === selectedApplication.value?.applicationId) return
   await loadApplications(applicationId || null)
 })
-onMounted(() => loadApplications())
+watch(showDocs, (docs) => {
+  if (docs) {
+    applicationRequest += 1
+    keyRequest += 1
+    usageRequest += 1
+    modelRequest += 1
+    loading.value = false
+    keyLoading.value = false
+    usageLoading.value = false
+    modelLoading.value = false
+  } else if (!applications.value.length) {
+    loadApplications()
+  }
+})
+async function openApiDocs() {
+  await router.push({ path: route.path, query: { ...route.query, view: 'docs' } })
+}
+
+async function closeApiDocs() {
+  const nextQuery = { ...route.query }
+  delete nextQuery.view
+  await router.push({ path: route.path, query: nextQuery })
+}
+
+onMounted(() => { if (!showDocs.value) loadApplications() })
 onBeforeUnmount(() => {
   applicationRequest += 1
   keyRequest += 1
