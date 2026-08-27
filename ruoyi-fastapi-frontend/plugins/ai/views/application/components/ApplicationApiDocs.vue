@@ -19,7 +19,8 @@
           class="api-docs-nav__item"
           :class="{ 'is-active': item.anchor === selectedId }"
           :href="`#${item.anchor}`"
-          @click="selectedId = item.anchor"
+          :aria-current="item.anchor === selectedId ? 'location' : undefined"
+          @click="selectSection(item.anchor)"
         >
           <span v-if="item.method" class="method" :class="`method--${item.method.toLowerCase()}`">{{ item.method }}</span>
           <span>{{ item.label }}</span>
@@ -48,7 +49,7 @@
           <h2>{{ item.title }}</h2>
           <p class="api-doc-description">{{ item.description }}</p>
 
-          <table v-if="item.fields?.length" class="api-doc-fields">
+          <table v-if="item.fields?.length" class="api-doc-fields" :aria-label="`${item.title}请求字段`">
             <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
             <tbody>
               <tr v-for="field in item.fields" :key="field.name">
@@ -58,19 +59,19 @@
           </table>
 
           <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">普通响应字段（stream=false）</h3>
-          <table v-if="item.id === 'chat-completions'" class="api-doc-fields">
+          <table v-if="item.id === 'chat-completions'" class="api-doc-fields" aria-label="普通响应字段">
             <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
             <tbody><tr v-for="field in item.normalResponseFields" :key="field.name"><td><code>{{ field.name }}</code></td><td>{{ field.type }}</td><td>{{ field.description }}</td></tr></tbody>
           </table>
 
           <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">流式响应字段（stream=true）</h3>
-          <table v-if="item.id === 'chat-completions'" class="api-doc-fields">
+          <table v-if="item.id === 'chat-completions'" class="api-doc-fields" aria-label="流式响应字段">
             <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
             <tbody><tr v-for="field in item.streamResponseFields" :key="field.name"><td><code>{{ field.name }}</code></td><td>{{ field.type }}</td><td>{{ field.description }}</td></tr></tbody>
           </table>
 
           <h3 v-if="item.responseFields?.length" class="api-doc-subtitle">响应字段</h3>
-          <table v-if="item.responseFields?.length" class="api-doc-fields">
+          <table v-if="item.responseFields?.length" class="api-doc-fields" :aria-label="`${item.title}响应字段`">
             <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
             <tbody>
               <tr v-for="field in item.responseFields" :key="field.name">
@@ -121,7 +122,7 @@
         <article id="api-errors" class="api-doc-section api-doc-errors">
           <h2>错误码</h2>
           <p class="api-doc-description">接口失败时返回统一 JSON 结构，HTTP 状态码用于区分鉴权、参数和服务错误。</p>
-          <table class="api-doc-fields">
+          <table class="api-doc-fields" aria-label="错误码">
             <thead><tr><th>状态码</th><th>错误码</th><th>类型</th><th>说明</th></tr></thead>
             <tbody><tr v-for="item in publicApiErrors" :key="item.code"><td>{{ item.status }}</td><td><code>{{ item.code }}</code></td><td><code>{{ item.type }}</code></td><td>{{ item.description }}</td></tr></tbody>
           </table>
@@ -143,10 +144,10 @@
 import { CopyOutlined, LeftOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
-import { apiDocNavigation, apiDocs, buildPublicApiBase, publicApiErrors } from '../../../utils/apiDocs.js'
+import { apiDocNavigation, apiDocs, buildPublicApiBase, copyText, parseApiDocAnchor, publicApiErrors } from '../../../utils/apiDocs.js'
 
 defineEmits(['close'])
-const selectedId = ref(apiDocNavigation[0]?.anchor || '')
+const selectedId = ref(parseApiDocAnchor(window.location.hash))
 const baseApi = String(import.meta.env.VITE_APP_BASE_API || '')
 const apiBase = computed(() => buildPublicApiBase(window.location.origin, baseApi))
 const docsBase = computed(() => apiBase.value.replace(/\/v1$/, ''))
@@ -158,15 +159,33 @@ function renderCode(code) {
   return String(code || '').replaceAll('{{API_BASE}}', apiBase.value)
 }
 
+function selectSection(anchor) {
+  selectedId.value = anchor
+  if (window.location.hash !== `#${anchor}`) window.location.hash = anchor
+}
+
+function syncSelectedSection() {
+  selectedId.value = parseApiDocAnchor(window.location.hash)
+}
+
+async function copyWithFeedback(text, successMessage) {
+  if (!await copyText(text)) {
+    feedback.msgError('复制失败，请手动复制')
+    return
+  }
+  feedback.msgSuccess(successMessage)
+}
+
 async function copyApiBase() {
-  await navigator.clipboard.writeText(apiBase.value)
-  feedback.msgSuccess('调用地址已复制')
+  await copyWithFeedback(apiBase.value, '调用地址已复制')
 }
 
 async function copyCode(code) {
-  await navigator.clipboard.writeText(code)
-  feedback.msgSuccess('示例已复制')
+  await copyWithFeedback(code, '示例已复制')
 }
+
+onMounted(() => window.addEventListener('hashchange', syncSelectedSection))
+onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSection))
 </script>
 
 <style scoped lang="scss">

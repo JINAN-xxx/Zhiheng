@@ -162,6 +162,7 @@ import {
   applicationStatusLabel, applicationTabResources, buildDeveloperKeyPayload, canViewApplicationModels, extractIssuedKey, isCallablePlatformModel, normalizeApplication,
   normalizeApplicationModelPage, normalizeApplicationPage, normalizeApplicationTab, normalizeDeveloperKeys, resolvePreferredApplication, shouldResetDeveloperKeys,
 } from '../../utils/application.js'
+import { resolveDocsExitAction } from '../../utils/apiDocs.js'
 import { collectAllPages, hasPermission } from '../../utils/modelEngine.js'
 import ApplicationKeysPanel from './components/ApplicationKeysPanel.vue'
 import ApplicationModelsPanel from './components/ApplicationModelsPanel.vue'
@@ -493,7 +494,7 @@ watch(() => route.query.applicationId, async (applicationId) => {
   if (applicationId === selectedApplication.value?.applicationId) return
   await loadApplications(applicationId || null)
 })
-watch(showDocs, (docs) => {
+watch(showDocs, async (docs) => {
   if (docs) {
     applicationRequest += 1
     keyRequest += 1
@@ -503,9 +504,14 @@ watch(showDocs, (docs) => {
     keyLoading.value = false
     usageLoading.value = false
     modelLoading.value = false
-  } else if (!applications.value.length) {
-    loadApplications()
+    return
   }
+  const action = resolveDocsExitAction({
+    hasApplications: applications.value.length > 0,
+    hasSelectedApplication: Boolean(selectedApplication.value),
+  })
+  if (action === 'applications') await loadApplications()
+  else await loadActiveTabData()
 })
 async function openApiDocs() {
   await router.push({ path: route.path, query: { ...route.query, view: 'docs' } })

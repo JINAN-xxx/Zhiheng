@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   aggregateGrantedModels,
@@ -15,7 +16,9 @@ import {
   resolvePreferredApplication,
   shouldResetDeveloperKeys,
 } from '../../plugins/ai/utils/application.js'
-import { apiDocNavigation, apiDocs, buildPublicApiBase, chatStreamFrames, publicApiErrors } from '../../plugins/ai/utils/apiDocs.js'
+import {
+  apiDocNavigation, apiDocs, buildPublicApiBase, chatStreamFrames, copyText, parseApiDocAnchor, publicApiErrors, resolveDocsExitAction,
+} from '../../plugins/ai/utils/apiDocs.js'
 
 assert.equal(buildPublicApiBase('http://127.0.0.1:12580/', '/docker-api/'), 'http://127.0.0.1:12580/docker-api/v1')
 assert.equal(buildPublicApiBase('http://127.0.0.1:12580', 'docker-api'), 'http://127.0.0.1:12580/docker-api/v1')
@@ -63,6 +66,35 @@ assert.deepEqual(publicApiErrors.map(({ status, type }) => [status, type]), [
 assert.deepEqual(apiDocNavigation.map((item) => item.anchor), [
   'api-overview', 'api-auth', 'api-models', 'api-chat-completions', 'api-embeddings', 'api-rerank', 'api-streaming', 'api-errors',
 ])
+assert.equal(parseApiDocAnchor('#api-errors'), 'api-errors')
+assert.equal(parseApiDocAnchor('api-streaming'), 'api-streaming')
+assert.equal(parseApiDocAnchor('#unknown'), 'api-overview')
+assert.equal(resolveDocsExitAction({ hasApplications: false, hasSelectedApplication: false }), 'applications')
+assert.equal(resolveDocsExitAction({ hasApplications: true, hasSelectedApplication: false }), 'applications')
+assert.equal(resolveDocsExitAction({ hasApplications: true, hasSelectedApplication: true }), 'tab')
+
+let clipboardValue = ''
+assert.equal(await copyText('调用地址', { clipboard: { writeText: async (value) => { clipboardValue = value } } }), true)
+assert.equal(clipboardValue, '调用地址')
+
+let fallbackValue = ''
+const fallbackTextarea = { value: '', style: {}, setAttribute() {}, select() { fallbackValue = this.value } }
+const fallbackDocument = {
+  body: { appendChild() {}, removeChild() {} },
+  createElement: () => fallbackTextarea,
+  execCommand: (command) => command === 'copy' && fallbackValue === '示例代码',
+}
+assert.equal(await copyText('示例代码', { clipboard: { writeText: async () => { throw new Error('denied') } }, documentObject: fallbackDocument }), true)
+assert.equal(await copyText('失败', { clipboard: null, documentObject: null }), false)
+
+const backendErrors = readFileSync('../ruoyi-fastapi-backend/plugins/ai/domain/public_api_errors.py', 'utf8')
+const backendOpenAiVo = readFileSync('../ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_openai_compat_vo.py', 'utf8')
+assert.equal(publicApiErrors.length, 11)
+for (const item of publicApiErrors) assert.match(backendErrors, new RegExp(`['"]${item.code}['"]`))
+for (const field of ['model', 'messages', 'stream', 'temperature', 'top_p', 'max_tokens', 'presence_penalty', 'frequency_penalty', 'stop', 'user']) {
+  assert.match(backendOpenAiVo, new RegExp(`\\b${field}\\b`))
+  assert.ok(chatDocs.fields.some((item) => item.name.split(' / ').includes(field)))
+}
 
 assert.deepEqual(normalizeApplicationPage({ data: { rows: [{ application_id: 'app-1', application_name: '内部工具', status: 'active' }], total: 1 } }), {
   rows: [{ applicationId: 'app-1', applicationCode: '', applicationName: '内部工具', status: 'active', version: 1, createdAt: null, updatedAt: null }],

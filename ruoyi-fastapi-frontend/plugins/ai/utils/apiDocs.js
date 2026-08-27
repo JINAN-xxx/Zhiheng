@@ -8,6 +8,41 @@ export function buildPublicApiBase(origin, baseApi) {
   return `${normalizedOrigin}${path ? `/${path}` : ''}/v1`
 }
 
+export function parseApiDocAnchor(hash) {
+  let anchor = String(hash || '').replace(/^#/, '')
+  try { anchor = decodeURIComponent(anchor) } catch {}
+  return apiDocNavigation.some((item) => item.anchor === anchor) ? anchor : 'api-overview'
+}
+
+export function resolveDocsExitAction({ hasApplications, hasSelectedApplication }) {
+  return hasApplications && hasSelectedApplication ? 'tab' : 'applications'
+}
+
+export async function copyText(text, options = {}) {
+  const clipboard = Object.hasOwn(options, 'clipboard') ? options.clipboard : globalThis.navigator?.clipboard
+  const documentObject = Object.hasOwn(options, 'documentObject') ? options.documentObject : globalThis.document
+  if (clipboard?.writeText) {
+    try {
+      await clipboard.writeText(String(text))
+      return true
+    } catch {}
+  }
+  if (!documentObject?.body || typeof documentObject.createElement !== 'function' || typeof documentObject.execCommand !== 'function') return false
+  const textarea = documentObject.createElement('textarea')
+  textarea.value = String(text)
+  textarea.setAttribute('readonly', '')
+  Object.assign(textarea.style, { position: 'fixed', inset: '-9999px auto auto -9999px', opacity: '0' })
+  try {
+    documentObject.body.appendChild(textarea)
+    textarea.select()
+    return documentObject.execCommand('copy') === true
+  } catch {
+    return false
+  } finally {
+    try { documentObject.body.removeChild(textarea) } catch {}
+  }
+}
+
 const normalChatRequest = `{
   "model": "<MODEL_CODE>",
   "messages": [
@@ -147,14 +182,6 @@ with requests.post("{{API_BASE}}/chat/completions", headers=headers, json=payloa
     for line in response.iter_lines(decode_unicode=True):
         if line:
             print(line)`,
-    responseExample: `{
-  "id": "${completionId}",
-  "object": "chat.completion",
-  "created": ${created},
-  "model": "<MODEL_CODE>",
-  "choices": [{"index": 0, "message": {"role": "assistant", "content": "你好"}, "finish_reason": "stop"}],
-  "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3}
-}`,
   },
   {
     id: 'embeddings',
