@@ -50,6 +50,11 @@ ALL_PERMISSIONS = [
     "ai:application:query",
 ]
 
+MODEL_IDS = {
+    "disabled": "mdl_11111111111141118111111111111111",
+    "active": "mdl_22222222222242228222222222222222",
+}
+
 LONG_SESSION_TITLE = "跨部门智能工作流方案评审与历史上下文追踪会话名称用于验证桌面侧栏在超长中文标题下的截断、滚动和可读性边界表现"
 LONG_MODEL_NAME = "企业级多模态推理与知识检索编排模型展示名称用于验证桌面资源表格在超长模型标识下的截断、提示和布局边界表现"
 LONG_APPLICATION_NAME = "面向跨区域客户支持和内部知识协作的企业智能应用展示名称用于验证桌面应用列表和详情标题在超长文本下的截断边界表现"
@@ -103,20 +108,16 @@ def routes_for(access: str) -> list[dict]:
     if access in {"all", "model"}:
         children.append(ai_route("AiModel", "model", "plugin/ai/model/index", "模型"))
     if access in {"all", "application"}:
-        children.extend(
-            [
-                ai_route(
-                    "AiApplication",
-                    "application",
-                    "plugin/ai/application/index",
-                    "开发接入",
-                ),
-                {
-                    **ai_route("AiUsage", "usage", "plugin/ai/usage/index", "用量记录"),
-                    "hidden": True,
-                },
-            ]
+        children.append(
+            ai_route(
+                "AiApplication",
+                "application",
+                "plugin/ai/application/index",
+                "开发接入",
+            )
         )
+    if access in {"all", "usage"}:
+        children.append(ai_route("AiUsage", "usage", "plugin/ai/usage/index", "用量记录"))
 
     routes = []
     if children:
@@ -161,6 +162,8 @@ def permissions_for(access: str) -> list[str]:
         return ["ai:model:list", "ai:model:query"]
     if access == "application":
         return ["ai:application:list"]
+    if access == "usage":
+        return ["ai:application:list", "ai:application:query"]
     return []
 
 
@@ -232,16 +235,27 @@ def response_for(path: str, method: str, access: str) -> dict:
             "code": 200,
             "rows": [
                 {
-                    "modelId": "mdl_11111111111141118111111111111111",
+                    "modelId": MODEL_IDS["disabled"],
                     "modelCode": LONG_MODEL_NAME,
                     "displayName": LONG_MODEL_NAME,
                     "modelType": "chat",
                     "capabilities": {"streaming": True, "vision": False},
-                    "lifecycleStatus": "draft",
+                    "lifecycleStatus": "disabled",
+                    "binding": {"bindingStatus": "active", "engineResourceId": "openai-compatible-chat", "version": 1},
+                    "updateTime": "2026-08-20T08:00:00Z",
+                },
+                {
+                    "modelId": MODEL_IDS["active"],
+                    "modelCode": "workspace-chat-active",
+                    "displayName": "工作台对话模型",
+                    "modelType": "chat",
+                    "capabilities": {"streaming": True},
+                    "lifecycleStatus": "active",
+                    "binding": {"bindingStatus": "active", "engineResourceId": "active-chat-runtime", "version": 1},
                     "updateTime": "2026-08-20T08:00:00Z",
                 }
             ],
-            "total": 1,
+            "total": 2,
             "pageNum": 1,
             "pageSize": 100,
             "hasNext": False,
@@ -261,16 +275,18 @@ def response_for(path: str, method: str, access: str) -> dict:
             ],
         }
     if path.startswith("/ai/models/"):
+        model_id = path.split("/")[3]
+        is_active = model_id == MODEL_IDS["active"]
         return {
             "code": 200,
             "data": {
-                "modelId": path.split("/")[3],
-                "modelCode": LONG_MODEL_NAME,
-                "displayName": LONG_MODEL_NAME,
+                "modelId": model_id,
+                "modelCode": "workspace-chat-active" if is_active else LONG_MODEL_NAME,
+                "displayName": "工作台对话模型" if is_active else LONG_MODEL_NAME,
                 "modelType": "chat",
                 "capabilities": {"streaming": True},
-                "lifecycleStatus": "draft",
-                "binding": None,
+                "lifecycleStatus": "active" if is_active else "disabled",
+                "binding": {"bindingStatus": "active", "engineResourceId": "active-chat-runtime" if is_active else "openai-compatible-chat", "version": 1},
             },
         }
     if path == "/ai/applications":
@@ -431,7 +447,7 @@ async def assert_text_is_constrained(page: Page, text: str) -> None:
 
 
 async def assert_mobile_profile_layout(page: Page) -> None:
-    layout = await page.locator(".platform-topbar__profile").evaluate(
+    layout = await page.locator(".platform-account-menu__profile").evaluate(
         """button => {
             const avatar = button.querySelector('.ant-avatar')
             const buttonRect = button.getBoundingClientRect()
@@ -633,9 +649,10 @@ async def check_desktop(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
         browser, DESKTOP_VIEWPORT
     )
-    await page.goto(f"{BASE_URL}/index")
-    await page.wait_for_url("**/ai/chat")
+    await page.goto(f"{BASE_URL}/ai/chat")
+    await page.get_by_text("从一个问题开始", exact=True).wait_for()
     assert await page.locator(".platform-sidebar").count() == 1
+    assert await page.locator(".platform-topbar").count() == 0
     assert await page.get_by_text("Developer API", exact=True).count() == 0
     for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
         assert await page.get_by_role("link", name=label, exact=True).count() == 1
@@ -661,14 +678,19 @@ async def check_desktop(browser: Browser) -> None:
     expanded_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
     )
-    assert expanded_width == 184
-    await page.get_by_role("button", name="打开主菜单").click()
+    assert expanded_width == 230
+    await page.get_by_role("button", name="折叠侧边栏").click()
     await page.wait_for_timeout(250)
     collapsed_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
     )
     assert collapsed_width == 56
-    await page.get_by_role("button", name="打开主菜单").click()
+    await page.get_by_role("button", name="模型中心").click()
+    resource_menu = page.locator(".ant-dropdown").last
+    await resource_menu.wait_for(state="visible")
+    await resource_menu.get_by_role("menuitem", name="开发接入", exact=True).wait_for()
+    await page.keyboard.press("Escape")
+    await page.get_by_role("button", name="展开侧边栏").click()
     await page.wait_for_timeout(250)
     async def fail_session_refresh(route: Route) -> None:
         await route.fulfill(
@@ -746,7 +768,7 @@ async def check_admin(browser: Browser) -> None:
     ) == "rgb(3, 3, 3)"
     await page.get_by_role("menuitem", name="系统概览").wait_for()
     assert await page.locator("#tags-view-container").count() == 1
-    await page.get_by_role("button", name="打开主菜单").click()
+    await page.get_by_role("button", name="折叠侧边栏").click()
     await page.wait_for_timeout(250)
     assert await page.locator(".platform-shell__sidebar").evaluate(
         "element => element.getBoundingClientRect().width === 56"
@@ -766,7 +788,7 @@ async def check_admin(browser: Browser) -> None:
     assert console_errors == [], console_errors
     assert page_errors == [], page_errors
     await take_screenshot(page, "platform-shell-admin-1280x800-dark.png")
-    await page.get_by_role("button", name="返回智能工作台").first.click()
+    await page.get_by_role("button", name="返回 AI 工作台").first.click()
     await page.wait_for_url("**/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
     assert await page.locator("#tags-view-container").count() == 0
@@ -822,7 +844,9 @@ async def check_model_resource_drawer(browser: Browser) -> None:
         browser, TABLET_VIEWPORT
     )
     await page.goto(f"{BASE_URL}/ai/model")
+    await page.locator(".model-table").wait_for()
     menu_button = page.get_by_role("button", name="打开主菜单")
+    await menu_button.wait_for()
     await menu_button.click()
     drawer = page.locator(".platform-mobile-drawer")
     await page.wait_for_function(
@@ -834,7 +858,8 @@ async def check_model_resource_drawer(browser: Browser) -> None:
     await page.wait_for_function(
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
-    await page.locator(".model-table").get_by_role("button", name="费率配置").click()
+    rate_row = page.locator(".model-table tbody tr").filter(has_text=LONG_MODEL_NAME)
+    await rate_row.get_by_role("button", name="费率配置").click()
     modal = page.locator(".ant-modal").last
     await modal.get_by_text("费率配置", exact=True).wait_for()
     await modal.evaluate(
@@ -874,7 +899,8 @@ async def check_model_dark(browser: Browser) -> None:
         await page.get_by_role("button", name="切换主题").click()
         await page.locator("html.dark").wait_for()
         await assert_text_is_constrained(page, LONG_MODEL_NAME)
-        await page.locator(".model-table").get_by_role("button", name="费率配置").click()
+        rate_row = page.locator(".model-table tbody tr").filter(has_text=LONG_MODEL_NAME)
+        await rate_row.get_by_role("button", name="费率配置").click()
         modal = page.locator(".ant-modal").last
         await modal.get_by_text("费率配置", exact=True).wait_for()
         await page.wait_for_function(
@@ -897,19 +923,88 @@ async def check_model_dark(browser: Browser) -> None:
         await context.close()
 
 
-async def check_application_usage_dark(browser: Browser) -> None:
+async def check_model_reenable(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, ADMIN_VIEWPORT
+    )
+    try:
+        await page.goto(f"{BASE_URL}/ai/model")
+        await page.locator(".model-table").wait_for()
+        row = page.locator(".model-table tbody tr").filter(has_text=LONG_MODEL_NAME)
+        await row.wait_for()
+        assert await row.get_by_text("已停用", exact=True).count() == 1
+        assert await row.get_by_text("已绑定", exact=True).count() == 1
+        await row.get_by_role("button", name="重新启用").click()
+        await page.get_by_text("模型已重新启用", exact=True).wait_for()
+        assert await page.locator(".platform-topbar").count() == 0
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
+async def check_application_api_docs(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
         browser, ADMIN_VIEWPORT
     )
     try:
         await page.goto(f"{BASE_URL}/ai/application")
         await page.locator(".application-row").wait_for()
-        await page.get_by_role("button", name="切换主题").click()
+        application_query = urlparse(page.url).query
+        assert "applicationId=" in application_query
+        assert "tab=overview" in application_query
+        await page.get_by_role("button", name="API 说明").click()
+        await page.get_by_role("heading", name="API 说明").wait_for()
+        assert "view=docs" in urlparse(page.url).query
+        await page.get_by_role("navigation", name="接口目录").wait_for()
+        await page.get_by_text("POST", exact=True).first.wait_for()
+        await page.get_by_text("/v1/chat/completions", exact=True).wait_for()
+        assert await page.get_by_text("支持流式", exact=True).count() == 1
+        assert await page.get_by_text("Bearer <DEVELOPER_API_KEY>", exact=True).count() == 1
+        assert await page.locator(".api-docs-content pre").count() >= 4
+        await page.get_by_role("button", name="返回开发接入").click()
+        await page.locator(".application-row").wait_for()
+        returned_query = urlparse(page.url).query
+        assert "view=docs" not in returned_query
+        assert "applicationId=" in returned_query
+        assert "tab=overview" in returned_query
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
+async def check_application_usage_dark(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, ADMIN_VIEWPORT, color_scheme="dark"
+    )
+    try:
+        await page.goto(f"{BASE_URL}/ai/application")
+        await page.locator(".application-row").wait_for()
+        assert await page.locator(".platform-topbar").count() == 0
+        sidebar_width = await page.locator(".platform-sidebar").evaluate(
+            "element => element.getBoundingClientRect().width"
+        )
+        assert 225 <= sidebar_width <= 235, sidebar_width
         await page.locator("html.dark").wait_for()
         await page.locator(".overview-panel").wait_for()
         await page.get_by_text("调用入口", exact=True).wait_for()
 
         await page.get_by_role("tab", name="访问密钥").click()
+        await page.locator(".key-row").wait_for()
+
+        await page.get_by_role("button", name="API 说明").click()
+        await page.get_by_role("heading", name="API 说明").wait_for()
+        docs_query = urlparse(page.url).query
+        assert "view=docs" in docs_query
+        assert "tab=keys" in docs_query
+        await page.get_by_role("button", name="返回开发接入").click()
+        await page.wait_for_url("**/ai/application*")
+        returned_query = urlparse(page.url).query
+        assert "view=docs" not in returned_query
+        assert "tab=keys" in returned_query
         await page.locator(".key-row").wait_for()
 
         await page.get_by_role("tab", name="调用记录").click()
@@ -929,7 +1024,8 @@ async def check_application_usage_dark(browser: Browser) -> None:
 
         await page.goto(f"{BASE_URL}/ai/usage")
         await page.locator(".usage-table-wrap").wait_for()
-        rows = page.locator(".usage-table-wrap .ant-table-tbody > tr")
+        rows = page.locator(".usage-table-wrap .ant-table-tbody > tr.ant-table-row")
+        await rows.first.wait_for()
         assert await rows.count() >= 12
         assert await page.locator(".usage-table-wrap").evaluate(
             "element => getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)'"
@@ -971,13 +1067,14 @@ async def check_permission_landings(browser: Browser) -> None:
         "chat": "/ai/chat",
         "model": "/ai/model",
         "application": "/ai/application",
+        "usage": "/ai/usage",
         "none": "/system/overview",
     }
     for access, expected_path in expectations.items():
         context, page, console_errors, page_errors = await new_page(
             browser, {"width": 1024, "height": 768}, access
         )
-        await page.goto(f"{BASE_URL}/index")
+        await page.goto(f"{BASE_URL}/ai/unavailable")
         await page.wait_for_url(f"**{expected_path}")
         assert urlparse(page.url).path == expected_path
         assert console_errors == []
@@ -997,9 +1094,7 @@ async def check_dark_theme(browser: Browser) -> None:
     assert await page.locator(".platform-shell").evaluate(
         "element => getComputedStyle(element).backgroundColor"
     ) == "rgb(3, 3, 3)"
-    assert await page.locator(".platform-topbar").evaluate(
-        "element => getComputedStyle(element).backgroundColor"
-    ) == "rgb(31, 31, 31)"
+    assert await page.locator(".platform-topbar").count() == 0
     surface = page.locator(".chat-toolbar .ant-select-selector")
     await surface.wait_for()
     assert await surface.evaluate(
@@ -1029,6 +1124,8 @@ async def run_platform_checks(browser: Browser) -> dict[str, str]:
     await check_model_resource_drawer(browser)
     await check_dark_theme(browser)
     await check_model_dark(browser)
+    await check_model_reenable(browser)
+    await check_application_api_docs(browser)
     await check_application_usage_dark(browser)
     await check_auth_dark(browser)
     await check_permission_landings(browser)
