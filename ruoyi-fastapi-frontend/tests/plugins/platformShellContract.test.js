@@ -151,6 +151,11 @@ assert.match(accountMenu, /lockStore\.lockScreen\(route\.fullPath\)/)
 assert.match(accountMenu, /await feedback\.confirm\('确定注销并退出系统吗？'\)/)
 assert.match(accountMenu, /await userStore\.logOut\(\)/)
 assert.match(accountMenu, /location\.href = '\/index'/)
+assert.match(
+  accountMenu,
+  /\.platform-account-menu__profile\s+:deep\(\.ant-avatar\)\s*\{[^}]*flex:\s*0\s+0\s+28px;[^}]*width:\s*28px;[^}]*height:\s*28px;/s,
+  '移动端紧凑账户区头像必须保持 28px，不能被 flex 收缩',
+)
 
 assert.match(appStore, /mobileSidebarOpen/)
 assert.match(appStore, /openMobileSidebar/)

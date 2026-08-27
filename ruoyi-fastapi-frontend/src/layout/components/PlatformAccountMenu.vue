@@ -113,6 +113,12 @@ async function logout() {
   padding: 0 4px;
 }
 
+.platform-account-menu__profile :deep(.ant-avatar) {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+
 .platform-account-menu__name {
   min-width: 0;
   overflow: hidden;
