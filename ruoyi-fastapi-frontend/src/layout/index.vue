@@ -5,8 +5,24 @@
     :style="{ '--current-color': theme, '--current-color-light': `${theme}1a` }"
   >
     <aside v-if="!isMobile" class="platform-shell__sidebar">
-      <PlatformSidebar v-if="mode === 'ai'" :collapsed="collapsed" @open-admin="openAdmin" />
-      <AdminSidebar v-else :collapsed="collapsed" @open-ai="openAi" />
+      <PlatformSidebar
+        v-if="mode === 'ai'"
+        :collapsed="collapsed"
+        show-account-menu
+        show-collapse-control
+        @open-admin="openAdmin"
+        @set-layout="setLayout"
+        @toggle-collapse="toggleSidebar"
+      />
+      <AdminSidebar
+        v-else
+        :collapsed="collapsed"
+        show-account-menu
+        show-collapse-control
+        @open-ai="openAi"
+        @set-layout="setLayout"
+        @toggle-collapse="toggleSidebar"
+      />
     </aside>
 
     <a-drawer
@@ -21,16 +37,28 @@
       @close="appStore.closeMobileSidebar"
       @after-open-change="handleMobileDrawerChange"
     >
-      <PlatformSidebar v-if="mode === 'ai'" ref="mobileSidebarRef" @open-admin="openAdmin" />
-      <AdminSidebar v-else ref="mobileSidebarRef" @open-ai="openAi" />
+      <PlatformSidebar
+        v-if="mode === 'ai'"
+        ref="mobileSidebarRef"
+        :show-account-menu="false"
+        :show-collapse-control="false"
+        @open-admin="openAdmin"
+      />
+      <AdminSidebar
+        v-else
+        ref="mobileSidebarRef"
+        :show-account-menu="false"
+        :show-collapse-control="false"
+        @open-ai="openAi"
+      />
     </a-drawer>
 
     <section class="platform-shell__main">
       <PlatformTopbar
+        v-if="isMobile"
         ref="topbarRef"
         :mode="mode"
         @toggle-sidebar="toggleSidebar"
-        @open-admin="openAdmin"
         @open-ai="openAi"
         @set-layout="setLayout"
       />

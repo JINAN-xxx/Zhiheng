@@ -1,9 +1,22 @@
 <template>
   <aside class="platform-sidebar" :class="{ collapsed }" aria-label="智能工作台导航">
-    <router-link class="platform-brand" to="/ai/chat" aria-label="返回智能工作台">
-      <img :src="logo" alt="" />
-      <span v-if="!collapsed">智衡平台</span>
-    </router-link>
+    <div class="platform-brand-row">
+      <router-link class="platform-brand" to="/ai/chat" aria-label="返回智能工作台">
+        <img :src="logo" alt="" />
+        <span v-if="!collapsed">智衡平台</span>
+      </router-link>
+      <button
+        v-if="showCollapseControl"
+        type="button"
+        class="platform-collapse-button"
+        :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'"
+        :title="collapsed ? '展开侧边栏' : '折叠侧边栏'"
+        @click="emit('toggle-collapse')"
+      >
+        <MenuUnfoldOutlined v-if="collapsed" />
+        <MenuFoldOutlined v-else />
+      </button>
+    </div>
 
     <nav class="platform-primary-nav" aria-label="主导航">
       <button v-if="canChat" type="button" class="platform-new-chat" aria-label="新建对话" title="新建对话" @click="newChat">
@@ -87,11 +100,23 @@
       <SettingOutlined />
       <span v-if="!collapsed">管理后台</span>
     </button>
+    <PlatformAccountMenu
+      v-if="showAccountMenu"
+      :collapsed="collapsed"
+      @set-layout="emit('set-layout')"
+    />
   </aside>
 </template>
 
 <script setup>
-import { DatabaseOutlined, MessageOutlined, PlusOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import {
+  DatabaseOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  MessageOutlined,
+  PlusOutlined,
+  SettingOutlined,
+} from '@ant-design/icons-vue'
 import logo from '@/assets/logo/logo.png'
 import {
   getActiveAiResourceChildPath,
@@ -101,10 +126,15 @@ import {
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'
+import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import RecentSessions from './RecentSessions.vue'
 
-defineProps({ collapsed: { type: Boolean, default: false } })
-const emit = defineEmits(['open-admin'])
+defineProps({
+  collapsed: { type: Boolean, default: false },
+  showAccountMenu: { type: Boolean, default: false },
+  showCollapseControl: { type: Boolean, default: false },
+})
+const emit = defineEmits(['open-admin', 'set-layout', 'toggle-collapse'])
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
@@ -173,8 +203,11 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font: inherit; line-height: normal; }
-.platform-brand { min-height: 66px; display: flex; align-items: center; gap: 9px; padding: 0 16px; color: var(--color-text); font-size: 15px; font-weight: 700; text-decoration: none; }
+.platform-brand-row { min-height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; }
+.platform-brand { min-width: 0; display: flex; flex: 1; align-items: center; gap: 9px; color: var(--color-text); font-size: 15px; font-weight: 700; text-decoration: none; }
 .platform-brand img { width: 27px; height: 27px; object-fit: contain; filter: brightness(1.12); }
+.platform-collapse-button { width: 30px; height: 30px; display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.platform-collapse-button:hover { border-color: var(--gray-150); background: var(--gray-50); color: var(--color-text); }
 .platform-primary-nav { display: grid; gap: 3px; padding: 6px 10px 14px; border-bottom: 1px solid var(--gray-150); }
 .platform-nav-group,
 .platform-nav-group-children { display: grid; gap: 2px; }
@@ -182,7 +215,7 @@ onMounted(() => {
 .platform-nav-group-link,
 .platform-new-chat,
 .platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: none; cursor: pointer; white-space: nowrap; }
-.platform-nav-group-link { height: 30px; min-height: 30px; color: var(--color-text); font-size: 13px; font-weight: 600; }
+.platform-nav-group-link { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); color: var(--color-text); font-size: 13px; font-weight: 600; }
 .platform-nav-child { padding-left: 34px; }
 .platform-new-chat { margin-bottom: 5px; border-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .platform-nav-link:hover,
@@ -190,8 +223,11 @@ onMounted(() => {
 .platform-admin-entry:hover { background: var(--gray-50); color: var(--color-text); }
 .platform-nav-link.router-link-active { background: var(--main-50); color: var(--main-700); }
 .platform-nav-group-collapsed.active { background: var(--main-50); color: var(--main-700); }
-.platform-admin-entry { margin: 8px 10px 12px; border-top: 1px solid var(--gray-150); border-radius: 0; padding-top: 8px; }
-.platform-sidebar.collapsed .platform-brand,
+.platform-admin-entry { margin: 8px 10px; border-top: 1px solid var(--gray-150); border-radius: 0; padding-top: 8px; }
+.platform-sidebar.collapsed .platform-brand-row { gap: 0; padding-inline: 0; }
+.platform-sidebar.collapsed .platform-brand { justify-content: center; }
+.platform-sidebar.collapsed .platform-brand { width: 26px; flex: 0 0 26px; }
+.platform-sidebar.collapsed .platform-brand img { width: 23px; height: 23px; }
 .platform-sidebar.collapsed .platform-nav-link,
 .platform-sidebar.collapsed .platform-new-chat,
 .platform-sidebar.collapsed .platform-admin-entry { justify-content: center; padding-inline: 0; }

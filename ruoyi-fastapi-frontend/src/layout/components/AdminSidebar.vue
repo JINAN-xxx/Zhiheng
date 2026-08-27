@@ -1,9 +1,22 @@
 <template>
   <aside class="admin-sidebar" :class="{ 'is-collapsed': collapsed }" aria-label="管理控制台导航">
-    <button v-if="!collapsed" type="button" class="admin-sidebar__back" aria-label="返回 AI 工作台" title="返回 AI 工作台" @click="emit('open-ai')">
-      <ArrowLeftOutlined />
-      <span v-if="!collapsed">返回 AI 工作台</span>
-    </button>
+    <div class="admin-sidebar__header">
+      <button type="button" class="admin-sidebar__back" aria-label="返回 AI 工作台" title="返回 AI 工作台" @click="emit('open-ai')">
+        <ArrowLeftOutlined />
+        <span v-if="!collapsed">返回 AI 工作台</span>
+      </button>
+      <button
+        v-if="showCollapseControl"
+        type="button"
+        class="admin-sidebar__collapse"
+        :aria-label="collapsed ? '展开侧边栏' : '折叠侧边栏'"
+        :title="collapsed ? '展开侧边栏' : '折叠侧边栏'"
+        @click="emit('toggle-collapse')"
+      >
+        <MenuUnfoldOutlined v-if="collapsed" />
+        <MenuFoldOutlined v-else />
+      </button>
+    </div>
     <div class="admin-sidebar__scroll">
       <a-menu
         v-model:open-keys="openKeys"
@@ -20,19 +33,29 @@
         />
       </a-menu>
     </div>
+    <PlatformAccountMenu
+      v-if="showAccountMenu"
+      :collapsed="collapsed"
+      @set-layout="emit('set-layout')"
+    />
   </aside>
 </template>
 
 <script setup>
-import { ArrowLeftOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons-vue'
 import { filterAdminWorkspaceRoutes } from '@/components/Workspace/workspaceTransforms.js'
 import usePermissionStore from '@/store/modules/permission'
 import { getNormalPath } from '@/utils/ruoyi'
 import { isExternal } from '@/utils/validate'
+import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import SidebarItem from './Sidebar/SidebarItem.vue'
 
-defineProps({ collapsed: { type: Boolean, default: false } })
-const emit = defineEmits(['open-ai'])
+defineProps({
+  collapsed: { type: Boolean, default: false },
+  showAccountMenu: { type: Boolean, default: false },
+  showCollapseControl: { type: Boolean, default: false },
+})
+const emit = defineEmits(['open-ai', 'set-layout', 'toggle-collapse'])
 const route = useRoute()
 const permissionStore = usePermissionStore()
 const adminRoutes = computed(() => filterAdminWorkspaceRoutes(permissionStore.sidebarRouters))
@@ -76,7 +99,11 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 
 <style scoped lang="scss">
 .admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font: inherit; line-height: normal; }
-.admin-sidebar__back { width: 100%; min-height: var(--platform-topbar-height); display: flex; align-items: center; gap: 10px; padding: 0 14px; overflow: hidden; border: 0; border-bottom: 1px solid var(--gray-150); background: transparent; color: var(--color-text); white-space: nowrap; cursor: pointer; }
+.admin-sidebar__header { min-height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 10px; border-bottom: 1px solid var(--gray-150); }
+.admin-sidebar__back { min-width: 0; min-height: 32px; display: flex; flex: 1; align-items: center; gap: 10px; padding: 0 4px; overflow: hidden; border: 0; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text); white-space: nowrap; cursor: pointer; }
+.admin-sidebar__collapse { width: 30px; height: 30px; display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.admin-sidebar__back:hover,
+.admin-sidebar__collapse:hover { background: var(--gray-50); color: var(--color-text); }
 .admin-sidebar__scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 6px 0; }
 .admin-sidebar :deep(.ant-menu) { width: 100%; border-inline-end: 0; background: transparent; }
 .admin-sidebar :deep(.ant-menu-item),
@@ -91,4 +118,6 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 .admin-sidebar.is-collapsed :deep(.menu-title),
 .admin-sidebar.is-collapsed :deep(.ant-menu-title-content) { display: none; }
 .admin-sidebar.is-collapsed :deep(.svg-icon) { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
+.admin-sidebar.is-collapsed .admin-sidebar__header { gap: 0; padding-inline: 0; }
+.admin-sidebar.is-collapsed .admin-sidebar__back { width: 26px; flex: 0 0 26px; justify-content: center; padding: 0; }
 </style>

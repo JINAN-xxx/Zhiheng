@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 const platformSidebar = readFileSync('src/layout/components/PlatformSidebar.vue', 'utf8')
 const recentSessions = readFileSync('src/layout/components/RecentSessions.vue', 'utf8')
@@ -10,6 +10,10 @@ const layout = readFileSync('src/layout/index.vue', 'utf8')
 const appStore = readFileSync('src/store/modules/app.js', 'utf8')
 const componentExports = readFileSync('src/layout/components/index.js', 'utf8')
 const topbar = readFileSync('src/layout/components/PlatformTopbar.vue', 'utf8')
+const yuxiTokens = readFileSync('src/assets/styles/yuxi-tokens.css', 'utf8')
+const accountMenuPath = 'src/layout/components/PlatformAccountMenu.vue'
+assert.ok(existsSync(accountMenuPath), '桌面侧栏必须提供统一账户菜单')
+const accountMenu = readFileSync(accountMenuPath, 'utf8')
 const tagsView = readFileSync('src/layout/components/TagsView/index.vue', 'utf8')
 const chatView = readFileSync('plugins/ai/views/chat/index.vue', 'utf8')
 const appMain = readFileSync('src/layout/components/AppMain.vue', 'utf8')
@@ -27,6 +31,7 @@ const shellFiles = [
   'src/layout/index.vue',
   'src/layout/components/PlatformSidebar.vue',
   'src/layout/components/PlatformTopbar.vue',
+  'src/layout/components/PlatformAccountMenu.vue',
   'src/layout/components/AdminSidebar.vue',
   'src/layout/components/RecentSessions.vue',
   'src/layout/components/AiResourceShell.vue',
@@ -50,10 +55,15 @@ assert.match(workspaceTransforms, /模型中心/)
 assert.match(workspaceTransforms, /开发接入/)
 assert.match(workspaceTransforms, /用量记录/)
 assert.match(platformSidebar, /管理后台/)
+assert.match(platformSidebar, /PlatformAccountMenu/)
+assert.match(platformSidebar, /showAccountMenu/)
+assert.match(platformSidebar, /折叠侧边栏/)
+assert.match(platformSidebar, /展开侧边栏/)
 assert.match(platformSidebar, /resolveAiResourceGroups/)
 assert.doesNotMatch(platformSidebar, /resolveAiResourceTabs/)
 assert.match(platformSidebar, /class="platform-nav-group"/)
 assert.match(platformSidebar, /class="platform-nav-group-link"/)
+assert.match(platformSidebar, /\.platform-nav-group-link\s*\{\s*height:\s*var\(--platform-menu-item-height\);\s*min-height:\s*var\(--platform-menu-item-height\)/)
 assert.match(platformSidebar, /class="platform-nav-link platform-nav-child"/)
 assert.match(platformSidebar, /v-if="!collapsed"/)
 assert.match(platformSidebar, /<a-dropdown[\s\S]*?v-else[\s\S]*?platform-nav-group-collapsed/)
@@ -88,6 +98,10 @@ assert.match(platformSidebar, /删除后无法恢复/)
 assert.doesNotMatch(recentSessions, /listRecentSessions/)
 
 assert.match(adminSidebar, /返回 AI 工作台/)
+assert.match(adminSidebar, /PlatformAccountMenu/)
+assert.match(adminSidebar, /showAccountMenu/)
+assert.match(adminSidebar, /折叠侧边栏/)
+assert.match(adminSidebar, /展开侧边栏/)
 assert.match(adminSidebar, /filterAdminWorkspaceRoutes/)
 assert.match(adminSidebar, /SidebarItem/)
 assert.match(adminSidebar, /mode="inline"/)
@@ -100,9 +114,15 @@ assert.ok(packageJson.dependencies.dompurify, '公告富文本清洗器必须声
 
 assert.match(componentExports, /PlatformSidebar/)
 assert.match(componentExports, /AdminSidebar/)
+assert.match(componentExports, /PlatformAccountMenu/)
 
 assert.match(layout, /PlatformSidebar/)
 assert.match(layout, /AdminSidebar/)
+assert.match(layout, /<PlatformTopbar\s+v-if="isMobile"/)
+assert.match(layout, /<PlatformSidebar\s+v-if="mode === 'ai'"\s+:collapsed="collapsed"\s+show-account-menu/)
+assert.match(layout, /<AdminSidebar\s+v-else\s+:collapsed="collapsed"\s+show-account-menu/)
+assert.match(layout, /<PlatformSidebar\s+v-if="mode === 'ai'"[\s\S]*?:show-account-menu="false"/)
+assert.match(layout, /<AdminSidebar\s+v-else[\s\S]*?:show-account-menu="false"/)
 assert.match(layout, /resolveWorkspaceMode/)
 assert.match(layout, /collectWorkspaceLeafPaths/)
 assert.match(layout, /collectWorkspaceLeafPaths\(routes\)/)
@@ -113,8 +133,24 @@ assert.doesNotMatch(layout, /<navbar/)
 
 assert.match(topbar, /返回智能工作台/)
 assert.match(topbar, /aria-label="打开主菜单"/)
+assert.match(topbar, /PlatformAccountMenu/)
+assert.doesNotMatch(topbar, /useLockStore|useUserStore|useSettingsStore|feedback\.confirm/)
 assert.doesNotMatch(topbar, /源码地址|文档地址|布局大小/)
 assert.doesNotMatch(topbar, /AI 工作台/)
+
+assert.match(accountMenu, /settingsStore\.toggleTheme\(\)/)
+assert.match(accountMenu, /HeaderNotice/)
+assert.match(accountMenu, /:placement="compact \? 'bottomRight' : 'topRight'"/)
+assert.match(accountMenu, /userStore\.avatar/)
+assert.match(accountMenu, /个人中心/)
+assert.match(accountMenu, /界面设置/)
+assert.match(accountMenu, /锁定屏幕/)
+assert.match(accountMenu, /退出登录/)
+assert.match(accountMenu, /router\.push\('\/user\/profile'\)/)
+assert.match(accountMenu, /lockStore\.lockScreen\(route\.fullPath\)/)
+assert.match(accountMenu, /await feedback\.confirm\('确定注销并退出系统吗？'\)/)
+assert.match(accountMenu, /await userStore\.logOut\(\)/)
+assert.match(accountMenu, /location\.href = '\/index'/)
 
 assert.match(appStore, /mobileSidebarOpen/)
 assert.match(appStore, /openMobileSidebar/)
@@ -143,10 +179,10 @@ assert.doesNotMatch(settingsStore, /storageSetting\.theme/)
 assert.doesNotMatch(settings, /theme:\s*settingsStore\.theme/)
 assert.match(defaultSettings, /tagsView:\s*true/)
 
-assert.match(styles, /--platform-sidebar-width:\s*184px/)
-assert.match(styles, /--platform-sidebar-collapsed-width:\s*56px/)
+assert.match(yuxiTokens, /--platform-sidebar-width:\s*230px/)
+assert.match(yuxiTokens, /--platform-sidebar-collapsed-width:\s*56px/)
+assert.match(yuxiTokens, /--platform-menu-item-height:\s*32px/)
 assert.match(styles, /--platform-topbar-height:\s*54px/)
-assert.match(styles, /--platform-menu-item-height:\s*38px/)
 assert.match(styles, /@media\s*\(max-width:\s*991px\)/)
 assert.match(styles, /prefers-reduced-motion/)
 assert.match(platformSidebar, /aria-label="新建对话"/)
@@ -157,7 +193,7 @@ assert.match(layout, /focusMobileSidebar/)
 assert.match(layout, /restoreMenuFocus/)
 assert.match(layout, /a-drawer/)
 assert.match(topbar, /defineExpose\(\{ focusMenu \}\)/)
-assert.match(topbar, /a-dropdown/)
+assert.match(accountMenu, /a-dropdown/)
 assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'), /a-popover/)
 assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'), /a-list/)
 assert.match(tagsView, /a-dropdown/)
@@ -181,8 +217,8 @@ assert.match(adminSidebar, /\.admin-sidebar\s*\{[^}]*background:\s*var\(--(?:bg-
 assert.match(adminSidebar, /:deep\(\.ant-menu-item-selected\),[\s\S]*?color:\s*var\(--main-700\);\s*background:\s*var\(--main-50\)/)
 
 assert.match(topbar, /\.platform-topbar\s*\{[^}]*background:\s*var\(--bg-container\)[^}]*border-bottom:\s*1px solid var\(--gray-150\)/s)
-assert.match(topbar, /\.platform-topbar__menu,[\s\S]*?color:\s*var\(--color-text-secondary\)/)
-assert.match(topbar, /\.platform-topbar__menu:hover,[\s\S]*?background:\s*var\(--gray-50\)[\s\S]*?color:\s*var\(--color-text\)/)
+assert.match(topbar, /\.platform-topbar__menu\s*\{[\s\S]*?color:\s*var\(--color-text-secondary\)/)
+assert.match(topbar, /\.platform-topbar__menu:hover\s*\{[\s\S]*?background:\s*var\(--gray-50\)[\s\S]*?color:\s*var\(--color-text\)/)
 
 assert.doesNotMatch(tagsView, /backgroundColor:\s*theme\.value/)
 assert.doesNotMatch(tagsView, /const theme\s*=\s*computed\(\(\)\s*=>\s*settingsStore\.theme\)/)

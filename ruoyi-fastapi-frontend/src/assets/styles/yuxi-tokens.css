@@ -52,4 +52,7 @@
   --bg-elevated: var(--gray-0);
   --bg-sider: var(--main-5);
   --page-padding: 22px;
+  --platform-sidebar-width: 230px;
+  --platform-sidebar-collapsed-width: 56px;
+  --platform-menu-item-height: 32px;
 }
