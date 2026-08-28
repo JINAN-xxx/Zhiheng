@@ -93,7 +93,7 @@
               :credentials="credentials"
               :initial-alias="autoDeploymentAlias"
               :initial-credential-name="resources.credential?.name || ''"
-              :initial-provider="resources.credential?.provider || ''"
+              :initial-provider="resources.credential?.providerId || resources.credential?.provider || ''"
               :submitting="submitting"
               :test-loading="testLoading"
               :tested="connectionTested"
@@ -409,7 +409,7 @@ function fail(step, message) {
 function useCredential() {
   const credential = compatibleCredentials.value.find((item) => item.name === selectedCredential.value)
   if (!credential) return
-  resources.credential = credential
+  resources.credential = { ...credential, providerId: selectedProvider.value }
   workflowState.value = 'deployment'
 }
 
@@ -424,6 +424,7 @@ async function createCredential(payload) {
     resources.credential = {
       name: payload.credentialName,
       provider: provider?.engineProvider || '',
+      providerId: provider?.provider || payload.provider,
       deploymentCount: 0,
       createdAt: null,
       updatedAt: null,
