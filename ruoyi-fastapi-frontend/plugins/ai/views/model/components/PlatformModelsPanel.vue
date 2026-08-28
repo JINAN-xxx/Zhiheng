@@ -26,15 +26,7 @@
       table-layout="fixed"
     >
       <template #bodyCell="{ column, record: row }">
-        <template v-if="column.key === 'modelId'">
-          <div class="resource-value">
-            <span class="resource-text" :title="row.modelId">{{ row.modelId }}</span>
-            <a-tooltip title="复制模型编号" placement="top">
-              <button class="copy-button" type="button" aria-label="复制模型编号" @click="copyValue(row.modelId)"><CopyOutlined /></button>
-            </a-tooltip>
-          </div>
-        </template>
-        <template v-else-if="column.key === 'modelCode'">
+        <template v-if="column.key === 'modelCode'">
           <div class="mobile-model-cell">
             <div class="resource-value">
               <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
@@ -52,17 +44,8 @@
         <template v-else-if="column.key === 'modelType'">
           <a-tag :color="tagColor(modelTypeMeta(row.modelType).type)">{{ modelTypeMeta(row.modelType).label }}</a-tag>
         </template>
-        <template v-else-if="column.key === 'bindingAlias'">
-          <div class="binding-value">
-            <div v-if="row.bindingAlias" class="resource-value">
-              <span class="resource-text" :title="row.bindingAlias">{{ row.bindingAlias }}</span>
-              <a-tooltip title="复制绑定别名" placement="top">
-                <button class="copy-button" type="button" aria-label="复制绑定别名" @click="copyValue(row.bindingAlias)"><CopyOutlined /></button>
-              </a-tooltip>
-            </div>
-            <span v-else class="muted">-</span>
-            <a-tag :color="tagColor(binding(row).type)">{{ binding(row).label }}</a-tag>
-          </div>
+        <template v-else-if="column.key === 'bindingStatus'">
+          <a-tag :color="tagColor(binding(row).type)">{{ binding(row).label }}</a-tag>
         </template>
         <template v-else-if="column.key === 'lifecycle'">
           <a-tag :color="tagColor(lifecycle(row).type)">{{ lifecycle(row).label }}</a-tag>
@@ -178,10 +161,9 @@ const canRemove = computed(() => can('ai:model:remove'))
 const canTest = computed(() => can('ai:model:test'))
 const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
 const columns = computed(() => [
-  !props.mobile && { title: '模型编号', key: 'modelId', width: 180 },
   { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160 },
   !props.mobile && { title: '类型', key: 'modelType', width: 110 },
-  !props.mobile && { title: '绑定状态', key: 'bindingAlias', width: 160 },
+  !props.mobile && { title: '绑定状态', key: 'bindingStatus', width: 100 },
   !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140 },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 180, align: 'right' },

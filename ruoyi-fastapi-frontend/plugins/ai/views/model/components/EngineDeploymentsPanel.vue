@@ -13,9 +13,7 @@
     </a-alert>
     <a-table v-if="rows.length || loading" class="model-table" :columns="columns" :data-source="rows" :loading="loading" :pagination="false" row-key="deploymentId" table-layout="fixed">
       <template #bodyCell="{ column, record: row }">
-        <template v-if="column.key === 'deploymentId'"><code :title="row.deploymentId">{{ row.deploymentId }}</code></template>
-        <template v-else-if="column.key === 'alias'"><code :title="row.alias">{{ row.alias }}</code></template>
-        <template v-else-if="column.key === 'blocked'"><a-tag :color="row.blocked ? 'red' : 'green'">{{ row.blocked ? '是' : '否' }}</a-tag></template>
+        <template v-if="column.key === 'blocked'"><a-tag :color="row.blocked ? 'red' : 'green'">{{ row.blocked ? '是' : '否' }}</a-tag></template>
         <template v-else-if="column.key === 'updatedAt'">{{ formatTime(row.updatedAt) }}</template>
         <template v-else-if="column.key === 'actions'">
           <div class="row-actions desktop-actions">
@@ -89,10 +87,8 @@ const canTest = computed(() => can('ai:model:test'))
 const canRemove = computed(() => can('ai:engine:deployment:remove'))
 const hasAnyAction = computed(() => !notConfigured.value && (canEdit.value || canTest.value || canRemove.value))
 const columns = computed(() => [
-  !props.mobile && { title: '部署编号', dataIndex: 'deploymentId', key: 'deploymentId', width: 190, ellipsis: true },
-  { title: '调用别名', dataIndex: 'alias', key: 'alias', width: props.mobile ? 180 : 150, ellipsis: true },
+  { title: '模型', dataIndex: 'baseModel', key: 'baseModel', width: props.mobile ? 180 : 170, ellipsis: true },
   !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 130 },
-  !props.mobile && { title: '上游模型', dataIndex: 'baseModel', key: 'baseModel', width: 170, ellipsis: true },
   !props.mobile && { title: '已阻止', key: 'blocked', width: 90 },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 132, align: 'right' },

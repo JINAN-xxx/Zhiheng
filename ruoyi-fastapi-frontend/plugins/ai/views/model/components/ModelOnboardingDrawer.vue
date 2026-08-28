@@ -182,9 +182,6 @@
               <div class="retained-row">
                 <span>平台模型</span><code>{{ resources.model?.modelCode }}</code>
               </div>
-              <div class="retained-row">
-                <span>调用别名</span><code>{{ resources.deployment?.alias }}</code>
-              </div>
             </div>
           </section>
         </template>

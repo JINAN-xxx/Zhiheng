@@ -1,9 +1,6 @@
 <template>
   <a-form ref="formRef" :model="form" :rules="rules" layout="vertical" class="engine-form" :class="{ 'is-quick': quick }">
     <div class="form-grid">
-      <a-form-item v-if="!quick" label="路由别名" name="modelAlias">
-        <a-input v-model:value="form.modelAlias" placeholder="例如 chat-default" @input="markChanged" />
-      </a-form-item>
       <a-form-item label="上游模型" name="upstreamModel">
         <a-input v-model:value="form.upstreamModel" placeholder="例如 gpt-4.1-mini" @input="markChanged" />
       </a-form-item>

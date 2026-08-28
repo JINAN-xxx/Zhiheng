@@ -21,7 +21,7 @@ assert.match(credential, /quick \? '保存并继续'/)
 
 assert.match(deployment, /quick:\s*\{ type: Boolean, default: false \}/)
 assert.match(deployment, /initialAlias:\s*\{ type: String, default: '' \}/)
-assert.match(deployment, /<a-form-item v-if="!quick" label="路由别名"/)
+assert.doesNotMatch(deployment, /<a-form-item v-if="!quick" label="路由别名"/)
 assert.match(deployment, /<a-form-item v-if="!quick" label="服务商"/)
 assert.match(deployment, /<a-form-item v-if="!quick" label="服务商凭据"/)
 assert.match(deployment, /<a-collapse v-if="quick"/)

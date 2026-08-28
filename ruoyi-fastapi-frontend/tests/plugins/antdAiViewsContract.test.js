@@ -88,6 +88,8 @@ assert.match(readFileSync('plugins/ai/views/model/components/CredentialsPanel.vu
 assert.doesNotMatch(modelSources, /Model Service|Provider 凭据|Model ID|Model Code|Base Model|Capability/)
 assert.doesNotMatch(modelSources, /Management Key|title:\s*'Alias'|title:\s*'Blocked'/)
 assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /mobile-model-meta/)
+assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /复制模型编号|模型编号|复制绑定别名|绑定别名/)
+assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/EngineDeploymentsPanel.vue', 'utf8'), /title: '部署编号'|title: '调用别名'|column\.key === 'deploymentId'|column\.key === 'alias'/)
 
 for (const fileName of modelFiles) {
   const source = readFileSync(fileName, 'utf8')
@@ -122,6 +124,8 @@ const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOn
 const platformModelsPanel = readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8')
 assert.doesNotMatch(platformModelsPanel, /title:\s*['"]能力['"]|title="能力"/)
 assert.doesNotMatch(onboardingDrawer, /label="能力"/)
+assert.doesNotMatch(onboardingDrawer, /<span>调用别名<\/span>/)
+assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/DeploymentForm.vue', 'utf8'), /<a-form-item v-if="!quick" label="路由别名"/)
 assert.match(onboardingDrawer, /capabilities:\s*defaultModelCapabilities\(catalogForm\.modelType\)/)
 assert.match(onboardingDrawer, /var\(--bg-container\)/)
 assert.match(onboardingDrawer, /var\(--gray-150\)/)
