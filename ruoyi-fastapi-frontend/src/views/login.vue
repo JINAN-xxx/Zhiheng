@@ -98,6 +98,7 @@ const loading = ref(false)
 const captchaEnabled = ref(true)
 const register = ref(false)
 const redirect = ref()
+const defaultLandingPath = '/ai/chat'
 
 watch(
   route,
@@ -125,7 +126,7 @@ async function handleLogin() {
       if (key !== 'redirect') params[key] = route.query[key]
       return params
     }, {})
-    await router.push({ path: redirect.value || '/', query: otherQueryParams })
+    await router.push({ path: redirect.value || defaultLandingPath, query: otherQueryParams })
   } catch {
     loading.value = false
     if (captchaEnabled.value) await getCode()

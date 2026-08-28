@@ -42,6 +42,8 @@ assert.match(login, /rememberMe/)
 assert.match(login, /Cookies\.set/)
 assert.match(login, /Cookies\.remove/)
 assert.match(login, /redirect/)
+assert.match(login, /const defaultLandingPath\s*=\s*['"]\/ai\/chat['"]/)
+assert.match(login, /router\.push\(\{\s*path:\s*redirect\.value\s*\|\|\s*defaultLandingPath/s)
 assert.match(login, /width:\s*min\(100%,\s*420px\)/)
 assert.doesNotMatch(login, /login-background\.jpg/)
 
