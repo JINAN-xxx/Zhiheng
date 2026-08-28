@@ -51,11 +51,10 @@
       />
     </a-drawer>
 
-    <div v-if="!isMobile" class="platform-shell__account">
-      <PlatformAccountMenu class="platform-shell__account-menu" compact @set-layout="setLayout" />
-    </div>
-
     <section class="platform-shell__main">
+      <div v-if="!isMobile" class="platform-shell__desktop-topbar">
+        <PlatformAccountMenu class="platform-shell__desktop-account" compact @set-layout="setLayout" />
+      </div>
       <PlatformTopbar
         v-if="isMobile"
         ref="topbarRef"
@@ -163,15 +162,12 @@ function setLayout() {
 </script>
 
 <style scoped lang="scss">
-.platform-shell { position: relative; width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
+.platform-shell { width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
 .platform-shell__sidebar { width: var(--platform-sidebar-width); min-width: var(--platform-sidebar-width); flex: 0 0 var(--platform-sidebar-width); height: 100%; margin: 0; padding: 0; border-radius: 0; background: transparent; line-height: normal; transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease; }
 .platform-shell.is-collapsed .platform-shell__sidebar { width: var(--platform-sidebar-collapsed-width); min-width: var(--platform-sidebar-collapsed-width); flex-basis: var(--platform-sidebar-collapsed-width); }
 .platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
-.platform-shell__account { position: absolute; top: 11px; right: 16px; z-index: 20; display: flex; width: max-content; pointer-events: auto; }
-.platform-shell__account-menu { border-top: 0; }
-@media (max-width: 991px) {
-  .platform-shell__account { display: none; }
-}
+.platform-shell__desktop-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; justify-content: flex-end; padding: 0 16px; border-bottom: 1px solid var(--gray-150); background: var(--bg-container); }
+.platform-shell__desktop-account { width: max-content; }
 </style>
 
 <style lang="scss">
