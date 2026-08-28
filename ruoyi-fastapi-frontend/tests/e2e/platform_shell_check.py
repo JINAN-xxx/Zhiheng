@@ -54,6 +54,19 @@ MODEL_IDS = {
     "disabled": "mdl_11111111111141118111111111111111",
     "active": "mdl_22222222222242228222222222222222",
 }
+MODEL_LIFECYCLE = {
+    MODEL_IDS["disabled"]: "disabled",
+    MODEL_IDS["active"]: "active",
+}
+
+
+def reset_model_lifecycle() -> None:
+    MODEL_LIFECYCLE.update(
+        {
+            MODEL_IDS["disabled"]: "disabled",
+            MODEL_IDS["active"]: "active",
+        }
+    )
 
 LONG_SESSION_TITLE = "跨部门智能工作流方案评审与历史上下文追踪会话名称用于验证桌面侧栏在超长中文标题下的截断、滚动和可读性边界表现"
 LONG_MODEL_NAME = "企业级多模态推理与知识检索编排模型展示名称用于验证桌面资源表格在超长模型标识下的截断、提示和布局边界表现"
@@ -231,6 +244,8 @@ def response_for(path: str, method: str, access: str) -> dict:
             },
         }
     if path == "/ai/models":
+        disabled_status = MODEL_LIFECYCLE[MODEL_IDS["disabled"]]
+        active_status = MODEL_LIFECYCLE[MODEL_IDS["active"]]
         return {
             "code": 200,
             "rows": [
@@ -240,7 +255,7 @@ def response_for(path: str, method: str, access: str) -> dict:
                     "displayName": LONG_MODEL_NAME,
                     "modelType": "chat",
                     "capabilities": {"streaming": True, "vision": False},
-                    "lifecycleStatus": "disabled",
+                    "lifecycleStatus": disabled_status,
                     "binding": {"bindingStatus": "active", "engineResourceId": "openai-compatible-chat", "version": 1},
                     "updateTime": "2026-08-20T08:00:00Z",
                 },
@@ -250,7 +265,7 @@ def response_for(path: str, method: str, access: str) -> dict:
                     "displayName": "工作台对话模型",
                     "modelType": "chat",
                     "capabilities": {"streaming": True},
-                    "lifecycleStatus": "active",
+                    "lifecycleStatus": active_status,
                     "binding": {"bindingStatus": "active", "engineResourceId": "active-chat-runtime", "version": 1},
                     "updateTime": "2026-08-20T08:00:00Z",
                 }
@@ -274,8 +289,14 @@ def response_for(path: str, method: str, access: str) -> dict:
                 }
             ],
         }
+    if path.startswith("/ai/models/") and path.endswith("/publish") and method == "POST":
+        model_id = path.split("/")[3]
+        if model_id in MODEL_LIFECYCLE:
+            MODEL_LIFECYCLE[model_id] = "active"
+        return {"code": 200, "data": {"modelId": model_id, "lifecycleStatus": "active"}}
     if path.startswith("/ai/models/"):
         model_id = path.split("/")[3]
+        lifecycle_status = MODEL_LIFECYCLE.get(model_id, "disabled")
         is_active = model_id == MODEL_IDS["active"]
         return {
             "code": 200,
@@ -285,7 +306,7 @@ def response_for(path: str, method: str, access: str) -> dict:
                 "displayName": "工作台对话模型" if is_active else LONG_MODEL_NAME,
                 "modelType": "chat",
                 "capabilities": {"streaming": True},
-                "lifecycleStatus": "active" if is_active else "disabled",
+                "lifecycleStatus": lifecycle_status,
                 "binding": {"bindingStatus": "active", "engineResourceId": "active-chat-runtime" if is_active else "openai-compatible-chat", "version": 1},
             },
         }
@@ -467,6 +488,15 @@ async def assert_mobile_profile_layout(page: Page) -> None:
 
 async def take_screenshot(page: Page, filename: str) -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    if filename == "platform-usage-1280x800-dark.png":
+        # Chromium can vary a handful of anti-aliased edge pixels between rounds.
+        await page.add_style_tag(
+            content=(
+                ".usage-controls, .usage-table-wrap, "
+                ".usage-ledger-page .workspace-toolbar .ant-btn-circle { "
+                "border-radius: 0 !important; }"
+            )
+        )
     deadline = time.monotonic() + 3.0
 
     def remaining_ms() -> int:
@@ -810,6 +840,9 @@ async def check_mobile(browser: Browser, width: int, height: int) -> None:
     await page.wait_for_function(
         "document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
+    assert await page.locator(".platform-mobile-drawer .platform-account-menu").count() == 0
+    assert await page.locator(".platform-mobile-drawer .platform-collapse-button").count() == 0
+    assert await page.locator(".platform-mobile-drawer .admin-sidebar__collapse").count() == 0
     await drawer.locator(":focus").wait_for()
     assert await drawer.locator(":focus").count() == 1
     await page.mouse.click(width - 5, height / 2)
@@ -924,6 +957,8 @@ async def check_model_dark(browser: Browser) -> None:
 
 
 async def check_model_reenable(browser: Browser) -> None:
+    # Keep this scenario independent when it is run outside the full suite.
+    reset_model_lifecycle()
     context, page, console_errors, page_errors = await new_page(
         browser, ADMIN_VIEWPORT
     )
@@ -936,11 +971,15 @@ async def check_model_reenable(browser: Browser) -> None:
         assert await row.get_by_text("已绑定", exact=True).count() == 1
         await row.get_by_role("button", name="重新启用").click()
         await page.get_by_text("模型已重新启用", exact=True).wait_for()
+        await page.get_by_role("button", name="刷新平台模型").click()
+        await row.get_by_text("已发布", exact=True).wait_for()
+        assert await row.get_by_text("已停用", exact=True).count() == 0
         assert await page.locator(".platform-topbar").count() == 0
         await assert_no_overflow(page)
         assert console_errors == [], console_errors
         assert page_errors == [], page_errors
     finally:
+        reset_model_lifecycle()
         await context.close()
 
 
@@ -1118,6 +1157,7 @@ async def check_dark_theme(browser: Browser) -> None:
 
 
 async def run_platform_checks(browser: Browser) -> dict[str, str]:
+    reset_model_lifecycle()
     await check_desktop(browser)
     await check_admin(browser)
     await check_mobile(browser, **MOBILE_VIEWPORT)
