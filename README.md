@@ -325,6 +325,22 @@ docker compose -f docker-compose.my.yml up -d --build
 docker compose -f docker-compose.pg.yml up -d --build
 ```
 
+#### 一键部署管理（推荐）
+
+在仓库根目录执行：
+
+```bash
+./deploy.sh init       # 首次部署：初始化密钥和数据库并启动
+./deploy.sh start      # 启动已有服务
+./deploy.sh restart    # 重启服务
+./deploy.sh stop       # 停止服务但保留数据
+./deploy.sh status     # 查看服务状态
+./deploy.sh logs       # 查看实时日志
+./deploy.sh update     # 重新构建镜像并更新
+```
+
+脚本默认使用 PostgreSQL 版本，并会复用 `.env` 中已有密钥，不会删除数据库或数据卷。Compose 项目名默认固定为 `ruoyi-vue3-fastapi`，从其他目录执行时仍能管理同一组容器。
+
 ## 交流与赞助
 
 如果有对本项目及FastAPI感兴趣的朋友，欢迎加入知识星球一起交流学习，让我们一起变得更强。如果你觉得这个项目帮助到了你，你可以请作者喝杯咖啡表示鼓励☕。扫描下面微信二维码添加微信备注VF-Admin即可进群。

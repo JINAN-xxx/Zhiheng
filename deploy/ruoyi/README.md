@@ -12,9 +12,21 @@ RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owne
 先确保 LiteLLM 的三个容器正常运行，再从仓库根目录执行：
 
 ```bash
-./deploy/ruoyi/init-shared-postgres.sh
-docker compose -f docker-compose.pg.yml up -d --build
+./deploy.sh init
 ```
+
+日常管理使用统一脚本：
+
+```bash
+./deploy.sh start      # 启动已有服务
+./deploy.sh restart    # 重启服务
+./deploy.sh stop       # 停止服务并保留数据
+./deploy.sh status     # 查看状态
+./deploy.sh logs       # 查看日志
+./deploy.sh update     # 重新构建并更新
+```
+
+如需单独初始化数据库，仍可直接执行 `./deploy/ruoyi/init-shared-postgres.sh`。
 
 初始化脚本依赖 `openssl` 和 `flock`，会在仓库根 `.env` 中生成 `RUOYI_DB_PASSWORD` 与持久化的 `JWT_SECRET_KEY`，并把文件权限设为 `0600`。并发执行会由 `.env.lock` 串行化，避免数据库密码或 JWT 密钥被重复生成。基线 SQL 和 `public.ruoyi_bootstrap_state` 完成标记在同一个事务中写入，任意语句失败都会整体回滚。脚本可以重复执行；检测到完成标记后不会再次导入包含删表语句的基线 SQL。
 
