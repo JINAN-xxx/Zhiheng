@@ -684,8 +684,9 @@ async def check_desktop(browser: Browser) -> None:
     assert await page.locator(".platform-sidebar").count() == 1
     assert await page.locator(".platform-topbar").count() == 0
     assert await page.get_by_text("Developer API", exact=True).count() == 0
-    for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
+    for label in ("智能对话", "开发接入", "用量记录"):
         assert await page.get_by_role("link", name=label, exact=True).count() == 1
+    assert await page.get_by_role("button", name="模型中心", exact=True).count() == 1
     assert await page.get_by_text(LONG_SESSION_TITLE, exact=True).count() == 1
     await assert_text_is_constrained(page, LONG_SESSION_TITLE)
     await assert_no_overflow(page)
@@ -704,6 +705,14 @@ async def check_desktop(browser: Browser) -> None:
         "link", name="智能对话", exact=True
     ).evaluate("element => getComputedStyle(element).backgroundColor")
     assert active_chat_background == "rgb(225, 246, 251)"
+
+    group_toggle = page.get_by_role("button", name="模型中心", exact=True)
+    assert await group_toggle.get_attribute("aria-expanded") == "true"
+    await group_toggle.click()
+    assert await group_toggle.get_attribute("aria-expanded") == "false"
+    await page.get_by_role("link", name="用量记录", exact=True).wait_for(state="hidden")
+    await group_toggle.click()
+    assert await group_toggle.get_attribute("aria-expanded") == "true"
 
     expanded_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
@@ -885,8 +894,9 @@ async def check_model_resource_drawer(browser: Browser) -> None:
     await page.wait_for_function(
         "document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"
     )
-    for label in ("智能对话", "模型中心", "开发接入", "用量记录"):
+    for label in ("智能对话", "开发接入", "用量记录"):
         assert await drawer.get_by_role("link", name=label, exact=True).count() == 1
+    assert await drawer.get_by_role("button", name="模型中心", exact=True).count() == 1
     await page.mouse.click(TABLET_VIEWPORT["width"] - 5, TABLET_VIEWPORT["height"] / 2)
     await page.wait_for_function(
         "!document.querySelector('.platform-mobile-drawer')?.classList.contains('ant-drawer-open')"

@@ -27,6 +27,7 @@ const workspaceTransforms = readFileSync('src/components/Workspace/workspaceTran
 const permission = readFileSync('src/permission.js', 'utf8')
 const workspaceApi = readFileSync('src/api/platformWorkspace.js', 'utf8')
 const workspaceStore = readFileSync('src/store/modules/workspace.js', 'utf8')
+const aiPluginManifest = readFileSync('../ruoyi-fastapi-backend/plugins/ai/plugin.yaml', 'utf8')
 const shellFiles = [
   'src/layout/index.vue',
   'src/layout/components/PlatformSidebar.vue',
@@ -63,6 +64,10 @@ assert.match(platformSidebar, /resolveAiResourceGroups/)
 assert.doesNotMatch(platformSidebar, /resolveAiResourceTabs/)
 assert.match(platformSidebar, /class="platform-nav-group"/)
 assert.match(platformSidebar, /class="platform-nav-group-link"/)
+assert.match(platformSidebar, /resourceGroupExpanded/)
+assert.match(platformSidebar, /aria-expanded/)
+assert.match(platformSidebar, /toggleResourceGroup/)
+assert.match(platformSidebar, /font-size:\s*14px/)
 assert.match(platformSidebar, /\.platform-nav-group-link\s*\{\s*height:\s*var\(--platform-menu-item-height\);\s*min-height:\s*var\(--platform-menu-item-height\)/)
 assert.match(platformSidebar, /class="platform-nav-link platform-nav-child"/)
 assert.match(platformSidebar, /v-if="!collapsed"/)
@@ -203,6 +208,7 @@ assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'
 assert.match(readFileSync('src/layout/components/HeaderNotice/index.vue', 'utf8'), /a-list/)
 assert.match(tagsView, /a-dropdown/)
 assert.match(permission, /resolveAuthorizedWorkspacePath/)
+assert.match(aiPluginManifest, /name: 用量[\s\S]*?visible:\s*'0'/)
 
 assert.match(platformSidebar, /\.platform-sidebar\s*\{[^}]*background:\s*var\(--bg-sider\)[^}]*border-right:\s*1px solid var\(--gray-150\)[^}]*color:\s*var\(--color-text\)/s)
 assert.match(platformSidebar, /\.platform-nav-link,[\s\S]*?color:\s*var\(--color-text-secondary\)/)

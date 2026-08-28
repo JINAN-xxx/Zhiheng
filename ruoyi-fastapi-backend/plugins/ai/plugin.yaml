@@ -100,7 +100,7 @@ frontend:
           type: C
           orderNum: 4
           icon: chart
-          visible: '1'
+          visible: '0'
 
 permissions:
   - code: ai:model:list

@@ -36,15 +36,19 @@
       </router-link>
       <template v-for="group in resourceGroups" :key="group.key">
         <div v-if="!collapsed" class="platform-nav-group">
-          <router-link
+          <button
+            type="button"
             class="platform-nav-group-link"
-            :to="group.path"
             :aria-label="group.label"
+            :aria-expanded="resourceGroupExpanded"
+            @click="toggleResourceGroup"
           >
             <DatabaseOutlined />
             <span>{{ group.label }}</span>
-          </router-link>
-          <div class="platform-nav-group-children">
+            <DownOutlined v-if="resourceGroupExpanded" class="platform-nav-group-chevron" />
+            <RightOutlined v-else class="platform-nav-group-chevron" />
+          </button>
+          <div v-show="resourceGroupExpanded" class="platform-nav-group-children">
             <router-link
               v-for="child in group.children"
               :key="child.path"
@@ -111,12 +115,15 @@
 <script setup>
 import {
   DatabaseOutlined,
+  DownOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
   PlusOutlined,
+  RightOutlined,
   SettingOutlined,
 } from '@ant-design/icons-vue'
+import { ref, watch } from 'vue'
 import logo from '@/assets/logo/logo.png'
 import {
   getActiveAiResourceChildPath,
@@ -145,6 +152,7 @@ const canChat = computed(
   () => permissionSet.value.has('*:*:*') || permissionSet.value.has('ai:chat:list'),
 )
 const resourceGroups = computed(() => resolveAiResourceGroups(permissionSet.value))
+const resourceGroupExpanded = ref(true)
 const navItems = computed(() => [
   canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
 ].filter(Boolean))
@@ -160,6 +168,10 @@ function openSession(sessionId) {
 
 function resourceGroupIsActive(group) {
   return isAiResourceGroupActive(group, route.path)
+}
+
+function toggleResourceGroup() {
+  resourceGroupExpanded.value = !resourceGroupExpanded.value
 }
 
 function handleResourceMenuClick({ key }) {
@@ -199,10 +211,16 @@ async function deleteSession(sessionId) {
 onMounted(() => {
   if (canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
 })
+
+watch(() => route.path, () => {
+  if (resourceGroups.value.some((group) => resourceGroupIsActive(group))) {
+    resourceGroupExpanded.value = true
+  }
+})
 </script>
 
 <style scoped lang="scss">
-.platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font: inherit; line-height: normal; }
+.platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font-family: var(--workspace-font-family); line-height: normal; }
 .platform-brand-row { min-height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; }
 .platform-brand { min-width: 0; display: flex; flex: 1; align-items: center; gap: 9px; color: var(--color-text); font-size: 15px; font-weight: 700; text-decoration: none; }
 .platform-brand img { width: 27px; height: 27px; object-fit: contain; filter: brightness(1.12); }
@@ -214,8 +232,9 @@ onMounted(() => {
 .platform-nav-link,
 .platform-nav-group-link,
 .platform-new-chat,
-.platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: none; cursor: pointer; white-space: nowrap; }
-.platform-nav-group-link { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); color: var(--color-text); font-size: 13px; font-weight: 600; }
+.platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: none; cursor: pointer; white-space: nowrap; font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 400; }
+.platform-nav-group-link { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); color: var(--color-text); font-weight: 500; justify-content: flex-start; text-align: left; }
+.platform-nav-group-chevron { margin-left: auto; font-size: 11px; color: var(--color-text-tertiary); }
 .platform-nav-child { padding-left: 34px; }
 .platform-new-chat { margin-bottom: 5px; border-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .platform-nav-link:hover,
