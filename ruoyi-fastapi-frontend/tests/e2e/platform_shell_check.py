@@ -682,6 +682,14 @@ async def check_desktop(browser: Browser) -> None:
     await page.goto(f"{BASE_URL}/ai/chat")
     await page.get_by_text("从一个问题开始", exact=True).wait_for()
     assert await page.locator(".platform-sidebar").count() == 1
+    assert await page.locator(".platform-sidebar .platform-account-menu").count() == 0
+    desktop_account = page.locator(".platform-shell__account")
+    await desktop_account.wait_for()
+    account_box = await desktop_account.bounding_box()
+    assert account_box is not None
+    assert account_box["y"] <= 20 and account_box["x"] + account_box["width"] >= DESKTOP_VIEWPORT["width"] - 180
+    assert await desktop_account.get_by_role("button", name="用户菜单").count() == 1
+    assert await desktop_account.get_by_role("button", name="通知公告").count() == 1
     assert await page.locator(".platform-topbar").count() == 0
     assert await page.get_by_text("Developer API", exact=True).count() == 0
     for label in ("智能对话", "开发接入", "用量记录"):

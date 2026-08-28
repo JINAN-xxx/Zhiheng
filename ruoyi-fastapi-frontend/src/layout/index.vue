@@ -8,7 +8,6 @@
       <PlatformSidebar
         v-if="mode === 'ai'"
         :collapsed="collapsed"
-        show-account-menu
         show-collapse-control
         @open-admin="openAdmin"
         @set-layout="setLayout"
@@ -17,7 +16,6 @@
       <AdminSidebar
         v-else
         :collapsed="collapsed"
-        show-account-menu
         show-collapse-control
         @open-ai="openAi"
         @set-layout="setLayout"
@@ -53,6 +51,10 @@
       />
     </a-drawer>
 
+    <div v-if="!isMobile" class="platform-shell__account">
+      <PlatformAccountMenu class="platform-shell__account-menu" compact @set-layout="setLayout" />
+    </div>
+
     <section class="platform-shell__main">
       <PlatformTopbar
         v-if="isMobile"
@@ -83,7 +85,15 @@ import useAppStore from '@/store/modules/app'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
 import useUserStore from '@/store/modules/user'
-import { AdminSidebar, AppMain, PlatformSidebar, PlatformTopbar, Settings, TagsView } from './components'
+import {
+  AdminSidebar,
+  AppMain,
+  PlatformAccountMenu,
+  PlatformSidebar,
+  PlatformTopbar,
+  Settings,
+  TagsView,
+} from './components'
 
 const route = useRoute()
 const router = useRouter()
@@ -153,10 +163,15 @@ function setLayout() {
 </script>
 
 <style scoped lang="scss">
-.platform-shell { width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
+.platform-shell { position: relative; width: 100%; height: 100vh; display: flex; overflow: hidden; background: var(--workspace-bg); }
 .platform-shell__sidebar { width: var(--platform-sidebar-width); min-width: var(--platform-sidebar-width); flex: 0 0 var(--platform-sidebar-width); height: 100%; margin: 0; padding: 0; border-radius: 0; background: transparent; line-height: normal; transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease; }
 .platform-shell.is-collapsed .platform-shell__sidebar { width: var(--platform-sidebar-collapsed-width); min-width: var(--platform-sidebar-collapsed-width); flex-basis: var(--platform-sidebar-collapsed-width); }
 .platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+.platform-shell__account { position: absolute; top: 11px; right: 16px; z-index: 20; display: flex; width: max-content; pointer-events: auto; }
+.platform-shell__account-menu { border-top: 0; }
+@media (max-width: 991px) {
+  .platform-shell__account { display: none; }
+}
 </style>
 
 <style lang="scss">
