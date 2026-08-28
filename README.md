@@ -1,361 +1,225 @@
-<h1 align="center">
-    <img alt="logo" src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png">
-</h1>
-<h1 align="center" style="margin: 30px 0 30px; font-weight: bold;">RuoYi-Vue3-FastAPI</h1>
-<h4 align="center">基于RuoYi-Vue3+FastAPI前后端分离的快速开发框架</h4>
-<p align="center">
-    <a href="https://gitee.com/insistence2022/RuoYi-Vue3-FastAPI/stargazers">
-        <img alt="Gitee" src="https://gitee.com/insistence2022/RuoYi-Vue3-FastAPI/badge/star.svg?theme=dark">
-    </a>
-    <a href="https://github.com/insistence/RuoYi-Vue3-FastAPI">
-        <img alt="Github" src="https://img.shields.io/github/stars/insistence/RuoYi-Vue3-FastAPI?style=social">
-    </a>
-    <a href="https://github.com/insistence/RuoYi-Vue3-FastAPI/actions?query=branch%3Amaster+event%3Apush+workflow%3A%22%22Playwright+Tests%22%22">
-        <img alt="Playwright Tests" src="https://github.com/insistence/RuoYi-Vue3-FastAPI/workflows/Playwright Tests/badge.svg">
-    </a>
-    <a href="https://github.com/insistence/RuoYi-Vue3-FastAPI/actions?query=branch%3Amaster+event%3Apush+workflow%3A%22%22Ruff+Check%22%22">
-        <img alt="Ruff Check" src="https://github.com/insistence/RuoYi-Vue3-FastAPI/workflows/Ruff Check/badge.svg">
-    </a>
-    <a href="https://gitee.com/insistence2022/RuoYi-Vue3-FastAPI">
-        <img alt="project version" src="https://img.shields.io/badge/version-1.10.0-brightgreen.svg">
-    </a>
-    <a href="https://github.com/astral-sh/ruff">
-        <img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json">
-    </a>
-    <a href="https://gitee.com/insistence2022/RuoYi-Vue3-FastAPI/blob/master/LICENSE">
-        <img alt="LICENSE" src="https://img.shields.io/github/license/mashape/apistatus.svg">
-    </a>
-    <img alt="node version" src="https://img.shields.io/badge/node-≥18-blue">
-    <img alt="python version" src="https://img.shields.io/badge/python-≥3.10-blue">
-    <img alt="mysql version" src="https://img.shields.io/badge/MySQL-≥5.7-blue">
-    <img alt="redis version" src="https://img.shields.io/badge/redis-≥6.2-blue">
-</p>
+# 智衡 AI 开放平台
 
-## 平台简介
+智衡 AI 开放平台基于 RuoYi-Vue3-FastAPI 构建，面向企业和团队提供模型接入、统一调用、智能对话、应用开发接入和用量记录能力。平台采用插件化架构，既支持本地管理后台，也支持通过 OpenAI 兼容接口接入外部应用。
 
-RuoYi-Vue3-FastAPI是一套全部开源的快速开发平台，毫无保留给个人及企业免费使用。
+## 当前版本
 
-* 前端采用Vue3、Element Plus，基于<u>[RuoYi-Vue3](https://github.com/yangzongzhuan/RuoYi-Vue3)</u>前端项目修改。
-* 移动端采用uni-app、Vue3、Vite，内置tailwindcss，基于<u>[RuoYi-App](https://github.com/yangzongzhuan/RuoYi-App)</u>项目修改。
-* 后端采用FastAPI、sqlalchemy、MySQL（PostgreSQL）、Redis、OAuth2 & Jwt。
-* 权限认证使用OAuth2 & Jwt，支持多终端认证系统。
-* 支持加载动态权限菜单，多方式轻松权限控制。
-* Vue2版本：
-  * Gitte仓库地址：<https://gitee.com/insistence2022/RuoYi-Vue-FastAPI>
-  * GitHub仓库地址：<https://github.com/insistence/RuoYi-Vue-FastAPI>
-* 纯Python版本：
-  * Gitte仓库地址：<https://gitee.com/insistence2022/dash-fastapi-admin>
-  * GitHub仓库地址：<https://github.com/insistence/Dash-FastAPI-Admin>
-* 特别鸣谢：<u>[RuoYi-Vue3](https://github.com/yangzongzhuan/RuoYi-Vue3)</u>、<u>[RuoYi-App](https://github.com/yangzongzhuan/RuoYi-App)</u>
+- 平台版本：`v0.1`
+- 后端：FastAPI、SQLAlchemy、PostgreSQL、Redis
+- 前端：Vue 3、Vite、Ant Design Vue
+- 模型网关：LiteLLM Proxy
+- 认证方式：JWT、平台 API Key、Bearer Token
+- 默认平台端口：`12580`
 
-## 内置功能
+## 功能概览
 
-1. 用户管理：用户是系统操作者，该功能主要完成系统用户配置。
-2. 角色管理：角色菜单权限分配、设置角色按机构进行数据范围权限划分。
-3. 菜单管理：配置系统菜单，操作权限，按钮权限标识等。
-4. 部门管理：配置系统组织机构（公司、部门、小组）。
-5. 岗位管理：配置系统用户所属担任职务。
-6. 字典管理：对系统中经常使用的一些较为固定的数据进行维护。
-7. 参数管理：对系统动态配置常用参数。
-8. 通知公告：系统通知公告信息发布维护。
-9. 操作日志：系统正常操作日志记录和查询；系统异常信息日志记录和查询。
-10. 登录日志：系统登录日志记录查询包含登录异常。
-11. 在线用户：当前系统中活跃用户状态监控。
-12. 定时任务：在线（添加、修改、删除）任务调度包含执行结果日志。
-13. 服务监控：监视当前系统CPU、内存、磁盘、堆栈等相关信息。
-14. 缓存监控：对系统的缓存信息查询，命令统计等。
-15. 传输加密：支持前后端请求加密、响应解密、公钥轮换、运行策略下发与监控统计。
-16. 在线构建器：拖动表单元素生成相应的HTML代码。
-17. 系统接口：根据业务代码自动生成相关的api接口文档。
-18. 代码生成：配置数据库表信息一键生成前后端代码（python、sql、vue、js），支持下载。
-19. AI管理：提供AI模型管理和AI对话功能。
-20. 文件管理：统一管理公开文件和受保护附件，支持访问控制、业务引用保护、操作审计、回收站、保留策略及存储对账。
-21. 插件系统：支持插件发现、安装、启停、升级、卸载与清理，提供依赖与配置管理、迁移与种子、定时任务、菜单权限、批量预演、健康诊断、操作审计及前后端插件脚手架。
+### 平台工作台
 
-## 演示图
+- 智能对话：支持流式输出、历史会话、会话重命名和删除。
+- 模型中心：统一查看和管理模型目录。
+- 模型能力：支持对话模型、Embedding 模型和 Ranker 模型的能力标识。
+- 开发接入：创建应用、配置模型授权、生成和轮换 API Key。
+- 用量记录：查看请求状态、Token 消耗、检索单元和费用。
+- API 说明：在开发接入页面查看平台 API 调用方式和示例。
 
-<table>
-    <tr>
-        <td>
-            <img alt="login" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/login.png">
-        </td>
-        <td>
-            <img alt="dashboard" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/dashboard.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="user" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/user.png">
-        </td>
-        <td>
-            <img alt="role" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/role.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="menu" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/menu.png">
-        </td>
-        <td>
-            <img alt="dept" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/dept.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt=""post src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/post.png">
-        </td>
-        <td>
-            <img alt="dict" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/dict.png">
-        </td>
-    </tr>  
-    <tr>
-        <td>
-            <img alt="config" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/config.png">
-        </td>
-        <td>
-            <img alt="notice" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/notice.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="operLog" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/operLog.png">
-        </td>
-        <td>
-            <img alt="loginLog" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/loginLog.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="online" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/online.png">
-        </td>
-        <td>
-            <img alt="job" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/job.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="server" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/server.png">
-        </td>
-        <td>
-            <img alt="cache" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/cache.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="cacheList" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/cacheList.png">
-        </td>
-        <td>
-            <img alt="form" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/form.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="api" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/api.png">
-        </td>
-        <td>
-            <img alt="gen" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/gen.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="aiModel" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/aiModel.png">
-        </td>
-        <td>
-            <img alt="aiChat" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/aiChat.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="file" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/file.png">
-        </td>
-        <td>
-            <img alt="plugin" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/plugin.png">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="profile" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/web/profile.png">
-        </td>
-    </tr>
-</table>
+### 管理后台
 
-<table>
-    <tr>
-        <td>
-            <img alt="applogin" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/app/login.png">
-        </td>
-        <td>
-            <img alt="appWorkbench" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/app/workbench.png">
-        </td>
-        <td>
-            <img alt="appProfile" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/vue3/app/profile.png">
-        </td>
-    </tr>
-</table>
+- 用户、角色、菜单、部门、岗位和字典管理。
+- 参数配置、通知公告、操作日志、登录日志和在线用户。
+- 定时任务、服务监控、缓存监控和代码生成。
+- 插件发现、安装、启停、升级、卸载、迁移和权限菜单管理。
 
-## 在线体验
+## 系统架构
 
-* *账号：admin*
-* *密码：admin123*
-* 演示地址：<a href="https://vfadmin.insistence.tech">vfadmin管理系统<a>
-
-## 项目开发及发布相关
-
-### 传输层加解密配置说明
-
-后端密钥配置与轮换说明：[ruoyi-fastapi-backend/docs/transport_crypto_config.md](./ruoyi-fastapi-backend/docs/transport_crypto_config.md)
-
-### 开发
-
-```bash
-# 克隆项目
-git clone https://gitee.com/insistence2022/RuoYi-Vue3-FastAPI.git
-
-# 进入项目根目录
-cd RuoYi-Vue3-FastAPI
+```text
+浏览器 / 外部应用
+        |
+        v
+RuoYi 前端（Vue 3） ---> RuoYi 后端（FastAPI） ---> PostgreSQL
+                                  |
+                                  +---------------> Redis
+                                  |
+                                  +---------------> LiteLLM Proxy ---> 上游模型服务
 ```
 
-#### 前端
+目录职责：
 
-```bash
-# 进入前端目录
-cd ruoyi-fastapi-frontend
-
-# 安装依赖
-npm install 或 yarn --registry=https://registry.npmmirror.com
-
-# 建议不要直接使用 cnpm 安装依赖，会有各种诡异的 bug。可以通过如下操作解决 npm 下载速度慢的问题
-npm install --registry=https://registry.npmmirror.com
-
-# 启动服务
-npm run dev 或 yarn dev
+```text
+ruoyi-fastapi-frontend/   Web 前端和 AI 工作台
+ruoyi-fastapi-backend/    FastAPI 后端、插件和数据库迁移
+ruoyi-fastapi-app/        uni-app 移动端
+ruoyi-fastapi-test/       自动化测试
+deploy/litellm/            LiteLLM 独立运行环境
+deploy/ruoyi/              RuoYi PostgreSQL 初始化脚本
+docs/                      架构、设计和开发文档
 ```
 
-#### 移动端
+## 快速开始
+
+### 环境要求
+
+- Docker Engine 和 Docker Compose v2。
+- Node.js `>= 20`（本地前端开发）。
+- Python `>= 3.10`（本地后端开发）。
+- 至少 4 GB 可用内存，首次构建模型相关依赖时建议 8 GB。
+
+### 首次部署（推荐）
+
+LiteLLM 和 RuoYi 使用独立的 Compose 项目。首次部署先启动 LiteLLM，再启动 RuoYi。
 
 ```bash
-# 进入移动端目录
-cd ruoyi-fastapi-app
+# 1. 启动 LiteLLM、PostgreSQL 和 Redis
+cd deploy/litellm
+./init-env.sh
+docker compose --env-file .env -f compose.yaml up -d
 
-# 安装依赖
-npm install -g pnpm
-pnpm install
+# 2. 为 RuoYi 创建 Runtime Key，并写入仓库根目录 .env
+LITELLM_MANAGEMENT_KEY='<LiteLLM 管理密钥>' ./init-platform-runtime-key.sh
 
-# 启动 H5
-pnpm dev:h5
-
-# 启动微信小程序
-pnpm dev:mp-weixin
+# 3. 返回仓库根目录，一键初始化数据库并启动平台
+cd ../..
+./deploy.sh init
 ```
 
-移动端详细文档请参考：[ruoyi-fastapi-app/README.md](./ruoyi-fastapi-app/README.md)
+`init` 会生成或复用 RuoYi 的数据库密码和 JWT 密钥，初始化 `ruoyi-fastapi` 数据库，构建前后端镜像并启动服务。脚本不会删除数据库或数据卷。
 
-#### 后端
-
-```bash
-# 进入后端目录
-cd ruoyi-fastapi-backend
-
-# 如果使用的是MySQL数据库，请执行以下命令安装项目依赖环境
-pip3 install -r requirements.txt
-# 如果使用的是PostgreSQL数据库，请执行以下命令安装项目依赖环境
-pip3 install -r requirements-pg.txt
-
-# 安装AI插件依赖，如果不需要AI插件，可忽略此步骤
-ruoyi plugin install-deps ai
-
-# 配置环境
-在.env.dev文件中配置开发环境的数据库和redis
-
-# 运行sql文件
-1.新建数据库ruoyi-fastapi(默认，可修改)
-2.如果使用的是MySQL数据库，使用命令或数据库连接工具运行sql文件夹下的ruoyi-fastapi.sql；如果使用的是PostgreSQL数据库，使用命令或数据库连接工具运行sql文件夹下的ruoyi-fastapi-pg.sql
-
-# 运行后端
-ruoyi app run --env=dev
-```
-
-后端 CLI 使用说明请参考：[ruoyi-fastapi-backend/docs/cli_usage.md](./ruoyi-fastapi-backend/docs/cli_usage.md)
-
-#### 访问
-
-```bash
-# 默认账号密码
-账号：admin
-密码：admin123
-
-# 浏览器访问
-地址：http://localhost:80
-```
-
-### 发布
-
-#### 前端
-
-```bash
-# 构建测试环境
-npm run build:stage 或 yarn build:stage
-
-# 构建生产环境
-npm run build:prod 或 yarn build:prod
-```
-
-#### 后端
-
-```bash
-# 配置环境
-在.env.prod文件中配置生产环境的数据库和redis
-
-# 运行后端
-ruoyi app run --env=prod
-```
-
-### Docker Compose部署方式
-
-> ⚠️ **警告：** 默认未做数据持久化配置，请注意数据备份或自行配置持久化
-
-#### MySQL版本
-
-```bash
-docker compose -f docker-compose.my.yml up -d --build
-```
-
-#### PostgreSQL版本
-
-```bash
-docker compose -f docker-compose.pg.yml up -d --build
-```
-
-#### 一键部署管理（推荐）
+### 日常运维
 
 在仓库根目录执行：
 
 ```bash
-./deploy.sh init       # 首次部署：初始化密钥和数据库并启动
-./deploy.sh start      # 启动已有服务
+./deploy.sh start      # 启动已有容器
 ./deploy.sh restart    # 重启服务
-./deploy.sh stop       # 停止服务但保留数据
+./deploy.sh stop       # 停止服务，保留容器和数据卷
 ./deploy.sh status     # 查看服务状态
 ./deploy.sh logs       # 查看实时日志
+./deploy.sh logs --tail=100
 ./deploy.sh update     # 重新构建镜像并更新
 ```
 
-脚本默认使用 PostgreSQL 版本，并会复用 `.env` 中已有密钥，不会删除数据库或数据卷。Compose 项目名默认固定为 `ruoyi-vue3-fastapi`，从其他目录执行时仍能管理同一组容器。
+脚本默认管理 Compose 项目 `ruoyi-vue3-fastapi`，从其他目录执行时仍会指向同一组容器。完整说明见 [`deploy/ruoyi/README.md`](./deploy/ruoyi/README.md)。
 
-## 交流与赞助
+### 访问地址
 
-如果有对本项目及FastAPI感兴趣的朋友，欢迎加入知识星球一起交流学习，让我们一起变得更强。如果你觉得这个项目帮助到了你，你可以请作者喝杯咖啡表示鼓励☕。扫描下面微信二维码添加微信备注VF-Admin即可进群。
-<table>
-    <tr>
-        <td>
-            <img alt="zsxq" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/common/zsxq.jpg">
-        </td>
-        <td>
-            <img alt="zanzhu" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/common/zanzhu.jpg">
-        </td>
-    </tr>
-    <tr>
-        <td>
-            <img alt="wxcode" src="https://gitee.com/insistence2022/ruoyi-fastapi-pictures/raw/master/common/wxcode.jpg">
-        </td>
-    </tr>
-</table>
+| 服务 | 地址 |
+| --- | --- |
+| 智衡平台 | <http://127.0.0.1:12580/> |
+| Swagger | <http://127.0.0.1:12580/docker-api/docs> |
+| ReDoc | <http://127.0.0.1:12580/docker-api/redoc> |
+| LiteLLM 管理界面 | <http://127.0.0.1:14000/ui/> |
+| LiteLLM OpenAI 兼容接口 | `http://127.0.0.1:14000/v1` |
+
+默认管理员账号由项目初始化数据提供。生产环境请首次登录后修改密码，不要在公开环境使用默认凭据。
+
+## 接入模型
+
+1. 打开 LiteLLM 管理界面，配置上游模型和 Provider 凭据。
+2. 在智衡平台进入「模型中心」，创建模型目录记录并填写模型编码、类型和能力。
+3. 在「开发接入」创建应用，为应用授权可用模型。
+4. 在「访问密钥」生成 API Key。密钥只在创建时完整展示，请妥善保存。
+5. 使用平台 API 地址和 Bearer Token 发起调用。
+
+示例：
+
+```bash
+curl http://127.0.0.1:19099/v1/chat/completions \
+  -H 'Authorization: Bearer <平台 API Key>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "<模型编码>",
+    "messages": [{"role": "user", "content": "你好"}],
+    "stream": true
+  }'
+```
+
+Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。当前公开 API 由后端端口 `19099` 提供；生产环境建议通过带鉴权和 TLS 的网关转发。
+
+## 本地开发
+
+### 后端
+
+```bash
+cd ruoyi-fastapi-backend
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-pg.txt
+ruoyi app run --env=dev
+```
+
+后端本地开发需要 PostgreSQL、Redis 和 LiteLLM。数据库初始化和环境变量说明见 [`deploy/ruoyi/README.md`](./deploy/ruoyi/README.md) 与 [`deploy/litellm/README.md`](./deploy/litellm/README.md)。
+
+### 前端
+
+```bash
+cd ruoyi-fastapi-frontend
+npm install
+npm run dev
+```
+
+开发服务器默认地址为 <http://127.0.0.1:5173/>。前端通过 Vite 代理访问本地后端。
+
+### 移动端
+
+```bash
+cd ruoyi-fastapi-app
+pnpm install
+pnpm dev:h5
+```
+
+移动端详细说明见 [`ruoyi-fastapi-app/README.md`](./ruoyi-fastapi-app/README.md)。
+
+## 测试与质量检查
+
+```bash
+# 前端插件和契约测试
+cd ruoyi-fastapi-frontend
+npm run test:plugin
+
+# 后端测试
+cd ../ruoyi-fastapi-backend
+pytest -q
+
+# Shell 脚本语法检查
+cd ..
+sh -n deploy.sh
+```
+
+端到端测试需要安装 Playwright 浏览器：
+
+```bash
+cd ruoyi-fastapi-frontend
+pip install -r ../ruoyi-fastapi-test/requirements.txt
+playwright install chromium
+python tests/e2e/platform_shell_check.py
+```
+
+## 重要配置
+
+### 根目录 `.env`
+
+根目录 `.env` 由初始化脚本维护，包含 RuoYi 数据库连接、JWT 密钥、LiteLLM Runtime Key 和 Management Key。文件权限应为 `0600`，已被 Git 忽略，禁止提交。
+
+### API Key 安全
+
+- 平台 API Key 只保存摘要，不保存明文。
+- API Key 只在创建或轮换时完整展示一次。
+- 停用应用后不能调用其 API Key；重新启用应用后恢复调用。
+- 轮换或撤销密钥会立即影响后续请求。
+
+### 数据持久化
+
+PostgreSQL 和 Redis 数据由 Docker 数据卷持久化。停止服务不会删除数据；执行带 `--volumes` 的 Compose 命令前必须先完成备份。
+
+## 文档索引
+
+- [LiteLLM 部署说明](./deploy/litellm/README.md)
+- [RuoYi PostgreSQL 部署说明](./deploy/ruoyi/README.md)
+- [移动端说明](./ruoyi-fastapi-app/README.md)
+- [测试说明](./ruoyi-fastapi-test/README.md)
+- [CLI 使用说明](./ruoyi-fastapi-backend/docs/cli_usage.md)
+- [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
+- [变更日志](./CHANGELOG.md)
+
+## 许可证
+
+本项目采用 [MIT License](./LICENSE)。
