@@ -1,11 +1,10 @@
 const PROVIDER_FIELD_TYPES = new Set(['text', 'password', 'select', 'upload', 'textarea'])
 
 const CURATED_PROVIDER_PROFILES = Object.freeze([
-  Object.freeze({ provider: 'OpenAI', displayName: 'OpenAI' }),
   Object.freeze({ provider: 'Deepseek', displayName: 'DeepSeek' }),
-  Object.freeze({ provider: 'OpenAI_Compatible', displayName: '硅基流动', apiBase: 'https://api.siliconflow.cn/v1' }),
   Object.freeze({ provider: 'Dashscope', displayName: '阿里云百炼 / 通义千问' }),
   Object.freeze({ provider: 'VolcEngine', displayName: '火山引擎 / 豆包' }),
+  Object.freeze({ provider: 'OpenAI_Compatible', displayName: '硅基流动', apiBase: 'https://api.siliconflow.cn/v1' }),
   Object.freeze({ provider: 'MOONSHOT', displayName: 'Moonshot / Kimi' }),
   Object.freeze({ provider: 'MINIMAX', displayName: 'MiniMax' }),
   Object.freeze({ provider: 'Anthropic', displayName: 'Anthropic' }),

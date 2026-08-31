@@ -130,9 +130,20 @@ const curatedProviders = curateModelProviders([
   }),
   normalizeProvider({ provider: 'Bedrock', displayName: 'Bedrock', litellmProvider: 'bedrock', credentialFields: [] }),
 ])
-assert.deepEqual(curatedProviders.map((provider) => provider.provider), ['OpenAI', 'Deepseek', 'OpenAI_Compatible'])
-assert.equal(curatedProviders[2].displayName, '硅基流动')
-assert.equal(curatedProviders[2].fields.find((field) => field.key === 'api_base')?.defaultValue, 'https://api.siliconflow.cn/v1')
+assert.deepEqual(curatedProviders.map((provider) => provider.provider), ['Deepseek', 'OpenAI_Compatible'])
+assert.equal(curatedProviders[1].displayName, '硅基流动')
+assert.equal(curatedProviders[1].fields.find((field) => field.key === 'api_base')?.defaultValue, 'https://api.siliconflow.cn/v1')
+
+const domesticProviderIds = ['Deepseek', 'Dashscope', 'VolcEngine', 'OpenAI_Compatible', 'MOONSHOT', 'MINIMAX', 'CUSTOM_OPENAI']
+const domesticProviders = domesticProviderIds.map((provider) => normalizeProvider({
+  provider,
+  displayName: provider,
+  litellmProvider: provider.toLowerCase(),
+  credentialFields: [],
+}))
+assert.deepEqual(curateModelProviders(domesticProviders).map((provider) => provider.displayName), [
+  'DeepSeek', '阿里云百炼 / 通义千问', '火山引擎 / 豆包', '硅基流动', 'Moonshot / Kimi', 'MiniMax', '自定义 OpenAI 兼容接口',
+])
 
 const requestedDeployment = {
   modelAlias: 'chat-default', provider: 'openai', upstreamModel: 'gpt-4.1-mini', credentialName: 'openai-main',
