@@ -38,10 +38,8 @@ assert.match(drawer, /providerId:\s*provider\?\.provider\s*\|\|\s*payload\.provi
 assert.match(drawer, /:initial-provider="resources\.credential\?\.providerId\s*\|\|\s*resources\.credential\?\.provider\s*\|\|/)
 
 assert.doesNotMatch(indexView, /高级管理|advancedOpen|SettingOutlined/)
-assert.match(indexView, /v-if="can\('ai:model:list'\)" key="platform" tab="平台模型"/)
-assert.match(indexView, /v-if="can\('ai:engine:deployment:list'\)" key="deployments"/)
-assert.match(indexView, /v-if="can\('ai:engine:credential:list'\)" key="credentials" tab="凭据管理"/)
-assert.match(indexView, /v-if="can\('ai:runtime:query'\)" key="status"/)
+assert.doesNotMatch(indexView, /key="deployments"|key="credentials"|key="status"/)
+assert.match(indexView, /<PlatformModelsPanel ref="platformPanel"/)
 
 assert.match(catalogApi, /url: '\/ai\/models', method: 'post', data, headers: \{ repeatSubmit: false \}/)
 assert.match(catalogApi, /modelPath\(modelId, '\/binding'\).*headers: \{ repeatSubmit: false \}/s)
