@@ -87,10 +87,10 @@ const canTest = computed(() => can('ai:model:test'))
 const canRemove = computed(() => can('ai:engine:deployment:remove'))
 const hasAnyAction = computed(() => !notConfigured.value && (canEdit.value || canTest.value || canRemove.value))
 const columns = computed(() => [
-  { title: '模型', dataIndex: 'baseModel', key: 'baseModel', width: props.mobile ? 180 : 170, ellipsis: true },
-  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 130 },
-  !props.mobile && { title: '已阻止', key: 'blocked', width: 90 },
-  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
+  { title: '模型', dataIndex: 'baseModel', key: 'baseModel', width: props.mobile ? 180 : 170, ellipsis: true, align: 'left' },
+  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 130, align: 'left' },
+  !props.mobile && { title: '已阻止', key: 'blocked', width: 90, align: 'center' },
+  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168, align: 'left' },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 132, align: 'right' },
 ].filter(Boolean))
 

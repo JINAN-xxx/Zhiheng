@@ -161,19 +161,19 @@ const canRemove = computed(() => can('ai:model:remove'))
 const canTest = computed(() => can('ai:model:test'))
 const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
 const columns = computed(() => [
-  { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160 },
-  !props.mobile && { title: '类型', key: 'modelType', width: 110 },
-  !props.mobile && { title: '绑定状态', key: 'bindingStatus', width: 100 },
-  !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90 },
-  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140 },
+  { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160, align: 'left' },
+  !props.mobile && { title: '类型', key: 'modelType', width: 110, align: 'center' },
+  !props.mobile && { title: '绑定状态', key: 'bindingStatus', width: 100, align: 'center' },
+  !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90, align: 'center' },
+  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140, align: 'left' },
   hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 180, align: 'right' },
 ].filter(Boolean))
 const rateColumns = [
-  { title: '版本', dataIndex: 'version', key: 'version', width: 72 },
-  { title: '模式', dataIndex: 'billingMode', key: 'billingMode', width: 112 },
-  { title: '价格', key: 'price' },
-  { title: '币种', dataIndex: 'currency', key: 'currency', width: 72 },
-  { title: '状态', dataIndex: 'status', key: 'status', width: 78 },
+  { title: '版本', dataIndex: 'version', key: 'version', width: 72, align: 'center' },
+  { title: '模式', dataIndex: 'billingMode', key: 'billingMode', width: 112, align: 'center' },
+  { title: '价格', key: 'price', align: 'left' },
+  { title: '币种', dataIndex: 'currency', key: 'currency', width: 72, align: 'center' },
+  { title: '状态', dataIndex: 'status', key: 'status', width: 78, align: 'center' },
 ]
 const testingId = ref(null)
 const rateDialogVisible = ref(false)
@@ -390,6 +390,7 @@ defineExpose({ refresh: load })
 .model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
 .model-table :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
 .model-table :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
+.model-table :deep(.ant-table-cell) { vertical-align: middle; }
 .model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--main-50) !important; }
 .model-table :deep(.ant-tag) { border: 0; border-radius: 999px; }
 .tag-list, .row-actions { display: flex; align-items: center; gap: 6px; }

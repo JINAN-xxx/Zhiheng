@@ -76,9 +76,9 @@ const canRemove = computed(() => can('ai:engine:credential:remove'))
 const hasAnyRowAction = computed(() => !notConfigured.value && (canRotate.value || canRemove.value))
 const columns = computed(() => [
   { title: '名称', dataIndex: 'name', key: 'name', width: props.mobile ? 180 : 220, ellipsis: true },
-  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 150 },
-  !props.mobile && { title: '引用数', dataIndex: 'deploymentCount', key: 'deploymentCount', width: 80, align: 'right' },
-  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168 },
+  !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 150, align: 'left' },
+  !props.mobile && { title: '引用数', dataIndex: 'deploymentCount', key: 'deploymentCount', width: 80, align: 'center' },
+  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168, align: 'left' },
   hasAnyRowAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 96, align: 'right' },
 ].filter(Boolean))
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'

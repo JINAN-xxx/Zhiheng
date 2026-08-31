@@ -90,6 +90,8 @@ assert.doesNotMatch(modelSources, /Management Key|title:\s*'Alias'|title:\s*'Blo
 assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /mobile-model-meta/)
 assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /复制模型编号|模型编号|复制绑定别名|绑定别名/)
 assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/EngineDeploymentsPanel.vue', 'utf8'), /title: '部署编号'|title: '调用别名'|column\.key === 'deploymentId'|column\.key === 'alias'/)
+assert.match(readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8'), /title: '类型'[\s\S]*align: 'center'[\s\S]*title: '绑定状态'[\s\S]*align: 'center'[\s\S]*title: '发布状态'[\s\S]*align: 'center'/)
+assert.match(readFileSync('plugins/ai/views/model/components/EngineDeploymentsPanel.vue', 'utf8'), /title: '模型'[\s\S]*align: 'left'/)
 
 for (const fileName of modelFiles) {
   const source = readFileSync(fileName, 'utf8')
