@@ -10,6 +10,8 @@ __pycache__/
 .Python
 develop-eggs/
 dist/
+!ruoyi-fastapi-frontend/dist/
+!ruoyi-fastapi-frontend/dist/**
 downloads/
 eggs/
 .eggs/

@@ -99,6 +99,8 @@ cd ../..
 
 脚本默认管理 Compose 项目 `ruoyi-vue3-fastapi`，从其他目录执行时仍会指向同一组容器。完整说明见 [`deploy/ruoyi/README.md`](./deploy/ruoyi/README.md)。
 
+前端 `dist` 产物已随仓库发布，远端部署不需要安装 Node.js 或重新执行前端构建；Compose 会直接用 Nginx 挂载该目录。`init` 和 `update` 仍可能按需构建后端镜像。
+
 ### 访问地址
 
 | 服务 | 地址 |
