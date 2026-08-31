@@ -55,10 +55,11 @@ write_platform_secrets() {
     umask 077
     temporary_file=$(mktemp "$platform_environment.tmp.XXXXXX")
     if [ -f "$platform_environment" ]; then
-        awk '$0 !~ /^[[:space:]]*(RUOYI_DB_PASSWORD|JWT_SECRET_KEY)[[:space:]]*=/' \
+        awk '$0 !~ /^[[:space:]]*(RUOYI_DB_PASSWORD|RUOYI_REDIS_PASSWORD|JWT_SECRET_KEY)[[:space:]]*=/' \
             "$platform_environment" > "$temporary_file"
     fi
     printf 'RUOYI_DB_PASSWORD=%s\n' "$ruoyi_password" >> "$temporary_file"
+    printf 'RUOYI_REDIS_PASSWORD=%s\n' "$redis_password" >> "$temporary_file"
     printf 'JWT_SECRET_KEY=%s\n' "$jwt_secret" >> "$temporary_file"
     chmod 600 "$temporary_file"
     mv "$temporary_file" "$platform_environment"
@@ -71,6 +72,7 @@ container_running=$($docker_command inspect -f '{{.State.Running}}' "$postgres_c
 acquire_platform_lock
 
 ruoyi_password=$(read_platform_value RUOYI_DB_PASSWORD)
+redis_password=$(read_platform_value RUOYI_REDIS_PASSWORD)
 jwt_secret=$(read_platform_value JWT_SECRET_KEY)
 secrets_changed=false
 if [ -z "$ruoyi_password" ]; then
@@ -79,6 +81,10 @@ if [ -z "$ruoyi_password" ]; then
 fi
 if [ -z "$jwt_secret" ]; then
     jwt_secret=$(openssl rand -hex 32)
+    secrets_changed=true
+fi
+if [ -z "$redis_password" ]; then
+    redis_password=$(openssl rand -hex 24)
     secrets_changed=true
 fi
 if [ "$secrets_changed" = true ]; then
@@ -91,6 +97,10 @@ case "$ruoyi_password" in
     *[!0-9a-f]*|'') fail "RUOYI_DB_PASSWORD must be a lowercase hexadecimal value." ;;
 esac
 [ "${#ruoyi_password}" -eq 48 ] || fail "RUOYI_DB_PASSWORD must contain exactly 48 characters."
+case "$redis_password" in
+    *[!0-9a-f]*|'') fail "RUOYI_REDIS_PASSWORD must be a lowercase hexadecimal value." ;;
+esac
+[ "${#redis_password}" -eq 48 ] || fail "RUOYI_REDIS_PASSWORD must contain exactly 48 characters."
 case "$jwt_secret" in
     *[!0-9a-f]*|'') fail "JWT_SECRET_KEY must be a lowercase hexadecimal value." ;;
 esac
