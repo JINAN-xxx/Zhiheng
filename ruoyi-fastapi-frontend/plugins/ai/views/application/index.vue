@@ -12,8 +12,8 @@
       </template>
     </WorkspaceToolbar>
 
-    <section class="developer-grid">
-      <WorkspacePanel title="应用" subtitle="选择应用后管理接入配置" flush>
+    <section class="developer-grid" :class="{ 'is-list': showApplicationList, 'is-detail': !showApplicationList }">
+      <WorkspacePanel v-if="showApplicationList" class="application-list-view" title="应用列表" subtitle="选择应用后管理接入配置" flush>
         <div class="application-tools">
           <a-input v-model:value="query.applicationName" allow-clear placeholder="搜索应用" @press-enter="loadApplications()">
             <template #prefix><SearchOutlined /></template>
@@ -51,10 +51,11 @@
         </template>
       </WorkspacePanel>
 
-      <section class="application-detail">
+      <section v-else class="application-detail">
         <WorkspaceState v-if="!selectedApplication" kind="empty" title="选择应用以查看详情" />
         <template v-else>
-          <header class="detail-header">
+          <header class="application-context-bar">
+            <a-button class="application-back" type="text" @click="backToApplicationList"><LeftOutlined />应用列表</a-button>
             <div class="detail-identity">
               <div><h2>{{ selectedApplication.applicationName }}</h2><code>{{ selectedApplication.applicationCode }}</code></div>
               <WorkspaceStatus :status="selectedApplication.status" :label="applicationStatusLabel(selectedApplication.status)" />
@@ -144,7 +145,7 @@
 </template>
 
 <script setup name="AiApplication">
-import { CopyOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons-vue'
+import { CopyOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LeftOutlined, PlayCircleOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import useUserStore from '@/store/modules/user'
 import feedback from '@/plugins/antdFeedback'
@@ -186,6 +187,7 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const selectedApplication = ref(null)
+const showApplicationList = ref(!route.query.applicationId)
 const keys = ref([])
 const keyLoading = ref(false)
 const keyError = ref('')
@@ -276,14 +278,20 @@ async function selectApplication(application, forceRefresh = false, source = 'ma
   if (source === 'manual') {
     applicationRequest += 1
     loading.value = false
+    showApplicationList.value = false
   }
   const currentApplicationId = selectedApplication.value?.applicationId || null
   const nextApplicationId = application?.applicationId || null
   const changed = shouldResetDeveloperKeys(currentApplicationId, nextApplicationId)
   if (changed) clearApplicationResources()
   selectedApplication.value = application
-  await syncRoute(nextApplicationId)
+  if (source === 'manual' || route.query.applicationId || !nextApplicationId) await syncRoute(nextApplicationId)
   if (changed || forceRefresh) await loadActiveTabData()
+}
+
+async function backToApplicationList() {
+  showApplicationList.value = true
+  await router.replace({ path: route.path, query: { ...route.query, applicationId: undefined, tab: undefined } })
 }
 
 function clearApplicationResources() {
@@ -491,6 +499,7 @@ async function copyIssuedKey() {
 watch(() => route.query.tab, loadActiveTabData)
 watch(() => route.query.applicationId, async (applicationId) => {
   if (showDocs.value) return
+  showApplicationList.value = !applicationId
   if (applicationId === selectedApplication.value?.applicationId) return
   await loadApplications(applicationId || null)
 })
@@ -545,19 +554,33 @@ onBeforeUnmount(() => {
 }
 
 .developer-grid {
-  display: grid;
+  display: flex;
   flex: 1;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   min-height: 0;
   overflow: auto;
 }
 
 .developer-grid > :deep(.workspace-panel) {
+  width: 100%;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
+}
+
+.developer-grid.is-list > :deep(.workspace-panel) {
+  flex: 1;
+}
+
+.developer-grid.is-detail {
+  overflow: hidden;
+}
+
+.application-list-view :deep(.workspace-panel__body) {
+  min-height: 0;
 }
 
 .application-tools {
@@ -626,6 +649,22 @@ onBeforeUnmount(() => {
   background: var(--bg-container);
 }
 
+.application-context-bar {
+  flex-wrap: wrap;
+  background: var(--gray-25);
+}
+
+.application-back {
+  order: -1;
+  margin-right: 4px;
+  color: var(--color-text-secondary);
+}
+
+.application-back:hover {
+  color: var(--color-text);
+  background: var(--gray-100);
+}
+
 .application-detail > :deep(.overview-panel),
 .application-detail > :deep(.keys-panel),
 .application-detail > :deep(.models-panel),
@@ -635,14 +674,14 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
-.detail-header,
+.application-context-bar,
 .detail-identity,
 .detail-actions {
   display: flex;
   align-items: center;
 }
 
-.detail-header {
+.application-context-bar {
   min-height: 76px;
   justify-content: space-between;
   gap: 16px;
@@ -672,6 +711,16 @@ onBeforeUnmount(() => {
 
 .detail-tabs :deep(.ant-tabs-nav) {
   margin: 0;
+}
+
+.detail-tabs :deep(.ant-tabs-tab) {
+  padding: 13px 4px;
+  color: var(--color-text-secondary);
+}
+
+.detail-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+  color: var(--main-700);
+  font-weight: 600;
 }
 
 .stale-notice {

@@ -1009,6 +1009,7 @@ async def check_application_api_docs(browser: Browser) -> None:
     try:
         await page.goto(f"{BASE_URL}/ai/application")
         await page.locator(".application-row").wait_for()
+        await page.locator(".application-row").first.click()
         application_query = urlparse(page.url).query
         assert "applicationId=" in application_query
         assert "tab=overview" in application_query
@@ -1022,7 +1023,7 @@ async def check_application_api_docs(browser: Browser) -> None:
         assert await page.get_by_text("Bearer <DEVELOPER_API_KEY>", exact=True).count() == 1
         assert await page.locator(".api-docs-content pre").count() >= 4
         await page.get_by_role("button", name="返回开发接入").click()
-        await page.locator(".application-row").wait_for()
+        await page.locator(".application-detail").wait_for()
         returned_query = urlparse(page.url).query
         assert "view=docs" not in returned_query
         assert "applicationId=" in returned_query
@@ -1041,6 +1042,7 @@ async def check_application_usage_dark(browser: Browser) -> None:
     try:
         await page.goto(f"{BASE_URL}/ai/application")
         await page.locator(".application-row").wait_for()
+        await page.locator(".application-row").first.click()
         assert await page.locator(".platform-topbar").count() == 0
         sidebar_width = await page.locator(".platform-sidebar").evaluate(
             "element => element.getBoundingClientRect().width"
