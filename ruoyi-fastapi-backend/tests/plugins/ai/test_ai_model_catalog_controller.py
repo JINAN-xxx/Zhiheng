@@ -233,6 +233,13 @@ def test_controller_does_not_import_runtime_client_state_or_litellm_adapter() ->
     assert 'request.app.state' not in source
 
 
+def test_smoke_test_uses_an_independent_model_service_session_factory() -> None:
+    source = Path(controller_module.__file__).read_text(encoding='utf-8')
+
+    assert 'from config.database import AsyncSessionLocal' in source
+    assert 'ModelService(query_db, runtime, session_factory=AsyncSessionLocal)' in source
+
+
 def test_write_routes_use_strict_audit_payload_allowlists() -> None:
     routes = route_map()
     write_keys = {

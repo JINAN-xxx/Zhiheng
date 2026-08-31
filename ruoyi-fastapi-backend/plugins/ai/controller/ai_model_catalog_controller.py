@@ -12,6 +12,7 @@ from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.enums import BusinessType
 from common.router import APIRouterPro
 from common.vo import DataResponseModel, PageResponseModel, ResponseBaseModel
+from config.database import AsyncSessionLocal
 from module_admin.entity.vo.user_vo import CurrentUserModel
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel, RateCardModel
@@ -339,6 +340,6 @@ async def smoke_test_platform_model(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
 ) -> Response:
     runtime = get_model_runtime_engine(request)
-    service = ModelSmokeTestService(ModelService(query_db, runtime), runtime)
+    service = ModelSmokeTestService(ModelService(query_db, runtime, session_factory=AsyncSessionLocal), runtime)
     result = await service.run(model_id)
     return ResponseUtil.success(data=result.model_dump(by_alias=True, mode='json'))
