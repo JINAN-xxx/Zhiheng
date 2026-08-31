@@ -7,13 +7,9 @@ const CURATED_PROVIDER_PROFILES = Object.freeze([
   Object.freeze({ provider: 'OpenAI_Compatible', displayName: '硅基流动', apiBase: 'https://api.siliconflow.cn/v1' }),
   Object.freeze({ provider: 'MOONSHOT', displayName: 'Moonshot / Kimi' }),
   Object.freeze({ provider: 'MINIMAX', displayName: 'MiniMax' }),
+  Object.freeze({ provider: 'OpenAI', displayName: 'OpenAI' }),
   Object.freeze({ provider: 'Anthropic', displayName: 'Anthropic' }),
   Object.freeze({ provider: 'Google_AI_Studio', displayName: 'Google Gemini' }),
-  Object.freeze({ provider: 'Azure', displayName: 'Azure OpenAI' }),
-  Object.freeze({ provider: 'Openrouter', displayName: 'OpenRouter' }),
-  Object.freeze({ provider: 'Groq', displayName: 'Groq' }),
-  Object.freeze({ provider: 'MistralAI', displayName: 'Mistral AI' }),
-  Object.freeze({ provider: 'Cohere', displayName: 'Cohere' }),
   Object.freeze({ provider: 'CUSTOM_OPENAI', displayName: '自定义 OpenAI 兼容接口' }),
 ])
 
