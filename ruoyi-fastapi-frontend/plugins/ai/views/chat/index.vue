@@ -116,6 +116,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons-vue'
 import { getToken } from "@/utils/auth";
+import { normalizeErrorMessage } from "@/utils/errorMessage";
 import useWorkspaceStore from "@/store/modules/workspace";
 import { listPlatformModels } from "../../api/modelCatalog";
 import {
@@ -219,7 +220,7 @@ async function selectImage(file) {
     if (!response.ok || !id) throw new Error("图片服务未返回平台文件ID");
     imageIds.value.push(id);
   } catch (error) {
-    proxy.$modal.msgError(error?.message || "图片上传失败");
+    proxy.$modal.msgError(normalizeErrorMessage(error, "图片上传失败"));
   }
   return false
 }
@@ -256,7 +257,7 @@ async function send() {
   } catch (error) {
     if (error?.name !== "AbortError") {
       runState.value = "failed";
-      proxy.$modal.msgError(error?.message || "对话请求失败");
+      proxy.$modal.msgError(normalizeErrorMessage(error, "对话请求失败"));
     }
   } finally {
     loading.value = false;
@@ -283,7 +284,7 @@ function handleEvent(event, assistantId) {
     message.metrics = event.data;
   } else if (event.event === "error") {
     runState.value = "failed";
-    proxy.$modal.msgError(event.data.message || "模型运行失败");
+    proxy.$modal.msgError(normalizeErrorMessage(event.data, "模型运行失败"));
   } else if (event.event === "done") {
     runState.value = event.data.status || "completed";
     message.status = runState.value;
@@ -324,7 +325,7 @@ onMounted(async () => {
     if (routedSessionId) await openSession(routedSessionId);
     else newSession();
   } catch (error) {
-    proxy.$modal.msgError(error?.message || "平台对话初始化失败");
+    proxy.$modal.msgError(normalizeErrorMessage(error, "平台对话初始化失败"));
   }
 });
 

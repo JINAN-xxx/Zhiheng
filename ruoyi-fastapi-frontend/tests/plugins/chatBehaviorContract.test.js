@@ -23,6 +23,8 @@ assert.match(chatView, /resolveChatModelOptions/)
 assert.match(chatView, /modelOptions\s*=\s*computed\(\(\)\s*=>\s*resolveChatModelOptions\(models\.value\)\)/)
 assert.match(chatView, /chatModels\.some\(\(model\)\s*=>\s*model\.modelId\s*===\s*modelId\.value\)/)
 assert.match(chatView, /modelId\.value\s*=\s*chatModels\[0\]\?\.modelId/)
+assert.match(chatView, /normalizeErrorMessage/)
+assert.match(chatView, /normalizeErrorMessage\(event\.data, ['"]模型运行失败['"]\)/)
 
 const sendBody = chatView.slice(chatView.indexOf('async function send()'))
 const clearDraftIndex = sendBody.search(/draft\.value\s*=\s*["']{2}/)

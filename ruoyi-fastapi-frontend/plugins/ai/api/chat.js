@@ -1,5 +1,6 @@
 import request from "@/utils/request";
 import { getToken } from "@/utils/auth";
+import { normalizeErrorMessage } from "@/utils/errorMessage";
 import { parsePlatformSSE } from "../utils/sseParser";
 
 // 获取会话列表
@@ -71,7 +72,7 @@ export async function createChatStream(payload, signal) {
     } catch {
       // Keep the public fallback stable when a proxy returns a non-JSON error.
     }
-    const error = new Error(detail?.detail?.message || detail?.msg || "对话请求失败");
+    const error = new Error(normalizeErrorMessage(detail, "对话请求失败"));
     error.code = detail?.detail?.code || detail?.code || "CHAT_REQUEST_FAILED";
     error.status = response.status;
     throw error;
