@@ -59,7 +59,7 @@ import {
   listEngineProviders, testEngineConnection, updateEngineDeployment,
 } from '../../../api/modelEngine.js'
 import {
-  createRequestGate, hasPermission, isManagementMisconfiguredError, normalizeCredential, normalizeDeployment, normalizeProvider,
+  createRequestGate, curateModelProviders, hasPermission, isManagementMisconfiguredError, normalizeCredential, normalizeDeployment, normalizeProvider,
 } from '../../../utils/modelEngine.js'
 import DeploymentForm from './DeploymentForm.vue'
 
@@ -109,7 +109,7 @@ async function load() {
       const [providerResult, credentialResult] = await Promise.allSettled([listEngineProviders(), listEngineCredentials()])
       if (!loadGate.isCurrent(requestGeneration)) return
       optionsAvailable.value = providerResult.status === 'fulfilled' && credentialResult.status === 'fulfilled'
-      if (providerResult.status === 'fulfilled') providers.value = (providerResult.value?.data || []).map(normalizeProvider).filter(Boolean)
+      if (providerResult.status === 'fulfilled') providers.value = curateModelProviders((providerResult.value?.data || []).map(normalizeProvider).filter(Boolean))
       if (credentialResult.status === 'fulfilled') credentials.value = (credentialResult.value?.data || []).map(normalizeCredential)
     }
   } catch (event) {

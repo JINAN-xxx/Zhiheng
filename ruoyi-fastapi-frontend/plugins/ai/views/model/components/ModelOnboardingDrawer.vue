@@ -212,6 +212,7 @@ import {
   buildQuickResourceIdentity,
   collectAllPages,
   createRequestGate,
+  curateModelProviders,
   defaultModelCapabilities,
   getQuickOnboardingStep,
   isCredentialCompatible,
@@ -386,7 +387,7 @@ async function loadOptions() {
       collectAllPages(({ pageNum, pageSize }) => listPlatformModels({ pageNum, pageSize }), { pageSize: 100 }),
     ])
     if (!requestGate.isCurrent(requestGeneration)) return
-    providers.value = (providerResponse?.data || []).map(normalizeProvider).filter(Boolean)
+    providers.value = curateModelProviders((providerResponse?.data || []).map(normalizeProvider).filter(Boolean))
     credentials.value = (credentialResponse?.data || []).map(normalizeCredential)
     models.value = modelRows.map(normalizePlatformModel)
     selectedProvider.value = providers.value[0]?.provider || ''

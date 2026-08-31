@@ -25,6 +25,7 @@ import {
   normalizePlatformModel,
   normalizeProvider,
   normalizeProviderField,
+  curateModelProviders,
   resolveProvider,
   reconcileDeployment,
   shouldUpdateBinding,
@@ -116,6 +117,22 @@ assert.equal(isCredentialCompatible({ name: 'openai-main', provider: 'openai' },
 const ambiguousProviders = [openAiProvider, { ...openAiProvider, provider: 'OpenAI-Compatible' }]
 assert.equal(resolveProvider(ambiguousProviders, 'openai'), null)
 assert.equal(isCredentialCompatible({ name: 'openai-main', provider: 'openai' }, 'openai', ambiguousProviders), false)
+
+const curatedProviders = curateModelProviders([
+  openAiProvider,
+  normalizeProvider({ provider: 'Deepseek', displayName: 'Deepseek', litellmProvider: 'deepseek', credentialFields: [] }),
+  normalizeProvider({
+    provider: 'OpenAI_Compatible', displayName: 'OpenAI-Compatible Endpoints', litellmProvider: 'openai',
+    credentialFields: [
+      { fieldKey: 'api_base', label: 'API Base', fieldType: 'text' },
+      { fieldKey: 'api_key', label: 'API Key', fieldType: 'password' },
+    ],
+  }),
+  normalizeProvider({ provider: 'Bedrock', displayName: 'Bedrock', litellmProvider: 'bedrock', credentialFields: [] }),
+])
+assert.deepEqual(curatedProviders.map((provider) => provider.provider), ['OpenAI', 'Deepseek', 'OpenAI_Compatible'])
+assert.equal(curatedProviders[2].displayName, '硅基流动')
+assert.equal(curatedProviders[2].fields.find((field) => field.key === 'api_base')?.defaultValue, 'https://api.siliconflow.cn/v1')
 
 const requestedDeployment = {
   modelAlias: 'chat-default', provider: 'openai', upstreamModel: 'gpt-4.1-mini', credentialName: 'openai-main',

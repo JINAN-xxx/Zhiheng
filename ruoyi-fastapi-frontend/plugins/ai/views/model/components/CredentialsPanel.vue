@@ -56,7 +56,7 @@ import {
   createEngineCredential, deleteEngineCredential,
   listEngineCredentials, listEngineProviders, rotateEngineCredential,
 } from '../../../api/modelEngine.js'
-import { createRequestGate, hasPermission, isManagementMisconfiguredError, normalizeCredential, normalizeProvider } from '../../../utils/modelEngine.js'
+import { createRequestGate, curateModelProviders, hasPermission, isManagementMisconfiguredError, normalizeCredential, normalizeProvider } from '../../../utils/modelEngine.js'
 import CredentialForm from './CredentialForm.vue'
 
 const props = defineProps({
@@ -95,7 +95,7 @@ async function load() {
     const providerResult = await Promise.allSettled([listEngineProviders()])
     if (!loadGate.isCurrent(requestGeneration)) return
     providersAvailable.value = providerResult[0].status === 'fulfilled'
-    if (providerResult[0].status === 'fulfilled') providers.value = (providerResult[0].value?.data || []).map(normalizeProvider).filter(Boolean)
+    if (providerResult[0].status === 'fulfilled') providers.value = curateModelProviders((providerResult[0].value?.data || []).map(normalizeProvider).filter(Boolean))
   } catch (event) {
     if (!loadGate.isCurrent(requestGeneration)) return
     const managementMisconfigured = isManagementMisconfiguredError(event)

@@ -1,5 +1,23 @@
 const PROVIDER_FIELD_TYPES = new Set(['text', 'password', 'select', 'upload', 'textarea'])
 
+const CURATED_PROVIDER_PROFILES = Object.freeze([
+  Object.freeze({ provider: 'OpenAI', displayName: 'OpenAI' }),
+  Object.freeze({ provider: 'Deepseek', displayName: 'DeepSeek' }),
+  Object.freeze({ provider: 'OpenAI_Compatible', displayName: '硅基流动', apiBase: 'https://api.siliconflow.cn/v1' }),
+  Object.freeze({ provider: 'Dashscope', displayName: '阿里云百炼 / 通义千问' }),
+  Object.freeze({ provider: 'VolcEngine', displayName: '火山引擎 / 豆包' }),
+  Object.freeze({ provider: 'MOONSHOT', displayName: 'Moonshot / Kimi' }),
+  Object.freeze({ provider: 'MINIMAX', displayName: 'MiniMax' }),
+  Object.freeze({ provider: 'Anthropic', displayName: 'Anthropic' }),
+  Object.freeze({ provider: 'Google_AI_Studio', displayName: 'Google Gemini' }),
+  Object.freeze({ provider: 'Azure', displayName: 'Azure OpenAI' }),
+  Object.freeze({ provider: 'Openrouter', displayName: 'OpenRouter' }),
+  Object.freeze({ provider: 'Groq', displayName: 'Groq' }),
+  Object.freeze({ provider: 'MistralAI', displayName: 'Mistral AI' }),
+  Object.freeze({ provider: 'Cohere', displayName: 'Cohere' }),
+  Object.freeze({ provider: 'CUSTOM_OPENAI', displayName: '自定义 OpenAI 兼容接口' }),
+])
+
 const CAPABILITY_META = Object.freeze({
   vision: Object.freeze({ label: '视觉', type: 'primary' }),
   reasoning: Object.freeze({ label: '推理', type: 'warning' }),
@@ -192,6 +210,24 @@ export function normalizeProvider(provider) {
       ? provider.credentialFields.map(normalizeProviderField).filter(Boolean)
       : [],
   }
+}
+
+export function curateModelProviders(providers) {
+  const providerMap = new Map(
+    (Array.isArray(providers) ? providers : [])
+      .filter((provider) => provider?.provider)
+      .map((provider) => [provider.provider, provider]),
+  )
+  return CURATED_PROVIDER_PROFILES.flatMap((profile) => {
+    const provider = providerMap.get(profile.provider)
+    if (!provider) return []
+    const fields = provider.fields.map((field) => (
+      profile.apiBase && field.key === 'api_base'
+        ? { ...field, defaultValue: profile.apiBase }
+        : field
+    ))
+    return [{ ...provider, displayName: profile.displayName, fields }]
+  })
 }
 
 export function resolveProvider(providers, identity) {
