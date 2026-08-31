@@ -30,7 +30,7 @@ for (const modelPanel of modelPanels) {
   assert.doesNotMatch(modelPanel, /\.model-table[^}]*\.ant-table-tbody[^}]*height:\s*46px/)
 }
 assert.match(applicationView, /\.application-row\s*\{[^}]*min-height:\s*48px[^}]*padding:\s*10px\s+16px/s)
-assert.doesNotMatch(modelView, /workspace-tabs/)
+assert.match(modelView, /class="workspace-tabs"/)
 
 assert.match(workspaceToolbar, /min-height:\s*56px/)
 assert.match(workspaceToolbar, /border-bottom:\s*1px solid var\(--gray-150\)/)

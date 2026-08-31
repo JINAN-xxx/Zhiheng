@@ -101,7 +101,8 @@ for (const fileName of modelFiles) {
 }
 
 const modelIndex = readFileSync('plugins/ai/views/model/index.vue', 'utf8')
-assert.doesNotMatch(modelIndex, /key="deployments"|key="credentials"|key="status"/)
+assert.match(modelIndex, /v-if="can\('ai:engine:credential:list'\)" key="credentials" tab="凭据管理"/)
+assert.doesNotMatch(modelIndex, /key="deployments"|key="status"/)
 assert.doesNotMatch(modelIndex, /\.model-workspace\s*\{[^}]*border:\s*1px solid var\(--gray-150\)/)
 assert.doesNotMatch(modelIndex, /\.model-workspace\s*\{[^}]*border-radius:/)
 assert.match(modelIndex, /model-onboarding-drawer \.ant-drawer-content\)[\s\S]*?background:\s*var\(--bg-elevated\)/)

@@ -15,7 +15,14 @@
     </WorkspaceToolbar>
 
     <section class="model-workspace">
-      <PlatformModelsPanel ref="platformPanel" :permissions="permissions" :mobile="isMobile" />
+      <a-tabs v-model:active-key="activeTab" class="workspace-tabs">
+        <a-tab-pane v-if="can('ai:model:list')" key="platform" tab="平台模型">
+          <PlatformModelsPanel ref="platformPanel" :permissions="permissions" :mobile="isMobile" />
+        </a-tab-pane>
+        <a-tab-pane v-if="can('ai:engine:credential:list')" key="credentials" tab="凭据管理">
+          <CredentialsPanel ref="credentialPanel" :permissions="permissions" :mobile="isMobile" />
+        </a-tab-pane>
+      </a-tabs>
     </section>
 
     <ModelOnboardingDrawer v-model="onboardingOpen" @completed="refreshAfterOnboarding" />
@@ -26,12 +33,14 @@
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
-import { hasAllPermissions } from '../../utils/modelEngine.js'
+import { hasAllPermissions, hasPermission } from '../../utils/modelEngine.js'
+import CredentialsPanel from './components/CredentialsPanel.vue'
 import ModelOnboardingDrawer from './components/ModelOnboardingDrawer.vue'
 import PlatformModelsPanel from './components/PlatformModelsPanel.vue'
 
 const userStore = useUserStore()
 const permissions = computed(() => userStore.permissions || [])
+const can = (permission) => hasPermission(permissions.value, permission)
 const onboardingPermissions = [
   'ai:engine:credential:list', 'ai:engine:credential:add', 'ai:engine:deployment:add',
   'ai:engine:deployment:list',
@@ -42,16 +51,28 @@ const isMobile = ref(false)
 const updateMobile = () => { isMobile.value = window.innerWidth <= 760 }
 const onboardingOpen = ref(false)
 const platformPanel = ref()
+const credentialPanel = ref()
+const activeTab = ref('platform')
+const availableTabs = computed(() => [
+  can('ai:model:list') && 'platform',
+  can('ai:engine:credential:list') && 'credentials',
+].filter(Boolean))
+
+watch(availableTabs, (tabs) => {
+  if (!tabs.includes(activeTab.value)) activeTab.value = tabs[0] || ''
+}, { immediate: true })
 
 onMounted(() => { updateMobile(); window.addEventListener('resize', updateMobile) })
 onBeforeUnmount(() => window.removeEventListener('resize', updateMobile))
 
 function refreshCurrent() {
-  platformPanel.value?.refresh()
+  const panels = { platform: platformPanel, credentials: credentialPanel }
+  panels[activeTab.value]?.value?.refresh()
 }
 
 function refreshAfterOnboarding() {
   platformPanel.value?.refresh()
+  credentialPanel.value?.refresh()
 }
 </script>
 
@@ -80,6 +101,15 @@ function refreshAfterOnboarding() {
   padding: 0 24px 24px;
   background: var(--bg-container);
 }
+.workspace-tabs { min-height: 0; flex: 1; }
+.workspace-tabs :deep(.ant-tabs-nav) { margin: 0 0 12px; border-bottom: 1px solid var(--gray-150); }
+.workspace-tabs :deep(.ant-tabs-nav::before) { border-bottom: 0; }
+.workspace-tabs :deep(.ant-tabs-tab) { height: 44px; margin: 0; padding: 0 16px; color: var(--color-text-secondary); font-weight: 500; }
+.workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) { color: var(--main-700); }
+.workspace-tabs :deep(.ant-tabs-ink-bar) { background: var(--main-700); }
+.workspace-tabs :deep(.ant-tabs-content-holder),
+.workspace-tabs :deep(.ant-tabs-content),
+.workspace-tabs :deep(.ant-tabs-tabpane) { min-height: 0; }
 :global(.model-onboarding-drawer .ant-alert) { border-radius: 6px; }
 :global(.model-onboarding-drawer) {
   --ai-font-body: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", MiSans, "PingFang SC", "Microsoft YaHei", sans-serif;
