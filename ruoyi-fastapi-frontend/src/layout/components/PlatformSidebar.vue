@@ -157,7 +157,7 @@ const resourceGroups = computed(() => [
   ...resolveAiResourceGroups(permissionSet.value),
   ...resolveAgentExtensionGroups(permissionSet.value),
 ])
-const expandedGroupKeys = ref(new Set(['model-center', 'agent-extension']))
+const expandedGroupKeys = ref(new Set())
 const navItems = computed(() => [
   canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
 ].filter(Boolean))
@@ -228,11 +228,11 @@ onMounted(() => {
   if (canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
 })
 
-watch(() => route.path, () => {
-  const activeGroup = resourceGroups.value.find((group) => resourceGroupIsActive(group))
+watch([resourceGroups, () => route.path], ([groups]) => {
+  const activeGroup = groups.find((group) => resourceGroupIsActive(group))
   if (!activeGroup || expandedGroupKeys.value.has(activeGroup.key)) return
   expandedGroupKeys.value = new Set([...expandedGroupKeys.value, activeGroup.key])
-})
+}, { immediate: true })
 </script>
 
 <style scoped lang="scss">

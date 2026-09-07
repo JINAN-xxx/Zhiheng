@@ -817,8 +817,9 @@ async def check_desktop(browser: Browser) -> None:
     assert await desktop_account.get_by_role("button", name="通知公告").count() == 1
     assert await page.locator(".platform-topbar").count() == 0
     assert await page.get_by_text("Developer API", exact=True).count() == 0
-    for label in ("智能对话", "开发接入", "用量记录"):
-        assert await page.get_by_role("link", name=label, exact=True).count() == 1
+    assert await page.get_by_role("link", name="智能对话", exact=True).count() == 1
+    for label in ("开发接入", "用量记录"):
+        assert await page.get_by_role("link", name=label, exact=True).count() == 0
     assert await page.get_by_role("button", name="模型中心", exact=True).count() == 1
     assert await page.get_by_text(LONG_SESSION_TITLE, exact=True).count() == 1
     await assert_text_is_constrained(page, LONG_SESSION_TITLE)
@@ -840,12 +841,14 @@ async def check_desktop(browser: Browser) -> None:
     assert active_chat_background == "rgb(225, 246, 251)"
 
     group_toggle = page.get_by_role("button", name="模型中心", exact=True)
-    assert await group_toggle.get_attribute("aria-expanded") == "true"
-    await group_toggle.click()
     assert await group_toggle.get_attribute("aria-expanded") == "false"
     await page.get_by_role("link", name="用量记录", exact=True).wait_for(state="hidden")
     await group_toggle.click()
     assert await group_toggle.get_attribute("aria-expanded") == "true"
+    await page.get_by_role("link", name="用量记录", exact=True).wait_for(state="visible")
+    await page.get_by_role("link", name="开发接入", exact=True).wait_for(state="visible")
+    extension_toggle = page.get_by_role("button", name="智能体扩展", exact=True)
+    assert await extension_toggle.get_attribute("aria-expanded") == "false"
 
     expanded_width = await page.locator(".platform-shell__sidebar").evaluate(
         "(element) => element.getBoundingClientRect().width"
@@ -1229,6 +1232,7 @@ async def check_skill_management_and_chat_picker(browser: Browser) -> None:
     try:
         await page.goto(f"{BASE_URL}/extensions/skill")
         await page.get_by_role("heading", name="技能管理", exact=True).wait_for()
+        assert await page.get_by_role("button", name="智能体扩展", exact=True).get_attribute("aria-expanded") == "true"
         cards = page.locator(".skill-card")
         await cards.first.wait_for()
         assert await cards.count() == 2
