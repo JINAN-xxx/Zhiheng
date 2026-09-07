@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import AsyncSessionLocal
 from plugins.ai.infrastructure.model_runtime_provider import get_model_runtime_engine
+from plugins.ai.infrastructure.skill_context_adapter import SkillContextAdapter
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatRuntimeCoordinator
 from plugins.ai.service.model_service import ModelService
@@ -20,4 +21,8 @@ def get_platform_chat_service(request: Request, db: AsyncSession) -> PlatformCha
         ),
         coordinator=ChatRuntimeCoordinator(getattr(request.app.state, 'redis', None)),
         preferences=ChatPreferencesService(db),
+        skill_resolver=SkillContextAdapter(
+            AsyncSessionLocal,
+            getattr(request.app.state, 'agent_skill_context_provider', None),
+        ),
     )

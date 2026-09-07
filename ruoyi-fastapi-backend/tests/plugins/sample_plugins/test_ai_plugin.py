@@ -77,7 +77,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(BACKEND_ROOT / 'plugins' / 'ai' / 'plugin.yaml')
 
     assert plugin.manifest.id == 'ai'
-    assert plugin.manifest.version == '0.7.0'
+    assert plugin.manifest.version == '0.8.0'
     assert plugin.manifest.backend.module == 'plugins.ai'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.ai.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.ai.hooks:on_shutdown'
@@ -89,6 +89,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
         'migrations/mysql/005_embedding_rerank_gateway.sql',
         'migrations/mysql/006_quota_reservation.sql',
         'migrations/mysql/007_application_lifecycle.sql',
+        'migrations/mysql/008_chat_skill_snapshots.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
@@ -96,6 +97,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
         'migrations/postgresql/005_embedding_rerank_gateway.sql',
         'migrations/postgresql/006_quota_reservation.sql',
         'migrations/postgresql/007_application_lifecycle.sql',
+        'migrations/postgresql/008_chat_skill_snapshots.sql',
     ]
     assert plugin.manifest.backend.seeds == [
         'seeds/mysql/ai_provider_type.sql',
@@ -108,7 +110,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     assert plugin.manifest.frontend.menus[0].children[2].perms == 'ai:application:list'
     assert plugin.manifest.frontend.menus[0].children[3].component == 'plugin/ai/usage/index'
     assert plugin.manifest.frontend.menus[0].children[3].perms == 'ai:application:query'
-    assert plugin.manifest.frontend.menus[0].children[3].visible == '1'
+    assert plugin.manifest.frontend.menus[0].children[3].visible == '0'
     menu_permissions = [menu.perms for menu in plugin.manifest.frontend.menus[0].children if menu.perms]
     assert len(menu_permissions) == len(set(menu_permissions))
     assert set(plugin.manifest.permission_codes) == EXPECTED_AI_PERMISSIONS

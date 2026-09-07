@@ -85,6 +85,12 @@ class AiChatMessage(Base):
         default=list,
         comment='Platform 文件引用JSON',
     )
+    skill_snapshots = Column(
+        JSON().with_variant(JSONB(), 'postgresql'),
+        nullable=False,
+        default=list,
+        comment='当前消息使用的技能名称快照',
+    )
     status = Column(String(16), nullable=False, comment='消息状态')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment='更新时间')

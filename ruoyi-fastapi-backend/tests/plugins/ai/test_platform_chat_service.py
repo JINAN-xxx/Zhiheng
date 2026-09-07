@@ -366,7 +366,11 @@ class FakeImages:
 
 
 def _request(
-    *, session_id: str | None = None, message: str = 'hello', images: list[dict[str, str]] | None = None
+    *,
+    session_id: str | None = None,
+    message: str = 'hello',
+    images: list[dict[str, str]] | None = None,
+    skill_slugs: list[str] | None = None,
 ) -> PlatformChatRequestModel:
     return PlatformChatRequestModel.model_validate(
         {
@@ -375,8 +379,21 @@ def _request(
             'clientMessageId': CLIENT_MESSAGE_ID,
             'message': message,
             'images': images or [],
+            'skillSlugs': skill_slugs or [],
         }
     )
+
+
+class FakeSkills:
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, list[str]]] = []
+
+    async def resolve(self, user_id: int, slugs: list[str]) -> SimpleNamespace:
+        self.calls.append((user_id, slugs))
+        return SimpleNamespace(
+            system_prompt='<selected_skills>深度研究</selected_skills>',
+            snapshots=({'slug': 'deep-research', 'name': '深度研究'},),
+        )
 
 
 def _service(
@@ -388,6 +405,7 @@ def _service(
     images: FakeImages | None = None,
     stream_error: BaseException | None = None,
     preferences: FakePreferences | None = None,
+    skills: FakeSkills | None = None,
 ) -> tuple[PlatformChatService, FakeSession, FakeDao, FakeModelService, FakeCoordinator]:
     db = db or FakeSession()
     fake_dao = dao or FakeDao()
@@ -414,12 +432,84 @@ def _service(
         preferences=preferences or FakePreferences(),
         chat_dao=fake_dao,
         image_resolver=images or FakeImages(),
+        skill_resolver=skills,
         id_factory=lambda prefix: {'ses': SESSION_ID, 'msg': 'msg_423e4567e89b42d3a456426614174444', 'run': RUN_ID}[
             prefix
         ],
         clock=lambda: NOW,
     )
     return service, db, fake_dao, fake_runtime, fake_coordinator
+
+
+@pytest.mark.asyncio
+async def test_send_injects_selected_skills_and_persists_snapshot() -> None:
+    skills = FakeSkills()
+    service, _, dao, runtime, _ = _service(skills=skills)
+
+    result = await service.send(USER_ID, _request(skill_slugs=['deep-research']))
+    [event async for event in result]
+
+    assert skills.calls == [(USER_ID, ['deep-research'])]
+    sent_messages = runtime.stream_calls[0][1]
+    assert sent_messages[0].role == 'system'
+    assert sent_messages[0].content.startswith('<selected_skills>')
+    assert 'You are a platform assistant.' in sent_messages[0].content
+    assert dao.messages[0].skill_snapshots == [{'slug': 'deep-research', 'name': '深度研究'}]
+
+
+@pytest.mark.asyncio
+async def test_send_without_skills_does_not_require_skill_resolver() -> None:
+    service, _, dao, runtime, _ = _service()
+
+    result = await service.send(USER_ID, _request())
+    [event async for event in result]
+
+    assert dao.messages[0].skill_snapshots == []
+    assert runtime.stream_calls[0][1][0].content == 'You are a platform assistant.'
+
+
+@pytest.mark.asyncio
+async def test_send_with_skills_requires_registered_skill_resolver() -> None:
+    service, _, _, _, _ = _service()
+
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(skill_slugs=['deep-research']))
+
+    assert raised.value.code == 'CHAT_SKILL_UNAVAILABLE'
+
+
+def test_chat_request_rejects_duplicate_or_too_many_skills() -> None:
+    with pytest.raises(ValueError, match='重复'):
+        _request(skill_slugs=['deep-research', 'deep-research'])
+    with pytest.raises(ValueError, match='最多选择 5 个技能'):
+        _request(skill_slugs=[f'skill-{index}' for index in range(6)])
+
+
+@pytest.mark.asyncio
+async def test_duplicate_client_message_rejects_changed_skill_selection() -> None:
+    dao = FakeDao(
+        session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, status='active')
+    )
+    dao.messages.append(
+        AiChatMessage(
+            message_id='msg_423e4567e89b42d3a456426614174444',
+            session_id=SESSION_ID,
+            client_message_id=CLIENT_MESSAGE_ID,
+            role='user',
+            content='hello',
+            images=[],
+            skill_snapshots=[{'slug': 'document-summary', 'name': '文档总结'}],
+            status='complete',
+        )
+    )
+    skills = FakeSkills()
+    service, _, _, _, _ = _service(dao=dao, skills=skills)
+
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(session_id=SESSION_ID, skill_slugs=['deep-research']))
+
+    assert raised.value.code == 'CHAT_IDEMPOTENCY_CONFLICT'
+
 
 
 @pytest.mark.asyncio

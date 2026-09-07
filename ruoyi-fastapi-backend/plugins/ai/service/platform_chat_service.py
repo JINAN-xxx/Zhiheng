@@ -33,6 +33,11 @@ _ERROR_CONTRACTS = (
     (409, 'CHAT_IDEMPOTENCY_CONFLICT', '客户端消息已存在且内容不一致'),
     (422, 'CHAT_IMAGE_INVALID', '图片引用无效或不可用'),
     (422, 'CHAT_VISION_DISABLED', '当前用户未启用视觉能力'),
+    (503, 'CHAT_SKILL_UNAVAILABLE', '技能服务暂不可用'),
+    (422, 'CHAT_SKILL_NOT_FOUND', '所选技能不存在，请重新选择'),
+    (422, 'CHAT_SKILL_DISABLED', '所选技能已停用，请重新选择'),
+    (422, 'CHAT_SKILL_SELECTION_LIMIT', '每条消息最多选择 5 个技能，且不能重复'),
+    (422, 'CHAT_SKILL_CONTENT_TOO_LARGE', '所选技能内容过大，无法用于本次对话'),
 )
 _ERROR_NAMES = (
     'session_not_found',
@@ -41,6 +46,11 @@ _ERROR_NAMES = (
     'idempotency_conflict',
     'image_invalid',
     'vision_disabled',
+    'skill_unavailable',
+    'skill_not_found',
+    'skill_disabled',
+    'skill_selection_limit',
+    'skill_content_too_large',
 )
 _ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _ERROR_CONTRACTS, strict=True)))
 _ERROR_TOKEN = object()
@@ -135,6 +145,26 @@ class PlatformChatError(Exception):
     def run_not_found() -> 'PlatformChatError':
         return _new_chat_error(1)
 
+    @staticmethod
+    def skill_unavailable() -> 'PlatformChatError':
+        return _new_chat_error(6)
+
+    @staticmethod
+    def skill_not_found() -> 'PlatformChatError':
+        return _new_chat_error(7)
+
+    @staticmethod
+    def skill_disabled() -> 'PlatformChatError':
+        return _new_chat_error(8)
+
+    @staticmethod
+    def skill_selection_limit() -> 'PlatformChatError':
+        return _new_chat_error(9)
+
+    @staticmethod
+    def skill_content_too_large() -> 'PlatformChatError':
+        return _new_chat_error(10)
+
 
 @dataclass(frozen=True, slots=True)
 class PlatformChatEvent:
@@ -213,6 +243,16 @@ class ChatModelService(Protocol):
 
 class ChatPreferences(Protocol):
     async def get_preferences(self, *, user_id: int) -> Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedChatSkills:
+    system_prompt: str
+    snapshots: tuple[dict[str, str], ...]
+
+
+class ChatSkillResolver(Protocol):
+    async def resolve(self, user_id: int, slugs: list[str]) -> ResolvedChatSkills: ...
 
 
 def _freeze_data(data: Mapping[str, object]) -> Mapping[str, object]:
@@ -297,6 +337,7 @@ class PlatformChatService:
         preferences: ChatPreferences | ChatPreferencesService,
         chat_dao: ChatDao = PlatformChatDao,
         image_resolver: PlatformImageResolver | None = None,
+        skill_resolver: ChatSkillResolver | None = None,
         id_factory: Callable[[str], str] = new_resource_id,
         clock: Callable[[], datetime] = datetime.now,
     ) -> None:
@@ -306,6 +347,7 @@ class PlatformChatService:
         self._preferences = preferences
         self._dao = chat_dao
         self._image_resolver = image_resolver
+        self._skill_resolver = skill_resolver
         self._id_factory = id_factory
         self._clock = clock
 
@@ -406,6 +448,7 @@ class PlatformChatService:
         # load them before creating a new session so that rollback cannot remove
         # the pending session before its first message is flushed.
         preferences = await self._preferences.get_preferences(user_id=user_id)
+        skills = await self._resolve_skills(user_id, request.skill_slugs)
         session = await self._load_owned_session(user_id, request.session_id)
         if session is not None and session.model_id != resolved.platform_model_id:
             raise PlatformChatError.session_model_mismatch()
@@ -427,7 +470,8 @@ class PlatformChatService:
             request.client_message_id,
         )
         if existing is not None:
-            if existing.content != request.message:
+            existing_skill_slugs = [item.get('slug') for item in (existing.skill_snapshots or [])]
+            if existing.content != request.message or existing_skill_slugs != request.skill_slugs:
                 raise PlatformChatError.idempotency_conflict()
             previous_run = await self._dao.get_latest_run(self._db, session_id)
             replay_run_id = previous_run.run_id if previous_run is not None else self._id_factory('run')
@@ -442,7 +486,13 @@ class PlatformChatService:
                 limit=preferences.history_message_count,
             )
         user_content, image_refs = await self._build_user_content(user_id, request, preferences)
-        messages = self._build_messages(history, request.message, user_content, preferences.system_prompt)
+        messages = self._build_messages(
+            history,
+            request.message,
+            user_content,
+            preferences.system_prompt,
+            skills.system_prompt,
+        )
         message = AiChatMessage(
             message_id=self._id_factory('msg'),
             session_id=session_id,
@@ -450,6 +500,7 @@ class PlatformChatService:
             role='user',
             content=request.message,
             images=image_refs,
+            skill_snapshots=list(skills.snapshots),
             status='complete',
             created_at=self._clock(),
             updated_at=self._clock(),
@@ -499,6 +550,13 @@ class PlatformChatService:
             ),
         )
 
+    async def _resolve_skills(self, user_id: int, slugs: list[str]) -> ResolvedChatSkills:
+        if not slugs:
+            return ResolvedChatSkills(system_prompt='', snapshots=())
+        if self._skill_resolver is None:
+            raise PlatformChatError.skill_unavailable()
+        return await self._skill_resolver.resolve(user_id, slugs)
+
     async def _load_owned_session(self, user_id: int, session_id: str | None) -> AiChatSession | None:
         if session_id is None:
             return None
@@ -540,10 +598,12 @@ class PlatformChatService:
         message: str,
         user_content: object,
         system_prompt: str | None,
+        skill_prompt: str | None = None,
     ) -> list[ModelMessage]:
         messages: list[ModelMessage] = []
-        if system_prompt:
-            messages.append(ModelMessage(role='system', content=system_prompt))
+        system_parts = [part for part in (skill_prompt, system_prompt) if part]
+        if system_parts:
+            messages.append(ModelMessage(role='system', content='\n\n'.join(system_parts)))
         messages.extend(
             ModelMessage(role=item.role, content=item.content)
             for item in history

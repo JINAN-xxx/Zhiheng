@@ -14,6 +14,10 @@ ModelResourceId = Annotated[str, AfterValidator(lambda value: validate_resource_
 MessageResourceId = Annotated[str, AfterValidator(lambda value: validate_resource_id(value, 'msg'))]
 RunResourceId = Annotated[str, AfterValidator(lambda value: validate_resource_id(value, 'run'))]
 BindingResourceId = Annotated[str, AfterValidator(lambda value: validate_resource_id(value, 'bnd'))]
+SkillSlug = Annotated[
+    str,
+    StringConstraints(strict=True, min_length=1, max_length=100, pattern=r'^[a-z0-9]+(?:-[a-z0-9]+)*$'),
+]
 ClientMessageId = Annotated[
     str,
     StringConstraints(strict=True, min_length=1, max_length=100, pattern=r'^[A-Za-z0-9][A-Za-z0-9._:-]*$'),
@@ -21,6 +25,7 @@ ClientMessageId = Annotated[
 ChatContent = Annotated[str, StringConstraints(strict=True, min_length=1, max_length=100_000)]
 SystemPrompt = Annotated[str, StringConstraints(strict=True, max_length=10_000)]
 NonNegativeInteger = Annotated[int, Field(strict=True, ge=0)]
+MAX_SELECTED_SKILLS = 5
 
 
 def _parse_http_query_integer(value: object) -> int:
@@ -65,6 +70,7 @@ class PlatformChatRequestModel(_StrictRequestModel):
     client_message_id: ClientMessageId
     message: ChatContent = Field(repr=False)
     images: list[PlatformImageReferenceModel] = Field(default_factory=list, max_length=10)
+    skill_slugs: list[SkillSlug] = Field(default_factory=list)
 
     @field_validator('message')
     @classmethod
@@ -76,6 +82,15 @@ class PlatformChatRequestModel(_StrictRequestModel):
             for character in value
         ):
             raise ValueError('消息内容包含不支持的控制字符')
+        return value
+
+    @field_validator('skill_slugs')
+    @classmethod
+    def reject_duplicate_skills(cls, value: list[str]) -> list[str]:
+        if len(value) > MAX_SELECTED_SKILLS:
+            raise ValueError('每条消息最多选择 5 个技能')
+        if len(value) != len(set(value)):
+            raise ValueError('同一技能不能重复选择')
         return value
 
 
@@ -125,9 +140,17 @@ class PlatformMessageModel(_ResponseModel):
     content: str
     reasoning_content: str | None = None
     images: list[PlatformImageReferenceModel]
+    skill_snapshots: Annotated[list['SkillSnapshotModel'], BeforeValidator(lambda value: value or [])] = Field(
+        default_factory=list
+    )
     status: Literal['complete', 'interrupted', 'cancelled']
     created_at: datetime
     updated_at: datetime
+
+
+class SkillSnapshotModel(_ResponseModel):
+    slug: SkillSlug
+    name: str
 
 
 class PlatformRunModel(_ResponseModel):

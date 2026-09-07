@@ -28,6 +28,10 @@ def _read_migration(database: str) -> str:
     return (PLUGIN_ROOT / 'migrations' / database / '003_platform_chat.sql').read_text(encoding='utf-8')
 
 
+def _read_skill_migration(database: str) -> str:
+    return (PLUGIN_ROOT / 'migrations' / database / '008_chat_skill_snapshots.sql').read_text(encoding='utf-8')
+
+
 def _normalize_sql(sql: str) -> str:
     return re.sub(r'\s+', ' ', sql.lower()).strip()
 
@@ -50,7 +54,7 @@ def _assert_foreign_key(column: object, target: str) -> None:
 def test_platform_chat_migrations_are_registered_after_model_foundation() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.7.0'
+    assert plugin.manifest.version == '0.8.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
@@ -59,6 +63,7 @@ def test_platform_chat_migrations_are_registered_after_model_foundation() -> Non
         'migrations/mysql/005_embedding_rerank_gateway.sql',
         'migrations/mysql/006_quota_reservation.sql',
         'migrations/mysql/007_application_lifecycle.sql',
+        'migrations/mysql/008_chat_skill_snapshots.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
@@ -66,7 +71,22 @@ def test_platform_chat_migrations_are_registered_after_model_foundation() -> Non
         'migrations/postgresql/005_embedding_rerank_gateway.sql',
         'migrations/postgresql/006_quota_reservation.sql',
         'migrations/postgresql/007_application_lifecycle.sql',
+        'migrations/postgresql/008_chat_skill_snapshots.sql',
     ]
+
+
+def test_platform_chat_skill_snapshot_migrations_are_additive() -> None:
+    for database in ('mysql', 'postgresql'):
+        sql = _normalize_sql(_read_skill_migration(database))
+        assert 'alter table ai_chat_message' in sql
+        assert 'skill_snapshots' in sql
+        assert 'drop table' not in sql
+
+
+def test_platform_chat_message_has_skill_snapshot_json_column() -> None:
+    assert AiChatMessage.__table__.c.skill_snapshots.nullable is False
+    assert callable(AiChatMessage.__table__.c.skill_snapshots.default.arg)
+    assert AiChatMessage.__table__.c.skill_snapshots.default.arg(None) == []
 
 
 def test_platform_chat_migrations_are_additive_and_leave_legacy_tables_alone() -> None:
