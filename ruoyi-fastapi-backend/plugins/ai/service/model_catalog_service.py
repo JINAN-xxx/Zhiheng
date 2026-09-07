@@ -41,8 +41,8 @@ BINDING_PUBLISH_CONFLICT = '运行时绑定已变化，请重新发布'
 RUNTIME_ALIAS_MISSING = '运行时未发现绑定的模型别名'
 MODEL_STATE_CONFLICT = '模型状态已变化，请刷新后重试'
 MODEL_DISABLE_CONFLICT = '仅已发布模型可以停用'
-MODEL_DELETE_CONFLICT = '仅从未发布的草稿可以删除'
-MODEL_REFERENCED = '模型已被对话引用，不能删除'
+MODEL_DELETE_CONFLICT = '仅草稿或已停用模型可以删除'
+MODEL_REFERENCED = '模型已被对话、密钥授权、费率或调用记录引用，不能删除'
 RATE_CARD_TYPE_CONFLICT = '模型类型与计费模式不匹配'
 
 
@@ -334,18 +334,19 @@ class ModelCatalogService:
 
         return await self._run_write(operation)
 
-    async def delete_draft(self, model_id: str) -> None:
+    async def delete_model(self, model_id: str) -> None:
         async def operation() -> None:
             model = await self._require_locked_model(model_id)
-            if model.lifecycle_status != 'draft' or model.published_at is not None:
+            removable_draft = model.lifecycle_status == 'draft' and model.published_at is None
+            if not removable_draft and model.lifecycle_status != 'disabled':
                 raise ServiceException(message=MODEL_DELETE_CONFLICT)
             if await self._reference_checker.has_model_references(model_id):
                 raise ServiceException(message=MODEL_REFERENCED)
             await self._binding_dao.delete_binding_by_resource(self._db, model_id)
-            if await self._model_dao.delete_unpublished_draft(self._db, model_id) != 1:
+            if await self._model_dao.delete_removable_model(self._db, model_id) != 1:
                 raise ServiceException(message=MODEL_STATE_CONFLICT)
 
-        await self._run_write(operation)
+        await self._run_write(operation, integrity_conflict=MODEL_REFERENCED)
 
     async def _get_model_response(self, model_id: str) -> PlatformModelModel:
         return PlatformModelModel.model_validate(await self._require_model(model_id))

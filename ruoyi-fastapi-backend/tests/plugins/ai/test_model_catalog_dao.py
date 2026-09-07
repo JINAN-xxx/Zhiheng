@@ -558,7 +558,7 @@ async def test_unpublished_draft_delete_loses_when_another_session_publishes_fir
             values={'lifecycle_status': 'active', 'published_at': first_publish_time},
         )
         await publisher.commit()
-        deleted = await AiModelCatalogDao.delete_unpublished_draft(stale_deleter, model_id)
+        deleted = await AiModelCatalogDao.delete_removable_model(stale_deleter, model_id)
         await stale_deleter.commit()
 
     assert published == 1

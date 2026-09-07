@@ -145,7 +145,7 @@ class FakeCatalogService:
                     'hasNext': False,
                 }
             )
-        if method == 'delete_draft':
+        if method == 'delete_model':
             return None
         return {'modelId': MODEL_ID, 'bindingId': BINDING_ID}
 
@@ -170,8 +170,8 @@ class FakeCatalogService:
     async def disable_model(self, *args: object, **kwargs: object) -> object:
         return await self._result('disable_model', *args, **kwargs)
 
-    async def delete_draft(self, *args: object, **kwargs: object) -> object:
-        return await self._result('delete_draft', *args, **kwargs)
+    async def delete_model(self, *args: object, **kwargs: object) -> object:
+        return await self._result('delete_model', *args, **kwargs)
 
 
 def route_map() -> dict[tuple[str, str], APIRoute]:
@@ -323,7 +323,7 @@ async def test_controller_delegates_all_catalog_operations_with_username_and_tim
     assert calls[4] == ('upsert_binding', (MODEL_ID, binding), {'username': 'catalog-admin', 'now': NOW})
     assert calls[5] == ('publish_model', (MODEL_ID,), {'username': 'catalog-admin', 'now': NOW})
     assert calls[6] == ('disable_model', (MODEL_ID,), {'username': 'catalog-admin', 'now': NOW})
-    assert calls[7] == ('delete_draft', (MODEL_ID,), {})
+    assert calls[7] == ('delete_model', (MODEL_ID,), {})
     assert all(instance.db is database for instance in FakeCatalogService.instances)
 
 

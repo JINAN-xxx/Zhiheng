@@ -266,7 +266,7 @@ async def disable_platform_model(
 
 @ai_model_catalog_controller.delete(
     '/{model_id}',
-    summary='删除未发布的平台模型草稿',
+    summary='删除草稿或已停用的平台模型',
     response_model=ResponseBaseModel,
     dependencies=[UserInterfaceAuthDependency('ai:model:remove')],
 )
@@ -285,7 +285,7 @@ async def delete_platform_model(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
     del current_user
-    await _call_catalog(_catalog_service(request, query_db).delete_draft(model_id))
+    await _call_catalog(_catalog_service(request, query_db).delete_model(model_id))
     return ResponseUtil.success()
 
 

@@ -17,6 +17,7 @@ from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.entity.do.ai_developer_api_do import AiModelRateCard
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
+from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel
 from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ModelCatalogCreateModel,
     ModelCatalogPageQueryModel,
@@ -25,7 +26,6 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     PlatformModelModel,
     ResourceBindingUpsertModel,
 )
-from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel
 from plugins.ai.service.model_catalog_service import ModelCatalogService, NoModelReferenceChecker
 
 NOW = datetime(2026, 8, 13, 9, 30)
@@ -286,10 +286,14 @@ class FakeModelDao:
         return int(cls.models.pop(model_id, None) is not None)
 
     @classmethod
-    async def delete_unpublished_draft(cls, db: FakeSession, model_id: str) -> int:
+    async def delete_removable_model(cls, db: FakeSession, model_id: str) -> int:
         model = cls.models.get(model_id)
-        if model is None or model.lifecycle_status != 'draft' or model.published_at is not None:
-            cls.events.append('delete_unpublished_draft')
+        removable = model is not None and (
+            (model.lifecycle_status == 'draft' and model.published_at is None)
+            or model.lifecycle_status == 'disabled'
+        )
+        if not removable:
+            cls.events.append('delete_removable_model')
             return 0
         return await cls.delete_model(db, model_id)
 
@@ -408,9 +412,9 @@ class LosingStateRaceModelDao(FakeModelDao):
         return 0
 
     @classmethod
-    async def delete_unpublished_draft(cls, _db: FakeSession, model_id: str) -> int:
+    async def delete_removable_model(cls, _db: FakeSession, model_id: str) -> int:
         del model_id
-        cls.events.append('delete_unpublished_draft')
+        cls.events.append('delete_removable_model')
         return 0
 
 
@@ -1050,7 +1054,28 @@ async def test_delete_only_never_published_unreferenced_draft_and_orders_writes(
     await _create_binding(service, model.model_id)
     events.clear()
 
-    await service.delete_draft(model.model_id)
+    await service.delete_model(model.model_id)
+
+    assert checker.calls == [model.model_id]
+    assert events == ['get_model_for_update', 'check_references', 'delete_binding', 'delete_model', 'commit']
+    assert session.rollback_count == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_allows_disabled_unreferenced_model() -> None:
+    events: list[str] = []
+    FakeModelDao.reset(events)
+    FakeBindingDao.reset(events)
+    checker = FakeReferenceChecker(events=events)
+    service, session, _ = _service(session=FakeSession(events), reference_checker=checker)
+    model = await _create_model(service)
+    await _create_binding(service, model.model_id)
+    stored = FakeModelDao.models[model.model_id]
+    stored.lifecycle_status = 'disabled'
+    stored.published_at = NOW
+    events.clear()
+
+    await service.delete_model(model.model_id)
 
     assert checker.calls == [model.model_id]
     assert events == ['get_model_for_update', 'check_references', 'delete_binding', 'delete_model', 'commit']
@@ -1061,9 +1086,8 @@ async def test_delete_only_never_published_unreferenced_draft_and_orders_writes(
 @pytest.mark.parametrize(
     ('lifecycle_status', 'published_at', 'expected_message'),
     (
-        ('active', NOW, '仅从未发布的草稿可以删除'),
-        ('disabled', NOW, '仅从未发布的草稿可以删除'),
-        ('draft', NOW, '仅从未发布的草稿可以删除'),
+        ('active', NOW, '仅草稿或已停用模型可以删除'),
+        ('draft', NOW, '仅草稿或已停用模型可以删除'),
     ),
 )
 async def test_delete_rejects_published_or_non_draft_models(
@@ -1078,7 +1102,7 @@ async def test_delete_rejects_published_or_non_draft_models(
     stored.published_at = published_at
 
     with pytest.raises(ServiceException) as exc_info:
-        await service.delete_draft(model.model_id)
+        await service.delete_model(model.model_id)
 
     assert exc_info.value.message == expected_message
 
@@ -1094,9 +1118,9 @@ async def test_delete_rejects_chat_references_before_any_write() -> None:
     events.clear()
 
     with pytest.raises(ServiceException) as exc_info:
-        await service.delete_draft(model.model_id)
+        await service.delete_model(model.model_id)
 
-    assert exc_info.value.message == '模型已被对话引用，不能删除'
+    assert exc_info.value.message == '模型已被对话、密钥授权、费率或调用记录引用，不能删除'
     assert events == ['get_model_for_update', 'check_references', 'rollback']
     assert session.commit_count == 1
     assert session.rollback_count == 1
@@ -1144,7 +1168,7 @@ async def test_conditional_lifecycle_write_race_returns_fixed_conflict_and_rolls
         elif operation_name == 'disable':
             await service.disable_model(model.model_id, username='operator', now=LATER)
         else:
-            await service.delete_draft(model.model_id)
+            await service.delete_model(model.model_id)
 
     assert exc_info.value.message == '模型状态已变化，请刷新后重试'
     expected_rollbacks = TWO_CALLS if operation_name == 'publish' else 1

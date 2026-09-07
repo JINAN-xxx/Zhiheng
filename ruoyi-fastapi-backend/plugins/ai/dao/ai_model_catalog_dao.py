@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
@@ -164,12 +164,17 @@ class AiModelCatalogDao:
         return int(result.rowcount or 0)
 
     @classmethod
-    async def delete_unpublished_draft(cls, db: AsyncSession, model_id: str) -> int:
+    async def delete_removable_model(cls, db: AsyncSession, model_id: str) -> int:
         result = await db.execute(
             delete(AiModelCatalog).where(
                 AiModelCatalog.model_id == model_id,
-                AiModelCatalog.lifecycle_status == 'draft',
-                AiModelCatalog.published_at.is_(None),
+                or_(
+                    and_(
+                        AiModelCatalog.lifecycle_status == 'draft',
+                        AiModelCatalog.published_at.is_(None),
+                    ),
+                    AiModelCatalog.lifecycle_status == 'disabled',
+                ),
             )
         )
         return int(result.rowcount or 0)

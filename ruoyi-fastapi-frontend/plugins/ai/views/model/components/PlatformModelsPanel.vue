@@ -57,7 +57,7 @@
             <a-tooltip v-if="canTest && row.lifecycleStatus === 'active'" title="类型化连接测试" placement="top"><a-button type="link" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)"><template #icon><ApiOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" :title="getLifecycleAction(row.lifecycleStatus)" placement="top"><a-button type="link" :aria-label="getLifecycleAction(row.lifecycleStatus)" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canEdit && row.lifecycleStatus === 'active'" title="停用" placement="top"><a-button type="link" class="warning-action" aria-label="停用" @click="disable(row)"><template #icon><PauseCircleOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canRemove && row.lifecycleStatus === 'draft'" title="删除草稿" placement="top"><a-button type="link" danger aria-label="删除草稿" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
+            <a-tooltip v-if="canRemove && ['draft', 'disabled'].includes(row.lifecycleStatus)" title="删除模型" placement="top"><a-button type="link" danger aria-label="删除模型" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
           </div>
           <a-dropdown class="mobile-actions" :trigger="['click']">
             <a-button type="text" aria-label="更多操作"><template #icon><EllipsisOutlined /></template></a-button>
@@ -66,7 +66,7 @@
               <a-menu-item v-if="canTest && row.lifecycleStatus === 'active'" key="test">类型化连接测试</a-menu-item>
               <a-menu-item v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" key="publish" :disabled="!canPublishPlatformModel(row)">{{ getLifecycleAction(row.lifecycleStatus) }}</a-menu-item>
               <a-menu-item v-if="canEdit && row.lifecycleStatus === 'active'" key="disable">停用</a-menu-item>
-              <a-menu-item v-if="canRemove && row.lifecycleStatus === 'draft'" key="remove" danger>删除草稿</a-menu-item>
+              <a-menu-item v-if="canRemove && ['draft', 'disabled'].includes(row.lifecycleStatus)" key="remove" danger>删除模型</a-menu-item>
             </a-menu></template>
           </a-dropdown>
         </template>
@@ -341,12 +341,12 @@ async function disable(row) {
 
 async function remove(row) {
   try {
-    await feedback.confirm(`确认删除草稿 ${row.modelCode}？`)
+    await feedback.confirm(`确认删除模型 ${row.modelCode}？删除后不可恢复。`)
     await deletePlatformModel(row.modelId)
-    feedback.msgSuccess('草稿已删除')
+    feedback.msgSuccess('模型已删除')
     await load()
   } catch (event) {
-    if (event !== 'cancel' && event !== 'close') feedback.msgError('删除失败')
+    if (event !== 'cancel' && event !== 'close') feedback.msgError(event?.message || '删除失败')
   }
 }
 

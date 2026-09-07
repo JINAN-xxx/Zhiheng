@@ -122,8 +122,8 @@ for (const fileName of [
 const runtimeStatus = readFileSync('plugins/ai/views/model/components/RuntimeStatusPanel.vue', 'utf8')
 assert.match(runtimeStatus, /var\(--bg-container\)/)
 assert.match(runtimeStatus, /var\(--gray-150\)/)
-const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOnboardingDrawer.vue', 'utf8')
 const platformModelsPanel = readFileSync('plugins/ai/views/model/components/PlatformModelsPanel.vue', 'utf8')
+const onboardingDrawer = readFileSync('plugins/ai/views/model/components/ModelOnboardingDrawer.vue', 'utf8')
 assert.doesNotMatch(platformModelsPanel, /title:\s*['"]能力['"]|title="能力"/)
 assert.doesNotMatch(onboardingDrawer, /label="能力"/)
 assert.doesNotMatch(onboardingDrawer, /<span>调用别名<\/span>/)
@@ -263,6 +263,8 @@ assert.match(applicationView, /<ApplicationModelsPanel[\s\S]*?:can-view="canView
 assert.match(applicationView, /async function loadModelAuthorizations\(\) \{[\s\S]*if \(!canViewModelAuthorizations\.value\) return/)
 assert.match(applicationView, /await selectApplication\(next, true, 'load'\)/)
 assert.match(applicationView, /keyForm\.expiresAt\?\.toDate\?\.\(\)/)
+assert.match(platformModelsPanel, /canRemove && \['draft', 'disabled'\]\.includes\(row\.lifecycleStatus\)/)
+assert.match(platformModelsPanel, /确认删除模型/)
 
 for (const [fileName, source] of [
   ['plugins/ai/views/application/index.vue', applicationView],
