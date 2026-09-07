@@ -10,12 +10,29 @@ const AI_RESOURCE_TABS = Object.freeze([
   Object.freeze({ key: 'usage', label: '用量记录', path: '/ai/usage', permission: 'ai:application:query' }),
 ])
 
+const AGENT_EXTENSION_TABS = Object.freeze([
+  Object.freeze({
+    key: 'skill',
+    label: '技能管理',
+    path: '/extensions/skill',
+    permission: 'agent_extension:skill:list',
+  }),
+])
+
 const LANDING_PATH_PRIORITY = Object.freeze([
   '/ai/chat',
   '/ai/model',
   '/ai/application',
   '/ai/usage',
+  '/extensions/skill',
 ])
+
+function isAiWorkspacePath(path = '') {
+  return path === '/ai'
+    || path.startsWith('/ai/')
+    || path === '/extensions'
+    || path.startsWith('/extensions/')
+}
 
 export function visibleWorkspaceNav(access = {}) {
   return Object.entries(NAV_PERMISSION_KEYS)
@@ -46,7 +63,7 @@ export function workspaceStateLabel(kind) {
 }
 
 export function resolveWorkspaceMode(path = '') {
-  return path === '/ai' || path.startsWith('/ai/') ? 'ai' : 'admin'
+  return isAiWorkspacePath(path) ? 'ai' : 'admin'
 }
 
 export function resolveAiResourceTabs(permissions = new Set()) {
@@ -62,6 +79,19 @@ export function resolveAiResourceGroups(permissions = new Set()) {
   return [{
     key: 'model-center',
     label: '模型中心',
+    path: children[0].path,
+    children,
+  }]
+}
+
+export function resolveAgentExtensionGroups(permissions = new Set()) {
+  const children = AGENT_EXTENSION_TABS.filter(
+    (item) => permissions.has('*:*:*') || permissions.has(item.permission),
+  )
+  if (!children.length) return []
+  return [{
+    key: 'agent-extension',
+    label: '智能体扩展',
     path: children[0].path,
     children,
   }]
@@ -90,8 +120,7 @@ export function getActiveAiResourceChildPath(group, currentPath = '') {
 }
 
 export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []) {
-  const isAiPath = currentPath === '/ai' || currentPath.startsWith('/ai/')
-  if (!isAiPath) return currentPath
+  if (!isAiWorkspacePath(currentPath)) return currentPath
 
   const isAccessible = accessiblePaths.some((path) => (
     typeof path === 'string'
@@ -106,7 +135,7 @@ export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []
 export function filterAdminWorkspaceRoutes(routes = []) {
   return routes.filter((route) => {
     const path = typeof route?.path === 'string' ? route.path : ''
-    return path !== '/ai' && !path.startsWith('/ai/')
+    return !isAiWorkspacePath(path)
   })
 }
 

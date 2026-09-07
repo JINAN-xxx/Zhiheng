@@ -31,7 +31,7 @@ from utils.response_util import ResponseUtil
 ResultT = TypeVar('ResultT')
 
 skill_controller = APIRouterPro(
-    prefix='/agent-extension/skills',
+    prefix='/agent_extension/skills',
     order_num=25,
     tags=['智能体扩展-技能管理'],
     dependencies=[PreAuthDependency()],
@@ -59,7 +59,11 @@ def _skill_service(query_db: AsyncSession) -> SkillService:
             skill_md_bytes=settings.skill_md_bytes,
         )
     )
-    return SkillService(query_db, SkillStorage(settings.data_dir, parser=parser), settings)
+    return SkillService(
+        query_db,
+        SkillStorage(settings.data_dir, parser=parser, draft_ttl_seconds=settings.draft_ttl_seconds),
+        settings,
+    )
 
 
 async def _call(operation: Awaitable[ResultT]) -> ResultT:

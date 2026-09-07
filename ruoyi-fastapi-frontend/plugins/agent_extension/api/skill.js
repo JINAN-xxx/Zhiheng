@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 
-const BASE_URL = '/agent-extension/skills'
+const BASE_URL = '/agent_extension/skills'
 
 export function listSkills(query) {
   return request({ url: BASE_URL, method: 'get', params: query })
@@ -44,4 +44,3 @@ export function updateSkillStatus(skillId, data) {
 export function deleteSkill(skillId) {
   return request({ url: `${BASE_URL}/${encodeURIComponent(skillId)}`, method: 'delete' })
 }
-

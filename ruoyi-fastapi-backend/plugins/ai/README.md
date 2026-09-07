@@ -7,7 +7,7 @@ AI 管理插件提供 Platform Model、供应商管理、Platform Session 会话
 ## 功能
 
 - 模型中心：维护 Platform Model、Runtime Binding、Credential 和发布状态。
-- AI 对话：基于已发布 Platform Model 发起对话，支持历史会话、用户偏好、受控图片引用和标准 SSE 流式返回。
+- AI 对话：基于已发布 Platform Model 发起对话，支持历史会话、用户偏好、受控图片引用、按消息选择平台技能和标准 SSE 流式返回。
 - 字典数据：安装时写入 `ai_provider_type` 字典，用于模型供应商下拉选择。
 - 多数据库脚本：内置 MySQL 和 PostgreSQL 的建表脚本与字典种子脚本。
 - 依赖声明：Python 与前端 npm 依赖统一声明在 `plugin.yaml`，由插件依赖检查与安装流程处理。
@@ -27,7 +27,7 @@ AI 管理插件提供 Platform Model、供应商管理、Platform Session 会话
 - `ai:model:edit`：修改模型
 - `ai:model:remove`：删除模型
 - `ai:model:query`：查询模型
-- `ai:chat:list`：AI 对话
+- `ai:chat:list`：AI 对话。技能列表与使用权限由 `agent_extension` 插件独立管理。
 
 ## 目录说明
 
@@ -68,7 +68,7 @@ AI 插件不声明插件级默认配置。实际对话使用以下业务配置�
 
 ## 启用方式
 
-AI 插件作为内置插件随项目提供。默认启用列表由环境变量 `APP_DEFAULT_ENABLED_PLUGINS` 控制，标准环境文件中已包含 `ai`。
+AI 插件作为内置插件随项目提供。默认启用列表由环境变量 `APP_DEFAULT_ENABLED_PLUGINS` 控制，标准环境默认启用 `ai,agent_extension`。
 
 常用命令：
 

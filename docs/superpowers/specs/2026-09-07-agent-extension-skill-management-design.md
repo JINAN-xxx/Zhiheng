@@ -245,18 +245,18 @@ agent_extension:skill:use
 
 ## 11. 管理接口
 
-接口前缀为 `/agent-extension/skills`。
+接口前缀为 `/agent_extension/skills`。下划线与插件 ID 保持一致，以满足插件运行时的控制器命名空间约束。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/agent-extension/skills` | 管理列表，支持关键词、状态和分页 |
-| `GET` | `/agent-extension/skills/{skill_id}` | 获取技能详情 |
-| `GET` | `/agent-extension/skills/{skill_id}/content` | 获取经过大小限制的主文件内容 |
-| `POST` | `/agent-extension/skills/import/prepare` | 上传并解析技能包 |
-| `POST` | `/agent-extension/skills/import/{draft_id}/confirm` | 确认安装 |
-| `PUT` | `/agent-extension/skills/{skill_id}/status` | 启用或停用 |
-| `DELETE` | `/agent-extension/skills/{skill_id}` | 删除已停用的非内置技能 |
-| `GET` | `/agent-extension/skills/available` | 获取当前用户可在对话中使用的技能 |
+| `GET` | `/agent_extension/skills` | 管理列表，支持关键词、状态和分页 |
+| `GET` | `/agent_extension/skills/{skill_id}` | 获取技能详情 |
+| `GET` | `/agent_extension/skills/{skill_id}/content` | 获取经过大小限制的主文件内容 |
+| `POST` | `/agent_extension/skills/import/prepare` | 上传并解析技能包 |
+| `POST` | `/agent_extension/skills/import/{draft_id}/confirm` | 确认安装 |
+| `PUT` | `/agent_extension/skills/{skill_id}/status` | 启用或停用 |
+| `DELETE` | `/agent_extension/skills/{skill_id}` | 删除已停用的非内置技能 |
+| `GET` | `/agent_extension/skills/available` | 获取当前用户可在对话中使用的技能 |
 
 所有响应继续使用平台现有统一响应模型。分页字段同时遵守当前前端使用的别名契约，避免再次出现 `pageNum`、`pageSize`、`hasNext` 字段不匹配。
 

@@ -25,16 +25,16 @@ def dependency_calls(route: APIRoute) -> list[Callable[..., object]]:
 
 
 def test_skill_routes_use_exact_methods_and_permissions() -> None:
-    assert skill_controller.prefix == '/agent-extension/skills'
+    assert skill_controller.prefix == '/agent_extension/skills'
     expected = {
-        ('GET', '/agent-extension/skills'): 'agent_extension:skill:list',
-        ('GET', '/agent-extension/skills/available'): 'agent_extension:skill:use',
-        ('GET', '/agent-extension/skills/{skill_id}'): 'agent_extension:skill:query',
-        ('GET', '/agent-extension/skills/{skill_id}/content'): 'agent_extension:skill:query',
-        ('POST', '/agent-extension/skills/import/prepare'): 'agent_extension:skill:add',
-        ('POST', '/agent-extension/skills/import/{draft_id}/confirm'): 'agent_extension:skill:add',
-        ('PUT', '/agent-extension/skills/{skill_id}/status'): 'agent_extension:skill:edit',
-        ('DELETE', '/agent-extension/skills/{skill_id}'): 'agent_extension:skill:remove',
+        ('GET', '/agent_extension/skills'): 'agent_extension:skill:list',
+        ('GET', '/agent_extension/skills/available'): 'agent_extension:skill:use',
+        ('GET', '/agent_extension/skills/{skill_id}'): 'agent_extension:skill:query',
+        ('GET', '/agent_extension/skills/{skill_id}/content'): 'agent_extension:skill:query',
+        ('POST', '/agent_extension/skills/import/prepare'): 'agent_extension:skill:add',
+        ('POST', '/agent_extension/skills/import/{draft_id}/confirm'): 'agent_extension:skill:add',
+        ('PUT', '/agent_extension/skills/{skill_id}/status'): 'agent_extension:skill:edit',
+        ('DELETE', '/agent_extension/skills/{skill_id}'): 'agent_extension:skill:remove',
     }
 
     routes = route_map()
@@ -44,4 +44,3 @@ def test_skill_routes_use_exact_methods_and_permissions() -> None:
         assert any(type(call).__name__ == 'PreAuth' for call in calls)
         permissions = [call.perm for call in calls if type(call).__name__ == 'CheckUserInterfaceAuth']
         assert permissions == [permission]
-

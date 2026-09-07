@@ -32,6 +32,8 @@ RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owne
 
 初始化脚本依赖 `openssl` 和 `flock`，会在仓库根 `.env` 中生成 `RUOYI_DB_PASSWORD` 与持久化的 `JWT_SECRET_KEY`，并把文件权限设为 `0600`。并发执行会由 `.env.lock` 串行化，避免数据库密码或 JWT 密钥被重复生成。基线 SQL 和 `public.ruoyi_bootstrap_state` 完成标记在同一个事务中写入，任意语句失败都会整体回滚。脚本可以重复执行；检测到完成标记后不会再次导入包含删表语句的基线 SQL。
 
+脚本还会以 `0700` 权限创建仓库根目录下的 `data/agent-skills`。该目录挂载到后端容器 `/app/data/agent-skills`，用于保存已安装的平台技能；重新构建或替换后端容器不会删除其中内容。
+
 如果数据库已经包含业务表、但没有完成标记，脚本会拒绝继续，以免覆盖不完整或外部创建的 schema。此时需要先备份并人工确认数据库状态，不要绕过检查直接重跑基线。
 
 ## 安全边界

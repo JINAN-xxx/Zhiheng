@@ -24,6 +24,11 @@ services:
     container_name: ruoyi-backend-my
     ports:
       - "19099:9099"
+    volumes:
+      - ./data/agent-skills:/app/data/agent-skills
+    environment:
+      APP_DEFAULT_ENABLED_PLUGINS: ai,agent_extension
+      AGENT_SKILL_DATA_DIR: /app/data/agent-skills
     depends_on:
       ruoyi-mysql:
         condition: service_healthy

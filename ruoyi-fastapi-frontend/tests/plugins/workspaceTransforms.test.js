@@ -10,6 +10,7 @@ import {
   normalizeWorkspaceSessions,
   resolveAiResourceGroups,
   resolveAiResourceTabs,
+  resolveAgentExtensionGroups,
   resolveAuthorizedWorkspacePath,
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
@@ -37,6 +38,7 @@ assert.equal(resolveWorkspaceLandingPath('/index', ['/system/user']), '/system/u
 assert.equal(resolveWorkspaceLandingPath('/ai/model', ['/ai/chat']), '/ai/model')
 assert.equal(resolveWorkspaceMode('/ai/chat'), 'ai')
 assert.equal(resolveWorkspaceMode('/ai'), 'ai')
+assert.equal(resolveWorkspaceMode('/extensions/skill'), 'ai')
 assert.equal(resolveWorkspaceMode('/system/user'), 'admin')
 assert.deepEqual(
   resolveAiResourceTabs(new Set(['ai:model:list', 'ai:application:list'])).map((item) => item.key),
@@ -86,6 +88,21 @@ assert.deepEqual(
   }],
 )
 assert.deepEqual(resolveAiResourceGroups(new Set()), [])
+assert.deepEqual(resolveAgentExtensionGroups(new Set(['agent_extension:skill:list'])), [
+  {
+    key: 'agent-extension',
+    label: '智能体扩展',
+    path: '/extensions/skill',
+    children: [
+      {
+        key: 'skill',
+        label: '技能管理',
+        path: '/extensions/skill',
+        permission: 'agent_extension:skill:list',
+      },
+    ],
+  },
+])
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application/detail'), true)
 assert.equal(isAiResourceGroupActive({ children: [{ path: '/ai/application' }] }, '/ai/application-old'), false)
@@ -113,9 +130,11 @@ assert.equal(
   '/ai/application/detail',
 )
 assert.equal(resolveAuthorizedWorkspacePath('/system/user', ['/ai/chat']), '/system/user')
+assert.equal(resolveAuthorizedWorkspacePath('/extensions/skill', ['/ai/chat']), '/ai/chat')
 assert.deepEqual(
   filterAdminWorkspaceRoutes([
     { path: '/ai', children: [{ path: 'chat' }] },
+    { path: '/extensions', children: [{ path: 'skill' }] },
     { path: '/system', children: [{ path: 'user' }] },
   ]),
   [{ path: '/system', children: [{ path: 'user' }] }],

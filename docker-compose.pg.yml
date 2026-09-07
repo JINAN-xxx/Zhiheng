@@ -27,7 +27,10 @@ services:
       - "19099:9099"
     volumes:
       - ./ruoyi-fastapi-frontend:/frontend:ro
+      - ./data/agent-skills:/app/data/agent-skills
     environment:
+      APP_DEFAULT_ENABLED_PLUGINS: ai,agent_extension
+      AGENT_SKILL_DATA_DIR: /app/data/agent-skills
       DB_HOST: litellm-db
       DB_PORT: "5432"
       DB_USERNAME: ruoyi

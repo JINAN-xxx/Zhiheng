@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -30,9 +30,10 @@ class StagedSkillDelete:
 
 
 class SkillStorage:
-    def __init__(self, root: Path, *, parser: SkillPackageParser) -> None:
+    def __init__(self, root: Path, *, parser: SkillPackageParser, draft_ttl_seconds: int = 3600) -> None:
         self.root = root.resolve()
         self.parser = parser
+        self.draft_ttl_seconds = draft_ttl_seconds
         self.drafts_dir = self.root / '.drafts'
         self.trash_dir = self.root / '.trash'
         self.skills_dir = self.root / 'skills'
@@ -54,7 +55,7 @@ class SkillStorage:
             metadata = {
                 'draft_id': draft_id,
                 'owner': owner,
-                'created_at': datetime.now(UTC).isoformat(),
+                'created_at': datetime.now(timezone.utc).isoformat(),
                 'package': {
                     key: value
                     for key, value in asdict(package).items()
@@ -76,6 +77,9 @@ class SkillStorage:
             raise SkillStorageError('技能安装草稿不存在') from exc
         if payload.get('owner') != owner:
             raise SkillStorageError('无权访问该技能安装草稿')
+        if self._draft_expired(payload.get('created_at')):
+            shutil.rmtree(draft_dir, ignore_errors=True)
+            raise SkillStorageError('技能安装草稿已过期')
         package_data = payload.get('package')
         metadata = payload.get('metadata')
         if not isinstance(package_data, dict) or not isinstance(metadata, dict):
@@ -145,14 +149,40 @@ class SkillStorage:
         except (OSError, UnicodeError) as exc:
             raise SkillStorageError('技能主文件不可读取') from exc
 
+    def cleanup_stale(self, *, limit: int = 100) -> int:
+        cutoff = datetime.now(timezone.utc).timestamp() - self.draft_ttl_seconds
+        removed = 0
+        candidates = sorted((*self.drafts_dir.iterdir(), *self.trash_dir.iterdir()), key=lambda path: path.name)
+        for path in candidates:
+            if removed >= limit:
+                break
+            if not path.is_dir():
+                continue
+            if path.stat().st_mtime > cutoff:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            removed += 1
+        return removed
+
     def _draft_dir(self, draft_id: str) -> Path:
         if not _DRAFT_PATTERN.fullmatch(draft_id):
             raise SkillStorageError('技能安装草稿标识无效')
         return self.drafts_dir / draft_id
+
+    def _draft_expired(self, created_at: object) -> bool:
+        if not isinstance(created_at, str):
+            raise SkillStorageError('技能安装草稿已损坏')
+        try:
+            created = datetime.fromisoformat(created_at)
+        except ValueError as exc:
+            raise SkillStorageError('技能安装草稿已损坏') from exc
+        if created.tzinfo is None:
+            raise SkillStorageError('技能安装草稿已损坏')
+        age = datetime.now(timezone.utc) - created.astimezone(timezone.utc)
+        return age.total_seconds() > self.draft_ttl_seconds
 
     @staticmethod
     def _write_json(path: Path, payload: dict[str, object]) -> None:
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding='utf-8')
         os.replace(temporary, path)
-

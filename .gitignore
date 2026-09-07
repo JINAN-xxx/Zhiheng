@@ -161,3 +161,6 @@ cython_debug/
 
 # LiteLLM local secrets
 /deploy/litellm/.env
+
+# Runtime Agent Skills
+/data/agent-skills/

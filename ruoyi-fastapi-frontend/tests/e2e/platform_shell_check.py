@@ -48,6 +48,12 @@ ALL_PERMISSIONS = [
     "ai:application:key:rotate",
     "ai:application:key:revoke",
     "ai:application:query",
+    "agent_extension:skill:list",
+    "agent_extension:skill:query",
+    "agent_extension:skill:add",
+    "agent_extension:skill:edit",
+    "agent_extension:skill:remove",
+    "agent_extension:skill:use",
 ]
 
 MODEL_IDS = {
@@ -145,6 +151,25 @@ def routes_for(access: str) -> list[dict]:
                 "children": children,
             }
         )
+    if access in {"all", "skill"}:
+        routes.append(
+            {
+                "name": "AgentExtension",
+                "path": "/extensions",
+                "component": "Layout",
+                "redirect": "/extensions/skill",
+                "alwaysShow": True,
+                "meta": {"title": "智能体扩展", "icon": "skill"},
+                "children": [
+                    ai_route(
+                        "AgentExtensionSkill",
+                        "skill",
+                        "plugin/agent_extension/skill/index",
+                        "技能管理",
+                    )
+                ],
+            }
+        )
     routes.append(
         {
             "name": "System",
@@ -177,6 +202,8 @@ def permissions_for(access: str) -> list[str]:
         return ["ai:application:list"]
     if access == "usage":
         return ["ai:application:list", "ai:application:query"]
+    if access == "skill":
+        return ["agent_extension:skill:list", "agent_extension:skill:query", "agent_extension:skill:use"]
     return []
 
 
@@ -226,6 +253,7 @@ def response_for(path: str, method: str, access: str) -> dict:
                         "messageId": "message-1",
                         "role": "assistant",
                         "content": "这是已保存的会话内容。",
+                        "skillSnapshots": [{"slug": "deep-research", "name": "深度研究"}],
                     }
                 ],
             },
@@ -274,6 +302,102 @@ def response_for(path: str, method: str, access: str) -> dict:
             "pageNum": 1,
             "pageSize": 100,
             "hasNext": False,
+        }
+    if path == "/agent_extension/skills/available":
+        return {
+            "code": 200,
+            "data": [
+                {"skillSlug": "deep-research", "skillName": "深度研究", "description": "形成结构化研究报告"},
+                {"skillSlug": "document-summary", "skillName": "文档总结", "description": "提取文档关键信息"},
+            ],
+        }
+    if path == "/agent_extension/skills":
+        return {
+            "code": 200,
+            "rows": [
+                {
+                    "skillId": "skl_11111111111141118111111111111111",
+                    "skillSlug": "deep-research",
+                    "skillName": "深度研究",
+                    "description": "为复杂主题制定研究计划并形成结构化报告。",
+                    "version": "1.0.0",
+                    "status": "enabled",
+                    "sourceType": "builtin",
+                    "lockVersion": 1,
+                    "createdBy": "system",
+                    "createdAt": "2026-09-07T08:00:00Z",
+                    "updatedBy": "system",
+                    "updatedAt": "2026-09-07T08:00:00Z",
+                },
+                {
+                    "skillId": "skl_22222222222242228222222222222222",
+                    "skillSlug": "document-summary",
+                    "skillName": "文档总结",
+                    "description": "提取文档中的主题、结论、风险和行动项。",
+                    "version": "1.0.0",
+                    "status": "disabled",
+                    "sourceType": "upload",
+                    "lockVersion": 2,
+                    "createdBy": "admin",
+                    "createdAt": "2026-09-07T08:00:00Z",
+                    "updatedBy": "admin",
+                    "updatedAt": "2026-09-07T09:00:00Z",
+                },
+            ],
+            "total": 2,
+            "pageNum": 1,
+            "pageSize": 12,
+            "hasNext": False,
+        }
+    if path.startswith("/agent_extension/skills/") and path.endswith("/content"):
+        skill_id = path.split("/")[3]
+        return {
+            "code": 200,
+            "data": {
+                "skillId": skill_id,
+                "skillSlug": "deep-research",
+                "content": "---\nname: deep-research\ndisplay_name: 深度研究\n---\n\n# 深度研究",
+            },
+        }
+    if path.startswith("/agent_extension/skills/") and path.endswith("/status") and method == "PUT":
+        skill_id = path.split("/")[3]
+        return {
+            "code": 200,
+            "data": {
+                "skillId": skill_id,
+                "skillSlug": "deep-research",
+                "skillName": "深度研究",
+                "description": "为复杂主题制定研究计划并形成结构化报告。",
+                "version": "1.0.0",
+                "status": "disabled",
+                "sourceType": "builtin",
+                "lockVersion": 2,
+                "createdBy": "system",
+                "createdAt": "2026-09-07T08:00:00Z",
+                "updatedBy": "admin",
+                "updatedAt": "2026-09-07T09:00:00Z",
+            },
+        }
+    if path.startswith("/agent_extension/skills/"):
+        skill_id = path.split("/")[3]
+        return {
+            "code": 200,
+            "data": {
+                "skillId": skill_id,
+                "skillSlug": "deep-research",
+                "skillName": "深度研究",
+                "description": "为复杂主题制定研究计划并形成结构化报告。",
+                "version": "1.0.0",
+                "status": "enabled",
+                "sourceType": "builtin",
+                "lockVersion": 1,
+                "contentHash": "a" * 64,
+                "metadataJson": {},
+                "createdBy": "system",
+                "createdAt": "2026-09-07T08:00:00Z",
+                "updatedBy": "system",
+                "updatedAt": "2026-09-07T08:00:00Z",
+            },
         }
     if path.endswith("/rate-cards"):
         return {
@@ -1074,7 +1198,7 @@ async def check_application_usage_dark(browser: Browser) -> None:
         await usage_rows_locator.first.wait_for()
         assert await usage_rows_locator.count() >= 12
         await assert_text_is_constrained(page, LONG_APPLICATION_NAME)
-        assert await page.locator(".developer-grid .workspace-panel").first.evaluate(
+        assert await page.locator(".application-detail").evaluate(
             "element => getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)'"
         )
         await assert_no_overflow(page)
@@ -1096,6 +1220,64 @@ async def check_application_usage_dark(browser: Browser) -> None:
         await take_screenshot(page, "platform-usage-1280x800-dark.png")
         assert console_errors == [], console_errors
         assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
+async def check_skill_management_and_chat_picker(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(browser, ADMIN_VIEWPORT)
+    try:
+        await page.goto(f"{BASE_URL}/extensions/skill")
+        await page.get_by_role("heading", name="技能管理", exact=True).wait_for()
+        cards = page.locator(".skill-card")
+        await cards.first.wait_for()
+        assert await cards.count() == 2
+        assert await page.get_by_text("deep-research", exact=True).count() == 0
+        assert await page.get_by_role("button", name="上传技能", exact=False).count() == 1
+        await assert_no_overflow(page)
+        await take_screenshot(page, "platform-skill-management-1280x800-light.png")
+        await cards.first.get_by_role("button", name="查看", exact=True).click()
+        drawer = page.locator(".skill-detail-drawer")
+        await drawer.wait_for()
+        await drawer.get_by_text("技能内容", exact=True).wait_for()
+        await drawer.get_by_role("button", name="停用技能", exact=True).click()
+        await drawer.get_by_text("已停用", exact=True).wait_for()
+        await page.keyboard.press("Escape")
+
+        await page.goto(f"{BASE_URL}/ai/chat")
+        await page.get_by_text("从一个问题开始", exact=True).wait_for()
+        composer = page.locator(".composer")
+        textarea = composer.locator("textarea")
+        await textarea.fill("请分析 @")
+        picker = page.locator(".chat-skill-picker")
+        await picker.wait_for()
+        await picker.get_by_role("button", name="深度研究", exact=False).click()
+        assert await textarea.input_value() == "请分析 "
+        await composer.get_by_text("技能：深度研究", exact=True).wait_for()
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "platform-skill-picker-1280x800-light.png")
+    finally:
+        await context.close()
+
+
+async def check_skill_management_dark(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, ADMIN_VIEWPORT, color_scheme="dark"
+    )
+    try:
+        await page.goto(f"{BASE_URL}/extensions/skill")
+        await page.get_by_role("heading", name="技能管理", exact=True).wait_for()
+        await page.locator("html.dark").wait_for()
+        await page.locator(".skill-card").first.wait_for()
+        assert await page.locator(".skill-card").first.evaluate(
+            "element => getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)'"
+        )
+        await assert_no_overflow(page)
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "platform-skill-management-1280x800-dark.png")
     finally:
         await context.close()
 
@@ -1128,6 +1310,7 @@ async def check_permission_landings(browser: Browser) -> None:
         "model": "/ai/model",
         "application": "/ai/application",
         "usage": "/ai/usage",
+        "skill": "/extensions/skill",
         "none": "/system/overview",
     }
     for access, expected_path in expectations.items():
@@ -1188,6 +1371,8 @@ async def run_platform_checks(browser: Browser) -> dict[str, str]:
     await check_model_reenable(browser)
     await check_application_api_docs(browser)
     await check_application_usage_dark(browser)
+    await check_skill_management_and_chat_picker(browser)
+    await check_skill_management_dark(browser)
     await check_auth_dark(browser)
     await check_permission_landings(browser)
     hashes = {filename: screenshot_hash(filename) for filename in PLATFORM_STABLE_SCREENSHOTS}

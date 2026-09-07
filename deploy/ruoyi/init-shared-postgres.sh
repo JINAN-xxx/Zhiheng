@@ -12,6 +12,7 @@ database_user=ruoyi
 bootstrap_marker=ruoyi_bootstrap_state
 temporary_file=
 lock_file="${platform_environment}.lock"
+skill_data_directory="$repository_root/data/agent-skills"
 
 cleanup() {
     if [ -n "$temporary_file" ] && [ -f "$temporary_file" ]; then
@@ -23,6 +24,12 @@ trap cleanup 0 1 2 15
 fail() {
     printf '%s\n' "$1" >&2
     exit 1
+}
+
+initialize_skill_storage() {
+    umask 077
+    mkdir -p "$skill_data_directory"
+    chmod 700 "$skill_data_directory"
 }
 
 acquire_platform_lock() {
@@ -66,6 +73,7 @@ write_platform_secrets() {
     temporary_file=
 }
 
+initialize_skill_storage
 [ -f "$database_sql" ] || fail "RuoYi PostgreSQL baseline SQL was not found."
 container_running=$($docker_command inspect -f '{{.State.Running}}' "$postgres_container" 2>/dev/null || true)
 [ "$container_running" = 'true' ] || fail "Shared PostgreSQL container is not running."

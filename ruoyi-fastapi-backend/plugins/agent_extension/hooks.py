@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+from config.database import AsyncSessionLocal
 from plugins.agent_extension.config import AgentSkillSettings
 from plugins.agent_extension.domain.skill_package import SkillPackageLimits, SkillPackageParser
 from plugins.agent_extension.infrastructure.skill_storage import SkillStorage
@@ -20,7 +21,16 @@ def _runtime() -> tuple[AgentSkillSettings, SkillStorage]:
             skill_md_bytes=settings.skill_md_bytes,
         )
     )
-    return settings, SkillStorage(settings.data_dir, parser=parser)
+    return settings, SkillStorage(
+        settings.data_dir,
+        parser=parser,
+        draft_ttl_seconds=settings.draft_ttl_seconds,
+    )
+
+
+async def _sync_builtin_skills(storage: SkillStorage, settings: AgentSkillSettings) -> None:
+    async with AsyncSessionLocal() as query_db:
+        await SkillService(query_db, storage, settings).sync_builtin_skills(BUILTIN_ROOT)
 
 
 async def on_startup(context: PluginHookContext) -> None:
@@ -28,8 +38,9 @@ async def on_startup(context: PluginHookContext) -> None:
     if context.app is None:
         raise RuntimeError('智能体扩展插件启动缺少 FastAPI 应用上下文')
     settings, storage = await asyncio.to_thread(_runtime)
-    if context.startup_write_enabled and context.query_db is not None:
-        await SkillService(context.query_db, storage, settings).sync_builtin_skills(BUILTIN_ROOT)
+    await asyncio.to_thread(storage.cleanup_stale, limit=settings.cleanup_limit)
+    if context.startup_write_enabled:
+        await _sync_builtin_skills(storage, settings)
     context.app.state.agent_skill_context_provider = SkillContextProvider(storage, settings)
 
 

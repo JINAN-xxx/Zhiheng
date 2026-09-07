@@ -21,6 +21,7 @@
 - 开发接入：创建应用、配置模型授权、生成和轮换 API Key。
 - 用量记录：查看请求状态、Token 消耗、检索单元和费用。
 - API 说明：在开发接入页面查看平台 API 调用方式和示例。
+- 智能体扩展：管理员统一维护平台技能，普通用户可在对话中按消息选择技能。
 
 ### 管理后台
 
@@ -49,6 +50,7 @@ ruoyi-fastapi-frontend/   Web 前端和 AI 工作台
 ruoyi-fastapi-backend/    FastAPI 后端、插件和数据库迁移
 ruoyi-fastapi-app/        uni-app 移动端
 ruoyi-fastapi-test/       自动化测试
+data/agent-skills/         平台技能持久文件（运行时生成，不提交 Git）
 deploy/litellm/            LiteLLM 独立运行环境
 deploy/ruoyi/              RuoYi PostgreSQL 初始化脚本
 docs/                      架构、设计和开发文档
@@ -82,6 +84,7 @@ cd ../..
 ```
 
 `init` 会生成或复用 RuoYi 的数据库密码和 JWT 密钥，初始化 `ruoyi-fastapi` 数据库，构建前后端镜像并启动服务。脚本不会删除数据库或数据卷。
+初始化过程还会创建 `data/agent-skills` 持久目录，已上传的技能不会因后端容器重建而丢失。
 
 ### 日常运维
 
@@ -135,6 +138,14 @@ curl http://127.0.0.1:19099/v1/chat/completions \
 ```
 
 Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。当前公开 API 由后端端口 `19099` 提供；生产环境建议通过带鉴权和 TLS 的网关转发。
+
+## 使用平台技能
+
+管理员进入「智能体扩展 / 技能管理」，可以上传单个 `SKILL.md` 或根目录包含 `SKILL.md` 的 ZIP 技能包。技能安装后支持查看、启用、停用和删除；启用中的技能必须先停用再删除，平台内置技能不能删除。
+
+普通用户在智能对话输入框输入独立的 `@`，或点击“选择技能”按钮，即可为当前消息选择最多 5 个已启用技能。技能只作用于本次发送，消息发出后自动清空选择，不会改变整个会话的永久设置。
+
+技能包不会执行脚本或自动安装依赖。生产部署应限制 `data/agent-skills` 的宿主机访问权限，并随数据库一起备份。
 
 ## 本地开发
 
@@ -210,7 +221,7 @@ python tests/e2e/platform_shell_check.py
 
 ### 数据持久化
 
-PostgreSQL 和 Redis 数据由 Docker 数据卷持久化。停止服务不会删除数据；执行带 `--volumes` 的 Compose 命令前必须先完成备份。
+PostgreSQL 和 Redis 数据由 Docker 数据卷持久化，技能文件保存在 `data/agent-skills`。停止服务不会删除数据；执行带 `--volumes` 的 Compose 命令或清理技能目录前必须先完成备份。
 
 ## 文档索引
 
@@ -220,6 +231,7 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化。停止服务不会删
 - [测试说明](./ruoyi-fastapi-test/README.md)
 - [CLI 使用说明](./ruoyi-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
+- [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
 - [变更日志](./CHANGELOG.md)
 
 ## 许可证

@@ -6,7 +6,7 @@ const view = readFileSync('plugins/agent_extension/views/skill/index.vue', 'utf8
 const upload = readFileSync('plugins/agent_extension/views/skill/components/SkillUploadModal.vue', 'utf8')
 const detail = readFileSync('plugins/agent_extension/views/skill/components/SkillDetailDrawer.vue', 'utf8')
 
-assert.match(api, /\/agent-extension\/skills/)
+assert.match(api, /\/agent_extension\/skills/)
 assert.match(api, /\/available/)
 assert.match(api, /\/import\/prepare/)
 assert.match(api, /\/confirm/)
@@ -32,4 +32,3 @@ for (const [name, source] of [['技能列表', view], ['上传技能', upload], 
 }
 
 console.log('ok agent extension contract')
-

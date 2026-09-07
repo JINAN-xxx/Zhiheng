@@ -6,6 +6,8 @@ assert.ok(existsSync(scriptPath), '仓库根目录必须提供 deploy.sh')
 const script = readFileSync(scriptPath, 'utf8')
 const mode = statSync(scriptPath).mode
 const compose = readFileSync('../docker-compose.pg.yml', 'utf8')
+const mysqlCompose = readFileSync('../docker-compose.my.yml', 'utf8')
+const initScript = readFileSync('../deploy/ruoyi/init-shared-postgres.sh', 'utf8')
 const dockerfile = readFileSync('Dockerfile', 'utf8')
 
 assert.ok(mode & 0o111, 'deploy.sh 必须具有可执行权限')
@@ -20,4 +22,11 @@ assert.doesNotMatch(script, /docker\s+(?:system\s+prune|volume\s+rm|rm\s+-f)/)
 assert.doesNotMatch(script, /compose\s+down\s+-v/)
 assert.match(compose, /image:\s*nginx:latest/)
 assert.match(compose, /\.\/ruoyi-fastapi-frontend\/dist:\/usr\/share\/nginx\/html:ro/)
+for (const source of [compose, mysqlCompose]) {
+  assert.match(source, /\.\/data\/agent-skills:\/app\/data\/agent-skills/)
+  assert.match(source, /AGENT_SKILL_DATA_DIR:\s*\/app\/data\/agent-skills/)
+}
+assert.match(initScript, /data\/agent-skills/)
+assert.match(initScript, /mkdir -p/)
+assert.doesNotMatch(initScript, /rm\s+-rf[^\n]*agent-skills/)
 assert.doesNotMatch(dockerfile, /npm\s+install|npm\s+run\s+build:docker/)

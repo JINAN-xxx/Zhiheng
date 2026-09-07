@@ -14,4 +14,5 @@ class AgentSkillSettings(BaseSettings):
     skill_md_bytes: int = Field(default=128 * 1024, gt=0)
     context_bytes: int = Field(default=32 * 1024, gt=0)
     max_selected: int = Field(default=5, gt=0, le=20)
-
+    draft_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    cleanup_limit: int = Field(default=100, ge=1, le=1000)

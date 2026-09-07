@@ -40,15 +40,15 @@
             type="button"
             class="platform-nav-group-link"
             :aria-label="group.label"
-            :aria-expanded="resourceGroupExpanded"
-            @click="toggleResourceGroup"
+            :aria-expanded="resourceGroupIsExpanded(group)"
+            @click="toggleResourceGroup(group)"
           >
-            <DatabaseOutlined />
+            <component :is="resourceGroupIcon(group)" />
             <span>{{ group.label }}</span>
-            <DownOutlined v-if="resourceGroupExpanded" class="platform-nav-group-chevron" />
+            <DownOutlined v-if="resourceGroupIsExpanded(group)" class="platform-nav-group-chevron" />
             <RightOutlined v-else class="platform-nav-group-chevron" />
           </button>
-          <div v-show="resourceGroupExpanded" class="platform-nav-group-children">
+          <div v-show="resourceGroupIsExpanded(group)" class="platform-nav-group-children">
             <router-link
               v-for="child in group.children"
               :key="child.path"
@@ -75,7 +75,7 @@
             aria-haspopup="menu"
             :title="group.label"
           >
-            <DatabaseOutlined />
+            <component :is="resourceGroupIcon(group)" />
           </button>
           <template #overlay>
             <a-menu :selected-keys="[getActiveAiResourceChildPath(group, route.path)].filter(Boolean)" @click="handleResourceMenuClick">
@@ -122,12 +122,14 @@ import {
   PlusOutlined,
   RightOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons-vue'
 import { ref, watch } from 'vue'
 import logo from '@/assets/logo/logo.png'
 import {
   getActiveAiResourceChildPath,
   isAiResourceGroupActive,
+  resolveAgentExtensionGroups,
   resolveAiResourceGroups,
 } from '@/components/Workspace/workspaceTransforms.js'
 import feedback from '@/plugins/antdFeedback'
@@ -151,8 +153,11 @@ const permissionSet = computed(() => new Set(userStore.permissions))
 const canChat = computed(
   () => permissionSet.value.has('*:*:*') || permissionSet.value.has('ai:chat:list'),
 )
-const resourceGroups = computed(() => resolveAiResourceGroups(permissionSet.value))
-const resourceGroupExpanded = ref(true)
+const resourceGroups = computed(() => [
+  ...resolveAiResourceGroups(permissionSet.value),
+  ...resolveAgentExtensionGroups(permissionSet.value),
+])
+const expandedGroupKeys = ref(new Set(['model-center', 'agent-extension']))
 const navItems = computed(() => [
   canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
 ].filter(Boolean))
@@ -170,8 +175,19 @@ function resourceGroupIsActive(group) {
   return isAiResourceGroupActive(group, route.path)
 }
 
-function toggleResourceGroup() {
-  resourceGroupExpanded.value = !resourceGroupExpanded.value
+function resourceGroupIsExpanded(group) {
+  return expandedGroupKeys.value.has(group.key)
+}
+
+function resourceGroupIcon(group) {
+  return group.key === 'agent-extension' ? ThunderboltOutlined : DatabaseOutlined
+}
+
+function toggleResourceGroup(group) {
+  const next = new Set(expandedGroupKeys.value)
+  if (next.has(group.key)) next.delete(group.key)
+  else next.add(group.key)
+  expandedGroupKeys.value = next
 }
 
 function handleResourceMenuClick({ key }) {
@@ -213,9 +229,9 @@ onMounted(() => {
 })
 
 watch(() => route.path, () => {
-  if (resourceGroups.value.some((group) => resourceGroupIsActive(group))) {
-    resourceGroupExpanded.value = true
-  }
+  const activeGroup = resourceGroups.value.find((group) => resourceGroupIsActive(group))
+  if (!activeGroup || expandedGroupKeys.value.has(activeGroup.key)) return
+  expandedGroupKeys.value = new Set([...expandedGroupKeys.value, activeGroup.key])
 })
 </script>
 
