@@ -47,3 +47,10 @@ export function formatSkillBytes(value) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+export function shouldOpenSkillPicker(value) {
+  return /(^|\s)@$/.test(String(value || ''))
+}
+
+export function removeTerminalSkillTrigger(value) {
+  return String(value || '').replace(/(^|\s)@$/, '$1')
+}

@@ -6,6 +6,8 @@ import {
   normalizeAvailableSkills,
   normalizeSkill,
   normalizeSkillPage,
+  removeTerminalSkillTrigger,
+  shouldOpenSkillPicker,
   skillStatusLabel,
 } from '../../plugins/agent_extension/utils/skill.js'
 
@@ -42,5 +44,9 @@ assert.equal(skillStatusLabel('disabled'), '已停用')
 assert.equal(formatSkillBytes(1024), '1 KB')
 assert.equal(hasSkillPermission(['agent_extension:skill:add'], 'agent_extension:skill:add'), true)
 assert.equal(hasSkillPermission(['*:*:*'], 'agent_extension:skill:remove'), true)
+assert.equal(shouldOpenSkillPicker('@'), true)
+assert.equal(shouldOpenSkillPicker('请总结 @'), true)
+assert.equal(shouldOpenSkillPicker('mail@example@'), false)
+assert.equal(removeTerminalSkillTrigger('请总结 @'), '请总结 ')
 
 console.log('ok skill transforms')

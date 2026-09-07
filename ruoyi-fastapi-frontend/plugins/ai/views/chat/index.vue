@@ -36,6 +36,9 @@
           </a-avatar>
           <div class="message-body">
             <div class="message-meta">{{ chatMessageLabel(message.role) }}</div>
+            <div v-if="message.skillSnapshots?.length" class="message-skills">
+              <a-tag v-for="skill in message.skillSnapshots" :key="skill.slug">技能：{{ skill.name }}</a-tag>
+            </div>
             <div v-if="message.images?.length" class="message-images">
               <a-tag v-for="image in message.images" :key="image.fileId">文件 {{ image.fileId }}</a-tag>
             </div>
@@ -54,6 +57,14 @@
       </section>
 
       <footer class="composer">
+        <div v-if="selectedSkills.length" class="selected-skills">
+          <a-tag
+            v-for="skill in selectedSkills"
+            :key="skill.skillSlug"
+            closable
+            @close="removeSkill(skill.skillSlug)"
+          >技能：{{ skill.skillName }}</a-tag>
+        </div>
         <div v-if="imageIds.length" class="image-queue">
           <a-tag v-for="fileId in imageIds" :key="fileId" closable @close="removeImage(fileId)">文件 {{ fileId }}</a-tag>
         </div>
@@ -66,6 +77,12 @@
             @keydown.enter.exact.prevent="send"
           />
           <div class="composer-actions">
+            <SkillPicker
+              v-model="selectedSkills"
+              v-model:open="skillPickerOpen"
+              :disabled="loading"
+              @selected="handleSkillSelected"
+            />
             <a-upload
               accept="image/png,image/jpeg,image/webp,image/gif"
               :before-upload="selectImage"
@@ -127,8 +144,10 @@ import {
   saveUserChatConfig,
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
+import SkillPicker from './components/SkillPicker.vue'
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
 import { beginSend, chatMessageLabel, resolveChatModelOptions } from "../../utils/chatTransforms.js";
+import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agent_extension/utils/skill.js'
 
 const { proxy } = getCurrentInstance();
 const route = useRoute();
@@ -140,6 +159,8 @@ const sessionId = ref(null);
 const messages = ref([]);
 const draft = ref("");
 const imageIds = ref([]);
+const selectedSkills = ref([])
+const skillPickerOpen = ref(false)
 const loading = ref(false);
 const runState = ref("idle");
 const runId = ref(null);
@@ -190,6 +211,8 @@ async function openSession(id) {
   if (requestGeneration !== sessionLoadGeneration) return;
   sessionId.value = id;
   messages.value = (response.data?.messages || []).map((item) => ({ ...item, localId: item.messageId }));
+  selectedSkills.value = []
+  skillPickerOpen.value = false
   await scrollToBottom();
 }
 
@@ -198,6 +221,8 @@ function newSession() {
   sessionLoadGeneration += 1;
   sessionId.value = null;
   messages.value = [];
+  selectedSkills.value = []
+  skillPickerOpen.value = false
   runState.value = "idle";
 }
 
@@ -229,6 +254,14 @@ function removeImage(id) {
   imageIds.value = imageIds.value.filter((item) => item !== id);
 }
 
+function removeSkill(slug) {
+  selectedSkills.value = selectedSkills.value.filter((skill) => skill.skillSlug !== slug)
+}
+
+function handleSkillSelected() {
+  draft.value = removeTerminalSkillTrigger(draft.value)
+}
+
 async function send() {
   const message = draft.value.trim();
   if (!message || !modelId.value || loading.value) return;
@@ -236,9 +269,13 @@ async function send() {
   runId.value = nextState.runId;
   const clientMessageId = crypto.randomUUID();
   const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
-  messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages });
+  const outgoingSkills = selectedSkills.value.map((skill) => ({ ...skill }))
+  const skillSnapshots = outgoingSkills.map((skill) => ({ slug: skill.skillSlug, name: skill.skillName }))
+  messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages, skillSnapshots });
   draft.value = "";
   imageIds.value = [];
+  selectedSkills.value = []
+  skillPickerOpen.value = false
   await nextTick();
   const assistantId = `assistant-${clientMessageId}`;
   messages.value.push({ localId: assistantId, role: "assistant", content: "", reasoningContent: "", status: "pending" });
@@ -249,7 +286,14 @@ async function send() {
   await scrollToBottom();
   try {
     const stream = await createChatStream(
-      { sessionId: sessionId.value, modelId: modelId.value, clientMessageId, message, images: outgoingImages },
+      {
+        sessionId: sessionId.value,
+        modelId: modelId.value,
+        clientMessageId,
+        message,
+        images: outgoingImages,
+        skillSlugs: outgoingSkills.map((skill) => skill.skillSlug),
+      },
       abortController.value.signal,
     );
     runState.value = "streaming";
@@ -337,6 +381,10 @@ watch(() => route.query.sessionId, async (value) => {
   }
   if (routedSessionId !== sessionId.value) await openSession(routedSessionId);
 });
+
+watch(draft, (value) => {
+  if (shouldOpenSkillPicker(value) && !loading.value) skillPickerOpen.value = true
+})
 
 onBeforeUnmount(() => {
   sessionLoadGeneration += 1;
@@ -475,12 +523,18 @@ onBeforeUnmount(() => {
 }
 
 .message-images,
+.message-skills,
+.selected-skills,
 .image-queue {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin: 6px 0;
 }
+
+.message-row.user .message-skills { justify-content: flex-end; }
+
+.selected-skills { margin: 0 0 8px; }
 
 .message-metrics {
   margin-top: 6px;
