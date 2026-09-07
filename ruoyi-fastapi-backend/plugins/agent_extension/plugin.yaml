@@ -1,0 +1,76 @@
+manifestVersion: 1
+id: agent_extension
+name: 智能体扩展
+version: 0.1.0
+description: 平台共享技能管理与智能体扩展入口。
+
+metadata:
+  category: ai
+  tags:
+    - agent
+    - skill
+  author: insistence
+  license: MIT
+
+backend:
+  module: plugins.agent_extension
+  hooks:
+    onStartup: plugins.agent_extension.hooks:on_startup
+    onShutdown: plugins.agent_extension.hooks:on_shutdown
+  routers:
+    autoScan: true
+  migrations:
+    - migrations/mysql/001_skill_management.sql
+    - migrations/postgresql/001_skill_management.sql
+
+frontend:
+  basePath: extensions
+  pluginId: agent_extension
+  viewsPath: views
+  apiPath: api
+  delivery:
+    type: source
+    buildRequired: true
+  menus:
+    - name: 智能体扩展
+      path: extensions
+      component: Layout
+      perms: ''
+      type: M
+      orderNum: 5
+      icon: skill
+      children:
+        - name: 技能管理
+          path: skill
+          component: plugin/agent_extension/skill/index
+          routeName: AgentExtensionSkill
+          perms: agent_extension:skill:list
+          type: C
+          orderNum: 2
+          icon: skill
+
+permissions:
+  - code: agent_extension:skill:list
+    name: 技能列表
+  - code: agent_extension:skill:query
+    name: 查询技能
+  - code: agent_extension:skill:add
+    name: 上传技能
+  - code: agent_extension:skill:edit
+    name: 修改技能状态
+  - code: agent_extension:skill:remove
+    name: 删除技能
+  - code: agent_extension:skill:use
+    name: 使用技能
+
+dependencies:
+  python: []
+  npm: []
+  npmDev: []
+  plugins: []
+
+compatibility:
+  databases:
+    - mysql
+    - postgresql
+
