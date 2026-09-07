@@ -108,7 +108,7 @@ frontend:
           path: skill
           component: plugin/agent_extension/skill/index
           routeName: AgentExtensionSkill
-          perms: agent-extension:skill:list
+          perms: agent_extension:skill:list
           type: C
 ```
 
@@ -241,7 +241,7 @@ git commit -m "feat: 完成平台技能管理接口"
 
 ```javascript
 assert.match(skillView, /WorkspaceToolbar[^>]+title="技能管理"/)
-assert.match(skillView, /can\('agent-extension:skill:add'\)/)
+assert.match(skillView, /can\('agent_extension:skill:add'\)/)
 assert.doesNotMatch(skillView, /#[0-9a-f]{6}/i)
 ```
 

@@ -226,12 +226,12 @@ version: 1.0.0
 权限标识：
 
 ```text
-agent-extension:skill:list
-agent-extension:skill:query
-agent-extension:skill:add
-agent-extension:skill:edit
-agent-extension:skill:remove
-agent-extension:skill:use
+agent_extension:skill:list
+agent_extension:skill:query
+agent_extension:skill:add
+agent_extension:skill:edit
+agent_extension:skill:remove
+agent_extension:skill:use
 ```
 
 权限分配：
