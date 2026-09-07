@@ -60,7 +60,7 @@ export const constantRoutes = [
   {
     path: '',
     component: Layout,
-    redirect: '/index',
+    redirect: '/ai/chat',
     children: [
       {
         path: '/index',

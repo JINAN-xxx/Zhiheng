@@ -1,1 +1,0 @@
-import{J as o}from"./index-BBl85YqS.js";function m(s){if(s&&s instanceof Array&&s.length>0){const r=o().permissions,n=s,i="*:*:*";return!!r.some(e=>i===e||n.includes(e))}else return console.error(`need roles! Like checkPermi="['system:user:add','system:user:edit']"`),!1}export{m as c};

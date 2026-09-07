@@ -225,6 +225,8 @@ def response_for(path: str, method: str, access: str) -> dict:
             "isDefaultModifyPwd": False,
             "isPasswordExpired": False,
         }
+    if path == "/login" and method == "POST":
+        return {"code": 200, "token": "e2e-token"}
     if path == "/getRouters":
         return {"code": 200, "data": routes_for(access)}
     if path == "/ai/chat/session/list":
@@ -527,8 +529,9 @@ async def install_backend_mock(
         }
         if parsed.path in direct_mock_paths:
             api_path = parsed.path
-        elif parsed.path.startswith("/dev-api/"):
-            api_path = parsed.path.removeprefix("/dev-api")
+        elif parsed.path.startswith(("/dev-api/", "/docker-api/")):
+            api_path = parsed.path.split("/", 2)[-1]
+            api_path = f"/{api_path}"
         else:
             await route.continue_()
             return
@@ -540,6 +543,7 @@ async def install_backend_mock(
         )
 
     await context.route("**/dev-api/**", handle)
+    await context.route("**/docker-api/**", handle)
     await context.route("**/transport/crypto/frontend-config", handle)
     await context.route("**/captchaImage", handle)
     if authenticated:
@@ -1308,6 +1312,26 @@ async def check_auth_dark(browser: Browser) -> None:
         await context.close()
 
 
+async def check_default_login_landing(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, ADMIN_VIEWPORT, authenticated=False
+    )
+    try:
+        await page.goto(f"{BASE_URL}/")
+        await page.get_by_role("heading", name="登录 智衡 AI").wait_for()
+        assert urlparse(page.url).path == "/login"
+        assert "redirect=%2Fai%2Fchat" in page.url or "redirect=/ai/chat" in page.url
+        await page.get_by_placeholder("账号").fill("admin")
+        await page.get_by_placeholder("密码").fill("password")
+        await page.locator('.login-form button[type="submit"]').click()
+        await page.wait_for_url("**/ai/chat")
+        await page.get_by_text("从一个问题开始", exact=True).wait_for()
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
 async def check_permission_landings(browser: Browser) -> None:
     expectations = {
         "chat": "/ai/chat",
@@ -1378,6 +1402,7 @@ async def run_platform_checks(browser: Browser) -> dict[str, str]:
     await check_skill_management_and_chat_picker(browser)
     await check_skill_management_dark(browser)
     await check_auth_dark(browser)
+    await check_default_login_landing(browser)
     await check_permission_landings(browser)
     hashes = {filename: screenshot_hash(filename) for filename in PLATFORM_STABLE_SCREENSHOTS}
     print(f"platform stable screenshot hashes: {hashes}")
