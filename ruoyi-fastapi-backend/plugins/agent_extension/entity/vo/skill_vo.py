@@ -74,8 +74,23 @@ class SkillDetailModel(SkillModel):
     metadata_json: dict[str, object] = Field(default_factory=dict)
 
 
+class SkillContentModel(_ResponseModel):
+    skill_id: SkillId
+    skill_slug: SkillSlug
+    content: str
+
+
+class SkillDraftModel(_ResponseModel):
+    draft_id: str
+    skill_slug: SkillSlug
+    skill_name: str
+    description: str
+    version: str
+    file_count: int
+    total_bytes: int
+
+
 class AvailableSkillModel(_ResponseModel):
     skill_slug: SkillSlug
     skill_name: str
     description: str
-
