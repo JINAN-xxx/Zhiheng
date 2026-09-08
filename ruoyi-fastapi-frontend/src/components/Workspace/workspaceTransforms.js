@@ -12,6 +12,12 @@ const AI_RESOURCE_TABS = Object.freeze([
 
 const AGENT_EXTENSION_TABS = Object.freeze([
   Object.freeze({
+    key: 'agent',
+    label: '智能体管理',
+    path: '/extensions/agent',
+    permission: 'agent_extension:agent:list',
+  }),
+  Object.freeze({
     key: 'skill',
     label: '技能管理',
     path: '/extensions/skill',
@@ -24,6 +30,7 @@ const LANDING_PATH_PRIORITY = Object.freeze([
   '/ai/model',
   '/ai/application',
   '/ai/usage',
+  '/extensions/agent',
   '/extensions/skill',
 ])
 
