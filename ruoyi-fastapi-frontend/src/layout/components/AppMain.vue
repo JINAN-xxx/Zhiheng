@@ -27,7 +27,7 @@ import AiResourceShell from './AiResourceShell.vue'
 
 const route = useRoute()
 const tagsViewStore = useTagsViewStore()
-const AI_RESOURCE_PATHS = new Set(['/ai/model', '/ai/application', '/ai/usage'])
+const AI_RESOURCE_PATHS = new Set(['/ai/model', '/ai/application', '/ai/usage', '/ai/knowledge'])
 
 function isAiResourceRoute(path) {
   return AI_RESOURCE_PATHS.has(path)

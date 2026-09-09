@@ -14,7 +14,10 @@
         <a-form-item class="editor-full-width" label="欢迎语" name="welcomeMessage" extra="开启对话时展示的开场白，可留空。"><a-textarea v-model:value="form.welcomeMessage" :rows="2" :maxlength="2000" placeholder="你好，我可以帮你解答什么问题？" /></a-form-item>
         <a-form-item class="editor-full-width" label="系统提示词" name="systemPrompt"><a-textarea v-model:value="form.systemPrompt" :rows="5" :maxlength="32000" /></a-form-item>
         <a-form-item label="技能" name="skillSlugs"><a-select v-model:value="form.skillSlugs" mode="multiple" option-filter-prop="label" :options="skillOptions" :loading="optionsLoading" :disabled="!canEdit || busy || !can('agent_extension:skill:use')" allow-clear /></a-form-item>
-        <a-form-item label="知识库 ID" name="knowledgeBaseIds"><a-select v-model:value="form.knowledgeBaseIds" mode="tags" :token-separators="[',']" :open="false" /></a-form-item>
+        <a-form-item label="知识库" name="knowledgeBaseIds">
+          <a-select v-model:value="form.knowledgeBaseIds" mode="multiple" option-filter-prop="label" :options="knowledgeOptions" :loading="optionsLoading" :disabled="!canEdit || busy || !can('ai:knowledge:query')" allow-clear placeholder="选择回答时引用的知识库" />
+          <template #extra><a-button v-if="knowledgeError && can('ai:knowledge:query')" type="link" size="small" :loading="knowledgeLoading" @click="reloadKnowledge">知识库加载失败，点击重试</a-button><span v-else-if="!can('ai:knowledge:query')">需要知识库检索权限</span></template>
+        </a-form-item>
         <a-form-item class="editor-full-width" label="API 应用" name="applicationId">
           <div class="application-field">
             <a-select v-model:value="form.applicationId" show-search allow-clear option-filter-prop="label" :options="applicationOptions" :loading="optionsLoading" :disabled="!canEdit || busy || !can('ai:application:list')" placeholder="选择应用" />
@@ -61,6 +64,8 @@ import { listAvailableSkills } from '../../../api/skill.js'
 import { agentStatusLabel, buildAgentPayload, createAgentForm, normalizeAgent } from '../../../utils/agent.js'
 import { hasSkillPermission, normalizeAvailableSkills } from '../../../utils/skill.js'
 import { listPlatformModels } from '../../../../ai/api/modelCatalog.js'
+import { listAvailableKnowledgeBases } from '../../../../ai/api/knowledge.js'
+import { normalizeKnowledgeDatabases } from '../../../../ai/utils/knowledge.js'
 import { createApplication, listApplications } from '../../../../ai/api/application.js'
 import { isCallablePlatformModel, normalizeApplication, normalizeApplicationModelPage, normalizeApplicationPage } from '../../../../ai/utils/application.js'
 import { collectAllPages } from '../../../../ai/utils/modelEngine.js'
@@ -81,6 +86,9 @@ const optionsError = ref('')
 const models = ref([])
 const skills = ref([])
 const applications = ref([])
+const knowledgeBases = ref([])
+const knowledgeError = ref(false)
+const knowledgeLoading = ref(false)
 const applicationOpen = ref(false)
 const applicationSaving = ref(false)
 const applicationError = ref('')
@@ -91,6 +99,7 @@ const canEdit = computed(() => can(saved.value ? 'agent_extension:agent:edit' : 
 const dirty = computed(() => JSON.stringify(buildAgentPayload(form)) !== JSON.stringify(buildAgentPayload(saved.value || {})))
 const modelOptions = computed(() => withCurrent(models.value.filter((model) => (model.modelType ?? model.model_type) === 'chat' && isCallablePlatformModel(model)).map((model) => ({ value: model.modelId ?? model.model_id, label: model.displayName || model.display_name || model.title || model.modelName || model.model_name || model.modelCode || model.model_code || model.modelId || model.model_id })), form.modelId))
 const skillOptions = computed(() => withCurrent(skills.value.map((skill) => ({ value: skill.skillSlug, label: skill.skillName })), form.skillSlugs))
+const knowledgeOptions = computed(() => withCurrent(knowledgeBases.value.map((item) => ({ value: item.db_id, label: item.name })), form.knowledgeBaseIds))
 const applicationOptions = computed(() => withCurrent(applications.value.filter((app) => app.status === 'active').map((app) => ({ value: app.applicationId, label: app.applicationName })), form.applicationId))
 const rules = {
   name: [{ required: true, whitespace: true, message: '请输入名称' }],
@@ -116,13 +125,14 @@ async function load() {
   error.value = ''; loadError.value = ''; optionsError.value = ''
   loading.value = true
   optionsLoading.value = true
-  models.value = []; skills.value = []; applications.value = []
+  models.value = []; skills.value = []; applications.value = []; knowledgeBases.value = []; knowledgeError.value = false
   const detail = props.agentId ? getAgent(props.agentId) : Promise.resolve(null)
   const requests = [
     detail,
     can('ai:model:list') ? collectAllPages(async (page) => normalizeApplicationModelPage(await listPlatformModels(page))) : Promise.resolve([]),
     can('agent_extension:skill:use') ? listAvailableSkills().then(normalizeAvailableSkills) : Promise.resolve([]),
     can('ai:application:list') ? collectAllPages(async (page) => normalizeApplicationPage(await listApplications(page))) : Promise.resolve([]),
+    can('ai:knowledge:query') ? listAvailableKnowledgeBases().then(normalizeKnowledgeDatabases) : Promise.resolve([]),
   ]
   const results = await Promise.allSettled(requests)
   if (requestId !== generation) return
@@ -130,15 +140,31 @@ async function load() {
     if (results[0].value) saved.value = normalizeAgent(results[0].value.data)
     Object.assign(form, createAgentForm(saved.value || {}))
   } else loadError.value = normalizeErrorMessage(results[0].reason, '智能体加载失败')
-  const targets = [models, skills, applications]
-  const labels = ['模型', '技能', '应用']
+  const targets = [models, skills, applications, knowledgeBases]
+  const labels = ['模型', '技能', '应用', '知识库']
   const failures = []
   results.slice(1).forEach((result, index) => {
     if (result.status === 'fulfilled') targets[index].value = result.value
     else failures.push(`${labels[index]}加载失败`)
   })
   optionsError.value = failures.join('，')
+  knowledgeError.value = results[4].status === 'rejected'
   loading.value = false; optionsLoading.value = false
+}
+
+async function reloadKnowledge() {
+  if (knowledgeLoading.value || !can('ai:knowledge:query')) return
+  const requestId = generation
+  knowledgeLoading.value = true
+  try {
+    const rows = normalizeKnowledgeDatabases(await listAvailableKnowledgeBases())
+    if (requestId !== generation) return
+    knowledgeBases.value = rows
+    knowledgeError.value = false
+    optionsError.value = optionsError.value.split('，').filter((item) => item !== '知识库加载失败').join('，')
+  } catch {
+    if (requestId === generation) knowledgeError.value = true
+  } finally { knowledgeLoading.value = false }
 }
 
 function acceptAgent(response) {

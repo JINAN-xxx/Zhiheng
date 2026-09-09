@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 
 import { resolveChatModelOptions } from '../../plugins/ai/utils/chatTransforms.js'
 
@@ -48,4 +49,49 @@ assert.ok(clearSkillsIndex > clearImagesIndex)
 assert.ok(nextTickIndex > clearSkillsIndex)
 assert.ok(requestIndex > nextTickIndex)
 
+
+
+
+assert.match(chatView, /listAvailableKnowledgeBases/)
+assert.match(chatView, /ai:knowledge:query/)
+assert.match(chatView, /knowledgeBaseIds:\s*outgoingKnowledgeBaseIds/)
+assert.match(chatView, /mode="multiple"/)
+assert.match(chatView, /v-model:value="selectedKnowledgeBaseIds"/)
+assert.match(chatView, /@click="loadKnowledgeBases"/)
+assert.match(chatView, /knowledgeError/)
+assert.match(chatView, /database\.name/)
+
+
+const knowledgeLoadSource = chatView.slice(
+  chatView.indexOf('async function loadKnowledgeBases()'),
+  chatView.indexOf('function knowledgeNames(message)'),
+)
+let listCalls = 0
+const knowledgeScope = {
+  canUseKnowledge: { value: false },
+  knowledgeLoading: { value: false },
+  knowledgeError: { value: '' },
+  knowledgeDatabases: { value: [] },
+  selectedKnowledgeBaseIds: { value: ['kb-1'] },
+  knowledgeLoadGeneration: 0,
+  normalizeErrorMessage: (error, fallback) => error.message || fallback,
+  listAvailableKnowledgeBases: async () => {
+    listCalls += 1
+    if (listCalls === 1) throw new Error('Temporary outage')
+    return { code: 200, data: { databases: [{ db_id: 'kb-1', name: '产品手册' }] } }
+  },
+}
+const loadKnowledge = runInNewContext(`${knowledgeLoadSource}; loadKnowledgeBases`, knowledgeScope)
+await loadKnowledge()
+assert.equal(listCalls, 0, 'Knowledge lists require query permission')
+knowledgeScope.canUseKnowledge.value = true
+await loadKnowledge()
+assert.equal(knowledgeScope.knowledgeError.value, 'Temporary outage')
+assert.equal(knowledgeScope.knowledgeLoading.value, false)
+assert.deepEqual(knowledgeScope.selectedKnowledgeBaseIds.value, ['kb-1'])
+await loadKnowledge()
+assert.equal(listCalls, 2, 'A failed knowledge list can be retried')
+assert.equal(knowledgeScope.knowledgeError.value, '')
+assert.equal(knowledgeScope.knowledgeDatabases.value[0].name, '产品手册')
+assert.equal(knowledgeScope.knowledgeLoading.value, false)
 console.log('ok chat behavior contract')

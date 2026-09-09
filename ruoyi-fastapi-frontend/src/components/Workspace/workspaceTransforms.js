@@ -27,6 +27,7 @@ const AGENT_EXTENSION_TABS = Object.freeze([
 
 const LANDING_PATH_PRIORITY = Object.freeze([
   '/ai/chat',
+  '/ai/knowledge',
   '/ai/model',
   '/ai/application',
   '/ai/usage',

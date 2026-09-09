@@ -164,3 +164,5 @@ cython_debug/
 
 # Runtime Agent Skills
 /data/agent-skills/
+/data/knowledge/
+/ruoyi-fastapi-backend/data/knowledge/

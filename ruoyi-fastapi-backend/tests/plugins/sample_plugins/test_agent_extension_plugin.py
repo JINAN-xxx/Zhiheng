@@ -30,7 +30,7 @@ def test_agent_extension_manifest_declares_skill_menu_and_permissions() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
     assert plugin.manifest.id == 'agent_extension'
-    assert plugin.manifest.version == '0.2.1'
+    assert plugin.manifest.version == '0.3.0'
     assert plugin.manifest.backend.module == 'plugins.agent_extension'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.agent_extension.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.agent_extension.hooks:on_shutdown'

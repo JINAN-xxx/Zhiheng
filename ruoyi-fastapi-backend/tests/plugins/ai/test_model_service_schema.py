@@ -25,7 +25,7 @@ def _normalize_sql(sql: str) -> str:
 def test_model_service_migrations_are_registered_after_initial_schema() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.8.0'
+    assert plugin.manifest.version == '0.9.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
@@ -35,6 +35,7 @@ def test_model_service_migrations_are_registered_after_initial_schema() -> None:
         'migrations/mysql/006_quota_reservation.sql',
         'migrations/mysql/007_application_lifecycle.sql',
         'migrations/mysql/008_chat_skill_snapshots.sql',
+        'migrations/mysql/009_chat_knowledge.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
@@ -43,6 +44,7 @@ def test_model_service_migrations_are_registered_after_initial_schema() -> None:
         'migrations/postgresql/006_quota_reservation.sql',
         'migrations/postgresql/007_application_lifecycle.sql',
         'migrations/postgresql/008_chat_skill_snapshots.sql',
+        'migrations/postgresql/009_chat_knowledge.sql',
     ]
 
 

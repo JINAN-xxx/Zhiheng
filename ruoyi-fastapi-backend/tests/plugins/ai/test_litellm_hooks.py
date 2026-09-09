@@ -45,6 +45,44 @@ class FakeManagementClient(FakeRuntimeClient):
 def patch_client_types(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(hooks, 'LiteLLMRuntimeClient', FakeRuntimeClient)
     monkeypatch.setattr(hooks, 'LiteLLMManagementClient', FakeManagementClient)
+    monkeypatch.setattr(hooks, 'create_knowledge_runtime', lambda app: FakeRuntimeClient(LiteLLMSettings()))
+
+
+@pytest.mark.asyncio
+async def test_knowledge_startup_failure_closes_both_model_clients(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    runtime = FakeRuntimeClient(LiteLLMSettings())
+    management = FakeManagementClient(LiteLLMSettings())
+    monkeypatch.setattr(hooks, 'LiteLLMRuntimeClient', lambda settings: runtime)
+    monkeypatch.setattr(hooks, 'LiteLLMManagementClient', lambda settings: management)
+
+    def fail_knowledge(app: FastAPI) -> None:
+        raise RuntimeError('knowledge initialization failed')
+
+    monkeypatch.setattr(hooks, 'create_knowledge_runtime', fail_knowledge)
+    with pytest.raises(RuntimeError, match='knowledge initialization failed'):
+        await hooks.on_startup(SimpleNamespace(app=app))
+    assert runtime.close_call_count == 1
+    assert management.close_call_count == 1
+    assert not hasattr(app.state, hooks.RUNTIME_CLIENT_STATE_NAME)
+    assert not hasattr(app.state, hooks.MANAGEMENT_CLIENT_STATE_NAME)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_model_clients_even_if_knowledge_close_fails() -> None:
+    app = FastAPI()
+    knowledge = FakeRuntimeClient(LiteLLMSettings(), close_error=RuntimeError('knowledge close failed'))
+    runtime = FakeRuntimeClient(LiteLLMSettings())
+    management = FakeManagementClient(LiteLLMSettings())
+    app.state.knowledge_runtime = knowledge
+    app.state.ai_litellm_runtime_client = runtime
+    app.state.ai_litellm_management_client = management
+    with pytest.raises(RuntimeError, match='knowledge close failed'):
+        await hooks.on_shutdown(SimpleNamespace(app=app))
+    assert knowledge.close_call_count == 1
+    assert runtime.close_call_count == 1
+    assert management.close_call_count == 1
+    assert app.state.knowledge_runtime is knowledge
 
 
 @pytest.mark.asyncio

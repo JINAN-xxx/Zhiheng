@@ -1,8 +1,8 @@
 manifestVersion: 1
 id: ai
 name: AI 管理
-version: 0.8.0
-description: AI 模型管理与智能对话插件。
+version: 0.9.0
+description: AI 模型管理、知识库与智能对话插件。
 
 metadata:
   category: ai
@@ -30,6 +30,7 @@ backend:
     - migrations/mysql/006_quota_reservation.sql
     - migrations/mysql/007_application_lifecycle.sql
     - migrations/mysql/008_chat_skill_snapshots.sql
+    - migrations/mysql/009_chat_knowledge.sql
     - migrations/postgresql/001_init.sql
     - migrations/postgresql/002_model_service_foundation.sql
     - migrations/postgresql/003_platform_chat.sql
@@ -38,6 +39,7 @@ backend:
     - migrations/postgresql/006_quota_reservation.sql
     - migrations/postgresql/007_application_lifecycle.sql
     - migrations/postgresql/008_chat_skill_snapshots.sql
+    - migrations/postgresql/009_chat_knowledge.sql
   seeds:
     - seeds/mysql/ai_provider_type.sql
     - seeds/postgresql/ai_provider_type.sql
@@ -103,8 +105,26 @@ frontend:
           orderNum: 4
           icon: chart
           visible: '0'
+        - name: 知识库
+          path: knowledge
+          component: plugin/ai/knowledge/index
+          routeName: AiKnowledge
+          perms: ai:knowledge:list
+          type: C
+          orderNum: 5
+          icon: documentation
 
 permissions:
+  - code: ai:knowledge:list
+    name: 知识库列表
+  - code: ai:knowledge:query
+    name: 知识库检索
+  - code: ai:knowledge:add
+    name: 新增知识库内容
+  - code: ai:knowledge:edit
+    name: 修改知识库内容
+  - code: ai:knowledge:remove
+    name: 删除知识库内容
   - code: ai:model:list
     name: 模型列表
   - code: ai:model:add

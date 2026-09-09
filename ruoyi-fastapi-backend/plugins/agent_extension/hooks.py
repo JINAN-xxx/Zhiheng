@@ -4,6 +4,7 @@ from pathlib import Path
 from config.database import AsyncSessionLocal
 from plugins.agent_extension.config import AgentSkillSettings
 from plugins.agent_extension.domain.skill_package import SkillPackageLimits, SkillPackageParser
+from plugins.agent_extension.infrastructure.knowledge_context_provider import PlatformKnowledgeProvider
 from plugins.agent_extension.infrastructure.skill_storage import SkillStorage
 from plugins.agent_extension.service.skill_service import SkillContextProvider, SkillService
 from plugins.core.runtime.hooks import PluginHookContext
@@ -42,9 +43,12 @@ async def on_startup(context: PluginHookContext) -> None:
     if context.startup_write_enabled:
         await _sync_builtin_skills(storage, settings)
     context.app.state.agent_skill_context_provider = SkillContextProvider(storage, settings)
+    context.app.state.agent_knowledge_provider = PlatformKnowledgeProvider(context.app)
 
 
 async def on_shutdown(context: PluginHookContext) -> None:
     """插件停用时清理已注册的技能运行时。"""
     if context.app is not None and hasattr(context.app.state, 'agent_skill_context_provider'):
         delattr(context.app.state, 'agent_skill_context_provider')
+    if context.app is not None and hasattr(context.app.state, 'agent_knowledge_provider'):
+        delattr(context.app.state, 'agent_knowledge_provider')

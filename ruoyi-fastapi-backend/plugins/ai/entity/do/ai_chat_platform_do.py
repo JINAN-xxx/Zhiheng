@@ -91,6 +91,12 @@ class AiChatMessage(Base):
         default=list,
         comment='当前消息使用的技能名称快照',
     )
+    knowledge_base_ids = Column(
+        JSON().with_variant(JSONB(), 'postgresql'),
+        nullable=False,
+        default=list,
+        comment='当前消息选择的知识库ID',
+    )
     status = Column(String(16), nullable=False, comment='消息状态')
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment='更新时间')

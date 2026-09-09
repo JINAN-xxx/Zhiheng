@@ -2,13 +2,18 @@ import asyncio
 from typing import Protocol
 
 from plugins.ai.config import LiteLLMSettings
+from plugins.ai.infrastructure.knowledge_runtime_provider import create_knowledge_runtime
 from plugins.ai.infrastructure.litellm_client import LiteLLMRuntimeClient
 from plugins.ai.infrastructure.litellm_management_client import LiteLLMManagementClient
+from plugins.ai.infrastructure.runtime_state import (
+    CLIENT_STATE_NAME,
+    KNOWLEDGE_RUNTIME_STATE_NAME,
+    MANAGEMENT_CLIENT_STATE_NAME,
+    RUNTIME_CLIENT_STATE_NAME,
+)
 from plugins.core.runtime.hooks import PluginHookContext
 
-RUNTIME_CLIENT_STATE_NAME = 'ai_litellm_runtime_client'
-MANAGEMENT_CLIENT_STATE_NAME = 'ai_litellm_management_client'
-CLIENT_STATE_NAME = RUNTIME_CLIENT_STATE_NAME
+__all__ = ['CLIENT_STATE_NAME', 'MANAGEMENT_CLIENT_STATE_NAME', 'RUNTIME_CLIENT_STATE_NAME', 'on_shutdown', 'on_startup']
 
 
 class AsyncClosable(Protocol):
@@ -32,19 +37,30 @@ async def on_startup(context: PluginHookContext) -> None:
         raise
     setattr(context.app.state, RUNTIME_CLIENT_STATE_NAME, runtime_client)
     setattr(context.app.state, MANAGEMENT_CLIENT_STATE_NAME, management_client)
+    try:
+        knowledge_runtime = create_knowledge_runtime(context.app)
+    except BaseException:
+        runtime_error = await _close_state_client(context.app.state, RUNTIME_CLIENT_STATE_NAME)
+        management_error = await _close_state_client(context.app.state, MANAGEMENT_CLIENT_STATE_NAME)
+        cancellation = _first_error_of_type((runtime_error, management_error), asyncio.CancelledError)
+        if cancellation is not None:
+            raise cancellation from None
+        raise
+    setattr(context.app.state, KNOWLEDGE_RUNTIME_STATE_NAME, knowledge_runtime)
 
 
 async def on_shutdown(context: PluginHookContext) -> None:
     """释放当前 FastAPI Worker 的 LiteLLM 连接池。"""
     if context.app is None:
         return
+    knowledge_error = await _close_state_client(context.app.state, KNOWLEDGE_RUNTIME_STATE_NAME)
     runtime_error = await _close_state_client(context.app.state, RUNTIME_CLIENT_STATE_NAME)
     management_error = await _close_state_client(context.app.state, MANAGEMENT_CLIENT_STATE_NAME)
 
-    cancellation = _first_error_of_type((runtime_error, management_error), asyncio.CancelledError)
+    cancellation = _first_error_of_type((knowledge_error, runtime_error, management_error), asyncio.CancelledError)
     if cancellation is not None:
         raise cancellation
-    close_error = runtime_error or management_error
+    close_error = knowledge_error or runtime_error or management_error
     if close_error is not None:
         raise close_error
 

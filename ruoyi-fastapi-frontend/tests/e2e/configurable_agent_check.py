@@ -70,6 +70,8 @@ class AgentFixture:
                 ]
             ]
             return {'code': 200, 'rows': rows, 'total': len(rows), 'hasNext': False}
+        if path == '/ai/knowledge/available':
+            return {'code': 200, 'data': {'databases': [{'db_id': 'kb-smoke', 'name': 'Smoke Knowledge'}]}}
         if path == '/ai/applications':
             if method == 'POST':
                 app = {**body, 'applicationId': 'app-created', 'status': 'active', 'version': 1}
@@ -232,9 +234,8 @@ async def desktop_check(browser, fixture, artifacts):
         await select_option(page, '模型', 'Smoke Chat')
         await drawer(page).get_by_label('系统提示词', exact=True).fill('Use the selected references and answer precisely.')
         await select_option(page, '技能', '深度研究')
-        await drawer(page).get_by_label('知识库 ID', exact=True).fill('kb-smoke')
-        await drawer(page).get_by_label('知识库 ID', exact=True).press('Enter')
-        await drawer(page).get_by_label('知识库 ID', exact=True).press('Tab')
+        await select_option(page, '知识库', 'Smoke Knowledge')
+        await drawer(page).get_by_label('知识库', exact=True).press('Tab')
         await drawer(page).get_by_role('button', name='新建 API 应用', exact=True).click()
         modal = page.locator('.ant-modal:visible').filter(has=page.get_by_label('应用编码', exact=True))
         await modal.get_by_label('应用名称', exact=True).fill('Smoke API app')
@@ -266,7 +267,7 @@ async def desktop_check(browser, fixture, artifacts):
         await close_drawer(page)
 
         await button(agent_card(page), '配置').click()
-        knowledge = drawer(page).locator('.ant-form-item').filter(has_text='知识库 ID')
+        knowledge = drawer(page).locator('.ant-form-item').filter(has_text='知识库')
         await knowledge.locator('.ant-select-selection-item-remove').click()
         await expect(button(drawer(page), '试聊')).to_be_disabled()
         await button(drawer(page), '保存').click()

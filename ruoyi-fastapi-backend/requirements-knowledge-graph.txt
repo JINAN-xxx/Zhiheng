@@ -1,0 +1,5 @@
+-r requirements-knowledge.txt
+# Do not install LightRAG API/offline/model extras.
+pymilvus==2.6.17
+neo4j==5.28.5.0
+lightrag-hku==1.5.7

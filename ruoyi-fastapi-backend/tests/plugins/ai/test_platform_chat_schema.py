@@ -1,6 +1,9 @@
 import re
+from datetime import datetime
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy.dialects import mysql, postgresql
 from sqlalchemy.schema import CreateTable
 
@@ -10,6 +13,7 @@ from plugins.ai.entity.do.ai_chat_platform_do import (
     AiChatRun,
     AiChatSession,
 )
+from plugins.ai.entity.vo.ai_platform_chat_vo import PlatformChatRequestModel, PlatformMessageModel
 from plugins.core.discovery.scanner import PluginScanner
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
@@ -54,7 +58,7 @@ def _assert_foreign_key(column: object, target: str) -> None:
 def test_platform_chat_migrations_are_registered_after_model_foundation() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.8.0'
+    assert plugin.manifest.version == '0.9.0'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',
@@ -64,6 +68,7 @@ def test_platform_chat_migrations_are_registered_after_model_foundation() -> Non
         'migrations/mysql/006_quota_reservation.sql',
         'migrations/mysql/007_application_lifecycle.sql',
         'migrations/mysql/008_chat_skill_snapshots.sql',
+        'migrations/mysql/009_chat_knowledge.sql',
         'migrations/postgresql/001_init.sql',
         'migrations/postgresql/002_model_service_foundation.sql',
         'migrations/postgresql/003_platform_chat.sql',
@@ -72,6 +77,7 @@ def test_platform_chat_migrations_are_registered_after_model_foundation() -> Non
         'migrations/postgresql/006_quota_reservation.sql',
         'migrations/postgresql/007_application_lifecycle.sql',
         'migrations/postgresql/008_chat_skill_snapshots.sql',
+        'migrations/postgresql/009_chat_knowledge.sql',
     ]
 
 
@@ -226,3 +232,41 @@ def test_platform_chat_run_uses_scalar_usage_and_auditable_snapshots() -> None:
     assert table.c.engine_type.nullable is False
     assert table.c.engine_model_snapshot.nullable is False
     assert table.c.error_message.type.length == ERROR_MESSAGE_MAX_LENGTH
+
+
+def test_chat_knowledge_request_is_strict_bounded_unique_and_optional() -> None:
+    payload = {'modelId': 'mdl_123e4567e89b42d3a456426614174000', 'clientMessageId': 'client-1', 'message': 'hello'}
+    assert PlatformChatRequestModel.model_validate(payload).knowledge_base_ids == []
+    request = PlatformChatRequestModel.model_validate({**payload, 'knowledgeBaseIds': ['kb-1']})
+    assert request.knowledge_base_ids == ['kb-1']
+    for invalid in (['kb-1', 'kb-1'], [''], [' '], ['x' * 101], [7], ['kb-' + str(i) for i in range(21)], 'kb-1'):
+        with pytest.raises(ValidationError):
+            PlatformChatRequestModel.model_validate({**payload, 'knowledgeBaseIds': invalid})
+
+
+def test_chat_message_knowledge_column_and_additive_migrations() -> None:
+    assert AiChatMessage.__table__.c.knowledge_base_ids.nullable is False
+    assert AiChatMessage.__table__.c.knowledge_base_ids.default.arg(None) == []
+    for database in ('mysql', 'postgresql'):
+        sql = _normalize_sql((PLUGIN_ROOT / 'migrations' / database / '009_chat_knowledge.sql').read_text())
+        assert 'alter table ai_chat_message' in sql
+        assert 'knowledge_base_ids' in sql
+        assert 'drop table' not in sql
+
+
+def test_legacy_message_null_knowledge_ids_are_serialized_as_empty_list() -> None:
+    message = PlatformMessageModel.model_validate(
+        {
+            'messageId': 'msg_123e4567e89b42d3a456426614174000',
+            'sessionId': 'ses_123e4567e89b42d3a456426614174000',
+            'clientMessageId': 'client-1',
+            'role': 'user',
+            'content': 'hello',
+            'images': [],
+            'status': 'complete',
+            'createdAt': datetime.now(),
+            'updatedAt': datetime.now(),
+            'knowledgeBaseIds': None,
+        }
+    )
+    assert message.model_dump(by_alias=True)['knowledgeBaseIds'] == []

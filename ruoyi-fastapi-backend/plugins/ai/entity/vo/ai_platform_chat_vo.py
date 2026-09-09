@@ -26,6 +26,11 @@ ChatContent = Annotated[str, StringConstraints(strict=True, min_length=1, max_le
 SystemPrompt = Annotated[str, StringConstraints(strict=True, max_length=10_000)]
 NonNegativeInteger = Annotated[int, Field(strict=True, ge=0)]
 MAX_SELECTED_SKILLS = 5
+KnowledgeBaseId = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=100)]
+
+
+def _knowledge_ids_or_empty(value: object) -> object:
+    return [] if value is None else value
 
 
 def _parse_http_query_integer(value: object) -> int:
@@ -71,6 +76,14 @@ class PlatformChatRequestModel(_StrictRequestModel):
     message: ChatContent = Field(repr=False)
     images: list[PlatformImageReferenceModel] = Field(default_factory=list, max_length=10)
     skill_slugs: list[SkillSlug] = Field(default_factory=list)
+    knowledge_base_ids: list[KnowledgeBaseId] = Field(default_factory=list, max_length=20, strict=True)
+
+    @field_validator('knowledge_base_ids')
+    @classmethod
+    def reject_duplicate_knowledge_bases(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError('同一知识库不能重复选择')
+        return value
 
     @field_validator('message')
     @classmethod
@@ -141,6 +154,9 @@ class PlatformMessageModel(_ResponseModel):
     reasoning_content: str | None = None
     images: list[PlatformImageReferenceModel]
     skill_snapshots: Annotated[list['SkillSnapshotModel'], BeforeValidator(lambda value: value or [])] = Field(
+        default_factory=list
+    )
+    knowledge_base_ids: Annotated[list[KnowledgeBaseId], BeforeValidator(_knowledge_ids_or_empty)] = Field(
         default_factory=list
     )
     status: Literal['complete', 'interrupted', 'cancelled']

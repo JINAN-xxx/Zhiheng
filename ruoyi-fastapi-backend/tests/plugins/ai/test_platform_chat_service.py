@@ -15,6 +15,7 @@ from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatPrefer
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.entity.vo.ai_platform_chat_vo import PlatformChatRequestModel
+from plugins.ai.infrastructure.chat_knowledge_adapter import ChatKnowledgeAdapter
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError
 from plugins.ai.service.model_service import ModelServiceStreamResult, ResolvedModel
@@ -22,6 +23,7 @@ from plugins.ai.service.platform_chat_service import (
     PlatformChatError,
     PlatformChatEvent,
     PlatformChatService,
+    ResolvedChatKnowledgePassage,
     ResolvedPlatformImage,
 )
 
@@ -371,6 +373,7 @@ def _request(
     message: str = 'hello',
     images: list[dict[str, str]] | None = None,
     skill_slugs: list[str] | None = None,
+    knowledge_base_ids: list[str] | None = None,
 ) -> PlatformChatRequestModel:
     return PlatformChatRequestModel.model_validate(
         {
@@ -380,6 +383,7 @@ def _request(
             'message': message,
             'images': images or [],
             'skillSlugs': skill_slugs or [],
+            'knowledgeBaseIds': knowledge_base_ids or [],
         }
     )
 
@@ -487,9 +491,7 @@ def test_chat_request_rejects_duplicate_or_too_many_skills() -> None:
 
 @pytest.mark.asyncio
 async def test_duplicate_client_message_rejects_changed_skill_selection() -> None:
-    dao = FakeDao(
-        session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, status='active')
-    )
+    dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, status='active'))
     dao.messages.append(
         AiChatMessage(
             message_id='msg_423e4567e89b42d3a456426614174444',
@@ -511,10 +513,19 @@ async def test_duplicate_client_message_rejects_changed_skill_selection() -> Non
     assert raised.value.code == 'CHAT_IDEMPOTENCY_CONFLICT'
 
 
-
 @pytest.mark.asyncio
 async def test_rename_session_updates_owned_title_and_commits() -> None:
-    dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='旧标题', status='active', created_at=NOW, updated_at=NOW))
+    dao = FakeDao(
+        session=AiChatSession(
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            model_id=MODEL_ID,
+            title='旧标题',
+            status='active',
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
     service, db, _, _, _ = _service(dao=dao)
 
     result = await service.rename_session(USER_ID, SESSION_ID, '新标题')
@@ -527,8 +538,28 @@ async def test_rename_session_updates_owned_title_and_commits() -> None:
 @pytest.mark.asyncio
 async def test_delete_session_removes_runs_messages_then_session_and_commits() -> None:
     dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='待删除'))
-    dao.runs.append(AiChatRun(run_id=RUN_ID, session_id=SESSION_ID, model_id=MODEL_ID, binding_id=BINDING_ID, engine_type='litellm', engine_model_snapshot='model', status='completed'))
-    dao.messages.append(AiChatMessage(message_id='msg_423e4567e89b42d3a456426614174444', session_id=SESSION_ID, client_message_id='delete-1', role='user', content='hello', images=[], status='complete'))
+    dao.runs.append(
+        AiChatRun(
+            run_id=RUN_ID,
+            session_id=SESSION_ID,
+            model_id=MODEL_ID,
+            binding_id=BINDING_ID,
+            engine_type='litellm',
+            engine_model_snapshot='model',
+            status='completed',
+        )
+    )
+    dao.messages.append(
+        AiChatMessage(
+            message_id='msg_423e4567e89b42d3a456426614174444',
+            session_id=SESSION_ID,
+            client_message_id='delete-1',
+            role='user',
+            content='hello',
+            images=[],
+            status='complete',
+        )
+    )
     service, db, _, _, _ = _service(dao=dao)
 
     await service.delete_session(USER_ID, SESSION_ID)
@@ -543,7 +574,17 @@ async def test_delete_session_removes_runs_messages_then_session_and_commits() -
 @pytest.mark.asyncio
 async def test_delete_session_rejects_running_run_without_mutation() -> None:
     dao = FakeDao(session=AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, title='运行中'))
-    dao.runs.append(AiChatRun(run_id=RUN_ID, session_id=SESSION_ID, model_id=MODEL_ID, binding_id=BINDING_ID, engine_type='litellm', engine_model_snapshot='model', status='running'))
+    dao.runs.append(
+        AiChatRun(
+            run_id=RUN_ID,
+            session_id=SESSION_ID,
+            model_id=MODEL_ID,
+            binding_id=BINDING_ID,
+            engine_type='litellm',
+            engine_model_snapshot='model',
+            status='running',
+        )
+    )
     service, db, _, _, _ = _service(dao=dao)
     db._active = True
 
@@ -601,7 +642,8 @@ async def test_send_reads_preferences_before_creating_new_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_does_not_access_expired_entities_after_initial_commit() -> None:
+@pytest.mark.parametrize('knowledge_base_ids', [[], ['kb-1']])
+async def test_send_does_not_access_expired_entities_after_initial_commit(knowledge_base_ids: list[str]) -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     try:
         async with engine.begin() as connection:
@@ -650,9 +692,17 @@ async def test_send_does_not_access_expired_entities_after_initial_commit() -> N
                 )
             )
             await db.commit()
+
+            class KnowledgeRuntime:
+                async def retrieve_context(self, **kwargs: object) -> list[object]:
+                    assert not db.in_transaction()
+                    assert kwargs['knowledge_base_ids'] == knowledge_base_ids
+                    return []
+
             service = PlatformChatService(
                 db,
                 model_service=FakeModelService(FakeRuntimeStream(())),
+                knowledge_resolver=ChatKnowledgeAdapter(KnowledgeRuntime()),
                 coordinator=FakeCoordinator(),
                 preferences=ChatPreferencesService(db),
                 id_factory=lambda prefix: {
@@ -663,8 +713,10 @@ async def test_send_does_not_access_expired_entities_after_initial_commit() -> N
                 clock=lambda: NOW,
             )
 
-            result = await service.send(USER_ID, _request())
+            result = await service.send(USER_ID, _request(knowledge_base_ids=knowledge_base_ids))
             [event async for event in result]
+            persisted_messages = await PlatformChatDao.list_messages(db, SESSION_ID)
+            assert persisted_messages[0].knowledge_base_ids == knowledge_base_ids
 
             persisted_session = await PlatformChatDao.get_owned_session(db, SESSION_ID, user_id=USER_ID)
             persisted_runs = await PlatformChatDao.list_runs(db, SESSION_ID)
@@ -803,3 +855,84 @@ async def test_image_reference_becomes_controlled_data_url_content_block() -> No
         {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA'}},
     ]
     assert images.calls == [(USER_ID, FILE_ID, 10 * 1024 * 1024)]
+
+
+@pytest.mark.asyncio
+async def test_send_retrieves_before_writes_and_preserves_skills_and_history() -> None:
+    skills = FakeSkills()
+    service, _, dao, runtime, _ = _service(skills=skills)
+
+    class KnowledgeRuntime:
+        async def retrieve_context(self, **kwargs: object) -> list[SimpleNamespace]:
+            assert dao.session is None
+            assert dao.messages == []
+            assert dao.runs == []
+            assert kwargs['owner_user_id'] == USER_ID
+            assert kwargs['knowledge_base_ids'] == ['kb-1']
+            return [
+                SimpleNamespace(
+                    content='Private reference',
+                    source_id='doc-1',
+                    title='Guide',
+                    knowledge_base_id='kb-1',
+                )
+            ]
+
+    service._knowledge_resolver = ChatKnowledgeAdapter(KnowledgeRuntime())
+    result = await service.send(USER_ID, _request(skill_slugs=['deep-research'], knowledge_base_ids=['kb-1']))
+    [event async for event in result]
+    sent = runtime.stream_calls[0][1]
+    assert sent[0].role == 'system'
+    assert '<selected_skills>' in sent[0].content
+    assert 'You are a platform assistant.' in sent[0].content
+    assert 'Private reference' not in sent[0].content
+    assert sent[-2].role == 'user'
+    assert 'Private reference' in sent[-2].content
+    assert 'doc-1' in sent[-2].content
+    assert sent[-1].content == 'hello'
+    assert dao.messages[0].knowledge_base_ids == ['kb-1']
+    assert dao.messages[0].skill_snapshots == [{'slug': 'deep-research', 'name': '深度研究'}]
+
+
+@pytest.mark.asyncio
+async def test_knowledge_failure_does_not_create_session_message_or_run() -> None:
+    service, db, dao, runtime, _ = _service()
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(knowledge_base_ids=['kb-1']))
+    assert raised.value.code == 'CHAT_KNOWLEDGE_UNAVAILABLE'
+    assert dao.session is None
+    assert dao.messages == []
+    assert dao.runs == []
+    assert db.commit_count == 0
+    assert runtime.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_idempotency_rejects_changed_knowledge_selection() -> None:
+    service, _, dao, runtime, _ = _service()
+    result = await service.send(USER_ID, _request())
+    [event async for event in result]
+
+    class EmptyKnowledge:
+        async def resolve(self, user_id: int, ids: list[str], query: str) -> tuple[ResolvedChatKnowledgePassage, ...]:
+            return ()
+
+    service._knowledge_resolver = EmptyKnowledge()
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(session_id=SESSION_ID, knowledge_base_ids=['kb-1']))
+    assert raised.value.code == 'CHAT_IDEMPOTENCY_CONFLICT'
+    assert len(runtime.stream_calls) == 1
+    assert len(dao.messages) == MESSAGE_COUNT
+
+
+def test_knowledge_references_follow_history_and_precede_current_question() -> None:
+    history = [AiChatMessage(role='user', content='Previous question', status='complete')]
+    passages = (ResolvedChatKnowledgePassage('Relevant reference', 'doc-1', 'Guide', 'kb-1'),)
+    messages = PlatformChatService._build_messages(
+        history, 'Current question', 'Current question', None, None, passages
+    )
+    assert [message.role for message in messages] == ['system', 'user', 'user', 'user']
+    assert messages[1].content == 'Previous question'
+    assert 'Relevant reference' in messages[2].content
+    assert messages[-1].content == 'Current question'
+    assert 'Relevant reference' not in messages[0].content

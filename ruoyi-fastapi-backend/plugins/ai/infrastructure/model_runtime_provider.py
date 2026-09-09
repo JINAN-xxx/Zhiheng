@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 
-from fastapi import Request
+from fastapi import FastAPI, Request
 
 from plugins.ai.config import LiteLLMSettings
 from plugins.ai.domain.model_runtime import (
@@ -14,8 +14,8 @@ from plugins.ai.domain.model_runtime import (
     ModelStreamEvent,
 )
 from plugins.ai.domain.model_service_errors import ModelServiceError
-from plugins.ai.hooks import CLIENT_STATE_NAME
 from plugins.ai.infrastructure.litellm_runtime_adapter import LiteLLMRuntimeAdapter
+from plugins.ai.infrastructure.runtime_state import CLIENT_STATE_NAME
 
 
 class MissingModelRuntimeEngine:
@@ -71,7 +71,12 @@ class _SharedModelRuntimeEngine:
 
 def get_model_runtime_engine(request: Request) -> ModelRuntimeEngine:
     """解析当前 Worker 共享的模型运行时引擎，不转移客户端所有权。"""
-    client = getattr(request.app.state, CLIENT_STATE_NAME, None)
+    return get_model_runtime_engine_for_app(request.app)
+
+
+def get_model_runtime_engine_for_app(app: FastAPI) -> ModelRuntimeEngine:
+    """支持后台索引任务通过相同的应用级连接池调用平台模型。"""
+    client = getattr(app.state, CLIENT_STATE_NAME, None)
     if client is None:
         return MissingModelRuntimeEngine()
     settings = LiteLLMSettings()

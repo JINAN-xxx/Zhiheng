@@ -34,6 +34,7 @@ const route = useRoute()
 const menuButtonRef = ref(null)
 const aiTitles = Object.freeze({
   '/ai/chat': '智能对话',
+  '/ai/knowledge': '知识库',
   '/ai/model': '模型中心',
   '/ai/application': '开发接入',
   '/ai/usage': '用量记录',
