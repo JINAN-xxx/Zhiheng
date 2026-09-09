@@ -58,7 +58,7 @@ def _assert_foreign_key(column: object, target: str) -> None:
 def test_platform_chat_migrations_are_registered_after_model_foundation() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
-    assert plugin.manifest.version == '0.9.0'
+    assert plugin.manifest.version == '0.9.1'
     assert plugin.manifest.backend.migrations == [
         'migrations/mysql/001_init.sql',
         'migrations/mysql/002_model_service_foundation.sql',

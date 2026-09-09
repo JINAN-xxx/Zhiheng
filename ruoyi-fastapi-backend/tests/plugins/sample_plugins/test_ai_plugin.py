@@ -82,7 +82,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(BACKEND_ROOT / 'plugins' / 'ai' / 'plugin.yaml')
 
     assert plugin.manifest.id == 'ai'
-    assert plugin.manifest.version == '0.9.0'
+    assert plugin.manifest.version == '0.9.1'
     assert plugin.manifest.backend.module == 'plugins.ai'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.ai.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.ai.hooks:on_shutdown'

@@ -21,8 +21,9 @@ Scanned PDFs and image OCR are not enabled by this extraction.
 
 For Milvus, configure KNOWLEDGE_MILVUS_URI (or MILVUS_URI), optionally
 KNOWLEDGE_MILVUS_TOKEN and KNOWLEDGE_MILVUS_DB_NAME, then install
-requirements-knowledge-graph.txt. Do not install SDK model/offline/API extras.
-For graph construction/exploration, configure MILVUS_URI, NEO4J_URI,
+requirements-knowledge-milvus.txt. Do not install SDK model/offline/API extras.
+For graph construction/exploration, install requirements-knowledge-graph.txt
+and configure MILVUS_URI, NEO4J_URI,
 NEO4J_USERNAME, and NEO4J_PASSWORD; use exactly one backend worker
 (APP_WORKERS=1). The LightRAG JSON stores cache workspace data in memory, so
 graph capabilities deliberately report unavailable for multiple workers.

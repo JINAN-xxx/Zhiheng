@@ -1,0 +1,2 @@
+# Optional Milvus vector storage client; no graph or local embedding extras.
+pymilvus==2.6.17

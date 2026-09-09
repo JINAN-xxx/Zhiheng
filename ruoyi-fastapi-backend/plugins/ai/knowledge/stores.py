@@ -12,6 +12,9 @@ from typing import Any
 
 from plugins.ai.knowledge.models import KnowledgeError
 
+MILVUS_INITIALIZATION_TIMEOUT_SECONDS = 60
+MILVUS_REQUEST_TIMEOUT_SECONDS = 8
+
 
 def available_types() -> dict:
     from config.env import AppConfig
@@ -164,7 +167,7 @@ class MilvusStore:
                 uri=os.getenv('KNOWLEDGE_MILVUS_URI') or os.getenv('MILVUS_URI'),
                 token=os.getenv('KNOWLEDGE_MILVUS_TOKEN') or os.getenv('MILVUS_TOKEN', ''),
                 db_name=os.getenv('KNOWLEDGE_MILVUS_DB_NAME') or os.getenv('MILVUS_DB_NAME', 'default'),
-                timeout=8,
+                timeout=MILVUS_REQUEST_TIMEOUT_SECONDS,
             )
         return self._client
 
@@ -172,7 +175,7 @@ class MilvusStore:
         from pymilvus import DataType
 
         client = self._get_client()
-        if not client.has_collection(db_id, timeout=8):
+        if not client.has_collection(db_id, timeout=MILVUS_REQUEST_TIMEOUT_SECONDS):
             if not create:
                 raise KnowledgeError.unavailable()
             schema = client.create_schema(
@@ -180,18 +183,35 @@ class MilvusStore:
             )
             schema.add_field('id', DataType.VARCHAR, is_primary=True, max_length=128)
             schema.add_field('embedding', DataType.FLOAT_VECTOR, dim=spec['dimension'])
-            index = client.prepare_index_params()
-            index.add_index(
-                field_name='embedding', index_type='HNSW', metric_type='COSINE', params={'M': 16, 'efConstruction': 256}
+            client.create_collection(
+                db_id,
+                schema=schema,
+                consistency_level='Strong',
+                timeout=MILVUS_INITIALIZATION_TIMEOUT_SECONDS,
             )
-            client.create_collection(db_id, schema=schema, index_params=index, consistency_level='Strong', timeout=8)
-        description = client.describe_collection(db_id, timeout=8)
+        description = client.describe_collection(db_id, timeout=MILVUS_REQUEST_TIMEOUT_SECONDS)
         try:
             if json.loads(description.get('description', '{}')) != spec:
                 raise KnowledgeError.reindex()
         except ValueError:
             raise KnowledgeError.reindex() from None
+        if create:
+            self._prepare_collection_for_write(client, db_id)
         return client
+
+    @staticmethod
+    def _prepare_collection_for_write(client: Any, db_id: str) -> None:
+        # Collection creation, index creation and loading can time out independently.
+        # Resume missing steps only after the persisted embedding specification matches.
+        indexes = client.list_indexes(db_id, field_name='embedding', timeout=MILVUS_REQUEST_TIMEOUT_SECONDS)
+        if not indexes:
+            index = client.prepare_index_params()
+            index.add_index(
+                field_name='embedding', index_type='HNSW', metric_type='COSINE', params={'M': 16, 'efConstruction': 256}
+            )
+            client.create_index(db_id, index, timeout=MILVUS_INITIALIZATION_TIMEOUT_SECONDS)
+        # Loading an already loaded collection is idempotent and also resumes interrupted loads.
+        client.load_collection(db_id, timeout=MILVUS_INITIALIZATION_TIMEOUT_SECONDS)
 
     async def upsert(self, db_id: str, chunks: list[dict], vectors: list[list[float]], spec: dict) -> None:
         def write() -> None:
@@ -220,7 +240,7 @@ class MilvusStore:
                 anns_field='embedding',
                 search_params={'metric_type': 'COSINE', 'params': {'ef': 64}},
                 output_fields=['doc_id', 'content'],
-                timeout=8,
+                timeout=MILVUS_REQUEST_TIMEOUT_SECONDS,
             )
             return [dict(hit['entity'], id=hit['id'], score=hit['distance']) for hit in result[0]]
 
@@ -231,7 +251,7 @@ class MilvusStore:
 
             def delete() -> None:
                 client = self._get_client()
-                if client.has_collection(db_id, timeout=8):
+                if client.has_collection(db_id, timeout=MILVUS_REQUEST_TIMEOUT_SECONDS):
                     client.delete(db_id, ids=chunk_ids, timeout=15)
 
             await _blocking(delete)
@@ -239,7 +259,7 @@ class MilvusStore:
     async def delete_database(self, db_id: str) -> None:
         def delete() -> None:
             client = self._get_client()
-            if client.has_collection(db_id, timeout=8):
+            if client.has_collection(db_id, timeout=MILVUS_REQUEST_TIMEOUT_SECONDS):
                 client.drop_collection(db_id, timeout=15)
 
         await _blocking(delete)
