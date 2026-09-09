@@ -60,7 +60,7 @@
             </a-table>
           </a-tab-pane>
           <a-tab-pane key="query" tab="检索评估">
-            <div class="query-toolbar"><a-input v-model:value="queryText" placeholder="输入需要检索的问题" :maxlength="8000" aria-label="检索问题" @press-enter="runQuery" /><a-select v-model:value="queryTarget" aria-label="检索目标" :options="[{ value: 'kb', label: '知识库' }, { value: 'graph', label: '知识图谱', disabled: !selectedDb.enable_knowledge_graph }]" /><a-select v-model:value="queryMode" aria-label="检索模式" :options="queryModes" /><a-button type="primary" :loading="queryLoading" :disabled="!queryText.trim()" @click="runQuery">检索</a-button></div>
+            <div class="query-toolbar"><a-input v-model:value="queryText" placeholder="输入需要检索的问题" :maxlength="8000" aria-label="检索问题" @press-enter="runQuery" /><a-select v-model:value="queryTarget" aria-label="检索目标" :options="[{ value: 'kb', label: '知识库' }, { value: 'graph', label: '知识图谱', disabled: !selectedDb.enable_knowledge_graph }]" /><a-select v-if="queryTarget === 'graph'" v-model:value="queryMode" aria-label="检索模式" :options="queryModes" /><a-button type="primary" :loading="queryLoading" :disabled="!queryText.trim()" @click="runQuery">检索</a-button></div>
             <a-alert v-if="queryError" class="section-alert" type="error" :message="queryError" show-icon />
             <template v-if="selection.queryResult">
               <div class="query-metrics"><span>{{ selection.queryResult.items.length ? `${selection.queryResult.items.length} 条结果` : '检索回答' }}</span><span>{{ queryChars }} 字符</span><span>耗时 {{ queryElapsed }} ms</span><span v-if="queryAverage != null">平均相似度 {{ (queryAverage * 100).toFixed(1) }}%</span></div>
