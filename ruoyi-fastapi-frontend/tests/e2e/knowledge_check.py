@@ -266,13 +266,17 @@ async def desktop(browser):
             path.endswith('/query') and body.get('query') == '第二次替换查询'
             for path, _, body, _ in fixture.calls
         )
-        fixture.query_delay = 0
+        fixture.query_delay = 0.5
         await page.get_by_label('检索问题', exact=True).fill('验证切换请求')
         await button(page, '检索').click()
+        await expect(button(page, '重新检索')).to_be_visible()
         await button(page, '文档管理').click()
         await button(page, '检索测试').click()
-        await expect(button(page, '检索')).not_to_have_class(re.compile('ant-btn-loading'))
+        await expect(button(page, '检索')).to_be_visible()
         fixture.query_delay = 0
+        await page.get_by_label('检索问题', exact=True).fill('切页恢复查询')
+        await button(page, '检索').click()
+        await expect(page.locator('.query-passage p')).to_contain_text(UNSAFE)
         await page.get_by_label('检索问题', exact=True).fill('验证知识')
         await choose(page, '检索目标', '知识图谱')
         await button(page, '检索').click()
