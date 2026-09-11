@@ -248,6 +248,8 @@ def test_work_entities_compile_with_matching_json_and_text_types() -> None:
     assert 'config_snapshot jsonb not null' in postgres_ddl
     assert 'usage_snapshot jsonb' in postgres_ddl
     assert 'agent_version' not in mysql_ddl + postgres_ddl
+    assert re.search(r"reasoning_content mediumtext [^,]*default \(''\)", mysql_ddl)
+    assert "reasoning_content text default ('') not null" in postgres_ddl
 
 
 def test_work_message_sqlite_enforces_shapes_versions_and_idempotency() -> None:
@@ -338,8 +340,10 @@ def test_work_task_migrations_define_equivalent_contracts() -> None:
     assert 'usage_snapshot json null' in mysql_sql
     assert 'created_at datetime not null' in mysql_sql
     assert mysql_sql.count('mediumtext') == 3
+    assert "reasoning_content mediumtext not null default ('')" in mysql_sql
     assert 'engine=innodb' in mysql_sql
     assert 'config_snapshot jsonb not null' in postgres_sql
     assert 'usage_snapshot jsonb null' in postgres_sql
     assert 'created_at timestamp not null' in postgres_sql
+    assert "reasoning_content text not null default ('')" in postgres_sql
     assert 'create index if not exists' in postgres_sql

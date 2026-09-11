@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.dialects.postgresql import JSONB
@@ -122,7 +123,13 @@ class AgentWorkMessage(Base):
     reply_to_message_id = Column(String(36), nullable=True, comment='回复的用户消息ID')
     role = Column(String(16), nullable=False, comment='消息角色')
     content = Column(WorkText, nullable=False, comment='消息正文')
-    reasoning_content = Column(WorkText, nullable=False, default='', server_default='', comment='推理内容')
+    reasoning_content = Column(
+        WorkText,
+        nullable=False,
+        default='',
+        server_default=text("('')"),
+        comment='推理内容',
+    )
     agent_id = Column(String(36), nullable=True, comment='Agent ID 快照')
     agent_name_snapshot = Column(String(100), nullable=True, comment='Agent 名称快照')
     published_version = Column(Integer, nullable=True, comment='Agent 已发布版本快照')

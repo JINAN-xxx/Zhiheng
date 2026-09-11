@@ -41,7 +41,7 @@ create table if not exists agent_work_message (
   reply_to_message_id varchar(36)  null,
   role                varchar(16)  not null,
   content             text         not null,
-  reasoning_content   text         not null default '',
+  reasoning_content   text         not null default (''),
   agent_id            varchar(36)  null,
   agent_name_snapshot varchar(100) null,
   published_version   integer      null,
