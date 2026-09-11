@@ -122,6 +122,7 @@
 
 - `task_id`：不透明任务 ID。
 - `owner_user_id`：任务创建者。
+- `create_client_message_id`：首次创建请求的幂等键，与所有者组成唯一约束。
 - `title`：1-100 字。
 - `goal`：完整任务目标。
 - `status`：`active | completed | archived`。
