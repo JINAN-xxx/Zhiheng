@@ -3,7 +3,8 @@ import {
   unwrapKnowledgeResponse, normalizeKnowledgeDatabases, normalizeKnowledgeTypes,
   buildKnowledgeDatabasePayload, validateChunkParams, normalizeKnowledgeGraph,
   buildKnowledgeGraphParams, resetKnowledgeSelection, knowledgeFolderTrail,
-  filterKnowledgeDocuments, normalizeKnowledgeQuery,
+  filterKnowledgeDocuments, normalizeKnowledgeQuery, buildKnowledgeLocation,
+  normalizeKnowledgeView,
 } from '../../plugins/ai/utils/knowledge.js'
 
 assert.throws(() => unwrapKnowledgeResponse({ code: 200, data: { status: 'failed', message: '模型不可用' } }), /模型不可用/)
@@ -46,4 +47,13 @@ assert.deepEqual(filterKnowledgeDocuments(docs, { folderId: null }).map(doc => d
 assert.deepEqual(filterKnowledgeDocuments(docs, { folderId: 'a', search: 'CHILD' }).map(doc => doc.id), ['2'])
 assert.equal(normalizeKnowledgeQuery({ result: dangerous }).answer, dangerous)
 assert.equal(normalizeKnowledgeQuery({ result: [{ content: dangerous, score: 0.75, metadata: { source: '<b>source</b>' } }] }).items[0].source, '<b>source</b>')
+assert.deepEqual(buildKnowledgeLocation('kb /中文', 'query'), {
+  path: '/ai/knowledge',
+  query: { dbId: 'kb /中文', view: 'query' },
+})
+assert.equal(normalizeKnowledgeView('documents', false), 'documents')
+assert.equal(normalizeKnowledgeView('query', false), 'query')
+assert.equal(normalizeKnowledgeView('graph', true), 'graph')
+assert.equal(normalizeKnowledgeView('graph', false), 'documents')
+assert.equal(normalizeKnowledgeView('unknown', true), 'documents')
 console.log('ok knowledge transforms: business failures, graph safety, request bounds, folders and query results')

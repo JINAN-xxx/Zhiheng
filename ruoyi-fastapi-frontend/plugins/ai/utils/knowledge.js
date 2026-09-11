@@ -1,5 +1,19 @@
 const text = (value) => value == null ? '' : String(value)
 const array = (value) => Array.isArray(value) ? value : []
+const KNOWLEDGE_VIEWS = new Set(['documents', 'query', 'graph'])
+
+export function normalizeKnowledgeView(view, graphEnabled = false) {
+  const normalized = text(view)
+  if (!KNOWLEDGE_VIEWS.has(normalized)) return 'documents'
+  return normalized === 'graph' && !graphEnabled ? 'documents' : normalized
+}
+
+export function buildKnowledgeLocation(dbId, view = 'documents') {
+  return {
+    path: '/ai/knowledge',
+    query: { dbId: text(dbId), view: normalizeKnowledgeView(view, true) },
+  }
+}
 
 export function unwrapKnowledgeResponse(response) {
   if (response?.code != null && Number(response.code) !== 200) throw new Error(text(response.msg || response.message || '知识库请求失败'))

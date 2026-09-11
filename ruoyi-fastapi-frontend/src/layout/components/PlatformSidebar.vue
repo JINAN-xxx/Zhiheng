@@ -114,7 +114,6 @@
 
 <script setup>
 import {
-  BookOutlined,
   DatabaseOutlined,
   DownOutlined,
   MenuFoldOutlined,
@@ -154,7 +153,6 @@ const permissionSet = computed(() => new Set(userStore.permissions))
 const canChat = computed(
   () => permissionSet.value.has('*:*:*') || permissionSet.value.has('ai:chat:list'),
 )
-const canKnowledge = computed(() => permissionSet.value.has('*:*:*') || permissionSet.value.has('ai:knowledge:list'))
 const resourceGroups = computed(() => [
   ...resolveAiResourceGroups(permissionSet.value),
   ...resolveAgentExtensionGroups(permissionSet.value),
@@ -162,7 +160,6 @@ const resourceGroups = computed(() => [
 const expandedGroupKeys = ref(new Set())
 const navItems = computed(() => [
   canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
-  canKnowledge.value && { path: '/ai/knowledge', label: '知识库', icon: BookOutlined },
 ].filter(Boolean))
 const activeSessionId = computed(() => String(route.query.sessionId || ''))
 

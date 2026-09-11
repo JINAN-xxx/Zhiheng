@@ -23,6 +23,12 @@ const AGENT_EXTENSION_TABS = Object.freeze([
     path: '/extensions/skill',
     permission: 'agent_extension:skill:list',
   }),
+  Object.freeze({
+    key: 'knowledge',
+    label: '知识库',
+    path: '/ai/knowledge',
+    permission: 'ai:knowledge:list',
+  }),
 ])
 
 const LANDING_PATH_PRIORITY = Object.freeze([
