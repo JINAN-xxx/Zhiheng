@@ -11,7 +11,7 @@
         <MenuOutlined />
       </button>
       <div>
-        <h1 v-if="title" class="workspace-toolbar__title">{{ title }}</h1>
+        <h1 v-if="title" class="workspace-toolbar__title" :title="title">{{ title }}</h1>
         <p v-if="subtitle" class="workspace-toolbar__subtitle">{{ subtitle }}</p>
       </div>
     </div>
@@ -52,12 +52,31 @@ const emit = defineEmits(['open-sidebar'])
     gap: var(--workspace-space-3);
   }
 
+  &__leading {
+    flex: 1 1 auto;
+  }
+
+  &__leading > div {
+    min-width: 0;
+  }
+
+  &__actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   &__title {
+    display: -webkit-box;
     margin: 0;
+    overflow: hidden;
     color: var(--color-text);
     font-size: 20px;
     font-weight: 600;
     line-height: 1.35;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   &__subtitle {
@@ -94,10 +113,14 @@ const emit = defineEmits(['open-sidebar'])
   .workspace-toolbar {
     align-items: flex-start;
     flex-wrap: wrap;
-    padding: 0 14px;
+    padding: 10px 14px;
 
+    &__leading,
     &__actions {
       width: 100%;
+    }
+
+    &__actions {
       gap: var(--workspace-space-2);
       justify-content: flex-end;
     }

@@ -49,11 +49,13 @@
         </a-breadcrumb>
       </div>
 
-      <WorkspaceState v-if="loading" kind="loading" />
-      <WorkspaceState v-else-if="error" kind="error" :message="error" @retry="emit('refresh')" />
-      <a-table
-        v-else
+      <WorkspaceState v-if="loading && !rows.length" kind="loading" />
+      <WorkspaceState v-else-if="error && !rows.length" kind="error" :message="error" @retry="emit('refresh')" />
+      <template v-else>
+        <a-alert v-if="error" class="document-alert" type="warning" :message="error" show-icon />
+        <a-table
         :columns="columns"
+        :loading="loading"
         :data-source="rows"
         row-key="rowKey"
         size="middle"
@@ -110,7 +112,8 @@
             </a-space>
           </template>
         </template>
-      </a-table>
+        </a-table>
+      </template>
     </div>
   </section>
 </template>
@@ -268,6 +271,10 @@ watch(() => props.database.db_id, () => {
   white-space: nowrap;
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+
+.document-alert {
+  margin: 14px 0;
 }
 
 .document-path {

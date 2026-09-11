@@ -36,9 +36,12 @@
           aria-label="检索模式"
           :options="modeOptions"
         />
-        <a-button type="primary" :loading="loading" :disabled="!queryText.trim()" @click="submit">
-          <template #icon><SearchOutlined /></template>
-          检索
+        <a-button type="primary" :disabled="!queryText.trim()" @click="submit">
+          <template #icon>
+            <LoadingOutlined v-if="loading" spin />
+            <SearchOutlined v-else />
+          </template>
+          {{ loading ? '重新检索' : '检索' }}
         </a-button>
       </div>
 
@@ -75,7 +78,7 @@
 </template>
 
 <script setup>
-import { ArrowLeftOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, LoadingOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { computed, ref, watch } from 'vue'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
@@ -112,7 +115,7 @@ const queryAverage = computed(() => {
 
 function submit() {
   const text = queryText.value.trim()
-  if (!text || props.loading) return
+  if (!text) return
   emit('query', { text, target: queryTarget.value, mode: queryMode.value })
 }
 

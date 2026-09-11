@@ -41,6 +41,12 @@ class KnowledgeFixture:
         self.calls = []
         self.index_calls = 0
         self.fail_create = True
+        self.query_delay = 0
+        self.subgraph_delay = 0
+        self.preview_delay = 0
+        self.upload_delay = 0
+        self.fail_document_refresh = False
+        self.fail_database_refresh = False
 
     def respond(self, path, method, body, params):
         if path == '/getInfo':
@@ -63,6 +69,9 @@ class KnowledgeFixture:
                 self.databases.append({**body, 'db_id': 'kb-new', 'name': body['database_name']})
                 data = self.databases[-1]
             else:
+                if self.fail_database_refresh:
+                    self.fail_database_refresh = False
+                    return {'code': 503, 'msg': '模拟知识库刷新失败'}
                 data = {'databases': self.databases}
         elif suffix == '/models':
             model_type = params.get('model_type', ['embedding'])[0]
@@ -99,6 +108,9 @@ class KnowledgeFixture:
                     self.documents.append({'id': 'doc-upload', 'file_name': 'upload.txt', 'db_id': db_id, 'folder_id': None, 'status': 'done', 'chunk_size': body['params']['chunk_size'], 'chunk_overlap': body['params']['chunk_overlap']})
                     data = {'status': 'success', 'items': [{'status': 'done'}]}
             else:
+                if self.fail_document_refresh:
+                    self.fail_document_refresh = False
+                    return {'code': 503, 'msg': '模拟文档刷新失败'}
                 data = {'documents': [row for row in self.documents if row['db_id'] == db_id]}
         elif suffix.endswith('/preview'):
             data = {'content': UNSAFE + '\n文档内容'}
@@ -139,6 +151,14 @@ class KnowledgeFixture:
                 body = {'multipart': request.post_data} if 'multipart/form-data' in request.headers.get('content-type', '') else request.post_data_json
             if path.startswith('/ai/knowledge'):
                 assert request.headers.get('authorization') == 'Bearer knowledge-test-token'
+            if path.endswith('/query') and self.query_delay:
+                await asyncio.sleep(self.query_delay)
+            if path.endswith('/subgraph') and self.subgraph_delay:
+                await asyncio.sleep(self.subgraph_delay)
+            if path.endswith('/preview') and self.preview_delay:
+                await asyncio.sleep(self.preview_delay)
+            if path.endswith('/files/upload') and self.upload_delay:
+                await asyncio.sleep(self.upload_delay)
             payload = self.respond(path, request.method, body, parse_qs(url.query))
             await route.fulfill(content_type='application/json', body=json.dumps(payload, ensure_ascii=False))
         for pattern in ('**/dev-api/**', '**/docker-api/**', '**/transport/crypto/frontend-config', '**/captchaImage'):
@@ -165,6 +185,11 @@ async def desktop(browser):
         await expect(page.get_by_text(UNSAFE, exact=True)).to_be_visible()
         assert await page.locator('img[onerror]').count() == 0
         await page.screenshot(path='/tmp/knowledge-desktop-overview.png', full_page=True)
+        fixture.fail_database_refresh = True
+        await button(page, '刷新知识库').click()
+        await expect(page.get_by_text('模拟知识库刷新失败', exact=True)).to_be_visible()
+        await expect(page.get_by_text('资料库', exact=True)).to_be_visible()
+        await page.locator('.ant-notification-notice-close').click()
         await button(page, '创建知识库').click()
         await modal(page).get_by_label('知识库名称', exact=True).fill('测试新库')
         await choose(page, 'Embedding 模型', 'embedding 测试模型', modal(page))
@@ -220,6 +245,10 @@ async def desktop(browser):
         await expect(modal(page).get_by_text('完成', exact=True)).to_be_visible()
         await modal(page).get_by_role('button', name='Close', exact=True).click()
         await expect(button(page, 'upload.txt')).to_be_visible()
+        fixture.fail_document_refresh = True
+        await button(page, '刷新文档').click()
+        await expect(page.get_by_text('模拟文档刷新失败', exact=True)).to_be_visible()
+        await expect(button(page, UNSAFE + '.txt')).to_be_visible()
 
         await button(page, '检索测试').click()
         await expect(page).to_have_url(re.compile(r'dbId=kb-main.*view=query'))
@@ -227,6 +256,24 @@ async def desktop(browser):
         await button(page, '检索').click()
         await expect(page.locator('.query-passage p')).to_contain_text(UNSAFE)
         assert await page.locator('img[onerror]').count() == 0
+        fixture.query_delay = 0.5
+        await page.get_by_label('检索问题', exact=True).fill('第一次延迟查询')
+        await button(page, '检索').click()
+        await page.get_by_label('检索问题', exact=True).fill('第二次替换查询')
+        await page.get_by_label('检索问题', exact=True).press('Enter')
+        await page.wait_for_timeout(700)
+        assert any(
+            path.endswith('/query') and body.get('query') == '第二次替换查询'
+            for path, _, body, _ in fixture.calls
+        )
+        fixture.query_delay = 0
+        await page.get_by_label('检索问题', exact=True).fill('验证切换请求')
+        await button(page, '检索').click()
+        await button(page, '文档管理').click()
+        await button(page, '检索测试').click()
+        await expect(button(page, '检索')).not_to_have_class(re.compile('ant-btn-loading'))
+        fixture.query_delay = 0
+        await page.get_by_label('检索问题', exact=True).fill('验证知识')
         await choose(page, '检索目标', '知识图谱')
         await button(page, '检索').click()
         await expect(page.locator('.query-answer')).to_contain_text('图谱回答')
@@ -242,6 +289,13 @@ async def desktop(browser):
         assert any(path.endswith('/subgraph') and params.get('node_label') == [LABEL] for path, _, _, params in fixture.calls)
         assert await page.evaluate('window.__kbInjected || null') is None
         await page.screenshot(path='/tmp/knowledge-desktop-graph.png', full_page=True)
+
+        fixture.subgraph_delay = 0.5
+        await button(page, '加载图谱').click()
+        await button(page, '文档管理').click()
+        await button(page, '知识图谱').click()
+        await expect(button(page, '加载图谱')).not_to_have_class(re.compile('ant-btn-loading'))
+        fixture.subgraph_delay = 0
 
         await button(page, '文档管理').click()
         await expect(page).to_have_url(re.compile(r'dbId=kb-main.*view=documents'))
@@ -261,10 +315,63 @@ async def desktop(browser):
         await button(row, '删除').click()
         await button(modal(page), '删除').click()
         await expect(button(page, 'upload.txt')).to_have_count(0)
+
+        fixture.preview_delay = 0.5
+        await button(page, UNSAFE + '.txt').click()
+        await expect(modal(page)).to_be_visible()
+        await page.go_back()
+        await expect(page.locator('.ant-modal:visible')).to_have_count(0)
+        await page.go_forward()
+        await expect(button(page, UNSAFE + '.txt')).to_be_visible()
+        fixture.preview_delay = 0
+
+        row = page.locator('tr').filter(has_text=UNSAFE + '.txt')
+        await button(row, '重新切片').click()
+        await expect(modal(page)).to_be_visible()
+        await page.go_back()
+        await expect(page.locator('.ant-modal:visible')).to_have_count(0)
+        await page.go_forward()
+        await expect(button(page, UNSAFE + '.txt')).to_be_visible()
+
+        row = page.locator('tr').filter(has_text=UNSAFE + '.txt')
+        await button(row, '删除').click()
+        await expect(modal(page)).to_be_visible()
+        await page.go_back()
+        await expect(page.locator('.ant-modal:visible')).to_have_count(0)
+        await page.go_forward()
+        await expect(button(page, UNSAFE + '.txt')).to_be_visible()
+
+        fixture.upload_delay = 0.5
+        await button(page, '上传文档').click()
+        await modal(page).locator('input[type=file]').set_input_files({
+            'name': 'stale-upload.txt',
+            'mimeType': 'text/plain',
+            'buffer': b'stale upload context',
+        })
+        await expect(modal(page).get_by_text('上传中', exact=True)).to_be_visible()
+        await page.go_back()
+        await expect(page.locator('.ant-modal:visible')).to_have_count(0)
+        await page.go_forward()
+        await expect(button(page, UNSAFE + '.txt')).to_be_visible()
+        fixture.upload_delay = 0
+
         await button(page, '返回知识库').click()
         await button(page.locator('.knowledge-card').filter(has_text='新库已改名'), '删除知识库').click()
         await button(modal(page), '删除').click()
-        await expect(button(page, '新库已改名')).to_have_count(0)
+        await expect(page.get_by_text('新库已改名', exact=True)).to_have_count(0)
+
+        await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-late&view=query', wait_until='networkidle')
+        await expect(page.get_by_text('知识库不存在或已被删除', exact=True)).to_be_visible()
+        fixture.databases.append({
+            'db_id': 'kb-late',
+            'name': '延迟出现的知识库',
+            'description': '',
+            'kb_type': 'chroma',
+            'enable_knowledge_graph': False,
+        })
+        await button(page, '重试').click()
+        await expect(page.get_by_label('检索问题', exact=True)).to_be_visible()
+        await expect(page).to_have_url(re.compile(r'dbId=kb-late.*view=query'))
         assert not errors, errors
         print('desktop: CRUD, folders, preview, rechunk, upload failure/retry, vector/graph queries, safe text, graph label encoding, truncation and cross-KB folder reset passed')
     except Exception:
@@ -301,12 +408,52 @@ async def mobile_permissions(browser):
         await context.close()
 
 
+async def mobile_full_permissions(browser):
+    context = await browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True)
+    fixture = KnowledgeFixture()
+    fixture.databases[0]['name'] = '超' * 100
+    await fixture.install(context)
+    page = await context.new_page()
+    try:
+        await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-main&view=documents', wait_until='networkidle')
+        await expect(page.get_by_role('heading', name='超' * 100, exact=True)).to_be_visible()
+        for label in ('返回知识库', '刷新文档', '新建文件夹', '上传文档'):
+            control = button(page, label)
+            await expect(control).to_be_visible()
+            box = await control.bounding_box()
+            assert box and box['x'] >= 0 and box['x'] + box['width'] <= 390, (label, box)
+        title_box = await page.get_by_role('heading', name='超' * 100, exact=True).bounding_box()
+        assert title_box and title_box['x'] >= 0 and title_box['x'] + title_box['width'] <= 390, title_box
+        assert title_box['height'] <= 60, title_box
+        assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        await page.screenshot(path='/tmp/knowledge-mobile-full-permissions.png', full_page=True)
+        print('mobile full permissions: long title and all toolbar actions stay inside viewport')
+    finally:
+        await context.close()
+
+
+async def query_only_deep_link(browser):
+    context = await browser.new_context(viewport={'width': 1280, 'height': 800})
+    fixture = KnowledgeFixture(['ai:knowledge:query'])
+    await fixture.install(context)
+    page = await context.new_page()
+    try:
+        await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-main&view=query', wait_until='networkidle')
+        await expect(page.get_by_label('检索问题', exact=True)).to_be_visible()
+        await expect(page).to_have_url(re.compile(r'dbId=kb-main.*view=query'))
+        print('query-only deep link: database detail loads without list permission')
+    finally:
+        await context.close()
+
+
 async def main():
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
             await desktop(browser)
             await mobile_permissions(browser)
+            await mobile_full_permissions(browser)
+            await query_only_deep_link(browser)
         finally:
             await browser.close()
 

@@ -300,33 +300,67 @@ let previewGeneration = 0
 let disposed = false
 
 async function loadDatabases() {
-  if (!can('list')) return
+  const dbId = requestedDbId.value
+  if (!can('list') && !dbId) {
+    databases.value = []
+    databasesReady.value = true
+    await syncRoute()
+    return
+  }
+
   const requestId = ++listGeneration
   listLoading.value = true
   listError.value = ''
   try {
-    const rows = normalizeKnowledgeDatabases(await api.listKnowledgeBases())
+    let rows
+    if (can('list')) {
+      rows = normalizeKnowledgeDatabases(await api.listKnowledgeBases())
+    } else {
+      const data = unwrapKnowledgeResponse(await api.getKnowledgeBase(dbId))
+      rows = normalizeKnowledgeDatabases({ databases: [data.database || data] })
+    }
     if (requestId === listGeneration && !disposed) databases.value = rows
   } catch (error) {
-    if (requestId === listGeneration && !disposed) listError.value = message(error)
+    if (requestId === listGeneration && !disposed) {
+      listError.value = message(error)
+    }
   } finally {
     if (requestId === listGeneration && !disposed) {
       listLoading.value = false
       databasesReady.value = true
+      await syncRoute()
     }
   }
 }
 
+function invalidateRouteActions() {
+  previewGeneration += 1
+  Object.assign(preview, { open: false, name: '', loading: false, error: '', content: '' })
+  editor.open = false
+  editorError.value = ''
+  deletion.open = false
+  deleteError.value = ''
+  uploadController?.abort()
+  uploadController = undefined
+  uploadOpen.value = false
+  uploadItems.value = []
+  uploadError.value = ''
+  uploadContext = {}
+  uploading.value = false
+}
+
 function resetKnowledgeContext(dbId = null) {
   generation += 1
+  invalidateRouteActions()
   queryController?.abort()
-  if (selection.tab === 'documents') uploadController?.abort()
   Object.assign(selection, resetKnowledgeSelection(dbId))
   folders.value = []
   documents.value = []
+  detailLoading.value = false
   detailError.value = ''
   clearQuery()
   graphLabels.value = []
+  graphLoading.value = false
   graphData.value = normalizeKnowledgeGraph({ nodes: [], edges: [] })
   graphError.value = ''
 }
@@ -341,7 +375,7 @@ async function syncRoute() {
 
   const database = databases.value.find(item => item.db_id === dbId)
   if (!database) {
-    if (selection.dbId !== dbId) resetKnowledgeContext(dbId)
+    if (selection.dbId) resetKnowledgeContext()
     return
   }
 
@@ -357,8 +391,11 @@ async function syncRoute() {
   if (selection.dbId !== dbId) resetKnowledgeContext(dbId)
   else {
     generation += 1
+    invalidateRouteActions()
     queryController?.abort()
-    if (selection.tab === 'documents' && view !== 'documents') uploadController?.abort()
+    queryLoading.value = false
+    graphLoading.value = false
+    detailLoading.value = false
   }
   selection.tab = view
   if (view === 'documents') await loadDocuments()
@@ -402,7 +439,7 @@ async function loadDocuments() {
   }
 }
 
-const editor = reactive({ open: false, kind: '', item: null })
+const editor = reactive({ open: false, kind: '', item: null, contextDbId: null })
 const editorError = ref('')
 const editorLoading = ref(false)
 const storageTypes = ref([])
@@ -477,6 +514,7 @@ function onStorageChange() {
 function openEdit(kind, item = null) {
   editor.kind = kind
   editor.item = item
+  editor.contextDbId = kind === 'renameDb' ? item?.db_id || null : kind === 'createDb' ? null : selection.dbId
   editor.open = true
   editorError.value = ''
   nameForm.name = item?.name || ''
@@ -491,6 +529,11 @@ function openDocumentEdit({ kind, item }) {
 
 async function saveEditor() {
   if (actionBusy.value || editorLoading.value) return
+  if (!['createDb', 'renameDb'].includes(editor.kind) && editor.contextDbId && (editor.contextDbId !== selection.dbId || activeView.value !== 'documents')) {
+    editor.open = false
+    feedback.msgWarning('页面已切换，请重新选择操作对象')
+    return
+  }
   editorError.value = ''
   actionBusy.value = true
   try {
@@ -541,7 +584,7 @@ async function saveEditor() {
   }
 }
 
-const deletion = reactive({ open: false, kind: '', item: null })
+const deletion = reactive({ open: false, kind: '', item: null, contextDbId: null })
 const deleteError = ref('')
 const deletionMessage = computed(() => (
   deletion.kind === 'folder'
@@ -555,6 +598,7 @@ function askDelete(kind, item) {
   deletion.open = true
   deletion.kind = kind
   deletion.item = item
+  deletion.contextDbId = kind === 'database' ? item?.db_id || null : selection.dbId
   deleteError.value = ''
 }
 
@@ -564,6 +608,14 @@ function openDocumentRemoval({ kind, item }) {
 
 async function confirmDelete() {
   if (actionBusy.value) return
+  if (deletion.kind !== 'database' && (
+    deletion.contextDbId !== selection.dbId
+    || activeView.value !== 'documents'
+  )) {
+    deletion.open = false
+    feedback.msgWarning('页面已切换，请重新选择删除对象')
+    return
+  }
   actionBusy.value = true
   deleteError.value = ''
   try {
@@ -588,14 +640,26 @@ const preview = reactive({ open: false, name: '', loading: false, error: '', con
 
 async function openPreview(document) {
   const requestId = ++previewGeneration
+  const dbId = selection.dbId
   Object.assign(preview, { open: true, name: document.file_name, loading: true, error: '', content: '' })
   try {
-    const data = unwrapKnowledgeResponse(await api.previewKnowledgeDocument(selection.dbId, document.id))
-    if (requestId === previewGeneration && !disposed) preview.content = String(data.content || '')
+    const data = unwrapKnowledgeResponse(await api.previewKnowledgeDocument(dbId, document.id))
+    if (
+      requestId === previewGeneration
+      && !disposed
+      && selection.dbId === dbId
+      && activeView.value === 'documents'
+    ) {
+      preview.content = String(data.content || '')
+    }
   } catch (error) {
-    if (requestId === previewGeneration && !disposed) preview.error = message(error)
+    if (requestId === previewGeneration && !disposed && selection.dbId === dbId) {
+      preview.error = message(error)
+    }
   } finally {
-    if (requestId === previewGeneration && !disposed) preview.loading = false
+    if (requestId === previewGeneration && !disposed && selection.dbId === dbId) {
+      preview.loading = false
+    }
   }
 }
 
@@ -644,13 +708,24 @@ function queueFile(file) {
 }
 
 function retryUpload(item) {
+  if (
+    !uploadOpen.value
+    || activeView.value !== 'documents'
+    || uploadContext.dbId !== selection.dbId
+  ) return
   item.status = 'queued'
   item.error = ''
   processUploadQueue()
 }
 
 async function processUploadQueue() {
-  if (uploading.value || disposed) return
+  if (
+    uploading.value
+    || disposed
+    || !uploadOpen.value
+    || activeView.value !== 'documents'
+    || uploadContext.dbId !== selection.dbId
+  ) return
   let params
   try {
     params = validateChunkParams(uploadParams)
@@ -697,9 +772,12 @@ const queryLoading = ref(false)
 const queryError = ref('')
 const queryElapsed = ref(0)
 let queryController
+let queryRequestGeneration = 0
 
 function clearQuery() {
+  queryRequestGeneration += 1
   queryController?.abort()
+  queryController = undefined
   queryLoading.value = false
   queryError.value = ''
   queryElapsed.value = 0
@@ -707,28 +785,36 @@ function clearQuery() {
 }
 
 async function runQuery({ text, target, mode }) {
-  if (queryLoading.value || !selection.dbId) return
+  if (!selection.dbId) return
   const current = generation
+  const requestId = ++queryRequestGeneration
   const start = performance.now()
+  queryController?.abort()
+  const controller = new AbortController()
+  queryController = controller
   queryLoading.value = true
   queryError.value = ''
   selection.queryResult = null
-  queryController = new AbortController()
   try {
     const query = target === 'graph' ? api.queryKnowledgeGraph : api.queryKnowledgeBase
     const response = await query(selection.dbId, text, {
       mode,
       top_k: 8,
       only_need_context: target !== 'graph',
-    }, queryController.signal)
-    if (current === generation && !disposed) {
+    }, controller.signal)
+    if (requestId === queryRequestGeneration && current === generation && !disposed) {
       selection.queryResult = normalizeKnowledgeQuery(response)
       queryElapsed.value = Math.round(performance.now() - start)
     }
   } catch (error) {
-    if (current === generation && !disposed) queryError.value = message(error)
+    if (requestId === queryRequestGeneration && current === generation && !disposed) {
+      queryError.value = message(error)
+    }
   } finally {
-    if (current === generation && !disposed) queryLoading.value = false
+    if (requestId === queryRequestGeneration && current === generation && !disposed) {
+      queryLoading.value = false
+      if (queryController === controller) queryController = undefined
+    }
   }
 }
 
@@ -770,13 +856,16 @@ async function loadGraphWorkspace() {
 
 watch(
   () => [route.query.dbId, route.query.view],
-  () => { syncRoute() },
+  async () => {
+    if (!can('list') && requestedDbId.value && !databases.value.some(item => item.db_id === requestedDbId.value)) {
+      await loadDatabases()
+    } else {
+      await syncRoute()
+    }
+  },
 )
 
-onMounted(async () => {
-  await loadDatabases()
-  await syncRoute()
-})
+onMounted(loadDatabases)
 
 onBeforeUnmount(() => {
   disposed = true
