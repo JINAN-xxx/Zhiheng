@@ -345,3 +345,103 @@ async def test_terminal_storage_failure_still_closes_stream(work_db, monkeypatch
     assert events[-1].event_type == 'done' and events[-1].data['status'] == 'failed'
     assert 'database-secret' not in str(events)
     assert model.closed
+
+
+@pytest.mark.asyncio
+async def test_cancel_keeps_claim_until_old_upstream_closes(work_db):
+    factory, agent_id = work_db
+    async with factory() as db:
+        task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
+    old_model = FakeModels(slow=True)
+    old_service = runner(factory, old_model)
+    old_service.poll_seconds = 30
+    payload = WorkTaskRunRequestModel(agentId=agent_id, clientMessageId='create', message=task.goal)
+    old_stream = await old_service.start(task.task_id, payload, actor_user_id=10)
+    replacement = None
+    new_service = runner(factory, FakeModels())
+    try:
+        await anext(old_stream)
+        await anext(old_stream)
+        await anext(old_stream)
+        await new_service.cancel(task.task_id, old_stream.run_id, actor_user_id=10)
+        assert not old_model.closed
+        with pytest.raises(AgentServiceError) as blocked:
+            replacement = await new_service.start(
+                task.task_id, payload.model_copy(update={'client_message_id': 'retry'}), actor_user_id=10
+            )
+        assert blocked.value.status_code == 409
+        async with factory() as db:
+            detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
+            assert detail.current_run_id == old_stream.run_id
+        await old_stream.aclose()
+        assert old_model.closed
+        replacement = await new_service.start(
+            task.task_id, payload.model_copy(update={'client_message_id': 'retry'}), actor_user_id=10
+        )
+        assert (await _collect(replacement))[-1].data['status'] == 'completed'
+    finally:
+        await old_stream.aclose()
+        if replacement is not None:
+            await replacement.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_orphan_claim_recovers_only_after_lease_expiry(work_db):
+    factory, agent_id = work_db
+    run_id = str(uuid4())
+    async with factory() as db:
+        task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
+        row = await db.get(AgentWorkTask, task.task_id)
+        row.current_run_id = run_id
+        db.add(
+            AgentWorkMessage(
+                message_id=str(uuid4()),
+                task_id=task.task_id,
+                sequence=2,
+                reply_to_message_id=task.messages[0].message_id,
+                role='assistant',
+                content='partial',
+                agent_id=agent_id,
+                agent_name_snapshot='Published',
+                published_version=2,
+                run_id=run_id,
+                run_status='cancelled',
+            )
+        )
+        await db.commit()
+    service = runner(factory, FakeModels())
+    assert await service.recover_expired() == 0
+    async with factory() as db:
+        message = (await db.execute(select(AgentWorkMessage).where(AgentWorkMessage.run_id == run_id))).scalar_one()
+        message.updated_at = datetime.now() - timedelta(seconds=121)
+        await db.commit()
+    assert await service.recover_expired() == 1
+    async with factory() as db:
+        detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
+        assert detail.current_run_id is None
+        assert detail.messages[-1].run_status == 'cancelled'
+        assert detail.messages[-1].content == 'partial'
+
+
+@pytest.mark.asyncio
+async def test_late_initial_key_conflicts_without_changing_history(work_db):
+    factory, agent_id = work_db
+    async with factory() as db:
+        task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
+    model = FakeModels()
+    service = runner(factory, model)
+    payload = WorkTaskRunRequestModel(agentId=agent_id, clientMessageId='new-key', message='A later instruction')
+    stream = await service.start(task.task_id, payload, actor_user_id=10)
+    await _collect(stream)
+    with pytest.raises(AgentServiceError) as late:
+        await service.start(
+            task.task_id,
+            payload.model_copy(update={'client_message_id': 'create', 'message': task.goal}),
+            actor_user_id=10,
+        )
+    assert late.value.status_code == 409
+    assert len(model.calls) == 1
+    async with factory() as db:
+        detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
+        assert len(detail.messages) == 3
+        assert detail.current_run_id is None

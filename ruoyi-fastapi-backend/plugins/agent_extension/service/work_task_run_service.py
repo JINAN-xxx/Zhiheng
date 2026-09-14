@@ -202,12 +202,12 @@ class WorkTaskRunService:
                 if existing is not None:
                     return self._replay_stream(existing)
                 raise conflict('任务已被其他操作更新，请刷新后重试')
+            last_sequence = (
+                await db.execute(select(func.max(AgentWorkMessage.sequence)).where(AgentWorkMessage.task_id == task_id))
+            ).scalar_one() or 0
+            if user is not None and user.sequence != last_sequence:
+                raise conflict('该消息之后已有新的任务记录，请使用新的消息标识继续')
             if user is None:
-                last_sequence = (
-                    await db.execute(
-                        select(func.max(AgentWorkMessage.sequence)).where(AgentWorkMessage.task_id == task_id)
-                    )
-                ).scalar_one() or 0
                 user = AgentWorkMessage(
                     message_id=str(uuid4()),
                     task_id=task_id,
@@ -285,7 +285,9 @@ class WorkTaskRunService:
             status = (
                 await db.execute(select(AgentWorkMessage.run_status).where(AgentWorkMessage.run_id == stream.run_id))
             ).scalar_one_or_none() or 'interrupted'
-            if status not in RUNNING:
+            # A cancelled status is a request to stop; a partial save cannot release the claim.
+            # Terminal callers have already joined the driver and closed its upstream.
+            if terminal is not None and status not in RUNNING:
                 await db.execute(
                     update(AgentWorkTask)
                     .where(AgentWorkTask.task_id == stream.task_id, AgentWorkTask.current_run_id == stream.run_id)
@@ -427,11 +429,6 @@ class WorkTaskRunService:
                     .where(AgentWorkMessage.run_id == run_id, AgentWorkMessage.run_status.in_(RUNNING))
                     .values(run_status='cancelled', updated_at=datetime.now())
                 )
-                await db.execute(
-                    update(AgentWorkTask)
-                    .where(AgentWorkTask.task_id == task_id, AgentWorkTask.current_run_id == run_id)
-                    .values(current_run_id=None, updated_at=datetime.now())
-                )
             await db.commit()
 
     async def recover_expired(self) -> int:
@@ -441,21 +438,24 @@ class WorkTaskRunService:
             runs = list(
                 (
                     await db.execute(
-                        select(AgentWorkMessage.run_id, AgentWorkMessage.task_id).where(
-                            AgentWorkMessage.run_status.in_(RUNNING), AgentWorkMessage.updated_at < cutoff
-                        )
+                        select(AgentWorkMessage.run_id, AgentWorkMessage.task_id, AgentWorkMessage.run_status)
+                        .join(AgentWorkTask, AgentWorkTask.current_run_id == AgentWorkMessage.run_id)
+                        .where(AgentWorkMessage.updated_at < cutoff)
                     )
                 ).all()
             )
-            for run_id, task_id in runs:
+            for run_id, task_id, previous_status in runs:
                 changed = await db.execute(
                     update(AgentWorkMessage)
                     .where(
                         AgentWorkMessage.run_id == run_id,
-                        AgentWorkMessage.run_status.in_(RUNNING),
+                        AgentWorkMessage.run_status == previous_status,
                         AgentWorkMessage.updated_at < cutoff,
                     )
-                    .values(run_status='interrupted', updated_at=datetime.now())
+                    .values(
+                        run_status='interrupted' if previous_status in RUNNING else previous_status,
+                        updated_at=datetime.now(),
+                    )
                 )
                 if changed.rowcount:
                     await db.execute(
