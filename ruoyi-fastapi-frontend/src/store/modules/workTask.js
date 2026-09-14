@@ -32,6 +32,22 @@ const repliedUserMessage = (task, runMessage) => (
   ))
 )
 
+const persistedRunForAttempt = (task, { clientMessageId, runId } = {}) => {
+  const attemptedUser = (task?.messages || []).find((message) => (
+    message.role === 'user' && clientMessageId && message.clientMessageId === clientMessageId
+  ))
+  const runMessage = [...(task?.messages || [])].reverse().find((message) => (
+    message.role === 'assistant'
+    && message.runId
+    && ((runId && message.runId === runId)
+      || (attemptedUser && message.replyToMessageId === attemptedUser.messageId))
+  ))
+  return {
+    runMessage,
+    userMessage: attemptedUser || repliedUserMessage(task, runMessage),
+  }
+}
+
 const delay = (milliseconds, signal) => new Promise((resolve, reject) => {
   const timer = setTimeout(resolve, milliseconds)
   signal?.addEventListener('abort', () => {
@@ -66,6 +82,7 @@ const useWorkTaskStore = defineStore('workTask', {
     detailGeneration: 0,
     runGeneration: 0,
     runId: null,
+    runIdentityConfirmed: false,
     runState: 'idle',
     runError: '',
     streamController: null,
@@ -144,6 +161,7 @@ const useWorkTaskStore = defineStore('workTask', {
           runStatus: persistedRun?.runStatus,
         })
         this.runId = shouldObserve ? (this.currentTask?.currentRunId || persistedRun?.runId || null) : null
+        this.runIdentityConfirmed = shouldObserve && Boolean(this.runId)
         this.runState = shouldObserve ? 'observing' : 'idle'
         if (shouldObserve) {
           void this.observeUntilReleased(taskId, this.runGeneration)
@@ -252,6 +270,7 @@ const useWorkTaskStore = defineStore('workTask', {
         : null
       if (event.event === 'meta') {
         this.runId = data.runId
+        this.runIdentityConfirmed = Boolean(data.runId)
         this.currentTask.currentRunId = data.runId
         this.tasks = this.tasks.map((task) => task.taskId === this.currentTask.taskId
           ? { ...task, currentRunId: data.runId }
@@ -289,6 +308,8 @@ const useWorkTaskStore = defineStore('workTask', {
       this.workflow.currentTask = this.currentTask
       const generation = this.workflow.beginRun()
       this.runGeneration = generation
+      this.runId = null
+      this.runIdentityConfirmed = false
       const attempt = { agentId, message, clientMessageId, kind: retryKind }
       this.retryAttempt = attempt
       this.draftMessage = message
@@ -328,6 +349,14 @@ const useWorkTaskStore = defineStore('workTask', {
       if (shouldObserve && generation === this.runGeneration) {
         const observed = await this.observeUntilReleased(taskId, generation)
         if (caughtError && (!observed || this.runState === 'failed')) throw caughtError
+        if (!observed) {
+          if (this.runState === 'completed') {
+            this.runState = 'failed'
+            this.runError = '执行结果尚未确认，请重试'
+            this.retryAttempt = { ...this.retryAttempt, kind: 'uncertain' }
+          }
+          return false
+        }
       }
       return this.runState === 'completed'
     },
@@ -353,21 +382,24 @@ const useWorkTaskStore = defineStore('workTask', {
           if (!detail || detail.taskId !== taskId) return false
           this.currentTask = detail
           this.workflow.currentTask = detail
-          this.runId = detail.currentRunId || this.runId || null
+          const persistedAttempt = persistedRunForAttempt(detail, {
+            clientMessageId: this.retryAttempt?.clientMessageId,
+            runId: this.runIdentityConfirmed ? this.runId : null,
+          })
+          if (persistedAttempt.runMessage) {
+            this.runId = persistedAttempt.runMessage.runId
+            this.runIdentityConfirmed = true
+          }
           if (detail.currentRunId) {
             this.tasks = this.tasks.map((task) => task.taskId === detail.taskId
               ? { ...task, currentRunId: detail.currentRunId }
               : task)
           }
           if (!detail.currentRunId) {
-            const attemptedUser = detail.messages.find((item) => (
-              item.role === 'user' && item.clientMessageId === this.retryAttempt?.clientMessageId
-            ))
-            const lastRun = latestPersistedRun(detail)
-            const persistedUser = attemptedUser || repliedUserMessage(detail, lastRun)
+            const { runMessage: observedRun, userMessage: persistedUser } = persistedAttempt
             if (shouldKeepObservingWorkRun({
               currentRunId: detail.currentRunId,
-              runStatus: lastRun?.runStatus,
+              runStatus: observedRun?.runStatus,
               cancelling: this.runState === 'cancelling',
             })) {
               this.runState = 'observing'
@@ -376,22 +408,23 @@ const useWorkTaskStore = defineStore('workTask', {
               continue
             }
             if (this.runState === 'cancelling') this.runState = 'cancelled'
-            else if (lastRun?.runStatus) this.runState = lastRun.runStatus
+            else if (observedRun?.runStatus) this.runState = observedRun.runStatus
             else if (!TERMINAL_RUN_STATUSES.has(this.runState)) this.runState = 'failed'
-            if (['failed', 'cancelled', 'interrupted'].includes(lastRun?.runStatus)) {
+            if (['failed', 'cancelled', 'interrupted'].includes(observedRun?.runStatus)) {
               this.retryAttempt = {
                 ...this.retryAttempt,
-                agentId: lastRun.agentId || this.retryAttempt?.agentId || detail.activeAgentId,
+                agentId: observedRun.agentId || this.retryAttempt?.agentId || detail.activeAgentId,
                 message: persistedUser?.content || this.retryAttempt?.message || '',
                 clientMessageId: persistedUser?.clientMessageId || this.retryAttempt?.clientMessageId,
                 kind: 'failed',
               }
               this.draftMessage = this.retryAttempt.message
-              this.runError = lastRun.errorSnapshot?.message || lastRun.errorSnapshot?.msg || this.runError || '工作执行失败'
+              this.runError = observedRun.errorSnapshot?.message || observedRun.errorSnapshot?.msg || this.runError || '工作执行失败'
             }
             this.workflow.runState = this.runState
             this.workflow.applyObservedDetail(detail)
             this.runId = null
+            this.runIdentityConfirmed = false
             const summary = { ...detail }
             delete summary.members
             delete summary.messages
@@ -399,7 +432,7 @@ const useWorkTaskStore = defineStore('workTask', {
               ? { ...task, ...summary }
               : task)
             void this.loadTasks({ pageNum: this.pageNum, pageSize: this.pageSize })
-            return Boolean(lastRun) || this.runState === 'cancelled'
+            return Boolean(observedRun) || this.runState === 'cancelled'
           }
           await delay(POLL_INTERVAL, controller.signal)
         }
@@ -495,6 +528,7 @@ const useWorkTaskStore = defineStore('workTask', {
       this.stopLocalActivity()
       this.currentTask = null
       this.runId = null
+      this.runIdentityConfirmed = false
       this.runState = 'idle'
       this.runError = ''
       this.draftMessage = ''
@@ -519,6 +553,7 @@ const useWorkTaskStore = defineStore('workTask', {
       this.draftMessage = ''
       this.retryAttempt = null
       this.runId = null
+      this.runIdentityConfirmed = false
       this.runState = 'idle'
       this.runError = ''
       const workflow = createWorkTaskState()

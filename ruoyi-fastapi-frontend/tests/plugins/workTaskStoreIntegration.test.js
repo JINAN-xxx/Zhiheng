@@ -319,6 +319,62 @@ await check('loading a persisted pending reply observes it through its terminal 
   assert.equal(store.runLocked, false)
 })
 
+await check('an old completed reply cannot confirm a newly rejected request', async () => {
+  const oldUser = {
+    messageId: 'old-user', taskId: 'task-a', role: 'user',
+    clientMessageId: 'old-key', content: '旧消息',
+  }
+  const persisted = task('task-a', { messages: [oldUser, {
+    messageId: 'old-reply', taskId: 'task-a', role: 'assistant',
+    replyToMessageId: oldUser.messageId, runId: 'old-run', runStatus: 'completed', content: '旧结果',
+  }] })
+  const store = actualStore({
+    createWorkTaskRunStream: async () => { throw new Error('agent unavailable') },
+    getWorkTask: async () => reply(persisted),
+  })
+  store.currentTask = persisted
+  await assert.rejects(
+    store.runMessage({ agentId, message: '新消息', clientMessageId: 'new-key' }),
+    /agent unavailable/,
+  )
+  assert.equal(store.runState, 'failed')
+  assert.equal(store.retryAttempt.kind, 'uncertain')
+  assert.equal(store.retryAttempt.clientMessageId, 'new-key')
+  assert.equal(store.draftMessage, '新消息')
+})
+
+await check('another client claim cannot confirm a newly rejected request', async () => {
+  let detailReads = 0
+  const otherUser = {
+    messageId: 'other-user', taskId: 'task-a', role: 'user',
+    clientMessageId: 'other-key', content: '其他客户端消息',
+  }
+  const store = actualStore({
+    createWorkTaskRunStream: async () => { throw new Error('task already running') },
+    getWorkTask: async () => {
+      detailReads += 1
+      const pending = detailReads === 1
+      return reply(task('task-a', {
+        currentRunId: pending ? 'other-run' : null,
+        messages: [otherUser, {
+          messageId: 'other-reply', taskId: 'task-a', role: 'assistant',
+          replyToMessageId: otherUser.messageId, runId: 'other-run',
+          runStatus: pending ? 'pending' : 'completed', content: '其他客户端结果',
+        }],
+      }))
+    },
+  })
+  store.currentTask = task('task-a')
+  await assert.rejects(
+    store.runMessage({ agentId, message: '本次请求', clientMessageId: 'this-key' }),
+    /task already running/,
+  )
+  assert.equal(detailReads, 2)
+  assert.equal(store.retryAttempt.clientMessageId, 'this-key')
+  assert.equal(store.retryAttempt.kind, 'uncertain')
+  assert.equal(store.draftMessage, '本次请求')
+})
+
 if (failures.length) {
   throw new AggregateError(failures.map(({ error }) => error),
     failures.map(({ name }) => name).join('; '))
