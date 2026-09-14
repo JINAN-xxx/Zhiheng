@@ -7,6 +7,7 @@ import { bestEffortLogout } from '@/utils/sessionLogout'
 import { isHttp, isEmpty } from "@/utils/validate"
 import useLockStore from '@/store/modules/lock'
 import defAva from '@/assets/images/profile.jpg'
+import { clearWorkTaskSession } from '../../../plugins/agent_extension/utils/workTaskSession.js'
 
 const useUserStore = defineStore(
   'user',
@@ -77,6 +78,7 @@ const useUserStore = defineStore(
         })
       },
       clearSession() {
+        clearWorkTaskSession()
         this.token = ''
         this.roles = []
         this.permissions = []

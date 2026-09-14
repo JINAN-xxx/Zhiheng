@@ -33,6 +33,7 @@ const AGENT_EXTENSION_TABS = Object.freeze([
 
 const LANDING_PATH_PRIORITY = Object.freeze([
   '/ai/chat',
+  '/ai/work',
   '/ai/knowledge',
   '/ai/model',
   '/ai/application',
@@ -78,6 +79,10 @@ export function workspaceStateLabel(kind) {
 
 export function resolveWorkspaceMode(path = '') {
   return isAiWorkspacePath(path) ? 'ai' : 'admin'
+}
+
+export function resolveConversationWorkspaceMode(path = '') {
+  return path === '/ai/work' || path.startsWith('/ai/work/') ? 'work' : 'chat'
 }
 
 export function resolveAiResourceTabs(permissions = new Set()) {
@@ -214,6 +219,13 @@ export function collectWorkspaceLeafPaths(routes = [], parentPath = '') {
     if (children.length) return collectWorkspaceLeafPaths(children, normalizedPath)
     return routePath && normalizedPath ? [normalizedPath] : []
   })
+}
+
+export function collectAuthorizedWorkspacePaths(routes = []) {
+  const visiblePaths = collectWorkspaceLeafPaths(routes)
+  const hiddenWorkspacePaths = collectWorkspaceRoutePaths(routes)
+    .filter((path) => routes.some((route) => route?.path === path && route?.meta?.workspaceAccess === true))
+  return [...new Set([...hiddenWorkspacePaths, ...visiblePaths])]
 }
 
 export function resolvePaginationLayout(width, desktopLayout) {

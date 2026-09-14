@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   collectWorkspaceRoutePaths,
   collectWorkspaceLeafPaths,
+  collectAuthorizedWorkspacePaths,
   filterAdminWorkspaceRoutes,
   getActiveAiResourceChildPath,
   groupWorkspaceActions,
@@ -15,6 +16,7 @@ import {
   resolvePaginationLayout,
   resolveWorkspaceLandingPath,
   resolveWorkspaceMode,
+  resolveConversationWorkspaceMode,
   resolveWorkspaceState,
   shouldApplyGeneration,
   workspaceStateLabel,
@@ -37,6 +39,10 @@ assert.equal(resolveWorkspaceLandingPath('/', ['/ai/model', '/system/user']), '/
 assert.equal(resolveWorkspaceLandingPath('/index', ['/system/user']), '/system/user')
 assert.equal(resolveWorkspaceLandingPath('/ai/model', ['/ai/chat']), '/ai/model')
 assert.equal(resolveWorkspaceMode('/ai/chat'), 'ai')
+assert.equal(resolveWorkspaceMode('/ai/work'), 'ai')
+assert.equal(resolveWorkspaceMode('/ai/admin'), 'ai')
+assert.equal(resolveConversationWorkspaceMode('/ai/work'), 'work')
+assert.equal(resolveConversationWorkspaceMode('/ai/chat'), 'chat')
 assert.equal(resolveWorkspaceMode('/ai'), 'ai')
 assert.equal(resolveWorkspaceMode('/extensions/skill'), 'ai')
 assert.equal(resolveWorkspaceMode('/system/user'), 'admin')
@@ -119,6 +125,7 @@ assert.equal(
   null,
 )
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/chat']), '/ai/chat')
+assert.equal(resolveAuthorizedWorkspacePath('/ai/work', ['/ai/chat', '/ai/work']), '/ai/work')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application/detail', ['/ai/chat']), '/ai/chat')
 assert.equal(resolveAuthorizedWorkspacePath('/ai/application', ['/ai/application']), '/ai/application')
 assert.equal(
@@ -165,6 +172,13 @@ assert.deepEqual(collectWorkspaceLeafPaths([
 assert.deepEqual(collectWorkspaceLeafPaths([
   { path: '/system', children: [{ path: 'user', hidden: true }, { path: 'role' }] },
 ]), ['/system/role'])
+assert.deepEqual(collectAuthorizedWorkspacePaths([
+  { path: '/ai/work', hidden: true, meta: { workspaceAccess: true }, children: [{ path: '' }] },
+  { path: '/system/secret', hidden: true, children: [{ path: '' }] },
+  { path: '/ai', children: [{ path: 'chat' }] },
+]), ['/ai/work', '/ai/chat'])
+assert.equal(resolveWorkspaceLandingPath('/index', ['/ai/work', '/ai/chat']), '/ai/chat')
+assert.equal(resolveWorkspaceLandingPath('/index', ['/ai/work']), '/ai/work')
 assert.deepEqual(collectWorkspaceLeafPaths([
   { path: '/ai', children: [{ path: 'chat' }] },
   { path: '/system', children: [{ path: 'overview' }] },

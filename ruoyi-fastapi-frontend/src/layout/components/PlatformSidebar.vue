@@ -19,9 +19,12 @@
     </div>
 
     <nav class="platform-primary-nav" aria-label="主导航">
-      <button v-if="canChat" type="button" class="platform-new-chat" aria-label="新建对话" title="新建对话" @click="newChat">
+      <button v-if="canChat" type="button" class="platform-new-chat" aria-label="新建聊天" title="新建聊天" @click="newChat">
         <PlusOutlined />
-        <span v-if="!collapsed">新建对话</span>
+        <span v-if="!collapsed">新建聊天</span>
+      </button>
+      <button v-if="workCapabilities.canCreate" type="button" class="platform-new-chat" aria-label="新建工作" title="新建工作" @click="newWork">
+        <PlusOutlined /><span v-if="!collapsed">新建工作</span>
       </button>
       <router-link
         v-for="item in navItems"
@@ -89,7 +92,7 @@
     </nav>
 
     <RecentSessions
-      v-if="canChat && !collapsed"
+      v-if="canChat && !collapsed && conversationMode === 'chat'"
       :sessions="workspaceStore.sessions"
       :active-session-id="activeSessionId"
       :loading="workspaceStore.sessionsLoading"
@@ -98,6 +101,23 @@
       @open-session="openSession"
       @rename-session="renameSession"
       @delete-session="deleteSession"
+    />
+    <RecentWorkTasks
+      v-if="workCapabilities.list && !collapsed && conversationMode === 'work'"
+      :tasks="workTaskStore.tasks"
+      :active-task-id="activeTaskId"
+      :loading="workTaskStore.listLoading"
+      :error="workTaskStore.listError"
+      :total="workTaskStore.total"
+      :page-num="workTaskStore.pageNum"
+      :page-size="workTaskStore.pageSize"
+      :can-open="workCapabilities.query"
+      :can-edit="workCapabilities.edit"
+      :can-remove="workCapabilities.remove"
+      @filter="workTaskStore.loadTasks"
+      @open="openWork"
+      @rename="renameWork"
+      @delete="deleteWork"
     />
 
     <button type="button" class="platform-admin-entry" aria-label="管理后台" title="管理后台" @click="emit('open-admin')">
@@ -119,6 +139,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
+  ProjectOutlined,
   PlusOutlined,
   RightOutlined,
   SettingOutlined,
@@ -131,12 +152,16 @@ import {
   isAiResourceGroupActive,
   resolveAgentExtensionGroups,
   resolveAiResourceGroups,
+  resolveConversationWorkspaceMode,
 } from '@/components/Workspace/workspaceTransforms.js'
+import { resolveWorkTaskCapabilities } from '../../../plugins/agent_extension/utils/workTask.js'
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'
+import useWorkTaskStore from '@/store/modules/workTask'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import RecentSessions from './RecentSessions.vue'
+import RecentWorkTasks from './RecentWorkTasks.vue'
 
 defineProps({
   collapsed: { type: Boolean, default: false },
@@ -148,11 +173,14 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const workspaceStore = useWorkspaceStore()
+const workTaskStore = useWorkTaskStore()
 
 const permissionSet = computed(() => new Set(userStore.permissions))
 const canChat = computed(
   () => permissionSet.value.has('*:*:*') || permissionSet.value.has('ai:chat:list'),
 )
+const workCapabilities = computed(() => resolveWorkTaskCapabilities(permissionSet.value))
+const conversationMode = computed(() => resolveConversationWorkspaceMode(route.path))
 const resourceGroups = computed(() => [
   ...resolveAiResourceGroups(permissionSet.value),
   ...resolveAgentExtensionGroups(permissionSet.value),
@@ -160,12 +188,17 @@ const resourceGroups = computed(() => [
 const expandedGroupKeys = ref(new Set())
 const navItems = computed(() => [
   canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
+  workCapabilities.value.visible && { path: '/ai/work', label: '工作', icon: ProjectOutlined },
 ].filter(Boolean))
 const activeSessionId = computed(() => String(route.query.sessionId || ''))
+const activeTaskId = computed(() => String(route.query.taskId || ''))
 
 function newChat() {
   router.push('/ai/chat')
 }
+
+function newWork() { router.push('/ai/work') }
+function openWork(taskId) { router.push({ path: '/ai/work', query: { taskId } }) }
 
 function openSession(sessionId) {
   router.push({ path: '/ai/chat', query: { sessionId } })
@@ -224,8 +257,31 @@ async function deleteSession(sessionId) {
   }
 }
 
+async function renameWork(task) {
+  try {
+    const result = await feedback.prompt('请输入新的工作标题')
+    const title = String(result?.value || '').trim()
+    if (!title || title.length > 100) return feedback.msgWarning('工作标题须为 1 至 100 个字符')
+    await workTaskStore.renameListedTask(task, title)
+  } catch (error) { if (error !== 'cancel' && error !== 'close') feedback.msgError(error?.message || '重命名失败') }
+}
+
+async function deleteWork(task) {
+  try {
+    await feedback.confirm('删除后无法恢复，确定删除这个工作吗？')
+    await workTaskStore.removeTask(task.taskId)
+    if (activeTaskId.value === task.taskId) await router.push('/ai/work')
+  } catch (error) { if (error !== 'cancel' && error !== 'close') feedback.msgError(error?.message || '删除失败') }
+}
+
 onMounted(() => {
-  if (canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
+  if (conversationMode.value === 'chat' && canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
+  if (conversationMode.value === 'work' && workCapabilities.value.list && !workTaskStore.tasks.length) workTaskStore.loadTasks()
+})
+
+watch(conversationMode, (mode) => {
+  if (mode === 'chat' && canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
+  if (mode === 'work' && workCapabilities.value.list && !workTaskStore.tasks.length) workTaskStore.loadTasks()
 })
 
 watch([resourceGroups, () => route.path], ([groups]) => {

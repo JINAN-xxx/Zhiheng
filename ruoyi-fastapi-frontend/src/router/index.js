@@ -95,6 +95,25 @@ export const constantRoutes = [
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
   {
+    path: '/ai/work',
+    component: Layout,
+    hidden: true,
+    permissions: [
+      'agent_extension:work:list',
+      'agent_extension:work:query',
+      'agent_extension:work:add',
+    ],
+    meta: { workspaceAccess: true },
+    children: [
+      {
+        path: '',
+        component: () => import('../../plugins/agent_extension/views/work/index.vue'),
+        name: 'AiWork',
+        meta: { title: '工作' },
+      },
+    ],
+  },
+  {
     path: '/system/user-auth',
     component: Layout,
     hidden: true,
