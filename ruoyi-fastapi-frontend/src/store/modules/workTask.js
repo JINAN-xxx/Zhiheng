@@ -22,6 +22,16 @@ import { registerWorkTaskSessionCleanup } from '../../../plugins/agent_extension
 const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
 const POLL_INTERVAL = 500
 
+const latestPersistedRun = (task) => [...(task?.messages || [])]
+  .reverse()
+  .find((message) => message.role === 'assistant' && message.runId)
+
+const repliedUserMessage = (task, runMessage) => (
+  (task?.messages || []).find((message) => (
+    message.role === 'user' && message.messageId === runMessage?.replyToMessageId
+  ))
+)
+
 const delay = (milliseconds, signal) => new Promise((resolve, reject) => {
   const timer = setTimeout(resolve, milliseconds)
   signal?.addEventListener('abort', () => {
@@ -125,14 +135,20 @@ const useWorkTaskStore = defineStore('workTask', {
         if (generation !== this.detailGeneration) return false
         if (!this.workflow.applyDetail(generation, response?.data)) return false
         this.currentTask = this.workflow.currentTask
-        this.runId = this.currentTask?.currentRunId || null
         this.retryAttempt = null
         this.draftMessage = ''
         this.runError = ''
-        this.runState = this.currentTask?.currentRunId ? 'observing' : 'idle'
-        this.restoreRetryFromDetail()
-        if (observe && this.currentTask?.currentRunId) {
+        const persistedRun = latestPersistedRun(this.currentTask)
+        const shouldObserve = observe && shouldKeepObservingWorkRun({
+          currentRunId: this.currentTask?.currentRunId,
+          runStatus: persistedRun?.runStatus,
+        })
+        this.runId = shouldObserve ? (this.currentTask?.currentRunId || persistedRun?.runId || null) : null
+        this.runState = shouldObserve ? 'observing' : 'idle'
+        if (shouldObserve) {
           void this.observeUntilReleased(taskId, this.runGeneration)
+        } else {
+          this.restoreRetryFromDetail()
         }
         return true
       } catch (error) {
@@ -347,11 +363,8 @@ const useWorkTaskStore = defineStore('workTask', {
             const attemptedUser = detail.messages.find((item) => (
               item.role === 'user' && item.clientMessageId === this.retryAttempt?.clientMessageId
             ))
-            const lastRun = [...detail.messages].reverse().find((item) => (
-              item.role === 'assistant'
-              && item.runId
-              && (!attemptedUser || item.replyToMessageId === attemptedUser.messageId)
-            ))
+            const lastRun = latestPersistedRun(detail)
+            const persistedUser = attemptedUser || repliedUserMessage(detail, lastRun)
             if (shouldKeepObservingWorkRun({
               currentRunId: detail.currentRunId,
               runStatus: lastRun?.runStatus,
@@ -365,8 +378,20 @@ const useWorkTaskStore = defineStore('workTask', {
             if (this.runState === 'cancelling') this.runState = 'cancelled'
             else if (lastRun?.runStatus) this.runState = lastRun.runStatus
             else if (!TERMINAL_RUN_STATUSES.has(this.runState)) this.runState = 'failed'
+            if (['failed', 'cancelled', 'interrupted'].includes(lastRun?.runStatus)) {
+              this.retryAttempt = {
+                ...this.retryAttempt,
+                agentId: lastRun.agentId || this.retryAttempt?.agentId || detail.activeAgentId,
+                message: persistedUser?.content || this.retryAttempt?.message || '',
+                clientMessageId: persistedUser?.clientMessageId || this.retryAttempt?.clientMessageId,
+                kind: 'failed',
+              }
+              this.draftMessage = this.retryAttempt.message
+              this.runError = lastRun.errorSnapshot?.message || lastRun.errorSnapshot?.msg || this.runError || '工作执行失败'
+            }
             this.workflow.runState = this.runState
             this.workflow.applyObservedDetail(detail)
+            this.runId = null
             const summary = { ...detail }
             delete summary.members
             delete summary.messages

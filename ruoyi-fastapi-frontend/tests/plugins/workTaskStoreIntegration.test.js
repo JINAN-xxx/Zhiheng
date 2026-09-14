@@ -254,6 +254,71 @@ await check('a confirmed failed run keeps its draft and retries with a new clien
   assert.notEqual(attempts[1].clientMessageId, attempts[0].clientMessageId)
 })
 
+await check('a dropped stream adopts the persisted failed status before choosing its retry key', async () => {
+  const attempts = []
+  const store = actualStore({
+    createWorkTaskRunStream: async (taskId, payload) => {
+      attempts.push({ ...payload })
+      const failed = attempts.length === 1
+      return (async function* () {
+        yield { event: 'meta', data: {
+          taskId, runId: failed ? 'run-dropped' : 'run-retry',
+          messageId: failed ? 'reply-dropped' : 'reply-retry',
+          agentId, agentName: member.agentNameSnapshot, publishedVersion: 2,
+        } }
+        if (failed) throw new Error('network dropped')
+        yield { event: 'done', data: {
+          taskId, runId: 'run-retry', messageId: 'reply-retry', status: 'completed',
+        } }
+      })()
+    },
+    getWorkTask: async () => {
+      const attempt = attempts.at(-1)
+      const failed = attempts.length === 1
+      const user = {
+        messageId: failed ? 'user-dropped' : 'user-retry', taskId: 'task-a', role: 'user',
+        clientMessageId: attempt.clientMessageId, content: attempt.message,
+      }
+      return reply(task('task-a', { messages: [user, {
+        messageId: failed ? 'reply-dropped' : 'reply-retry', taskId: 'task-a', role: 'assistant',
+        replyToMessageId: user.messageId, runId: failed ? 'run-dropped' : 'run-retry',
+        runStatus: failed ? 'failed' : 'completed', content: failed ? '' : '完成',
+      }] }))
+    },
+  })
+  store.currentTask = task('task-a')
+  await assert.rejects(
+    store.runMessage({ agentId, message: '断线任务', clientMessageId: 'dropped-key' }),
+    /network dropped/,
+  )
+  assert.equal(store.retryAttempt.kind, 'failed')
+  await store.retryRun({ confirmedFailed: store.retryAttempt.kind === 'failed' })
+  assert.notEqual(attempts[1].clientMessageId, attempts[0].clientMessageId)
+})
+
+await check('loading a persisted pending reply observes it through its terminal status', async () => {
+  let detailReads = 0
+  const user = {
+    messageId: 'user-persisted', taskId: 'task-a', role: 'user',
+    clientMessageId: 'persisted-key', content: '恢复任务',
+  }
+  const store = actualStore({
+    getWorkTask: async () => {
+      detailReads += 1
+      const runStatus = detailReads === 1 ? 'pending' : 'completed'
+      return reply(task('task-a', { messages: [user, {
+        messageId: 'reply-persisted', taskId: 'task-a', role: 'assistant',
+        replyToMessageId: user.messageId, runId: 'run-persisted', runStatus, content: '结果',
+      }] }))
+    },
+  })
+  await store.loadTask('task-a')
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(detailReads, 2)
+  assert.equal(store.runState, 'completed')
+  assert.equal(store.runLocked, false)
+})
+
 if (failures.length) {
   throw new AggregateError(failures.map(({ error }) => error),
     failures.map(({ name }) => name).join('; '))
