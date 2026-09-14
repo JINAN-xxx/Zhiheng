@@ -10,6 +10,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_ROOT = BACKEND_ROOT / 'plugins' / 'agent_extension'
 EXPECTED_MENU_COUNT = 2
 EXPECTED_PERMISSIONS = {
+    'agent_extension:agent:use',
+    'agent_extension:work:list',
+    'agent_extension:work:query',
+    'agent_extension:work:add',
+    'agent_extension:work:edit',
+    'agent_extension:work:remove',
+    'agent_extension:work:run',
     'agent_extension:agent:list',
     'agent_extension:agent:query',
     'agent_extension:agent:add',
@@ -30,7 +37,7 @@ def test_agent_extension_manifest_declares_skill_menu_and_permissions() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
 
     assert plugin.manifest.id == 'agent_extension'
-    assert plugin.manifest.version == '0.3.0'
+    assert plugin.manifest.version == '0.4.0'
     assert plugin.manifest.backend.module == 'plugins.agent_extension'
     assert plugin.manifest.backend.hooks.on_startup == 'plugins.agent_extension.hooks:on_startup'
     assert plugin.manifest.backend.hooks.on_shutdown == 'plugins.agent_extension.hooks:on_shutdown'
@@ -41,6 +48,8 @@ def test_agent_extension_manifest_declares_skill_menu_and_permissions() -> None:
         'migrations/postgresql/002_agent_management.sql',
         'migrations/mysql/003_agent_welcome_message.sql',
         'migrations/postgresql/003_agent_welcome_message.sql',
+        'migrations/mysql/004_work_tasks.sql',
+        'migrations/postgresql/004_work_tasks.sql',
     ]
     root_menu = plugin.manifest.frontend.menus[0]
     assert root_menu.name == '智能体扩展'
@@ -89,6 +98,7 @@ def test_welcome_message_migration_preserves_existing_rows_and_defaults_new_rows
 def test_agent_extension_routes_and_frontend_references_pass_structure_checks() -> None:
     plugin = PluginScanner(BACKEND_ROOT / 'plugins').load_manifest(PLUGIN_ROOT / 'plugin.yaml')
     result = PluginStructureChecker(
-        BACKEND_ROOT, BACKEND_ROOT.parent / 'ruoyi-fastapi-frontend' / 'plugins',
+        BACKEND_ROOT,
+        BACKEND_ROOT.parent / 'ruoyi-fastapi-frontend' / 'plugins',
     ).check(plugin)
     assert result.ok, result.failed_items

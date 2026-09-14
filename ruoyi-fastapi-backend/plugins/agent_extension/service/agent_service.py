@@ -19,11 +19,49 @@ from plugins.agent_extension.entity.vo.agent_vo import (
     AgentPublishModel,
     AgentUpdateModel,
 )
+from plugins.agent_extension.entity.vo.work_task_vo import WorkAgentOptionModel
 from plugins.ai.dao.ai_developer_api_dao import AiDeveloperApiDao
 from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 
 
 class AgentService:
+    async def get_usable_published_agent(
+        self, agent_id: str, *, actor_user_id: int, is_admin: bool
+    ) -> AgentPublishedModel:
+        # Transaction ownership stays with the caller: work creation must remain atomic.
+        agent = await self._dao.get_by_id(self._db, agent_id)
+        if (
+            agent is None
+            or (not is_admin and agent.owner_user_id != actor_user_id)
+            or agent.status != 'published'
+            or not agent.published_config
+            or not agent.published_version
+        ):
+            raise AgentServiceError('AGENT_NOT_FOUND', '智能体不可用或无权使用')
+        config = AgentConfigResponseModel.model_validate(agent.published_config)
+        return AgentPublishedModel(
+            **config.model_dump(),
+            agent_id=agent.agent_id,
+            owner_user_id=agent.owner_user_id,
+            published_version=agent.published_version,
+        )
+
+    async def list_usable_published_agents(self, *, actor_user_id: int, is_admin: bool) -> list[WorkAgentOptionModel]:
+        try:
+            agents = await self._dao.list_usable_published(self._db, owner_user_id=None if is_admin else actor_user_id)
+            return [
+                WorkAgentOptionModel(
+                    agent_id=agent.agent_id,
+                    name=agent.published_config['name'],
+                    description=agent.published_config.get('description', ''),
+                    published_version=agent.published_version,
+                    status='published',
+                )
+                for agent in agents
+            ]
+        finally:
+            await self._rollback()
+
     def __init__(
         self,
         db: AsyncSession,

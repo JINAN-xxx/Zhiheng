@@ -2,6 +2,8 @@ create table if not exists agent_work_task (
   task_id                  varchar(36)  not null,
   owner_user_id            bigint       not null,
   create_client_message_id varchar(100) not null,
+  create_request_hash      varchar(64)  not null default '',
+  current_run_id           varchar(36)  null,
   title                    varchar(100) not null,
   goal                     mediumtext   not null,
   status                   varchar(16)  not null default 'active',
@@ -33,6 +35,7 @@ create table if not exists agent_work_task_member (
 
 create table if not exists agent_work_message (
   message_id          varchar(36)  not null,
+  sequence            int          not null,
   task_id             varchar(36)  not null,
   client_message_id   varchar(100) null,
   reply_to_message_id varchar(36)  null,
@@ -46,10 +49,13 @@ create table if not exists agent_work_message (
   run_status          varchar(16)  null,
   usage_snapshot      json         null,
   error_snapshot      json         null,
+  audit_snapshot      json         null,
+  updated_at          datetime     not null,
   created_at          datetime     not null,
   primary key (message_id),
   constraint uk_agent_work_message_client unique (task_id, client_message_id),
   constraint uk_agent_work_message_run unique (run_id),
+  constraint uk_agent_work_message_sequence unique (task_id, sequence),
   constraint fk_agent_work_message_task foreign key (task_id)
     references agent_work_task (task_id) on delete restrict,
   constraint ck_agent_work_message_role check (role in ('user', 'assistant')),

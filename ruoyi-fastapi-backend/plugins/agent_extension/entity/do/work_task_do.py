@@ -41,6 +41,8 @@ class AgentWorkTask(Base):
     task_id = Column(String(36), primary_key=True, nullable=False, comment='工作任务ID')
     owner_user_id = Column(BigInteger, nullable=False, comment='任务所有者用户ID')
     create_client_message_id = Column(String(100), nullable=False, comment='首次创建幂等消息ID')
+    create_request_hash = Column(String(64), nullable=False, default='', server_default='')
+    current_run_id = Column(String(36), nullable=True)
     title = Column(String(100), nullable=False, comment='任务标题')
     goal = Column(WorkText, nullable=False, comment='任务目标')
     status = Column(String(16), nullable=False, default='active', server_default='active', comment='任务状态')
@@ -87,9 +89,10 @@ class AgentWorkMessage(Base):
     __table_args__ = (
         UniqueConstraint('task_id', 'client_message_id', name='uk_agent_work_message_client'),
         UniqueConstraint('run_id', name='uk_agent_work_message_run'),
+        UniqueConstraint('task_id', 'sequence', name='uk_agent_work_message_sequence'),
         CheckConstraint("role in ('user', 'assistant')", name='ck_agent_work_message_role'),
         CheckConstraint(
-            "run_status is null or run_status in "
+            'run_status is null or run_status in '
             "('pending', 'streaming', 'completed', 'cancelled', 'interrupted', 'failed')",
             name='ck_agent_work_message_run_status',
         ),
@@ -113,6 +116,7 @@ class AgentWorkMessage(Base):
     )
 
     message_id = Column(String(36), primary_key=True, nullable=False, comment='工作消息ID')
+    sequence = Column(Integer, nullable=False, default=1)
     task_id = Column(
         String(36),
         ForeignKey('agent_work_task.task_id', ondelete='RESTRICT'),
@@ -145,4 +149,6 @@ class AgentWorkMessage(Base):
         nullable=True,
         comment='脱敏错误快照',
     )
+    audit_snapshot = Column(JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), 'postgresql'), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.now)
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')

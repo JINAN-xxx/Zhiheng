@@ -144,6 +144,7 @@ class WorkTaskModel(_WorkResponse):
     goal: str
     status: WorkTaskStatus
     active_agent_id: BoundedIdentifier | None = None
+    current_run_id: BoundedIdentifier | None = None
     version: int
     created_at: datetime | None = None
     updated_at: datetime | None = None

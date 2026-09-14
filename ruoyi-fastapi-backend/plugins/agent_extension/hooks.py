@@ -7,6 +7,8 @@ from plugins.agent_extension.domain.skill_package import SkillPackageLimits, Ski
 from plugins.agent_extension.infrastructure.knowledge_context_provider import PlatformKnowledgeProvider
 from plugins.agent_extension.infrastructure.skill_storage import SkillStorage
 from plugins.agent_extension.service.skill_service import SkillContextProvider, SkillService
+from plugins.agent_extension.service.work_task_run_service import WorkTaskRunService
+from utils.log_util import logger
 from plugins.core.runtime.hooks import PluginHookContext
 
 BUILTIN_ROOT = Path(__file__).parent / 'buildin'
@@ -34,6 +36,20 @@ async def _sync_builtin_skills(storage: SkillStorage, settings: AgentSkillSettin
         await SkillService(query_db, storage, settings).sync_builtin_skills(BUILTIN_ROOT)
 
 
+async def _recover_work_runs() -> None:
+    await WorkTaskRunService(AsyncSessionLocal, model_runtime=None).recover_expired()
+
+
+async def _work_recovery_loop() -> None:
+    while True:
+        await asyncio.sleep(60)
+        try:
+            await _recover_work_runs()
+        except Exception:
+            # A temporary database outage must not permanently disable lease recovery.
+            logger.warning('工作任务过期运行恢复暂时失败，将在下次巡检重试')
+
+
 async def on_startup(context: PluginHookContext) -> None:
     """初始化技能存储并向对话运行时注册只读上下文提供器。"""
     if context.app is None:
@@ -42,13 +58,23 @@ async def on_startup(context: PluginHookContext) -> None:
     await asyncio.to_thread(storage.cleanup_stale, limit=settings.cleanup_limit)
     if context.startup_write_enabled:
         await _sync_builtin_skills(storage, settings)
+        await _recover_work_runs()
+        context.app.state.agent_work_recovery_task = asyncio.create_task(_work_recovery_loop())
+    context.app.state.agent_work_session_factory = AsyncSessionLocal
     context.app.state.agent_skill_context_provider = SkillContextProvider(storage, settings)
     context.app.state.agent_knowledge_provider = PlatformKnowledgeProvider(context.app)
 
 
 async def on_shutdown(context: PluginHookContext) -> None:
     """插件停用时清理已注册的技能运行时。"""
+    if context.app is not None and hasattr(context.app.state, 'agent_work_recovery_task'):
+        task = context.app.state.agent_work_recovery_task
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        delattr(context.app.state, 'agent_work_recovery_task')
     if context.app is not None and hasattr(context.app.state, 'agent_skill_context_provider'):
         delattr(context.app.state, 'agent_skill_context_provider')
     if context.app is not None and hasattr(context.app.state, 'agent_knowledge_provider'):
         delattr(context.app.state, 'agent_knowledge_provider')
+    if context.app is not None and hasattr(context.app.state, 'agent_work_session_factory'):
+        delattr(context.app.state, 'agent_work_session_factory')

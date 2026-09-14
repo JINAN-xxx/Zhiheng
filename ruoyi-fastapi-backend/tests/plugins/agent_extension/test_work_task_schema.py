@@ -273,6 +273,7 @@ def test_work_message_sqlite_enforces_shapes_versions_and_idempotency() -> None:
         'content': '开始整理',
     }
     assistant_values = {
+        'sequence': 2,
         'message_id': str(uuid4()),
         'task_id': task_id,
         'reply_to_message_id': user_message_id,
@@ -324,6 +325,10 @@ def test_work_task_migrations_define_equivalent_contracts() -> None:
         assert 'constraint uk_agent_work_task_create_client unique (owner_user_id, create_client_message_id)' in sql
         assert 'constraint uk_agent_work_message_client unique (task_id, client_message_id)' in sql
         assert 'constraint uk_agent_work_message_run unique (run_id)' in sql
+        assert 'constraint uk_agent_work_message_sequence unique (task_id, sequence)' in sql
+        assert 'create_request_hash' in sql
+        assert 'current_run_id' in sql
+        assert 'audit_snapshot' in sql
         assert "check (status in ('active', 'completed', 'archived'))" in sql
         assert "check (role in ('user', 'assistant'))" in sql
         assert "'streaming'" in sql

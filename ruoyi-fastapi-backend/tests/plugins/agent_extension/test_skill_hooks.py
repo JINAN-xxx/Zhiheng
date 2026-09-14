@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -24,12 +25,14 @@ async def test_startup_writer_syncs_builtins_without_context_database(monkeypatc
 
     monkeypatch.setattr(hooks, '_runtime', lambda: (settings, storage))
     monkeypatch.setattr(hooks, '_sync_builtin_skills', sync)
+    monkeypatch.setattr(hooks, '_recover_work_runs', AsyncMock())
     context = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()), startup_write_enabled=True)
 
     await hooks.on_startup(context)
 
     assert calls == [(storage, settings)]
     assert context.app.state.agent_skill_context_provider is not None
+    await hooks.on_shutdown(context)
 
 
 @pytest.mark.asyncio

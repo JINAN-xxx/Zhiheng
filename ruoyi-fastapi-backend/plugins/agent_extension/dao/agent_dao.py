@@ -31,6 +31,17 @@ MUTABLE_FIELDS = frozenset(
 
 class AgentDao:
     @classmethod
+    async def list_usable_published(cls, db: AsyncSession, *, owner_user_id: int | None) -> list[AgentConfiguration]:
+        statement = select(AgentConfiguration).where(
+            AgentConfiguration.status == 'published',
+            AgentConfiguration.published_config.is_not(None),
+            AgentConfiguration.published_version.is_not(None),
+        )
+        if owner_user_id is not None:
+            statement = statement.where(AgentConfiguration.owner_user_id == owner_user_id)
+        return list((await db.execute(statement.order_by(AgentConfiguration.agent_id))).scalars())
+
+    @classmethod
     async def create_agent(cls, db: AsyncSession, agent: AgentConfiguration) -> AgentConfiguration:
         db.add(agent)
         await db.flush()
