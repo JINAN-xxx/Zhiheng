@@ -41,10 +41,11 @@ const props = defineProps({
   tasks: { type: Array, default: () => [] }, activeTaskId: { type: String, default: '' }, loading: Boolean,
   error: { type: String, default: '' }, total: { type: Number, default: 0 }, pageNum: { type: Number, default: 1 },
   pageSize: { type: Number, default: 20 }, canOpen: Boolean, canEdit: Boolean, canRemove: Boolean,
+  keyword: { type: String, default: '' }, status: { type: String, default: '' },
 })
 const emit = defineEmits(['delete', 'filter', 'open', 'rename'])
-const keyword = ref('')
-const status = ref('')
+const keyword = ref(props.keyword)
+const status = ref(props.status)
 const statusOptions = [
   { value: '', label: '未归档' }, { value: 'active', label: '进行中' },
   { value: 'completed', label: '已完成' }, { value: 'archived', label: '已归档' },
@@ -60,6 +61,8 @@ const formatTime = (value) => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '刚刚' : new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(date)
 }
+watch(() => props.keyword, (value) => { keyword.value = value })
+watch(() => props.status, (value) => { status.value = value })
 function emitFilters() { emit('filter', { keyword: keyword.value.trim(), status: status.value, pageNum: 1, pageSize: props.pageSize }) }
 </script>
 

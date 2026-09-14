@@ -86,8 +86,8 @@ async function startWork(draft) {
 
 async function sendMessage(payload, clear) {
   try {
-    await workStore.runMessage(payload)
-    clear?.()
+    const completed = await workStore.runMessage(payload)
+    if (completed) clear?.()
   } catch (error) {
     feedback.msgError(normalizeErrorMessage(error, '工作执行失败'))
   }

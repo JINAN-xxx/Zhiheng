@@ -93,6 +93,11 @@ export const usableWorkMembers = (task) => (
   activeWorkMembers(task).filter((member) => member.available)
 )
 
+export function shouldKeepObservingWorkRun({ currentRunId, runStatus, cancelling = false } = {}) {
+  if (cancelling) return Boolean(currentRunId)
+  return Boolean(currentRunId) || runStatus === 'pending' || runStatus === 'streaming'
+}
+
 export const resolveConversationMode = (path) => (
   path === '/ai/work' || path.startsWith('/ai/work/') ? 'work' : 'chat'
 )

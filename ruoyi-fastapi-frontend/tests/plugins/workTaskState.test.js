@@ -5,6 +5,7 @@ import {
   buildRunWorkTaskPayload,
   createWorkTaskState,
   resolveWorkTaskCapabilities,
+  shouldKeepObservingWorkRun,
   validateWorkGoal,
   validateWorkMembers,
   validateWorkTitle,
@@ -43,6 +44,10 @@ assert.deepEqual(resolveWorkTaskCapabilities(new Set(['agent_extension:work:quer
 assert.equal(resolveWorkTaskCapabilities(new Set(['*:*:*'])).canManageMembers, true)
 assert.equal(resolveWorkTaskCapabilities(new Set(['agent_extension:work:add', 'agent_extension:agent:use'])).canCreate, true)
 assert.equal(resolveWorkTaskCapabilities(new Set(['agent_extension:work:add'])).canCreate, false)
+assert.equal(shouldKeepObservingWorkRun({ currentRunId: null, runStatus: 'pending' }), true)
+assert.equal(shouldKeepObservingWorkRun({ currentRunId: null, runStatus: 'streaming' }), true)
+assert.equal(shouldKeepObservingWorkRun({ currentRunId: null, runStatus: 'completed' }), false)
+assert.equal(shouldKeepObservingWorkRun({ currentRunId: null, runStatus: 'pending', cancelling: true }), false)
 
 const firstAttempt = state.prepareCreate(draft)
 assert.equal(firstAttempt.clientMessageId, 'key-1')

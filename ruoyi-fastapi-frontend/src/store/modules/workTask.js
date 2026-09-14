@@ -15,6 +15,7 @@ import {
   createWorkTaskState,
   normalizeWorkTaskDetail,
   normalizeWorkTaskList,
+  shouldKeepObservingWorkRun,
 } from '../../../plugins/agent_extension/utils/workTask.js'
 import { registerWorkTaskSessionCleanup } from '../../../plugins/agent_extension/utils/workTaskSession.js'
 
@@ -35,6 +36,7 @@ const useWorkTaskStore = defineStore('workTask', {
     total: 0,
     pageNum: 1,
     pageSize: 20,
+    listQuery: { keyword: '', status: '', pageNum: 1, pageSize: 20 },
     listLoading: false,
     listError: '',
     currentTask: null,
@@ -68,14 +70,16 @@ const useWorkTaskStore = defineStore('workTask', {
   actions: {
     async loadTasks(query = {}) {
       const generation = ++this.listGeneration
+      const nextQuery = { ...this.listQuery, ...query }
+      this.listQuery = nextQuery
       this.listLoading = true
       this.listError = ''
       try {
         const response = await listWorkTasks({
-          keyword: query.keyword || undefined,
-          status: query.status || undefined,
-          pageNum: query.pageNum || this.pageNum,
-          pageSize: query.pageSize || this.pageSize,
+          keyword: nextQuery.keyword || undefined,
+          status: nextQuery.status || undefined,
+          pageNum: nextQuery.pageNum || this.pageNum,
+          pageSize: nextQuery.pageSize || this.pageSize,
         })
         if (generation !== this.listGeneration) return false
         const page = normalizeWorkTaskList(response)
@@ -83,6 +87,7 @@ const useWorkTaskStore = defineStore('workTask', {
         this.total = page.total
         this.pageNum = page.pageNum
         this.pageSize = page.pageSize
+        this.listQuery = { ...nextQuery, pageNum: page.pageNum, pageSize: page.pageSize }
         return true
       } catch (error) {
         if (generation !== this.listGeneration) return false
@@ -232,6 +237,9 @@ const useWorkTaskStore = defineStore('workTask', {
       if (event.event === 'meta') {
         this.runId = data.runId
         this.currentTask.currentRunId = data.runId
+        this.tasks = this.tasks.map((task) => task.taskId === this.currentTask.taskId
+          ? { ...task, currentRunId: data.runId }
+          : task)
         this.runState = 'streaming'
         message = this.ensureAssistantMessage(data)
       } else if (event.event === 'content' && message) {
@@ -243,6 +251,7 @@ const useWorkTaskStore = defineStore('workTask', {
       } else if (event.event === 'error') {
         this.runState = 'failed'
         this.runError = data.message || data.msg || '工作执行失败'
+        this.retryAttempt = { ...this.retryAttempt, kind: 'failed' }
         if (message) {
           message.runStatus = 'failed'
           message.errorSnapshot = { ...data }
@@ -250,6 +259,9 @@ const useWorkTaskStore = defineStore('workTask', {
         return { applied: true, observe: true }
       } else if (event.event === 'done') {
         this.runState = ['pending', 'streaming'].includes(data.status) ? 'observing' : (data.status || 'completed')
+        if (['failed', 'cancelled', 'interrupted'].includes(data.status)) {
+          this.retryAttempt = { ...this.retryAttempt, kind: 'failed' }
+        }
         if (message) message.runStatus = data.status || 'completed'
         return { applied: true, observe: true }
       }
@@ -301,7 +313,7 @@ const useWorkTaskStore = defineStore('workTask', {
         const observed = await this.observeUntilReleased(taskId, generation)
         if (caughtError && (!observed || this.runState === 'failed')) throw caughtError
       }
-      return true
+      return this.runState === 'completed'
     },
     async retryRun({ confirmedFailed = false } = {}) {
       if (!this.retryAttempt) return false
@@ -325,7 +337,12 @@ const useWorkTaskStore = defineStore('workTask', {
           if (!detail || detail.taskId !== taskId) return false
           this.currentTask = detail
           this.workflow.currentTask = detail
-          this.runId = detail.currentRunId || null
+          this.runId = detail.currentRunId || this.runId || null
+          if (detail.currentRunId) {
+            this.tasks = this.tasks.map((task) => task.taskId === detail.taskId
+              ? { ...task, currentRunId: detail.currentRunId }
+              : task)
+          }
           if (!detail.currentRunId) {
             const attemptedUser = detail.messages.find((item) => (
               item.role === 'user' && item.clientMessageId === this.retryAttempt?.clientMessageId
@@ -335,11 +352,27 @@ const useWorkTaskStore = defineStore('workTask', {
               && item.runId
               && (!attemptedUser || item.replyToMessageId === attemptedUser.messageId)
             ))
+            if (shouldKeepObservingWorkRun({
+              currentRunId: detail.currentRunId,
+              runStatus: lastRun?.runStatus,
+              cancelling: this.runState === 'cancelling',
+            })) {
+              this.runState = 'observing'
+              this.workflow.runState = 'observing'
+              await delay(POLL_INTERVAL, controller.signal)
+              continue
+            }
             if (this.runState === 'cancelling') this.runState = 'cancelled'
             else if (lastRun?.runStatus) this.runState = lastRun.runStatus
             else if (!TERMINAL_RUN_STATUSES.has(this.runState)) this.runState = 'failed'
             this.workflow.runState = this.runState
             this.workflow.applyObservedDetail(detail)
+            const summary = { ...detail }
+            delete summary.members
+            delete summary.messages
+            this.tasks = this.tasks.map((task) => task.taskId === detail.taskId
+              ? { ...task, ...summary }
+              : task)
             void this.loadTasks({ pageNum: this.pageNum, pageSize: this.pageSize })
             return Boolean(lastRun) || this.runState === 'cancelled'
           }
@@ -426,6 +459,8 @@ const useWorkTaskStore = defineStore('workTask', {
       this.runGeneration = this.workflow.runGeneration
       this.workflow.detailGeneration += 1
       this.detailGeneration = this.workflow.detailGeneration
+      this.createGeneration += 1
+      this.createLoading = false
       this.streamController?.abort()
       this.observeController?.abort()
       this.streamController = null
@@ -448,6 +483,7 @@ const useWorkTaskStore = defineStore('workTask', {
       this.createGeneration += 1
       this.tasks = []
       this.total = 0
+      this.listQuery = { keyword: '', status: '', pageNum: 1, pageSize: 20 }
       this.currentTask = null
       this.availableAgents = []
       this.agentsLoading = false

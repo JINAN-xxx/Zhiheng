@@ -111,6 +111,8 @@
       :total="workTaskStore.total"
       :page-num="workTaskStore.pageNum"
       :page-size="workTaskStore.pageSize"
+      :keyword="workTaskStore.listQuery.keyword"
+      :status="workTaskStore.listQuery.status"
       :can-open="workCapabilities.query"
       :can-edit="workCapabilities.edit"
       :can-remove="workCapabilities.remove"
