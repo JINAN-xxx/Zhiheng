@@ -28,6 +28,15 @@ export function beginSend() {
   return { runId: null, status: 'connecting' }
 }
 
+export function legacyKnowledgeLabels(message = {}) {
+  const names = Array.isArray(message.knowledgeBaseNames)
+    ? message.knowledgeBaseNames.filter(value => typeof value === 'string' && value.trim()) : []
+  if (names.length) return names
+  const ids = Array.isArray(message.knowledgeBaseIds) ? message.knowledgeBaseIds : []
+  return ids.filter(value => typeof value === 'string' && value.trim())
+    .map(id => `历史知识库 ${id.length > 24 ? id.slice(0, 24) + '…' : id}`)
+}
+
 export function resolveChatModelOptions(models = []) {
   if (!Array.isArray(models)) return []
   return models

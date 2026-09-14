@@ -15,25 +15,6 @@
             placeholder="选择平台模型"
             :disabled="loading"
           />
-          <div v-if="canUseKnowledge" class="knowledge-picker">
-            <a-select
-              v-model:value="selectedKnowledgeBaseIds"
-              mode="multiple"
-              class="knowledge-select"
-              :options="knowledgeOptions"
-              :max-tag-count="1"
-              :loading="knowledgeLoading"
-              :disabled="loading || knowledgeLoading || Boolean(knowledgeError)"
-              option-filter-prop="label"
-              allow-clear
-              show-search
-              placeholder="选择知识库"
-              aria-label="选择知识库"
-            />
-            <a-tooltip v-if="knowledgeError" :title="knowledgeError">
-              <a-button type="link" :loading="knowledgeLoading" @click="loadKnowledgeBases">重试知识库</a-button>
-            </a-tooltip>
-          </div>
           <a-tooltip title="对话偏好">
             <a-button class="toolbar-icon-button" type="text" aria-label="对话偏好" @click="showPreferences = true">
               <template #icon><SettingOutlined /></template>
@@ -43,11 +24,12 @@
       </header>
 
       <section ref="historyRef" class="message-history">
-        <div v-if="messages.length === 0" class="empty-chat">
-          <MessageOutlined class="empty-chat__icon" />
-          <h2>从一个问题开始</h2>
-          <p>选择一个平台模型，开始你的工作流。</p>
-        </div>
+        <ChatEmptyState
+          v-if="messages.length === 0 && !sessionId && !route.query.sessionId"
+          :can-work="canWork"
+          @mode="value => value === 'work' && router.push('/ai/work')"
+          @prompt="draft = $event"
+        />
         <article v-for="message in messages" :key="message.localId || message.messageId" class="message-row" :class="message.role">
           <a-avatar class="message-avatar" :size="30">
             <UserOutlined v-if="message.role === 'user'" />
@@ -59,7 +41,7 @@
               <a-tag v-for="skill in message.skillSnapshots" :key="skill.slug">技能：{{ skill.name }}</a-tag>
             </div>
             <div v-if="knowledgeNames(message).length" class="message-knowledge">
-              <a-tag v-for="name in knowledgeNames(message)" :key="name">知识库：{{ name }}</a-tag>
+              <a-tag v-for="name in knowledgeNames(message)" :key="name">历史引用：{{ name }}</a-tag>
             </div>
             <div v-if="message.images?.length" class="message-images">
               <a-tag v-for="image in message.images" :key="image.fileId">文件 {{ image.fileId }}</a-tag>
@@ -146,7 +128,6 @@
 <script setup name="AiChat">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
-  MessageOutlined,
   PauseCircleOutlined,
   PictureOutlined,
   RobotOutlined,
@@ -158,7 +139,6 @@ import { getToken } from "@/utils/auth";
 import { normalizeErrorMessage } from "@/utils/errorMessage";
 import useWorkspaceStore from "@/store/modules/workspace";
 import useUserStore from "@/store/modules/user";
-import { listAvailableKnowledgeBases } from "../../api/knowledge";
 import { listPlatformModels } from "../../api/modelCatalog";
 import {
   cancelChatRun,
@@ -169,8 +149,9 @@ import {
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
 import SkillPicker from './components/SkillPicker.vue'
+import ChatEmptyState from './components/ChatEmptyState.vue'
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
-import { beginSend, chatMessageLabel, resolveChatModelOptions } from "../../utils/chatTransforms.js";
+import { beginSend, chatMessageLabel, resolveChatModelOptions, legacyKnowledgeLabels } from "../../utils/chatTransforms.js";
 import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agent_extension/utils/skill.js'
 
 const { proxy } = getCurrentInstance();
@@ -185,19 +166,7 @@ const messages = ref([]);
 const draft = ref("");
 const imageIds = ref([]);
 const selectedSkills = ref([])
-const knowledgeDatabases = ref([])
-const selectedKnowledgeBaseIds = ref([])
-const knowledgeLoading = ref(false)
-const knowledgeError = ref('')
-let knowledgeLoadGeneration = 0
-const canUseKnowledge = computed(() => (userStore.permissions || []).some(
-  (permission) => permission === '*:*:*' || permission === 'ai:knowledge:query',
-))
-const knowledgeOptions = computed(() => knowledgeDatabases.value.map((database) => ({
-  label: database.name,
-  value: database.db_id,
-  disabled: selectedKnowledgeBaseIds.value.length >= 20 && !selectedKnowledgeBaseIds.value.includes(database.db_id),
-})))
+const canWork = computed(() => (userStore.permissions || []).some(permission => ['*:*:*', 'agent_extension:work:list', 'agent_extension:work:query', 'agent_extension:work:add'].includes(permission)))
 const skillPickerOpen = ref(false)
 const loading = ref(false);
 const runState = ref("idle");
@@ -229,34 +198,7 @@ function filterModelOption(input, option) {
   return String(option?.label ?? '').toLowerCase().includes(String(input).toLowerCase())
 }
 
-async function loadKnowledgeBases() {
-  if (!canUseKnowledge.value || knowledgeLoading.value) return
-  const generation = ++knowledgeLoadGeneration
-  knowledgeLoading.value = true
-  knowledgeError.value = ''
-  try {
-    const response = await listAvailableKnowledgeBases()
-    const databases = response.data?.databases
-    if (response.code !== 200 || !Array.isArray(databases)) throw new Error('知识库列表加载失败')
-    if (generation !== knowledgeLoadGeneration || !canUseKnowledge.value) return
-    knowledgeDatabases.value = databases.filter((database) => (
-      typeof database?.db_id === 'string' && typeof database?.name === 'string' && database.name.trim()
-    ))
-    selectedKnowledgeBaseIds.value = selectedKnowledgeBaseIds.value.filter((id) => (
-      knowledgeDatabases.value.some((database) => database.db_id === id)
-    ))
-  } catch (error) {
-    if (generation === knowledgeLoadGeneration) knowledgeError.value = normalizeErrorMessage(error, '知识库列表加载失败')
-  } finally {
-    if (generation === knowledgeLoadGeneration) knowledgeLoading.value = false
-  }
-}
-
-function knowledgeNames(message) {
-  return (message.knowledgeBaseIds || []).map((id) => (
-    knowledgeDatabases.value.find((database) => database.db_id === id)?.name
-  )).filter(Boolean)
-}
+function knowledgeNames(message) { return legacyKnowledgeLabels(message) }
 
 async function loadModels() {
   const response = await listPlatformModels({ pageNum: 1, pageSize: 100 });
@@ -279,7 +221,6 @@ async function openSession(id) {
   sessionId.value = id;
   messages.value = (response.data?.messages || []).map((item) => ({ ...item, localId: item.messageId }));
   selectedSkills.value = []
-  selectedKnowledgeBaseIds.value = []
   skillPickerOpen.value = false
   await scrollToBottom();
 }
@@ -290,7 +231,6 @@ function newSession() {
   sessionId.value = null;
   messages.value = [];
   selectedSkills.value = []
-  selectedKnowledgeBaseIds.value = []
   skillPickerOpen.value = false
   runState.value = "idle";
 }
@@ -339,9 +279,8 @@ async function send() {
   const clientMessageId = crypto.randomUUID();
   const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
   const outgoingSkills = selectedSkills.value.map((skill) => ({ ...skill }))
-  const outgoingKnowledgeBaseIds = canUseKnowledge.value ? [...selectedKnowledgeBaseIds.value] : []
   const skillSnapshots = outgoingSkills.map((skill) => ({ slug: skill.skillSlug, name: skill.skillName }))
-  messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages, skillSnapshots, knowledgeBaseIds: outgoingKnowledgeBaseIds });
+  messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages, skillSnapshots });
   draft.value = "";
   imageIds.value = [];
   selectedSkills.value = []
@@ -363,7 +302,6 @@ async function send() {
         message,
         images: outgoingImages,
         skillSlugs: outgoingSkills.map((skill) => skill.skillSlug),
-        knowledgeBaseIds: outgoingKnowledgeBaseIds,
       },
       abortController.value.signal,
     );
@@ -453,25 +391,12 @@ watch(() => route.query.sessionId, async (value) => {
   if (routedSessionId !== sessionId.value) await openSession(routedSessionId);
 });
 
-watch(canUseKnowledge, (allowed) => {
-  if (allowed) {
-    loadKnowledgeBases()
-  } else {
-    knowledgeLoadGeneration += 1
-    knowledgeLoading.value = false
-    selectedKnowledgeBaseIds.value = []
-    knowledgeDatabases.value = []
-    knowledgeError.value = ''
-  }
-}, { immediate: true })
-
 watch(draft, (value) => {
   if (shouldOpenSkillPicker(value) && !loading.value) skillPickerOpen.value = true
 })
 
 onBeforeUnmount(() => {
   sessionLoadGeneration += 1;
-  knowledgeLoadGeneration += 1;
   abortController.value?.abort();
 });
 </script>
@@ -521,17 +446,6 @@ onBeforeUnmount(() => {
   height: 32px;
 }
 
-.knowledge-picker {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.knowledge-select {
-  width: 220px;
-}
-
 .model-select {
   width: 220px;
 }
@@ -558,25 +472,6 @@ onBeforeUnmount(() => {
   overflow: auto;
   padding: 28px clamp(16px, 6vw, 96px);
   background: var(--bg-container);
-}
-
-.empty-chat {
-  min-height: 100%;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  color: var(--color-text-secondary);
-}
-
-.empty-chat__icon {
-  color: var(--color-text-tertiary);
-  font-size: 42px;
-}
-
-.empty-chat h2,
-.empty-chat p {
-  margin: 0;
 }
 
 .message-row {
@@ -695,14 +590,12 @@ onBeforeUnmount(() => {
   }
 
   .message-history { padding: 16px 12px; }
-  .model-select, .knowledge-select { width: 180px; }
+  .model-select { width: 180px; }
 }
 
 @media (max-width: 480px) {
   .chat-toolbar { padding-top: 12px; padding-bottom: 12px; }
   .toolbar-actions { width: 100%; justify-content: flex-start; }
-  .knowledge-picker { flex: 1 1 180px; }
-  .knowledge-select { width: 100%; }
   .model-select { min-width: 0; flex: 1 1 160px; }
 }
 </style>
