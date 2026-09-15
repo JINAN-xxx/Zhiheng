@@ -76,7 +76,7 @@ async def lifecycle(browser):
     await fixture.install(context)
     page = await context.new_page()
     try:
-        await page.goto(BASE_URL + '/ai/work?taskId=' + task_id, wait_until='networkidle')
+        await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task_id, wait_until='networkidle')
         await expect(page.get_by_label('执行智能体', exact=True)).to_contain_text('数据分析师', timeout=30000)
         research = page.locator('.work-member').filter(has_text='研究助手')
         await button(research, '升级').click()
@@ -110,7 +110,7 @@ async def lifecycle(browser):
         await expect(page.get_by_role('menuitem', name=re.compile('重命名'))).to_have_count(0)
         await page.get_by_role('menuitem', name=re.compile('删除工作')).click()
         await confirm(page)
-        await expect(page).to_have_url(re.compile(r'/ai/work$'))
+        await expect(page).to_have_url(re.compile(r'/ai/chat/work$'))
         assert task_id not in fixture.tasks
         print('lifecycle: unavailable executor, explicit upgrade, historical version, removal, completion, reopen, archive and deletion passed')
     except Exception:
@@ -129,7 +129,7 @@ async def replay_and_cancel(browser):
     await fixture.install(context)
     page = await context.new_page()
     try:
-        await page.goto(BASE_URL + '/ai/work?taskId=' + task['taskId'], wait_until='networkidle')
+        await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task['taskId'], wait_until='networkidle')
         await button(page, '继续执行').click()
         await expect(page.get_by_text('已保留的部分输出', exact=True)).to_be_visible()
         await expect(button(page, '停止')).to_be_visible()
@@ -166,7 +166,7 @@ async def failed_run_retry(browser):
     await fixture.install(context)
     page = await context.new_page()
     try:
-        await page.goto(BASE_URL + '/ai/work?taskId=' + task['taskId'], wait_until='networkidle')
+        await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task['taskId'], wait_until='networkidle')
         composer = page.get_by_label('工作消息', exact=True)
         await expect(composer).to_be_visible(timeout=30000)
         await composer.fill('请继续分析')

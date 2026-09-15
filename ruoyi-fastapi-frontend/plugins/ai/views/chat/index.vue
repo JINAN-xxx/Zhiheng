@@ -27,7 +27,7 @@
         <ChatEmptyState
           v-if="messages.length === 0 && !sessionId && !route.query.sessionId"
           :can-work="canWork"
-          @mode="value => value === 'work' && router.push('/ai/work')"
+          @mode="value => value === 'work' && router.push('/ai/chat/work')"
           @prompt="draft = $event"
         />
         <article v-for="message in messages" :key="message.localId || message.messageId" class="message-row" :class="message.role">

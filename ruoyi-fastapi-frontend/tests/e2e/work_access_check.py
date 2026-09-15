@@ -32,11 +32,11 @@ async def check_read_access(browser, permissions, name, width=1440):
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
     try:
-        url = BASE_URL + '/ai/work?taskId=' + task['taskId']
+        url = BASE_URL + '/ai/chat/work?taskId=' + task['taskId']
         await page.goto(url, wait_until='networkidle')
         await expect(page).to_have_url(url)
         await expect(page.get_by_text(task['goal'], exact=True).first).to_be_visible(timeout=30000)
-        for label in ('新建工作', '开始工作', '添加智能体', '发送'):
+        for label in ('新建对话', '开始工作', '添加智能体', '发送'):
             await expect(button(page, label)).to_have_count(0)
         assert not any(path == PREFIX + '/available-agents' for path, _, _ in fixture.calls)
         assert not any(path.startswith(PREFIX) and method != 'GET' for path, method, _ in fixture.calls)
@@ -62,7 +62,7 @@ async def check_no_work_access(browser):
     await fixture.install(context)
     page = await context.new_page()
     try:
-        await page.goto(BASE_URL + '/ai/work?taskId=' + task['taskId'], wait_until='networkidle')
+        await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task['taskId'], wait_until='networkidle')
         await expect(page).to_have_url(re.compile(r'/ai/chat$'))
         await expect(button(page, '新建工作')).to_have_count(0)
         await expect(button(page, '工作')).to_have_count(0)
@@ -83,7 +83,7 @@ async def check_small_task_layout(browser):
     await fixture.install(context)
     page = await context.new_page()
     try:
-        await page.goto(BASE_URL + '/ai/work?taskId=' + task['taskId'], wait_until='networkidle')
+        await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task['taskId'], wait_until='networkidle')
         await expect(page.get_by_label('工作消息', exact=True)).to_be_visible(timeout=30000)
         send = button(page, '发送')
         await expect(send).to_be_visible()

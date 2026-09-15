@@ -27,16 +27,14 @@
 <script setup>
 import { MenuOutlined, MessageOutlined } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
-import useWorkTaskStore from '@/store/modules/workTask'
 
 const props = defineProps({ mode: { type: String, required: true } })
 const emit = defineEmits(['open-ai', 'set-layout', 'toggle-sidebar'])
 const route = useRoute()
-const workTaskStore = useWorkTaskStore()
 const menuButtonRef = ref(null)
 const aiTitles = Object.freeze({
   '/ai/chat': '智能对话',
-  '/ai/work': '工作',
+  '/ai/chat/work': '智能对话',
   '/ai/knowledge': '知识库',
   '/ai/model': '模型中心',
   '/ai/application': '开发接入',
@@ -44,7 +42,7 @@ const aiTitles = Object.freeze({
 })
 const currentTitle = computed(() => (
   props.mode === 'ai'
-    ? (route.path === '/ai/work' ? workTaskStore.currentTask?.title || '工作' : aiTitles[route.path] || '智能工作台')
+    ? aiTitles[route.path] || '智能工作台'
     : route.meta.title || '管理后台'
 ))
 

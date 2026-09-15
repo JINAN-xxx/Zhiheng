@@ -77,7 +77,7 @@ async function startWork(draft) {
     const created = await workStore.createTask(draft)
     if (!created) return
     createdNavigationTaskId.value = created.task.taskId
-    await router.replace({ path: '/ai/work', query: { taskId: created.task.taskId } })
+    await router.replace({ path: '/ai/chat/work', query: { taskId: created.task.taskId } })
     await workStore.runMessage(created.run)
   } catch (error) {
     feedback.msgError(normalizeErrorMessage(error, '工作创建失败'))

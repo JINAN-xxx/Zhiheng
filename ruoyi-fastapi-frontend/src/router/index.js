@@ -27,6 +27,11 @@ import Layout from '@/layout'
 // 公共路由
 export const constantRoutes = [
   {
+    path: '/ai/work',
+    hidden: true,
+    redirect: (to) => ({ path: '/ai/chat/work', query: to.query, hash: to.hash }),
+  },
+  {
     path: '/redirect',
     component: Layout,
     hidden: true,
@@ -95,7 +100,7 @@ export const constantRoutes = [
 // 动态路由，基于用户权限动态去加载
 export const dynamicRoutes = [
   {
-    path: '/ai/work',
+    path: '/ai/chat/work',
     component: Layout,
     hidden: true,
     permissions: [
@@ -103,13 +108,13 @@ export const dynamicRoutes = [
       'agent_extension:work:query',
       'agent_extension:work:add',
     ],
-    meta: { workspaceAccess: true },
+    meta: { workspaceAccess: true, activeMenu: '/ai/chat' },
     children: [
       {
         path: '',
         component: () => import('../../plugins/agent_extension/views/work/index.vue'),
         name: 'AiWork',
-        meta: { title: '工作' },
+        meta: { title: '智能对话', activeMenu: '/ai/chat' },
       },
     ],
   },

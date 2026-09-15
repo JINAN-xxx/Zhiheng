@@ -33,6 +33,7 @@ const AGENT_EXTENSION_TABS = Object.freeze([
 
 const LANDING_PATH_PRIORITY = Object.freeze([
   '/ai/chat',
+  '/ai/chat/work',
   '/ai/work',
   '/ai/knowledge',
   '/ai/model',
@@ -82,7 +83,7 @@ export function resolveWorkspaceMode(path = '') {
 }
 
 export function resolveConversationWorkspaceMode(path = '') {
-  return path === '/ai/work' || path.startsWith('/ai/work/') ? 'work' : 'chat'
+  return ['/ai/chat/work', '/ai/work'].some((root) => path === root || path.startsWith(`${root}/`)) ? 'work' : 'chat'
 }
 
 export function resolveAiResourceTabs(permissions = new Set()) {
@@ -140,6 +141,12 @@ export function getActiveAiResourceChildPath(group, currentPath = '') {
 
 export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []) {
   if (!isAiWorkspacePath(currentPath)) return currentPath
+
+  // Work is a conversation subpage, but chat access must not grant work access.
+  const workPath = ['/ai/chat/work', '/ai/work'].find((path) => currentPath === path || currentPath.startsWith(`${path}/`))
+  if (workPath && !accessiblePaths.includes(workPath)) {
+    return resolveWorkspaceLandingPath('/index', accessiblePaths)
+  }
 
   const isAccessible = accessiblePaths.some((path) => (
     typeof path === 'string'

@@ -19,20 +19,18 @@
     </div>
 
     <nav class="platform-primary-nav" aria-label="主导航">
-      <button v-if="canChat" type="button" class="platform-new-chat" aria-label="新建聊天" title="新建聊天" @click="newChat">
+      <button v-if="canCreateConversation" type="button" class="platform-new-chat" aria-label="新建对话" title="新建对话" @click="newConversation">
         <PlusOutlined />
-        <span v-if="!collapsed">新建聊天</span>
-      </button>
-      <button v-if="workCapabilities.canCreate" type="button" class="platform-new-chat" aria-label="新建工作" title="新建工作" @click="newWork">
-        <PlusOutlined /><span v-if="!collapsed">新建工作</span>
+        <span v-if="!collapsed">新建对话</span>
       </button>
       <router-link
         v-for="item in navItems"
         :key="item.path"
         class="platform-nav-link"
+        :class="{ 'router-link-active': item.active }"
         :to="item.path"
         :aria-label="item.label"
-        :aria-current="route.path === item.path ? 'page' : undefined"
+        :aria-current="item.active ? 'page' : undefined"
       >
         <component :is="item.icon" />
         <span v-if="!collapsed">{{ item.label }}</span>
@@ -141,7 +139,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
-  ProjectOutlined,
   PlusOutlined,
   RightOutlined,
   SettingOutlined,
@@ -188,19 +185,24 @@ const resourceGroups = computed(() => [
   ...resolveAgentExtensionGroups(permissionSet.value),
 ])
 const expandedGroupKeys = ref(new Set())
+const conversationPath = computed(() => conversationMode.value === 'work' || !canChat.value ? '/ai/chat/work' : '/ai/chat')
+const canCreateConversation = computed(() => conversationPath.value === '/ai/chat/work' ? workCapabilities.value.canCreate : canChat.value)
 const navItems = computed(() => [
-  canChat.value && { path: '/ai/chat', label: '智能对话', icon: MessageOutlined },
-  workCapabilities.value.visible && { path: '/ai/work', label: '工作', icon: ProjectOutlined },
+  (canChat.value || workCapabilities.value.visible) && {
+    path: conversationPath.value,
+    label: '智能对话',
+    icon: MessageOutlined,
+    active: route.path === '/ai/chat' || route.path.startsWith('/ai/chat/'),
+  },
 ].filter(Boolean))
 const activeSessionId = computed(() => String(route.query.sessionId || ''))
 const activeTaskId = computed(() => String(route.query.taskId || ''))
 
-function newChat() {
-  router.push('/ai/chat')
+function newConversation() {
+  router.push(conversationPath.value)
 }
 
-function newWork() { router.push('/ai/work') }
-function openWork(taskId) { router.push({ path: '/ai/work', query: { taskId } }) }
+function openWork(taskId) { router.push({ path: '/ai/chat/work', query: { taskId } }) }
 
 function openSession(sessionId) {
   router.push({ path: '/ai/chat', query: { sessionId } })
@@ -272,7 +274,7 @@ async function deleteWork(task) {
   try {
     await feedback.confirm('删除后无法恢复，确定删除这个工作吗？')
     await workTaskStore.removeTask(task.taskId)
-    if (activeTaskId.value === task.taskId) await router.push('/ai/work')
+    if (activeTaskId.value === task.taskId) await router.push('/ai/chat/work')
   } catch (error) { if (error !== 'cancel' && error !== 'close') feedback.msgError(error?.message || '删除失败') }
 }
 

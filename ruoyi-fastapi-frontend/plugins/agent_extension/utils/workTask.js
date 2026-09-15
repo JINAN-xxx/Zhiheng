@@ -98,8 +98,8 @@ export function shouldKeepObservingWorkRun({ currentRunId, runStatus, cancelling
   return Boolean(currentRunId) || runStatus === 'pending' || runStatus === 'streaming'
 }
 
-export const resolveConversationMode = (path) => (
-  path === '/ai/work' || path.startsWith('/ai/work/') ? 'work' : 'chat'
+export const resolveConversationMode = (path = '') => (
+  ['/ai/chat/work', '/ai/work'].some((root) => path === root || path.startsWith(`${root}/`)) ? 'work' : 'chat'
 )
 
 const createSignature = (draft) => JSON.stringify({
