@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,10 +50,11 @@ class PlatformChatDao:
         user_id: int,
         page_num: int,
         page_size: int,
+        status: Literal['active', 'archived'] = 'active',
     ) -> PageModel:
         query = (
             select(AiChatSession)
-            .where(AiChatSession.user_id == user_id)
+            .where(AiChatSession.user_id == user_id, AiChatSession.status == status)
             .order_by(AiChatSession.updated_at.desc(), AiChatSession.session_id.desc())
         )
         result = await PageUtil.paginate(db, query, page_num, page_size, is_page=True)
@@ -228,6 +229,15 @@ class PlatformChatDao:
             .limit(1)
         )
         return result.scalars().first()
+
+    @classmethod
+    async def has_active_run(cls, db: AsyncSession, session_id: str) -> bool:
+        result = await db.execute(
+            select(AiChatRun.run_id)
+            .where(AiChatRun.session_id == session_id, AiChatRun.status.in_({'pending', 'running'}))
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
 
     @classmethod
     async def get_owned_run(cls, db: AsyncSession, run_id: str, *, user_id: int) -> AiChatRun | None:

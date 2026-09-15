@@ -1,8 +1,11 @@
 <template>
-  <section class="recent-sessions" aria-label="最近会话">
+  <section class="recent-sessions" aria-label="对话列表">
     <div class="recent-sessions__heading">
-      <span>最近会话</span>
-      <button type="button" class="recent-sessions__refresh" aria-label="刷新最近会话" @click="emit('refresh')">
+      <a-radio-group :value="status" size="small" aria-label="会话状态" @update:value="emit('status-change', $event)">
+        <a-radio-button value="active">最近会话</a-radio-button>
+        <a-radio-button value="archived">已归档</a-radio-button>
+      </a-radio-group>
+      <button type="button" class="recent-sessions__refresh" aria-label="刷新会话列表" @click="emit('refresh')">
         <ReloadOutlined />
       </button>
     </div>
@@ -10,8 +13,8 @@
     <a-input
       v-model:value="query"
       allow-clear
-      placeholder="搜索会话"
-      aria-label="搜索最近会话"
+      placeholder="搜索当前页会话"
+      :aria-label="status === 'archived' ? '搜索已归档会话' : '搜索最近会话'"
     >
       <template #prefix><SearchOutlined /></template>
     </a-input>
@@ -38,22 +41,36 @@
           <strong>{{ session.title }}</strong>
           <small>{{ formatTime(session.updatedAt) }}</small>
         </button>
-        <WorkspaceMoreMenu
-          :items="sessionActions"
-          @command="handleCommand($event, session.sessionId)"
-        />
+        <a-spin :spinning="mutatingIds.includes(session.sessionId)" size="small">
+          <WorkspaceMoreMenu
+            :items="sessionActions"
+            @command="handleCommand($event, session.sessionId)"
+          />
+        </a-spin>
       </div>
       <a-empty
         v-if="!loading && filteredSessions.length === 0"
-        :description="query ? '没有匹配会话' : '暂无会话'"
+        :description="query ? '当前页没有匹配会话' : status === 'archived' ? '暂无已归档会话' : '暂无会话'"
       />
       </div>
     </a-spin>
+    <a-pagination
+      v-if="total > pageSize"
+      class="recent-sessions__pagination"
+      :current="pageNum"
+      :page-size="pageSize"
+      :total="total"
+      :show-size-changer="false"
+      size="small"
+      simple
+      @change="emit('page-change', $event)"
+    />
   </section>
 </template>
 
 <script setup>
-import { DeleteOutlined, EditOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { DeleteOutlined, EditOutlined, InboxOutlined, ReloadOutlined, RollbackOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { computed, ref, watch } from 'vue'
 import WorkspaceMoreMenu from '@/components/Workspace/WorkspaceMoreMenu.vue'
 
 const props = defineProps({
@@ -61,19 +78,32 @@ const props = defineProps({
   activeSessionId: { type: String, default: '' },
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
+  status: { type: String, default: 'active' },
+  pageNum: { type: Number, default: 1 },
+  pageSize: { type: Number, default: 20 },
+  total: { type: Number, default: 0 },
+  mutatingIds: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['delete-session', 'open-session', 'refresh', 'rename-session'])
+const emit = defineEmits(['delete-session', 'open-session', 'refresh', 'rename-session', 'archive-session', 'restore-session', 'status-change', 'page-change'])
 const query = ref('')
-const sessionActions = Object.freeze([
+const sessionActions = computed(() => [
   { command: 'rename', label: '重命名', icon: EditOutlined },
+  props.status === 'archived'
+    ? { command: 'restore', label: '恢复对话', icon: RollbackOutlined }
+    : { command: 'archive', label: '归档会话', icon: InboxOutlined },
   { command: 'delete', label: '删除会话', icon: DeleteOutlined, danger: true, divided: true },
 ])
 
 function handleCommand(command, sessionId) {
+  if (props.mutatingIds.includes(sessionId)) return
   if (command === 'rename') emit('rename-session', sessionId)
   if (command === 'delete') emit('delete-session', sessionId)
+  if (command === 'archive') emit('archive-session', sessionId)
+  if (command === 'restore') emit('restore-session', sessionId)
 }
+
+watch(() => props.status, () => { query.value = '' })
 
 const filteredSessions = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
@@ -93,6 +123,8 @@ function formatTime(value) {
 <style scoped lang="scss">
 .recent-sessions { min-height: 0; display: flex; flex: 1; flex-direction: column; gap: 9px; padding: 13px 10px; color: var(--color-text); }
 .recent-sessions__heading { display: flex; min-height: 28px; align-items: center; justify-content: space-between; color: var(--color-text-secondary); font-size: 12px; font-weight: 600; }
+.recent-sessions__heading :deep(.ant-radio-button-wrapper) { padding-inline: 9px; font-size: 12px; }
+.recent-sessions__pagination { align-self: center; }
 .recent-sessions__refresh { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .recent-sessions__stale,
 .recent-sessions__error { margin: 0; padding: 8px; border-radius: var(--workspace-radius-sm); font-size: 12px; }

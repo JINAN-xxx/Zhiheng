@@ -95,10 +95,19 @@
       :active-session-id="activeSessionId"
       :loading="workspaceStore.sessionsLoading"
       :error="workspaceStore.sessionsError"
+      :status="workspaceStore.sessionStatus"
+      :page-num="workspaceStore.sessionsPageNum"
+      :page-size="workspaceStore.sessionsPageSize"
+      :total="workspaceStore.sessionsTotal"
+      :mutating-ids="workspaceStore.sessionMutatingIds"
       @refresh="workspaceStore.loadSessions"
       @open-session="openSession"
       @rename-session="renameSession"
       @delete-session="deleteSession"
+      @archive-session="archiveSession"
+      @restore-session="restoreSession"
+      @status-change="status => workspaceStore.loadSessions({ status, pageNum: 1 })"
+      @page-change="pageNum => workspaceStore.loadSessions({ pageNum })"
     />
     <RecentWorkTasks
       v-if="workCapabilities.list && !collapsed && conversationMode === 'work'"
@@ -199,6 +208,7 @@ const activeSessionId = computed(() => String(route.query.sessionId || ''))
 const activeTaskId = computed(() => String(route.query.taskId || ''))
 
 function newConversation() {
+  if (conversationPath.value === '/ai/chat') workspaceStore.loadSessions({ status: 'active', pageNum: 1 })
   router.push(conversationPath.value)
 }
 
@@ -253,11 +263,31 @@ async function renameSession(sessionId) {
 async function deleteSession(sessionId) {
   try {
     await feedback.confirm('删除后无法恢复，确定删除这个会话吗？')
-    await workspaceStore.deleteSession(sessionId)
+    if (!await workspaceStore.deleteSession(sessionId)) return
     if (activeSessionId.value === sessionId) await router.push('/ai/chat')
     feedback.msgSuccess('会话已删除')
   } catch (error) {
     if (error === 'cancel' || error === 'close') return
+  }
+}
+
+async function archiveSession(sessionId) {
+  try {
+    if (!await workspaceStore.setSessionStatus(sessionId, 'archived')) return
+    if (activeSessionId.value === sessionId) await router.push('/ai/chat')
+    feedback.msgSuccess('会话已归档，可在“已归档”中查看和恢复')
+  } catch {
+    // The shared request client displays the server's ownership/busy error.
+  }
+}
+
+async function restoreSession(sessionId) {
+  try {
+    if (!await workspaceStore.setSessionStatus(sessionId, 'active')) return
+    await workspaceStore.loadSessions({ status: 'active', pageNum: 1 })
+    feedback.msgSuccess('对话已恢复')
+  } catch {
+    // The shared request client displays API errors; failed actions retain the row.
   }
 }
 

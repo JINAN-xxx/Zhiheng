@@ -10,6 +10,7 @@ from plugins.ai.dao.platform_chat_dao import PlatformChatDao
 from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatRun, AiChatSession
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
+from plugins.ai.entity.vo import ai_platform_chat_vo as chat_vo
 from plugins.ai.entity.vo.ai_platform_chat_vo import (
     CancelRunRequestModel,
     PlatformChatRequestModel,
@@ -84,13 +85,13 @@ async def _seed_model_and_binding(session: AsyncSession) -> None:
     await session.flush()
 
 
-def _session(session_id: str, user_id: int, *, updated_at: datetime) -> AiChatSession:
+def _session(session_id: str, user_id: int, *, updated_at: datetime, status: str = 'active') -> AiChatSession:
     return AiChatSession(
         session_id=session_id,
         user_id=user_id,
         model_id=MODEL_ID,
         title=session_id,
-        status='active',
+        status=status,
         created_at=updated_at,
         updated_at=updated_at,
     )
@@ -215,6 +216,83 @@ def test_platform_run_response_rejects_non_binding_resource_id() -> None:
                 'updatedAt': NOW,
             }
         )
+
+
+def test_session_status_requests_and_list_queries_accept_only_supported_statuses() -> None:
+    assert PlatformSessionPageQueryModel().status == 'active'
+    for status in ('active', 'archived'):
+        assert PlatformSessionPageQueryModel(status=status).status == status
+        assert chat_vo.PlatformSessionStatusRequestModel(status=status).status == status
+    for status in ('deleted', 'ACTIVE', '', None, True, 1, ['active']):
+        with pytest.raises(ValidationError):
+            PlatformSessionPageQueryModel(status=status)
+        with pytest.raises(ValidationError):
+            chat_vo.PlatformSessionStatusRequestModel(status=status)
+    for payload in ({}, {'status': 'active', 'title': 'unexpected'}):
+        with pytest.raises(ValidationError):
+            chat_vo.PlatformSessionStatusRequestModel.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_session_status_and_ownership_are_filtered_before_pagination(
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_maker() as session:
+        await _seed_model_and_binding(session)
+        records = [
+            ('01', 7, 'active'),
+            ('02', 7, 'archived'),
+            ('03', 8, 'active'),
+            ('04', 7, 'active'),
+            ('05', 7, 'archived'),
+            ('06', 8, 'archived'),
+        ]
+        for index, (suffix, user_id, status) in enumerate(records):
+            session.add(
+                _session(
+                    f'ses_000000000000400080000000000000{suffix}',
+                    user_id,
+                    updated_at=NOW + timedelta(minutes=index),
+                    status=status,
+                )
+            )
+        await session.commit()
+
+        default_page = await PlatformChatDao.list_sessions(session, user_id=7, page_num=1, page_size=1)
+        assert default_page.total == OWNED_SESSION_COUNT
+        assert default_page.rows[0]['sessionId'].endswith('04')
+        for status, suffixes in (('active', ['04', '01']), ('archived', ['05', '02'])):
+            pages = [
+                await PlatformChatDao.list_sessions(session, user_id=7, status=status, page_num=page, page_size=1)
+                for page in (1, 2, 3)
+            ]
+            assert [page.total for page in pages] == [OWNED_SESSION_COUNT] * len(pages)
+            assert [page.has_next for page in pages] == [True, False, False]
+            assert [page.rows[0]['sessionId'][-2:] for page in pages[:2]] == suffixes
+            assert pages[-1].rows == []
+
+
+@pytest.mark.asyncio
+async def test_active_run_lookup_checks_pending_and_running_even_when_newer_run_is_terminal(
+    session_maker: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_maker() as session:
+        await _seed_model_and_binding(session)
+        session.add(_session(SESSION_ID, 7, updated_at=NOW))
+        await session.flush()
+        assert await PlatformChatDao.has_active_run(session, SESSION_ID) is False
+        run = _run()
+        session.add(run)
+        newer_run = _run()
+        newer_run.run_id = 'run_00000000000040008000000000000002'
+        newer_run.status = 'failed'
+        newer_run.created_at = NOW + timedelta(minutes=1)
+        session.add(newer_run)
+        for status, expected in (('pending', True), ('running', True), ('completed', False)):
+            run.status = status
+            await session.flush()
+            assert await PlatformChatDao.has_active_run(session, SESSION_ID) is expected
+        assert await PlatformChatDao.has_active_run(session, OTHER_SESSION_ID) is False
 
 
 @pytest.mark.asyncio

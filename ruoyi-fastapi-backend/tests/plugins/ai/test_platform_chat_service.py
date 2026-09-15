@@ -1,12 +1,15 @@
 import asyncio
-from collections.abc import Mapping
-from datetime import datetime, timezone
+from collections.abc import AsyncIterator, Mapping
+from datetime import datetime, timedelta, timezone
+from itertools import count
 from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
 
 from plugins.ai.dao.platform_chat_dao import PlatformChatDao
 from plugins.ai.domain.model_runtime import ModelStreamEvent, ModelUsage
@@ -311,9 +314,12 @@ class TransactionalFakeDao(FakeDao):
 @pytest.mark.asyncio
 async def test_list_sessions_builds_page_model_with_public_aliases() -> None:
     class SessionListDao:
-        async def list_sessions(self, db: object, *, user_id: int, page_num: int, page_size: int) -> SimpleNamespace:
+        async def list_sessions(
+            self, db: object, *, user_id: int, page_num: int, page_size: int, status: str = 'active'
+        ) -> SimpleNamespace:
             del db
             assert user_id == USER_ID
+            assert status == 'active'
             return SimpleNamespace(
                 rows=[
                     AiChatSession(
@@ -353,6 +359,237 @@ async def test_list_sessions_builds_page_model_with_public_aliases() -> None:
         'total': 1,
         'hasNext': False,
     }
+
+
+@pytest_asyncio.fixture
+async def archive_db() -> AsyncIterator[AsyncSession]:
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text('PRAGMA foreign_keys=ON'))
+            for table in (
+                AiModelCatalog.__table__,
+                AiResourceBinding.__table__,
+                AiChatSession.__table__,
+                AiChatMessage.__table__,
+                AiChatRun.__table__,
+                AiChatPreferences.__table__,
+            ):
+                await connection.run_sync(table.create)
+        session_maker = async_sessionmaker(engine, expire_on_commit=True)
+        async with session_maker() as db:
+            db.add(
+                AiModelCatalog(
+                    model_id=MODEL_ID,
+                    model_code='archive-test-model',
+                    display_name='Archive Test Model',
+                    model_type='chat',
+                    capabilities={},
+                    default_parameters={},
+                    lifecycle_status='active',
+                    published_at=NOW,
+                    create_by='tester',
+                    create_time=NOW,
+                    update_by='tester',
+                    update_time=NOW,
+                )
+            )
+            db.add(
+                AiResourceBinding(
+                    binding_id=BINDING_ID,
+                    resource_type='model',
+                    resource_id=MODEL_ID,
+                    engine_type='litellm',
+                    engine_resource_id='gpt-4o-mini',
+                    binding_status='active',
+                    engine_metadata={},
+                    version=1,
+                    create_by='tester',
+                    create_time=NOW,
+                    update_by='tester',
+                    update_time=NOW,
+                )
+            )
+            await db.commit()
+            yield db
+    finally:
+        await engine.dispose()
+
+
+def _archive_service(db: AsyncSession) -> tuple[PlatformChatService, FakeModelService]:
+    runtime = FakeModelService(FakeRuntimeStream((ModelStreamEvent(event_type='content', delta='answer'),)))
+    clock_ticks = count()
+    return (
+        PlatformChatService(
+            db,
+            model_service=runtime,
+            coordinator=FakeCoordinator(),
+            preferences=ChatPreferencesService(db),
+            clock=lambda: NOW.replace(tzinfo=None) + timedelta(microseconds=next(clock_ticks)),
+        ),
+        runtime,
+    )
+
+
+@pytest.mark.asyncio
+async def test_archive_read_restore_preserves_session_messages_runs_and_continuation(archive_db: AsyncSession) -> None:
+    service, runtime = _archive_service(archive_db)
+    stream = await service.send(USER_ID, _request())
+    [event async for event in stream]
+    session_id = stream.session_id
+    before = await service.get_session_detail(USER_ID, session_id)
+    service._clock = lambda: NOW.replace(tzinfo=None) + timedelta(minutes=1)
+
+    archived = await service.set_session_status(USER_ID, session_id, 'archived')
+
+    assert not archive_db.in_transaction()
+    assert archived.status == 'archived'
+    assert archived.updated_at > before.session.updated_at
+    assert archived.model_id == before.session.model_id
+    assert archived.title == before.session.title
+    assert archived.created_at == before.session.created_at
+    detail = await service.get_session_detail(USER_ID, session_id)
+    assert detail.session == archived
+    assert detail.messages == before.messages
+    assert detail.runs == before.runs
+    assert (await service.list_sessions(USER_ID, page_num=1, page_size=20)).rows == []
+    archived_page = await service.list_sessions(USER_ID, status='archived', page_num=1, page_size=20)
+    assert archived_page.total == 1
+    assert archived_page.rows == [archived]
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(session_id=session_id))
+    assert raised.value.code == 'CHAT_SESSION_ARCHIVED'
+    assert raised.value.status_code == HTTP_409_CONFLICT
+    assert '恢复' in raised.value.public_message
+    assert len(runtime.stream_calls) == 1
+
+    service._clock = lambda: NOW.replace(tzinfo=None) + timedelta(minutes=2)
+    restored = await service.set_session_status(USER_ID, session_id, 'active')
+
+    assert restored.status == 'active'
+    assert restored.updated_at > archived.updated_at
+    assert (await service.list_sessions(USER_ID, status='archived', page_num=1, page_size=20)).rows == []
+    assert (await service.list_sessions(USER_ID, page_num=1, page_size=20)).rows == [restored]
+    runtime.stream = FakeRuntimeStream((ModelStreamEvent(event_type='content', delta='continued'),))
+    request = _request(session_id=session_id).model_copy(update={'client_message_id': 'client-2', 'message': 'next'})
+    continuation = await service.send(USER_ID, request)
+    [event async for event in continuation]
+    after = await service.get_session_detail(USER_ID, session_id)
+    assert after.session.model_id == before.session.model_id
+    assert after.messages[:MESSAGE_COUNT] == before.messages
+    assert len(after.messages) == MESSAGE_COUNT * 2
+    assert after.runs[0] == before.runs[0]
+    assert len(after.runs) == len(before.runs) + 1
+    assert [message.content for message in runtime.stream_calls[-1][1][-3:]] == ['hello', 'answer', 'next']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('initial_status', ['active', 'archived'])
+async def test_same_session_status_is_idempotent_and_releases_transaction(
+    archive_db: AsyncSession, initial_status: str
+) -> None:
+    service, _ = _archive_service(archive_db)
+    archive_db.add(
+        AiChatSession(
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            model_id=MODEL_ID,
+            title='unchanged',
+            status=initial_status,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+    await archive_db.commit()
+    before = await service.get_session_detail(USER_ID, SESSION_ID)
+    service._clock = lambda: NOW.replace(tzinfo=None) + timedelta(days=1)
+
+    result = await service.set_session_status(USER_ID, SESSION_ID, initial_status)
+
+    assert not archive_db.in_transaction()
+    assert result == before.session
+    assert (await service.get_session_detail(USER_ID, SESSION_ID)) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('target_status', ['active', 'archived'])
+async def test_session_status_updates_hide_foreign_and_missing_sessions(
+    archive_db: AsyncSession, target_status: str
+) -> None:
+    service, _ = _archive_service(archive_db)
+    archive_db.add(
+        AiChatSession(
+            session_id=SESSION_ID,
+            user_id=USER_ID + 1,
+            model_id=MODEL_ID,
+            title='private',
+            status='archived',
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+    await archive_db.commit()
+    for session_id in (SESSION_ID, 'ses_00000000000040008000000000000001'):
+        with pytest.raises(PlatformChatError) as raised:
+            await service.set_session_status(USER_ID, session_id, target_status)
+        assert raised.value.status_code == HTTP_404_NOT_FOUND
+        assert raised.value.code == 'CHAT_SESSION_NOT_FOUND'
+        assert not archive_db.in_transaction()
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(session_id=SESSION_ID))
+    assert raised.value.code == 'CHAT_SESSION_NOT_FOUND'
+    assert raised.value.status_code == HTTP_404_NOT_FOUND
+    with pytest.raises(PlatformChatError) as raised:
+        await service.get_session_detail(USER_ID, SESSION_ID)
+    assert raised.value.code == 'CHAT_SESSION_NOT_FOUND'
+    owned_detail = await service.get_session_detail(USER_ID + 1, SESSION_ID)
+    assert owned_detail.session.status == 'archived'
+    assert owned_detail.session.updated_at == NOW.replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('run_status', ['pending', 'running'])
+async def test_archiving_rejects_any_active_run_without_mutating_history(
+    archive_db: AsyncSession, run_status: str
+) -> None:
+    service, _ = _archive_service(archive_db)
+    stream = await service.send(USER_ID, _request())
+    [event async for event in stream]
+    await PlatformChatDao.transition_run_status(
+        archive_db, stream.run_id, expected_statuses={'completed'}, values={'status': run_status}
+    )
+    archive_db.add(
+        AiChatRun(
+            run_id=RUN_ID,
+            session_id=stream.session_id,
+            model_id=MODEL_ID,
+            binding_id=BINDING_ID,
+            engine_type='litellm',
+            engine_model_snapshot='gpt-4o-mini',
+            status='failed',
+            created_at=NOW + timedelta(minutes=1),
+            updated_at=NOW + timedelta(minutes=1),
+        )
+    )
+    await archive_db.commit()
+    before = await service.get_session_detail(USER_ID, stream.session_id)
+
+    with pytest.raises(ChatCoordinationError) as raised:
+        await service.set_session_status(USER_ID, stream.session_id, 'archived')
+
+    assert raised.value.code == 'CHAT_SESSION_BUSY'
+    assert not archive_db.in_transaction()
+    assert await service.get_session_detail(USER_ID, stream.session_id) == before
+
+
+def test_archived_session_error_has_fixed_immutable_public_contract() -> None:
+    error = PlatformChatError.session_archived()
+    assert error.status_code == HTTP_409_CONFLICT
+    assert error.public_dict() == {'code': 'CHAT_SESSION_ARCHIVED', 'message': '对话会话已归档，请先恢复后再发送消息'}
+    with pytest.raises(AttributeError):
+        error.code = 'CHANGED'
+    with pytest.raises(TypeError):
+        PlatformChatError._ERRORS['session_archived'] = (200, 'CHANGED', 'unexpected')
 
 
 class FakeImages:

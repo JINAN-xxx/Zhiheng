@@ -24,6 +24,7 @@ from plugins.ai.entity.vo.ai_platform_chat_vo import (
     PlatformSessionModel,
     PlatformSessionPageQueryModel,
     PlatformSessionRenameRequestModel,
+    PlatformSessionStatusRequestModel,
 )
 from plugins.ai.infrastructure.platform_chat_provider import get_platform_chat_service
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
@@ -158,6 +159,27 @@ async def save_user_chat_config(
     return ResponseUtil.success(data=result)
 
 
+@ai_chat_controller.patch(
+    '/session/{session_id}/status',
+    summary='归档或恢复平台对话会话',
+    response_model=DataResponseModel[PlatformSessionModel],
+)
+@Log(title='平台对话会话', business_type=BusinessType.UPDATE)
+async def set_chat_session_status(
+    request: Request,
+    session_id: Annotated[str, Path(description='Platform Session ID')],
+    status_req: PlatformSessionStatusRequestModel,
+    query_db: Annotated[AsyncSession, DBSessionDependency()],
+    current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
+) -> Response:
+    result = await _call(
+        _platform_chat_service(request, query_db).set_session_status(
+            _user_id(current_user), session_id, status_req.status
+        )
+    )
+    return ResponseUtil.success(data=result)
+
+
 @ai_chat_controller.get(
     '/session/list',
     summary='获取平台对话会话列表',
@@ -171,7 +193,7 @@ async def get_chat_session_list(
 ) -> Response:
     result = await _call(
         _platform_chat_service(request, query_db).list_sessions(
-            _user_id(current_user), page_num=query.page_num, page_size=query.page_size
+            _user_id(current_user), page_num=query.page_num, page_size=query.page_size, status=query.status
         )
     )
     return ResponseUtil.success(

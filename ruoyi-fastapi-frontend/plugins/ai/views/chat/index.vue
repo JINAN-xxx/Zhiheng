@@ -13,7 +13,7 @@
             :filter-option="filterModelOption"
             show-search
             placeholder="选择平台模型"
-            :disabled="loading"
+            :disabled="loading || sessionLoading || isArchived"
           />
           <a-tooltip title="对话偏好">
             <a-button class="toolbar-icon-button" type="text" aria-label="对话偏好" @click="showPreferences = true">
@@ -60,7 +60,16 @@
         </article>
       </section>
 
-      <footer class="composer">
+      <footer v-if="isArchived" class="composer composer--archived" role="status">
+        <div class="archived-message">
+          <InboxOutlined />
+          <span>此对话已归档，恢复后可继续发送消息。</span>
+        </div>
+        <a-button type="primary" aria-label="恢复对话" :loading="restoringSession" @click="restoreCurrentSession">
+          <RollbackOutlined />恢复对话
+        </a-button>
+      </footer>
+      <footer v-else class="composer">
         <div v-if="selectedSkills.length" class="selected-skills">
           <a-tag
             v-for="skill in selectedSkills"
@@ -76,7 +85,7 @@
           <a-textarea
             v-model:value="draft"
             :auto-size="{ minRows: 3, maxRows: 6 }"
-            :disabled="loading"
+            :disabled="loading || sessionLoading"
             placeholder="输入消息，按回车发送，按住上档键回车换行"
             @keydown.enter.exact.prevent="send"
           />
@@ -101,7 +110,7 @@
             </a-upload>
             <span class="composer-hint">{{ imageIds.length }}/10</span>
             <a-button v-if="loading" class="composer-submit" danger @click="stop"><PauseCircleOutlined />停止</a-button>
-            <a-button v-else class="composer-submit" type="primary" :disabled="!draft.trim() || !modelId" @click="send"><SendOutlined />发送</a-button>
+            <a-button v-else class="composer-submit" type="primary" aria-label="发送" :disabled="sessionLoading || !draft.trim() || !modelId" @click="send"><SendOutlined />发送</a-button>
           </div>
         </div>
       </footer>
@@ -128,9 +137,11 @@
 <script setup name="AiChat">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import {
+  InboxOutlined,
   PauseCircleOutlined,
   PictureOutlined,
   RobotOutlined,
+  RollbackOutlined,
   SendOutlined,
   SettingOutlined,
   UserOutlined,
@@ -162,6 +173,10 @@ const userStore = useUserStore();
 const models = ref([]);
 const modelId = ref("");
 const sessionId = ref(null);
+const sessionStatus = ref('active');
+const sessionLoading = ref(false);
+const isArchived = computed(() => sessionStatus.value === 'archived');
+const restoringSession = computed(() => workspaceStore.sessionMutatingIds.includes(sessionId.value));
 const messages = ref([]);
 const draft = ref("");
 const imageIds = ref([]);
@@ -216,23 +231,49 @@ async function loadPreferences() {
 async function openSession(id) {
   if (loading.value || id === sessionId.value) return;
   const requestGeneration = ++sessionLoadGeneration;
-  const response = await getChatSession(id);
-  if (requestGeneration !== sessionLoadGeneration) return;
-  sessionId.value = id;
-  messages.value = (response.data?.messages || []).map((item) => ({ ...item, localId: item.messageId }));
-  selectedSkills.value = []
-  skillPickerOpen.value = false
-  await scrollToBottom();
+  const statusChangeAtStart = workspaceStore.sessionStatusChanges[id];
+  sessionLoading.value = true;
+  try {
+    const response = await getChatSession(id);
+    if (requestGeneration !== sessionLoadGeneration) return;
+    sessionId.value = id;
+    const confirmedChange = workspaceStore.sessionStatusChanges[id];
+    // A sidebar restore may complete while this older detail response is in flight.
+    sessionStatus.value = confirmedChange && confirmedChange !== statusChangeAtStart
+      ? confirmedChange.status
+      : response.data?.session?.status || 'active';
+    modelId.value = response.data?.session?.modelId || modelId.value;
+    messages.value = (response.data?.messages || []).map((item) => ({ ...item, localId: item.messageId }));
+    selectedSkills.value = []
+    skillPickerOpen.value = false
+    await scrollToBottom();
+  } finally {
+    if (requestGeneration === sessionLoadGeneration) sessionLoading.value = false;
+  }
 }
 
 function newSession() {
   if (loading.value) return;
   sessionLoadGeneration += 1;
   sessionId.value = null;
+  sessionStatus.value = 'active';
+  sessionLoading.value = false;
   messages.value = [];
   selectedSkills.value = []
   skillPickerOpen.value = false
   runState.value = "idle";
+}
+
+async function restoreCurrentSession() {
+  const id = sessionId.value;
+  if (!id || restoringSession.value) return;
+  try {
+    if (!await workspaceStore.setSessionStatus(id, 'active')) return;
+    await workspaceStore.loadSessions({ status: 'active', pageNum: 1 });
+    proxy.$modal.msgSuccess('对话已恢复');
+  } catch {
+    // API errors are shown by the shared client; the archived view remains intact.
+  }
 }
 
 async function selectImage(file) {
@@ -273,7 +314,7 @@ function handleSkillSelected() {
 
 async function send() {
   const message = draft.value.trim();
-  if (!message || !modelId.value || loading.value) return;
+  if (!message || !modelId.value || loading.value || sessionLoading.value || isArchived.value) return;
   const nextState = beginSend({ runId: runId.value, status: runState.value });
   runId.value = nextState.runId;
   const clientMessageId = crypto.randomUUID();
@@ -391,6 +432,10 @@ watch(() => route.query.sessionId, async (value) => {
   if (routedSessionId !== sessionId.value) await openSession(routedSessionId);
 });
 
+watch(() => workspaceStore.sessionChange, (change) => {
+  if (change?.sessionId === sessionId.value) sessionStatus.value = change.status;
+});
+
 watch(draft, (value) => {
   if (shouldOpenSkillPicker(value) && !loading.value) skillPickerOpen.value = true
 })
@@ -402,6 +447,8 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="scss">
+.composer--archived { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.archived-message { display: flex; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: 13px; }
 .platform-chat {
   height: 100%;
   display: flex;

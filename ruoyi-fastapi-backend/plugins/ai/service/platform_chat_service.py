@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, ClassVar, NoReturn, Protocol
+from typing import Any, ClassVar, Literal, NoReturn, Protocol
 from uuid import UUID
 
 from common.vo import PageModel
@@ -40,6 +40,7 @@ _ERROR_CONTRACTS = (
     (422, 'CHAT_SKILL_SELECTION_LIMIT', '每条消息最多选择 5 个技能，且不能重复'),
     (422, 'CHAT_SKILL_CONTENT_TOO_LARGE', '所选技能内容过大，无法用于本次对话'),
     (503, 'CHAT_KNOWLEDGE_UNAVAILABLE', '知识库暂不可用，请检查所选知识库后重试'),
+    (409, 'CHAT_SESSION_ARCHIVED', '对话会话已归档，请先恢复后再发送消息'),
 )
 _ERROR_NAMES = (
     'session_not_found',
@@ -54,6 +55,7 @@ _ERROR_NAMES = (
     'skill_selection_limit',
     'skill_content_too_large',
     'knowledge_unavailable',
+    'session_archived',
 )
 _ERROR_VIEW = MappingProxyType(dict(zip(_ERROR_NAMES, _ERROR_CONTRACTS, strict=True)))
 _ERROR_TOKEN = object()
@@ -172,6 +174,10 @@ class PlatformChatError(Exception):
     def knowledge_unavailable() -> 'PlatformChatError':
         return _new_chat_error(11)
 
+    @staticmethod
+    def session_archived() -> 'PlatformChatError':
+        return _new_chat_error(12)
+
 
 @dataclass(frozen=True, slots=True)
 class PlatformChatEvent:
@@ -215,7 +221,17 @@ class ChatDao(Protocol):
 
     async def get_latest_run(self, db: object, session_id: str) -> AiChatRun | None: ...
 
-    async def list_sessions(self, db: object, *, user_id: int, page_num: int, page_size: int) -> Any: ...
+    async def has_active_run(self, db: object, session_id: str) -> bool: ...
+
+    async def list_sessions(
+        self,
+        db: object,
+        *,
+        user_id: int,
+        page_num: int,
+        page_size: int,
+        status: Literal['active', 'archived'] = 'active',
+    ) -> Any: ...
 
     async def list_messages(self, db: object, session_id: str) -> list[AiChatMessage]: ...
 
@@ -374,9 +390,18 @@ class PlatformChatService:
         self._id_factory = id_factory
         self._clock = clock
 
-    async def list_sessions(self, user_id: int, *, page_num: int, page_size: int) -> PageModel:
+    async def list_sessions(
+        self,
+        user_id: int,
+        *,
+        page_num: int,
+        page_size: int,
+        status: Literal['active', 'archived'] = 'active',
+    ) -> PageModel:
         try:
-            result = await self._dao.list_sessions(self._db, user_id=user_id, page_num=page_num, page_size=page_size)
+            result = await self._dao.list_sessions(
+                self._db, user_id=user_id, page_num=page_num, page_size=page_size, status=status
+            )
             rows = [PlatformSessionModel.model_validate(row) for row in result.rows]
             return PageModel(
                 rows=rows,
@@ -418,6 +443,41 @@ class PlatformChatService:
             if changed != 1:
                 raise PlatformChatError.session_not_found()
             session.title = title
+            session.updated_at = now
+            result = PlatformSessionModel.model_validate(session)
+            await self._commit()
+            return result
+        except BaseException:
+            await self._rollback_preserving_error()
+            raise
+
+    async def set_session_status(
+        self, user_id: int, session_id: str, status: Literal['active', 'archived']
+    ) -> PlatformSessionModel:
+        try:
+            # Authentication shares this DB session and may leave a REPEATABLE READ
+            # snapshot. End it before locking so the active-run check observes sends
+            # committed before this request acquired the session lock.
+            await self._rollback_if_active()
+            session = await self._dao.get_owned_session_for_update(self._db, session_id, user_id=user_id)
+            if session is None:
+                raise PlatformChatError.session_not_found()
+            if session.status == status:
+                result = PlatformSessionModel.model_validate(session)
+                await self._rollback_if_active()
+                return result
+            if status == 'archived' and await self._dao.has_active_run(self._db, session_id):
+                raise ChatCoordinationError.session_busy()
+            now = self._clock()
+            changed = await self._dao.update_session(
+                self._db,
+                session_id,
+                user_id=user_id,
+                values={'status': status, 'updated_at': now},
+            )
+            if changed != 1:
+                raise PlatformChatError.session_not_found()
+            session.status = status
             session.updated_at = now
             result = PlatformSessionModel.model_validate(session)
             await self._commit()
@@ -603,7 +663,7 @@ class PlatformChatService:
         if session is None:
             raise PlatformChatError.session_not_found()
         if session.status != 'active':
-            raise PlatformChatError.session_not_found()
+            raise PlatformChatError.session_archived()
         return session
 
     async def _build_user_content(

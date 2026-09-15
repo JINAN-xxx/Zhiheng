@@ -110,6 +110,11 @@ class PlatformChatRequestModel(_StrictRequestModel):
 class PlatformSessionPageQueryModel(_StrictRequestModel):
     page_num: HttpQueryInteger = Field(default=1, ge=1)
     page_size: HttpQueryInteger = Field(default=20, ge=1, le=100)
+    status: Literal['active', 'archived'] = 'active'
+
+
+class PlatformSessionStatusRequestModel(_StrictRequestModel):
+    status: Literal['active', 'archived']
 
 
 class PlatformSessionRenameRequestModel(_StrictRequestModel):

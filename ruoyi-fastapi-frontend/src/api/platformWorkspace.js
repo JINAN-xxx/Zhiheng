@@ -1,9 +1,18 @@
 import request from '@/utils/request'
 
-export function listRecentSessions() {
+export function listRecentSessions(params = {}) {
   return request({
     url: '/ai/chat/session/list',
     method: 'get',
+    params,
+  })
+}
+
+export function setRecentSessionStatus(sessionId, status) {
+  return request({
+    url: `/ai/chat/session/${encodeURIComponent(String(sessionId))}/status`,
+    method: 'patch',
+    data: { status },
   })
 }
 
