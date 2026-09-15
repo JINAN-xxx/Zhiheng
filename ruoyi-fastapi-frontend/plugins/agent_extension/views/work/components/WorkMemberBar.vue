@@ -31,10 +31,13 @@ const emit = defineEmits(['add', 'remove', 'upgrade'])
 </script>
 
 <style scoped>
-.work-member-bar { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--gray-150); background: var(--bg-container); }
-.work-member-bar__list { min-width: 0; display: flex; flex: 1; flex-wrap: wrap; gap: 8px; }
-.work-member { min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 4px; padding: 3px 4px 3px 8px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); }
+.work-member-bar { width: min(1040px, 100%); min-width: 0; flex-shrink: 0; align-self: center; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 24px; }
+.work-member-bar__list { min-width: 0; max-width: 100%; max-height: 132px; display: flex; flex: 1; flex-wrap: wrap; gap: 8px; overflow-y: auto; padding: 2px; }
+.work-member { min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 6px; padding: 4px 5px 4px 10px; border: 1px solid var(--gray-150); border-radius: 10px; background: var(--bg-container); font-size: 13px; }
 .work-member__name { min-width: 0; max-width: 220px; display: flex; align-items: center; gap: 6px; }
 .work-member__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.work-member__name :deep(.anticon) { flex-shrink: 0; color: var(--main-color); }
+.work-member :deep(.ant-tag) { margin: 0; padding: 0 5px; border-radius: 5px; font-size: 11px; }
+.work-member-bar > :deep(.ant-btn) { flex-shrink: 0; border-color: var(--gray-200); border-radius: 9px; background: var(--bg-container); box-shadow: none; font-size: 13px; }
 @media (max-width: 600px) { .work-member-bar { padding: 10px 12px; flex-direction: column; } .work-member__name { max-width: min(160px, 42vw); } }
 </style>

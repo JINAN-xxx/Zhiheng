@@ -150,6 +150,6 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
 </script>
 
 <style scoped>
-.work-view { min-height: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; background: var(--workspace-bg); }
+.work-view { min-height: 100%; height: 100%; display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; background: var(--gray-10); }
 .work-view__loading { margin: auto; }
 </style>

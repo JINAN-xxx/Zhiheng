@@ -34,7 +34,7 @@
         </div>
       </div>
     </template>
-    <a-tooltip title="选择技能">
+    <a-tooltip :title="open ? '' : '选择技能'">
       <a-button type="text" :disabled="disabled" aria-label="选择技能">@</a-button>
     </a-tooltip>
   </a-popover>
@@ -99,20 +99,21 @@ watch(open, (visible) => {
 </script>
 
 <style scoped>
-.skill-picker-panel { width: 340px; color: var(--color-text); }
+.skill-picker-panel { width: min(340px, calc(100vw - 56px)); color: var(--color-text); }
 .skill-picker-header, .skill-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .skill-picker-header { margin-bottom: 10px; }
 .skill-picker-header span, .skill-picker-footer { color: var(--color-text-secondary); font-size: 12px; }
-.skill-picker-list { min-height: 150px; max-height: 280px; margin-top: 10px; overflow: auto; border: 1px solid var(--gray-150); border-radius: 6px; background: var(--bg-container); }
+.skill-picker-list { min-height: 150px; max-height: 280px; margin-top: 12px; overflow: auto; border: 1px solid var(--gray-150); border-radius: 10px; background: var(--bg-container); }
 .skill-picker-list :deep(.workspace-state) { min-height: 148px; padding: 16px; }
-.skill-option { display: flex; width: 100%; min-height: 58px; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-bottom: 1px solid var(--gray-100); background: var(--bg-container); color: var(--color-text); text-align: left; cursor: pointer; }
+.skill-option { display: flex; width: 100%; min-height: 64px; align-items: center; gap: 12px; padding: 12px; border: 0; border-bottom: 1px solid var(--gray-100); background: var(--bg-container); color: var(--color-text); text-align: left; cursor: pointer; }
 .skill-option:last-child { border-bottom: 0; }
 .skill-option:hover { background: var(--gray-50); }
 .skill-option.is-selected { background: var(--main-50); }
-.skill-option__icon { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 6px; color: var(--main-700); background: var(--main-50); }
+.skill-option__icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 10px; color: var(--main-700); background: var(--main-50); }
 .skill-option__body { display: grid; min-width: 0; flex: 1; gap: 2px; }
 .skill-option__body strong, .skill-option__body small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .skill-option__body small { color: var(--color-text-secondary); font-size: 12px; }
 .skill-option__check { color: var(--main-700); }
 .skill-picker-footer { min-height: 34px; padding-top: 6px; }
+:global(.chat-skill-picker .ant-popover-inner) { border: 1px solid var(--gray-150); border-radius: 14px; box-shadow: 0 12px 36px rgb(0 0 0 / 10%); }
 </style>

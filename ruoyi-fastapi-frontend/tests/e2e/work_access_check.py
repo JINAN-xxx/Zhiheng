@@ -80,19 +80,23 @@ async def check_small_task_layout(browser):
     stored['title'] = '最长任务标题' * 16 + '任务标题'
     stored['goal'] = '整理资料并核对关键事实，形成可追溯的工作结论。' * 80
     stored['members'][0]['agentNameSnapshot'] = '负责复杂资料整理的研究智能体' * 6
+    stored['members'].extend({**stored['members'][0], 'agentId': f'layout-member-{index}',
+                              'latestPublishedVersion': 9} for index in range(8))
     await fixture.install(context)
     page = await context.new_page()
     try:
         await page.goto(BASE_URL + '/ai/chat/work?taskId=' + task['taskId'], wait_until='networkidle')
         await expect(page.get_by_label('工作消息', exact=True)).to_be_visible(timeout=30000)
+        await page.get_by_label('工作消息', exact=True).fill('\n'.join(['请继续整理当前阶段的项目情况'] * 7))
         send = button(page, '发送')
         await expect(send).to_be_visible()
+        await expect(send).to_be_in_viewport(ratio=1)
         box = await send.bounding_box()
         assert box and box['x'] >= 0 and box['x'] + box['width'] <= 320, box
         assert box['y'] >= 0 and box['y'] + box['height'] <= 844, box
         assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         await page.screenshot(path=str(ARTIFACTS / 'work-small-task.png'), full_page=True)
-        print('small-task-layout: long title, goal and member name preserve visible controls at 320px')
+        print('small-task-layout: long title, 10 members and 7 input lines preserve visible controls at 320px')
     finally:
         await context.close()
 

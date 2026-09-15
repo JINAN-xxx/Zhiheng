@@ -2,8 +2,9 @@
   <a-modal :open="open" title="添加智能体" :confirm-loading="loading" @ok="confirm" @cancel="emit('update:open', false)">
     <a-spin :spinning="loading">
       <a-alert v-if="error" type="error" :message="error" show-icon />
+      <div class="work-agent-picker__intro"><span>选择参与协作的智能体</span><span>已选 {{ draftIds.length }} / {{ max }}</span></div>
       <div class="work-agent-picker">
-        <label v-for="agent in agents" :key="agent.agentId" class="work-agent-picker__row">
+        <div v-for="agent in agents" :key="agent.agentId" class="work-agent-picker__row" :class="{ 'is-selected': draftIds.includes(agent.agentId) }">
           <a-checkbox
             :checked="draftIds.includes(agent.agentId)"
             :aria-label="agent.name"
@@ -12,7 +13,7 @@
           >{{ agent.name }}</a-checkbox>
           <span>{{ agent.description || '已发布智能体' }}</span>
           <small>v{{ agent.publishedVersion }}</small>
-        </label>
+        </div>
         <a-empty v-if="!loading && !agents.length" description="暂无已发布智能体" />
       </div>
     </a-spin>
@@ -47,9 +48,12 @@ function confirm() {
 </script>
 
 <style scoped>
-.work-agent-picker { display: grid; gap: 4px; margin-top: 12px; }
-.work-agent-picker__row { min-width: 0; display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 8px; border-bottom: 1px solid var(--gray-150); }
-.work-agent-picker__row span { min-width: 0; overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
-.work-agent-picker__row small { color: var(--color-text-tertiary); }
-@media (max-width: 480px) { .work-agent-picker__row { grid-template-columns: minmax(0, 1fr) auto; } .work-agent-picker__row > span { grid-column: 1 / -1; white-space: normal; } }
+.work-agent-picker__intro { display: flex; justify-content: space-between; gap: 12px; margin: 16px 0 12px; color: var(--color-text-secondary); font-size: 12px; }
+.work-agent-picker { display: grid; gap: 10px; max-height: min(420px, 56vh); overflow-y: auto; padding: 2px; }
+.work-agent-picker__row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 7px 12px; padding: 14px; border: 1px solid var(--gray-150); border-radius: 12px; background: var(--gray-10); transition: border-color .18s, background .18s; }
+.work-agent-picker__row.is-selected { border-color: var(--main-200); background: var(--main-50); }
+.work-agent-picker__row:focus-within { outline: 2px solid var(--main-400); outline-offset: -2px; }
+.work-agent-picker__row :deep(.ant-checkbox-wrapper) { min-width: 0; color: var(--color-text); font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.work-agent-picker__row > span { grid-column: 1; padding-left: 26px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.work-agent-picker__row > small { grid-column: 2; grid-row: 1; padding: 2px 7px; border: 1px solid var(--gray-150); border-radius: 6px; background: var(--bg-container); color: var(--color-text-secondary); font-size: 11px; }
 </style>

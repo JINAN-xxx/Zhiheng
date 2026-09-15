@@ -1,5 +1,5 @@
 <template>
-  <div class="platform-chat workspace-chat-page">
+  <div class="platform-chat workspace-chat-page" :class="{ 'is-empty': messages.length === 0 && !sessionId && !route.query.sessionId }">
     <main class="chat-workspace">
       <header class="chat-toolbar">
         <div>
@@ -407,7 +407,7 @@ onBeforeUnmount(() => {
   display: flex;
   overflow: hidden;
   color: var(--color-text);
-  background: var(--gray-50);
+  background: var(--gray-10);
   font-family: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 0;
-  background: var(--bg-container);
+  background: var(--gray-10);
 }
 
 .toolbar-title {
@@ -453,10 +453,9 @@ onBeforeUnmount(() => {
 .chat-toolbar {
   gap: 8px;
   flex-wrap: wrap;
-  min-height: 64px;
-  padding: 0 28px;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--bg-container);
+  min-height: 60px;
+  padding: 0 24px;
+  background: transparent;
 }
 
 .toolbar-actions {
@@ -468,10 +467,11 @@ onBeforeUnmount(() => {
 }
 
 .message-history {
+  min-height: 0;
   flex: 1;
   overflow: auto;
   padding: 28px clamp(16px, 6vw, 96px);
-  background: var(--bg-container);
+  background: transparent;
 }
 
 .message-row {
@@ -508,9 +508,10 @@ onBeforeUnmount(() => {
 .user-message {
   margin: 5px 0 0;
   padding: 10px 13px;
-  border-radius: 8px;
-  background: var(--main-color);
-  color: var(--gray-0);
+  border: 1px solid var(--main-100);
+  border-radius: 16px 4px 16px 16px;
+  background: var(--main-50);
+  color: var(--color-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.6;
@@ -535,26 +536,31 @@ onBeforeUnmount(() => {
 }
 
 .composer {
-  padding: 12px clamp(16px, 6vw, 96px) 16px;
-  border-top: 1px solid var(--gray-150);
-  background: var(--bg-container);
+  width: min(880px, 100%);
+  align-self: center;
+  padding: 12px 24px 24px;
+  background: transparent;
 }
 
 .composer-surface {
-  padding: 10px 12px 8px;
+  padding: 16px 18px 12px;
   border: 1px solid var(--gray-200);
-  border-radius: 8px;
+  border-radius: 20px;
   background: var(--bg-container);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  transition: border-color .18s, box-shadow .18s;
 }
 
 .composer-surface:focus-within {
-  border-color: var(--main-color);
+  border-color: var(--main-400);
+  box-shadow: 0 0 0 3px var(--main-50), 0 6px 24px rgb(0 0 0 / 4%);
 }
 
 .composer-surface :deep(.ant-input) {
   padding: 4px;
   border: 0;
   background: transparent;
+  box-shadow: none;
 }
 
 .composer :deep(textarea) {
@@ -562,7 +568,7 @@ onBeforeUnmount(() => {
 }
 
 .composer-actions {
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 8px;
 }
@@ -573,9 +579,17 @@ onBeforeUnmount(() => {
 }
 
 .composer-submit {
+  margin-left: auto;
   width: 84px;
   height: 36px;
+  border-radius: 10px;
 }
+
+.model-select :deep(.ant-select-selector) { border-color: transparent; border-radius: 10px; background: transparent; box-shadow: none; }
+.composer-actions :deep(.ant-btn-text) { border-radius: 9px; color: var(--color-text-secondary); }
+.is-empty .chat-workspace { display: grid; grid-template-rows: auto minmax(min-content, 1fr) auto minmax(24px, 1fr); overflow-y: auto; }
+.is-empty .message-history { align-self: end; overflow: visible; padding: 28px 16px 0; }
+.is-empty .composer { width: min(800px, calc(100% - 48px)); justify-self: center; align-self: start; padding: 24px 0 8px; }
 
 :deep(.ant-form-item .ant-input-number) {
   width: 100%;
@@ -594,8 +608,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 480px) {
-  .chat-toolbar { padding-top: 12px; padding-bottom: 12px; }
-  .toolbar-actions { width: 100%; justify-content: flex-start; }
-  .model-select { min-width: 0; flex: 1 1 160px; }
+  .chat-toolbar { min-height: 56px; padding-top: 8px; padding-bottom: 8px; flex-wrap: nowrap; }
+  .toolbar-actions { min-width: 0; flex: 1; flex-wrap: nowrap; }
+  .model-select { width: 150px; min-width: 0; }
+  .composer-surface { padding: 12px; border-radius: 16px; }
+  .composer-actions { gap: 5px; }
+  .composer-submit { width: 76px; }
+  .is-empty .composer { width: calc(100% - 28px); padding-top: 22px; }
 }
 </style>

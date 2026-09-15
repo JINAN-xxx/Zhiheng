@@ -1,5 +1,5 @@
 <template>
-  <section class="app-main">
+  <section class="app-main" :class="{ 'is-conversation': route.path === '/ai/chat' || route.path === '/ai/chat/work' }">
     <router-view v-slot="{ Component, route }">
       <AiResourceShell v-if="isAiResourceRoute(route.path) && !route.meta.link">
         <transition name="fade-transform" mode="out-in">
@@ -79,6 +79,15 @@ function addIframe() {
       padding-bottom: max(17px, calc(env(safe-area-inset-bottom) + 10px));
     }
   }
+}
+
+// Conversation pages have their own input area and no mobile bottom navigation.
+.app-main.is-conversation {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.app-main.is-conversation:has(.copyright) {
+  padding-bottom: max(36px, env(safe-area-inset-bottom, 0px));
 }
 </style>
 
