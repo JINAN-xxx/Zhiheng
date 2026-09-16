@@ -1,5 +1,7 @@
 # HTTP 入口验证码兼容修复
 
+后续已固定知识库存储为 Milvus，当前运维组合以 [知识库发布记录](2026-09-16-knowledge-milvus-only.md) 为准；本记录中的 HTTP 加密兼容继续生效。
+
 当前运维入口为 `data/agent-releases/20260916-captcha-http/manage.sh`，组合上一版 Nginx 入口配置并更新前端静态文件。公网入口仍为 `http://115.190.121.37:8060/`，API 经 `/docker-api/` 转发。
 
 ## 原因与修复

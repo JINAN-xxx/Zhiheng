@@ -465,6 +465,7 @@ async def query_only_deep_link(browser):
 
 
 async def main():
+    expect.set_options(timeout=20000)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:

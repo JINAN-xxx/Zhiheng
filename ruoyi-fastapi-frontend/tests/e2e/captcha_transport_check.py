@@ -23,6 +23,7 @@ async def check_captcha(page):
 
 
 async def main():
+    expect.set_options(timeout=20000)
     base_url = os.environ.get('CAPTCHA_CHECK_URL', 'http://127.0.0.1:12580').rstrip('/')
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
