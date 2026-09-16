@@ -24,7 +24,7 @@ services:
     container_name: ruoyi-backend-pg
     restart: unless-stopped
     ports:
-      - "19099:9099"
+      - "127.0.0.1:19099:9099"
     volumes:
       - ./ruoyi-fastapi-frontend:/frontend:ro
       - ./data/agent-skills:/app/data/agent-skills

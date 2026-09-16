@@ -127,7 +127,7 @@ cd ../..
 示例：
 
 ```bash
-curl http://127.0.0.1:19099/v1/chat/completions \
+curl http://127.0.0.1:12580/v1/chat/completions \
   -H 'Authorization: Bearer <平台 API Key>' \
   -H 'Content-Type: application/json' \
   -d '{
@@ -137,7 +137,7 @@ curl http://127.0.0.1:19099/v1/chat/completions \
   }'
 ```
 
-Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。当前公开 API 由后端端口 `19099` 提供；生产环境建议通过带鉴权和 TLS 的网关转发。
+Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。网页和 API 统一经过 Nginx：页面接口使用 `/docker-api/`，开放 API 使用 `/v1/`，已有 `/docker-api/v1/` 地址继续兼容。后端 `19099` 仅绑定本机用于调试。通过当前 FRP 入口调用时，开放 API Base URL 为 `http://115.190.121.37:8060/v1`。
 
 ## 使用平台技能
 
