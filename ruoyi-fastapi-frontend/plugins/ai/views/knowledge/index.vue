@@ -97,7 +97,7 @@
       :mask-closable="false"
       :closable="!actionBusy"
       :keyboard="!actionBusy"
-      :ok-button-props="{ disabled: editorLoading }"
+      :ok-button-props="{ disabled: editorLoading || (editor.kind === 'createDb' && !milvusAvailable) }"
       @ok="saveEditor"
     >
       <a-alert v-if="editorError" class="section-alert" type="error" :message="editorError" show-icon />
@@ -110,14 +110,14 @@
             <a-form-item label="描述">
               <a-textarea v-model:value="databaseForm.description" aria-label="知识库描述" :rows="2" :maxlength="500" />
             </a-form-item>
-            <a-form-item label="存储类型" required>
-              <a-select v-model:value="databaseForm.kb_type" aria-label="存储类型" :options="storageTypes" @change="onStorageChange" />
+            <a-form-item label="存储类型">
+              <span>Milvus</span>
             </a-form-item>
             <a-alert
-              v-if="!storageTypes.some(item => item.available) && !editorLoading"
+              v-if="!milvusAvailable && !editorLoading"
               class="section-alert"
               type="warning"
-              message="暂无可用存储类型，请联系管理员完成知识库配置。"
+              message="Milvus 存储尚未就绪，请联系管理员完成知识库配置。"
               show-icon
             />
             <a-form-item label="Embedding 模型" required>
@@ -133,7 +133,7 @@
             <a-form-item>
               <a-checkbox
                 v-model:checked="databaseForm.enable_knowledge_graph"
-                :disabled="!graphAvailable || databaseForm.kb_type === 'lightrag'"
+                :disabled="!graphAvailable"
               >
                 同时构建知识图谱
               </a-checkbox>
@@ -448,7 +448,6 @@ const chatModels = ref([])
 const databaseForm = reactive({
   database_name: '',
   description: '',
-  kb_type: '',
   embed_model_id: undefined,
   llm_model_id: undefined,
   enable_knowledge_graph: false,
@@ -461,7 +460,8 @@ const modelOptions = models => models.map(model => ({
 }))
 const embeddingOptions = computed(() => modelOptions(embeddingModels.value))
 const chatOptions = computed(() => modelOptions(chatModels.value))
-const graphAvailable = computed(() => storageTypes.value.some(type => type.value === 'lightrag' && type.available))
+const milvusAvailable = computed(() => storageTypes.value.some(type => type.value === 'milvus' && type.available))
+const graphAvailable = ref(false)
 const editorTitle = computed(() => ({
   createDb: '创建知识库',
   renameDb: '编辑知识库',
@@ -477,12 +477,12 @@ async function openCreate() {
   editorError.value = ''
   editorLoading.value = true
   storageTypes.value = []
+  graphAvailable.value = false
   embeddingModels.value = []
   chatModels.value = []
   Object.assign(databaseForm, {
     database_name: '',
     description: '',
-    kb_type: '',
     embed_model_id: undefined,
     llm_model_id: undefined,
     enable_knowledge_graph: false,
@@ -495,20 +495,14 @@ async function openCreate() {
     ])
     if (disposed) return
     storageTypes.value = normalizeKnowledgeTypes(types)
+    graphAvailable.value = unwrapKnowledgeResponse(types).graph_available === true
     embeddingModels.value = unwrapKnowledgeResponse(embeddings).models || []
     chatModels.value = unwrapKnowledgeResponse(chats).models || []
-    databaseForm.kb_type = storageTypes.value.find(type => type.available)?.value || ''
-    onStorageChange()
   } catch (error) {
     if (!disposed) editorError.value = message(error)
   } finally {
     if (!disposed) editorLoading.value = false
   }
-}
-
-function onStorageChange() {
-  if (databaseForm.kb_type === 'lightrag') databaseForm.enable_knowledge_graph = true
-  else if (!graphAvailable.value) databaseForm.enable_knowledge_graph = false
 }
 
 function openEdit(kind, item = null) {
@@ -539,8 +533,8 @@ async function saveEditor() {
   try {
     let result
     if (editor.kind === 'createDb') {
-      if (!storageTypes.value.some(type => type.value === databaseForm.kb_type && type.available)) {
-        throw new Error('请选择可用的存储类型')
+      if (!milvusAvailable.value) {
+        throw new Error('Milvus 存储尚未就绪，请联系管理员完成知识库配置。')
       }
       result = await api.createKnowledgeBase(buildKnowledgeDatabasePayload(databaseForm))
     } else if (editor.kind === 'rechunk') {

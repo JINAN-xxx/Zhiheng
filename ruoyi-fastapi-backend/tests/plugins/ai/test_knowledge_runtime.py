@@ -83,6 +83,14 @@ class Store:
 RuntimeSetup = tuple[KnowledgeRuntime, Models, Store, set[int]]
 
 
+def test_new_knowledge_bases_default_to_milvus_and_reject_other_storage_types() -> None:
+    payload = DatabaseCreate(database_name='资料', embed_model_id=MODEL_ID)
+    assert payload.kb_type == 'milvus'
+    for kind in ('chroma', 'lightrag', 'unknown'):
+        with pytest.raises(ValidationError):
+            DatabaseCreate(database_name='资料', embed_model_id=MODEL_ID, kb_type=kind)
+
+
 @pytest.fixture
 def setup_runtime(tmp_path: Path) -> RuntimeSetup:
     models, store, owners = Models(), Store(), {7}
@@ -96,6 +104,40 @@ def setup_runtime(tmp_path: Path) -> RuntimeSetup:
 
     runtime = KnowledgeRuntime(tmp_path, model_factory, authorized, store_factory=lambda _: store)
     return runtime, models, store, owners
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('milvus_available', [False, True])
+@pytest.mark.parametrize('graph_available', [False, True])
+async def test_creation_capabilities_offer_only_milvus_with_independent_graph_support(
+    setup_runtime: RuntimeSetup, monkeypatch: pytest.MonkeyPatch, milvus_available: bool, graph_available: bool
+) -> None:
+    runtime, _, _, _ = setup_runtime
+    monkeypatch.setattr(stores, 'available_types', lambda: {
+        'chroma': {'available': True},
+        'milvus': {'available': milvus_available},
+        'lightrag': {'available': graph_available},
+    })
+    assert await runtime.types() == {
+        'kb_types': {'milvus': {'available': milvus_available}},
+        'graph_available': graph_available,
+    }
+
+
+@pytest.mark.asyncio
+async def test_default_creation_persists_milvus_storage(setup_runtime: RuntimeSetup) -> None:
+    runtime, _, store, _ = setup_runtime
+    selected_types = []
+
+    def select_store(kind: str) -> Store:
+        selected_types.append(kind)
+        return store
+
+    runtime._store_factory = select_store
+    database = await runtime.create_database(DatabaseCreate(database_name='资料', embed_model_id=MODEL_ID))
+    assert selected_types == ['milvus']
+    assert database['kb_type'] == 'milvus'
+    assert (await runtime.get_database(database['db_id']))['kb_type'] == 'milvus'
 
 
 async def create(runtime: KnowledgeRuntime, name: str = '资料') -> dict[str, Any]:

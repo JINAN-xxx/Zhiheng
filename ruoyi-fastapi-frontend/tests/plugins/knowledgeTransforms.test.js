@@ -14,11 +14,15 @@ assert.throws(() => unwrapKnowledgeResponse({ code: 503, msg: '服务未配置' 
 
 assert.deepEqual(normalizeKnowledgeDatabases({ code: 200, data: { databases: [{ db_id: 'kb-1', name: '<img onerror=alert(1)>', enable_knowledge_graph: false }] } }).map(row => row.name), ['<img onerror=alert(1)>'])
 const types = normalizeKnowledgeTypes({ kb_types: { milvus: { available: false }, chroma: { available: true }, lightrag: { available: false } } })
-assert.equal(types.find(type => type.available).value, 'chroma')
+assert.deepEqual(types.map(type => type.value), ['milvus'])
+assert.equal(types.find(type => type.available), undefined)
 assert.equal(types.find(type => type.value === 'milvus').disabled, true)
-assert.throws(() => buildKnowledgeDatabasePayload({ database_name: '库', kb_type: 'chroma', embed_model_id: '' }), /Embedding/)
-assert.throws(() => buildKnowledgeDatabasePayload({ database_name: '库', kb_type: 'chroma', embed_model_id: 'embed', enable_knowledge_graph: true }), /对话模型/)
-assert.deepEqual(buildKnowledgeDatabasePayload({ database_name: ' 库 ', description: '说明', kb_type: 'chroma', embed_model_id: 'embed', enable_knowledge_graph: false }), { database_name: '库', description: '说明', kb_type: 'chroma', embed_model_id: 'embed', enable_knowledge_graph: false })
+assert.throws(() => buildKnowledgeDatabasePayload({ database_name: '库', embed_model_id: '' }), /Embedding/)
+assert.throws(() => buildKnowledgeDatabasePayload({ database_name: '库', embed_model_id: 'embed', enable_knowledge_graph: true }), /对话模型/)
+for (const kb_type of [undefined, '', 'milvus', 'chroma', 'lightrag']) {
+  assert.deepEqual(buildKnowledgeDatabasePayload({ database_name: ' 库 ', description: '说明', kb_type, embed_model_id: 'embed', enable_knowledge_graph: false }), { database_name: '库', description: '说明', kb_type: 'milvus', embed_model_id: 'embed', enable_knowledge_graph: false })
+}
+assert.deepEqual(buildKnowledgeDatabasePayload({ database_name: '图谱库', embed_model_id: 'embed', enable_knowledge_graph: true, llm_model_id: 'chat' }), { database_name: '图谱库', description: '', kb_type: 'milvus', embed_model_id: 'embed', enable_knowledge_graph: true, llm_model_id: 'chat' })
 
 assert.deepEqual(validateChunkParams({ chunk_size: 1000, chunk_overlap: 200 }), { chunk_size: 1000, chunk_overlap: 200 })
 assert.deepEqual(validateChunkParams({ chunk_size: 4000, chunk_overlap: 1000 }), { chunk_size: 4000, chunk_overlap: 1000 })

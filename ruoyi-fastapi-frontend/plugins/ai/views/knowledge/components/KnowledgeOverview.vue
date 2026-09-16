@@ -21,13 +21,6 @@
           <a-input v-model:value="search" allow-clear placeholder="搜索知识库名称或描述" aria-label="搜索知识库">
             <template #prefix><SearchOutlined /></template>
           </a-input>
-          <a-select
-            v-model:value="storageType"
-            :options="storageOptions"
-            allow-clear
-            placeholder="全部存储类型"
-            aria-label="筛选存储类型"
-          />
           <span class="knowledge-total">共 {{ filteredDatabases.length }} 个</span>
         </div>
 
@@ -36,8 +29,8 @@
         <WorkspaceState
           v-else-if="!filteredDatabases.length"
           kind="empty"
-          :title="search || storageType ? '没有匹配的知识库' : '还没有知识库'"
-          :message="search || storageType ? '调整搜索或筛选条件后重试' : '创建知识库后即可上传文档并建立索引'"
+          :title="search ? '没有匹配的知识库' : '还没有知识库'"
+          :message="search ? '调整搜索内容后重试' : '创建知识库后即可上传文档并建立索引'"
         />
         <template v-else>
           <a-alert v-if="error" class="knowledge-alert" type="warning" :message="error" show-icon />
@@ -108,19 +101,12 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh', 'create', 'edit', 'remove', 'open'])
 const search = ref('')
-const storageType = ref()
 const can = action => props.permissions.includes('*:*:*') || props.permissions.includes('ai:knowledge:' + action)
 const typeLabel = type => ({ chroma: 'Chroma', milvus: 'Milvus', lightrag: 'LightRAG' })[type] || type || '知识库'
-
-const storageOptions = computed(() => Array.from(new Set(props.databases.map(item => item.kb_type).filter(Boolean))).map(value => ({
-  value,
-  label: typeLabel(value),
-})))
 
 const filteredDatabases = computed(() => {
   const keyword = search.value.trim().toLowerCase()
   return props.databases.filter(database => {
-    if (storageType.value && database.kb_type !== storageType.value) return false
     return !keyword || (database.name + ' ' + database.description).toLowerCase().includes(keyword)
   })
 })
@@ -165,10 +151,6 @@ function open(database, view) {
 
 .knowledge-controls :deep(.ant-input-affix-wrapper) {
   width: min(360px, 42%);
-}
-
-.knowledge-controls :deep(.ant-select) {
-  width: 160px;
 }
 
 .knowledge-total {

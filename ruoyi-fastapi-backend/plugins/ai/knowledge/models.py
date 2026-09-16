@@ -58,14 +58,12 @@ class DatabaseCreate(ChunkParameters):
     database_name: Name
     description: str = Field('', max_length=2000)
     embed_model_id: ModelResourceId
-    kb_type: Literal['chroma', 'milvus', 'lightrag'] = 'chroma'
+    kb_type: Literal['milvus'] = 'milvus'
     enable_knowledge_graph: bool = False
     llm_model_id: ModelResourceId | None = None
 
     @model_validator(mode='after')
     def validate_graph(self) -> 'DatabaseCreate':
-        if self.kb_type == 'lightrag':
-            self.enable_knowledge_graph = True
         if self.enable_knowledge_graph and not self.llm_model_id:
             raise ValueError('启用知识图谱时必须选择对话模型')
         return self

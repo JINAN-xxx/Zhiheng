@@ -47,6 +47,7 @@ class KnowledgeFixture:
         self.upload_delay = 0
         self.fail_document_refresh = False
         self.fail_database_refresh = False
+        self.milvus_available = True
 
     def respond(self, path, method, body, params):
         if path == '/getInfo':
@@ -63,6 +64,7 @@ class KnowledgeFixture:
         data = {}
         if suffix in ('/databases', '/available'):
             if method == 'POST':
+                assert body['kb_type'] == 'milvus'
                 if self.fail_create:
                     self.fail_create = False
                     return {'code': 200, 'data': {'status': 'failed', 'message': '模拟模型配置失败'}}
@@ -77,7 +79,7 @@ class KnowledgeFixture:
             model_type = params.get('model_type', ['embedding'])[0]
             data = {'models': [{'model_id': model_type + '-model', 'display_name': model_type + ' 测试模型'}]}
         elif suffix == '/types':
-            data = {'kb_types': {'chroma': {'available': True}, 'milvus': {'available': False}, 'lightrag': {'available': True}}}
+            data = {'kb_types': {'milvus': {'available': self.milvus_available}}, 'graph_available': True}
         elif suffix == '/folders':
             if method == 'POST':
                 folder = {**body, 'id': 'folder-new', 'parent_id': body.get('parent_id')}
@@ -190,7 +192,19 @@ async def desktop(browser):
         await expect(page.get_by_text('模拟知识库刷新失败', exact=True)).to_be_visible()
         await expect(page.get_by_text('资料库', exact=True)).to_be_visible()
         await page.locator('.ant-notification-notice-close').click()
+        await expect(page.get_by_label('筛选存储类型', exact=True)).to_have_count(0)
+        fixture.milvus_available = False
         await button(page, '创建知识库').click()
+        await expect(modal(page).get_by_text('Milvus 存储尚未就绪，请联系管理员完成知识库配置。', exact=True)).to_be_visible()
+        await expect(button(modal(page), '确定')).to_be_disabled()
+        assert not any(suffix == '/databases' and method == 'POST' for suffix, method, _, _ in fixture.calls)
+        await modal(page).get_by_role('button', name='Close', exact=True).click()
+        fixture.milvus_available = True
+        await button(page, '创建知识库').click()
+        await expect(button(modal(page), '确定')).to_be_enabled()
+        await expect(modal(page).get_by_text('Milvus', exact=True)).to_be_visible()
+        await expect(modal(page).get_by_role('combobox', name='存储类型', exact=True)).to_have_count(0)
+        await expect(modal(page).get_by_role('checkbox', name='同时构建知识图谱')).to_be_enabled()
         await modal(page).get_by_label('知识库名称', exact=True).fill('测试新库')
         await choose(page, 'Embedding 模型', 'embedding 测试模型', modal(page))
         await button(modal(page), '确定').click()
@@ -455,8 +469,9 @@ async def main():
         browser = await playwright.chromium.launch(headless=True)
         try:
             await desktop(browser)
-            await mobile_permissions(browser)
-            await mobile_full_permissions(browser)
+            if os.environ.get('KNOWLEDGE_CHECK_DESKTOP_ONLY') != '1':
+                await mobile_permissions(browser)
+                await mobile_full_permissions(browser)
             await query_only_deep_link(browser)
         finally:
             await browser.close()

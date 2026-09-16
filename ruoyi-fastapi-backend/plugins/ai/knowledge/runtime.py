@@ -101,7 +101,11 @@ class KnowledgeRuntime:
     async def types(self) -> dict:
         from plugins.ai.knowledge.stores import available_types
 
-        return {'kb_types': available_types()}
+        capabilities = available_types()
+        return {
+            'kb_types': {'milvus': capabilities['milvus']},
+            'graph_available': capabilities['lightrag']['available'],
+        }
 
     async def close(self) -> None:
         for store in (*self._stores.values(), *self._graphs.values()):

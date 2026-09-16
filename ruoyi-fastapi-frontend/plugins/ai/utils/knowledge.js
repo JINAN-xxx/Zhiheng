@@ -34,8 +34,8 @@ export function normalizeKnowledgeDatabases(response) {
 
 export function normalizeKnowledgeTypes(response) {
   const types = unwrapKnowledgeResponse(response).kb_types || {}
-  return ['chroma', 'milvus', 'lightrag'].filter(value => types[value]).map(value => ({
-    value, label: ({ chroma: 'Chroma', milvus: 'Milvus', lightrag: 'LightRAG' })[value],
+  return ['milvus'].filter(value => types[value]).map(value => ({
+    value, label: 'Milvus',
     available: types[value].available === true, disabled: types[value].available !== true,
     description: text(types[value].description),
   }))
@@ -44,11 +44,10 @@ export function normalizeKnowledgeTypes(response) {
 export function buildKnowledgeDatabasePayload(form) {
   const database_name = text(form.database_name).trim()
   if (!database_name || database_name.length > 100) throw new Error('请输入 1–100 字的知识库名称')
-  if (!['chroma', 'milvus', 'lightrag'].includes(form.kb_type)) throw new Error('请选择可用的存储类型')
   if (!form.embed_model_id) throw new Error('请选择 Embedding 模型')
-  const enable_knowledge_graph = form.enable_knowledge_graph === true || form.kb_type === 'lightrag'
+  const enable_knowledge_graph = form.enable_knowledge_graph === true
   if (enable_knowledge_graph && !form.llm_model_id) throw new Error('开启图谱需要选择对话模型')
-  return { database_name, description: text(form.description).trim(), kb_type: form.kb_type,
+  return { database_name, description: text(form.description).trim(), kb_type: 'milvus',
     embed_model_id: form.embed_model_id, enable_knowledge_graph,
     ...(enable_knowledge_graph ? { llm_model_id: form.llm_model_id } : {}),
   }
