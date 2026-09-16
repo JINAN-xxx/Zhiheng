@@ -1,7 +1,7 @@
 <template>
   <section class="workspace-panel">
     <div class="panel-toolbar">
-      <div class="panel-summary">{{ total }} 个平台模型<span v-if="lastSuccessAt"> · 更新于 {{ formatTime(lastSuccessAt) }}</span></div>
+      <div class="panel-summary"><span>{{ total }} 个平台模型</span><span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span></div>
       <a-tooltip title="刷新平台模型" placement="top">
         <a-button shape="circle" :loading="loading" aria-label="刷新平台模型" @click="load">
           <template #icon><ReloadOutlined /></template>
@@ -72,7 +72,7 @@
         </template>
       </template>
     </a-table>
-    <a-empty v-else-if="!error" description="暂无平台模型" :image-style="{ height: '72px' }" />
+    <WorkspaceState v-else-if="!error" kind="empty" title="暂无平台模型" />
     <a-pagination
       v-if="total > pageSize"
       v-model:current="pageNum"
@@ -125,6 +125,7 @@ import {
   PauseCircleOutlined, ReloadOutlined, SendOutlined,
 } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
+import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import {
   deletePlatformModel,
   disablePlatformModel,
@@ -384,32 +385,33 @@ defineExpose({ refresh: load })
 </script>
 
 <style scoped>
-.workspace-panel { min-height: 360px; color: var(--color-text); }
-.panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { color: var(--color-text-secondary); font-size: 13px; }
+.workspace-panel { min-width: 0; min-height: 360px; color: var(--color-text); }
+.panel-toolbar { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 8px 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.panel-summary { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--color-text-secondary); font-size: 13px; }
+.panel-toolbar > :deep(.ant-btn) { flex-shrink: 0; }
+.workspace-panel > :deep(.ant-alert) { margin-bottom: 14px; }
+.model-table :deep(.ant-table) { font-family: var(--workspace-font-family); font-size: 14px; }
 .model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
-.model-table :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.model-table :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); font-size: 13px; font-weight: 500; }
 .model-table :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .model-table :deep(.ant-table-cell) { vertical-align: middle; }
-.model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--main-50) !important; }
-.model-table :deep(.ant-tag) { border: 0; border-radius: 999px; }
-.tag-list, .row-actions { display: flex; align-items: center; gap: 6px; }
-.binding-value { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.binding-value .resource-value { flex: 1 1 auto; }
-.row-actions { justify-content: flex-end; }
+.model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--gray-50) !important; }
+.model-table :deep(.ant-tag) { margin: 0; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .resource-value { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .mobile-model-cell { display: grid; min-width: 0; gap: 8px; }
 .mobile-model-meta { display: flex; flex-wrap: wrap; gap: 4px; }
-.resource-text { min-width: 0; overflow: hidden; font-family: var(--ai-font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.resource-text { min-width: 0; overflow: hidden; font-family: var(--workspace-font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .copy-button:hover { background: var(--gray-10); color: var(--main-700); }
+.copy-button:focus-visible { outline: 2px solid var(--main-color); outline-offset: 2px; }
 .copy-button svg { width: 14px; height: 14px; }
 .muted { color: var(--color-text-tertiary); }
 .warning-action { color: var(--color-warning-700); }
 .rate-context { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mobile-actions { display: none; }
-:deep(.ant-pagination) { justify-content: flex-end; margin-top: 14px; }
+:deep(.ant-pagination) { display: flex; justify-content: flex-end; margin-top: 18px; }
 @media (max-width: 760px) {
   .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }

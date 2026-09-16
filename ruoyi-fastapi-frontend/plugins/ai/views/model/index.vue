@@ -1,6 +1,6 @@
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar title="模型中心" subtitle="管理模型绑定、发布状态和计费规则">
+    <WorkspaceToolbar title="模型目录">
       <template #actions>
         <a-tooltip title="刷新当前视图" placement="bottom">
           <a-button shape="circle" aria-label="刷新当前视图" @click="refreshCurrent">
@@ -78,19 +78,16 @@ function refreshAfterOnboarding() {
 
 <style scoped>
 .ai-model-center {
-  --ai-font-body: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", MiSans, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --ai-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --ai-font-mono: var(--workspace-font-mono);
   min-width: 0;
   min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
   color: var(--color-text);
-  font-family: var(--ai-font-body);
-  font-size: 13px;
-  letter-spacing: 0;
+  background: var(--bg-container);
+  font-family: var(--workspace-font-family);
 }
-.header-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .model-workspace {
   display: flex;
   flex: 1;
@@ -98,13 +95,12 @@ function refreshAfterOnboarding() {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 24px;
-  background: var(--bg-container);
+  padding: 20px 24px 28px;
 }
 .workspace-tabs { min-height: 0; flex: 1; }
-.workspace-tabs :deep(.ant-tabs-nav) { margin: 0 0 12px; border-bottom: 1px solid var(--gray-150); }
+.workspace-tabs :deep(.ant-tabs-nav) { margin: 0 0 20px; border-bottom: 1px solid var(--gray-150); }
 .workspace-tabs :deep(.ant-tabs-nav::before) { border-bottom: 0; }
-.workspace-tabs :deep(.ant-tabs-tab) { height: 44px; margin: 0; padding: 0 16px; color: var(--color-text-secondary); font-weight: 500; }
+.workspace-tabs :deep(.ant-tabs-tab) { height: 40px; margin: 0; padding: 0 16px; color: var(--color-text-secondary); font-size: 14px; font-weight: 500; }
 .workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) { color: var(--main-700); }
 .workspace-tabs :deep(.ant-tabs-ink-bar) { background: var(--main-700); }
 .workspace-tabs :deep(.ant-tabs-content-holder),
@@ -112,23 +108,17 @@ function refreshAfterOnboarding() {
 .workspace-tabs :deep(.ant-tabs-tabpane) { min-height: 0; }
 :global(.model-onboarding-drawer .ant-alert) { border-radius: 6px; }
 :global(.model-onboarding-drawer) {
-  --ai-font-body: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", MiSans, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --ai-font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-family: var(--ai-font-body);
-  font-size: 13px;
-  letter-spacing: 0;
+  --ai-font-mono: var(--workspace-font-mono);
+  font-family: var(--workspace-font-family);
+  font-size: 14px;
 }
 :global(.model-onboarding-drawer .ant-drawer-content) { background: var(--bg-elevated); color: var(--color-text); }
 :global(.model-onboarding-drawer .ant-drawer-header) { margin-bottom: 16px; border-bottom: 1px solid var(--gray-150); background: var(--bg-elevated); padding-bottom: 16px; }
 :global(.model-onboarding-drawer .ant-drawer-title) { color: var(--color-text); font-size: 16px; font-weight: 600; }
 :global(.model-onboarding-drawer .ant-segmented), :global(.model-onboarding-drawer .ant-btn) { border-radius: 6px; }
 @media (max-width: 760px) {
-  .ai-model-center { padding: 0; }
-  .ai-model-center :deep(.workspace-toolbar) { align-items: flex-start; flex-wrap: wrap; padding: 0; }
-  .ai-model-center :deep(.workspace-toolbar__leading) { width: 100%; }
-  .ai-model-center :deep(.workspace-toolbar__actions) { width: 100%; flex-wrap: wrap; justify-content: flex-end; }
-  .model-workspace { padding: 0 14px 12px; }
   :global(.model-onboarding-drawer) { width: 100% !important; }
-  :global(.model-onboarding-drawer .ant-drawer-body) { padding: 14px; }
+  :global(.model-onboarding-drawer .ant-drawer-body) { padding: 16px; }
 }
+@media (max-width: 640px) { .model-workspace { padding: 16px; } }
 </style>

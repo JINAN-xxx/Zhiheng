@@ -1,7 +1,7 @@
 <template>
   <section class="app-main" :class="{ 'is-conversation': route.path === '/ai/chat' || route.path === '/ai/chat/work' }">
     <router-view v-slot="{ Component, route }">
-      <AiResourceShell v-if="isAiResourceRoute(route.path) && !route.meta.link">
+      <AiResourceShell v-if="isAiResourceRoute(route.path) && !route.meta.link" :inset="MODEL_CENTER_PATHS.has(route.path)">
         <transition name="fade-transform" mode="out-in">
           <keep-alive :include="tagsViewStore.cachedViews">
             <component :is="Component" :key="route.path" />
@@ -27,7 +27,8 @@ import AiResourceShell from './AiResourceShell.vue'
 
 const route = useRoute()
 const tagsViewStore = useTagsViewStore()
-const AI_RESOURCE_PATHS = new Set(['/ai/model', '/ai/application', '/ai/usage', '/ai/knowledge'])
+const MODEL_CENTER_PATHS = new Set(['/ai/model', '/ai/application', '/ai/usage'])
+const AI_RESOURCE_PATHS = new Set([...MODEL_CENTER_PATHS, '/ai/knowledge'])
 
 function isAiResourceRoute(path) {
   return AI_RESOURCE_PATHS.has(path)

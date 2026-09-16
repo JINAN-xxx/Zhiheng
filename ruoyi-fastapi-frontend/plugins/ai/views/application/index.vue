@@ -2,23 +2,24 @@
   <main class="app-container developer-api-page">
     <ApplicationApiDocs v-if="showDocs" @close="closeApiDocs" />
     <template v-else>
-    <WorkspaceToolbar title="开发接入" subtitle="管理应用、模型授权、访问密钥与调用记录">
+    <WorkspaceToolbar title="开发接入">
       <template #actions>
         <a-tooltip title="刷新应用" placement="bottom">
           <a-button shape="circle" aria-label="刷新应用" @click="refreshCurrentView"><template #icon><ReloadOutlined /></template></a-button>
         </a-tooltip>
-        <a-button @click="openApiDocs"><FileTextOutlined />API 说明</a-button>
-        <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><PlusOutlined />新建应用</a-button>
+        <a-button @click="openApiDocs"><template #icon><FileTextOutlined /></template>API 说明</a-button>
+        <a-button v-if="can('ai:application:add')" type="primary" @click="openApplicationForm()"><template #icon><PlusOutlined /></template>新建应用</a-button>
       </template>
     </WorkspaceToolbar>
 
     <section class="developer-grid" :class="{ 'is-list': showApplicationList, 'is-detail': !showApplicationList }">
-      <WorkspacePanel v-if="showApplicationList" class="application-list-view" title="应用列表" subtitle="选择应用后管理接入配置" flush>
-        <div class="application-tools">
+      <div v-if="showApplicationList" class="application-tools">
           <a-input v-model:value="query.applicationName" allow-clear placeholder="搜索应用" @press-enter="loadApplications()">
             <template #prefix><SearchOutlined /></template>
           </a-input>
-        </div>
+          <span class="application-total">共 {{ total }} 个</span>
+      </div>
+      <WorkspacePanel v-if="showApplicationList" class="application-list-view" flush>
         <WorkspaceState v-if="loading && !applications.length" kind="loading" />
         <WorkspaceState v-else-if="error && !applications.length" kind="error" :message="error" @retry="loadApplications()" />
         <WorkspaceState v-else-if="!applications.length" kind="empty" title="暂无开发者应用" />
@@ -546,10 +547,12 @@ onBeforeUnmount(() => {
 <style scoped lang="scss">
 .developer-api-page {
   display: flex;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
+  background: var(--bg-container);
   font-family: var(--workspace-font-family);
 }
 
@@ -557,9 +560,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
+  padding: 20px 24px 28px;
 }
 
 .developer-grid > :deep(.workspace-panel) {
@@ -572,7 +577,7 @@ onBeforeUnmount(() => {
 }
 
 .developer-grid.is-list > :deep(.workspace-panel) {
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .developer-grid.is-detail {
@@ -584,9 +589,20 @@ onBeforeUnmount(() => {
 }
 
 .application-tools {
-  padding: 12px;
-  border-bottom: 1px solid var(--gray-150);
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
+
+.application-tools :deep(.ant-input-affix-wrapper) { width: min(360px, 70%); }
+.application-total { margin-left: auto; white-space: nowrap; color: var(--color-text-secondary); font-size: 13px; }
+.application-list-view :deep(.ant-pagination) { display: flex; justify-content: flex-end; margin: 18px 16px; }
 
 .application-row {
   display: flex;
@@ -597,7 +613,6 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 10px 16px;
   border: 0;
-  border-bottom: 1px solid var(--gray-150);
   background: transparent;
   color: var(--color-text);
   text-align: left;
@@ -643,6 +658,7 @@ onBeforeUnmount(() => {
   display: flex;
   min-width: 0;
   min-height: 0;
+  flex: 1;
   flex-direction: column;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
@@ -651,7 +667,7 @@ onBeforeUnmount(() => {
 
 .application-context-bar {
   flex-wrap: wrap;
-  background: var(--gray-25);
+  background: var(--bg-container);
 }
 
 .application-back {
@@ -696,7 +712,8 @@ onBeforeUnmount(() => {
 
 .detail-identity h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .detail-identity code,
@@ -752,5 +769,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .developer-grid { padding: 16px; }
+  .application-context-bar { gap: 12px; padding: 14px 16px; }
+  .detail-identity { min-width: 0; flex: 1 1 100%; }
+  .detail-actions { width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .application-list-view :deep(.ant-pagination) { flex-wrap: wrap; gap: 6px; }
+  .quota-grid { grid-template-columns: 1fr; gap: 0; }
 }
 </style>

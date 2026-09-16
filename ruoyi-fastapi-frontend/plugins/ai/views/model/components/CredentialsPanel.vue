@@ -2,10 +2,12 @@
   <section class="workspace-panel">
     <div class="panel-toolbar">
       <div class="panel-summary">
-        <a-button v-if="canAdd" type="primary" ghost :disabled="notConfigured" @click="openCreate"><template #icon><PlusOutlined /></template>新建凭据</a-button>
         <span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span>
       </div>
-      <a-tooltip title="刷新服务商凭据" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新服务商凭据" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
+      <div class="panel-actions">
+        <a-tooltip title="刷新服务商凭据" placement="top"><a-button shape="circle" :loading="loading" aria-label="刷新服务商凭据" @click="load"><template #icon><ReloadOutlined /></template></a-button></a-tooltip>
+        <a-button v-if="canAdd" type="primary" :disabled="notConfigured" @click="openCreate"><template #icon><PlusOutlined /></template>新建凭据</a-button>
+      </div>
     </div>
     <a-alert v-if="notConfigured" :message="rows.length ? '管理密钥未配置，当前数据可能已过期' : '管理密钥未配置'" type="warning" show-icon />
     <a-alert v-else-if="error && rows.length" message="刷新失败，数据可能已过期" type="warning" show-icon>
@@ -33,7 +35,7 @@
         </template>
       </template>
     </a-table>
-    <a-empty v-else-if="!error && !notConfigured" description="暂无服务商凭据" :image-style="{ height: '72px' }" />
+    <WorkspaceState v-else-if="!error && !notConfigured" kind="empty" title="暂无服务商凭据" />
 
     <a-drawer v-model:open="drawerOpen" root-class-name="model-form-drawer" :title="mode === 'rotate' ? '轮换服务商凭据' : '新建服务商凭据'" width="min(620px, 100%)" destroy-on-close>
       <CredentialForm
@@ -52,6 +54,7 @@
 <script setup>
 import { DeleteOutlined, EllipsisOutlined, PlusOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
+import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import {
   createEngineCredential, deleteEngineCredential,
   listEngineCredentials, listEngineProviders, rotateEngineCredential,
@@ -145,16 +148,20 @@ defineExpose({ refresh: load })
 </script>
 
 <style scoped>
-.workspace-panel { min-height: 360px; color: var(--color-text); }
-.panel-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: 10px; }
-.panel-summary { display: flex; align-items: center; gap: 10px; color: var(--color-text-secondary); font-size: 13px; }
+.workspace-panel { min-width: 0; min-height: 360px; color: var(--color-text); }
+.panel-toolbar { display: flex; min-height: 54px; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 8px 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.panel-summary { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: var(--color-text-secondary); font-size: 13px; }
+.panel-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; margin-left: auto; }
+.workspace-panel > :deep(.ant-alert) { margin-bottom: 14px; }
+.model-table :deep(.ant-table) { font-family: var(--workspace-font-family); font-size: 14px; }
 .model-table :deep(.ant-table-container) { overflow: hidden; border: 1px solid var(--gray-150); border-radius: 8px; }
-.model-table :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
+.model-table :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); font-size: 13px; font-weight: 500; }
 .model-table :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
+.model-table :deep(.ant-table-cell) { vertical-align: middle; }
 .model-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--gray-50) !important; }
-.row-actions { display: flex; justify-content: flex-end; gap: 5px; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .mobile-actions { display: none; }
-code { font-family: var(--ai-font-mono); color: var(--color-text); font-size: 13px; }
+code { font-family: var(--workspace-font-mono); color: var(--color-text); font-size: 13px; }
 :global(.model-form-drawer .ant-drawer-content) { background: var(--bg-elevated); }
 :global(.model-form-drawer .ant-drawer-header) { border-bottom: 1px solid var(--gray-150); background: var(--bg-elevated); }
 @media (max-width: 760px) {

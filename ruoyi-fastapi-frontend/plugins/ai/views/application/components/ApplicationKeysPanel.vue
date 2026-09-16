@@ -2,7 +2,7 @@
   <section class="keys-panel">
     <div class="subpage-actions">
       <div><strong>访问密钥</strong><span>每把密钥可独立设置模型授权与调用限额</span></div>
-      <a-button v-if="canCreate" type="primary" @click="$emit('create')"><KeyOutlined />创建密钥</a-button>
+      <a-button v-if="canCreate" type="primary" @click="$emit('create')"><template #icon><KeyOutlined /></template>创建密钥</a-button>
     </div>
     <WorkspaceState v-if="!canList" kind="forbidden" title="无权查看访问密钥" message="当前账号缺少访问密钥列表权限。" />
     <WorkspaceState v-else-if="loading && !keys.length" kind="loading" />
@@ -76,6 +76,9 @@ function formatTime(value) {
   display: grid;
   gap: 3px;
 }
+
+.subpage-actions strong { font-size: 15px; font-weight: 600; }
+.subpage-actions > div > span { font-size: 13px; }
 
 .subpage-actions span,
 .key-row small,

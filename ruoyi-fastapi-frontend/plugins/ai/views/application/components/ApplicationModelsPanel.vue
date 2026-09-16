@@ -56,6 +56,9 @@ const columns = [
   font-size: 12px;
 }
 
+.models-summary strong { font-size: 15px; font-weight: 600; }
+.models-summary span { font-size: 13px; }
+
 .model-identity {
   display: grid;
   gap: 4px;

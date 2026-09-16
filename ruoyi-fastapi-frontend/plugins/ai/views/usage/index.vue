@@ -1,14 +1,16 @@
 <template>
   <main class="usage-ledger-page" aria-label="用量记录">
-    <WorkspaceToolbar title="用量记录" subtitle="查看调用结果、消耗与费用">
+    <WorkspaceToolbar title="用量记录">
       <template #actions>
-        <a-button v-if="canQueryUsage" :loading="loading" @click="loadUsage">
-          <template #icon><ReloadOutlined /></template>
-          刷新
-        </a-button>
+        <a-tooltip v-if="canQueryUsage" title="刷新用量记录" placement="bottom">
+          <a-button shape="circle" :loading="loading" aria-label="刷新用量记录" @click="loadUsage">
+            <template #icon><ReloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
       </template>
     </WorkspaceToolbar>
 
+    <section class="usage-content">
     <section v-if="canQueryUsage" class="usage-controls" aria-label="用量筛选">
       <a-select
         v-model:value="selectedApplicationId"
@@ -35,6 +37,7 @@
         :options="statusOptions"
         @change="resetAndLoad"
       />
+      <span class="usage-total">共 {{ total }} 条</span>
     </section>
 
     <p v-if="canQueryUsage && error && rows.length" class="usage-stale" role="status">
@@ -93,8 +96,10 @@
         show-size-changer
         show-quick-jumper
         responsive
+        size="small"
         @change="loadUsage"
       />
+    </section>
     </section>
   </main>
 </template>
@@ -114,13 +119,13 @@ const userStore = useUserStore()
 const { width } = useWindowSize()
 const isMobile = computed(() => width.value < 768)
 const applications = ref([])
-const selectedApplicationId = ref('')
+const selectedApplicationId = ref()
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const lastSuccessAt = ref(null)
-const query = reactive({ operationType: '', status: '', pageNum: 1, pageSize: 20 })
+const query = reactive({ operationType: undefined, status: undefined, pageNum: 1, pageSize: 20 })
 let requestGeneration = 0
 const canQueryUsage = computed(() => (
   hasPermission(userStore.permissions || [], 'ai:application:list')
@@ -234,25 +239,32 @@ onBeforeUnmount(() => { requestGeneration += 1 })
 </script>
 
 <style scoped lang="scss">
-.usage-ledger-page { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; color: var(--color-text); }
-.usage-controls { display: grid; min-width: 0; grid-template-columns: minmax(240px, 1fr) 180px 180px; gap: 10px; margin: 16px 24px; padding: 14px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
-.usage-controls :deep(.ant-select) { width: 100%; min-width: 0; }
+.usage-ledger-page { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; color: var(--color-text); background: var(--bg-container); font-family: var(--workspace-font-family); }
+.usage-content { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; overflow: auto; padding: 20px 24px 28px; }
+.usage-controls { display: flex; flex-wrap: wrap; flex: 0 0 auto; min-height: 54px; min-width: 0; align-items: center; gap: 10px; margin: 0 0 20px; padding: 8px 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.usage-controls :deep(.ant-select) { width: 132px; min-width: 0; }
+.usage-controls :deep(.ant-select:first-child) { width: min(360px, 42%); }
+.usage-total { margin-left: auto; white-space: nowrap; color: var(--color-text-secondary); font-size: 13px; }
 .usage-controls :deep(.ant-select-selector),
 .usage-controls :deep(.ant-select-selection-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-stale { margin: 0 0 10px; padding: 9px 12px; border-radius: 8px; color: var(--color-warning-900); background: var(--color-warning-50); font-size: 12px; }
-.usage-table-wrap { flex: 1; min-height: 0; margin: 0 24px 24px; overflow: auto; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.usage-table-wrap { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-table-wrap :deep(.ant-table-thead > tr > th) { border-bottom-color: var(--gray-150); background: var(--gray-10); color: var(--color-text-secondary); }
 .usage-table-wrap :deep(.ant-table-tbody > tr > td) { border-bottom-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
-.usage-mobile-list { display: grid; gap: 10px; padding: 12px; }
-.usage-mobile-item { min-width: 0; padding: 12px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
+.usage-mobile-list { display: grid; gap: 14px; }
+.usage-mobile-item { min-width: 0; padding: 17px; border: 1px solid var(--gray-150); border-radius: 8px; background: var(--bg-container); }
 .usage-mobile-item__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .usage-mobile-item__header strong { font-size: 13px; }
 .usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--color-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .usage-mobile-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--color-text-secondary); font-size: 12px; }
-.usage-table-wrap :deep(.ant-pagination) { justify-content: flex-end; margin: 14px; }
+.usage-table-wrap :deep(.ant-pagination) { display: flex; justify-content: flex-end; margin: 18px 16px; }
 @media (max-width: 760px) {
-  .usage-controls { grid-template-columns: 1fr; }
+  .usage-controls :deep(.ant-select:first-child) { width: 100%; flex: 1 1 100%; }
+  .usage-controls :deep(.ant-select) { flex: 1; }
+  .usage-total { flex: 1 1 100%; text-align: right; }
+  .usage-table-wrap { border: 0; border-radius: 0; }
   .usage-table-wrap :deep(.ant-pagination) { justify-content: center; }
   .usage-table-wrap :deep(.ant-pagination-options) { display: none; }
 }
+@media (max-width: 640px) { .usage-content { padding: 16px; } }
 </style>
