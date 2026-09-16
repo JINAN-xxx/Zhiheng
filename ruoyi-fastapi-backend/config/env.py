@@ -215,6 +215,7 @@ class UploadSettings:
         'jpg',
         'jpeg',
         'png',
+        'webp',
         # word excel powerpoint
         'doc',
         'docx',
@@ -225,6 +226,8 @@ class UploadSettings:
         'html',
         'htm',
         'txt',
+        'md',
+        'csv',
         # 压缩文件
         'rar',
         'zip',

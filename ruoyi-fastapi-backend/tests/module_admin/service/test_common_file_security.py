@@ -52,6 +52,25 @@ def make_query_db() -> SimpleNamespace:
     return SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
 
 
+@pytest.mark.parametrize('extension', ['webp', 'md', 'csv'])
+def test_chat_file_formats_upload_to_private_storage(tmp_path: Path, extension: str) -> None:
+    content = b'chat attachment bytes'
+    upload = make_upload(f'chat.{extension}', content)
+    request = SimpleNamespace(base_url='http://example.test/docker-api/', headers={}, client=None)
+    current_user = make_current_user()
+    with (
+        patch.object(UploadConfig, 'PRIVATE_UPLOAD_PATH', str(tmp_path)),
+        patch.object(FileInfoDao, 'add_file_info_dao', new_callable=AsyncMock) as add_file,
+        patch.object(CommonService, '_enqueue_file_access_log', new_callable=AsyncMock),
+    ):
+        result = asyncio.run(CommonService.upload_service(request, make_query_db(), current_user, upload, 'private'))
+    stored = add_file.await_args.args[1]
+    assert stored.owner_user_id == current_user.user.user_id
+    assert stored.access_type == 'private'
+    assert (tmp_path / stored.storage_key).read_bytes() == content
+    assert result.result.download_url.startswith(f'/common/files/{stored.file_id}/download/')
+
+
 @pytest.mark.parametrize(
     ('range_header', 'expected'),
     [

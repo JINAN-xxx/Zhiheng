@@ -78,6 +78,7 @@ def test_platform_chat_migrations_are_registered_after_model_foundation() -> Non
         'migrations/postgresql/007_application_lifecycle.sql',
         'migrations/postgresql/008_chat_skill_snapshots.sql',
         'migrations/postgresql/009_chat_knowledge.sql',
+        'migrations/postgresql/010_chat_attachments.sql',
     ]
 
 
@@ -270,3 +271,62 @@ def test_legacy_message_null_knowledge_ids_are_serialized_as_empty_list() -> Non
         }
     )
     assert message.model_dump(by_alias=True)['knowledgeBaseIds'] == []
+
+
+def test_chat_file_references_are_uuid_only_bounded_and_unique_across_lists() -> None:
+    payload = {'modelId': 'mdl_123e4567e89b42d3a456426614174000', 'clientMessageId': 'client-1', 'message': 'hello'}
+    reference = {'fileId': '123e4567-e89b-42d3-a456-426614174000'}
+    assert PlatformChatRequestModel.model_validate({**payload, 'attachments': [reference]}).attachments
+    for fields in (
+        {'attachments': [{'fileId': 'https://example.com/file.pdf'}]},
+        {'attachments': [{**reference, 'text': 'untrusted client text'}]},
+        {'attachments': [reference, reference]},
+        {'images': [reference, reference]},
+        {'images': [reference], 'attachments': [reference]},
+        {'attachments': [{'fileId': f'123e4567-e89b-42d3-a456-{i:012d}'} for i in range(6)]},
+        {'images': [{'fileId': f'123e4567-e89b-42d3-a456-{i:012d}'} for i in range(11)]},
+        {'attachments': [reference], 'message': ' '},
+    ):
+        with pytest.raises(ValidationError):
+            PlatformChatRequestModel.model_validate({**payload, **fields})
+
+
+def test_chat_message_attachment_metadata_serializes_without_internal_text() -> None:
+    file_metadata = {
+        'fileId': '123e4567-e89b-42d3-a456-426614174000',
+        'fileName': 'guide.pdf',
+        'mimeType': 'application/pdf',
+        'sizeBytes': 27,
+    }
+    message = PlatformMessageModel.model_validate(
+        {
+            'messageId': 'msg_123e4567e89b42d3a456426614174000',
+            'sessionId': 'ses_123e4567e89b42d3a456426614174000',
+            'clientMessageId': 'client-1',
+            'role': 'user',
+            'content': 'hello',
+            'images': [{**file_metadata, 'fileName': 'image.png', 'mimeType': 'image/png', 'sizeBytes': '27'}],
+            'attachments': [{**file_metadata, 'text': 'PRIVATE SNAPSHOT'}],
+            'status': 'complete',
+            'createdAt': datetime.now(),
+            'updatedAt': datetime.now(),
+        }
+    )
+    result = message.model_dump(mode='json', by_alias=True)
+    assert result['attachments'] == [file_metadata]
+    assert result['images'][0]['fileName'] == 'image.png'
+    assert result['images'][0]['sizeBytes'] == file_metadata['sizeBytes']
+    assert 'PRIVATE SNAPSHOT' not in str(result)
+    assert PlatformMessageModel.model_validate({**result, 'attachments': None}).attachments == []
+    result.pop('attachments')
+    assert PlatformMessageModel.model_validate(result).attachments == []
+
+
+def test_chat_attachment_column_and_postgres_migration_are_additive() -> None:
+    column = AiChatMessage.__table__.c.attachments
+    assert column.nullable is False
+    assert column.default.arg(None) == []
+    assert column.server_default is not None
+    sql = _normalize_sql((PLUGIN_ROOT / 'migrations/postgresql/010_chat_attachments.sql').read_text())
+    assert "add column if not exists attachments jsonb not null default '[]'::jsonb" in sql
+    assert 'drop table' not in sql

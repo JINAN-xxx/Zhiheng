@@ -2,6 +2,50 @@ import request from "@/utils/request";
 import { getToken } from "@/utils/auth";
 import { normalizeErrorMessage } from "@/utils/errorMessage";
 import { parsePlatformSSE } from "../utils/sseParser";
+import { assertChatUploadResponse, chatFileDownloadPath } from "../utils/chatFiles.js";
+
+export async function uploadChatFile(file, { signal, onUploadProgress } = {}) {
+  const data = new FormData();
+  data.append("file", file);
+  let uploadResponse;
+  try {
+    const response = await request({
+      url: "/common/files/upload",
+      method: "post",
+      data,
+      headers: { "Content-Type": "multipart/form-data", repeatSubmit: false },
+      timeout: 120000,
+      signal,
+      onUploadProgress,
+      // Preserve the server's explanation even if the shared business-code handler rejects a string.
+      transformResponse: [(body) => {
+        try { uploadResponse = typeof body === "string" ? JSON.parse(body) : body; }
+        catch { uploadResponse = body; }
+        return uploadResponse;
+      }],
+    });
+    return assertChatUploadResponse(response);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error(normalizeErrorMessage(uploadResponse && uploadResponse.code !== 200 ? uploadResponse : error, "文件上传失败，请重试"));
+  }
+}
+
+export async function downloadChatFile(file, signal) {
+  const blob = await request({
+    url: chatFileDownloadPath(file),
+    method: "get",
+    responseType: "blob",
+    timeout: 120000,
+    signal,
+  });
+  if (blob.type?.includes("application/json")) {
+    let detail;
+    try { detail = JSON.parse(await blob.text()); } catch { /* Use the download fallback. */ }
+    throw new Error(normalizeErrorMessage(detail, "文件下载失败"));
+  }
+  return blob;
+}
 
 // 获取会话列表
 export function listChatSession() {

@@ -4,6 +4,7 @@ from pytest import MonkeyPatch
 from starlette.requests import Request
 
 from plugins.ai.infrastructure import platform_chat_provider
+from plugins.ai.infrastructure.chat_file_adapter import ChatFileAdapter
 
 
 class TransactionalRequestSession:
@@ -47,3 +48,12 @@ async def test_chat_provider_uses_app_state_knowledge_runtime(monkeypatch: Monke
             'top_k': 8,
         }
     ]
+
+
+def test_chat_provider_injects_shared_managed_file_adapter(monkeypatch: MonkeyPatch) -> None:
+    app = FastAPI()
+    request = Request({'type': 'http', 'method': 'POST', 'path': '/ai/chat/send', 'headers': [], 'app': app})
+    monkeypatch.setattr(platform_chat_provider, 'get_model_runtime_engine', lambda request: object())
+    service = platform_chat_provider.get_platform_chat_service(request, TransactionalRequestSession())
+    assert isinstance(service._image_resolver, ChatFileAdapter)
+    assert service._attachment_resolver is service._image_resolver

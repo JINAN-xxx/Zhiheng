@@ -28,6 +28,7 @@ services:
     volumes:
       - ./ruoyi-fastapi-frontend:/frontend:ro
       - ./data/agent-skills:/app/data/agent-skills
+      - ./data/platform-files:/app/vf_admin
     environment:
       APP_DEFAULT_ENABLED_PLUGINS: ai,agent_extension
       AGENT_SKILL_DATA_DIR: /app/data/agent-skills

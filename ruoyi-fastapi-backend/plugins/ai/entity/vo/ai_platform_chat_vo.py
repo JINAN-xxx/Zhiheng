@@ -4,7 +4,16 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 
 from plugins.ai.domain.resource_id import validate_resource_id
@@ -69,14 +78,33 @@ class PlatformImageReferenceModel(_StrictRequestModel):
     file_id: UUID
 
 
+class PlatformAttachmentReferenceModel(_StrictRequestModel):
+    file_id: UUID
+
+
+class PlatformFileMetadataModel(_ResponseModel):
+    file_id: UUID
+    file_name: str = ''
+    mime_type: str = ''
+    size_bytes: int = Field(default=0, ge=0)
+
+
 class PlatformChatRequestModel(_StrictRequestModel):
     session_id: SessionResourceId | None = None
     model_id: ModelResourceId
     client_message_id: ClientMessageId
     message: ChatContent = Field(repr=False)
     images: list[PlatformImageReferenceModel] = Field(default_factory=list, max_length=10)
+    attachments: list[PlatformAttachmentReferenceModel] = Field(default_factory=list, max_length=5)
     skill_slugs: list[SkillSlug] = Field(default_factory=list)
     knowledge_base_ids: list[KnowledgeBaseId] = Field(default_factory=list, max_length=20, strict=True)
+
+    @model_validator(mode='after')
+    def reject_duplicate_files(self) -> 'PlatformChatRequestModel':
+        file_ids = [reference.file_id for reference in (*self.images, *self.attachments)]
+        if len(file_ids) != len(set(file_ids)):
+            raise ValueError('同一文件不能重复添加')
+        return self
 
     @field_validator('knowledge_base_ids')
     @classmethod
@@ -157,7 +185,12 @@ class PlatformMessageModel(_ResponseModel):
     role: Literal['user', 'assistant']
     content: str
     reasoning_content: str | None = None
-    images: list[PlatformImageReferenceModel]
+    images: Annotated[list[PlatformFileMetadataModel], BeforeValidator(lambda value: value or [])] = Field(
+        default_factory=list
+    )
+    attachments: Annotated[list[PlatformFileMetadataModel], BeforeValidator(lambda value: value or [])] = Field(
+        default_factory=list
+    )
     skill_snapshots: Annotated[list['SkillSnapshotModel'], BeforeValidator(lambda value: value or [])] = Field(
         default_factory=list
     )

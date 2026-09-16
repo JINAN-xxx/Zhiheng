@@ -27,6 +27,8 @@ psutil==7.2.2
 psycopg2==2.9.12
 pydantic>=2.11.4
 pydantic-validation-decorator==0.1.5
+pypdf==6.18.0
+python-docx==1.2.0
 PyJWT[crypto]==2.13.0
 redis==8.1.0
 ruff==0.16.1

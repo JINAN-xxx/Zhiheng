@@ -5,7 +5,7 @@ import { ref, reactive, watch, nextTick } from 'vue'
 
 // Run the actual detail loader and status watcher with delayed network replies.
 const source = readFileSync(new URL('../../plugins/ai/views/chat/index.vue', import.meta.url), 'utf8')
-const functions = source.slice(source.indexOf('async function openSession(id)'), source.indexOf('async function selectImage(file)'))
+const functions = source.slice(source.indexOf('async function openSession(id)'), source.indexOf('function resetFileDraft()'))
 const watcherStart = source.indexOf('watch(() => workspaceStore.sessionChange')
 const watcher = source.slice(watcherStart, source.indexOf('\nwatch(draft', watcherStart))
 
@@ -19,6 +19,7 @@ async function checkDetailRace({ additionalMutation = false, preexistingChange =
     workspaceStore: reactive({ sessionChange: null, sessionStatusChanges: {} }),
     getChatSession: () => detail,
     scrollToBottom: async () => {},
+    resetFileDraft: () => {},
   }
   const confirmStatus = (sessionId, status) => {
     const change = { sessionId, status }

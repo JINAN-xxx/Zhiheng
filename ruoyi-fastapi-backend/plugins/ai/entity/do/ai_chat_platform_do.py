@@ -85,6 +85,13 @@ class AiChatMessage(Base):
         default=list,
         comment='Platform 文件引用JSON',
     )
+    attachments = Column(
+        JSON().with_variant(JSONB(), 'postgresql'),
+        nullable=False,
+        default=list,
+        server_default=text("'[]'"),
+        comment='附件元数据与解析文本快照',
+    )
     skill_snapshots = Column(
         JSON().with_variant(JSONB(), 'postgresql'),
         nullable=False,

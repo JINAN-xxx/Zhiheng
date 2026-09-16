@@ -9,19 +9,21 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_CONTENT
 
 from plugins.ai.dao.platform_chat_dao import PlatformChatDao
-from plugins.ai.domain.model_runtime import ModelStreamEvent, ModelUsage
+from plugins.ai.domain.chat_files import ResolvedPlatformAttachment
+from plugins.ai.domain.model_runtime import ModelChatRequest, ModelStreamEvent, ModelUsage
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatPreferences, AiChatRun, AiChatSession
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.entity.vo.ai_platform_chat_vo import PlatformChatRequestModel
 from plugins.ai.infrastructure.chat_knowledge_adapter import ChatKnowledgeAdapter
+from plugins.ai.service import platform_chat_service
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError
-from plugins.ai.service.model_service import ModelServiceStreamResult, ResolvedModel
+from plugins.ai.service.model_service import ModelService, ModelServiceStreamResult, ResolvedModel
 from plugins.ai.service.platform_chat_service import (
     PlatformChatError,
     PlatformChatEvent,
@@ -609,6 +611,7 @@ def _request(
     session_id: str | None = None,
     message: str = 'hello',
     images: list[dict[str, str]] | None = None,
+    attachments: list[dict[str, str]] | None = None,
     skill_slugs: list[str] | None = None,
     knowledge_base_ids: list[str] | None = None,
 ) -> PlatformChatRequestModel:
@@ -619,6 +622,7 @@ def _request(
             'clientMessageId': CLIENT_MESSAGE_ID,
             'message': message,
             'images': images or [],
+            'attachments': attachments or [],
             'skillSlugs': skill_slugs or [],
             'knowledgeBaseIds': knowledge_base_ids or [],
         }
@@ -1173,3 +1177,277 @@ def test_knowledge_references_follow_history_and_precede_current_question() -> N
     assert 'Relevant reference' in messages[2].content
     assert messages[-1].content == 'Current question'
     assert 'Relevant reference' not in messages[0].content
+
+
+class FakeAttachments:
+    def __init__(self, attachments: dict[UUID, ResolvedPlatformAttachment]) -> None:
+        self.attachments = attachments
+        self.calls = []
+
+    async def resolve_attachment(
+        self, user_id: int, file_id: UUID, *, max_size_bytes: int
+    ) -> ResolvedPlatformAttachment:
+        self.calls.append((user_id, file_id, max_size_bytes))
+        if file_id not in self.attachments:
+            raise PlatformChatError.attachment_invalid()
+        return self.attachments[file_id]
+
+
+def _document(file_id: UUID = FILE_ID, text: str = 'Quarterly revenue: 42 million') -> ResolvedPlatformAttachment:
+    return ResolvedPlatformAttachment(file_id, 'report.pdf', 'application/pdf', 27, text)
+
+
+@pytest.mark.asyncio
+async def test_attachment_is_persisted_and_reused_as_reference_on_followup() -> None:
+    service, _, dao, runtime, _ = _service()
+    resolver = FakeAttachments({FILE_ID: _document()})
+    service._attachment_resolver = resolver
+    first = await service.send(USER_ID, _request(attachments=[{'fileId': str(FILE_ID)}]))
+    [event async for event in first]
+    snapshot = dao.messages[0].attachments
+    assert snapshot == [
+        {
+            'fileId': str(FILE_ID),
+            'fileName': 'report.pdf',
+            'mimeType': 'application/pdf',
+            'sizeBytes': 27,
+            'text': 'Quarterly revenue: 42 million',
+        }
+    ]
+    initial_messages = runtime.stream_calls[0][1]
+    assert 'reference data' in initial_messages[0].content
+    assert 'Quarterly revenue' not in initial_messages[0].content
+    assert 'Quarterly revenue: 42 million' in initial_messages[-1].content
+    assert 'report.pdf' in initial_messages[-1].content
+    service._attachment_resolver = None
+    followup = _request(session_id=SESSION_ID, message='What was the revenue?').model_copy(
+        update={'client_message_id': 'followup-1'}
+    )
+    await service.send(USER_ID, followup)
+    assert any('Quarterly revenue: 42 million' in message.content for message in runtime.stream_calls[-1][1])
+    assert resolver.calls == [(USER_ID, FILE_ID, 20 * 1024 * 1024)]
+
+
+@pytest.mark.asyncio
+async def test_images_and_attachments_reach_the_same_model_request() -> None:
+    image_id = UUID('223e4567-e89b-42d3-a456-426614174000')
+    image = ResolvedPlatformImage(image_id, 'image/png', 3, 'data:image/png;base64,AAAA', 'chart.png')
+    service, _, dao, runtime, _ = _service(images=FakeImages(image))
+    service._attachment_resolver = FakeAttachments({FILE_ID: _document()})
+    await service.send(USER_ID, _request(images=[{'fileId': str(image_id)}], attachments=[{'fileId': str(FILE_ID)}]))
+    content = runtime.stream_calls[0][1][-1].content
+    assert 'Quarterly revenue: 42 million' in content[0]['text']
+    assert content[1]['image_url']['url'] == image.data_url
+    assert dao.messages[0].images[0]['fileName'] == 'chart.png'
+    assert dao.messages[0].images[0]['sizeBytes'] == image.size_bytes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['images', 'attachments'])
+async def test_idempotency_rejects_changed_file_references(kind: str) -> None:
+    service, _, dao, runtime, _ = _service()
+    result = await service.send(USER_ID, _request())
+    [event async for event in result]
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(session_id=SESSION_ID, **{kind: [{'fileId': str(FILE_ID)}]}))
+    assert raised.value.code == 'CHAT_IDEMPOTENCY_CONFLICT'
+    assert len(runtime.stream_calls) == 1
+    assert len(dao.messages) == MESSAGE_COUNT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('invalid', ['missing', 'wrong-id', 'empty', 'oversize', 'too-much-text', 'total-text'])
+async def test_invalid_attachment_fails_before_messages_runs_or_model_call(invalid: str) -> None:
+    second_id = UUID('223e4567-e89b-42d3-a456-426614174000')
+    documents = {FILE_ID: _document()}
+    refs = [{'fileId': str(FILE_ID)}]
+    if invalid == 'missing':
+        documents = {}
+    elif invalid == 'wrong-id':
+        documents[FILE_ID] = _document(second_id)
+    elif invalid == 'empty':
+        documents[FILE_ID] = _document(text=' ')
+    elif invalid == 'oversize':
+        documents[FILE_ID] = ResolvedPlatformAttachment(
+            FILE_ID, 'a.pdf', 'application/pdf', 20 * 1024 * 1024 + 1, 'text'
+        )
+    elif invalid == 'too-much-text':
+        documents[FILE_ID] = _document(text='x' * 40_001)
+    else:
+        documents = {FILE_ID: _document(text='x' * 40_000), second_id: _document(second_id, text='y' * 20_001)}
+        refs.append({'fileId': str(second_id)})
+    service, db, dao, runtime, _ = _service()
+    service._attachment_resolver = FakeAttachments(documents)
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(attachments=refs))
+    assert raised.value.code == (
+        'CHAT_ATTACHMENT_TOO_LARGE'
+        if invalid in {'oversize', 'too-much-text', 'total-text'}
+        else 'CHAT_ATTACHMENT_INVALID'
+    )
+    assert dao.messages == []
+    assert dao.runs == []
+    assert db.commit_count == 0
+    assert runtime.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_historical_images_are_authorized_again_and_unavailable_images_are_explicit() -> None:
+    images = FakeImages(ResolvedPlatformImage(FILE_ID, 'image/png', 3, 'data:image/png;base64,AAAA'))
+    service, _, _, runtime, _ = _service(images=images)
+    result = await service.send(USER_ID, _request(images=[{'fileId': str(FILE_ID)}]))
+    [event async for event in result]
+    followup = _request(session_id=SESSION_ID, message='Explain the chart').model_copy(
+        update={'client_message_id': 'next-1'}
+    )
+    second = await service.send(USER_ID, followup)
+    [event async for event in second]
+    historical = runtime.stream_calls[-1][1][1]
+    assert historical.content[1]['image_url']['url'] == 'data:image/png;base64,AAAA'
+    assert images.calls == [(USER_ID, FILE_ID, 10 * 1024 * 1024)] * 2
+    images.image = None
+    await service.send(USER_ID, followup.model_copy(update={'client_message_id': 'next-2'}))
+    assert 'unavailable' in runtime.stream_calls[-1][1][1].content
+
+
+def test_attachment_errors_have_fixed_immutable_public_contract() -> None:
+    for factory, code in (
+        (PlatformChatError.attachment_invalid, 'CHAT_ATTACHMENT_INVALID'),
+        (PlatformChatError.attachment_too_large, 'CHAT_ATTACHMENT_TOO_LARGE'),
+    ):
+        error = factory()
+        assert error.status_code == HTTP_422_UNPROCESSABLE_CONTENT
+        assert error.code == code
+        with pytest.raises(AttributeError):
+            error.code = 'CHANGED'
+
+
+@pytest.mark.asyncio
+async def test_document_history_budget_prioritizes_current_and_recent_content_with_placeholders() -> None:
+    service, _, dao, runtime, _ = _service()
+    dao.session = AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, status='active')
+    dao.messages = [
+        AiChatMessage(
+            session_id=SESSION_ID,
+            client_message_id=f'old-{index}',
+            role='user',
+            content=f'old-{index}',
+            images=[],
+            attachments=[{'fileId': str(FILE_ID), 'fileName': f'{index}.txt', 'text': character * 40_000}],
+            status='complete',
+        )
+        for index, character in enumerate(['a', 'b'])
+    ]
+    service._attachment_resolver = FakeAttachments({FILE_ID: _document(text='c' * 40_000)})
+    await service.send(USER_ID, _request(session_id=SESSION_ID, attachments=[{'fileId': str(FILE_ID)}]))
+    messages = runtime.stream_calls[0][1]
+    assert 'omitted' in messages[1].content
+    assert 'a' * 20 not in messages[1].content
+    assert 'truncated' in messages[2].content
+    assert 'b' * 20_000 in messages[2].content
+    assert 'b' * 20_001 not in messages[2].content
+    assert messages[-1].content.count('c' * 40_000) == 1
+    assert dao.messages[1].attachments[0]['text'] == 'b' * 40_000
+
+
+@pytest.mark.asyncio
+async def test_historical_images_obey_total_count_budget_with_explicit_omission() -> None:
+    image_limit = 10
+    images = FakeImages(ResolvedPlatformImage(FILE_ID, 'image/png', 3, 'data:image/png;base64,AAAA'))
+    service, _, dao, runtime, _ = _service(images=images)
+    dao.session = AiChatSession(session_id=SESSION_ID, user_id=USER_ID, model_id=MODEL_ID, status='active')
+    dao.messages = [
+        AiChatMessage(
+            session_id=SESSION_ID,
+            client_message_id=f'old-{index}',
+            role='user',
+            content=f'old-{index}',
+            images=[{'fileId': str(FILE_ID)}],
+            status='complete',
+        )
+        for index in range(11)
+    ]
+    await service.send(USER_ID, _request(session_id=SESSION_ID, images=[{'fileId': str(FILE_ID)}]))
+    messages = runtime.stream_calls[0][1]
+    assert len(images.calls) == image_limit
+    assert 'omitted' in messages[1].content
+    assert 'omitted' in messages[2].content
+    assert (
+        sum(
+            block['type'] == 'image_url'
+            for message in messages
+            if not isinstance(message.content, str)
+            for block in message.content
+        )
+        == image_limit
+    )
+
+
+@pytest.mark.asyncio
+async def test_current_images_over_total_byte_budget_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(platform_chat_service, '_MAX_IMAGE_BYTES', 5)
+    second_id = UUID('223e4567-e89b-42d3-a456-426614174000')
+
+    class Images:
+        async def resolve(self, user_id: int, file_id: UUID, *, max_size_bytes: int) -> ResolvedPlatformImage:
+            return ResolvedPlatformImage(file_id, 'image/png', 3, 'data:image/png;base64,AAAA')
+
+    service, db, dao, runtime, _ = _service(images=Images())
+    with pytest.raises(PlatformChatError) as raised:
+        await service.send(USER_ID, _request(images=[{'fileId': str(FILE_ID)}, {'fileId': str(second_id)}]))
+    assert raised.value.code == 'CHAT_IMAGE_INVALID'
+    assert dao.messages == []
+    assert db.commit_count == 0
+    assert runtime.stream_calls == []
+
+
+@pytest.mark.asyncio
+async def test_real_model_service_and_database_send_files_and_keep_public_history_metadata(
+    archive_db: AsyncSession,
+) -> None:
+    class CapturingEngine:
+        def __init__(self) -> None:
+            self.requests: list[ModelChatRequest] = []
+
+        async def stream_chat(self, request: ModelChatRequest) -> AsyncIterator[ModelStreamEvent]:
+            self.requests.append(request)
+            yield ModelStreamEvent(event_type='content', delta='The revenue is 42 million.')
+
+    # This fixture represents a vision-capable test model, without changing a deployed catalog.
+    model = await archive_db.get(AiModelCatalog, MODEL_ID)
+    model.capabilities = {'vision': True}
+    await archive_db.commit()
+    engine = CapturingEngine()
+    image_id = UUID('223e4567-e89b-42d3-a456-426614174000')
+    images = FakeImages(ResolvedPlatformImage(image_id, 'image/png', 3, 'data:image/png;base64,AAAA', 'chart.png'))
+    service = PlatformChatService(
+        archive_db,
+        model_service=ModelService(
+            archive_db, engine, session_factory=async_sessionmaker(archive_db.bind, expire_on_commit=True)
+        ),
+        coordinator=FakeCoordinator(),
+        preferences=ChatPreferencesService(archive_db),
+        image_resolver=images,
+        attachment_resolver=FakeAttachments({FILE_ID: _document()}),
+    )
+    first = await service.send(
+        USER_ID, _request(images=[{'fileId': str(image_id)}], attachments=[{'fileId': str(FILE_ID)}])
+    )
+    [event async for event in first]
+    sent = engine.requests[0].messages[-1].content
+    assert 'Quarterly revenue: 42 million' in sent[0]['text']
+    assert sent[1]['image_url']['url'] == 'data:image/png;base64,AAAA'
+    public_detail = (await service.get_session_detail(USER_ID, first.session_id)).model_dump(mode='json', by_alias=True)
+    assert public_detail['messages'][0]['attachments'][0]['fileName'] == 'report.pdf'
+    assert public_detail['messages'][0]['images'][0]['fileName'] == 'chart.png'
+    assert all('text' not in file for message in public_detail['messages'] for file in message['attachments'])
+    service._attachment_resolver = None
+    followup = _request(session_id=first.session_id, message='Explain that figure').model_copy(
+        update={'client_message_id': 'real-followup'}
+    )
+    second = await service.send(USER_ID, followup)
+    [event async for event in second]
+    old_user_message = next(message for message in engine.requests[-1].messages if message.role == 'user')
+    assert 'Quarterly revenue: 42 million' in old_user_message.content[0]['text']
+    assert old_user_message.content[1]['image_url']['url'] == 'data:image/png;base64,AAAA'
+    assert images.calls == [(USER_ID, image_id, 10 * 1024 * 1024)] * 2

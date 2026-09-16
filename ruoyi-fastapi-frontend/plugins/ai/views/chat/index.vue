@@ -43,9 +43,7 @@
             <div v-if="knowledgeNames(message).length" class="message-knowledge">
               <a-tag v-for="name in knowledgeNames(message)" :key="name">历史引用：{{ name }}</a-tag>
             </div>
-            <div v-if="message.images?.length" class="message-images">
-              <a-tag v-for="image in message.images" :key="image.fileId">文件 {{ image.fileId }}</a-tag>
-            </div>
+            <ChatMessageFiles :images="message.images" :attachments="message.attachments" />
             <AiMessage
               v-if="message.role === 'assistant'"
               :content="message.content"
@@ -78,8 +76,19 @@
             @close="removeSkill(skill.skillSlug)"
           >技能：{{ skill.skillName }}</a-tag>
         </div>
-        <div v-if="imageIds.length" class="image-queue">
-          <a-tag v-for="fileId in imageIds" :key="fileId" closable @close="removeImage(fileId)">文件 {{ fileId }}</a-tag>
+        <div v-if="fileItems.length" class="file-queue" aria-label="待发送文件">
+          <div v-for="file in fileItems" :key="file.id" class="queued-file" :class="{ 'has-error': file.status === 'failed' }">
+            <img v-if="file.previewUrl" :src="file.previewUrl" :alt="file.fileName" class="queued-file-preview" />
+            <FileTextOutlined v-else class="queued-file-icon" />
+            <div class="queued-file-details">
+              <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
+              <span v-if="file.status === 'uploading'" class="queued-file-status" role="status">上传中 {{ file.progress }}%</span>
+              <span v-else-if="file.status === 'failed'" class="queued-file-error" role="alert">{{ file.error }}</span>
+              <span v-else class="queued-file-status">已上传</span>
+            </div>
+            <a-button v-if="file.status === 'failed'" type="link" size="small" :disabled="loading" :aria-label="`重试上传：${file.fileName}`" @click="fileQueue.retry(file.id)">重试</a-button>
+            <a-button type="text" size="small" :disabled="loading" :aria-label="`移除文件：${file.fileName}`" @click="fileQueue.remove(file.id)"><CloseOutlined /></a-button>
+          </div>
         </div>
         <div class="composer-surface">
           <a-textarea
@@ -96,22 +105,19 @@
               :disabled="loading"
               @selected="handleSkillSelected"
             />
-            <a-upload
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              :before-upload="selectImage"
-              :disabled="loading"
-              :show-upload-list="false"
-            >
-              <a-tooltip title="添加图片">
-                <a-button type="text" :disabled="loading" aria-label="添加图片">
-                  <template #icon><PictureOutlined /></template>
-                </a-button>
-              </a-tooltip>
-            </a-upload>
-            <span class="composer-hint">{{ imageIds.length }}/10</span>
+            <input ref="fileInputRef" class="chat-file-input" type="file" :accept="CHAT_FILE_ACCEPT" multiple :disabled="loading || sessionLoading" tabindex="-1" aria-label="选择图片或附件" @change="selectFiles" />
+            <a-tooltip title="添加图片或附件（PDF、DOCX、TXT、MD、XLSX、CSV）">
+              <a-button type="text" :disabled="loading || sessionLoading" aria-label="添加图片或附件" @click="fileInputRef?.click()">
+                <template #icon><PaperClipOutlined /></template>
+              </a-button>
+            </a-tooltip>
+            <span class="composer-hint">图片 {{ imageCount }}/10 · 文档 {{ attachmentCount }}/5</span>
             <a-button v-if="loading" class="composer-submit" danger @click="stop"><PauseCircleOutlined />停止</a-button>
-            <a-button v-else class="composer-submit" type="primary" aria-label="发送" :disabled="sessionLoading || !draft.trim() || !modelId" @click="send"><SendOutlined />发送</a-button>
+            <a-button v-else class="composer-submit" type="primary" aria-label="发送" :disabled="!canSend" @click="send"><SendOutlined />发送</a-button>
           </div>
+          <p v-if="imageHint" class="file-guidance">{{ imageHint }}</p>
+          <p v-if="filesFailed" class="file-guidance file-guidance--error" role="status">请重试或移除上传失败的文件后再发送。</p>
+          <p v-else-if="fileItems.length" class="file-guidance">图片单张最多 {{ Math.min(50, preferences.imageMaxSizeMb || 10) }} MB，文档单个最多 20 MB。</p>
         </div>
       </footer>
     </main>
@@ -135,19 +141,20 @@
 </template>
 
 <script setup name="AiChat">
-import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from "vue";
 import { v4 as uuidv4 } from 'uuid';
 import {
   InboxOutlined,
+  CloseOutlined,
+  FileTextOutlined,
+  PaperClipOutlined,
   PauseCircleOutlined,
-  PictureOutlined,
   RobotOutlined,
   RollbackOutlined,
   SendOutlined,
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { getToken } from "@/utils/auth";
 import { normalizeErrorMessage } from "@/utils/errorMessage";
 import useWorkspaceStore from "@/store/modules/workspace";
 import useUserStore from "@/store/modules/user";
@@ -158,13 +165,16 @@ import {
   getChatSession,
   getUserChatConfig,
   saveUserChatConfig,
+  uploadChatFile,
 } from "../../api/chat";
 import AiMessage from "./components/AiMessage.vue";
+import ChatMessageFiles from './components/ChatMessageFiles.vue'
 import SkillPicker from './components/SkillPicker.vue'
 import ChatEmptyState from './components/ChatEmptyState.vue'
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
 import { beginSend, chatMessageLabel, resolveChatModelOptions, legacyKnowledgeLabels } from "../../utils/chatTransforms.js";
 import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agent_extension/utils/skill.js'
+import { CHAT_FILE_ACCEPT, chatFilePayload, chatImageHint, createChatFileQueue } from '../../utils/chatFiles.js'
 
 const { proxy } = getCurrentInstance();
 const route = useRoute();
@@ -180,7 +190,9 @@ const isArchived = computed(() => sessionStatus.value === 'archived');
 const restoringSession = computed(() => workspaceStore.sessionMutatingIds.includes(sessionId.value));
 const messages = ref([]);
 const draft = ref("");
-const imageIds = ref([]);
+const fileItems = ref([]);
+const fileInputRef = ref(null);
+const fileQueue = createChatFileQueue({ upload: uploadChatFile, onChange: items => { fileItems.value = items; } });
 const selectedSkills = ref([])
 const canWork = computed(() => (userStore.permissions || []).some(permission => ['*:*:*', 'agent_extension:work:list', 'agent_extension:work:query', 'agent_extension:work:add'].includes(permission)))
 const skillPickerOpen = ref(false)
@@ -209,6 +221,15 @@ function defaultPreferences() {
 
 const stateLabel = computed(() => ({ idle: "就绪", connecting: "连接中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || "就绪"));
 const modelOptions = computed(() => resolveChatModelOptions(models.value))
+const uploadSettings = computed(() => ({ ...preferences, model: models.value.find(model => model.modelId === modelId.value) }))
+const imageHint = computed(() => chatImageHint(uploadSettings.value))
+const imageCount = computed(() => fileItems.value.filter(file => file.kind === 'image').length)
+const attachmentCount = computed(() => fileItems.value.filter(file => file.kind === 'attachment').length)
+const filesUploading = computed(() => fileItems.value.some(file => file.status === 'uploading'))
+const filesFailed = computed(() => fileItems.value.some(file => file.status === 'failed'))
+const canSend = computed(() => !loading.value && !sessionLoading.value && !isArchived.value && Boolean(modelId.value)
+  && Boolean(draft.value.trim() || fileItems.value.length) && !filesUploading.value && !filesFailed.value
+  && !(imageCount.value && imageHint.value))
 
 function filterModelOption(input, option) {
   return String(option?.label ?? '').toLowerCase().includes(String(input).toLowerCase())
@@ -231,6 +252,7 @@ async function loadPreferences() {
 
 async function openSession(id) {
   if (loading.value || id === sessionId.value) return;
+  resetFileDraft();
   const requestGeneration = ++sessionLoadGeneration;
   const statusChangeAtStart = workspaceStore.sessionStatusChanges[id];
   sessionLoading.value = true;
@@ -255,6 +277,7 @@ async function openSession(id) {
 
 function newSession() {
   if (loading.value) return;
+  resetFileDraft();
   sessionLoadGeneration += 1;
   sessionId.value = null;
   sessionStatus.value = 'active';
@@ -277,32 +300,17 @@ async function restoreCurrentSession() {
   }
 }
 
-async function selectImage(file) {
-  if (!file || imageIds.value.length >= 10) return false;
-  if (file.size > (preferences.imageMaxSizeMb || 10) * 1024 * 1024) {
-    proxy.$modal.msgError("图片超过当前偏好设置的大小上限");
-    return false;
-  }
-  const form = new FormData();
-  form.append("file", file);
-  try {
-    const response = await fetch(import.meta.env.VITE_APP_BASE_API + "/common/upload", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + getToken() },
-      body: form,
-    });
-    const payload = await response.json();
-    const id = payload?.data?.fileId || payload?.fileId;
-    if (!response.ok || !id) throw new Error("图片服务未返回平台文件ID");
-    imageIds.value.push(id);
-  } catch (error) {
-    proxy.$modal.msgError(normalizeErrorMessage(error, "图片上传失败"));
-  }
-  return false
+function resetFileDraft() {
+  fileQueue.clear();
+  draft.value = '';
+  if (fileInputRef.value) fileInputRef.value.value = '';
 }
 
-function removeImage(id) {
-  imageIds.value = imageIds.value.filter((item) => item !== id);
+function selectFiles(event) {
+  if (loading.value || sessionLoading.value || isArchived.value) return;
+  const { rejected } = fileQueue.add(event.target.files, uploadSettings.value);
+  event.target.value = '';
+  for (const rejection of rejected) proxy.$modal.msgError(`${rejection.fileName}：${rejection.error}`);
 }
 
 function removeSkill(slug) {
@@ -314,26 +322,27 @@ function handleSkillSelected() {
 }
 
 async function send() {
-  const message = draft.value.trim();
-  if (!message || !modelId.value || loading.value || sessionLoading.value || isArchived.value) return;
+  if (!canSend.value) return;
+  const message = draft.value.trim() || '请分析上传的文件。';
+  const requestGeneration = sessionLoadGeneration;
   const nextState = beginSend({ runId: runId.value, status: runState.value });
   runId.value = nextState.runId;
   const clientMessageId = uuidv4();
-  const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
+  const outgoingFiles = chatFilePayload(fileItems.value);
+  const fileMetadata = kind => fileItems.value.filter(file => file.kind === kind).map(({ fileId, fileName, mimeType, sizeBytes }) => ({ fileId, fileName, mimeType, sizeBytes }));
   const outgoingSkills = selectedSkills.value.map((skill) => ({ ...skill }))
   const skillSnapshots = outgoingSkills.map((skill) => ({ slug: skill.skillSlug, name: skill.skillName }))
-  messages.value.push({ localId: `local-${clientMessageId}`, role: "user", content: message, images: outgoingImages, skillSnapshots });
-  draft.value = "";
-  imageIds.value = [];
-  selectedSkills.value = []
+  const userId = `local-${clientMessageId}`;
+  messages.value.push({ localId: userId, role: "user", content: message, images: fileMetadata('image'), attachments: fileMetadata('attachment'), skillSnapshots });
   skillPickerOpen.value = false
+  loading.value = true;
   await nextTick();
   const assistantId = `assistant-${clientMessageId}`;
   messages.value.push({ localId: assistantId, role: "assistant", content: "", reasoningContent: "", status: "pending" });
   activeAssistantId.value = assistantId;
   runState.value = nextState.status;
-  loading.value = true;
   abortController.value = new AbortController();
+  let requestAccepted = false;
   await scrollToBottom();
   try {
     const stream = await createChatStream(
@@ -342,14 +351,21 @@ async function send() {
         modelId: modelId.value,
         clientMessageId,
         message,
-        images: outgoingImages,
+        images: outgoingFiles.images,
+        attachments: outgoingFiles.attachments,
         skillSlugs: outgoingSkills.map((skill) => skill.skillSlug),
       },
       abortController.value.signal,
     );
+    if (requestGeneration !== sessionLoadGeneration) return;
+    requestAccepted = true;
+    draft.value = "";
+    fileQueue.clear();
+    selectedSkills.value = []
     runState.value = "streaming";
     for await (const event of stream) handleEvent(event, assistantId);
   } catch (error) {
+    if (!requestAccepted) messages.value = messages.value.filter(item => ![userId, assistantId].includes(item.localId));
     if (error?.name !== "AbortError") {
       runState.value = "failed";
       proxy.$modal.msgError(normalizeErrorMessage(error, "对话请求失败"));
@@ -441,10 +457,13 @@ watch(draft, (value) => {
   if (shouldOpenSkillPicker(value) && !loading.value) skillPickerOpen.value = true
 })
 
-onBeforeUnmount(() => {
+function cleanup() {
   sessionLoadGeneration += 1;
   abortController.value?.abort();
-});
+  resetFileDraft();
+}
+onBeforeUnmount(cleanup);
+onDeactivated(cleanup);
 </script>
 
 <style scoped lang="scss">
@@ -565,10 +584,8 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
-.message-images,
 .message-skills,
-.selected-skills,
-.image-queue {
+.selected-skills {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -578,6 +595,21 @@ onBeforeUnmount(() => {
 .message-row.user .message-skills { justify-content: flex-end; }
 
 .selected-skills { margin: 0 0 8px; }
+
+.chat-file-input { display: none; }
+.file-queue { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
+.queued-file { display: flex; align-items: center; gap: 8px; min-width: 0; width: min(100%, 380px); padding: 8px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--bg-container); }
+.queued-file.has-error { border-color: var(--ant-color-error, #ff4d4f); }
+.queued-file-preview { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex: 0 0 40px; }
+.queued-file-icon { font-size: 24px; color: var(--color-text-secondary); }
+.queued-file-details { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.queued-file-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queued-file-status, .queued-file-error { font-size: 11px; overflow-wrap: anywhere; }
+.queued-file-status { color: var(--color-text-secondary); }
+.queued-file-error, .file-guidance--error { color: var(--ant-color-error, #ff4d4f); }
+.file-guidance { margin: 8px 4px 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
+.file-guidance--error { color: var(--ant-color-error, #ff4d4f); }
+.message-row.user :deep(.message-files) { justify-content: flex-end; }
 
 .message-metrics {
   margin-top: 6px;

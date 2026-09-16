@@ -138,6 +138,8 @@ service.interceptors.response.use(async res => {
     }
   },
   async error => {
+    // Navigation and file removal intentionally abort requests; keep those cancellations silent.
+    if (axios.isCancel(error)) return Promise.reject(error)
     // 错误响应也可能是加密信封，先尝试解密再进入统一错误提示流程。
     error = await decryptTransportErrorResponse(error)
     // 若后端提示密钥失效，则清空本地公钥缓存并基于原始请求重试一次。

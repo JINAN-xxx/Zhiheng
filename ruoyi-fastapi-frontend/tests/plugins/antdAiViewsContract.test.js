@@ -57,7 +57,8 @@ assert.deepEqual(beginSend({ runId: 'run-old', status: 'done' }), {
 
 assert.match(chatView, /a-select/)
 assert.match(chatView, /a-modal/)
-assert.match(chatView, /a-upload/)
+assert.match(chatView, /type="file"[^>]*multiple/)
+assert.match(chatView, /aria-label="添加图片或附件"/)
 assert.match(chatView, /a-textarea/)
 assert.match(chatView, /class="composer-submit"/)
 assert.match(chatMessage, /RightOutlined/)

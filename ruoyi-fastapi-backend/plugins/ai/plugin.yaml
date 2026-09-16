@@ -40,6 +40,7 @@ backend:
     - migrations/postgresql/007_application_lifecycle.sql
     - migrations/postgresql/008_chat_skill_snapshots.sql
     - migrations/postgresql/009_chat_knowledge.sql
+    - migrations/postgresql/010_chat_attachments.sql
   seeds:
     - seeds/mysql/ai_provider_type.sql
     - seeds/postgresql/ai_provider_type.sql
