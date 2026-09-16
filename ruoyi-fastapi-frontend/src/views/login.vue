@@ -138,7 +138,7 @@ async function getCode() {
   captchaEnabled.value = response.captchaEnabled ?? true
   register.value = response.registerEnabled ?? false
   if (captchaEnabled.value) {
-    codeUrl.value = `data:image/gif;base64,${response.img}`
+    codeUrl.value = `data:image/png;base64,${response.img}`
     loginForm.value.uuid = response.uuid
   }
 }

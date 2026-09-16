@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { getTransportCrypto as getBrowserCrypto } from './transportCryptoProvider.js'
 
 import {
   ensureTransportCryptoPolicyLoaded,
@@ -26,19 +27,6 @@ const KEY_REFRESH_BUFFER_MIN_SECONDS = 30
 const KEY_REFRESH_BUFFER_MAX_SECONDS = 300
 const TRANSPORT_KEY_META_CACHE_KEY = 'transportCryptoKeyMeta'
 const TRANSPORT_RETRYABLE_ERROR_MESSAGES = new Set(['Decryption failed', '密钥版本不存在'])
-
-/**
- * 获取当前浏览器的 Web Crypto 实例。
- *
- * @returns {Crypto} 浏览器加密能力对象
- */
-function getBrowserCrypto() {
-  const browserCrypto = globalThis.crypto
-  if (!browserCrypto?.subtle) {
-    throw new Error('当前浏览器不支持 Web Crypto API')
-  }
-  return browserCrypto
-}
 
 /**
  * 从请求头对象中读取指定字段。
@@ -438,7 +426,7 @@ async function getTransportKeyMeta(forceRefresh = false) {
   if (!forceRefresh && !cachedKeyMeta) {
     const persistedKeyMeta = cache.session.getJSON(TRANSPORT_KEY_META_CACHE_KEY)
     if (isUsableKeyMeta(persistedKeyMeta, nowTimestamp)) {
-      const browserCrypto = getBrowserCrypto()
+      const browserCrypto = await getBrowserCrypto()
       const cryptoKey = await browserCrypto.subtle.importKey(
         'spki',
         pemToArrayBuffer(persistedKeyMeta.publicKeyPem),
@@ -470,7 +458,7 @@ async function getTransportKeyMeta(forceRefresh = false) {
     const fetchedAt = getNowTimestamp()
     validateTransportPublicKeyResponse(responsePayload)
     validateTransportPublicKeyPayload(payload, transportPolicy)
-    const browserCrypto = getBrowserCrypto()
+    const browserCrypto = await getBrowserCrypto()
     const cryptoKey = await browserCrypto.subtle.importKey(
       'spki',
       pemToArrayBuffer(payload.publicKey),
@@ -512,7 +500,7 @@ async function getTransportKeyMeta(forceRefresh = false) {
  * @returns {Promise<Object>} 请求级传输上下文
  */
 async function buildTransportContext() {
-  const browserCrypto = getBrowserCrypto()
+  const browserCrypto = await getBrowserCrypto()
   const keyMeta = await getTransportKeyMeta()
   const aesKey = await browserCrypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt'])
   const rawAesKey = new Uint8Array(await browserCrypto.subtle.exportKey('raw', aesKey))
@@ -537,7 +525,7 @@ async function buildTransportContext() {
  * @returns {Promise<Object>} 加密信封
  */
 async function encryptPayloadText(context, plainText, aad) {
-  const browserCrypto = getBrowserCrypto()
+  const browserCrypto = await getBrowserCrypto()
   const iv = browserCrypto.getRandomValues(new Uint8Array(12))
   const ciphertext = new Uint8Array(
     await browserCrypto.subtle.encrypt(
@@ -567,7 +555,7 @@ async function encryptPayloadText(context, plainText, aad) {
  * @returns {Promise<string>} 解密后的明文
  */
 async function decryptEnvelope(envelope, context) {
-  const browserCrypto = getBrowserCrypto()
+  const browserCrypto = await getBrowserCrypto()
   const decryptedBytes = await browserCrypto.subtle.decrypt(
     {
       name: 'AES-GCM',
