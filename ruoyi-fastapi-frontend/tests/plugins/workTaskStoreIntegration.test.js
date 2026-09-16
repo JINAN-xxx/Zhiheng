@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import { createPinia, defineStore, setActivePinia } from 'pinia'
+import { v4 as uuidv4 } from 'uuid'
 import * as workUtils from '../../plugins/agent_extension/utils/workTask.js'
 import * as workSession from '../../plugins/agent_extension/utils/workTaskSession.js'
 
@@ -34,6 +35,7 @@ function actualStore(api) {
     ...workUtils,
     ...workSession,
     defineStore,
+    uuidv4,
     crypto: globalThis.crypto,
     AbortController,
     DOMException,

@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid'
 import {
   addWorkTaskMember,
   cancelWorkTaskRun,
@@ -302,7 +303,7 @@ const useWorkTaskStore = defineStore('workTask', {
       }
       return { applied: true, observe: false }
     },
-    async runMessage({ agentId, message, clientMessageId = crypto.randomUUID(), retryKind = 'fresh' }) {
+    async runMessage({ agentId, message, clientMessageId = uuidv4(), retryKind = 'fresh' }) {
       if (!this.currentTask || this.runLocked) throw new Error('当前工作仍在执行，请稍候')
       const taskId = this.currentTask.taskId
       this.workflow.currentTask = this.currentTask
@@ -364,7 +365,7 @@ const useWorkTaskStore = defineStore('workTask', {
       if (!this.retryAttempt) return false
       const attempt = {
         ...this.retryAttempt,
-        clientMessageId: confirmedFailed ? crypto.randomUUID() : this.retryAttempt.clientMessageId,
+        clientMessageId: confirmedFailed ? uuidv4() : this.retryAttempt.clientMessageId,
         retryKind: confirmedFailed ? 'failed' : 'uncertain',
       }
       return this.runMessage(attempt)

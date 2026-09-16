@@ -136,6 +136,7 @@
 
 <script setup name="AiChat">
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { v4 as uuidv4 } from 'uuid';
 import {
   InboxOutlined,
   PauseCircleOutlined,
@@ -317,7 +318,7 @@ async function send() {
   if (!message || !modelId.value || loading.value || sessionLoading.value || isArchived.value) return;
   const nextState = beginSend({ runId: runId.value, status: runState.value });
   runId.value = nextState.runId;
-  const clientMessageId = crypto.randomUUID();
+  const clientMessageId = uuidv4();
   const outgoingImages = imageIds.value.map((fileId) => ({ fileId }));
   const outgoingSkills = selectedSkills.value.map((skill) => ({ ...skill }))
   const skillSnapshots = outgoingSkills.map((skill) => ({ slug: skill.skillSlug, name: skill.skillName }))

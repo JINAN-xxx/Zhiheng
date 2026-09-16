@@ -19,6 +19,20 @@ const draft = {
   activeAgentId: 'agent-1',
 }
 
+// Public HTTP origins retain getRandomValues but do not expose randomUUID.
+const nativeUuidDescriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID')
+try {
+  Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined })
+  const httpState = createWorkTaskState()
+  const firstId = httpState.prepareCreate(draft).clientMessageId
+  const nextId = httpState.prepareCreate({ ...draft, goal: '另一个工作' }).clientMessageId
+  assert.match(firstId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  assert.notEqual(nextId, firstId)
+} finally {
+  if (nativeUuidDescriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', nativeUuidDescriptor)
+  else delete globalThis.crypto.randomUUID
+}
+
 assert.deepEqual(buildCreateWorkTaskPayload({ ...draft, clientMessageId: 'create-1', ignored: true }), {
   goal: '整理发布资料',
   agentIds: ['agent-1', 'agent-2'],

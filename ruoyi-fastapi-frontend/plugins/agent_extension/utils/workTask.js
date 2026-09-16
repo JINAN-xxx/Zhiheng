@@ -1,3 +1,5 @@
+import { v4 as uuidv4 } from 'uuid'
+
 const WORK_STATUSES = new Set(['active', 'completed', 'archived'])
 const RUNNING_STATES = new Set(['pending', 'streaming', 'observing', 'cancelling'])
 
@@ -108,7 +110,7 @@ const createSignature = (draft) => JSON.stringify({
   activeAgentId: draft.activeAgentId || null,
 })
 
-export function createWorkTaskState({ createId = () => crypto.randomUUID() } = {}) {
+export function createWorkTaskState({ createId = uuidv4 } = {}) {
   return {
     tasks: [],
     currentTask: null,
