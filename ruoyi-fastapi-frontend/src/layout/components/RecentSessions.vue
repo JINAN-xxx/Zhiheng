@@ -24,7 +24,7 @@
     </p>
     <p v-else-if="error" class="recent-sessions__error" role="alert">{{ error }}</p>
 
-    <a-spin :spinning="loading" class="recent-sessions__loading">
+    <a-spin :spinning="loading" wrapper-class-name="recent-sessions__loading">
       <div class="recent-sessions__list">
       <div
         v-for="session in filteredSessions"
@@ -130,7 +130,7 @@ function formatTime(value) {
 .recent-sessions__error { margin: 0; padding: 8px; border-radius: var(--workspace-radius-sm); font-size: 12px; }
 .recent-sessions__stale { color: var(--workspace-warning); background: var(--workspace-warning-soft); }
 .recent-sessions__error { color: var(--workspace-danger); background: var(--workspace-danger-soft); }
-.recent-sessions__list { min-height: 0; flex: 1; overflow-y: auto; }
+.recent-sessions__list { min-height: 0; height: 100%; flex: 1; overflow-y: auto; }
 .recent-sessions__loading { min-height: 0; flex: 1; overflow: hidden; }
 .recent-sessions__loading :deep(.ant-spin-container) { height: 100%; }
 .recent-session { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; padding: 7px 6px 7px 9px; border-radius: var(--workspace-radius-sm); }
