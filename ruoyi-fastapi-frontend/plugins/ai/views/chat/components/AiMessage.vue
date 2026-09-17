@@ -67,7 +67,7 @@ const props = defineProps({
   },
 });
 
-const isReasoningExpanded = ref(true);
+const isReasoningExpanded = ref(false);
 
 const isThinkingComplete = computed(() => {
   return !!props.content;

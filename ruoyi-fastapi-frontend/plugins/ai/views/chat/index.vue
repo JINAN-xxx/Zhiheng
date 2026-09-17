@@ -3,7 +3,7 @@
     <main class="chat-workspace">
       <header class="chat-toolbar">
         <div>
-          <WorkspaceStatus :status="runState" :label="stateLabel" />
+          <WorkspaceStatus v-if="stateLabel" :status="runState" :label="stateLabel" />
         </div>
         <div class="toolbar-actions">
           <a-select
@@ -219,7 +219,7 @@ function defaultPreferences() {
   };
 }
 
-const stateLabel = computed(() => ({ idle: "就绪", connecting: "连接中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || "就绪"));
+const stateLabel = computed(() => ({ connecting: "连接中", streaming: "生成中", completed: "已完成", cancelled: "已取消", interrupted: "已中断", failed: "失败" }[runState.value] || ""));
 const modelOptions = computed(() => resolveChatModelOptions(models.value))
 const uploadSettings = computed(() => ({ ...preferences, model: models.value.find(model => model.modelId === modelId.value) }))
 const imageHint = computed(() => chatImageHint(uploadSettings.value))

@@ -1,6 +1,6 @@
 # 模型连接地址复用与诊断修复
 
-本版修复硅基流动等 OpenAI 兼容服务在复用已有凭据时丢失服务地址、混选不同服务商及失败提示不明确的问题。运维入口为 `data/agent-releases/20260917-model-connection-fix/manage.sh`，后端镜像为 `ruoyi-backend-pg:model-connection-fix-20260917`。
+本版修复硅基流动等 OpenAI 兼容服务在复用已有凭据时丢失服务地址、混选不同服务商及失败提示不明确的问题。运维入口为 `data/agent-releases/20260917-model-connection-fix/manage.sh`，后端镜像为 `ruoyi-backend-pg:model-connection-fix-20260917`。后续前端更新见 [聊天默认显示调整](2026-09-17-chat-display-defaults.md)。
 
 ## 根因与处理
 
