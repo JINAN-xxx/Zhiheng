@@ -466,6 +466,7 @@ def test_credential_list_accepts_documented_and_real_litellm_top_level_shapes(to
         {
             'credentialName': 'openai-main',
             'provider': 'openai',
+            'connectionProfile': None,
             'referencedDeploymentCount': 2,
             'createdAt': '2026-08-11T10:00:00Z',
             'updatedAt': '2026-08-12T11:30:00Z',
@@ -488,6 +489,7 @@ def test_credential_list_accepts_bare_list_without_opening_other_normalizers() -
         {
             'credentialName': 'openai-main',
             'provider': 'openai',
+            'connectionProfile': None,
             'referencedDeploymentCount': None,
             'createdAt': None,
             'updatedAt': None,
@@ -535,6 +537,7 @@ def test_real_litellm_credential_shape_extracts_provider_only_from_safe_info() -
         {
             'credentialName': 'bedrock-main',
             'provider': 'bedrock',
+            'connectionProfile': None,
             'referencedDeploymentCount': None,
             'createdAt': None,
             'updatedAt': None,
@@ -564,6 +567,7 @@ def test_credential_list_accepts_provider_inferred_from_unique_deployment_refere
         {
             'credentialName': 'siliconflow-embedding',
             'provider': 'openai',
+            'connectionProfile': None,
             'referencedDeploymentCount': None,
             'createdAt': None,
             'updatedAt': None,
@@ -871,7 +875,7 @@ def test_credential_payload_uses_dynamic_provider_and_explicit_allowlist(
 
     assert payload == {
         'credential_name': 'openai-main',
-        'credential_info': {'custom_llm_provider': 'openai'},
+        'credential_info': {'custom_llm_provider': 'openai', 'provider': 'OpenAI'},
         'credential_values': {'api_key': 'private-api-key', 'organization': 'org-123'},
     }
 
@@ -887,7 +891,7 @@ def test_credential_rotate_payload_cannot_extend_credential_info(
 
     assert payload == {
         'credential_name': 'openai-main',
-        'credential_info': {'custom_llm_provider': 'openai'},
+        'credential_info': {'custom_llm_provider': 'openai', 'provider': 'OpenAI'},
         'credential_values': {'api_key': 'private-api-key'},
     }
 
@@ -961,7 +965,7 @@ def test_credential_rotate_allows_partial_required_field_merge() -> None:
 
     assert payload == {
         'credential_name': 'oci-main',
-        'credential_info': {'custom_llm_provider': 'oci'},
+        'credential_info': {'custom_llm_provider': 'oci', 'provider': 'Oracle'},
         'credential_values': {'oci_key': secret},
     }
 
@@ -1281,7 +1285,7 @@ def test_connection_and_status_models_are_camel_case_whitelists() -> None:
     )
 
     assert 'private-api-key' not in repr(connection)
-    assert dump_alias(result) == {'success': True, 'latencyMs': 12.5, 'message': '连接成功'}
+    assert dump_alias(result) == {'success': True, 'latencyMs': 12.5, 'message': '连接成功', 'failureReason': None}
     assert dump_alias(status) == {
         'runtimeConfigured': True,
         'runtimeAvailable': True,
@@ -1446,8 +1450,13 @@ def test_connection_result_only_trusts_fixed_status_and_never_echoes_result() ->
     )
 
     assert isinstance(success, vo.ConnectionTestResultModel)
-    assert dump_alias(success) == {'success': True, 'latencyMs': 12.5, 'message': '连接测试成功'}
-    assert dump_alias(failure) == {'success': False, 'latencyMs': 8.25, 'message': '连接测试失败'}
+    assert dump_alias(success) == {'success': True, 'latencyMs': 12.5, 'message': '连接测试成功', 'failureReason': None}
+    assert dump_alias(failure) == {
+        'success': False,
+        'latencyMs': 8.25,
+        'message': '连接测试失败，请检查模型类型、名称和连接配置',
+        'failureReason': 'unknown',
+    }
     assert secret not in repr((success, failure))
 
 

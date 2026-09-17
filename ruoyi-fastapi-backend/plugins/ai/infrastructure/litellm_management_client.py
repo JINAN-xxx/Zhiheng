@@ -91,6 +91,49 @@ class LiteLLMManagementClient:
         del path, model_alias
         return await operation
 
+    async def list_all_deployments(self) -> Mapping[str, object]:
+        """Read every page before returning any deployment used for connection resolution."""
+        outcome = await self._collect_deployment_pages()
+        return await _unwrap_request_outcome(outcome)
+
+    async def _collect_deployment_pages(self) -> _RequestOutcome:
+        rows: list[object] = []
+        seen_ids: set[str] = set()
+        expected_total: int | None = None
+        page_size = 50
+        try:
+            for page in range(1, 1001):
+                payload = await self._request_json('GET', f'/v2/model/info?page={page}&size={page_size}')
+                data = payload.get('data')
+                total = payload.get('total_count')
+                pages = payload.get('total_pages')
+                if (
+                    not isinstance(data, list)
+                    or type(total) is not int
+                    or total < 0
+                    or type(pages) is not int
+                    or pages != (total + page_size - 1) // page_size
+                    or type(payload.get('current_page')) is not int
+                    or payload['current_page'] != page
+                    or payload.get('size', page_size) != page_size
+                    or (expected_total is not None and total != expected_total)
+                    or len(data) != min(page_size, max(total - len(rows), 0))
+                ):
+                    return _RequestOutcome(failure=LiteLLMManagementUpstreamInvalidError)
+                expected_total = total
+                for row in data:
+                    info = row.get('model_info') if isinstance(row, Mapping) else None
+                    identifier = info.get('id') if isinstance(info, Mapping) else None
+                    if not isinstance(identifier, str) or not identifier or identifier in seen_ids:
+                        return _RequestOutcome(failure=LiteLLMManagementUpstreamInvalidError)
+                    seen_ids.add(identifier)
+                rows.extend(data)
+                if len(rows) == total:
+                    return _RequestOutcome(failure=None, payload={'data': rows})
+            return _RequestOutcome(failure=LiteLLMManagementUpstreamInvalidError)
+        except LiteLLMManagementError as error:
+            return _RequestOutcome(failure=type(error))
+
     async def model_deployment_exists(self, alias: str) -> bool:
         operation = self._request_json('GET', f'/v2/model/info?model={quote(alias, safe="")}')
         result = await operation

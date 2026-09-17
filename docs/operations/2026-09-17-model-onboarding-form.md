@@ -1,6 +1,6 @@
 # 模型接入单页表单发布
 
-现有 8060 平台的模型接入已改为单页抽屉。当前运维入口为 `data/agent-releases/20260917-model-onboarding-form/manage.sh`；后端镜像 `ruoyi-backend-pg:model-onboarding-form-20260917` 基于上一版自动授权修复增量构建。
+现有 8060 平台的模型接入已改为单页抽屉。本版运维入口为 `data/agent-releases/20260917-model-onboarding-form/manage.sh`；后端镜像 `ruoyi-backend-pg:model-onboarding-form-20260917` 基于上一版自动授权修复增量构建。后续更新见 [连接地址复用与诊断修复](2026-09-17-model-connection-fix.md)。
 
 ## 用户流程
 

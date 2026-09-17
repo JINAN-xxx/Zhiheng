@@ -95,7 +95,7 @@ def provider_payload() -> dict[str, object]:
 def credential_payload(*, upstream_count: int | None = None) -> dict[str, object]:
     item: dict[str, object] = {
         'credential_name': CREDENTIAL_NAME,
-        'credential_info': {'custom_llm_provider': 'openai'},
+        'credential_info': {'custom_llm_provider': 'openai', 'provider': 'OpenAI'},
         'credential_values': {'api_key': 'must-never-leak'},
     }
     if upstream_count is not None:
@@ -180,6 +180,9 @@ class FakeManagementClient:
 
     async def list_deployments(self, model_alias: str | None = None) -> Mapping[str, object]:
         return await self._result('list_deployments', model_alias)
+
+    async def list_all_deployments(self) -> Mapping[str, object]:
+        return await self._result('list_deployments')
 
     async def create_deployment(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         return await self._result('create_deployment', payload)
@@ -271,11 +274,13 @@ async def test_service_uses_provider_mapping_and_exact_safe_write_payloads() -> 
             'create_credential',
             {
                 'credential_name': CREDENTIAL_NAME,
-                'credential_info': {'custom_llm_provider': 'openai'},
+                'credential_info': {'custom_llm_provider': 'openai', 'provider': 'OpenAI'},
                 'credential_values': {'api_key': 'private-key'},
             },
         ),
         ('list_provider_fields', None),
+        ('list_deployments', None),
+        ('list_credentials', None),
         (
             'create_deployment',
             {
@@ -285,6 +290,7 @@ async def test_service_uses_provider_mapping_and_exact_safe_write_payloads() -> 
                     'custom_llm_provider': 'openai',
                     'litellm_credential_name': CREDENTIAL_NAME,
                     'max_retries': 2,
+                    'api_base': 'https://api.openai.com/v1',
                 },
                 'model_info': {},
             },
@@ -368,6 +374,15 @@ async def test_credential_delete_uses_fresh_count_and_returns_sanitized_conflict
     (
         ('deployment_not_found', 404, 'MODEL_ENGINE_DEPLOYMENT_NOT_FOUND', '引擎部署不存在'),
         ('invalid_request', 422, 'MODEL_ENGINE_REQUEST_INVALID', '模型引擎请求校验失败'),
+        ('connection_missing', 422, 'MODEL_ENGINE_CONNECTION_MISSING', '所选连接缺少可确定的服务地址，请新建完整连接'),
+        (
+            'connection_conflict',
+            409,
+            'MODEL_ENGINE_CONNECTION_CONFLICT',
+            '所选连接引用了多个服务地址，请新建明确指定地址的连接',
+        ),
+        ('connection_invalid', 422, 'MODEL_ENGINE_CONNECTION_INVALID', '所选连接的服务地址无效，请检查连接配置'),
+        ('provider_mismatch', 422, 'MODEL_ENGINE_PROVIDER_MISMATCH', '所选连接不属于当前服务商，请重新选择连接'),
     ),
 )
 def test_model_engine_errors_have_fixed_immutable_contracts(
@@ -528,6 +543,7 @@ async def test_connection_test_forwards_selected_type_and_returns_only_fixed_san
         'success': True,
         'latencyMs': 0.0,
         'message': '连接测试成功',
+        'failureReason': None,
     }
     assert 'connection-secret' not in repr(result)
     assert client.calls[-1] == (
@@ -564,7 +580,8 @@ async def test_connection_test_maps_http_200_error_status_without_upstream_resul
     assert result.model_dump(by_alias=True) == {
         'success': False,
         'latencyMs': 0.0,
-        'message': '连接测试失败',
+        'message': '连接测试失败，请检查模型类型、名称和连接配置',
+        'failureReason': 'unknown',
     }
     assert 'provider rejected' not in repr(result)
     assert 'connection-secret' not in repr(result)

@@ -16,7 +16,7 @@ BASE_URL = os.environ.get('MODEL_ONBOARDING_BASE_URL', 'http://127.0.0.1:12580')
 class Fixture:
     def __init__(self, *, saved=True):
         self.calls = []
-        self.credentials = [{'credentialName': 'openai-saved', 'provider': 'openai'}] if saved else []
+        self.credentials = [{'credentialName': 'openai-saved', 'provider': 'openai', 'connectionProfile': {'status': 'ready', 'apiBase': 'https://api.openai.com/v1', 'providerIds': ['OpenAI', 'CUSTOM_OPENAI']}}] if saved else []
         self.deployments = []
         self.models = []
         self.fail_publish = False
@@ -40,7 +40,7 @@ class Fixture:
                 self.pending_read_failure = None
                 return {'code': 500, 'msg': '模拟核对失败'}
             if method == 'POST':
-                self.credentials.append({'credentialName': body['credentialName'], 'provider': 'openai'})
+                self.credentials.append({'credentialName': body['credentialName'], 'provider': 'openai', 'connectionProfile': {'status': 'ready', 'apiBase': 'https://api.openai.com/v1', 'providerIds': ['OpenAI', 'CUSTOM_OPENAI']}})
                 if 'credential' in self.lose_responses:
                     self.lose_responses.remove('credential')
                     if self.fail_confirmation_for == 'credential':

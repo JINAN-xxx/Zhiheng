@@ -6,6 +6,7 @@ from types import MappingProxyType
 from typing import ClassVar, NoReturn, Protocol, TypeVar
 
 from plugins.ai.entity.vo.ai_model_engine_vo import (
+    ConnectionProfileModel,
     ConnectionTestRequestModel,
     ConnectionTestResultModel,
     CredentialCreateModel,
@@ -22,6 +23,11 @@ from plugins.ai.infrastructure.litellm_management_errors import (
     LiteLLMManagementMisconfiguredError,
     LiteLLMManagementUpstreamInvalidError,
 )
+from plugins.ai.infrastructure.model_connection_resolver import (
+    resolve_credential_connections,
+    resolve_deployment_connection,
+    safe_api_base,
+)
 
 ResultT = TypeVar('ResultT')
 Clock = Callable[[], datetime]
@@ -31,8 +37,20 @@ _ENGINE_ERROR_CONTRACTS = (
     (409, 'MODEL_ENGINE_CREDENTIAL_IN_USE'),
     (404, 'MODEL_ENGINE_DEPLOYMENT_NOT_FOUND'),
     (422, 'MODEL_ENGINE_REQUEST_INVALID'),
+    (422, 'MODEL_ENGINE_CONNECTION_MISSING'),
+    (409, 'MODEL_ENGINE_CONNECTION_CONFLICT'),
+    (422, 'MODEL_ENGINE_CONNECTION_INVALID'),
+    (422, 'MODEL_ENGINE_PROVIDER_MISMATCH'),
 )
-_ENGINE_ERROR_NAMES = ('credential_in_use', 'deployment_not_found', 'invalid_request')
+_ENGINE_ERROR_NAMES = (
+    'credential_in_use',
+    'deployment_not_found',
+    'invalid_request',
+    'connection_missing',
+    'connection_conflict',
+    'connection_invalid',
+    'provider_mismatch',
+)
 _ENGINE_ERROR_VIEW = MappingProxyType(dict(zip(_ENGINE_ERROR_NAMES, _ENGINE_ERROR_CONTRACTS, strict=True)))
 _ENGINE_ERROR_CONSTRUCTION_TOKEN = object()
 _HEALTHY_LIVELINESS_STATUSES = frozenset({"I'm alive!", 'healthy', 'ok'})
@@ -56,6 +74,8 @@ class ManagementClient(Protocol):
     async def delete_credential(self, credential_name: str) -> Mapping[str, object]: ...
 
     async def list_deployments(self, *, model_alias: str | None = None) -> Mapping[str, object]: ...
+
+    async def list_all_deployments(self) -> Mapping[str, object]: ...
 
     async def create_deployment(self, payload: Mapping[str, object]) -> Mapping[str, object]: ...
 
@@ -174,7 +194,13 @@ class ModelEngineServiceError(Exception):
             return f'凭据正被 {reference_count} 个部署引用，不能删除'
         if kind_index == 1:
             return '引擎部署不存在'
-        return '模型引擎请求校验失败'
+        return {
+            2: '模型引擎请求校验失败',
+            3: '所选连接缺少可确定的服务地址，请新建完整连接',
+            4: '所选连接引用了多个服务地址，请新建明确指定地址的连接',
+            5: '所选连接的服务地址无效，请检查连接配置',
+            6: '所选连接不属于当前服务商，请重新选择连接',
+        }[kind_index]
 
     def __str__(self) -> str:
         return self.public_message
@@ -204,6 +230,22 @@ class ModelEngineServiceError(Exception):
     def invalid_request() -> 'ModelEngineServiceError':
         return _new_model_engine_error(2)
 
+    @staticmethod
+    def connection_missing() -> 'ModelEngineServiceError':
+        return _new_model_engine_error(3)
+
+    @staticmethod
+    def connection_conflict() -> 'ModelEngineServiceError':
+        return _new_model_engine_error(4)
+
+    @staticmethod
+    def connection_invalid() -> 'ModelEngineServiceError':
+        return _new_model_engine_error(5)
+
+    @staticmethod
+    def provider_mismatch() -> 'ModelEngineServiceError':
+        return _new_model_engine_error(6)
+
 
 class LiteLLMDeploymentReferenceQuery:
     """每次调用都从 LiteLLM 当前 Deployment 列表重算凭据引用。"""
@@ -220,7 +262,11 @@ class LiteLLMDeploymentReferenceQuery:
         client = self._client
         if client is None or not _management_configured(client):
             raise LiteLLMManagementMisconfiguredError
-        deployments = await _load_deployments(client, self._adapter)
+        payload = await client.list_all_deployments()
+        try:
+            deployments = self._adapter.normalize_deployments(payload)
+        finally:
+            del payload
         counts: dict[str, int] = {}
         for deployment in deployments:
             if deployment.credential_name is not None:
@@ -254,8 +300,9 @@ class ModelEngineService:
 
     async def list_credentials(self) -> list[CredentialSummaryModel]:
         client = self._require_configured_client()
+        providers = await _load_providers(client, self._adapter)
         credentials, counts = await asyncio.gather(
-            _load_credentials(client, self._adapter),
+            _load_connection_credentials(client, providers),
             self._deployment_reference_query.reference_counts(),
         )
         return [
@@ -310,7 +357,9 @@ class ModelEngineService:
     async def create_deployment(self, request: DeploymentCreateModel) -> DeploymentModel:
         client = self._require_configured_client()
         providers = await _load_providers(client, self._adapter)
+        profile = await self._saved_connection(request.credential_name, request.provider, providers)
         payload = self._build_payload(self._adapter.build_deployment_create_payload, request, providers)
+        _apply_connection_address(payload, profile)
         operation = client.create_deployment(payload)
         del payload
         result = await operation
@@ -326,9 +375,13 @@ class ModelEngineService:
     ) -> None:
         client = self._require_configured_client()
         providers: Sequence[ProviderModel] = ()
-        if 'provider' in request.model_fields_set:
+        profile = None
+        if {'provider', 'credential_name'} & request.model_fields_set:
             providers = await _load_providers(client, self._adapter)
+            profile = await self._updated_connection(deployment_id, request, providers)
         payload = self._build_payload(self._adapter.build_deployment_update_payload, request, providers)
+        if profile is not None:
+            _apply_connection_address(payload, profile)
         operation = client.update_deployment(deployment_id, payload)
         del deployment_id, request, providers, payload
         await operation
@@ -340,7 +393,13 @@ class ModelEngineService:
     async def test_connection(self, request: ConnectionTestRequestModel) -> ConnectionTestResultModel:
         client = self._require_configured_client()
         providers = await _load_providers(client, self._adapter)
+        profile = None
+        if request.credential_name is not None:
+            profile = await self._saved_connection(request.credential_name, request.provider, providers)
+            _validate_saved_values(request, profile)
         payload = self._build_payload(self._adapter.build_connection_test_payload, request, providers)
+        if profile is not None:
+            _apply_connection_address(payload, profile)
         started_at = self._timer()
         operation = client.test_connection(payload)
         del request, providers, payload
@@ -350,6 +409,46 @@ class ModelEngineService:
             return self._adapter.normalize_connection_test_result(result, latency_ms=latency_ms)
         finally:
             del result
+
+    async def _saved_connection(
+        self,
+        credential_name: str,
+        provider_name: str,
+        providers: Sequence[ProviderModel],
+    ) -> ConnectionProfileModel:
+        credentials = await _load_connection_credentials(self._require_configured_client(), providers)
+        profile = _require_connection_profile(_credential_profile(credentials, credential_name))
+        _validate_connection_provider(profile, provider_name, providers)
+        return profile
+
+    async def _updated_connection(
+        self,
+        deployment_id: str,
+        request: DeploymentUpdateModel,
+        providers: Sequence[ProviderModel],
+    ) -> ConnectionProfileModel:
+        current, credentials, old_profile, has_explicit_address = await _load_connection_update_context(
+            self._require_configured_client(),
+            self._adapter,
+            deployment_id,
+            providers,
+        )
+        credential_name = request.credential_name or current.credential_name
+        profile = _require_connection_profile(_credential_profile(credentials, credential_name))
+        provider_name = request.provider
+        if provider_name is None:
+            previous = _require_connection_profile(old_profile)
+            specific_ids = [value for value in previous.provider_ids if value != 'CUSTOM_OPENAI']
+            if not specific_ids and previous.api_base == profile.api_base:
+                specific_ids = ['CUSTOM_OPENAI']
+            if len(specific_ids) != 1:
+                raise ModelEngineServiceError.provider_mismatch()
+            provider_name = specific_ids[0]
+        _validate_connection_provider(profile, provider_name, providers)
+        # LiteLLM PATCH excludes None; it cannot clear an old api_base with a null value.
+        if profile.api_base is None and has_explicit_address:
+            raise ModelEngineServiceError.connection_missing()
+        return profile
 
     async def get_status(self) -> ModelEngineStatusModel:
         started_at = self._timer()
@@ -405,6 +504,94 @@ class ModelEngineService:
             return builder(*args)
         except ValueError:
             raise ModelEngineServiceError.invalid_request() from None
+
+
+def _credential_profile(
+    credentials: Sequence[CredentialSummaryModel],
+    credential_name: str | None,
+) -> ConnectionProfileModel | None:
+    credential = next((item for item in credentials if item.credential_name == credential_name), None)
+    return credential.connection_profile if credential is not None else None
+
+
+def _require_connection_profile(profile: ConnectionProfileModel | None) -> ConnectionProfileModel:
+    if profile is None or profile.status == 'missing':
+        raise ModelEngineServiceError.connection_missing()
+    if profile.status == 'conflict':
+        raise ModelEngineServiceError.connection_conflict()
+    if profile.status == 'invalid':
+        raise ModelEngineServiceError.connection_invalid()
+    return profile
+
+
+def _validate_connection_provider(
+    profile: ConnectionProfileModel,
+    provider_name: str,
+    providers: Sequence[ProviderModel],
+) -> None:
+    selected = [item for item in providers if item.provider == provider_name]
+    if not selected:
+        selected = [item for item in providers if item.litellm_provider == provider_name]
+    if len(selected) != 1 or selected[0].provider not in profile.provider_ids:
+        raise ModelEngineServiceError.provider_mismatch()
+
+
+async def _load_connection_update_context(
+    client: ManagementClient,
+    adapter: LiteLLMManagementAdapter,
+    deployment_id: str,
+    providers: Sequence[ProviderModel],
+) -> tuple[DeploymentModel, list[CredentialSummaryModel], ConnectionProfileModel, bool]:
+    deployments_payload = await client.list_all_deployments()
+    credentials_payload = None
+    parameters = None
+    try:
+        deployments = adapter.normalize_deployments(deployments_payload)
+        index = next((index for index, item in enumerate(deployments) if item.deployment_id == deployment_id), None)
+        if index is None:
+            raise ModelEngineServiceError.deployment_not_found()
+        current = deployments[index]
+        credentials_payload = await client.list_credentials()
+        credentials = resolve_credential_connections(credentials_payload, deployments_payload, providers)
+        parameters = deployments_payload.get('data', deployments_payload.get('items'))[index]['litellm_params']
+        profile, has_explicit_address = resolve_deployment_connection(
+            current,
+            parameters,
+            _credential_profile(credentials, current.credential_name),
+            providers,
+        )
+        return current, credentials, profile, has_explicit_address
+    finally:
+        del deployments_payload, credentials_payload, parameters
+
+
+def _validate_saved_values(request: ConnectionTestRequestModel, profile: ConnectionProfileModel) -> None:
+    # Saved connection tests may repeat the resolved address, but cannot replace saved authentication.
+    invalid = any(key != 'api_base' for key in request.values)
+    if 'api_base' in request.values:
+        supplied_base = safe_api_base(request.values['api_base'].get_secret_value())
+        invalid = invalid or supplied_base is None or supplied_base != profile.api_base
+    del request, profile
+    if invalid:
+        raise ModelEngineServiceError.connection_conflict()
+
+
+def _apply_connection_address(payload: dict[str, object], profile: ConnectionProfileModel) -> None:
+    if profile.api_base is not None:
+        payload['litellm_params']['api_base'] = profile.api_base
+
+
+async def _load_connection_credentials(
+    client: ManagementClient,
+    providers: Sequence[ProviderModel],
+) -> list[CredentialSummaryModel]:
+    deployments_payload = await client.list_all_deployments()
+    credentials_payload = None
+    try:
+        credentials_payload = await client.list_credentials()
+        return resolve_credential_connections(credentials_payload, deployments_payload, providers)
+    finally:
+        del credentials_payload, deployments_payload
 
 
 async def _load_providers(

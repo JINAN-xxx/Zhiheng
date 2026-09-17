@@ -18,6 +18,7 @@ from plugins.ai.entity.vo.ai_model_engine_vo import (
     ProviderFieldModel,
     ProviderModel,
 )
+from plugins.ai.infrastructure.connection_test_diagnostics import classify_connection_failure
 from plugins.ai.infrastructure.litellm_management_errors import LiteLLMManagementUpstreamInvalidError
 
 ALLOWED_CREDENTIAL_KEYS = frozenset(
@@ -213,11 +214,13 @@ def _normalize_connection_test_result(
         valid_latency, normalized_latency = _safe_optional_number(latency_ms, 0, None)
         if status not in {'success', 'error'} or not valid_latency or normalized_latency is None:
             return _ParseOutcome(value=None)
+        reason, message = (None, '连接测试成功') if status == 'success' else classify_connection_failure(payload)
         return _ParseOutcome(
             value=ConnectionTestResultModel(
                 success=status == 'success',
                 latency_ms=normalized_latency,
-                message='连接测试成功' if status == 'success' else '连接测试失败',
+                message=message,
+                failure_reason=reason,
             )
         )
     except Exception:
@@ -582,7 +585,7 @@ def _build_credential_payload(
         return _CredentialPayloadOutcome(
             payload={
                 'credential_name': credential_name,
-                'credential_info': {'custom_llm_provider': provider.litellm_provider},
+                'credential_info': {'custom_llm_provider': provider.litellm_provider, 'provider': provider.provider},
                 'credential_values': credential_values,
             }
         )

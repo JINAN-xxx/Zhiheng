@@ -47,6 +47,7 @@
             </div>
             <a-form-item v-if="credentialMode === 'existing'" label="已保存连接">
               <a-select v-model:value="selectedCredential" :disabled="inputsDisabled" :options="credentialOptions" show-search option-filter-prop="label" placeholder="选择已保存的连接" />
+              <div v-if="selectedConnection" class="field-description connection-endpoint">服务地址：{{ selectedConnection.connectionProfile.apiBase || '使用服务商默认地址' }}</div>
             </a-form-item>
           </a-form>
           <CredentialForm v-if="credentialMode === 'new'" ref="credentialFormRef" quick embedded
@@ -98,6 +99,7 @@ import {
   normalizeProvider, reconcileDeployment, shouldUpdateBinding,
 } from '../../../utils/modelEngine.js'
 import CredentialForm from './CredentialForm.vue'
+import { connectionFailureMessage } from '../../../utils/connectionDiagnostics.js'
 
 const props = defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue', 'completed'])
@@ -136,14 +138,19 @@ const inputsDisabled = computed(() => bootLoading.value || testLoading.value || 
 const identity = computed(() => buildQuickResourceIdentity({ provider: selectedProvider.value, upstreamModel: form.upstreamModel.trim(), suffix: resourceSuffix.value }))
 const autoCredentialName = computed(() => identity.value.credentialName)
 const providerOptions = computed(() => providers.value.map((item) => ({ label: item.displayName, value: item.provider })))
-const compatibleCredentials = computed(() => credentials.value.filter((item) => isCredentialCompatible(item, selectedProvider.value, providers.value)))
+const compatibleCredentials = computed(() => credentials.value.filter((item) => isCredentialCompatible(item, selectedProvider.value, providers.value, { requireProfile: true })))
+const selectedConnection = computed(() => compatibleCredentials.value.find((item) => item.name === selectedCredential.value))
 const credentialOptions = computed(() => compatibleCredentials.value.map((item) => ({ label: item.name, value: item.name })))
 const credentialModes = computed(() => [
   { label: '使用已有连接', value: 'existing', disabled: !compatibleCredentials.value.length },
   { label: '新建连接', value: 'new' },
 ])
 const typeDescription = computed(() => ({ chat: '用于聊天、内容生成和智能体调用。', embedding: '将文本转换为向量，用于知识库索引与检索。', rerank: '对检索结果重新排序，提高相关性。' })[form.modelType])
-const modelPlaceholder = computed(() => ({ chat: '例如 deepseek-v4-flash', embedding: '例如 Qwen/Qwen3-Embedding-8B', rerank: '例如 BAAI/bge-reranker-v2-m3' })[form.modelType])
+const modelPlaceholder = computed(() => {
+  if (selectedProvider.value === 'OpenAI_Compatible') return { chat: '例如 deepseek-ai/DeepSeek-V4-Pro', embedding: '例如 Qwen/Qwen3-Embedding-8B', rerank: '例如 BAAI/bge-reranker-v2-m3' }[form.modelType]
+  if (selectedProvider.value === 'Deepseek' && form.modelType === 'chat') return '例如 deepseek-v4-pro'
+  return { chat: '填写当前服务商的完整模型名称', embedding: '填写向量模型的完整名称', rerank: '填写重排序模型的完整名称' }[form.modelType]
+})
 
 function invalidateTest() {
   configurationRevision += 1
@@ -234,11 +241,14 @@ async function testConnection() {
       failureMessage.value = '连接配置已变化，请重新测试'
       return
     }
-    if (!response?.data?.success) throw new Error('连接测试失败，请检查模型类型、名称和连接配置')
+    if (!response?.data?.success) {
+      failureMessage.value = connectionFailureMessage(response?.data)
+      return
+    }
     latencyMs.value = response.data.latencyMs ?? null
     connectionTested.value = true
-  } catch {
-    if (requestGate.isCurrent(generation)) failureMessage.value = '连接测试失败，请检查模型类型、名称和连接配置后重试'
+  } catch (error) {
+    if (requestGate.isCurrent(generation)) failureMessage.value = connectionFailureMessage(null, error)
   } finally { if (requestGate.isCurrent(generation)) testLoading.value = false }
 }
 
@@ -253,10 +263,10 @@ async function findSavedCredential(config, generation) {
   checkCurrent(generation)
   const found = (response?.data || []).map(normalizeCredential).find((item) => item.name === config.credentialPayload.credentialName)
   if (!found) return false
-  if (!isCredentialCompatible(found, config.provider, providers.value)) throw new OnboardingError('自动生成的连接名称发生冲突，请重新打开接入表单')
+  if (!isCredentialCompatible(found, config.provider, providers.value, { requireProfile: true })) throw new OnboardingError('已保存连接的服务地址与当前服务商不一致，请检查连接配置')
   const tested = await testEngineConnection(testPayload(config, found.name))
   checkCurrent(generation)
-  if (!tested?.data?.success) throw new OnboardingError('已保存连接的测试未通过，请检查凭据管理中的配置')
+  if (!tested?.data?.success) throw new OnboardingError(connectionFailureMessage(tested?.data))
   resources.credential = { name: found.name, created: true }
   return true
 }
@@ -392,6 +402,7 @@ onBeforeUnmount(invalidateRequests)
 .model-type-options { display: flex; }
 .model-type-options :deep(.ant-radio-button-wrapper) { flex: 1; text-align: center; }
 .field-description { margin-top: 8px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
+.connection-endpoint { overflow-wrap: anywhere; }
 .onboarding-form :deep(.ant-input-number) { width: 100%; }
 .onboarding-form :deep(.engine-form) { padding: 0; }
 .onboarding-form :deep(.ant-form-item-label > label) { color: var(--color-text); }

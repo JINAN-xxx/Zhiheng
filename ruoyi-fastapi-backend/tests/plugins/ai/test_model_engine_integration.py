@@ -81,7 +81,7 @@ CREDENTIAL_REQUEST = {
 }
 CREDENTIAL_BODY = {
     'credential_name': 'openai-main',
-    'credential_info': {'custom_llm_provider': 'openai'},
+    'credential_info': {'custom_llm_provider': 'openai', 'provider': 'OpenAI'},
     'credential_values': {'api_key': PRIVATE_API_KEY, 'organization': 'org-123'},
 }
 DEPLOYMENT_REQUEST = {
@@ -102,6 +102,7 @@ DEPLOYMENT_BODY = {
         'model': 'openai/gpt-4.1-mini',
         'custom_llm_provider': 'openai',
         'litellm_credential_name': 'openai-main',
+        'api_base': 'https://api.openai.com/v1',
         'timeout': 30.5,
         'stream_timeout': 45.0,
         'max_retries': 2,
@@ -121,6 +122,7 @@ CONNECTION_BODY = {
         'model': 'openai/gpt-4.1-mini',
         'custom_llm_provider': 'openai',
         'litellm_credential_name': 'openai-main',
+        'api_base': 'https://api.openai.com/v1',
     },
     'model_info': {},
 }
@@ -328,7 +330,25 @@ class RecordedLiteLLM:
 
         assert authorization == f'Bearer {MANAGEMENT_KEY}'
         assert authorization != f'Bearer {RUNTIME_KEY}'
+        if request.url.path == '/v2/model/info':
+            assert request.method == 'GET'
+            rows = [
+                {**item, 'model_info': {**item['model_info'], 'id': identifier}}
+                for identifier, item in self.deployments.items()
+            ]
+            return httpx.Response(
+                200,
+                json={
+                    'data': rows,
+                    'total_count': len(rows),
+                    'current_page': 1,
+                    'total_pages': 1 if rows else 0,
+                    'size': 50,
+                },
+            )
         if request.url.path == '/credentials':
+            if request.method == 'GET':
+                return httpx.Response(200, json={'credentials': list(self.credentials.values())})
             assert request.method == 'POST'
             assert body == CREDENTIAL_BODY
             if self.credential_failures:
@@ -363,7 +383,7 @@ class RecordedLiteLLM:
         assert request.headers['user-agent'] == LiteLLMManagementClient.USER_AGENT
         assert 'request-id' not in request.headers
         assert 'trace-id' not in request.headers
-        assert request.url.query == b''
+        assert dict(request.url.params) == ({'page': '1', 'size': '50'} if request.url.path == '/v2/model/info' else {})
 
         full_url = str(request.url)
         headers = tuple(request.headers.multi_items())
@@ -538,6 +558,7 @@ async def test_full_control_plane_flow_uses_exact_management_contract_and_safe_s
             'success': True,
             'latencyMs': EXPECTED_LATENCY_MS,
             'message': '连接测试成功',
+            'failureReason': None,
         }
         assert model.model_dump(by_alias=True, mode='json') == {
             'modelId': model.model_id,
@@ -612,6 +633,20 @@ async def test_full_control_plane_flow_uses_exact_management_contract_and_safe_s
                 'transactionActive': False,
             },
             {
+                'method': 'GET',
+                'path': '/v2/model/info',
+                'authorization': f'Bearer {MANAGEMENT_KEY}',
+                'body': None,
+                'transactionActive': False,
+            },
+            {
+                'method': 'GET',
+                'path': '/credentials',
+                'authorization': f'Bearer {MANAGEMENT_KEY}',
+                'body': None,
+                'transactionActive': False,
+            },
+            {
                 'method': 'POST',
                 'path': '/model/new',
                 'authorization': f'Bearer {MANAGEMENT_KEY}',
@@ -622,6 +657,20 @@ async def test_full_control_plane_flow_uses_exact_management_contract_and_safe_s
                 'method': 'GET',
                 'path': '/public/providers/fields',
                 'authorization': None,
+                'body': None,
+                'transactionActive': False,
+            },
+            {
+                'method': 'GET',
+                'path': '/v2/model/info',
+                'authorization': f'Bearer {MANAGEMENT_KEY}',
+                'body': None,
+                'transactionActive': False,
+            },
+            {
+                'method': 'GET',
+                'path': '/credentials',
+                'authorization': f'Bearer {MANAGEMENT_KEY}',
                 'body': None,
                 'transactionActive': False,
             },
@@ -661,7 +710,13 @@ async def test_credential_failure_starts_empty_and_retry_completes_without_compe
         assert published.lifecycle_status == 'active'
         assert harness.litellm.credentials == {'openai-main': CREDENTIAL_BODY}
         assert harness.litellm.deployments == {deployment.deployment_id: DEPLOYMENT_BODY}
-        assert sum(request['path'] == '/credentials' for request in harness.litellm.requests) == TWO_CALLS
+        assert (
+            sum(
+                request['path'] == '/credentials' and request['method'] == 'POST'
+                for request in harness.litellm.requests
+            )
+            == TWO_CALLS
+        )
         assert sum(request['path'] == '/model/new' for request in harness.litellm.requests) == 1
         assert not any(request['method'] == 'DELETE' for request in harness.litellm.requests)
     finally:
@@ -692,7 +747,13 @@ async def test_connection_failure_retains_engine_resources_and_retry_does_not_re
         assert connection.latency_ms == EXPECTED_LATENCY_MS
         assert harness.timer.values == EXPECTED_RETRY_TIMER_VALUES
         assert published.lifecycle_status == 'active'
-        assert sum(request['path'] == '/credentials' for request in harness.litellm.requests) == 1
+        assert (
+            sum(
+                request['path'] == '/credentials' and request['method'] == 'POST'
+                for request in harness.litellm.requests
+            )
+            == 1
+        )
         assert sum(request['path'] == '/model/new' for request in harness.litellm.requests) == 1
         assert sum(request['path'] == '/health/test_connection' for request in harness.litellm.requests) == TWO_CALLS
         assert not any(request['method'] == 'DELETE' for request in harness.litellm.requests)
@@ -735,7 +796,13 @@ async def test_catalog_create_failure_retains_engine_resources_and_retry_does_no
         assert published.lifecycle_status == 'active'
         assert len(harness.model_dao.models) == 1
         assert harness.model_dao.create_calls == TWO_CALLS
-        assert sum(request['path'] == '/credentials' for request in harness.litellm.requests) == 1
+        assert (
+            sum(
+                request['path'] == '/credentials' and request['method'] == 'POST'
+                for request in harness.litellm.requests
+            )
+            == 1
+        )
         assert sum(request['path'] == '/model/new' for request in harness.litellm.requests) == 1
         assert not any(request['method'] == 'DELETE' for request in harness.litellm.requests)
     finally:
@@ -809,7 +876,13 @@ async def test_deployment_failure_retains_credential_and_retry_never_compensates
         assert published.lifecycle_status == 'active'
         assert harness.litellm.credentials == {'openai-main': CREDENTIAL_BODY}
         assert harness.litellm.deployments == {'deployment-1': DEPLOYMENT_BODY}
-        assert sum(request['path'] == '/credentials' for request in harness.litellm.requests) == 1
+        assert (
+            sum(
+                request['path'] == '/credentials' and request['method'] == 'POST'
+                for request in harness.litellm.requests
+            )
+            == 1
+        )
         assert sum(request['path'] == '/model/new' for request in harness.litellm.requests) == TWO_CALLS
         assert not any(request['method'] == 'DELETE' for request in harness.litellm.requests)
     finally:

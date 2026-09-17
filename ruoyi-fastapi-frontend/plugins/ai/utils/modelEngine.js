@@ -247,7 +247,22 @@ export function normalizeCredential(credential) {
     ) ?? 0,
     createdAt: asNullableString(source.createdAt ?? source.created_at),
     updatedAt: asNullableString(source.updatedAt ?? source.updated_at),
+    ...(source.connectionProfile && typeof source.connectionProfile === 'object'
+      ? { connectionProfile: normalizeConnectionProfile(source.connectionProfile) } : {}),
   }
+}
+
+function normalizeConnectionProfile(profile) {
+  let status = ['ready', 'missing', 'conflict', 'invalid'].includes(profile.status) ? profile.status : 'invalid'
+  let apiBase = null
+  if (profile.apiBase != null) {
+    try {
+      const parsed = new URL(profile.apiBase)
+      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('invalid')
+      apiBase = profile.apiBase
+    } catch { status = 'invalid' }
+  }
+  return { status, apiBase, providerIds: Array.isArray(profile.providerIds) ? profile.providerIds.filter((id) => typeof id === 'string') : [] }
 }
 
 function legacyBaseModel(source) {
@@ -282,7 +297,12 @@ export function normalizeDeployment(deployment) {
   }
 }
 
-export function isCredentialCompatible(credential, provider, providers = []) {
+export function isCredentialCompatible(credential, provider, providers = [], { requireProfile = false } = {}) {
+  if (credential?.connectionProfile) {
+    const selectedProvider = resolveProvider(providers, provider)?.provider || provider
+    return credential.connectionProfile.status === 'ready' && credential.connectionProfile.providerIds.includes(selectedProvider)
+  }
+  if (requireProfile) return false
   const engineProvider = providers.length ? resolveEngineProvider(providers, provider) : provider
   return Boolean(engineProvider && credential && credential.provider === engineProvider)
 }

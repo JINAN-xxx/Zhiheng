@@ -129,12 +129,19 @@ class ProviderModel(_StrictResponseModel):
     credential_fields: list[ProviderFieldModel]
 
 
+class ConnectionProfileModel(_StrictResponseModel):
+    status: Literal['ready', 'missing', 'conflict', 'invalid']
+    api_base: str | None = None
+    provider_ids: list[str] = Field(default_factory=list)
+
+
 class CredentialSummaryModel(_StrictResponseModel):
     credential_name: CredentialName
     provider: str
     referenced_deployment_count: NonNegativeInteger | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    connection_profile: ConnectionProfileModel | None = None
 
 
 class CredentialCreateModel(_CredentialWriteRequestModel):
@@ -227,6 +234,21 @@ class ConnectionTestResultModel(_StrictResponseModel):
     success: bool
     latency_ms: NonNegativeFloat | None = None
     message: str
+    failure_reason: (
+        Literal[
+            'timeout',
+            'network',
+            'authentication',
+            'permission',
+            'quota',
+            'rate_limit',
+            'model_not_found',
+            'invalid_request',
+            'upstream_unavailable',
+            'unknown',
+        ]
+        | None
+    ) = None
 
 
 class ModelEngineStatusModel(_StrictResponseModel):

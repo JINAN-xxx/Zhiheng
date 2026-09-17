@@ -36,7 +36,11 @@ CREDENTIAL_NAME_FIELD = RequestLogFieldRoot.PATH_PARAMS.field('credential_name')
 DEPLOYMENT_ID_FIELD = RequestLogFieldRoot.PATH_PARAMS.field('deployment_id')
 COMMAND_RESPONSE_FIELDS = (ResponseLogFieldRoot.CODE.value, ResponseLogFieldRoot.MSG.value)
 DEPLOYMENT_RESPONSE_FIELDS = (*COMMAND_RESPONSE_FIELDS, ResponseLogFieldRoot.DATA.field('deployment_id'))
-CONNECTION_RESPONSE_FIELDS = (*COMMAND_RESPONSE_FIELDS, ResponseLogFieldRoot.DATA.field('success'))
+CONNECTION_RESPONSE_FIELDS = (
+    *COMMAND_RESPONSE_FIELDS,
+    ResponseLogFieldRoot.DATA.field('success'),
+    ResponseLogFieldRoot.DATA.field('failure_reason'),
+)
 
 ai_model_engine_controller = APIRouterPro(
     prefix='/ai/model-engine',
