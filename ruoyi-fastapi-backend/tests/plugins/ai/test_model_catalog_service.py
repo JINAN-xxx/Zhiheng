@@ -27,6 +27,7 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ResourceBindingUpsertModel,
 )
 from plugins.ai.service.model_catalog_service import ModelCatalogService, NoModelReferenceChecker
+from plugins.ai.service.model_service import ModelService
 
 NOW = datetime(2026, 8, 13, 9, 30)
 LATER = datetime(2026, 8, 13, 10, 45)
@@ -289,8 +290,7 @@ class FakeModelDao:
     async def delete_removable_model(cls, db: FakeSession, model_id: str) -> int:
         model = cls.models.get(model_id)
         removable = model is not None and (
-            (model.lifecycle_status == 'draft' and model.published_at is None)
-            or model.lifecycle_status == 'disabled'
+            (model.lifecycle_status == 'draft' and model.published_at is None) or model.lifecycle_status == 'disabled'
         )
         if not removable:
             cls.events.append('delete_removable_model')
@@ -835,10 +835,100 @@ async def test_publish_requires_active_binding_and_runtime_visible_alias() -> No
     binding.engine_resource_id = 'missing-alias'
     with pytest.raises(ServiceException) as invisible_exc:
         await service.publish_model(model.model_id, username='publisher', now=LATER)
-    assert invisible_exc.value.message == '运行时未发现绑定的模型别名'
+    assert '无需填写模型别名' in invisible_exc.value.message
     assert runtime.list_calls == 1
     assert FakeModelDao.models[model.model_id].lifecycle_status == 'draft'
     assert session.rollback_count == FOUR_ROLLBACKS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('visible_after_sync', [True, False])
+async def test_publish_syncs_missing_runtime_access_and_rechecks_visibility(visible_after_sync: bool) -> None:
+    runtime = FakeRuntime()
+    synchronized = []
+
+    class AccessSync:
+        async def ensure_model_access(self, alias: str) -> None:
+            synchronized.append(alias)
+            if visible_after_sync:
+                runtime.model_ids.add(alias)
+
+    service = ModelCatalogService(
+        FakeSession(),
+        runtime,
+        model_dao=FakeModelDao,
+        binding_dao=FakeBindingDao,
+        runtime_access=AccessSync(),
+    )
+    model = await _create_model(service)
+    await _create_binding(service, model.model_id)
+    if visible_after_sync:
+        result = await service.publish_model(model.model_id, username='publisher', now=LATER)
+        assert result.lifecycle_status == 'active'
+    else:
+        with pytest.raises(ServiceException) as error:
+            await service.publish_model(model.model_id, username='publisher', now=LATER)
+        assert '无需填写' in error.value.message
+        assert FakeModelDao.models[model.model_id].lifecycle_status == 'draft'
+    assert synchronized == ['runtime-company-chat']
+    assert runtime.list_calls == TWO_CALLS
+
+
+@pytest.mark.asyncio
+async def test_visible_model_publish_does_not_require_management_access() -> None:
+    class UnexpectedAccessSync:
+        async def ensure_model_access(self, alias: str) -> None:
+            pytest.fail('Already visible models must not modify the runtime key')
+
+    service = ModelCatalogService(
+        FakeSession(),
+        FakeRuntime({'runtime-company-chat'}),
+        model_dao=FakeModelDao,
+        binding_dao=FakeBindingDao,
+        runtime_access=UnexpectedAccessSync(),
+    )
+    model = await _create_model(service)
+    await _create_binding(service, model.model_id)
+    result = await service.publish_model(model.model_id, username='publisher', now=LATER)
+    assert result.lifecycle_status == 'active'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_type', ['chat', 'embedding', 'rerank'])
+async def test_catalog_created_model_resolves_with_empty_defaults(
+    real_database: tuple[AsyncEngine, async_sessionmaker[CommitFailingAsyncSession]],
+    model_type: str,
+) -> None:
+    _, sessions = real_database
+    runtime = FakeRuntime({'runtime-company-chat'})
+    async with sessions() as db:
+        service = ModelCatalogService(db, runtime)
+        model = await service.create_model(
+            ModelCatalogCreateModel.model_validate(
+                {
+                    'modelCode': 'new-model',
+                    'displayName': '新接入模型',
+                    'modelType': model_type,
+                }
+            ),
+            username='admin',
+            now=NOW,
+        )
+        await _create_binding(service, model.model_id)
+        await service.publish_model(model.model_id, username='admin', now=NOW)
+        resolved = await ModelService(db, runtime).resolve_model(model.model_id)
+        assert dict(resolved.default_parameters) == {}
+        stored = await db.get(AiModelCatalog, model.model_id)
+        assert stored.default_parameters == {}
+        await db.rollback()
+        await service.update_model(
+            model.model_id,
+            ModelCatalogUpdateModel.model_validate({'defaultParameters': {'maxTokens': None}}),
+            username='admin',
+            now=NOW,
+        )
+        stored = await db.get(AiModelCatalog, model.model_id)
+        assert stored.default_parameters == {}
 
 
 @pytest.mark.asyncio

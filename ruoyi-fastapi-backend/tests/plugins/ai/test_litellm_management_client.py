@@ -1,3 +1,4 @@
+import hashlib
 import inspect
 import json
 import traceback
@@ -24,6 +25,109 @@ SENSITIVE_DETAIL = (
     'Authorization: Bearer management-secret at '
     'https://proxy.internal/credentials?token=query-secret private-body runtime-secret'
 )
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_access_uses_fixed_hashed_key_and_preserves_other_settings() -> None:
+    key_hash = hashlib.sha256(b'runtime-secret').hexdigest()
+    calls = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers['authorization'] == 'Bearer management-secret'
+        assert not request.url.query
+        body = json.loads(request.content)
+        assert 'runtime-secret' not in request.content.decode()
+        calls.append((request.method, request.url.path, body))
+        if request.url.path == '/v2/key/info':
+            return httpx.Response(200, json={'info': [{'models': ['old-model'], 'max_budget': 10}]})
+        return httpx.Response(200, json={'models': body['models']})
+
+    client = build_client(handler)
+    try:
+        assert await client.get_runtime_key_models() == ['old-model']
+        await client.update_runtime_key_models(['old-model', 'new-model'])
+    finally:
+        await client.aclose()
+    assert calls == [
+        ('POST', '/v2/key/info', {'keys': [key_hash]}),
+        ('POST', '/key/update', {'key': key_hash, 'models': ['old-model', 'new-model']}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deployment_lookup_filters_alias_instead_of_only_checking_first_page() -> None:
+    alias = 'provider/model&region=china'
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/v2/model/info'
+        assert request.headers['authorization'] == 'Bearer management-secret'
+        if not request.url.query:
+            return httpx.Response(200, json={'data': [{'model_name': f'first-{i}'} for i in range(50)]})
+        assert dict(request.url.params) == {'model': alias}
+        return httpx.Response(200, json={'data': [{'model_name': alias}], 'total_count': 1})
+
+    client = build_client(handler)
+    try:
+        assert await client.model_deployment_exists(alias)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_deployment_lookup_still_requires_exact_matching_alias() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={'data': [{'model_name': 'different-model'}]})
+
+    client = build_client(handler)
+    try:
+        assert not await client.model_deployment_exists('requested-model')
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method', ['read', 'write', 'deployment'])
+async def test_key_sync_transport_failure_never_exposes_credentials(method: str) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout(SENSITIVE_DETAIL, request=request)
+
+    client = build_client(handler)
+    calls = {
+        'read': client.get_runtime_key_models,
+        'write': lambda: client.update_runtime_key_models(['new-one']),
+        'deployment': lambda: client.model_deployment_exists('new-one'),
+    }
+    try:
+        with pytest.raises(LiteLLMManagementTimeoutError) as error:
+            await calls[method]()
+        assert_sanitized_management_error(error.value)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'body',
+    [
+        {},
+        {'info': []},
+        {'info': [{}]},
+        {'info': [{'models': None}]},
+        {'info': [{'models': ['ok', 1]}]},
+        {'info': [{'models': []}, {'models': []}]},
+    ],
+)
+async def test_runtime_key_access_rejects_malformed_metadata(body: dict) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    client = build_client(handler)
+    try:
+        with pytest.raises(LiteLLMManagementError) as error:
+            await client.get_runtime_key_models()
+        assert_sanitized_management_error(error.value)
+    finally:
+        await client.aclose()
 
 
 def build_client(handler: Handler, *, management_key: str = 'management-secret') -> LiteLLMManagementClient:
@@ -348,6 +452,9 @@ async def test_protected_reads_and_writes_fail_fast_without_management_key() -> 
         lambda: client.update_deployment('model-1', {}),
         lambda: client.delete_deployment('model-1'),
         lambda: client.test_connection({}),
+        client.get_runtime_key_models,
+        lambda: client.model_deployment_exists('new-one'),
+        lambda: client.update_runtime_key_models(['only-one']),
     )
     try:
         for call in calls:

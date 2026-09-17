@@ -38,7 +38,7 @@ BINDING_CREATE_VERSION_CONFLICT = '新建绑定不允许指定版本号'
 BINDING_UPDATE_VERSION_REQUIRED = '更新绑定必须提供当前版本号'
 BINDING_VERSION_CONFLICT = '绑定版本已变化，请刷新后重试'
 BINDING_PUBLISH_CONFLICT = '运行时绑定已变化，请重新发布'
-RUNTIME_ALIAS_MISSING = '运行时未发现绑定的模型别名'
+RUNTIME_ALIAS_MISSING = '模型尚未对平台调用密钥生效，请重试发布；持续失败请联系管理员检查运行时权限，无需填写模型别名'
 MODEL_STATE_CONFLICT = '模型状态已变化，请刷新后重试'
 MODEL_DISABLE_CONFLICT = '仅已发布模型可以停用'
 MODEL_DELETE_CONFLICT = '仅草稿或已停用模型可以删除'
@@ -48,6 +48,10 @@ RATE_CARD_TYPE_CONFLICT = '模型类型与计费模式不匹配'
 
 class ModelReferenceChecker(Protocol):
     async def has_model_references(self, model_id: str) -> bool: ...
+
+
+class RuntimeModelAccess(Protocol):
+    async def ensure_model_access(self, alias: str) -> None: ...
 
 
 class NoModelReferenceChecker:
@@ -70,6 +74,7 @@ class ModelCatalogService:
         model_dao: type[AiModelCatalogDao] = AiModelCatalogDao,
         binding_dao: type[AiResourceBindingDao] = AiResourceBindingDao,
         rate_card_dao: type[AiDeveloperApiDao] = AiDeveloperApiDao,
+        runtime_access: RuntimeModelAccess | None = None,
     ) -> None:
         self._db = db
         self._runtime = runtime
@@ -77,6 +82,7 @@ class ModelCatalogService:
         self._model_dao = model_dao
         self._binding_dao = binding_dao
         self._rate_card_dao = rate_card_dao
+        self._runtime_access = runtime_access
 
     async def list_models(
         self,
@@ -162,6 +168,7 @@ class ModelCatalogService:
             if await self._model_dao.get_model_by_code(self._db, payload.model_code) is not None:
                 raise ServiceException(message=MODEL_CODE_CONFLICT)
             values = payload.model_dump(mode='python')
+            values['default_parameters'] = payload.default_parameters.model_dump(mode='python', exclude_none=True)
             model = AiModelCatalog(
                 model_id=new_resource_id('mdl'),
                 **values,
@@ -186,6 +193,8 @@ class ModelCatalogService:
         now: datetime,
     ) -> PlatformModelModel:
         values = payload.model_dump(exclude_unset=True, mode='python')
+        if payload.default_parameters is not None:
+            values['default_parameters'] = payload.default_parameters.model_dump(mode='python', exclude_none=True)
         if not values:
             return await self._run_without_write(lambda: self._get_model_response(model_id))
 
@@ -282,6 +291,9 @@ class ModelCatalogService:
             await self._db.rollback()
 
             visible_model_ids = await self._runtime.list_model_ids()
+            if binding_snapshot[3] not in visible_model_ids and self._runtime_access is not None:
+                await self._runtime_access.ensure_model_access(binding_snapshot[3])
+                visible_model_ids = await self._runtime.list_model_ids()
             if binding_snapshot[3] not in visible_model_ids:
                 raise ServiceException(message=RUNTIME_ALIAS_MISSING)
 

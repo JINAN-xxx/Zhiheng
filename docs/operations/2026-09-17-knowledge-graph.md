@@ -1,6 +1,6 @@
 # 知识图谱与已有知识库补建
 
-提交 `274b85f4` 已发布到公网 `http://115.190.121.37:8060/`。当前运维入口为 `data/agent-releases/20260917-knowledge-graph/manage.sh`。
+提交 `274b85f4` 已发布到公网 `http://115.190.121.37:8060/`。本版运维入口为 `data/agent-releases/20260917-knowledge-graph/manage.sh`；后续后台更新见 [模型接入自动授权修复](2026-09-17-model-runtime-access.md)。
 
 ## 使用方式
 

@@ -26,6 +26,7 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ResourceBindingModel,
     ResourceBindingUpsertModel,
 )
+from plugins.ai.infrastructure.model_runtime_access_provider import get_runtime_model_access_service
 from plugins.ai.infrastructure.model_runtime_provider import get_model_runtime_engine
 from plugins.ai.service.model_catalog_service import ModelCatalogService
 from plugins.ai.service.model_service import ModelService
@@ -78,7 +79,11 @@ async def _call_catalog(operation: Awaitable[ResultT]) -> ResultT:
 
 
 def _catalog_service(request: Request, query_db: AsyncSession) -> ModelCatalogService:
-    return ModelCatalogService(query_db, get_model_runtime_engine(request))
+    return ModelCatalogService(
+        query_db,
+        get_model_runtime_engine(request),
+        runtime_access=get_runtime_model_access_service(request),
+    )
 
 
 @ai_model_catalog_controller.get(

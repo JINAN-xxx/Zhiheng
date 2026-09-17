@@ -273,6 +273,37 @@ def _messages() -> tuple[ModelMessage, ...]:
     return (ModelMessage(role='user', content='hello'),)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_type', ['chat', 'embedding', 'rerank'])
+async def test_legacy_catalog_defaults_ignore_known_null_fields_from_other_model_types(model_type: str) -> None:
+    FakeModelDao.model = _model(
+        default_parameters={
+            'temperature': None,
+            'top_p': None,
+            'max_tokens': None,
+            'presence_penalty': None,
+            'frequency_penalty': None,
+            'dimensions': None,
+            'top_n': None,
+            'return_documents': None,
+        }
+    )
+    FakeModelDao.model.model_type = model_type
+    service, _ = _service()
+    resolved = await service.resolve_model(MODEL_ID)
+    assert dict(resolved.default_parameters) == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('defaults', [{'dimensions': 1024}, {'unexpected_field': None}])
+async def test_legacy_default_compatibility_still_rejects_invalid_fields(defaults: dict[str, object]) -> None:
+    FakeModelDao.model = _model(default_parameters=defaults)
+    service, runtime = _service()
+    with pytest.raises(ValueError, match='不支持的模型参数'):
+        await service.resolve_model(MODEL_ID)
+    assert runtime.chat_requests == []
+
+
 class FalseyParameters(dict[str, object]):
     def __bool__(self) -> bool:
         return False

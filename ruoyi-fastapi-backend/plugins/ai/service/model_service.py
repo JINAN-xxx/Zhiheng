@@ -352,6 +352,14 @@ class ModelService:
             raise ValueError(_UNSUPPORTED_PARAMETER_MESSAGE)
         if not isinstance(parameters, Mapping):
             raise TypeError('模型参数必须是映射')
+        if not allow_request_extensions:
+            # 兼容旧目录把三种模型共用 VO 中的未设置字段全部存为 null。
+            # 只忽略已知默认字段的 null，未知字段和非空的跨类型参数仍严格拒绝。
+            parameters = {
+                key: value
+                for key, value in parameters.items()
+                if value is not None or key not in ModelDefaultParametersModel.model_fields
+            }
         allowed = (
             _REQUEST_PARAMETERS_BY_TYPE[model_type]
             if allow_request_extensions

@@ -1,6 +1,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import TypeAlias
 from urllib.parse import quote
 
@@ -15,6 +16,7 @@ from plugins.ai.infrastructure.litellm_management_errors import (
     LiteLLMManagementTimeoutError,
     LiteLLMManagementUnavailableError,
     LiteLLMManagementUpstreamError,
+    LiteLLMManagementUpstreamInvalidError,
 )
 
 ManagementFailure: TypeAlias = type[LiteLLMManagementError]
@@ -83,6 +85,41 @@ class LiteLLMManagementClient:
 
     async def list_deployments(self) -> Mapping[str, object]:
         return await self._request_json('GET', '/v2/model/info')
+
+    async def model_deployment_exists(self, alias: str) -> bool:
+        operation = self._request_json('GET', f'/v2/model/info?model={quote(alias, safe="")}')
+        result = await operation
+        exists = _model_deployment_exists(result, alias)
+        del result, alias
+        if exists is None:
+            raise LiteLLMManagementUpstreamInvalidError
+        return exists
+
+    def _runtime_key_hash(self) -> str:
+        if not self.settings.configured:
+            raise LiteLLMManagementMisconfiguredError
+        return sha256(self.settings.runtime_key.get_secret_value().strip().encode()).hexdigest()
+
+    async def get_runtime_key_models(self) -> list[str]:
+        """仅查询本平台调用密钥的模型授权，不在 URL 或返回值中暴露密钥。"""
+        result = await self._request_json('POST', '/v2/key/info', payload={'keys': [self._runtime_key_hash()]})
+        models = _runtime_key_models(result)
+        del result
+        if models is None:
+            raise LiteLLMManagementUpstreamInvalidError
+        return models
+
+    async def update_runtime_key_models(self, models: list[str]) -> None:
+        """只更新本平台调用密钥的模型列表，保留预算、角色和其他限制。"""
+        if not models or any(not isinstance(model, str) or not model.strip() for model in models):
+            raise ValueError('模型授权列表不能为空')
+        operation = self._request_json(
+            'POST',
+            '/key/update',
+            payload={'key': self._runtime_key_hash(), 'models': list(models)},
+        )
+        del models
+        await operation
 
     async def create_deployment(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         operation = self._request_json('POST', '/model/new', payload=payload)
@@ -202,6 +239,23 @@ class LiteLLMManagementClient:
 
 async def _raise_management_failure(failure: ManagementFailure) -> None:
     raise failure
+
+
+def _runtime_key_models(result: Mapping[str, object]) -> list[str] | None:
+    rows = result.get('info')
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], Mapping):
+        return None
+    models = rows[0].get('models')
+    if not isinstance(models, list) or any(not isinstance(model, str) or not model.strip() for model in models):
+        return None
+    return list(models)
+
+
+def _model_deployment_exists(result: Mapping[str, object], alias: str) -> bool | None:
+    rows = result.get('data')
+    if not isinstance(rows, list):
+        return None
+    return any(isinstance(row, Mapping) and row.get('model_name') == alias for row in rows)
 
 
 def _encode_path_segment(identifier: str) -> str:
