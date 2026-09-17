@@ -34,3 +34,6 @@ export const queryKnowledgeBase = (dbId, query, meta = {}, signal) => request({ 
 export const queryKnowledgeGraph = (dbId, query, meta = {}, signal) => request({ url: `${database(dbId)}/query-graph`, method: 'post', data: { query, meta }, signal, ...slowOperation })
 export const listKnowledgeGraphLabels = dbId => request({ url: `${prefix}/graphs/${id(dbId)}/labels`, method: 'get', ...slowOperation })
 export const getKnowledgeSubgraph = (dbId, params) => request({ url: `${prefix}/graphs/${id(dbId)}/subgraph`, method: 'get', params: buildKnowledgeGraphParams(params), ...slowOperation })
+
+export const getKnowledgeGraphBuild = (dbId, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'get', signal })
+export const startKnowledgeGraphBuild = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'post', data, signal, headers: { repeatSubmit: false } })

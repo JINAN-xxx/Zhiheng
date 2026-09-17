@@ -8,6 +8,9 @@ COPY . .
 RUN pip install --no-cache-dir --timeout 600 --retries 5 \
     -r requirements-pg.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+ENV TIKTOKEN_CACHE_DIR=/app/tokenizer-cache
+RUN python scripts/prepare_graph_tokenizer.py --cache-dir /app/tokenizer-cache
+
 # 暴露端口
 EXPOSE 9099
 

@@ -25,9 +25,10 @@
     <div class="knowledge-documents__content">
       <KnowledgeSectionNav
         active-view="documents"
-        :graph-enabled="database.enable_knowledge_graph"
         @navigate="emit('navigate', $event)"
       />
+
+      <a-alert v-if="graphBuilding" class="document-alert" type="info" message="图谱正在构建，完成后可继续上传、切片或删除文档。" show-icon />
 
       <div class="document-controls">
         <a-input v-model:value="search" allow-clear placeholder="搜索当前目录文件" aria-label="搜索文档">
@@ -41,10 +42,10 @@
       <div class="document-path">
         <a-breadcrumb>
           <a-breadcrumb-item>
-            <a-button type="link" :disabled="busy" @click="emit('select-folder', null)">全部文档</a-button>
+            <a-button type="link" @click="emit('select-folder', null)">全部文档</a-button>
           </a-breadcrumb-item>
           <a-breadcrumb-item v-for="folder in folderTrail" :key="folder.id">
-            <a-button type="link" :disabled="busy" @click="emit('select-folder', folder.id)">{{ folder.name }}</a-button>
+            <a-button type="link" @click="emit('select-folder', folder.id)">{{ folder.name }}</a-button>
           </a-breadcrumb-item>
         </a-breadcrumb>
       </div>
@@ -68,7 +69,6 @@
             <a-button
               type="link"
               class="document-name"
-              :disabled="busy"
               @click="record.isFolder ? emit('select-folder', record.id) : emit('preview', record)"
             >
               <FolderOutlined v-if="record.isFolder" />
@@ -84,6 +84,12 @@
             >
               {{ documentStatus(record.status) }}
             </a-tag>
+          </template>
+          <template v-else-if="column.key === 'graph'">
+            <span v-if="record.isFolder">—</span>
+            <a-tooltip v-else :title="record.graph_error?.message || (typeof record.graph_error === 'string' ? record.graph_error : undefined)">
+              <a-tag :color="record.graph_status === 'failed' ? 'error' : ['pending', 'running'].includes(record.graph_status) ? 'processing' : undefined">{{ graphStatus(record.graph_status) }}</a-tag>
+            </a-tooltip>
           </template>
           <template v-else-if="column.key === 'size'">{{ record.isFolder ? '—' : formatSize(record.file_size) }}</template>
           <template v-else-if="column.key === 'chunks'">{{ record.isFolder ? '—' : (record.chunk_size || '—') + ' / ' + (record.chunk_overlap ?? '—') }}</template>
@@ -142,6 +148,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   busy: { type: Boolean, default: false },
+  graphBuilding: { type: Boolean, default: false },
   permissions: { type: Array, default: () => [] },
 })
 
@@ -171,14 +178,16 @@ const timeOptions = [
   { value: 'week', label: '最近 7 天' },
   { value: 'month', label: '最近 30 天' },
 ]
-const columns = [
+const columns = computed(() => [
   { title: '文件名', key: 'name', width: 250 },
-  { title: '状态', key: 'status', width: 95 },
+  { title: '向量状态', key: 'status', width: 95 },
+  ...(props.database.enable_knowledge_graph ? [{ title: '图谱状态', key: 'graph', width: 100 }] : []),
   { title: '大小', key: 'size', width: 90 },
   { title: '切片 / 重叠', key: 'chunks', width: 115 },
   { title: '上传时间', key: 'time', width: 160 },
   { title: '操作', key: 'actions', width: 155 },
-]
+])
+const graphStatus = status => ({ disabled: '未启用', pending: '待构建', running: '构建中', completed: '已完成', failed: '构建失败', interrupted: '已中断' })[status] || '待构建'
 
 const can = action => props.permissions.includes('*:*:*') || props.permissions.includes('ai:knowledge:' + action)
 const typeLabel = type => ({ chroma: 'Chroma', milvus: 'Milvus', lightrag: 'LightRAG' })[type] || type || '知识库'

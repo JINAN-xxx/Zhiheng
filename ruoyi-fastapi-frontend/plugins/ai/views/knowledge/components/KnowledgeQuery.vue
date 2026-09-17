@@ -17,7 +17,6 @@
     <div class="knowledge-query__content">
       <KnowledgeSectionNav
         active-view="query"
-        :graph-enabled="database.enable_knowledge_graph"
         @navigate="emit('navigate', $event)"
       />
 

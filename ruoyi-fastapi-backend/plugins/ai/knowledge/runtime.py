@@ -3,14 +3,12 @@
 """Authenticated platform boundary around the selected knowledge algorithms."""
 
 import asyncio
-import hashlib
-import json
 import math
 import re
 import shutil
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,13 +18,25 @@ from uuid import uuid4
 from module_Knowledge.src.knowledge.indexing import SUPPORTED_EXTENSIONS, process_file_to_markdown
 from module_Knowledge.src.knowledge.kb_utils import normalize_embedding_text, split_text_into_chunks
 from plugins.ai.knowledge.metadata import MetadataStore
-from plugins.ai.knowledge.models import ChunkParameters, DatabaseCreate, KnowledgeError, KnowledgeHit, QueryParameters
+from plugins.ai.knowledge.models import (
+    ChunkParameters,
+    DatabaseCreate,
+    GraphBuildRequest,
+    KnowledgeError,
+    KnowledgeHit,
+    QueryParameters,
+    embedding_fingerprint,
+)
 
 ModelFactory = Callable[[], AbstractAsyncContextManager[Any]]
 MAX_FILENAME_LENGTH = 200
 MAX_BINDINGS = 20
 MAX_CONTEXT_BYTES = 24000
 MAX_PASSAGES = 8
+_ACTIVE_GRAPH_STATES = {'queued', 'running'}
+# Application workers are intentionally limited to one. Share task ownership between
+# runtime instances in that process, while retaining durable progress across restarts.
+_ACTIVE_GRAPH_JOBS: dict[tuple[Path, str], asyncio.Task] = {}
 
 _RESOURCE_ID = re.compile(r'^(kb|doc|upl|folder)_[0-9a-f]{32}$')
 _DB_FIELDS = (
@@ -40,6 +50,7 @@ _DB_FIELDS = (
     'created_at',
     'chunk_size',
     'chunk_overlap',
+    'graph_build',
 )
 _DOC_FIELDS = (
     'id',
@@ -52,6 +63,8 @@ _DOC_FIELDS = (
     'chunk_size',
     'chunk_overlap',
     'error',
+    'graph_status',
+    'graph_error',
 )
 
 
@@ -87,6 +100,8 @@ class KnowledgeRuntime:
         self._store_factory = store_factory
         self._stores: dict[str, Any] = {}
         self._graphs: dict[str, Any] = {}
+        self._graph_tasks: dict[str, asyncio.Task] = {}
+        self._closing = False
 
     def _store(self, kind: str) -> Any:
         if kind not in self._stores:
@@ -108,6 +123,14 @@ class KnowledgeRuntime:
         }
 
     async def close(self) -> None:
+        self._closing = True
+        tasks = tuple(self._graph_tasks.items())
+        for _, task in tasks:
+            task.cancel()
+        await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        # A task cancelled before its coroutine starts cannot run its finally block.
+        for job_id, _ in tasks:
+            await self._interrupt_graph_build(job_id)
         for store in (*self._stores.values(), *self._graphs.values()):
             await store.close()
         self._stores.clear()
@@ -144,24 +167,309 @@ class KnowledgeRuntime:
 
     @staticmethod
     def _safe_database(database: dict) -> dict:
-        return {key: database.get(key) for key in _DB_FIELDS}
+        result = {key: database.get(key) for key in _DB_FIELDS}
+        result['graph_build'] = KnowledgeRuntime._graph_build(database)
+        return result
+
+    @staticmethod
+    def _graph_build(database: dict) -> dict:
+        return dict(
+            database.get('graph_build')
+            or {
+                'status': 'idle' if database['enable_knowledge_graph'] else 'disabled',
+                'job_id': None,
+                'total_documents': 0,
+                'processed_documents': 0,
+                'failed_documents': 0,
+                'current_document': None,
+                'error': None,
+                'started_at': None,
+                'finished_at': None,
+            }
+        )
+
+    @staticmethod
+    def _document_graph_status(database: dict, document: dict) -> str:
+        if document.get('graph_status'):
+            return document['graph_status']
+        if not database['enable_knowledge_graph']:
+            return 'disabled'
+        # Before separate graph jobs existed, a successful graph attempt was part
+        # of the document's synchronous index transaction.
+        return 'completed' if document.get('graph_attempted') and document['status'] == 'done' else 'pending'
+
+    @staticmethod
+    def _graph_error(code: str = 'KNOWLEDGE_GRAPH_BUILD_FAILED') -> dict:
+        messages = {
+            'KNOWLEDGE_GRAPH_BUILD_FAILED': '知识图谱构建失败，向量检索仍可使用，请重试',
+            'KNOWLEDGE_GRAPH_INTERRUPTED': '知识图谱构建已中断，请重试以继续处理未完成文档',
+            'KNOWLEDGE_GRAPH_CLEANUP_FAILED': '知识图谱构建失败且清理未完成，重试时将先清理残留数据',
+        }
+        return {'code': code, 'message': messages[code]}
+
+    @staticmethod
+    def _ensure_graph_idle(database: dict) -> None:
+        if KnowledgeRuntime._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES:
+            raise KnowledgeError('KNOWLEDGE_GRAPH_BUSY', '知识图谱正在构建中，请完成后再修改文档', 409)
+
+    @asynccontextmanager
+    async def _document_mutation(self, db_id: str) -> AsyncIterator[None]:
+        self._ensure_graph_idle(self._database(await self._graph_state(), db_id))
+        # Wait for graph readers before acquiring the lock used by vector queries.
+        # Mutations recheck the durable job state once both locks are held.
+        async with self.metadata.lock(f'graph-{db_id}'), self.metadata.lock(db_id):
+            yield
+
+    async def _graph_state(self) -> dict:
+        state = await self.metadata.read()
+        orphaned = {
+            build['job_id']
+            for database in state['databases'].values()
+            if (build := self._graph_build(database))['status'] in _ACTIVE_GRAPH_STATES
+            and not self._live_graph_job(build['job_id'])
+        }
+        if orphaned:
+            async with self.metadata.transaction() as state:
+                for database in state['databases'].values():
+                    build = self._graph_build(database)
+                    if build['job_id'] in orphaned and not self._live_graph_job(build['job_id']):
+                        self._mark_graph_interrupted(state, database, build)
+        return state
+
+    def _live_graph_job(self, job_id: str) -> bool:
+        task = _ACTIVE_GRAPH_JOBS.get((self.data_dir, job_id))
+        return task is not None and not task.done()
+
+    def _mark_graph_interrupted(self, state: dict, database: dict, build: dict) -> None:
+        if build['status'] not in _ACTIVE_GRAPH_STATES:
+            return
+        error = self._graph_error('KNOWLEDGE_GRAPH_INTERRUPTED')
+        build.update(status='interrupted', error=error, current_document=None, finished_at=_now())
+        database['graph_build'] = build
+        for document in state['documents'].values():
+            if document['db_id'] == database['db_id'] and self._document_graph_status(database, document) in {
+                'pending',
+                'running',
+            }:
+                document.update(graph_status='interrupted', graph_error=error)
+
+    async def _interrupt_graph_build(self, job_id: str) -> None:
+        async with self.metadata.transaction() as state:
+            for database in state['databases'].values():
+                build = self._graph_build(database)
+                if build['job_id'] == job_id:
+                    self._mark_graph_interrupted(state, database, build)
+
+    async def graph_build_status(self, db_id: str) -> dict:
+        _check_id(db_id, 'kb')
+        return self._graph_build(self._database(await self._graph_state(), db_id))
+
+    @staticmethod
+    def _graph_model(database: dict, payload: GraphBuildRequest) -> str:
+        current = database.get('llm_model_id') if database['enable_knowledge_graph'] else None
+        if current and payload.llm_model_id and current != payload.llm_model_id:
+            raise KnowledgeError(
+                'KNOWLEDGE_GRAPH_MODEL_MIGRATION_REQUIRED',
+                '知识图谱模型变更需要显式迁移，当前操作仅支持原模型续建',
+                409,
+            )
+        model_id = payload.llm_model_id or current
+        if not model_id:
+            raise KnowledgeError('KNOWLEDGE_GRAPH_MODEL_REQUIRED', '首次启用知识图谱时必须选择对话模型')
+        return model_id
+
+    async def start_graph_build(self, db_id: str, payload: GraphBuildRequest) -> dict:
+        _check_id(db_id, 'kb')
+        if self._closing:
+            raise KnowledgeError.unavailable()
+        database = self._database(await self._graph_state(), db_id)
+        model_id = self._graph_model(database, payload)
+        build = self._graph_build(database)
+        if build['status'] in _ACTIVE_GRAPH_STATES:
+            return build
+        from plugins.ai.knowledge.stores import require_graph
+
+        require_graph()
+        # Resolving the model must not hold the KB lock used by vector retrieval.
+        await self._resolve(model_id, 'chat')
+        if database.get('index_spec'):
+            await self._check_embedding_spec(database)
+        async with self.metadata.lock(db_id):
+            database = self._database(await self._graph_state(), db_id)
+            self._graph_model(database, payload)
+            if self._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES:
+                return self._graph_build(database)
+            return await self._queue_graph_build(db_id, model_id)
+
+    async def _queue_graph_build(self, db_id: str, model_id: str | None = None) -> dict:
+        # Caller owns the short KB mutation lock; the worker never holds it during
+        # parsing, extraction, embedding or graph storage calls.
+        if self._closing:
+            raise KnowledgeError.unavailable()
+        job_id = uuid4().hex
+        async with self.metadata.transaction() as state:
+            database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
+            if model_id:
+                database.update(enable_knowledge_graph=True, llm_model_id=model_id)
+            documents = [document for document in state['documents'].values() if document['db_id'] == db_id]
+            completed = 0
+            for document in documents:
+                if self._document_graph_status(database, document) == 'completed':
+                    completed += 1
+                else:
+                    document.update(graph_status='pending', graph_error=None)
+            build = dict(
+                self._graph_build(database),
+                status='queued',
+                job_id=job_id,
+                total_documents=len(documents),
+                processed_documents=completed,
+                failed_documents=0,
+                current_document=None,
+                error=None,
+                started_at=None,
+                finished_at=None,
+            )
+            database['graph_build'] = build
+        task = asyncio.create_task(self._run_graph_build(db_id, job_id), name=f'knowledge-graph-{job_id}')
+        self._graph_tasks[job_id] = task
+        _ACTIVE_GRAPH_JOBS[self.data_dir, job_id] = task
+
+        def finished(completed_task: asyncio.Task) -> None:
+            self._graph_tasks.pop(job_id, None)
+            _ACTIVE_GRAPH_JOBS.pop((self.data_dir, job_id), None)
+            if not completed_task.cancelled():
+                completed_task.exception()  # Retrieve failures even if shutdown never awaits this task.
+
+        task.add_done_callback(finished)
+        return dict(build)
+
+    @staticmethod
+    def _current_graph_job(state: dict, db_id: str, job_id: str) -> dict | None:
+        database = state['databases'].get(db_id)
+        if not database:
+            return None
+        build = database.get('graph_build', {})
+        if build.get('job_id') != job_id or build.get('status') not in _ACTIVE_GRAPH_STATES:
+            return None
+        return database
+
+    async def _build_graph_document(self, db_id: str, job_id: str, doc_id: str) -> bool:
+        async with self.metadata.lock(f'graph-{db_id}'):
+            async with self.metadata.transaction() as state:
+                database = self._current_graph_job(state, db_id, job_id)
+                if database is None:
+                    return False
+                document = self._document(state, db_id, doc_id)
+                document.update(graph_status='running', graph_error=None)
+                database['graph_build']['current_document'] = {'id': doc_id, 'file_name': document['file_name']}
+                attempted = document.get('graph_attempted', False)
+                upload = state['uploads'].get(document['upload_id'])
+                ready = document['status'] == 'done' and database.get('index_spec') and upload
+            graph, error, cleaned = None, None, False
+            try:
+                if not ready:
+                    raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_INCOMPLETE', '请先完成文档的向量索引', 409)
+                await self._check_embedding_spec(database)
+                async with self.metadata.transaction() as state:
+                    if self._current_graph_job(state, db_id, job_id) is None:
+                        return False
+                    # Persist intent only after validation, before any graph write.
+                    state['documents'][doc_id]['graph_attempted'] = True
+                graph = await self._graph(database)
+                if attempted:
+                    await graph.delete_document(doc_id)
+                content = await asyncio.to_thread(process_file_to_markdown, self._upload_path(upload))
+                await graph.insert(doc_id, content, document['file_name'])
+            except asyncio.CancelledError:
+                # Preserve graph_attempted: retry cleans any partial model/storage writes.
+                raise
+            except Exception as failure:
+                reindex = isinstance(failure, KnowledgeError) and failure.code == 'KNOWLEDGE_REINDEX_REQUIRED'
+                error = KnowledgeError.reindex().public_dict() if reindex else self._graph_error()
+                if graph is not None:
+                    try:
+                        await graph.delete_document(doc_id)
+                        cleaned = True
+                    except Exception:
+                        if not reindex:
+                            error = self._graph_error('KNOWLEDGE_GRAPH_CLEANUP_FAILED')
+            async with self.metadata.transaction() as state:
+                database = self._current_graph_job(state, db_id, job_id)
+                if database is None:
+                    return False
+                document = self._document(state, db_id, doc_id)
+                document.update(graph_status='failed' if error else 'completed', graph_error=error)
+                if cleaned:
+                    document['graph_attempted'] = False
+                build = database['graph_build']
+                build['processed_documents'] += 1
+                build['failed_documents'] += int(error is not None)
+                build['current_document'] = None
+                if error and error['code'] == 'KNOWLEDGE_REINDEX_REQUIRED':
+                    build['error'] = error
+            return True
+
+    async def _run_graph_build(self, db_id: str, job_id: str) -> None:
+        try:
+            async with self.metadata.transaction() as state:
+                database = self._current_graph_job(state, db_id, job_id)
+                if database is None:
+                    return
+                database['graph_build'].update(status='running', started_at=_now())
+                document_ids = [
+                    document['id']
+                    for document in state['documents'].values()
+                    if document['db_id'] == db_id and self._document_graph_status(database, document) != 'completed'
+                ]
+            for doc_id in document_ids:
+                if not await self._build_graph_document(db_id, job_id, doc_id):
+                    return
+            async with self.metadata.transaction() as state:
+                database = self._current_graph_job(state, db_id, job_id)
+                if database is not None:
+                    build = database['graph_build']
+                    failed = build['failed_documents'] > 0
+                    build.update(
+                        status='failed' if failed else 'completed',
+                        finished_at=_now(),
+                        error=(build['error'] or self._graph_error()) if failed else None,
+                        current_document=None,
+                    )
+        except asyncio.CancelledError:
+            await self._interrupt_graph_build(job_id)
+            raise
+        except Exception:
+            async with self.metadata.transaction() as state:
+                database = self._current_graph_job(state, db_id, job_id)
+                if database is not None:
+                    error = self._graph_error()
+                    database['graph_build'].update(
+                        status='failed', error=error, current_document=None, finished_at=_now()
+                    )
+                    for document in state['documents'].values():
+                        if document['db_id'] == db_id and document.get('graph_status') in {'pending', 'running'}:
+                            document.update(graph_status='failed', graph_error=error)
 
     async def list_databases(self) -> dict:
-        state = await self.metadata.read()
+        state = await self._graph_state()
         return {'databases': [self._safe_database(database) for database in state['databases'].values()]}
 
     async def get_database(self, db_id: str) -> dict:
-        return self._safe_database(self._database(await self.metadata.read(), db_id))
+        return self._safe_database(self._database(await self._graph_state(), db_id))
 
     @staticmethod
     def _fingerprint(resolved: Any) -> str:
-        parts = [
-            resolved.platform_model_id,
-            resolved.binding_id,
-            resolved.engine_model_snapshot,
-            (resolved.default_parameters or {}).get('dimensions'),
-        ]
-        return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+        return embedding_fingerprint(resolved)
+
+    async def _check_embedding_spec(self, database: dict) -> None:
+        resolved = await self._resolve(database['embed_model_id'], 'embedding')
+        spec = database.get('index_spec')
+        if spec and (
+            spec['model_id'] != database['embed_model_id'] or spec['fingerprint'] != self._fingerprint(resolved)
+        ):
+            raise KnowledgeError.reindex()
 
     async def _resolve(self, model_id: str, kind: str) -> Any:
         try:
@@ -191,6 +499,7 @@ class KnowledgeRuntime:
             'chunk_overlap': payload.chunk_overlap,
             'index_spec': None,
         }
+        database['graph_build'] = self._graph_build(database)
         async with self.metadata.transaction() as state:
             state['databases'][database['db_id']] = database
         return self._safe_database(database)
@@ -204,9 +513,10 @@ class KnowledgeRuntime:
 
     async def delete_database(self, db_id: str) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
+        async with self._document_mutation(db_id):
+            state = await self._graph_state()
             database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
             try:
                 await self._store(database['kb_type']).delete_database(db_id)
                 if database['enable_knowledge_graph']:
@@ -215,7 +525,7 @@ class KnowledgeRuntime:
                         for document in state['documents'].values()
                         if document['db_id'] == db_id and document.get('graph_attempted')
                     ]
-                    if graph_documents:
+                    if database.get('index_spec'):
                         await (await self._graph(database)).delete_database(graph_documents)
             except Exception:
                 raise KnowledgeError.unavailable() from None
@@ -261,8 +571,8 @@ class KnowledgeRuntime:
         _check_id(db_id, 'kb')
         filename, extension = self._filename(filename)
         async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
-            self._database(state, db_id)
+            state = await self._graph_state()
+            self._ensure_graph_idle(self._database(state, db_id))
             self._folder(state, db_id, folder_id)
             upload = {
                 'upload_id': _id('upl'),
@@ -292,10 +602,13 @@ class KnowledgeRuntime:
             return {key: upload[key] for key in ('upload_id', 'file_name', 'file_size')}
 
     async def list_documents(self, db_id: str) -> dict:
-        state = await self.metadata.read()
-        self._database(state, db_id)
+        state = await self._graph_state()
+        database = self._database(state, db_id)
         documents = [
-            {key: document.get(key) for key in _DOC_FIELDS}
+            dict(
+                {key: document.get(key) for key in _DOC_FIELDS},
+                graph_status=self._document_graph_status(database, document),
+            )
             for document in state['documents'].values()
             if document['db_id'] == db_id
         ]
@@ -363,14 +676,6 @@ class KnowledgeRuntime:
                 state['documents'][doc_id] = document
                 state['databases'][db_id]['index_spec'] = spec
             await self._store(database['kb_type']).upsert(db_id, chunks, vectors, spec)
-            if database['enable_knowledge_graph']:
-                document['graph_attempted'] = True
-                async with self.metadata.transaction() as state:
-                    state['documents'][doc_id] = document
-                graph = await self._graph(database)
-                if old_chunks:
-                    await graph.delete_document(doc_id)
-                await graph.insert(doc_id, content, document['file_name'])
             if old_chunks:
                 await self._store(database['kb_type']).delete_chunks(db_id, [chunk['id'] for chunk in old_chunks])
             document.update(
@@ -379,6 +684,8 @@ class KnowledgeRuntime:
                 chunk_size=params.chunk_size,
                 chunk_overlap=params.chunk_overlap,
                 error=None,
+                graph_status='pending' if database['enable_knowledge_graph'] else 'disabled',
+                graph_error=None,
             )
             async with self.metadata.transaction() as state:
                 state['documents'][doc_id] = document
@@ -404,9 +711,10 @@ class KnowledgeRuntime:
         _check_id(db_id, 'kb')
         if not 1 <= len(upload_ids) <= MAX_BINDINGS or len(set(upload_ids)) != len(upload_ids):
             raise KnowledgeError('KNOWLEDGE_UPLOAD_INVALID', '上传文件标识无效')
-        async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
+        async with self._document_mutation(db_id):
+            state = await self._graph_state()
             database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
             uploads = []
             for upload_id in upload_ids:
                 _check_id(upload_id, 'upl')
@@ -428,9 +736,13 @@ class KnowledgeRuntime:
                     'created_at': _now(),
                     'folder_id': upload['folder_id'],
                     'chunks': [],
+                    'graph_status': 'pending' if database['enable_knowledge_graph'] else 'disabled',
+                    'graph_error': None,
                 }
                 results.append(await self._index_document(database, document, upload, params))
             succeeded = sum(result['status'] == 'done' for result in results)
+            if database['enable_knowledge_graph'] and succeeded:
+                await self._queue_graph_build(db_id)
             return {
                 'status': 'success' if succeeded == len(results) else 'partial' if succeeded else 'failed',
                 'items': results,
@@ -450,11 +762,14 @@ class KnowledgeRuntime:
 
     async def rechunk(self, db_id: str, doc_id: str, params: ChunkParameters) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
+        async with self._document_mutation(db_id):
+            state = await self._graph_state()
             database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
             document = self._document(state, db_id, doc_id)
             result = await self._index_document(database, document, state['uploads'][document['upload_id']], params)
+            if database['enable_knowledge_graph'] and result['status'] == 'done':
+                await self._queue_graph_build(db_id)
             return {'status': 'success' if result['status'] == 'done' else 'failed', 'items': [result]}
 
     async def _delete_document(self, state: dict, database: dict, document: dict) -> None:
@@ -476,9 +791,10 @@ class KnowledgeRuntime:
 
     async def delete_document(self, db_id: str, doc_id: str) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
+        async with self._document_mutation(db_id):
+            state = await self._graph_state()
             database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
             document = self._document(state, db_id, doc_id)
             await self._delete_document(state, database, document)
         return {'deleted': True}
@@ -596,9 +912,10 @@ class KnowledgeRuntime:
 
     async def delete_folder(self, db_id: str, folder_id: str) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            state = await self.metadata.read()
+        async with self._document_mutation(db_id):
+            state = await self._graph_state()
             database = self._database(state, db_id)
+            self._ensure_graph_idle(database)
             self._folder(state, db_id, folder_id)
             removed = {folder_id}
             while True:
@@ -637,13 +954,20 @@ class KnowledgeRuntime:
         self._graphs[db_id].database = database
         return self._graphs[db_id]
 
-    async def _checked_graph_database(self, db_id: str) -> dict:
-        state = await self.metadata.read()
+    async def _checked_graph_database(self, db_id: str, *, resolve_models: bool = True) -> dict:
+        state = await self._graph_state()
         database = self._database(state, db_id)
         if not database['enable_knowledge_graph']:
             raise KnowledgeError('KNOWLEDGE_GRAPH_DISABLED', '该知识库未启用知识图谱', 409)
-        if any(document['db_id'] == db_id and document['status'] != 'done' for document in state['documents'].values()):
-            raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_INCOMPLETE', '文档索引未完整完成，请重试或删除失败文档', 503)
+        if self._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES or any(
+            document['db_id'] == db_id and self._document_graph_status(database, document) != 'completed'
+            for document in state['documents'].values()
+        ):
+            raise KnowledgeError(
+                'KNOWLEDGE_GRAPH_INDEX_INCOMPLETE', '知识图谱尚未构建完成，请先构建或重试失败文档', 409
+            )
+        if not resolve_models:
+            return database
         resolved = await self._resolve(database['embed_model_id'], 'embedding')
         await self._resolve(database['llm_model_id'], 'chat')
         spec = database.get('index_spec')
@@ -651,26 +975,30 @@ class KnowledgeRuntime:
             raise KnowledgeError.reindex()
         return database
 
+    @asynccontextmanager
+    async def _graph_read(self, db_id: str) -> AsyncIterator[dict]:
+        # Fail fast during a build, then recheck after waiting for other graph I/O.
+        await self._checked_graph_database(db_id, resolve_models=False)
+        async with self.metadata.lock(f'graph-{db_id}'):
+            yield await self._checked_graph_database(db_id)
+
     async def graph_labels(self, db_id: str) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            database = await self._checked_graph_database(db_id)
+        async with self._graph_read(db_id) as database:
             if not database.get('index_spec'):
                 return {'labels': []}
             return {'labels': await (await self._graph(database)).labels()}
 
     async def graph_subgraph(self, db_id: str, node_label: str, max_depth: int, max_nodes: int) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            database = await self._checked_graph_database(db_id)
+        async with self._graph_read(db_id) as database:
             if not database.get('index_spec'):
                 return {'nodes': [], 'edges': [], 'is_truncated': False}
             return await (await self._graph(database)).subgraph(node_label, max_depth, max_nodes)
 
     async def graph_query(self, db_id: str, query: str, params: QueryParameters) -> dict:
         _check_id(db_id, 'kb')
-        async with self.metadata.lock(db_id):
-            database = await self._checked_graph_database(db_id)
+        async with self._graph_read(db_id) as database:
             if not database.get('index_spec'):
                 return {'status': 'success', 'result': ''}
             result = await (await self._graph(database)).query(query, params)

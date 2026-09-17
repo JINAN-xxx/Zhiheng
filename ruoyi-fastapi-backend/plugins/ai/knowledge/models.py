@@ -1,11 +1,24 @@
+import hashlib
+import json
 from dataclasses import dataclass
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from plugins.ai.entity.vo.ai_model_catalog_vo import ModelResourceId
 
 Name = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=200)]
+
+
+def embedding_fingerprint(resolved: Any) -> str:
+    """Keep the persisted index fingerprint stable across runtime and graph storage."""
+    parts = [
+        resolved.platform_model_id,
+        resolved.binding_id,
+        resolved.engine_model_snapshot,
+        (resolved.default_parameters or {}).get('dimensions'),
+    ]
+    return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
 class KnowledgeError(Exception):
@@ -72,6 +85,10 @@ class DatabaseCreate(ChunkParameters):
 class DatabaseUpdate(StrictModel):
     name: Name
     description: str = Field('', max_length=2000)
+
+
+class GraphBuildRequest(StrictModel):
+    llm_model_id: ModelResourceId | None = None
 
 
 class DocumentAdd(StrictModel):

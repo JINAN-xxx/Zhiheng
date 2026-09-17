@@ -167,3 +167,4 @@ cython_debug/
 /data/knowledge/
 /data/milvus/
 /ruoyi-fastapi-backend/data/knowledge/
+ruoyi-fastapi-backend/tokenizer-cache/

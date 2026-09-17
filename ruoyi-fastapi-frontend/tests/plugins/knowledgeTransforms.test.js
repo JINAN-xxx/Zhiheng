@@ -58,6 +58,6 @@ assert.deepEqual(buildKnowledgeLocation('kb /中文', 'query'), {
 assert.equal(normalizeKnowledgeView('documents', false), 'documents')
 assert.equal(normalizeKnowledgeView('query', false), 'query')
 assert.equal(normalizeKnowledgeView('graph', true), 'graph')
-assert.equal(normalizeKnowledgeView('graph', false), 'documents')
+assert.equal(normalizeKnowledgeView('graph', false), 'graph')
 assert.equal(normalizeKnowledgeView('unknown', true), 'documents')
 console.log('ok knowledge transforms: business failures, graph safety, request bounds, folders and query results')

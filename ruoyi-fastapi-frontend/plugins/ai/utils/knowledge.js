@@ -2,10 +2,10 @@ const text = (value) => value == null ? '' : String(value)
 const array = (value) => Array.isArray(value) ? value : []
 const KNOWLEDGE_VIEWS = new Set(['documents', 'query', 'graph'])
 
-export function normalizeKnowledgeView(view, graphEnabled = false) {
+export function normalizeKnowledgeView(view) {
   const normalized = text(view)
   if (!KNOWLEDGE_VIEWS.has(normalized)) return 'documents'
-  return normalized === 'graph' && !graphEnabled ? 'documents' : normalized
+  return normalized
 }
 
 export function buildKnowledgeLocation(dbId, view = 'documents') {
@@ -129,4 +129,43 @@ export function normalizeKnowledgeQuery(response) {
     score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
   })) }
   return { answer: result == null ? '' : JSON.stringify(result, null, 2), items: [] }
+}
+
+const GRAPH_BUILD_STATUSES = new Set(['disabled', 'idle', 'queued', 'running', 'completed', 'failed', 'interrupted'])
+
+export function normalizeKnowledgeGraphBuild(response) {
+  // A failed job is valid data, unlike a failed knowledge operation.
+  if (response?.code != null && Number(response.code) !== 200) throw new Error(text(response.msg || response.message || '图谱状态请求失败'))
+  const data = response?.code != null ? response.data : response
+  if (!data || !GRAPH_BUILD_STATUSES.has(data.status)) throw new Error('图谱构建状态无效')
+  const count = value => Math.max(0, Math.floor(Number(value) || 0))
+  return { ...data, total_documents: count(data.total_documents), processed_documents: count(data.processed_documents),
+    failed_documents: count(data.failed_documents), current_document: text(data.current_document?.file_name || data.current_document?.id || (typeof data.current_document === 'string' ? data.current_document : '')),
+    error: text(data.error?.message || (typeof data.error === 'string' ? data.error : '')) }
+}
+
+export function isKnowledgeGraphBuilding(job) {
+  return job?.status === 'queued' || job?.status === 'running'
+}
+
+export function knowledgeGraphProgress(job) {
+  if (!job?.total_documents) return job?.status === 'completed' ? 100 : 0
+  return Math.min(100, Math.round((job.processed_documents || 0) / job.total_documents * 100))
+}
+
+export function buildKnowledgeGraphBuildPayload(database, modelId) {
+  if (database.enable_knowledge_graph) return {}
+  if (!modelId) throw new Error('启用图谱需要选择对话模型')
+  return { llm_model_id: modelId }
+}
+
+export function normalizeKnowledgeIndexResults(response, expectedCount) {
+  if (response?.code != null && Number(response.code) !== 200) throw new Error(text(response.msg || response.message || '文档索引失败'))
+  const data = response?.code != null ? response.data : response
+  if (!Array.isArray(data?.items) || data.items.length !== expectedCount) throw new Error(text(data?.message || '文档索引结果不完整，请刷新文档列表确认'))
+  return data.items.map(item => {
+    if (!['done', 'failed', 'error'].includes(item?.status)) throw new Error('文档索引结果无效，请刷新文档列表确认')
+    return { documentId: item.id || null, status: item.status === 'done' ? 'done' : 'failed',
+      error: item.status === 'done' ? '' : text(item.error?.message || item.message || (typeof item.error === 'string' ? item.error : '文档索引失败')) }
+  })
 }

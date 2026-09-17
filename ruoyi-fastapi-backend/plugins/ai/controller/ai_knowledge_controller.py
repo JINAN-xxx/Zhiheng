@@ -19,6 +19,7 @@ from plugins.ai.knowledge.models import (
     DocumentAdd,
     FolderCreate,
     FolderUpdate,
+    GraphBuildRequest,
     KnowledgeError,
     KnowledgeQuery,
 )
@@ -108,6 +109,20 @@ async def list_models(
 @ai_knowledge_controller.get('/databases/{db_id}', dependencies=[UserInterfaceAuthDependency('ai:knowledge:query')])
 async def get_database(request: Request, db_id: str) -> Response:
     return await _call(_runtime(request).get_database(db_id))
+
+
+@ai_knowledge_controller.get(
+    '/databases/{db_id}/graph-build', dependencies=[UserInterfaceAuthDependency('ai:knowledge:query')]
+)
+async def graph_build_status(request: Request, db_id: str) -> Response:
+    return await _call(_runtime(request).graph_build_status(db_id))
+
+
+@ai_knowledge_controller.post(
+    '/databases/{db_id}/graph-build', dependencies=[UserInterfaceAuthDependency('ai:knowledge:edit')]
+)
+async def start_graph_build(request: Request, db_id: str, payload: GraphBuildRequest) -> Response:
+    return await _call(_runtime(request).start_graph_build(db_id, payload))
 
 
 @ai_knowledge_controller.put('/databases/{db_id}', dependencies=[UserInterfaceAuthDependency('ai:knowledge:edit')])

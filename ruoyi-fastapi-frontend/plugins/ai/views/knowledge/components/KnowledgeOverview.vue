@@ -55,7 +55,7 @@
                   <SearchOutlined />测试检索
                 </a-button>
                 <a-button
-                  v-if="can('query') && database.enable_knowledge_graph"
+                  v-if="can('query')"
                   type="link"
                   size="small"
                   @click="open(database, 'graph')"
@@ -65,7 +65,7 @@
                 <a-button v-if="can('edit')" type="link" size="small" @click="emit('edit', database)">
                   <SettingOutlined />编辑知识库
                 </a-button>
-                <a-button v-if="can('remove')" type="link" size="small" danger @click="emit('remove', database)">
+                <a-button v-if="can('remove')" type="link" size="small" danger :disabled="isKnowledgeGraphBuilding(database.graph_build)" @click="emit('remove', database)">
                   <DeleteOutlined />删除知识库
                 </a-button>
               </div>
@@ -89,6 +89,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons-vue'
 import { computed, ref } from 'vue'
+import { isKnowledgeGraphBuilding } from '../../../utils/knowledge.js'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import WorkspaceToolbar from '@/components/Workspace/WorkspaceToolbar.vue'
 

@@ -1,6 +1,9 @@
+import asyncio
 import json
 import os
 import sys
+import threading
+from contextvars import ContextVar
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -9,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from plugins.ai.knowledge.models import KnowledgeError
-from plugins.ai.knowledge.stores import ChromaStore, MilvusStore
+from plugins.ai.knowledge.stores import ChromaStore, MilvusStore, _blocking
 
 pytestmark = pytest.mark.asyncio
 
@@ -199,3 +202,36 @@ async def test_real_milvus_write_recovers_unindexed_and_unloaded_collections() -
                 client.drop_collection(collection_name, timeout=60)
         finally:
             await store.close()
+
+
+async def test_blocking_waits_for_worker_after_repeated_cancellation_and_preserves_context() -> None:
+    request_context = ContextVar('blocking_test_context', default='missing')
+    request_context.set('request-value')
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+    exited = threading.Event()
+    worker_context = []
+
+    def operation() -> None:
+        worker_context.append(request_context.get())
+        loop.call_soon_threadsafe(started.set)
+        try:
+            assert release.wait(timeout=2)
+        finally:
+            exited.set()
+
+    task = asyncio.create_task(_blocking(operation))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        for _ in range(3):
+            task.cancel()
+            await asyncio.sleep(0.01)
+            assert not task.done()
+            assert not exited.is_set()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert exited.is_set()
+    assert worker_context == ['request-value']

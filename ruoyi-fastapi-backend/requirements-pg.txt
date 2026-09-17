@@ -36,4 +36,5 @@ SQLAlchemy[asyncio]==2.0.51
 sqlglot[rs]==30.14.0
 textual==8.2.8
 user-agents==2.2.0
+-r requirements-knowledge-graph.txt
 .

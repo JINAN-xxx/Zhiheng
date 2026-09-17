@@ -51,6 +51,7 @@
       :loading="detailLoading"
       :error="detailError"
       :busy="busy"
+      :graph-building="graphBuilding"
       :permissions="permissions"
       @back="backToOverview"
       @refresh="loadDocuments"
@@ -83,9 +84,18 @@
       :graph="graphData"
       :loading="graphLoading"
       :error="graphError"
+      :job="graphJob"
+      :available="graphAvailable"
+      :build-loading="graphBuildLoading"
+      :build-error="graphBuildError"
+      :starting="graphStarting"
+      :can-edit="can('edit')"
+      :chat-options="chatOptions"
       @back="backToOverview"
       @navigate="navigateView"
       @load="loadGraph"
+      @refresh="loadGraphWorkspace"
+      @start="startGraphBuild"
     />
 
     <a-modal
@@ -195,6 +205,7 @@
     >
       <p class="form-hint">{{ selectedDb?.name }} / {{ uploadFolderName }} · 支持 PDF、Word、TXT、Markdown 等文档</p>
       <a-alert v-if="uploadError" class="section-alert" type="error" :message="uploadError" show-icon />
+      <a-alert v-if="graphBuilding" class="section-alert" type="info" message="图谱正在构建，完成后可继续上传或重试文件。" show-icon />
       <a-form layout="vertical" :disabled="uploading">
         <ChunkFields v-model:size="uploadParams.chunk_size" v-model:overlap="uploadParams.chunk_overlap" />
       </a-form>
@@ -202,7 +213,7 @@
         multiple
         :before-upload="queueFile"
         :show-upload-list="false"
-        :disabled="uploading"
+        :disabled="uploading || graphBuilding"
         accept=".pdf,.doc,.docx,.txt,.md,.markdown,.csv,.xlsx,.xls,.ppt,.pptx,.html"
       >
         <p class="ant-upload-drag-icon"><InboxOutlined /></p>
@@ -222,7 +233,7 @@
             size="small"
           />
           <p v-if="item.error" class="inline-error">{{ item.error }}</p>
-          <a-button v-if="item.status === 'failed' && !uploading" type="link" @click="retryUpload(item)">重试</a-button>
+          <a-button v-if="item.status === 'failed' && !uploading" type="link" :disabled="graphBuilding" @click="retryUpload(item)">重试</a-button>
         </div>
       </div>
     </a-modal>
@@ -254,6 +265,10 @@ import { normalizeErrorMessage } from '@/utils/errorMessage'
 import * as api from '../../api/knowledge.js'
 import {
   buildKnowledgeDatabasePayload,
+  buildKnowledgeGraphBuildPayload,
+  normalizeKnowledgeGraphBuild,
+  normalizeKnowledgeIndexResults,
+  isKnowledgeGraphBuilding,
   buildKnowledgeLocation,
   knowledgeFolderTrail,
   normalizeKnowledgeDatabases,
@@ -293,7 +308,7 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const actionBusy = ref(false)
 const uploading = ref(false)
-const busy = computed(() => actionBusy.value || uploading.value)
+const busy = computed(() => actionBusy.value || uploading.value || graphBuilding.value || graphStarting.value)
 let generation = 0
 let listGeneration = 0
 let previewGeneration = 0
@@ -351,6 +366,10 @@ function invalidateRouteActions() {
 
 function resetKnowledgeContext(dbId = null) {
   generation += 1
+  stopGraphBuildPolling()
+  graphBuild.value = null
+  graphBuildError.value = ''
+  graphAvailable.value = false
   invalidateRouteActions()
   queryController?.abort()
   Object.assign(selection, resetKnowledgeSelection(dbId))
@@ -391,6 +410,7 @@ async function syncRoute() {
   if (selection.dbId !== dbId) resetKnowledgeContext(dbId)
   else {
     generation += 1
+    stopGraphBuildPolling()
     invalidateRouteActions()
     queryController?.abort()
     queryLoading.value = false
@@ -398,7 +418,7 @@ async function syncRoute() {
     detailLoading.value = false
   }
   selection.tab = view
-  if (view === 'documents') await loadDocuments()
+  if (view === 'documents') await Promise.all([loadDocuments(), refreshGraphBuild({ reloadOnComplete: false })])
   else if (view === 'graph') await loadGraphWorkspace()
 }
 
@@ -530,6 +550,8 @@ async function saveEditor() {
   }
   editorError.value = ''
   actionBusy.value = true
+  const current = generation
+  const editorKind = editor.kind
   try {
     let result
     if (editor.kind === 'createDb') {
@@ -555,6 +577,7 @@ async function saveEditor() {
       }
     }
 
+    if (current !== generation || disposed) return
     const data = unwrapKnowledgeResponse(result)
     editor.open = false
     feedback.msgSuccess('已保存')
@@ -569,10 +592,10 @@ async function saveEditor() {
     } else if (editor.kind === 'renameDb') {
       await loadDatabases()
     } else {
-      await loadDocuments()
+      await Promise.all([loadDocuments(), ...(editorKind === 'rechunk' ? [refreshGraphBuild()] : [])])
     }
   } catch (error) {
-    editorError.value = message(error)
+    if (current === generation && !disposed) editorError.value = message(error)
   } finally {
     actionBusy.value = false
   }
@@ -669,6 +692,7 @@ const uploadFolderName = computed(() => folderTrail.value.map(folder => folder.n
 const uploadStatus = status => ({
   queued: '等待上传',
   uploading: '上传中',
+  uploaded: '等待索引',
   indexing: '索引中',
   done: '完成',
   failed: '失败',
@@ -681,7 +705,11 @@ function openUpload() {
   uploadOpen.value = true
 }
 
-function queueFile(file) {
+function queueFile(file, batch = [file]) {
+  if (batch.length > 20) {
+    uploadError.value = '每次最多选择 20 个文件，请分批上传。'
+    return false
+  }
   try {
     validateChunkParams(uploadParams)
   } catch (error) {
@@ -696,6 +724,7 @@ function queueFile(file) {
     progress: 0,
     error: '',
     uploadId: null,
+    documentId: null,
   })
   queueMicrotask(processUploadQueue)
   return false
@@ -703,7 +732,9 @@ function queueFile(file) {
 
 function retryUpload(item) {
   if (
-    !uploadOpen.value
+    uploading.value
+    || graphBuilding.value
+    || !uploadOpen.value
     || activeView.value !== 'documents'
     || uploadContext.dbId !== selection.dbId
   ) return
@@ -715,6 +746,7 @@ function retryUpload(item) {
 async function processUploadQueue() {
   if (
     uploading.value
+    || graphBuilding.value
     || disposed
     || !uploadOpen.value
     || activeView.value !== 'documents'
@@ -728,37 +760,64 @@ async function processUploadQueue() {
     return
   }
 
-  uploading.value = true
-  uploadController = new AbortController()
+  // beforeUpload queues the whole chooser batch before this microtask runs.
+  const batch = uploadItems.value.filter(item => item.status === 'queued')
+  if (!batch.length) return
+  const current = generation
   const context = { ...uploadContext }
+  const controller = new AbortController()
+  const isCurrent = () => current === generation && !disposed && selection.dbId === context.dbId && activeView.value === 'documents'
+  uploading.value = true
+  uploadController = controller
   try {
-    for (const item of uploadItems.value) {
-      if (item.status !== 'queued' || disposed) continue
+    // Stage every file before indexing: indexing schedules a graph job that locks writes.
+    for (const item of batch) {
+      if (!isCurrent()) return
       try {
-        if (!item.uploadId) {
+        if (!item.uploadId && !item.documentId) {
           item.status = 'uploading'
           const result = unwrapKnowledgeResponse(await api.uploadKnowledgeFile(
             context.dbId,
             item.file,
             context.folderId,
             event => { item.progress = event.total ? Math.round(event.loaded / event.total * 100) : 0 },
-            uploadController.signal,
+            controller.signal,
           ))
+          if (!isCurrent()) return
           if (!result.upload_id) throw new Error('服务器未返回有效的上传标识')
           item.uploadId = result.upload_id
         }
-        item.status = 'indexing'
+        item.status = 'uploaded'
         item.progress = 100
-        unwrapKnowledgeResponse(await api.indexKnowledgeDocuments(context.dbId, [item.uploadId], params, uploadController.signal))
-        item.status = 'done'
       } catch (error) {
+        if (!isCurrent()) return
+        item.status = 'failed'
+        item.error = message(error)
+      }
+    }
+    const ready = batch.filter(item => item.status === 'uploaded')
+    if (!ready.length || !isCurrent()) return
+    for (const item of ready) item.status = 'indexing'
+    try {
+      // A failed index already has a document ID; retry its existing document.
+      const response = ready[0].documentId
+        ? await api.rechunkKnowledgeDocument(context.dbId, ready[0].documentId, params)
+        : await api.indexKnowledgeDocuments(context.dbId, ready.map(item => item.uploadId), params, controller.signal)
+      if (!isCurrent()) return
+      const results = normalizeKnowledgeIndexResults(response, ready.length)
+      results.forEach((result, index) => Object.assign(ready[index], result))
+    } catch (error) {
+      if (!isCurrent()) return
+      for (const item of ready) {
         item.status = 'failed'
         item.error = message(error)
       }
     }
   } finally {
-    uploading.value = false
-    if (!disposed && selection.dbId === context.dbId && activeView.value === 'documents') await loadDocuments()
+    if (isCurrent()) {
+      await Promise.all([loadDocuments(), refreshGraphBuild()])
+      if (isCurrent()) uploading.value = false
+    }
   }
 }
 
@@ -819,7 +878,7 @@ const graphData = ref(normalizeKnowledgeGraph({ nodes: [], edges: [] }))
 const defaultGraphParams = { node_label: '*', max_depth: 2, max_nodes: 100 }
 
 async function loadGraph(params = defaultGraphParams) {
-  if (!selection.dbId || graphLoading.value) return
+  if (!selection.dbId || graphJob.value.status !== 'completed' || !graphAvailable.value || graphLoading.value) return
   const current = generation
   graphLoading.value = true
   graphError.value = ''
@@ -833,8 +892,102 @@ async function loadGraph(params = defaultGraphParams) {
   }
 }
 
-async function loadGraphWorkspace() {
-  if (!selection.dbId) return
+const graphBuild = ref(null)
+const graphBuildLoading = ref(false)
+const graphBuildError = ref('')
+const graphStarting = ref(false)
+const graphJob = computed(() => graphBuild.value || normalizeKnowledgeGraphBuild(selectedDb.value?.graph_build || {
+  status: selectedDb.value?.enable_knowledge_graph ? 'idle' : 'disabled', total_documents: 0, processed_documents: 0, failed_documents: 0,
+}))
+const graphBuilding = computed(() => isKnowledgeGraphBuilding(graphJob.value))
+let graphBuildTimer
+let graphBuildController
+let graphStartController
+let graphBuildRequest = 0
+
+function stopGraphBuildPolling() {
+  clearTimeout(graphBuildTimer)
+  graphBuildRequest += 1
+  graphBuildController?.abort()
+  graphStartController?.abort()
+  graphBuildLoading.value = false
+  graphStarting.value = false
+}
+
+function applyGraphBuild(job, dbId) {
+  graphBuild.value = job
+  const database = databases.value.find(item => item.db_id === dbId)
+  if (database) {
+    database.graph_build = job
+    if (job.status !== 'disabled') database.enable_knowledge_graph = true
+  }
+}
+
+function scheduleGraphBuildPoll(current) {
+  clearTimeout(graphBuildTimer)
+  if (current !== generation || disposed || !graphBuilding.value) return
+  graphBuildTimer = setTimeout(() => refreshGraphBuild(), 2000)
+}
+
+async function refreshGraphBuild({ reloadOnComplete = true } = {}) {
+  const dbId = selection.dbId
+  if (!dbId || !can('query')) return
+  clearTimeout(graphBuildTimer)
+  graphBuildController?.abort()
+  const controller = new AbortController()
+  graphBuildController = controller
+  const requestId = ++graphBuildRequest
+  const current = generation
+  const wasBuilding = graphBuilding.value
+  try {
+    const job = normalizeKnowledgeGraphBuild(await api.getKnowledgeGraphBuild(dbId, controller.signal))
+    if (current !== generation || requestId !== graphBuildRequest || disposed) return
+    graphBuildError.value = ''
+    applyGraphBuild(job, dbId)
+    if (reloadOnComplete && wasBuilding && !isKnowledgeGraphBuilding(job)) {
+      if (activeView.value === 'graph') await loadGraphContent()
+      else if (activeView.value === 'documents') await loadDocuments()
+    }
+  } catch (error) {
+    if (current === generation && requestId === graphBuildRequest && !disposed) graphBuildError.value = message(error)
+  } finally {
+    if (current === generation && requestId === graphBuildRequest && !disposed) scheduleGraphBuildPoll(current)
+  }
+}
+
+async function startGraphBuild(modelId) {
+  if (!can('edit') || !graphAvailable.value || graphStarting.value || graphBuilding.value || !selectedDb.value) return
+  const current = generation
+  const database = selectedDb.value
+  let payload
+  try {
+    payload = buildKnowledgeGraphBuildPayload(database, modelId)
+  } catch (error) {
+    graphBuildError.value = message(error)
+    return
+  }
+  graphStarting.value = true
+  graphBuildError.value = ''
+  clearTimeout(graphBuildTimer)
+  graphBuildController?.abort()
+  graphBuildRequest += 1
+  graphStartController = new AbortController()
+  try {
+    const job = normalizeKnowledgeGraphBuild(await api.startKnowledgeGraphBuild(database.db_id, payload, graphStartController.signal))
+    if (current !== generation || disposed) return
+    if (payload.llm_model_id) database.llm_model_id = payload.llm_model_id
+    applyGraphBuild(job, database.db_id)
+    scheduleGraphBuildPoll(current)
+    if (!isKnowledgeGraphBuilding(job)) await loadGraphContent()
+  } catch (error) {
+    if (current === generation && !disposed) graphBuildError.value = message(error)
+  } finally {
+    if (current === generation && !disposed) graphStarting.value = false
+  }
+}
+
+async function loadGraphContent() {
+  if (!selection.dbId || graphJob.value.status !== 'completed' || !graphAvailable.value) return
   const current = generation
   graphError.value = ''
   try {
@@ -846,6 +999,28 @@ async function loadGraphWorkspace() {
     return
   }
   if (current === generation && !disposed) await loadGraph(defaultGraphParams)
+}
+
+async function loadGraphWorkspace() {
+  if (!selection.dbId || graphBuildLoading.value) return
+  const current = generation
+  graphBuildLoading.value = true
+  graphBuildError.value = ''
+  try {
+    const [types, chats] = await Promise.all([
+      api.listKnowledgeTypes(),
+      can('edit') && !selectedDb.value.enable_knowledge_graph ? api.listKnowledgeModels('chat') : Promise.resolve(null),
+      refreshGraphBuild({ reloadOnComplete: false }),
+    ])
+    if (current !== generation || disposed) return
+    graphAvailable.value = unwrapKnowledgeResponse(types).graph_available === true
+    if (chats) chatModels.value = unwrapKnowledgeResponse(chats).models || []
+    await loadGraphContent()
+  } catch (error) {
+    if (current === generation && !disposed) graphBuildError.value = message(error)
+  } finally {
+    if (current === generation && !disposed) graphBuildLoading.value = false
+  }
 }
 
 watch(
@@ -863,6 +1038,7 @@ onMounted(loadDatabases)
 
 onBeforeUnmount(() => {
   disposed = true
+  stopGraphBuildPolling()
   generation += 1
   listGeneration += 1
   previewGeneration += 1

@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from plugins.ai.controller import ai_knowledge_controller as controller
-from plugins.ai.knowledge.models import KnowledgeError
+from plugins.ai.knowledge.models import GraphBuildRequest, KnowledgeError
 
 
 def test_every_knowledge_route_has_login_and_specific_operation_permission() -> None:
@@ -59,3 +59,31 @@ def test_missing_runtime_has_explicit_unavailable_response() -> None:
     with pytest.raises(HTTPException) as caught:
         controller._runtime(request)
     assert caught.value.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+
+
+def test_graph_build_routes_require_separate_read_and_edit_permissions() -> None:
+    routes = {
+        (method, route.path): route for route in controller.ai_knowledge_controller.routes for method in route.methods
+    }
+    for method, permission in (('GET', 'ai:knowledge:query'), ('POST', 'ai:knowledge:edit')):
+        route = routes[method, '/ai/knowledge/databases/{db_id}/graph-build']
+        assert any(permission in repr(vars(dependency.dependency)) for dependency in route.dependencies)
+
+
+@pytest.mark.asyncio
+async def test_graph_build_controller_returns_normal_status_envelope() -> None:
+    class Runtime:
+        async def graph_build_status(self, db_id: str) -> dict:
+            assert db_id == 'kb_test'
+            return {'status': 'running', 'job_id': 'job_test'}
+
+        async def start_graph_build(self, db_id: str, payload: GraphBuildRequest) -> dict:
+            assert db_id == 'kb_test'
+            assert payload.llm_model_id is None
+            return {'status': 'queued', 'job_id': 'job_test'}
+
+    request = Request({'type': 'http', 'app': SimpleNamespace(state=SimpleNamespace(knowledge_runtime=Runtime()))})
+    response = await controller.graph_build_status(request, 'kb_test')
+    assert json.loads(response.body)['data']['status'] == 'running'
+    response = await controller.start_graph_build(request, 'kb_test', GraphBuildRequest())
+    assert json.loads(response.body)['data']['status'] == 'queued'

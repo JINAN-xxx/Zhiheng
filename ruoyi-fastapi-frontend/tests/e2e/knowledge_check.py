@@ -48,6 +48,10 @@ class KnowledgeFixture:
         self.fail_document_refresh = False
         self.fail_database_refresh = False
         self.milvus_available = True
+        self.graph_available = True
+        self.graph_jobs = {}
+        self.graph_status_delay = 0
+        self.graph_content_while_building = []
 
     def respond(self, path, method, body, params):
         if path == '/getInfo':
@@ -79,7 +83,7 @@ class KnowledgeFixture:
             model_type = params.get('model_type', ['embedding'])[0]
             data = {'models': [{'model_id': model_type + '-model', 'display_name': model_type + ' 测试模型'}]}
         elif suffix == '/types':
-            data = {'kb_types': {'milvus': {'available': self.milvus_available}}, 'graph_available': True}
+            data = {'kb_types': {'milvus': {'available': self.milvus_available}}, 'graph_available': self.graph_available}
         elif suffix == '/folders':
             if method == 'POST':
                 folder = {**body, 'id': 'folder-new', 'parent_id': body.get('parent_id')}
@@ -98,6 +102,18 @@ class KnowledgeFixture:
             assert params['db_id'] == ['kb-main']
             assert 'file' in body['multipart']
             data = {'upload_id': 'opaque-upload', 'file_name': 'upload.txt', 'file_size': 20}
+        elif suffix.endswith('/graph-build'):
+            db_id = suffix.split('/')[2]
+            database = next(row for row in self.databases if row['db_id'] == db_id)
+            if method == 'POST':
+                if not database.get('enable_knowledge_graph'):
+                    assert body.get('llm_model_id') == 'chat-model'
+                    database.update(enable_knowledge_graph=True, llm_model_id=body['llm_model_id'])
+                else:
+                    assert body == {}, 'backfill must reuse the original model'
+                self.graph_jobs[db_id] = {'status': 'running', 'job_id': 'job-' + db_id, 'total_documents': 3, 'processed_documents': 1, 'failed_documents': 0, 'current_document': {'id': 'pending-doc', 'file_name': '待构建文档.md'}}
+            data = self.graph_jobs.get(db_id, {'status': 'completed' if database.get('enable_knowledge_graph') else 'disabled', 'total_documents': 0, 'processed_documents': 0, 'failed_documents': 0})
+            database['graph_build'] = copy.deepcopy(data)
         elif suffix.endswith('/documents'):
             db_id = suffix.split('/')[2]
             if method == 'POST':
@@ -126,6 +142,8 @@ class KnowledgeFixture:
             assert 1 <= body['meta']['top_k'] <= 8
             data = {'status': 'success', 'result': [{'content': UNSAFE + '\n检索片段', 'score': 0.8, 'metadata': {'source': UNSAFE}}]}
         elif suffix.endswith('/labels'):
+            if self.graph_jobs.get(suffix.split('/')[2], {}).get('status') in ('running', 'queued', 'failed', 'interrupted'):
+                self.graph_content_while_building.append(suffix)
             data = {'labels': [LABEL]}
         elif suffix.endswith('/subgraph'):
             data = {'nodes': [{'id': 'n1', 'entity_name': UNSAFE, 'entity_type': '测试', 'properties': {'description': UNSAFE}}, {'id': 'n2', 'entity_name': LABEL}], 'edges': [{'source': 'n1', 'target': 'n2', 'type': UNSAFE}], 'is_truncated': True}
@@ -162,7 +180,9 @@ class KnowledgeFixture:
             if path.endswith('/files/upload') and self.upload_delay:
                 await asyncio.sleep(self.upload_delay)
             payload = self.respond(path, request.method, body, parse_qs(url.query))
-            await route.fulfill(content_type='application/json', body=json.dumps(payload, ensure_ascii=False))
+            if path.endswith('/graph-build') and self.graph_status_delay:
+                await asyncio.sleep(self.graph_status_delay)
+            await route.fulfill(status=payload.pop('_http_status', 200), content_type='application/json', body=json.dumps(payload, ensure_ascii=False))
         for pattern in ('**/dev-api/**', '**/docker-api/**', '**/transport/crypto/frontend-config', '**/captchaImage'):
             await context.route(pattern, handler)
         await context.add_cookies([{'name': 'Admin-Token', 'value': 'knowledge-test-token', 'url': BASE_URL}])
@@ -324,7 +344,8 @@ async def desktop(browser):
         await button(row, '管理文档').click()
         await expect(page.get_by_text('当前目录暂无文档', exact=True)).to_be_visible()
         await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-second&view=graph', wait_until='networkidle')
-        await expect(page).to_have_url(re.compile(r'dbId=kb-second.*view=documents'))
+        await expect(page).to_have_url(re.compile(r'dbId=kb-second.*view=graph'))
+        await expect(button(page, '启用并构建图谱')).to_be_visible()
         await button(page, '返回知识库').click()
         row = page.locator('.knowledge-card').filter(has_text='资料库')
         await button(row, '管理文档').click()

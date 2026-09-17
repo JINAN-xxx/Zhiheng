@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from collections.abc import Callable, Sequence
+from contextvars import copy_context
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,51 @@ MILVUS_INITIALIZATION_TIMEOUT_SECONDS = 60
 MILVUS_REQUEST_TIMEOUT_SECONDS = 8
 
 
+def _graph_environment() -> dict[str, str]:
+    """Resolve server-only LightRAG settings without exposing or persisting secrets."""
+    from config.env import DataBaseConfig
+
+    defaults = (
+        {
+            'POSTGRES_HOST': DataBaseConfig.db_host,
+            'POSTGRES_PORT': str(DataBaseConfig.db_port),
+            'POSTGRES_USER': DataBaseConfig.db_username,
+            'POSTGRES_PASSWORD': DataBaseConfig.db_password,
+            'POSTGRES_DATABASE': DataBaseConfig.db_database,
+        }
+        if DataBaseConfig.db_type == 'postgresql'
+        else {}
+    )
+    resolved = {
+        key: os.getenv(key) or defaults.get(key, '')
+        for key in (
+            'POSTGRES_HOST',
+            'POSTGRES_PORT',
+            'POSTGRES_USER',
+            'POSTGRES_PASSWORD',
+            'POSTGRES_DATABASE',
+        )
+    }
+    resolved.update(
+        {
+            'MILVUS_URI': os.getenv('MILVUS_URI') or os.getenv('KNOWLEDGE_MILVUS_URI', ''),
+            'MILVUS_TOKEN': os.getenv('MILVUS_TOKEN') or os.getenv('KNOWLEDGE_MILVUS_TOKEN', ''),
+            'MILVUS_DB_NAME': os.getenv('MILVUS_DB_NAME') or os.getenv('KNOWLEDGE_MILVUS_DB_NAME') or 'default',
+            # A config.ini workspace would otherwise override per-KB isolation.
+            'POSTGRES_WORKSPACE': '',
+            'MILVUS_WORKSPACE': '',
+        }
+    )
+    return resolved
+
+
+def configure_graph_environment() -> None:
+    require_graph()
+    for key, value in _graph_environment().items():
+        if not os.getenv(key):
+            os.environ[key] = value
+
+
 def available_types() -> dict:
     from config.env import AppConfig
 
@@ -23,15 +69,28 @@ def available_types() -> dict:
         return importlib.util.find_spec(name) is not None
 
     milvus_configured = bool(os.getenv('KNOWLEDGE_MILVUS_URI') or os.getenv('MILVUS_URI'))
-    graph_configured = AppConfig.app_workers == 1 and all(
-        os.getenv(key) for key in ('MILVUS_URI', 'NEO4J_URI', 'NEO4J_USERNAME', 'NEO4J_PASSWORD')
+    graph_env = _graph_environment()
+    graph_configured = (
+        AppConfig.app_workers == 1
+        and not any(os.getenv(key, '').strip() for key in ('POSTGRES_WORKSPACE', 'MILVUS_WORKSPACE'))
+        and all(
+            graph_env[key]
+            for key in (
+                'POSTGRES_HOST',
+                'POSTGRES_PORT',
+                'POSTGRES_USER',
+                'POSTGRES_PASSWORD',
+                'POSTGRES_DATABASE',
+                'MILVUS_URI',
+            )
+        )
     )
     return {
         'chroma': {'available': installed('chromadb'), 'description': '本地持久化向量知识库'},
         'milvus': {'available': installed('pymilvus') and milvus_configured, 'description': 'Milvus 向量知识库'},
         'lightrag': {
-            'available': installed('lightrag') and installed('pymilvus') and installed('neo4j') and graph_configured,
-            'description': 'Milvus 向量与 Neo4j 知识图谱（需要单 worker）',
+            'available': installed('lightrag') and installed('pymilvus') and installed('asyncpg') and graph_configured,
+            'description': 'Milvus 向量与 PostgreSQL 知识图谱（需要单 worker）',
         },
     }
 
@@ -47,15 +106,32 @@ def create_store(kind: str, data_dir: Path) -> Any:
     return ChromaStore(data_dir / 'chroma') if kind == 'chroma' else MilvusStore()
 
 
-async def _blocking(operation: Callable[[], Any]) -> Any:
-    task = asyncio.create_task(asyncio.to_thread(operation))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
+async def _wait_for_completion(future: asyncio.Future) -> bool:
+    """Drain owned work despite repeated cancellation; report caller cancellation."""
+    completed = asyncio.Event()
+    future.add_done_callback(lambda _: completed.set())
+    cancelled = False
+    while not future.done():
         try:
-            await task
-        finally:
-            raise
+            # Await a separate completion signal. Cancelling this waiter cannot
+            # cancel the worker future or an initialization/cleanup task.
+            await completed.wait()
+        except asyncio.CancelledError:  # noqa: PERF203 - each cancellation must resume waiting for the owned work.
+            cancelled = True
+    return cancelled
+
+
+async def _blocking(operation: Callable[[], Any]) -> Any:
+    # Keep the executor future itself: a cancellable to_thread Task can finish
+    # before its thread and let a second cancel race client cleanup. Preserve
+    # to_thread's context propagation for request/trace context variables.
+    future = asyncio.get_running_loop().run_in_executor(None, copy_context().run, operation)
+    cancelled = await _wait_for_completion(future)
+    if cancelled:
+        if not future.cancelled():
+            future.exception()  # Consume worker failures without replacing cancellation.
+        raise asyncio.CancelledError
+    return future.result()
 
 
 class ChromaStore:

@@ -15,19 +15,17 @@
 
 <script setup>
 import { ApartmentOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons-vue'
-import { computed } from 'vue'
 
-const props = defineProps({
+defineProps({
   activeView: { type: String, required: true },
-  graphEnabled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['navigate'])
-const items = computed(() => [
+const items = [
   { view: 'documents', label: '文档管理', icon: FileTextOutlined },
   { view: 'query', label: '检索测试', icon: SearchOutlined },
-  props.graphEnabled && { view: 'graph', label: '知识图谱', icon: ApartmentOutlined },
-].filter(Boolean))
+  { view: 'graph', label: '知识图谱', icon: ApartmentOutlined },
+]
 </script>
 
 <style scoped lang="scss">
