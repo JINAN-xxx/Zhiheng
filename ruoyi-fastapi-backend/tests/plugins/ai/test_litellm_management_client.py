@@ -86,6 +86,25 @@ async def test_deployment_lookup_still_requires_exact_matching_alias() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('model_alias', (None, '', 'auto-model', 'provider/model&region=china#value?x=+%', '中文 模型'))
+async def test_deployment_list_supports_optional_encoded_alias_filter(model_alias: str | None) -> None:
+    response = {'data': [{'model_name': model_alias or 'first-page-model'}], 'total_count': 1}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == 'GET'
+        assert request.url.path == '/v2/model/info'
+        assert request.headers['authorization'] == 'Bearer management-secret'
+        assert dict(request.url.params) == ({'model': model_alias} if model_alias else {})
+        return httpx.Response(200, json=response)
+
+    client = build_client(handler)
+    try:
+        assert await client.list_deployments(model_alias=model_alias) == response
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('method', ['read', 'write', 'deployment'])
 async def test_key_sync_transport_failure_never_exposes_credentials(method: str) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -288,7 +307,7 @@ def test_management_method_signatures_do_not_expose_transport_escape_hatches() -
         'create_credential': {'self', 'payload'},
         'rotate_credential': {'self', 'credential_name', 'payload'},
         'delete_credential': {'self', 'credential_name'},
-        'list_deployments': {'self'},
+        'list_deployments': {'self', 'model_alias'},
         'create_deployment': {'self', 'payload'},
         'update_deployment': {'self', 'model_id', 'payload'},
         'delete_deployment': {'self', 'model_id'},

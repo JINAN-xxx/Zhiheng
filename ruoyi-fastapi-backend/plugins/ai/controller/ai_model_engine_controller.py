@@ -1,7 +1,7 @@
 from collections.abc import Awaitable
 from typing import Annotated, TypeVar
 
-from fastapi import HTTPException, Path, Request, Response
+from fastapi import HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.annotation.log_annotation import AuditedHTTPException, Log, RequestLogFieldRoot, ResponseLogFieldRoot
@@ -187,9 +187,12 @@ async def delete_engine_credential(
 async def list_engine_deployments(
     request: Request,
     query_db: Annotated[AsyncSession, DBSessionDependency()],
+    model_alias: Annotated[SafeIdentifier | None, Query(alias='modelAlias')] = None,
 ) -> Response:
     del query_db
-    result = await _call_engine(get_model_engine_service(request).list_deployments())
+    service = get_model_engine_service(request)
+    operation = service.list_deployments(model_alias=model_alias) if model_alias is not None else service.list_deployments()
+    result = await _call_engine(operation)
     return ResponseUtil.success(data=result)
 
 

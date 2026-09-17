@@ -219,6 +219,7 @@ class DeploymentUpdateModel(_StrictRequestModel):
 class ConnectionTestRequestModel(_CredentialValuesRequestModel):
     upstream_model: SafeIdentifier
     provider: SafeIdentifier
+    model_type: Literal['chat', 'embedding', 'rerank'] | None = None
     credential_name: CredentialName | None = None
 
 

@@ -129,7 +129,7 @@ assert.doesNotMatch(platformModelsPanel, /title:\s*['"]能力['"]|title="能力"
 assert.doesNotMatch(onboardingDrawer, /label="能力"/)
 assert.doesNotMatch(onboardingDrawer, /<span>调用别名<\/span>/)
 assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/DeploymentForm.vue', 'utf8'), /<a-form-item v-if="!quick" label="路由别名"/)
-assert.match(onboardingDrawer, /capabilities:\s*defaultModelCapabilities\(catalogForm\.modelType\)/)
+assert.match(onboardingDrawer, /capabilities:\s*defaultModelCapabilities\(config\.modelType\)/)
 assert.match(onboardingDrawer, /var\(--bg-container\)/)
 assert.match(onboardingDrawer, /var\(--gray-150\)/)
 for (const fileName of [
@@ -142,8 +142,10 @@ for (const fileName of [
   assert.match(source, /\.engine-form\.is-quick \.form-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--bg-container\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)[\s\S]*padding:\s*12px 0/, `${fileName} must keep quick actions visible`)
   assert.match(source, /@media \(max-width: 640px\)[\s\S]*\.form-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/, `${fileName} must keep mobile actions from overlapping`)
 }
-assert.match(onboardingDrawer, /\.step-actions\s*\{[\s\S]*position:\s*sticky[\s\S]*bottom:\s*0[\s\S]*z-index:\s*\d+[\s\S]*background:\s*var\(--bg-container\)[\s\S]*border-top:\s*1px solid var\(--gray-150\)/)
-assert.match(onboardingDrawer, /@media \(max-width: 640px\)[\s\S]*\.step-actions[^\n]*\{[\s\S]*flex-wrap:\s*wrap/)
+
+assert.match(onboardingDrawer, /#footer/)
+assert.match(onboardingDrawer, /class="onboarding-footer"/)
+assert.match(onboardingDrawer, /class="footer-actions"/)
 
 const applicationView = readFileSync('plugins/ai/views/application/index.vue', 'utf8')
 const applicationApiDocs = readFileSync('plugins/ai/views/application/components/ApplicationApiDocs.vue', 'utf8')

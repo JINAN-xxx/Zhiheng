@@ -1,6 +1,6 @@
 # 模型接入自动同步调用授权
 
-已更新到现有公网 8060 平台，当前运维入口为 `data/agent-releases/20260917-model-runtime-access/manage.sh`，后端镜像为 `ruoyi-backend-pg:model-runtime-access-20260917`。前端继续使用知识图谱版本。
+已更新到现有公网 8060 平台，本版运维入口为 `data/agent-releases/20260917-model-runtime-access/manage.sh`，后端镜像为 `ruoyi-backend-pg:model-runtime-access-20260917`。前端使用知识图谱版本。后续更新见 [模型接入单页表单发布](2026-09-17-model-onboarding-form.md)。
 
 ## 原因与行为
 

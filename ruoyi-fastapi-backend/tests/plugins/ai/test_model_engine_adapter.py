@@ -1319,8 +1319,10 @@ def test_connection_and_status_models_are_camel_case_whitelists() -> None:
             model_type.model_validate(request)
 
 
+@pytest.mark.parametrize('optional_type', ({}, {'modelType': None}))
 def test_connection_payload_validates_dynamic_values_and_is_an_exact_litellm_request(
     real_provider_payload: dict[str, object],
+    optional_type: dict[str, object],
 ) -> None:
     vo, adapter_module = load_contract()
     providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
@@ -1330,6 +1332,7 @@ def test_connection_payload_validates_dynamic_values_and_is_an_exact_litellm_req
             'provider': 'OpenAI',
             'credentialName': None,
             'values': {'api_key': 'private-api-key', 'organization': 'org-123'},
+            **optional_type,
         }
     )
 
@@ -1346,8 +1349,10 @@ def test_connection_payload_validates_dynamic_values_and_is_an_exact_litellm_req
     }
 
 
+@pytest.mark.parametrize('optional_type', ({}, {'modelType': None}))
 def test_connection_payload_allows_saved_credential_without_reposting_values(
     real_provider_payload: dict[str, object],
+    optional_type: dict[str, object],
 ) -> None:
     vo, adapter_module = load_contract()
     providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
@@ -1357,6 +1362,7 @@ def test_connection_payload_allows_saved_credential_without_reposting_values(
             'provider': 'OpenAI',
             'credentialName': 'openai-main',
             'values': {},
+            **optional_type,
         }
     )
 
@@ -1370,6 +1376,60 @@ def test_connection_payload_allows_saved_credential_without_reposting_values(
         },
         'model_info': {},
     }
+
+
+@pytest.mark.parametrize('model_type', ('chat', 'embedding', 'rerank'))
+@pytest.mark.parametrize('saved_credential', (False, True))
+def test_connection_payload_passes_selected_model_type_as_root_mode(
+    real_provider_payload: dict[str, object],
+    model_type: str,
+    saved_credential: bool,
+) -> None:
+    vo, adapter_module = load_contract()
+    providers = adapter_module.LiteLLMManagementAdapter.normalize_provider_fields(real_provider_payload)
+    credential_params = (
+        {'litellm_credential_name': 'openai-main'} if saved_credential else {'api_key': 'private-api-key'}
+    )
+    request = vo.ConnectionTestRequestModel.model_validate(
+        {
+            'upstreamModel': 'openai/custom-model',
+            'provider': 'OpenAI',
+            'modelType': model_type,
+            'credentialName': 'openai-main' if saved_credential else None,
+            'values': {} if saved_credential else {'api_key': 'private-api-key'},
+        }
+    )
+
+    payload = adapter_module.LiteLLMManagementAdapter.build_connection_test_payload(request, providers)
+
+    assert payload == {
+        'litellm_params': {
+            'model': 'openai/custom-model',
+            'custom_llm_provider': 'openai',
+            **credential_params,
+        },
+        'model_info': {},
+        'mode': model_type,
+    }
+
+
+@pytest.mark.parametrize('model_type', ('image', '', 'Embedding', 1, True))
+def test_connection_model_type_rejects_invalid_values_without_echoing_credentials(model_type: object) -> None:
+    vo, _ = load_contract()
+
+    with pytest.raises(ValidationError) as raised:
+        vo.ConnectionTestRequestModel.model_validate(
+            {
+                'upstreamModel': 'openai/custom-model',
+                'provider': 'OpenAI',
+                'modelType': model_type,
+                'values': {'api_key': 'private-api-key'},
+            }
+        )
+
+    errors = raised.value.errors()
+    assert [(error['loc'], error['type']) for error in errors] == [(('modelType',), 'literal_error')]
+    assert 'private-api-key' not in repr((str(raised.value), repr(raised.value), errors, raised.value.json()))
 
 
 def test_connection_result_only_trusts_fixed_status_and_never_echoes_result() -> None:

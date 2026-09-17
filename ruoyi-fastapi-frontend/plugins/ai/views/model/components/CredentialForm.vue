@@ -20,7 +20,7 @@
       />
     </a-form-item>
 
-    <a-divider orientation="left">凭据字段</a-divider>
+    <a-divider v-if="!embedded" orientation="left">凭据字段</a-divider>
     <a-empty v-if="form.provider && currentFields.length === 0" description="该服务商无需额外凭据" />
     <a-form-item
       v-for="field in currentFields"
@@ -36,6 +36,7 @@
       </template>
       <a-select
         v-if="field.fieldType === 'select'"
+        :disabled="disabled"
         v-model:value="form.values[field.key]"
         :placeholder="field.placeholder || `选择${field.label}`"
         allow-clear
@@ -44,35 +45,39 @@
       />
       <SecretField
         v-else-if="isSecretField(field)"
+        :disabled="disabled"
         v-model:value="form.values[field.key]"
         :multiline="field.fieldType === 'textarea'"
         :placeholder="field.placeholder || `输入${field.label}`"
       />
       <a-textarea
         v-else-if="field.fieldType === 'textarea'"
+        :disabled="disabled"
         v-model:value="form.values[field.key]"
         :rows="4"
         :placeholder="field.placeholder || `输入${field.label}`"
       />
       <div v-else-if="field.fieldType === 'upload'" class="upload-field">
         <a-upload
+          :disabled="disabled"
           accept=".json,.pem,.txt,.key,.crt,.cer,.yaml,.yml,.conf,.config,application/json,text/plain,text/yaml,application/x-pem-file,application/yaml"
           :before-upload="(file) => selectCredentialFile(field.key, file)"
           :show-upload-list="false"
         >
-          <a-button><UploadOutlined />选择文件</a-button>
+          <a-button :disabled="disabled"><UploadOutlined />选择文件</a-button>
         </a-upload>
         <span v-if="fileNames[field.key]" class="file-name">{{ fileNames[field.key] }}</span>
       </div>
       <a-input
         v-else
+        :disabled="disabled"
         v-model:value="form.values[field.key]"
         autocomplete="new-password"
         :placeholder="field.placeholder || `输入${field.label}`"
       />
     </a-form-item>
 
-    <div class="form-actions">
+    <div v-if="!embedded" class="form-actions">
       <a-button @click="$emit('cancel')">取消</a-button>
       <a-button type="primary" :loading="submitting" @click="submit">
         <CheckOutlined />
@@ -96,10 +101,12 @@ const props = defineProps({
   credentialName: { type: String, default: '' },
   provider: { type: String, default: '' },
   quick: { type: Boolean, default: false },
+  embedded: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
   submitting: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['submit', 'cancel'])
+const emit = defineEmits(['submit', 'cancel', 'change'])
 const formRef = ref()
 const fileNames = reactive({})
 const form = reactive({ credentialName: '', provider: '', values: {} })
@@ -116,6 +123,7 @@ const rules = {
 
 const currentProvider = computed(() => resolveProvider(props.providers, form.provider))
 const currentFields = computed(() => currentProvider.value?.fields || [])
+watch(() => form.values, () => emit('change'), { deep: true, flush: 'sync' })
 const providerOptions = computed(() => props.providers.map((item) => ({
   label: item.displayName,
   value: item.provider,
@@ -209,20 +217,33 @@ async function readCredentialFile(key, uploadFile) {
   }
 }
 
-async function submit() {
+async function getPayload() {
   const valid = await formRef.value.validateFields().then(() => true).catch(() => false)
-  if (!valid) return
+  if (!valid) return null
   const values = buildCredentialValues(currentFields.value, form.values)
   if (Object.keys(values).length === 0) {
     feedback.msgError('请至少填写一项凭据值')
-    return
+    return null
   }
-  emit('submit', {
+  return {
     credentialName: form.credentialName,
     provider: form.provider,
     values,
-  })
+  }
 }
+
+async function submit() {
+  const payload = await getPayload()
+  if (payload) emit('submit', payload)
+}
+
+function clearSecrets() {
+  invalidateFileReads()
+  form.values = {}
+  Object.keys(fileNames).forEach((key) => delete fileNames[key])
+}
+
+defineExpose({ getPayload, clearSecrets })
 
 onBeforeUnmount(invalidateFileReads)
 </script>

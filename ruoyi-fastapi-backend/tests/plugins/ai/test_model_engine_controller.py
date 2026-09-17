@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.routing import APIRoute
@@ -15,6 +16,7 @@ from starlette.status import (
     HTTP_200_OK,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
+    HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
@@ -176,8 +178,8 @@ class FakeManagementClient:
     async def delete_credential(self, name: str) -> Mapping[str, object]:
         return await self._result('delete_credential', name)
 
-    async def list_deployments(self) -> Mapping[str, object]:
-        return await self._result('list_deployments')
+    async def list_deployments(self, model_alias: str | None = None) -> Mapping[str, object]:
+        return await self._result('list_deployments', model_alias)
 
     async def create_deployment(self, payload: Mapping[str, object]) -> Mapping[str, object]:
         return await self._result('create_deployment', payload)
@@ -470,6 +472,28 @@ async def test_public_provider_list_works_without_management_key() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deployment_list_filters_alias_upstream_and_rechecks_normalized_matches() -> None:
+    unrelated = {**deployment_item('unrelated'), 'model_name': 'company-chat-other'}
+    client = FakeManagementClient(
+        deployments=deployment_payload(unrelated, deployment_item('matching-one'), deployment_item('matching-two'))
+    )
+
+    deployments = await service(client).list_deployments(model_alias='company-chat')
+
+    assert client.calls == [('list_deployments', 'company-chat')]
+    assert [deployment.deployment_id for deployment in deployments] == ['matching-one', 'matching-two']
+    assert {deployment.model_alias for deployment in deployments} == {'company-chat'}
+
+
+@pytest.mark.asyncio
+async def test_deployment_list_alias_filter_returns_empty_list_for_no_exact_match() -> None:
+    client = FakeManagementClient()
+
+    assert await service(client).list_deployments(model_alias='missing-model') == []
+    assert client.calls == [('list_deployments', 'missing-model')]
+
+
+@pytest.mark.asyncio
 async def test_deployment_detail_returns_exact_item_and_not_found_is_stable() -> None:
     engine = service(FakeManagementClient())
 
@@ -486,12 +510,14 @@ async def test_deployment_detail_returns_exact_item_and_not_found_is_stable() ->
 
 
 @pytest.mark.asyncio
-async def test_connection_test_returns_only_fixed_sanitized_result() -> None:
+@pytest.mark.parametrize('model_type', ('chat', 'embedding', 'rerank'))
+async def test_connection_test_forwards_selected_type_and_returns_only_fixed_sanitized_result(model_type: str) -> None:
     client = FakeManagementClient()
     request = ConnectionTestRequestModel.model_validate(
         {
             'upstreamModel': 'openai/gpt-4.1-mini',
             'provider': 'OpenAI',
+            'modelType': model_type,
             'values': {'api_key': 'connection-secret'},
         }
     )
@@ -504,7 +530,18 @@ async def test_connection_test_returns_only_fixed_sanitized_result() -> None:
         'message': '连接测试成功',
     }
     assert 'connection-secret' not in repr(result)
-    assert client.calls[-1][0] == 'test_connection'
+    assert client.calls[-1] == (
+        'test_connection',
+        {
+            'litellm_params': {
+                'model': 'openai/gpt-4.1-mini',
+                'custom_llm_provider': 'openai',
+                'api_key': 'connection-secret',
+            },
+            'model_info': {},
+            'mode': model_type,
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -803,6 +840,11 @@ class FakeControllerService:
             )[0]
         return None
 
+    async def list_deployments(self, model_alias: str | None = None) -> object:
+        if model_alias is None:
+            return await self._result('list_deployments')
+        return await self._result('list_deployments', model_alias)
+
     def __getattr__(self, name: str) -> Callable[..., Any]:
         async def operation(*args: object) -> object:
             return await self._result(name, *args)
@@ -879,6 +921,50 @@ def test_routes_use_exact_methods_permissions_login_db_session_and_no_data_scope
         assert [call.perm for call in calls if type(call).__name__ == 'CheckUserInterfaceAuth'] == [expected_permission]
         assert any(getattr(call, '__name__', '') == 'get_db' for call in calls)
         assert not any(isinstance(call, GetDataScope) for call in calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('query_alias', 'expected_status', 'expected_alias'),
+    (
+        (None, HTTP_200_OK, None),
+        ('company-chat', HTTP_200_OK, 'company-chat'),
+        ('  company-chat  ', HTTP_200_OK, 'company-chat'),
+        ('provider/model&region=china', HTTP_200_OK, 'provider/model&region=china'),
+        ('', HTTP_422_UNPROCESSABLE_CONTENT, None),
+        ('   ', HTTP_422_UNPROCESSABLE_CONTENT, None),
+        ('x' * 256, HTTP_422_UNPROCESSABLE_CONTENT, None),
+        ('model\nother', HTTP_422_UNPROCESSABLE_CONTENT, None),
+        ('model\u2028other', HTTP_422_UNPROCESSABLE_CONTENT, None),
+    ),
+)
+async def test_deployment_list_query_validates_and_forwards_optional_model_alias(
+    query_alias: str | None,
+    expected_status: int,
+    expected_alias: str | None,
+) -> None:
+    app = FastAPI()
+    app.include_router(ai_model_engine_controller)
+
+    def isolated_dependency() -> object:
+        return object()
+
+    for dependency in dependency_calls(route_map()[('GET', '/ai/model-engine/deployments')]):
+        app.dependency_overrides[dependency] = isolated_dependency
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+        response = await client.get(
+            '/ai/model-engine/deployments',
+            params={} if query_alias is None else {'modelAlias': query_alias},
+        )
+
+    assert response.status_code == expected_status
+    if expected_status == HTTP_422_UNPROCESSABLE_CONTENT:
+        assert FakeControllerService.calls == []
+    else:
+        assert response.json()['data'] == []
+        expected_args = () if expected_alias is None else (expected_alias,)
+        assert FakeControllerService.calls == [('list_deployments', expected_args)]
 
 
 def test_controller_has_no_client_state_adapter_or_litellm_payload_assembly() -> None:

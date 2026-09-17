@@ -55,7 +55,7 @@ class ManagementClient(Protocol):
 
     async def delete_credential(self, credential_name: str) -> Mapping[str, object]: ...
 
-    async def list_deployments(self) -> Mapping[str, object]: ...
+    async def list_deployments(self, *, model_alias: str | None = None) -> Mapping[str, object]: ...
 
     async def create_deployment(self, payload: Mapping[str, object]) -> Mapping[str, object]: ...
 
@@ -296,9 +296,9 @@ class ModelEngineService:
             raise ModelEngineServiceError.credential_in_use(count)
         await client.delete_credential(credential_name)
 
-    async def list_deployments(self) -> list[DeploymentModel]:
+    async def list_deployments(self, *, model_alias: str | None = None) -> list[DeploymentModel]:
         client = self._require_configured_client()
-        return await _load_deployments(client, self._adapter)
+        return await _load_deployments(client, self._adapter, model_alias=model_alias)
 
     async def get_deployment(self, deployment_id: str) -> DeploymentModel:
         deployments = await self.list_deployments()
@@ -445,10 +445,13 @@ def _unique_credential_providers(deployments: Sequence[DeploymentModel]) -> dict
 async def _load_deployments(
     client: ManagementClient,
     adapter: LiteLLMManagementAdapter,
+    *,
+    model_alias: str | None = None,
 ) -> list[DeploymentModel]:
-    payload = await client.list_deployments()
+    payload = await client.list_deployments(model_alias=model_alias) if model_alias else await client.list_deployments()
     try:
-        return adapter.normalize_deployments(payload)
+        deployments = adapter.normalize_deployments(payload)
+        return [item for item in deployments if item.model_alias == model_alias] if model_alias else deployments
     finally:
         del payload
 

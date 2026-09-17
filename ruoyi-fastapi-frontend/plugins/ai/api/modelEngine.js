@@ -30,8 +30,8 @@ export function deleteEngineCredential(credentialName) {
   return request({ url: enginePath('credentials', credentialName), method: 'delete' })
 }
 
-export function listEngineDeployments() {
-  return request({ url: enginePath('deployments'), method: 'get' })
+export function listEngineDeployments(params) {
+  return request({ url: enginePath('deployments'), method: 'get', params })
 }
 
 export function getEngineDeployment(deploymentId) {

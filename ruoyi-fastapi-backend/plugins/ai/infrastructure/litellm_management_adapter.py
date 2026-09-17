@@ -610,12 +610,13 @@ def _build_connection_test_payload(
         if request.credential_name is not None:
             litellm_params['litellm_credential_name'] = request.credential_name
         litellm_params.update(values)
-        return _CredentialPayloadOutcome(
-            payload={
-                'litellm_params': litellm_params,
-                'model_info': {},
-            }
-        )
+        payload: dict[str, object] = {
+            'litellm_params': litellm_params,
+            'model_info': {},
+        }
+        if request.model_type is not None:
+            payload['mode'] = request.model_type
+        return _CredentialPayloadOutcome(payload=payload)
     except Exception:
         return _CredentialPayloadOutcome(payload=None)
 

@@ -83,8 +83,13 @@ class LiteLLMManagementClient:
         del credential_name, path_name
         return await operation
 
-    async def list_deployments(self) -> Mapping[str, object]:
-        return await self._request_json('GET', '/v2/model/info')
+    async def list_deployments(self, *, model_alias: str | None = None) -> Mapping[str, object]:
+        path = '/v2/model/info'
+        if model_alias:
+            path = f'{path}?model={quote(model_alias, safe="")}'
+        operation = self._request_json('GET', path)
+        del path, model_alias
+        return await operation
 
     async def model_deployment_exists(self, alias: str) -> bool:
         operation = self._request_json('GET', f'/v2/model/info?model={quote(alias, safe="")}')
