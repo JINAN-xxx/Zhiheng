@@ -91,11 +91,22 @@
       :starting="graphStarting"
       :can-edit="can('edit')"
       :chat-options="chatOptions"
+      :config-state="graphConfig"
+      :config-saving="graphConfigSaving"
+      :config-error="graphConfigError"
+      :config-ready="graphConfigReady"
+      :preview="graphPreview"
+      :preview-starting="graphPreviewStarting"
+      :preview-error="graphPreviewError"
+      :documents="documents"
+      :readable="graphReadable"
       @back="backToOverview"
       @navigate="navigateView"
       @load="loadGraph"
       @refresh="loadGraphWorkspace"
       @start="startGraphBuild"
+      @save-config="saveGraphConfig"
+      @preview="startGraphPreview"
     />
 
     <a-modal
@@ -266,6 +277,10 @@ import * as api from '../../api/knowledge.js'
 import {
   buildKnowledgeDatabasePayload,
   buildKnowledgeGraphBuildPayload,
+  buildKnowledgeGraphConfigPayload,
+  normalizeKnowledgeGraphConfig,
+  normalizeKnowledgeGraphPreview,
+  isKnowledgeGraphReadable,
   normalizeKnowledgeGraphBuild,
   normalizeKnowledgeIndexResults,
   isKnowledgeGraphBuilding,
@@ -369,6 +384,11 @@ function resetKnowledgeContext(dbId = null) {
   stopGraphBuildPolling()
   graphBuild.value = null
   graphBuildError.value = ''
+  graphConfig.value = normalizeKnowledgeGraphConfig({ config: null })
+  graphConfigReady.value = false
+  graphConfigError.value = ''
+  graphPreview.value = normalizeKnowledgeGraphPreview({ status: 'idle' })
+  graphPreviewError.value = ''
   graphAvailable.value = false
   invalidateRouteActions()
   queryController?.abort()
@@ -878,7 +898,7 @@ const graphData = ref(normalizeKnowledgeGraph({ nodes: [], edges: [] }))
 const defaultGraphParams = { node_label: '*', max_depth: 2, max_nodes: 100 }
 
 async function loadGraph(params = defaultGraphParams) {
-  if (!selection.dbId || graphJob.value.status !== 'completed' || !graphAvailable.value || graphLoading.value) return
+  if (!selection.dbId || !graphReadable.value || !graphAvailable.value || graphLoading.value) return
   const current = generation
   graphLoading.value = true
   graphError.value = ''
@@ -896,22 +916,48 @@ const graphBuild = ref(null)
 const graphBuildLoading = ref(false)
 const graphBuildError = ref('')
 const graphStarting = ref(false)
+const graphConfig = ref(normalizeKnowledgeGraphConfig({ config: null }))
+const graphConfigReady = ref(false)
+const graphConfigSaving = ref(false)
+const graphConfigError = ref('')
+const graphPreview = ref(normalizeKnowledgeGraphPreview({ status: 'idle' }))
+const graphPreviewStarting = ref(false)
+const graphPreviewError = ref('')
 const graphJob = computed(() => graphBuild.value || normalizeKnowledgeGraphBuild(selectedDb.value?.graph_build || {
   status: selectedDb.value?.enable_knowledge_graph ? 'idle' : 'disabled', total_documents: 0, processed_documents: 0, failed_documents: 0,
 }))
 const graphBuilding = computed(() => isKnowledgeGraphBuilding(graphJob.value))
+const graphReadable = computed(() => isKnowledgeGraphReadable(selectedDb.value, graphJob.value))
+const graphPreviewBuilding = computed(() => isKnowledgeGraphBuilding(graphPreview.value))
+const graphMutationBusy = computed(() => graphBuilding.value || graphStarting.value || graphConfigSaving.value || graphPreviewStarting.value || graphPreviewBuilding.value)
 let graphBuildTimer
 let graphBuildController
 let graphStartController
 let graphBuildRequest = 0
+let graphConfigController
+let graphConfigRequest = 0
+let graphConfigSaveController
+let graphPreviewTimer
+let graphPreviewController
+let graphPreviewStartController
+let graphPreviewRequest = 0
 
 function stopGraphBuildPolling() {
   clearTimeout(graphBuildTimer)
   graphBuildRequest += 1
   graphBuildController?.abort()
   graphStartController?.abort()
+  clearTimeout(graphPreviewTimer)
+  graphPreviewRequest += 1
+  graphConfigRequest += 1
+  graphConfigController?.abort()
+  graphConfigSaveController?.abort()
+  graphPreviewController?.abort()
+  graphPreviewStartController?.abort()
   graphBuildLoading.value = false
   graphStarting.value = false
+  graphConfigSaving.value = false
+  graphPreviewStarting.value = false
 }
 
 function applyGraphBuild(job, dbId) {
@@ -919,6 +965,7 @@ function applyGraphBuild(job, dbId) {
   const database = databases.value.find(item => item.db_id === dbId)
   if (database) {
     database.graph_build = job
+    if (typeof job.graph_readable === 'boolean') database.graph_readable = job.graph_readable
     if (job.status !== 'disabled') database.enable_knowledge_graph = true
   }
 }
@@ -945,7 +992,7 @@ async function refreshGraphBuild({ reloadOnComplete = true } = {}) {
     graphBuildError.value = ''
     applyGraphBuild(job, dbId)
     if (reloadOnComplete && wasBuilding && !isKnowledgeGraphBuilding(job)) {
-      if (activeView.value === 'graph') await loadGraphContent()
+      if (activeView.value === 'graph') await Promise.all([refreshGraphConfig(), loadGraphContent()])
       else if (activeView.value === 'documents') await loadDocuments()
     }
   } catch (error) {
@@ -955,13 +1002,117 @@ async function refreshGraphBuild({ reloadOnComplete = true } = {}) {
   }
 }
 
-async function startGraphBuild(modelId) {
-  if (!can('edit') || !graphAvailable.value || graphStarting.value || graphBuilding.value || !selectedDb.value) return
+function canMutateGraph() {
+  return can('edit') && graphAvailable.value && graphConfigReady.value && !graphBuildLoading.value && !graphMutationBusy.value && selectedDb.value && activeView.value === 'graph'
+}
+
+async function refreshGraphConfig() {
+  const current = generation
+  const dbId = selection.dbId
+  if (!dbId || !can('query')) return
+  graphConfigController?.abort()
+  graphConfigController = new AbortController()
+  const requestId = ++graphConfigRequest
+  try {
+    const data = normalizeKnowledgeGraphConfig(await api.getKnowledgeGraphConfig(dbId, graphConfigController.signal))
+    if (current !== generation || requestId !== graphConfigRequest || disposed) return
+    graphConfig.value = data
+    graphConfigReady.value = true
+    graphConfigError.value = ''
+  } catch (error) {
+    if (current === generation && requestId === graphConfigRequest && !disposed) {
+      graphConfigReady.value = false
+      graphConfigError.value = message(error)
+    }
+  }
+}
+
+async function persistGraphConfig(config, dbId, current, signal) {
+  graphConfigController?.abort()
+  graphConfigRequest += 1
+  const data = normalizeKnowledgeGraphConfig(await api.saveKnowledgeGraphConfig(dbId, config, signal))
+  if (current !== generation || signal.aborted || disposed) return null
+  graphConfig.value = data
+  graphConfigError.value = ''
+  const database = databases.value.find(item => item.db_id === dbId)
+  if (database) database.llm_model_id = data.config?.llm_model_id
+  return data
+}
+
+async function saveGraphConfig(form) {
+  if (!canMutateGraph()) return
+  const current = generation
+  const dbId = selection.dbId
+  graphConfigError.value = ''
+  try {
+    const config = buildKnowledgeGraphConfigPayload(form)
+    graphConfigSaving.value = true
+    graphConfigSaveController = new AbortController()
+    const saved = await persistGraphConfig(config, dbId, current, graphConfigSaveController.signal)
+    if (saved) feedback.msgSuccess('图谱配置已保存')
+  } catch (error) {
+    if (current === generation && !disposed) graphConfigError.value = message(error)
+  } finally {
+    if (current === generation && !disposed) graphConfigSaving.value = false
+  }
+}
+
+function scheduleGraphPreviewPoll(current) {
+  clearTimeout(graphPreviewTimer)
+  if (current !== generation || disposed || activeView.value !== 'graph' || !graphPreviewBuilding.value) return
+  graphPreviewTimer = setTimeout(() => refreshGraphPreview(), 2000)
+}
+
+async function refreshGraphPreview() {
+  const dbId = selection.dbId
+  if (!dbId || !can('query')) return
+  const current = generation
+  clearTimeout(graphPreviewTimer)
+  graphPreviewController?.abort()
+  graphPreviewController = new AbortController()
+  const requestId = ++graphPreviewRequest
+  try {
+    const job = normalizeKnowledgeGraphPreview(await api.getKnowledgeGraphPreview(dbId, graphPreviewController.signal))
+    if (current !== generation || requestId !== graphPreviewRequest || disposed) return
+    graphPreview.value = job
+    graphPreviewError.value = ''
+  } catch (error) {
+    if (current === generation && requestId === graphPreviewRequest && !disposed) graphPreviewError.value = message(error)
+  } finally {
+    if (current === generation && requestId === graphPreviewRequest && !disposed) scheduleGraphPreviewPoll(current)
+  }
+}
+
+async function startGraphPreview({ config: form, document_id } = {}) {
+  if (!canMutateGraph()) return
+  const current = generation
+  const dbId = selection.dbId
+  graphPreviewError.value = ''
+  try {
+    const config = buildKnowledgeGraphConfigPayload(form)
+    graphPreviewStarting.value = true
+    clearTimeout(graphPreviewTimer)
+    graphPreviewController?.abort()
+    graphPreviewRequest += 1
+    graphPreviewStartController = new AbortController()
+    const job = normalizeKnowledgeGraphPreview(await api.startKnowledgeGraphPreview(dbId, { config, ...(document_id ? { document_id } : {}) }, graphPreviewStartController.signal))
+    if (current !== generation || disposed) return
+    graphPreview.value = job
+    scheduleGraphPreviewPoll(current)
+  } catch (error) {
+    if (current === generation && !disposed) graphPreviewError.value = message(error)
+  } finally {
+    if (current === generation && !disposed) graphPreviewStarting.value = false
+  }
+}
+
+async function startGraphBuild({ config: form, rebuild = false } = {}) {
+  if (!canMutateGraph()) return
   const current = generation
   const database = selectedDb.value
-  let payload
+  let config
   try {
-    payload = buildKnowledgeGraphBuildPayload(database, modelId)
+    config = buildKnowledgeGraphConfigPayload(form)
   } catch (error) {
     graphBuildError.value = message(error)
     return
@@ -972,13 +1123,21 @@ async function startGraphBuild(modelId) {
   graphBuildController?.abort()
   graphBuildRequest += 1
   graphStartController = new AbortController()
+  const controller = graphStartController
   try {
-    const job = normalizeKnowledgeGraphBuild(await api.startKnowledgeGraphBuild(database.db_id, payload, graphStartController.signal))
+    let configState = graphConfig.value
+    if (JSON.stringify(configState.config) !== JSON.stringify(config)) {
+      configState = await persistGraphConfig(config, database.db_id, current, controller.signal)
+      if (!configState) return
+    }
+    if (current !== generation || disposed || controller.signal.aborted) return
+    const payload = buildKnowledgeGraphBuildPayload(database, config.llm_model_id, { ...configState, rebuild })
+    const job = normalizeKnowledgeGraphBuild(await api.startKnowledgeGraphBuild(database.db_id, payload, controller.signal))
     if (current !== generation || disposed) return
     if (payload.llm_model_id) database.llm_model_id = payload.llm_model_id
     applyGraphBuild(job, database.db_id)
     scheduleGraphBuildPoll(current)
-    if (!isKnowledgeGraphBuilding(job)) await loadGraphContent()
+    if (!isKnowledgeGraphBuilding(job)) await Promise.all([refreshGraphConfig(), loadGraphContent()])
   } catch (error) {
     if (current === generation && !disposed) graphBuildError.value = message(error)
   } finally {
@@ -987,7 +1146,7 @@ async function startGraphBuild(modelId) {
 }
 
 async function loadGraphContent() {
-  if (!selection.dbId || graphJob.value.status !== 'completed' || !graphAvailable.value) return
+  if (!selection.dbId || !graphReadable.value || !graphAvailable.value) return
   const current = generation
   graphError.value = ''
   try {
@@ -1002,19 +1161,23 @@ async function loadGraphContent() {
 }
 
 async function loadGraphWorkspace() {
-  if (!selection.dbId || graphBuildLoading.value) return
+  if (!selection.dbId || graphBuildLoading.value || graphStarting.value || graphConfigSaving.value || graphPreviewStarting.value) return
   const current = generation
   graphBuildLoading.value = true
   graphBuildError.value = ''
   try {
-    const [types, chats] = await Promise.all([
+    const [types, chats, docs] = await Promise.all([
       api.listKnowledgeTypes(),
-      can('edit') && !selectedDb.value.enable_knowledge_graph ? api.listKnowledgeModels('chat') : Promise.resolve(null),
+      api.listKnowledgeModels('chat'),
+      api.listKnowledgeDocuments(selection.dbId),
       refreshGraphBuild({ reloadOnComplete: false }),
+      refreshGraphConfig(),
+      refreshGraphPreview(),
     ])
     if (current !== generation || disposed) return
     graphAvailable.value = unwrapKnowledgeResponse(types).graph_available === true
     if (chats) chatModels.value = unwrapKnowledgeResponse(chats).models || []
+    documents.value = unwrapKnowledgeResponse(docs).documents || []
     await loadGraphContent()
   } catch (error) {
     if (current === generation && !disposed) graphBuildError.value = message(error)

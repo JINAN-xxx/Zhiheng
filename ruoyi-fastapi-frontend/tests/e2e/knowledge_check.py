@@ -50,6 +50,9 @@ class KnowledgeFixture:
         self.milvus_available = True
         self.graph_available = True
         self.graph_jobs = {}
+        self.graph_configs = {'kb-main': {'llm_model_id': 'chat-model', 'reasoning_strategy': 'auto', 'timeout_seconds': 240, 'max_output_tokens': 16384, 'concurrency': 2}}
+        self.graph_previews = {}
+        self.graph_requires_rebuild = set()
         self.graph_status_delay = 0
         self.graph_content_while_building = []
 
@@ -102,17 +105,40 @@ class KnowledgeFixture:
             assert params['db_id'] == ['kb-main']
             assert 'file' in body['multipart']
             data = {'upload_id': 'opaque-upload', 'file_name': 'upload.txt', 'file_size': 20}
+        elif suffix.endswith('/graph-config'):
+            db_id = suffix.split('/')[2]
+            database = next(row for row in self.databases if row['db_id'] == db_id)
+            if method == 'PUT':
+                self.graph_configs[db_id] = copy.deepcopy(body)
+                if database.get('enable_knowledge_graph'):
+                    self.graph_requires_rebuild.add(db_id)
+            job = self.graph_jobs.get(db_id, {})
+            data = {'config': self.graph_configs.get(db_id), 'active_config': self.graph_configs.get(db_id) if database.get('enable_knowledge_graph') else None,
+                    'active_revision': job.get('active_revision'), 'requires_rebuild': db_id in self.graph_requires_rebuild,
+                    'can_resume': job.get('status') in ('failed', 'interrupted')}
+        elif suffix.endswith('/graph-preview'):
+            db_id = suffix.split('/')[2]
+            if method == 'POST':
+                assert set(body['config']) == {'llm_model_id', 'reasoning_strategy', 'timeout_seconds', 'max_output_tokens', 'concurrency'}
+                self.graph_previews[db_id] = {'status': 'running', 'file_name': '试构建文档.md', 'progress': {'stage': 'extracting', 'total_chunks': 3, 'extracted_chunks': 1}}
+            data = self.graph_previews.get(db_id, {'status': 'idle'})
         elif suffix.endswith('/graph-build'):
             db_id = suffix.split('/')[2]
             database = next(row for row in self.databases if row['db_id'] == db_id)
             if method == 'POST':
                 if not database.get('enable_knowledge_graph'):
-                    assert body.get('llm_model_id') == 'chat-model'
-                    database.update(enable_knowledge_graph=True, llm_model_id=body['llm_model_id'])
-                else:
-                    assert body == {}, 'backfill must reuse the original model'
-                self.graph_jobs[db_id] = {'status': 'running', 'job_id': 'job-' + db_id, 'total_documents': 3, 'processed_documents': 1, 'failed_documents': 0, 'current_document': {'id': 'pending-doc', 'file_name': '待构建文档.md'}}
+                    assert self.graph_configs[db_id]['llm_model_id'] == 'chat-model'
+                    database.update(enable_knowledge_graph=True, llm_model_id=self.graph_configs[db_id]['llm_model_id'])
+                assert body in ({}, {'rebuild': True}), 'builds use saved settings and explicit version rebuilds'
+                readable = bool(body.get('rebuild') and self.graph_jobs.get(db_id, {}).get('active_revision'))
+                self.graph_jobs[db_id] = {'status': 'running', 'job_id': 'job-' + db_id, 'total_documents': 3, 'processed_documents': 1, 'failed_documents': 0, 'current_document': {'id': 'pending-doc', 'file_name': '待构建文档.md'},
+                    'graph_readable': readable, 'active_revision': 'active' if readable else None, 'progress': {'stage': 'extracting', 'extracted_chunks': 1, 'total_chunks': 3}}
             data = self.graph_jobs.get(db_id, {'status': 'completed' if database.get('enable_knowledge_graph') else 'disabled', 'total_documents': 0, 'processed_documents': 0, 'failed_documents': 0})
+            if data['status'] == 'completed':
+                data.update(graph_readable=True, active_revision='active', progress={'stage': 'completed'})
+                self.graph_requires_rebuild.discard(db_id)
+            else:
+                data.setdefault('graph_readable', False)
             database['graph_build'] = copy.deepcopy(data)
         elif suffix.endswith('/documents'):
             db_id = suffix.split('/')[2]
@@ -142,7 +168,7 @@ class KnowledgeFixture:
             assert 1 <= body['meta']['top_k'] <= 8
             data = {'status': 'success', 'result': [{'content': UNSAFE + '\n检索片段', 'score': 0.8, 'metadata': {'source': UNSAFE}}]}
         elif suffix.endswith('/labels'):
-            if self.graph_jobs.get(suffix.split('/')[2], {}).get('status') in ('running', 'queued', 'failed', 'interrupted'):
+            if self.graph_jobs.get(suffix.split('/')[2], {}).get('status') in ('running', 'queued', 'failed', 'interrupted') and not self.graph_jobs.get(suffix.split('/')[2], {}).get('graph_readable'):
                 self.graph_content_while_building.append(suffix)
             data = {'labels': [LABEL]}
         elif suffix.endswith('/subgraph'):

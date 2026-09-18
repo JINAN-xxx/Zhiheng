@@ -37,3 +37,7 @@ export const getKnowledgeSubgraph = (dbId, params) => request({ url: `${prefix}/
 
 export const getKnowledgeGraphBuild = (dbId, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'get', signal })
 export const startKnowledgeGraphBuild = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'post', data, signal, headers: { repeatSubmit: false } })
+export const getKnowledgeGraphConfig = (dbId, signal) => request({ url: `${database(dbId)}/graph-config`, method: 'get', signal })
+export const saveKnowledgeGraphConfig = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-config`, method: 'put', data, signal })
+export const getKnowledgeGraphPreview = (dbId, signal) => request({ url: `${database(dbId)}/graph-preview`, method: 'get', signal })
+export const startKnowledgeGraphPreview = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-preview`, method: 'post', data, signal, headers: { repeatSubmit: false } })

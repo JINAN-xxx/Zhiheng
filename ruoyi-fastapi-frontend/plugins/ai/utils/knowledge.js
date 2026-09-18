@@ -153,10 +153,64 @@ export function knowledgeGraphProgress(job) {
   return Math.min(100, Math.round((job.processed_documents || 0) / job.total_documents * 100))
 }
 
-export function buildKnowledgeGraphBuildPayload(database, modelId) {
+export function buildKnowledgeGraphBuildPayload(database, modelId, options = {}) {
+  if (options.rebuild || (options.requires_rebuild && !options.can_resume)) return { rebuild: true }
+  if (options.config) return {}
   if (database.enable_knowledge_graph) return {}
   if (!modelId) throw new Error('启用图谱需要选择对话模型')
   return { llm_model_id: modelId }
+}
+
+export const KNOWLEDGE_GRAPH_CONFIG_DEFAULTS = Object.freeze({
+  llm_model_id: '', reasoning_strategy: 'auto', timeout_seconds: 240, max_output_tokens: 16384, concurrency: 2,
+})
+
+export function buildKnowledgeGraphConfigPayload(form) {
+  const value = { ...KNOWLEDGE_GRAPH_CONFIG_DEFAULTS, ...form }
+  const llm_model_id = text(value.llm_model_id).trim()
+  if (!llm_model_id) throw new Error('请选择图谱对话模型')
+  if (!['auto', 'default', 'low', 'disabled'].includes(value.reasoning_strategy)) throw new Error('请选择有效的推理策略')
+  const integer = (field, label, min, max) => {
+    const number = Number(value[field])
+    if (!Number.isInteger(number) || number < min || number > max) throw new Error(`${label}应为 ${min}–${max} 的整数`)
+    return number
+  }
+  return { llm_model_id, reasoning_strategy: value.reasoning_strategy,
+    timeout_seconds: integer('timeout_seconds', '响应超时秒数', 30, 600),
+    max_output_tokens: integer('max_output_tokens', '最大输出长度', 1024, 32768),
+    concurrency: integer('concurrency', '并行任务数', 1, 4) }
+}
+
+export function normalizeKnowledgeGraphConfig(response) {
+  const data = unwrapKnowledgeResponse(response)
+  return { config: data.config ? buildKnowledgeGraphConfigPayload(data.config) : null,
+    active_config: data.active_config ? buildKnowledgeGraphConfigPayload(data.active_config) : null,
+    active_revision: data.active_revision ? text(data.active_revision) : null,
+    requires_rebuild: data.requires_rebuild === true, can_resume: data.can_resume === true }
+}
+
+export function isKnowledgeGraphReadable(database, job) {
+  if (typeof job?.graph_readable === 'boolean') return job.graph_readable
+  if (typeof database?.graph_readable === 'boolean') return database.graph_readable
+  return database?.graph_readable === true || Boolean(job?.active_revision) || job?.status === 'completed'
+}
+
+export function normalizeKnowledgeGraphPreview(response) {
+  if (response?.code != null && Number(response.code) !== 200) throw new Error(text(response.msg || response.message || '试构建状态请求失败'))
+  const data = response?.code != null ? response.data : response
+  if (!data || !['idle', 'queued', 'running', 'completed', 'failed', 'interrupted'].includes(data.status)) throw new Error('图谱试构建状态无效')
+  const count = value => Math.max(0, Math.floor(Number(value) || 0))
+  return { status: data.status, job_id: text(data.job_id), document_id: text(data.document_id), file_name: text(data.file_name),
+    result: data.result ? { entities: count(data.result.entities), relations: count(data.result.relations),
+      chunks: count(data.result.chunks), seconds: Math.max(0, Number(data.result.seconds) || 0) } : null,
+    progress: data.progress || null, started_at: data.started_at || null, finished_at: data.finished_at || null,
+    error: text(data.error?.message || (typeof data.error === 'string' ? data.error : '')),
+    error_code: text(data.error?.code) }
+}
+
+export function knowledgeGraphStage(progress) {
+  return ({ preparing: '准备文档', extracting: '提取实体与关系', graph_indexing: '整理图谱索引',
+    embedding: '生成向量', persisting: '保存图谱', completed: '已完成', failed: '处理失败' })[progress?.stage] || ''
 }
 
 export function normalizeKnowledgeIndexResults(response, expectedCount) {

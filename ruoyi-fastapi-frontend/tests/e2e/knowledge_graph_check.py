@@ -15,10 +15,10 @@ async def graph_build(browser):
     try:
         await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-second&view=graph', wait_until='networkidle')
         await expect(page).to_have_url(re.compile(r'kb-second.*view=graph'))
-        await expect(button(page, '启用并构建图谱')).to_be_disabled()
+        await expect(button(page, '保存并构建图谱')).to_be_disabled()
         assert not any(method == 'POST' and path.endswith('/graph-build') for path, method, _, _ in fixture.calls)
         await choose(page, '图谱对话模型', 'chat 测试模型')
-        await button(page, '启用并构建图谱').click()
+        await button(page, '保存并构建图谱').click()
         await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
         await expect(page.get_by_text('已处理 1 / 3 个文档 · 失败 0 个', exact=True)).to_be_visible()
         await expect(button(page, '构建中')).to_be_disabled()
@@ -40,10 +40,10 @@ async def graph_build(browser):
         fixture.graph_jobs['kb-second'].update(status='failed', processed_documents=2, failed_documents=1, error={'code': 'model_unavailable', 'message': '测试模型暂不可用'})
         await button(page, '刷新知识图谱').click()
         await expect(page.get_by_text('测试模型暂不可用', exact=True)).to_be_visible()
-        await button(page, '重试构建').click()
+        await button(page, '续建图谱').click()
         await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
         posts = [body for path, method, body, _ in fixture.calls if path.endswith('/graph-build') and method == 'POST']
-        assert posts == [{'llm_model_id': 'chat-model'}, {}], posts
+        assert posts == [{}, {}], posts
 
         # Begin a delayed old-KB status request, then navigate without a page reload.
         fixture.graph_status_delay = 1
@@ -63,7 +63,7 @@ async def graph_build(browser):
         fixture.graph_jobs['kb-main'] = {'status': 'interrupted', 'total_documents': 2, 'processed_documents': 1, 'failed_documents': 0, 'error': {'code': 'interrupted', 'message': '服务重启中断'}}
         await button(page, '刷新知识图谱').click()
         await expect(page.get_by_text('图谱构建已中断', exact=True)).to_be_visible()
-        await button(page, '重试构建').click()
+        await button(page, '续建图谱').click()
         await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
         fixture.graph_jobs['kb-main'].update(status='idle', current_document=None, error=None)
         await button(page, '刷新知识图谱').click()
@@ -89,10 +89,12 @@ async def graph_permissions_and_unavailable(browser):
             await expect(page).to_have_url(re.compile(r'kb-second.*view=graph'))
             if unavailable:
                 await expect(page.get_by_text('知识图谱服务尚未就绪，请联系管理员完成配置。', exact=True)).to_be_visible()
-                await expect(button(page, '启用并构建图谱')).to_be_disabled()
+                await expect(button(page, '保存并构建图谱')).to_be_disabled()
             else:
-                await expect(button(page, '启用并构建图谱')).to_have_count(0)
-                await expect(page.get_by_text('此知识库尚未启用图谱，请联系有编辑权限的成员启用。', exact=True)).to_be_visible()
+                await expect(button(page, '保存并构建图谱')).to_have_count(0)
+                await expect(button(page, '保存配置')).to_have_count(0)
+                await expect(button(page, '试构建')).to_have_count(0)
+                await expect(page.get_by_text('当前为只读模式。如需调整配置或构建图谱，请联系有编辑权限的成员。', exact=True)).to_be_visible()
                 await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-main&view=graph', wait_until='networkidle')
                 await expect(page.locator('.knowledge-graph canvas')).to_be_visible()
                 await expect(button(page, '补建图谱')).to_have_count(0)
@@ -100,6 +102,63 @@ async def graph_permissions_and_unavailable(browser):
         finally:
             await context.close()
     print('desktop graph: query-only cannot start and unavailable service is explicit passed')
+
+
+async def graph_configuration(browser):
+    fixture = KnowledgeFixture()
+    fixture.graph_jobs['kb-main'] = {'status': 'completed', 'graph_readable': True, 'active_revision': 'active'}
+    context = await browser.new_context(viewport={'width': 1440, 'height': 1000})
+    await fixture.install(context)
+    page = await context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    try:
+        await page.goto(BASE_URL + '/ai/knowledge?dbId=kb-main&view=graph', wait_until='networkidle')
+        await page.get_by_text('高级选项', exact=True).click()
+        await choose(page, '图谱推理策略', '轻量推理')
+        await page.get_by_label('图谱响应超时秒数', exact=True).fill('300')
+        await page.get_by_label('图谱最大输出长度', exact=True).fill('24000')
+        await page.get_by_label('图谱并行任务数', exact=True).fill('1')
+        await choose(page, '试构建文档', '目录文档.md')
+        await button(page, '试构建').click()
+        await expect(page.get_by_text('正在试构建', exact=True)).to_be_visible()
+        await expect(button(page, '保存并构建图谱')).to_be_disabled()
+        await expect(button(page, '保存配置')).to_be_disabled()
+        preview_body = next(body for path, method, body, _ in fixture.calls if path.endswith('/graph-preview') and method == 'POST')
+        assert preview_body == {'config': {'llm_model_id': 'chat-model', 'reasoning_strategy': 'low', 'timeout_seconds': 300, 'max_output_tokens': 24000, 'concurrency': 1}, 'document_id': 'doc-child'}, preview_body
+        assert not any(method == 'PUT' and path.endswith('/graph-config') for path, method, _, _ in fixture.calls)
+        await button(page, '文档管理').click()
+        await button(page, '知识图谱').click()
+        await expect(page.get_by_text('正在试构建', exact=True)).to_be_visible()
+        fixture.graph_previews['kb-main'] = {'status': 'completed', 'file_name': '试构建文档.md', 'result': {'entities': 3, 'relations': 2, 'chunks': 3, 'seconds': 12.4}, 'progress': {'stage': 'completed'}}
+        await expect(page.get_by_text('试构建完成', exact=True)).to_be_visible()
+        await expect(page.locator('.graph-preview-result')).to_contain_text('12.4')
+        await page.get_by_text('高级选项', exact=True).click()
+        await choose(page, '图谱推理策略', '轻量推理')
+        await button(page, '保存配置').click()
+        await expect(button(page, '构建新版本')).to_be_enabled()
+        await button(page, '构建新版本').click()
+        await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
+        await expect(page.get_by_text('下方仍可查看已完成的图谱版本。', exact=True)).to_be_visible()
+        await expect(page.locator('.knowledge-graph canvas')).to_be_visible()
+        await expect(page.get_by_text('当前阶段：提取实体与关系', exact=False)).to_be_visible()
+        await page.screenshot(path='/tmp/knowledge-graph-configuration.png', full_page=True)
+        fixture.graph_jobs['kb-main'].update(status='failed', error={'code': 'model_timeout', 'message': '模型响应超时，请调整配置后重试'})
+        await expect(button(page, '续建图谱')).to_be_enabled()
+        await expect(page.get_by_text('模型响应超时，请调整配置后重试', exact=True)).to_be_visible()
+        await button(page, '续建图谱').click()
+        await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
+        fixture.graph_jobs['kb-main'].update(status='completed')
+        await expect(button(page, '重新构建')).to_be_enabled()
+        await button(page, '重新构建').click()
+        await expect(page.get_by_text('正在构建图谱', exact=True)).to_be_visible()
+        posts = [body for path, method, body, _ in fixture.calls if path.endswith('/graph-build') and method == 'POST']
+        assert posts == [{'rebuild': True}, {}, {'rebuild': True}], posts
+        assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert not errors, errors
+        print('desktop graph: draft preview, advanced settings, preview return, result metrics, version reads, resume and explicit rebuild passed')
+    finally:
+        await context.close()
 
 
 async def independent_document_status(browser):
@@ -154,6 +213,7 @@ async def main():
         try:
             await graph_build(browser)
             await graph_permissions_and_unavailable(browser)
+            await graph_configuration(browser)
             await create_graph(browser)
             await independent_document_status(browser)
         finally:
