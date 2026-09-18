@@ -61,7 +61,7 @@
 
           <section class="graph-panel" aria-label="图谱试构建" aria-live="polite">
             <h2>{{ previewTitle }}</h2>
-            <p>先用一个文档验证当前配置，查看实体和关系的提取结果。试构建不改变正式图谱。</p>
+            <p>先抽取所选文档的一小段内容，验证当前配置并查看实体和关系的提取结果。试构建不改变正式图谱。</p>
             <a-select v-if="canEdit" v-model:value="previewDocumentId" class="graph-preview-select" :options="documentOptions" allow-clear show-search option-filter-prop="label" aria-label="试构建文档" placeholder="自动选择一个文档" :disabled="controlsDisabled" />
             <p v-if="preview.file_name">测试文档：{{ preview.file_name }}</p>
             <p v-if="previewStage">当前阶段：{{ previewStage }}<span v-if="preview.progress.total_chunks"> · 已提取 {{ preview.progress.extracted_chunks || 0 }} / {{ preview.progress.total_chunks }} 个切片</span></p>

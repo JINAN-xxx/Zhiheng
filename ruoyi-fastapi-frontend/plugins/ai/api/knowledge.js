@@ -32,8 +32,8 @@ export const deleteKnowledgeDocument = (dbId, docId) => request({ url: document(
 export const rechunkKnowledgeDocument = (dbId, docId, data) => request({ url: `${document(dbId, docId)}/rechunk`, method: 'post', data, ...slowOperation })
 export const queryKnowledgeBase = (dbId, query, meta = {}, signal) => request({ url: `${database(dbId)}/query`, method: 'post', data: { query, meta }, signal, ...slowOperation })
 export const queryKnowledgeGraph = (dbId, query, meta = {}, signal) => request({ url: `${database(dbId)}/query-graph`, method: 'post', data: { query, meta }, signal, ...slowOperation })
-export const listKnowledgeGraphLabels = dbId => request({ url: `${prefix}/graphs/${id(dbId)}/labels`, method: 'get', ...slowOperation })
-export const getKnowledgeSubgraph = (dbId, params) => request({ url: `${prefix}/graphs/${id(dbId)}/subgraph`, method: 'get', params: buildKnowledgeGraphParams(params), ...slowOperation })
+export const listKnowledgeGraphLabels = (dbId, signal) => request({ url: `${prefix}/graphs/${id(dbId)}/labels`, method: 'get', signal, ...slowOperation })
+export const getKnowledgeSubgraph = (dbId, params, signal) => request({ url: `${prefix}/graphs/${id(dbId)}/subgraph`, method: 'get', params: buildKnowledgeGraphParams(params), signal, ...slowOperation })
 
 export const getKnowledgeGraphBuild = (dbId, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'get', signal })
 export const startKnowledgeGraphBuild = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-build`, method: 'post', data, signal, headers: { repeatSubmit: false } })

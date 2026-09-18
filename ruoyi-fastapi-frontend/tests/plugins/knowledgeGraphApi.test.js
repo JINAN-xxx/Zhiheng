@@ -20,4 +20,8 @@ assert.deepEqual(requests.map(item => item.url), ['/ai/knowledge/databases/kb%2F
 assert.ok(requests.every(item => item.signal === signal), 'all graph requests must be cancelable on navigation')
 assert.equal(requests[1].data, config)
 assert.equal(requests[3].headers.repeatSubmit, false)
+await scope.listKnowledgeGraphLabels('kb/a', signal)
+await scope.getKnowledgeSubgraph('kb/a', { node_label: '*', max_depth: 2, max_nodes: 100 }, signal)
+assert.equal(requests[4].signal, signal, 'label reads must be cancelable when the active graph version changes')
+assert.equal(requests[5].signal, signal, 'subgraph reads must be cancelable when the active graph version changes')
 console.log('ok graph API: protected endpoints, complete draft settings and cancellation')

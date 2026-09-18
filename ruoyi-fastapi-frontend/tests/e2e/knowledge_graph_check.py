@@ -130,7 +130,7 @@ async def graph_configuration(browser):
         await button(page, '文档管理').click()
         await button(page, '知识图谱').click()
         await expect(page.get_by_text('正在试构建', exact=True)).to_be_visible()
-        fixture.graph_previews['kb-main'] = {'status': 'completed', 'file_name': '试构建文档.md', 'result': {'entities': 3, 'relations': 2, 'chunks': 3, 'seconds': 12.4}, 'progress': {'stage': 'completed'}}
+        fixture.graph_previews['kb-main'] = {'status': 'completed', 'file_name': '试构建文档.md', 'result': {'entities': 3, 'relations': 2, 'chunks': 1, 'seconds': 12.4}, 'progress': {'stage': 'completed'}}
         await expect(page.get_by_text('试构建完成', exact=True)).to_be_visible()
         await expect(page.locator('.graph-preview-result')).to_contain_text('12.4')
         await page.get_by_text('高级选项', exact=True).click()

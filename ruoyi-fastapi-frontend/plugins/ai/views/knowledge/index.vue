@@ -896,19 +896,39 @@ const graphLoading = ref(false)
 const graphError = ref('')
 const graphData = ref(normalizeKnowledgeGraph({ nodes: [], edges: [] }))
 const defaultGraphParams = { node_label: '*', max_depth: 2, max_nodes: 100 }
+let graphParams = { ...defaultGraphParams }
+let graphReadRequest = 0
+let graphReadController
+let graphLabelsRequest = 0
+let graphLabelsController
 
-async function loadGraph(params = defaultGraphParams) {
-  if (!selection.dbId || !graphReadable.value || !graphAvailable.value || graphLoading.value) return
+function invalidateGraphContent() {
+  graphReadRequest += 1
+  graphLabelsRequest += 1
+  graphReadController?.abort()
+  graphLabelsController?.abort()
+  graphLoading.value = false
+}
+
+async function loadGraph(params = graphParams) {
+  if (!selection.dbId || !graphReadable.value || !graphAvailable.value) return
   const current = generation
+  const revision = graphJob.value.active_revision
+  graphReadController?.abort()
+  const controller = new AbortController()
+  graphReadController = controller
+  const requestId = ++graphReadRequest
+  const isCurrent = () => current === generation && requestId === graphReadRequest && revision === graphJob.value.active_revision && !disposed
+  graphParams = { ...params }
   graphLoading.value = true
   graphError.value = ''
   try {
-    const data = normalizeKnowledgeGraph(await api.getKnowledgeSubgraph(selection.dbId, params))
-    if (current === generation && !disposed) graphData.value = data
+    const data = normalizeKnowledgeGraph(await api.getKnowledgeSubgraph(selection.dbId, graphParams, controller.signal))
+    if (isCurrent()) graphData.value = data
   } catch (error) {
-    if (current === generation && !disposed) graphError.value = message(error)
+    if (isCurrent()) graphError.value = message(error)
   } finally {
-    if (current === generation && !disposed) graphLoading.value = false
+    if (isCurrent()) graphLoading.value = false
   }
 }
 
@@ -943,6 +963,8 @@ let graphPreviewStartController
 let graphPreviewRequest = 0
 
 function stopGraphBuildPolling() {
+  invalidateGraphContent()
+  graphParams = { ...defaultGraphParams }
   clearTimeout(graphBuildTimer)
   graphBuildRequest += 1
   graphBuildController?.abort()
@@ -961,6 +983,8 @@ function stopGraphBuildPolling() {
 }
 
 function applyGraphBuild(job, dbId) {
+  const revisionChanged = graphJob.value.active_revision !== job.active_revision
+  if (revisionChanged || graphReadable.value !== isKnowledgeGraphReadable(selectedDb.value, job)) invalidateGraphContent()
   graphBuild.value = job
   const database = databases.value.find(item => item.db_id === dbId)
   if (database) {
@@ -968,6 +992,7 @@ function applyGraphBuild(job, dbId) {
     if (typeof job.graph_readable === 'boolean') database.graph_readable = job.graph_readable
     if (job.status !== 'disabled') database.enable_knowledge_graph = true
   }
+  return revisionChanged
 }
 
 function scheduleGraphBuildPoll(current) {
@@ -990,8 +1015,8 @@ async function refreshGraphBuild({ reloadOnComplete = true } = {}) {
     const job = normalizeKnowledgeGraphBuild(await api.getKnowledgeGraphBuild(dbId, controller.signal))
     if (current !== generation || requestId !== graphBuildRequest || disposed) return
     graphBuildError.value = ''
-    applyGraphBuild(job, dbId)
-    if (reloadOnComplete && wasBuilding && !isKnowledgeGraphBuilding(job)) {
+    const revisionChanged = applyGraphBuild(job, dbId)
+    if (reloadOnComplete && (revisionChanged || (wasBuilding && !isKnowledgeGraphBuilding(job)))) {
       if (activeView.value === 'graph') await Promise.all([refreshGraphConfig(), loadGraphContent()])
       else if (activeView.value === 'documents') await loadDocuments()
     }
@@ -1148,16 +1173,24 @@ async function startGraphBuild({ config: form, rebuild = false } = {}) {
 async function loadGraphContent() {
   if (!selection.dbId || !graphReadable.value || !graphAvailable.value) return
   const current = generation
+  const revision = graphJob.value.active_revision
+  graphLabelsController?.abort()
+  const controller = new AbortController()
+  graphLabelsController = controller
+  const requestId = ++graphLabelsRequest
+  const readRequest = graphReadRequest
+  const isCurrent = () => current === generation && requestId === graphLabelsRequest && revision === graphJob.value.active_revision && !disposed
   graphError.value = ''
   try {
-    const data = unwrapKnowledgeResponse(await api.listKnowledgeGraphLabels(selection.dbId))
-    if (current !== generation || disposed) return
+    const data = unwrapKnowledgeResponse(await api.listKnowledgeGraphLabels(selection.dbId, controller.signal))
+    if (!isCurrent()) return
     graphLabels.value = (data.labels || []).map(String)
   } catch (error) {
-    if (current === generation && !disposed) graphError.value = message(error)
+    if (isCurrent()) graphError.value = message(error)
     return
   }
-  if (current === generation && !disposed) await loadGraph(defaultGraphParams)
+  // A newer user-selected graph takes precedence over this labels refresh.
+  if (isCurrent() && readRequest === graphReadRequest) await loadGraph()
 }
 
 async function loadGraphWorkspace() {

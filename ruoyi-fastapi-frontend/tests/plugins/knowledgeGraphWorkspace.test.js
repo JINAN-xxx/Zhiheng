@@ -38,7 +38,7 @@ function workspace(overrides = {}, editable = true) {
   vm.runInContext(script, scope)
   assert.equal(typeof scope.startGraphPreview, 'function', 'the graph page needs a background preview action')
   vm.runInContext(`databases.value = [{ db_id: 'kb-a', name: '知识库A', enable_knowledge_graph: true }, { db_id: 'kb-b', name: '知识库B' }]; selection.dbId = 'kb-a'; selection.tab = 'graph'; graphAvailable.value = true; graphConfigReady.value = true; graphConfig.value = normalizeKnowledgeGraphConfig({ config: ${JSON.stringify(config)} });`, scope)
-  const state = vm.runInContext('({ graphConfig, graphPreview, graphPreviewError, graphPreviewStarting, graphConfigSaving, graphStarting, graphBuild, graphBuildError, graphReadable, graphBuildLoading, selection, databases })', scope)
+  const state = vm.runInContext('({ graphConfig, graphPreview, graphPreviewError, graphPreviewStarting, graphConfigSaving, graphStarting, graphBuild, graphBuildError, graphReadable, graphBuildLoading, graphData, graphLabels, graphLoading, selection, databases })', scope)
   return { ...scope, state, calls, timers, route, evaluate: code => vm.runInContext(code, scope) }
 }
 
@@ -133,4 +133,93 @@ const changed = { ...config, reasoning_strategy: 'low' }
   await page.loadGraph()
   assert.equal(page.calls.filter(call => call[0] === 'graph').length, 1, 'server unreadability prevents reads during an in-place write')
 }
-console.log('ok graph workspace: save-before-build, resume, permissions, task exclusion, route races and preview recovery')
+{
+  const oldGraph = deferred(), requests = []
+  const page = workspace({
+    getKnowledgeSubgraph: async (_dbId, params, signal) => {
+      requests.push({ params, signal })
+      return requests.length === 1 ? oldGraph.promise : response({ nodes: [{ id: 'NEW_VERSION_NODE' }], edges: [] })
+    },
+    getKnowledgeGraphBuild: async () => response({ status: 'completed', active_revision: 'new-version', graph_readable: true }),
+  })
+  page.state.graphBuild.value = knowledge.normalizeKnowledgeGraphBuild({ status: 'running', active_revision: 'old-version', graph_readable: true })
+  const params = { node_label: '选中实体', max_depth: 3, max_nodes: 60 }
+  const pending = page.loadGraph(params)
+  await page.refreshGraphBuild()
+  oldGraph.resolve(response({ nodes: [{ id: 'OLD_VERSION_NODE' }], edges: [] }))
+  await pending
+  assert.equal(page.state.graphData.value.nodes[0]?.id, 'NEW_VERSION_NODE', 'revision activation must fetch the new graph even if the previous version is still loading')
+  assert.equal(requests.length, 2)
+  assert.deepEqual({ ...requests[1].params }, params, 'revision reloads retain the user graph parameters')
+  assert.equal(requests[0].signal.aborted, true)
+  assert.equal(page.timers.size, 0)
+}
+{
+  const oldLabels = deferred(), labelRequests = []
+  const page = workspace({
+    listKnowledgeGraphLabels: async (_dbId, signal) => {
+      labelRequests.push(signal)
+      return labelRequests.length === 1 ? oldLabels.promise : response({ labels: ['新版本实体'] })
+    },
+    getKnowledgeGraphBuild: async () => response({ status: 'completed', active_revision: 'new-version', graph_readable: true }),
+  })
+  page.state.graphBuild.value = knowledge.normalizeKnowledgeGraphBuild({ status: 'running', active_revision: 'old-version', graph_readable: true })
+  const pending = page.loadGraphContent()
+  await page.refreshGraphBuild()
+  oldLabels.resolve(response({ labels: ['旧版本实体'] }))
+  await pending
+  assert.deepEqual([...page.state.graphLabels.value], ['新版本实体'], 'old labels cannot replace labels of the newly active version')
+  assert.equal(page.calls.filter(call => call[0] === 'graph').length, 1, 'a stale label response cannot launch another subgraph request')
+  assert.equal(labelRequests[0].aborted, true)
+}
+{
+  const oldGraph = deferred(), newGraph = deferred(), requests = []
+  const page = workspace({ getKnowledgeSubgraph: async (_dbId, params, signal) => {
+    requests.push({ params, signal })
+    return requests.length === 1 ? oldGraph.promise : newGraph.promise
+  } })
+  page.state.graphBuild.value = knowledge.normalizeKnowledgeGraphBuild({ status: 'completed', active_revision: 'version', graph_readable: true })
+  const first = page.loadGraph({ node_label: '旧条件', max_depth: 1, max_nodes: 10 })
+  const second = page.loadGraph({ node_label: '新条件', max_depth: 4, max_nodes: 50 })
+  oldGraph.resolve(response({ nodes: [{ id: 'OLD_FILTER_NODE' }], edges: [] }))
+  await first
+  assert.equal(page.state.graphLoading.value, true, 'a replaced request cannot clear the loading state of the latest filter request')
+  newGraph.resolve(response({ nodes: [{ id: 'NEW_FILTER_NODE' }], edges: [] }))
+  await second
+  assert.equal(page.state.graphData.value.nodes[0]?.id, 'NEW_FILTER_NODE')
+  assert.equal(requests[0].signal.aborted, true)
+}
+{
+  const labels = deferred(), requests = []
+  const page = workspace({ listKnowledgeGraphLabels: () => labels.promise, getKnowledgeSubgraph: async (_dbId, params) => {
+    requests.push(params)
+    return response({ nodes: [{ id: 'USER_FILTER_NODE' }], edges: [] })
+  } })
+  page.state.graphBuild.value = knowledge.normalizeKnowledgeGraphBuild({ status: 'completed', active_revision: 'version', graph_readable: true })
+  const refresh = page.loadGraphContent()
+  await page.loadGraph({ node_label: '用户选择', max_depth: 3, max_nodes: 20 })
+  labels.resolve(response({ labels: ['用户选择'] }))
+  await refresh
+  assert.equal(requests.length, 1, 'a delayed label refresh must not replace a newer user-selected graph')
+  assert.equal(requests[0].node_label, '用户选择')
+}
+{
+  const graph = deferred(), labels = deferred()
+  let graphSignal, labelsSignal
+  const page = workspace({
+    getKnowledgeSubgraph: async (_dbId, _params, signal) => { graphSignal = signal; return graph.promise },
+    listKnowledgeGraphLabels: async (_dbId, signal) => { labelsSignal = signal; return labels.promise },
+  })
+  page.state.graphBuild.value = knowledge.normalizeKnowledgeGraphBuild({ status: 'completed', active_revision: 'version', graph_readable: true })
+  const pendingGraph = page.loadGraph(), pendingLabels = page.loadGraphContent()
+  page.resetKnowledgeContext('kb-b')
+  page.route.query.dbId = 'kb-b'
+  graph.resolve(response({ nodes: [{ id: 'PREVIOUS_KB_NODE' }], edges: [] }))
+  labels.resolve(response({ labels: ['旧知识库实体'] }))
+  await Promise.all([pendingGraph, pendingLabels])
+  assert.equal(graphSignal.aborted, true)
+  assert.equal(labelsSignal.aborted, true)
+  assert.equal(page.state.graphData.value.nodes.length, 0)
+  assert.equal(page.state.graphLabels.value.length, 0)
+}
+console.log('ok graph workspace: configuration, permissions, task recovery, revision activation and concurrent graph reads')

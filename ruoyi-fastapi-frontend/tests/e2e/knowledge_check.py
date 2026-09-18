@@ -120,7 +120,7 @@ class KnowledgeFixture:
             db_id = suffix.split('/')[2]
             if method == 'POST':
                 assert set(body['config']) == {'llm_model_id', 'reasoning_strategy', 'timeout_seconds', 'max_output_tokens', 'concurrency'}
-                self.graph_previews[db_id] = {'status': 'running', 'file_name': '试构建文档.md', 'progress': {'stage': 'extracting', 'total_chunks': 3, 'extracted_chunks': 1}}
+                self.graph_previews[db_id] = {'status': 'running', 'file_name': '试构建文档.md', 'progress': {'stage': 'extracting', 'total_chunks': 1, 'extracted_chunks': 0}}
             data = self.graph_previews.get(db_id, {'status': 'idle'})
         elif suffix.endswith('/graph-build'):
             db_id = suffix.split('/')[2]
