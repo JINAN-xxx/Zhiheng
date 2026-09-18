@@ -43,6 +43,7 @@ _ALLOWED_PARAMETERS = frozenset(
         'stop',
         'user',
         'thinking_mode',
+        'reasoning_effort',
     }
 )
 _FORBIDDEN_MODEL_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
@@ -215,12 +216,24 @@ class LiteLLMRuntimeAdapter:
         thinking_mode = request.parameters.get('thinking_mode')
         if 'thinking_mode' in request.parameters and thinking_mode != 'disabled':
             raise ValueError('模型参数无效')
+        reasoning_effort = request.parameters.get('reasoning_effort')
+        if 'reasoning_effort' in request.parameters and reasoning_effort != 'low':
+            raise ValueError('模型参数无效')
+        extra_body: dict[str, object] = {}
+        if thinking_mode == 'disabled':
+            extra_body['thinking'] = {'type': 'disabled'}
+        if reasoning_effort == 'low':
+            extra_body['reasoning_effort'] = 'low'
         messages = [LiteLLMRuntimeAdapter._message_payload(message) for message in request.messages]
         return {
             'model': request.engine_model,
             'messages': messages,
-            **{key: _thaw(value) for key, value in request.parameters.items() if key != 'thinking_mode'},
-            **({'extra_body': {'thinking': {'type': 'disabled'}}} if thinking_mode == 'disabled' else {}),
+            **{
+                key: _thaw(value)
+                for key, value in request.parameters.items()
+                if key not in {'thinking_mode', 'reasoning_effort'}
+            },
+            **({'extra_body': extra_body} if extra_body else {}),
             'stream': stream,
             **({'stream_options': {'include_usage': True}} if stream else {}),
         }

@@ -43,7 +43,7 @@ _DEFAULT_PARAMETERS_BY_TYPE = {
     'rerank': _RERANK_DEFAULT_PARAMETERS,
 }
 _REQUEST_PARAMETERS_BY_TYPE = {
-    'chat': _CHAT_DEFAULT_PARAMETERS | {'stop', 'user', 'thinking_mode'},
+    'chat': _CHAT_DEFAULT_PARAMETERS | {'stop', 'user', 'thinking_mode', 'reasoning_effort'},
     'embedding': _EMBEDDING_DEFAULT_PARAMETERS | {'user'},
     'rerank': _RERANK_DEFAULT_PARAMETERS,
 }
@@ -66,6 +66,7 @@ class ResolvedModel:
     engine_model_snapshot: str
     model_type: str
     default_parameters: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    model_code: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, 'default_parameters', _freeze_parameters(self.default_parameters))
@@ -205,6 +206,7 @@ class ModelService:
                 engine_model_snapshot=binding.engine_resource_id,
                 model_type=model.model_type,
                 default_parameters=defaults,
+                model_code=model.model_code,
             )
         except BaseException:
             await self._rollback_preserving_active_error(db)
@@ -367,7 +369,12 @@ class ModelService:
         )
         if set(parameters).difference(allowed):
             raise ValueError(_UNSUPPORTED_PARAMETER_MESSAGE)
-        normalized = {key: value for key, value in parameters.items() if value is not None}
+        # 内部受限参数必须精确匹配固定值，显式 null 也需要进入校验。
+        normalized = {
+            key: value
+            for key, value in parameters.items()
+            if value is not None or key in {'thinking_mode', 'reasoning_effort'}
+        }
         if model_type == 'chat':
             return cls._validate_chat_parameters(normalized)
         if model_type == 'embedding':
@@ -393,6 +400,10 @@ class ModelService:
             if parameters['thinking_mode'] != 'disabled':
                 raise ValueError(_INVALID_PARAMETER_MESSAGE)
             result['thinking_mode'] = 'disabled'
+        if 'reasoning_effort' in parameters:
+            if parameters['reasoning_effort'] != 'low':
+                raise ValueError(_INVALID_PARAMETER_MESSAGE)
+            result['reasoning_effort'] = 'low'
         return result
 
     @staticmethod

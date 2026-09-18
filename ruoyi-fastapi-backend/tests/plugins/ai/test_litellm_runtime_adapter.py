@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import json
 import traceback
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import FrozenInstanceError
@@ -367,6 +368,99 @@ async def test_chat_maps_only_platform_parameter_allowlist_to_openai_payload() -
             'stream': False,
         }
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stream', [False, True])
+@pytest.mark.parametrize(
+    ('parameters', 'expected_extension'),
+    [
+        ({}, {}),
+        ({'thinking_mode': 'disabled'}, {'thinking': {'type': 'disabled'}}),
+        ({'reasoning_effort': 'low'}, {'reasoning_effort': 'low'}),
+        (
+            {'thinking_mode': 'disabled', 'reasoning_effort': 'low'},
+            {'thinking': {'type': 'disabled'}, 'reasoning_effort': 'low'},
+        ),
+    ],
+)
+async def test_restricted_chat_parameters_reach_http_only_in_fixed_extra_body(
+    parameters: dict[str, object], expected_extension: dict[str, object], stream: bool
+) -> None:
+    request_bodies: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/v1/chat/completions'
+        request_bodies.append(json.loads(request.content))
+        if stream:
+            return httpx.Response(
+                200,
+                stream=httpx.ByteStream(b'data: [DONE]\n\n'),
+                headers={'content-type': 'text/event-stream'},
+            )
+        return httpx.Response(200, json={'choices': [{'message': {'content': 'answer'}}]})
+
+    settings = LiteLLMSettings(
+        LITELLM_BASE_URL='https://proxy.example.com',
+        LITELLM_RUNTIME_KEY='test-runtime-key',
+    )
+    client = LiteLLMRuntimeClient(settings, transport=httpx.MockTransport(handler))
+    adapter = LiteLLMRuntimeAdapter(client)
+    request = ModelChatRequest(
+        engine_model='graph-extraction',
+        messages=(ModelMessage(role='user', content='Extract entities'),),
+        parameters={'max_tokens': 4096, **parameters},
+    )
+    try:
+        if stream:
+            assert [event async for event in adapter.stream_chat(request)] == [ModelStreamEvent(event_type='done')]
+        else:
+            await adapter.chat(request)
+    finally:
+        await client.aclose()
+
+    assert request_bodies == [
+        {
+            'model': 'graph-extraction',
+            'messages': [{'role': 'user', 'content': 'Extract entities'}],
+            'max_tokens': 4096,
+            'stream': stream,
+            **({'stream_options': {'include_usage': True}} if stream else {}),
+            **({'extra_body': expected_extension} if expected_extension else {}),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('invalid', ['medium', 'high', 'minimal', '', None, True, 1, {'effort': 'low'}, ['low']])
+async def test_adapter_rejects_invalid_reasoning_effort_before_runtime(invalid: object) -> None:
+    client = FakeRuntimeClient()
+    request = ModelChatRequest(
+        engine_model='graph-extraction',
+        messages=(ModelMessage(role='user', content='Extract entities'),),
+        parameters={'thinking_mode': 'disabled', 'reasoning_effort': invalid},
+    )
+
+    with pytest.raises(ValueError, match=r'^模型参数无效$'):
+        await LiteLLMRuntimeAdapter(client).chat(request)
+
+    assert client.chat_payloads == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('extra_body', [{}, {'reasoning_effort': 'low'}, {'thinking': {'type': 'disabled'}}])
+async def test_adapter_rejects_caller_extra_body_before_runtime(extra_body: dict[str, object]) -> None:
+    client = FakeRuntimeClient()
+    request = ModelChatRequest(
+        engine_model='graph-extraction',
+        messages=(ModelMessage(role='user', content='Extract entities'),),
+        parameters={'reasoning_effort': 'low', 'extra_body': extra_body},
+    )
+
+    with pytest.raises(ValueError, match=r'^不支持的模型参数$'):
+        await LiteLLMRuntimeAdapter(client).chat(request)
+
+    assert client.chat_payloads == []
 
 
 @pytest.mark.asyncio

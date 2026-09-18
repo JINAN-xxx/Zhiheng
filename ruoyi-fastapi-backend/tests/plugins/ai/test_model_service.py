@@ -280,9 +280,57 @@ async def test_explicit_non_thinking_parameter_is_validated_and_defaults_remain_
     assert runtime.chat_requests[-1].parameters['thinking_mode'] == 'disabled'
     await service.chat(MODEL_ID, _messages())
     assert 'thinking_mode' not in runtime.chat_requests[-1].parameters
-    for invalid in ({'type': 'disabled'}, True, 'enabled', 'arbitrary'):
+    for invalid in ({'type': 'disabled'}, True, 'enabled', 'arbitrary', None):
         with pytest.raises(ValueError):
             await service.chat(MODEL_ID, _messages(), {'thinking_mode': invalid})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'parameters', [{'reasoning_effort': 'low'}, {'thinking_mode': 'disabled', 'reasoning_effort': 'low'}]
+)
+async def test_explicit_low_reasoning_effort_only_affects_current_chat(parameters: dict[str, object]) -> None:
+    service, runtime = _service()
+
+    await service.chat(MODEL_ID, _messages(), parameters)
+    assert dict(runtime.chat_requests[-1].parameters) == {'temperature': 0.2, 'max_tokens': 2_048, **parameters}
+
+    await service.chat(MODEL_ID, _messages())
+    assert dict(runtime.chat_requests[-1].parameters) == {'temperature': 0.2, 'max_tokens': 2_048}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('invalid', ['medium', 'high', 'minimal', '', None, True, 1, {'effort': 'low'}, ['low']])
+async def test_service_rejects_invalid_reasoning_effort_before_runtime(invalid: object) -> None:
+    service, runtime = _service()
+
+    with pytest.raises(ValueError, match=r'^模型参数无效$'):
+        await service.chat(MODEL_ID, _messages(), {'reasoning_effort': invalid})
+
+    assert runtime.chat_requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('extra_body', [{}, {'reasoning_effort': 'low'}, {'thinking': {'type': 'disabled'}}])
+async def test_service_rejects_caller_extra_body_before_runtime(extra_body: dict[str, object]) -> None:
+    service, runtime = _service()
+
+    with pytest.raises(ValueError, match=r'^不支持的模型参数$'):
+        await service.chat(MODEL_ID, _messages(), {'reasoning_effort': 'low', 'extra_body': extra_body})
+
+    assert runtime.chat_requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('defaults', [{'reasoning_effort': 'low'}, {'thinking_mode': 'disabled'}])
+async def test_internal_chat_extensions_cannot_be_catalog_defaults(defaults: dict[str, object]) -> None:
+    FakeModelDao.model = _model(default_parameters=defaults)
+    service, runtime = _service()
+
+    with pytest.raises(ValueError, match=r'^不支持的模型参数$'):
+        await service.chat(MODEL_ID, _messages())
+
+    assert runtime.chat_requests == []
 
 
 @pytest.mark.asyncio
@@ -446,6 +494,7 @@ async def test_resolve_returns_immutable_engine_neutral_snapshot() -> None:
 
     result = await service.resolve_model(MODEL_ID)
     defaults['temperature'] = 1.8
+    FakeModelDao.model.model_code = 'changed-after-resolution'
     FakeBindingDao.binding.engine_resource_id = 'changed-after-resolution'  # type: ignore[union-attr]
 
     assert type(result) is ResolvedModel
@@ -453,6 +502,7 @@ async def test_resolve_returns_immutable_engine_neutral_snapshot() -> None:
     assert result.binding_id == BINDING_ID
     assert result.engine_type == 'litellm'
     assert result.engine_model_snapshot == ENGINE_MODEL
+    assert result.model_code == 'company-chat'
     assert dict(result.default_parameters) == {'temperature': 0.2, 'max_tokens': 2_048}
     with pytest.raises(TypeError):
         result.default_parameters['temperature'] = 1.0  # type: ignore[index]
@@ -482,6 +532,7 @@ async def test_resolve_active_model_with_real_daos(
         engine_model_snapshot=ENGINE_MODEL,
         model_type='chat',
         default_parameters={'temperature': 0.2, 'max_tokens': 2_048},
+        model_code='company-chat',
     )
     assert runtime.chat_requests == []
     assert runtime.stream_requests == []
