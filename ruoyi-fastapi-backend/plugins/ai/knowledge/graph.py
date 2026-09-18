@@ -9,17 +9,21 @@ vector index with verified document/chunk membership in KnowledgeRuntime.
 import asyncio
 import os
 import shutil
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from module_Knowledge.src.knowledge.kb_utils import normalize_embedding_text
 from plugins.ai.domain.model_runtime import ModelMessage
+from plugins.ai.knowledge.graph_config import graph_parameters, model_snapshot
 from plugins.ai.knowledge.graph_errors import GRAPH_ERROR_MESSAGES, graph_model_error, safe_graph_error
+from plugins.ai.knowledge.graph_progress import document_progress
 from plugins.ai.knowledge.graph_tokenizer import load_graph_tokenizer
 from plugins.ai.knowledge.models import (
     KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+    GraphConfiguration,
     KnowledgeError,
     QueryParameters,
     embedding_fingerprint,
@@ -68,6 +72,23 @@ class KnowledgeGraph:
         self._initialization_lock = asyncio.Lock()
         self._llm_slots = asyncio.Semaphore(2)
         self._embedding_slots = asyncio.Semaphore(2)
+        self._active_embeddings = 0
+
+    @property
+    def workspace(self) -> str:
+        return self.database.get('_graph_workspace', self.database['db_id'])
+
+    def _configuration(self) -> GraphConfiguration | None:
+        value = self.database.get('_graph_config') or self.database.get('graph_config')
+        return GraphConfiguration.model_validate(value) if value else None
+
+    @asynccontextmanager
+    async def _embedding_activity(self) -> AsyncIterator[None]:
+        self._active_embeddings += 1
+        try:
+            yield
+        finally:
+            self._active_embeddings -= 1
 
     async def _ensure(self) -> Any:
         async with self._initialization_lock:
@@ -139,13 +160,15 @@ class KnowledgeGraph:
         from lightrag import LightRAG
         from lightrag.utils import EmbeddingFunc
 
+        config = self._configuration()
+        self._llm_slots = asyncio.Semaphore(config.concurrency if config else 2)
         spec = dict(self.database.get('index_spec') or {})
         if not spec or spec['model_id'] != self.database['embed_model_id']:
             raise KnowledgeError.reindex()
 
         async def embed_batch(texts: Sequence[str]) -> Any:
             try:
-                async with self._embedding_slots:
+                async with self._embedding_slots, self._embedding_activity():
                     async with self.model_service_factory() as service:
                         resolved = await asyncio.wait_for(
                             service.resolve_model(spec['model_id'], expected_type='embedding'),
@@ -200,7 +223,7 @@ class KnowledgeGraph:
 
         return LightRAG(
             working_dir=str(self.directory),
-            workspace=self.database['db_id'],
+            workspace=self.workspace,
             tokenizer=tokenizer,
             embedding_func=EmbeddingFunc(
                 embedding_dim=spec['dimension'],
@@ -218,10 +241,10 @@ class KnowledgeGraph:
             chunk_overlap_token_size=self.database['chunk_overlap'],
             embedding_func_max_async=2,
             embedding_batch_num=KNOWLEDGE_EMBEDDING_BATCH_SIZE,
-            llm_model_max_async=2,
+            llm_model_max_async=config.concurrency if config else 2,
             max_parallel_insert=1,
             default_embedding_timeout=_EMBEDDING_TIMEOUT,
-            default_llm_timeout=_LLM_TIMEOUT,
+            default_llm_timeout=config.timeout_seconds if config else _LLM_TIMEOUT,
             addon_params={'language': 'Chinese'},
         )
 
@@ -242,13 +265,41 @@ class KnowledgeGraph:
                 for item in os.getenv('KNOWLEDGE_GRAPH_DISABLE_THINKING_MODEL_IDS', '').split(',')
                 if item.strip()
             }
-            if self.database['llm_model_id'] in nonthinking_models:
+            config = self._configuration()
+            if config is None and self.database['llm_model_id'] in nonthinking_models:
                 parameters['thinking_mode'] = 'disabled'
-            async with self._llm_slots, self.model_service_factory() as service:
-                result = await asyncio.wait_for(
-                    service.chat(self.database['llm_model_id'], messages, parameters=parameters),
-                    timeout=_LLM_TIMEOUT,
-                )
+            async with self._llm_slots:
+                if config:
+                    async with self.model_service_factory() as service:
+                        resolved = await asyncio.wait_for(
+                            service.resolve_model(config.llm_model_id, expected_type='chat'),
+                            timeout=8,
+                        )
+                    snapshot = self.database.get('_graph_snapshot')
+                    if snapshot and model_snapshot(resolved) != snapshot:
+                        code = 'KNOWLEDGE_GRAPH_MODEL_CHANGED'
+                        raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 409)
+                    parameters = graph_parameters(config, resolved)
+                async with self.model_service_factory() as service:
+                    result = await asyncio.wait_for(
+                        service.chat(self.database['llm_model_id'], messages, parameters=parameters),
+                        timeout=config.timeout_seconds if config else _LLM_TIMEOUT,
+                    )
+                if (
+                    config
+                    and self.database.get('_graph_snapshot')
+                    and any(
+                        getattr(result, field, None) != self.database['_graph_snapshot'][field]
+                        for field in ('platform_model_id', 'binding_id', 'engine_model_snapshot')
+                    )
+                ):
+                    code = 'KNOWLEDGE_GRAPH_MODEL_CHANGED'
+                    raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 409)
+            if config and self.database.get('_graph_snapshot'):
+                actual = getattr(result, 'resolved_model', None)
+                if actual is None or model_snapshot(actual) != self.database['_graph_snapshot']:
+                    code = 'KNOWLEDGE_GRAPH_MODEL_CHANGED'
+                    raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 409)
             if getattr(result.response, 'finish_reason', None) == 'length':
                 code = 'KNOWLEDGE_GRAPH_OUTPUT_TRUNCATED'
                 raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 503)
@@ -289,6 +340,47 @@ class KnowledgeGraph:
             if errors:
                 raise errors[0] from None
             raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_FAILED', '知识图谱索引未完成，请重试', 503) from None
+        finally:
+            _INSERT_MODEL_ERRORS.reset(token)
+
+    async def progress(self, doc_id: str) -> dict:
+        if self.rag is None:
+            return document_progress(doc_id, None, [])
+        from lightrag.kg.shared_storage import get_namespace_data, get_namespace_lock
+
+        status = await self.rag.doc_status.get_by_id(doc_id)
+        pipeline = await get_namespace_data('pipeline_status', workspace=self.workspace)
+        async with get_namespace_lock('pipeline_status', workspace=self.workspace):
+            history = list(pipeline.get('history_messages', []))
+        return document_progress(doc_id, status, history, embedding_active=self._active_embeddings > 0)
+
+    async def preview(self, doc_id: str, content: str, title: str) -> dict:
+        """在调用者提供的临时 workspace 内，只构建一个实际 token 切片。"""
+        errors: list[KnowledgeError] = []
+        token = _INSERT_MODEL_ERRORS.set(errors)
+        try:
+            rag = await self._ensure()
+            chunk = await _blocking(
+                lambda: rag.tokenizer.decode(rag.tokenizer.encode(content)[: self.database['chunk_size']])
+            )
+            if not chunk.strip():
+                raise KnowledgeError('KNOWLEDGE_GRAPH_PREVIEW_EMPTY', '该文档没有可用于构建图谱的文本')
+            await rag.ainsert_custom_chunks(full_text=chunk, text_chunks=[chunk], doc_id=doc_id)
+            if not _processed(await rag.doc_status.get_by_id(doc_id)):
+                raise errors[0] if errors else KnowledgeError('KNOWLEDGE_GRAPH_INDEX_FAILED', '图谱试构建未完成', 503)
+            entities = await rag.full_entities.get_by_id(doc_id) or {}
+            relations = await rag.full_relations.get_by_id(doc_id) or {}
+            return {
+                'entities': len(entities.get('entity_names', [])),
+                'relations': len(relations.get('relation_pairs', [])),
+                'chunks': 1,
+            }
+        except KnowledgeError:
+            raise
+        except Exception:
+            if errors:
+                raise errors[0] from None
+            raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_FAILED', '图谱试构建未完成', 503) from None
         finally:
             _INSERT_MODEL_ERRORS.reset(token)
 
@@ -354,9 +446,7 @@ class KnowledgeGraph:
             vector_collections = []
             for name in _VECTOR_STORAGE_NAMES:
                 storage = getattr(rag, name)
-                if storage.workspace != self.database['db_id'] or not storage.final_namespace.startswith(
-                    f'{self.database["db_id"]}_'
-                ):
+                if storage.workspace != self.workspace or not storage.final_namespace.startswith(f'{self.workspace}_'):
                     raise KnowledgeError.unavailable()
                 # Pin the SDK's exact names and connection settings before its
                 # clients are closed; never enumerate/drop other collections.
@@ -379,7 +469,7 @@ class KnowledgeGraph:
             # collection. Permanent KB deletion instead uses the public SDK
             # after every buffered writer and client has been stopped.
             await _blocking(lambda: self._drop_vector_collections(vector_collections))
-            path = self.directory / self.database['db_id']
+            path = self.directory / self.workspace
             if path.exists():
                 await asyncio.to_thread(shutil.rmtree, path)
         except KnowledgeError:

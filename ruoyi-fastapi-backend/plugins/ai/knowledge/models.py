@@ -88,8 +88,22 @@ class DatabaseUpdate(StrictModel):
     description: str = Field('', max_length=2000)
 
 
+class GraphConfiguration(StrictModel):
+    llm_model_id: ModelResourceId
+    reasoning_strategy: Literal['auto', 'default', 'low', 'disabled'] = 'auto'
+    timeout_seconds: int = Field(240, ge=30, le=600)
+    max_output_tokens: int = Field(16384, ge=1024, le=32768)
+    concurrency: int = Field(2, ge=1, le=4)
+
+
 class GraphBuildRequest(StrictModel):
     llm_model_id: ModelResourceId | None = None
+    rebuild: bool = False
+
+
+class GraphPreviewRequest(StrictModel):
+    config: GraphConfiguration | None = None
+    document_id: str | None = None
 
 
 class DocumentAdd(StrictModel):

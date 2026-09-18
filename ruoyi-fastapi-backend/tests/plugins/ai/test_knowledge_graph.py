@@ -20,6 +20,8 @@ from plugins.ai.knowledge.models import KnowledgeError, QueryParameters, embeddi
 MODEL_CONCURRENCY = 2
 PROVIDER_BATCH_LIMIT = 8
 EXTRACTION_OUTPUT_LIMIT = 16384
+PREVIEW_CHUNK_SIZE = 1000
+CONFIGURED_GRAPH_TIMEOUT = 120
 MODEL_SNAPSHOT = SimpleNamespace(
     platform_model_id='mdl_embedding',
     binding_id='binding-one',
@@ -390,6 +392,118 @@ async def test_graph_disables_thinking_only_for_configured_models(graph: Any, mo
 
 
 @pytest.mark.asyncio
+async def test_graph_configuration_routes_glm_low_effort_and_uses_own_workspace(graph: Any) -> None:
+    model_id = 'mdl_423e4567e89b42d3a456426614174444'
+    graph.database.update(
+        llm_model_id=model_id,
+        _graph_workspace='kb_isolated_revision',
+        _graph_config={
+            'llm_model_id': model_id,
+            'reasoning_strategy': 'auto',
+            'timeout_seconds': 120,
+            'max_output_tokens': 8192,
+            'concurrency': 1,
+        },
+    )
+    graph.test_service.resolve_model.return_value = SimpleNamespace(
+        platform_model_id=model_id,
+        binding_id='binding-glm',
+        engine_model_snapshot='opaque-alias',
+        model_code='zai-org-glm-5.3',
+        default_parameters={},
+    )
+    rag = await graph._ensure()
+    assert rag.workspace == 'kb_isolated_revision'
+    assert rag.kwargs['llm_model_max_async'] == 1
+    assert rag.kwargs['default_llm_timeout'] == CONFIGURED_GRAPH_TIMEOUT
+    await rag.kwargs['llm_model_func']('Extract')
+    assert graph.test_service.chat.call_args.kwargs['parameters'] == {'max_tokens': 8192, 'reasoning_effort': 'low'}
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_rejects_chat_binding_change_during_model_request(graph: Any) -> None:
+    model_id = 'mdl_423e4567e89b42d3a456426614174444'
+    snapshot = {
+        'platform_model_id': model_id,
+        'binding_id': 'original-binding',
+        'engine_model_snapshot': 'alias',
+        'model_code': 'unknown',
+        'default_parameters': {},
+    }
+    graph.database.update(llm_model_id=model_id, _graph_snapshot=snapshot, _graph_config={'llm_model_id': model_id})
+    graph.test_service.resolve_model.return_value = SimpleNamespace(**snapshot)
+    graph.test_service.chat.return_value = SimpleNamespace(
+        response=SimpleNamespace(text='answer'),
+        platform_model_id=model_id,
+        binding_id='changed-binding',
+        engine_model_snapshot='alias',
+    )
+    with pytest.raises(KnowledgeError) as caught:
+        await graph._complete('Extract')
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_MODEL_CHANGED'
+
+
+@pytest.mark.asyncio
+async def test_graph_preview_extracts_only_one_token_chunk_and_counts_committed_anchors(graph: Any) -> None:
+    rag = await graph._ensure()
+    rag.tokenizer = SimpleNamespace(encode=list, decode=''.join)
+    rag.ainsert_custom_chunks = AsyncMock()
+    rag.doc_status.get_by_id.return_value = {'status': 'processed'}
+    rag.full_entities.get_by_id.return_value = {'entity_names': ['A', 'B'], 'count': 2}
+    rag.full_relations.get_by_id.return_value = {'relation_pairs': [['A', 'B']], 'count': 1}
+    result = await graph.preview('doc_sample', 'abc' * 1000, 'sample.txt')
+    assert result == {'entities': 2, 'relations': 1, 'chunks': 1}
+    request = rag.ainsert_custom_chunks.call_args.kwargs
+    assert len(request['text_chunks']) == 1
+    assert len(request['text_chunks'][0]) == PREVIEW_CHUNK_SIZE
+    assert request['full_text'] == request['text_chunks'][0]
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_rejects_default_parameter_race_with_unchanged_binding(graph: Any) -> None:
+    model_id = 'mdl_423e4567e89b42d3a456426614174444'
+    snapshot = {
+        'platform_model_id': model_id,
+        'binding_id': 'binding',
+        'engine_model_snapshot': 'alias',
+        'model_code': 'unknown',
+        'default_parameters': {'temperature': 0.1},
+    }
+    graph.database.update(llm_model_id=model_id, _graph_snapshot=snapshot, _graph_config={'llm_model_id': model_id})
+    graph.test_service.resolve_model.return_value = SimpleNamespace(**snapshot)
+    changed = SimpleNamespace(**dict(snapshot, default_parameters={'temperature': 1.9}))
+    graph.test_service.chat.return_value = SimpleNamespace(
+        response=SimpleNamespace(text='answer'),
+        platform_model_id=model_id,
+        binding_id='binding',
+        engine_model_snapshot='alias',
+        resolved_model=changed,
+    )
+    with pytest.raises(KnowledgeError) as caught:
+        await graph._complete('Extract')
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_MODEL_CHANGED'
+
+
+@pytest.mark.asyncio
+async def test_preview_tokenization_runs_outside_the_event_loop(graph: Any) -> None:
+    rag = await graph._ensure()
+    main_thread = threading.get_ident()
+
+    def encode(content: str) -> list[str]:
+        assert threading.get_ident() != main_thread, 'Long document tokenization must not block requests'
+        return list(content)
+
+    rag.tokenizer = SimpleNamespace(encode=encode, decode=''.join)
+    rag.ainsert_custom_chunks = AsyncMock()
+    rag.doc_status.get_by_id.return_value = {'status': 'processed'}
+    result = await graph.preview('doc_sample', 'content', 'sample.txt')
+    assert result['chunks'] == 1
+    await graph.close()
+
+
+@pytest.mark.asyncio
 async def test_lightrag_config_copy_does_not_copy_live_storage_clients(graph: Any) -> None:
     rag = await graph._ensure()
 
@@ -419,12 +533,14 @@ async def test_late_callback_does_not_attach_previous_document_error_to_next_ins
     late_release = asyncio.Event()
     late_tasks = []
     graph.test_service.chat.side_effect = asyncio.TimeoutError('private previous prompt')
+
     async def late_model_call() -> None:
         await late_release.wait()
         try:
             await rag.kwargs['llm_model_func']('previous doc')
         except KnowledgeError:
             pass
+
     async def insert(**kwargs: Any) -> None:
         if kwargs['ids'] == 'first':
             late_tasks.append(asyncio.create_task(late_model_call()))
@@ -432,6 +548,7 @@ async def test_late_callback_does_not_attach_previous_document_error_to_next_ins
             late_release.set()
             await asyncio.gather(*late_tasks)
         rag.doc_status.get_by_id.return_value = {'status': 'failed'}
+
     rag.ainsert.side_effect = insert
     try:
         for identifier in ('first', 'second'):

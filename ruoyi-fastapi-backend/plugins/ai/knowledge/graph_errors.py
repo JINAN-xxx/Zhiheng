@@ -6,6 +6,7 @@ from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.knowledge.models import KnowledgeError
 
 GRAPH_ERROR_MESSAGES = {
+    'KNOWLEDGE_GRAPH_MODEL_CHANGED': '图谱模型绑定已变化，请使用当前配置重新构建图谱',
     'KNOWLEDGE_GRAPH_OUTPUT_TRUNCATED': '图谱抽取结果超过单次输出上限，请减小文档切片或调整抽取模型后重试',
     'KNOWLEDGE_GRAPH_LLM_TIMEOUT': '图谱实体抽取请求超时，请稍后重试',
     'KNOWLEDGE_GRAPH_EMBEDDING_TIMEOUT': '图谱向量生成请求超时，请稍后重试',

@@ -25,7 +25,7 @@ def test_every_knowledge_route_has_login_and_specific_operation_permission() -> 
         or 'ai:knowledge:query' in repr(vars(dependency.dependency))
         for dependency in available.dependencies
     )
-    assert not any('preview' in route.path and '{doc_id}' not in route.path for route in router.routes)
+    assert not any(route.path.endswith('/preview') and '{doc_id}' not in route.path for route in router.routes)
 
 
 @pytest.mark.asyncio
@@ -68,6 +68,21 @@ def test_graph_build_routes_require_separate_read_and_edit_permissions() -> None
     for method, permission in (('GET', 'ai:knowledge:query'), ('POST', 'ai:knowledge:edit')):
         route = routes[method, '/ai/knowledge/databases/{db_id}/graph-build']
         assert any(permission in repr(vars(dependency.dependency)) for dependency in route.dependencies)
+
+
+def test_graph_config_and_preview_routes_require_specific_permissions() -> None:
+    routes = {
+        (method, route.path): route for route in controller.ai_knowledge_controller.routes for method in route.methods
+    }
+    for method, suffix, permission in (
+        ('GET', 'graph-config', 'ai:knowledge:query'),
+        ('PUT', 'graph-config', 'ai:knowledge:edit'),
+        ('GET', 'graph-preview', 'ai:knowledge:query'),
+        ('POST', 'graph-preview', 'ai:knowledge:edit'),
+    ):
+        path = '/ai/knowledge/databases/{db_id}/' + suffix
+        assert (method, path) in routes
+        assert any(permission in repr(vars(dependency.dependency)) for dependency in routes[method, path].dependencies)
 
 
 @pytest.mark.asyncio

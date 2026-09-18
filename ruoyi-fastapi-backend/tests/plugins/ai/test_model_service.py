@@ -286,6 +286,15 @@ async def test_explicit_non_thinking_parameter_is_validated_and_defaults_remain_
 
 
 @pytest.mark.asyncio
+async def test_chat_result_carries_the_actual_resolved_parameters_snapshot() -> None:
+    service, runtime = _service()
+    expected = await service.resolve_model(MODEL_ID, expected_type='chat')
+    result = await service.chat(MODEL_ID, _messages())
+    assert result.resolved_model == expected
+    assert dict(result.resolved_model.default_parameters).items() <= dict(runtime.chat_requests[-1].parameters).items()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     'parameters', [{'reasoning_effort': 'low'}, {'thinking_mode': 'disabled', 'reasoning_effort': 'low'}]
 )

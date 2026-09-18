@@ -17,13 +17,16 @@ from uuid import uuid4
 
 from module_Knowledge.src.knowledge.indexing import SUPPORTED_EXTENSIONS, process_file_to_markdown
 from module_Knowledge.src.knowledge.kb_utils import normalize_embedding_text, split_text_into_chunks
+from plugins.ai.knowledge.graph_config import database_graph_config, model_snapshot
 from plugins.ai.knowledge.graph_errors import safe_graph_error
+from plugins.ai.knowledge.graph_jobs import GraphConfigurationRuntime
 from plugins.ai.knowledge.metadata import MetadataStore
 from plugins.ai.knowledge.models import (
     KNOWLEDGE_EMBEDDING_BATCH_SIZE,
     ChunkParameters,
     DatabaseCreate,
     GraphBuildRequest,
+    GraphConfiguration,
     KnowledgeError,
     KnowledgeHit,
     QueryParameters,
@@ -84,7 +87,7 @@ def _check_id(value: str, prefix: str) -> str:
     return value
 
 
-class KnowledgeRuntime:
+class KnowledgeRuntime(GraphConfigurationRuntime):
     def __init__(
         self,
         data_dir: Path,
@@ -133,6 +136,7 @@ class KnowledgeRuntime:
         # A task cancelled before its coroutine starts cannot run its finally block.
         for job_id, _ in tasks:
             await self._interrupt_graph_build(job_id)
+            await self._interrupt_graph_preview(job_id)
         for store in (*self._stores.values(), *self._graphs.values()):
             await store.close()
         self._stores.clear()
@@ -171,6 +175,7 @@ class KnowledgeRuntime:
     def _safe_database(database: dict) -> dict:
         result = {key: database.get(key) for key in _DB_FIELDS}
         result['graph_build'] = KnowledgeRuntime._graph_build(database)
+        result['graph_readable'] = KnowledgeRuntime._graph_readable(database)
         return result
 
     @staticmethod
@@ -211,7 +216,10 @@ class KnowledgeRuntime:
 
     @staticmethod
     def _ensure_graph_idle(database: dict) -> None:
-        if KnowledgeRuntime._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES:
+        if (
+            KnowledgeRuntime._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES
+            or database.get('graph_preview', {}).get('status') in _ACTIVE_GRAPH_STATES
+        ):
             raise KnowledgeError('KNOWLEDGE_GRAPH_BUSY', '知识图谱正在构建中，请完成后再修改文档', 409)
 
     @asynccontextmanager
@@ -224,6 +232,29 @@ class KnowledgeRuntime:
 
     async def _graph_state(self) -> dict:
         state = await self.metadata.read()
+        legacy = [
+            database['db_id']
+            for database in state['databases'].values()
+            if database.get('enable_knowledge_graph')
+            and not database.get('graph_build')
+            and not database.get('graph_versions')
+        ]
+        if legacy:
+            async with self.metadata.transaction() as state:
+                for db_id in legacy:
+                    database = state['databases'].get(db_id)
+                    if not database or database.get('graph_build'):
+                        continue
+                    documents = [doc for doc in state['documents'].values() if doc['db_id'] == db_id]
+                    if documents and all(
+                        self._document_graph_status(database, doc) == 'completed' for doc in documents
+                    ):
+                        database['graph_build'] = dict(
+                            self._graph_build(database),
+                            status='completed',
+                            total_documents=len(documents),
+                            processed_documents=len(documents),
+                        )
         orphaned = {
             build['job_id']
             for database in state['databases'].values()
@@ -236,7 +267,24 @@ class KnowledgeRuntime:
                     build = self._graph_build(database)
                     if build['job_id'] in orphaned and not self._live_graph_job(build['job_id']):
                         self._mark_graph_interrupted(state, database, build)
-        return state
+        preview_orphans = [
+            database['graph_preview']['job_id']
+            for database in state['databases'].values()
+            if database.get('graph_preview', {}).get('status') in _ACTIVE_GRAPH_STATES
+            and not self._live_graph_job(database['graph_preview']['job_id'])
+        ]
+        for job_id in preview_orphans:
+            await self._interrupt_graph_preview(job_id)
+        return await self.metadata.read() if preview_orphans else state
+
+    async def _interrupt_graph_preview(self, job_id: str) -> None:
+        async with self.metadata.transaction() as state:
+            for database in state['databases'].values():
+                preview = database.get('graph_preview', {})
+                if preview.get('job_id') == job_id and preview.get('status') in _ACTIVE_GRAPH_STATES:
+                    preview.update(
+                        status='interrupted', error=self._graph_error('KNOWLEDGE_GRAPH_INTERRUPTED'), finished_at=_now()
+                    )
 
     def _live_graph_job(self, job_id: str) -> bool:
         task = _ACTIVE_GRAPH_JOBS.get((self.data_dir, job_id))
@@ -264,15 +312,33 @@ class KnowledgeRuntime:
 
     async def graph_build_status(self, db_id: str) -> dict:
         _check_id(db_id, 'kb')
-        return self._graph_build(self._database(await self._graph_state(), db_id))
+        database = self._database(await self._graph_state(), db_id)
+        build = self._graph_build(database)
+        build['active_revision'] = self._active_graph_revision(database)
+        build['graph_readable'] = self._graph_readable(database)
+        graph = self._graphs.get(build.get('revision'))
+        current = build.get('current_document')
+        if graph and current and build['status'] == 'running' and hasattr(graph, 'progress'):
+            try:
+                progress = await asyncio.wait_for(graph.progress(current['id']), timeout=5)
+            except Exception:
+                progress = build.get('progress')
+            if progress:
+                build['progress'] = progress
+                async with self.metadata.transaction() as state:
+                    latest = self._current_graph_job(state, db_id, build['job_id'])
+                    if latest and latest['graph_build'].get('current_document') == current:
+                        latest['graph_build']['progress'] = progress
+        return build
 
     @staticmethod
     def _graph_model(database: dict, payload: GraphBuildRequest) -> str:
-        current = database.get('llm_model_id') if database['enable_knowledge_graph'] else None
-        if current and payload.llm_model_id and current != payload.llm_model_id:
+        config = database_graph_config(database)
+        current = config.llm_model_id if config else None
+        if current and payload.llm_model_id and current != payload.llm_model_id and not payload.rebuild:
             raise KnowledgeError(
                 'KNOWLEDGE_GRAPH_MODEL_MIGRATION_REQUIRED',
-                '知识图谱模型变更需要显式迁移，当前操作仅支持原模型续建',
+                '知识图谱模型变更需要显式重新构建',
                 409,
             )
         model_id = payload.llm_model_id or current
@@ -286,34 +352,55 @@ class KnowledgeRuntime:
             raise KnowledgeError.unavailable()
         database = self._database(await self._graph_state(), db_id)
         model_id = self._graph_model(database, payload)
+        configuration_before = database_graph_config(database)
         build = self._graph_build(database)
         if build['status'] in _ACTIVE_GRAPH_STATES:
             return build
         from plugins.ai.knowledge.stores import require_graph
 
         require_graph()
-        # Resolving the model must not hold the KB lock used by vector retrieval.
-        await self._resolve(model_id, 'chat')
+        resolved = await self._resolve(model_id, 'chat')
         if database.get('index_spec'):
             await self._check_embedding_spec(database)
         async with self.metadata.lock(db_id):
             database = self._database(await self._graph_state(), db_id)
-            self._graph_model(database, payload)
             if self._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES:
                 return self._graph_build(database)
-            return await self._queue_graph_build(db_id, model_id)
+            if database_graph_config(database) != configuration_before:
+                raise KnowledgeError('KNOWLEDGE_GRAPH_CONFIG_CHANGED', '图谱配置刚刚发生变化，请刷新后重试', 409)
+            self._graph_model(database, payload)
+            return await self._queue_graph_build(db_id, model_id, rebuild=payload.rebuild, resolved=resolved)
 
-    async def _queue_graph_build(self, db_id: str, model_id: str | None = None) -> dict:
-        # Caller owns the short KB mutation lock; the worker never holds it during
-        # parsing, extraction, embedding or graph storage calls.
+    async def _queue_graph_build(
+        self, db_id: str, model_id: str | None = None, *, rebuild: bool = False, resolved: Any = None
+    ) -> dict:
         if self._closing:
             raise KnowledgeError.unavailable()
+        database = self._database(await self.metadata.read(), db_id)
+        configuration_status = self._graph_config_result(database)
+        if model_id is None and configuration_status['requires_rebuild'] and not configuration_status['can_resume']:
+            # 上传先完成主向量索引；草稿配置由显式重建发布，不能把成功上传变成接口失败。
+            return self._graph_build(database)
+        config = database_graph_config(database)
+        if config is None:
+            config = GraphConfiguration(llm_model_id=model_id)
+        elif model_id and model_id != config.llm_model_id:
+            config = config.model_copy(update={'llm_model_id': model_id})
+        resolved = resolved or await self._resolve(config.llm_model_id, 'chat')
+        try:
+            revision = await self._prepare_graph_version(db_id, config, resolved, rebuild=rebuild)
+        except KnowledgeError as error:
+            if error.code != 'KNOWLEDGE_GRAPH_REBUILD_REQUIRED':
+                raise
+            async with self.metadata.transaction() as state:
+                self._database(state, db_id)['graph_rebuild_required'] = True
+            if model_id is not None:
+                raise
+            return self._graph_build(database)
         job_id = uuid4().hex
         async with self.metadata.transaction() as state:
             database = self._database(state, db_id)
             self._ensure_graph_idle(database)
-            if model_id:
-                database.update(enable_knowledge_graph=True, llm_model_id=model_id)
             documents = [document for document in state['documents'].values() if document['db_id'] == db_id]
             completed = 0
             for document in documents:
@@ -325,6 +412,7 @@ class KnowledgeRuntime:
                 self._graph_build(database),
                 status='queued',
                 job_id=job_id,
+                revision=revision,
                 total_documents=len(documents),
                 processed_documents=completed,
                 failed_documents=0,
@@ -332,9 +420,14 @@ class KnowledgeRuntime:
                 error=None,
                 started_at=None,
                 finished_at=None,
+                progress=None,
             )
             database['graph_build'] = build
         task = asyncio.create_task(self._run_graph_build(db_id, job_id), name=f'knowledge-graph-{job_id}')
+        self._register_graph_task(job_id, task)
+        return dict(build)
+
+    def _register_graph_task(self, job_id: str, task: asyncio.Task) -> None:
         self._graph_tasks[job_id] = task
         _ACTIVE_GRAPH_JOBS[self.data_dir, job_id] = task
 
@@ -342,10 +435,9 @@ class KnowledgeRuntime:
             self._graph_tasks.pop(job_id, None)
             _ACTIVE_GRAPH_JOBS.pop((self.data_dir, job_id), None)
             if not completed_task.cancelled():
-                completed_task.exception()  # Retrieve failures even if shutdown never awaits this task.
+                completed_task.exception()
 
         task.add_done_callback(finished)
-        return dict(build)
 
     @staticmethod
     def _current_graph_job(state: dict, db_id: str, job_id: str) -> dict | None:
@@ -358,7 +450,10 @@ class KnowledgeRuntime:
         return database
 
     async def _build_graph_document(self, db_id: str, job_id: str, doc_id: str) -> bool:
-        async with self.metadata.lock(f'graph-{db_id}'):
+        initial = self._database(await self.metadata.read(), db_id)
+        revision = initial.get('graph_target_revision', db_id)
+        lock_id = revision if self._active_graph_revision(initial) not in (None, revision) else db_id
+        async with self.metadata.lock(f'graph-{lock_id}'):
             async with self.metadata.transaction() as state:
                 database = self._current_graph_job(state, db_id, job_id)
                 if database is None:
@@ -366,10 +461,11 @@ class KnowledgeRuntime:
                 document = self._document(state, db_id, doc_id)
                 document.update(graph_status='running', graph_error=None)
                 database['graph_build']['current_document'] = {'id': doc_id, 'file_name': document['file_name']}
+                database['graph_build']['progress'] = None
                 attempted = document.get('graph_attempted', False)
                 upload = state['uploads'].get(document['upload_id'])
                 ready = document['status'] == 'done' and database.get('index_spec') and upload
-            graph, error, cleaned = None, None, False
+            graph, error, cleaned, progress = None, None, False, None
             try:
                 if not ready:
                     raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_INCOMPLETE', '请先完成文档的向量索引', 409)
@@ -379,11 +475,21 @@ class KnowledgeRuntime:
                         return False
                     # Persist intent only after validation, before any graph write.
                     state['documents'][doc_id]['graph_attempted'] = True
-                graph = await self._graph(database)
+                    attempted_documents = state['databases'][db_id]['graph_versions'][revision].setdefault(
+                        'attempted_documents', []
+                    )
+                    if doc_id not in attempted_documents:
+                        attempted_documents.append(doc_id)
+                view = self._graph_version_database(database, revision)
+                snapshot = view.get('_graph_snapshot')
+                if snapshot and model_snapshot(await self._resolve(view['llm_model_id'], 'chat')) != snapshot:
+                    raise KnowledgeError('KNOWLEDGE_GRAPH_MODEL_CHANGED', '图谱模型绑定已变化，请重新构建图谱', 409)
+                graph = await self._graph(view)
                 if attempted:
                     await graph.delete_document(doc_id)
                 content = await asyncio.to_thread(process_file_to_markdown, self._upload_path(upload))
                 await graph.insert(doc_id, content, document['file_name'])
+                progress = await self._read_graph_progress(graph, doc_id)
             except asyncio.CancelledError:
                 # Preserve graph_attempted: retry cleans any partial model/storage writes.
                 raise
@@ -393,26 +499,53 @@ class KnowledgeRuntime:
                 error = known_error.public_dict() if known_error else self._graph_error()
                 if graph is not None:
                     try:
+                        progress = await self._read_graph_progress(graph, doc_id)
                         await graph.delete_document(doc_id)
                         cleaned = True
                     except Exception:
                         if not reindex:
                             error = self._graph_error('KNOWLEDGE_GRAPH_CLEANUP_FAILED')
-            async with self.metadata.transaction() as state:
-                database = self._current_graph_job(state, db_id, job_id)
-                if database is None:
-                    return False
-                document = self._document(state, db_id, doc_id)
-                document.update(graph_status='failed' if error else 'completed', graph_error=error)
-                if cleaned:
-                    document['graph_attempted'] = False
-                build = database['graph_build']
-                build['processed_documents'] += 1
-                build['failed_documents'] += int(error is not None)
-                build['current_document'] = None
-                if error and (not build['error'] or error['code'] == 'KNOWLEDGE_REINDEX_REQUIRED'):
-                    build['error'] = error
-            return True
+            return await self._record_graph_document_result(
+                db_id, job_id, doc_id, {'error': error, 'cleaned': cleaned, 'progress': progress}
+            )
+
+    @staticmethod
+    async def _read_graph_progress(graph: Any, doc_id: str) -> dict | None:
+        if not hasattr(graph, 'progress'):
+            return None
+        try:
+            return await asyncio.wait_for(graph.progress(doc_id), timeout=5)
+        except Exception:
+            # 进度读取故障不能改变已经提交的图谱结果。
+            return None
+
+    async def _record_graph_document_result(self, db_id: str, job_id: str, doc_id: str, outcome: dict) -> bool:
+        error, cleaned, progress = outcome['error'], outcome['cleaned'], outcome['progress']
+        async with self.metadata.transaction() as state:
+            database = self._current_graph_job(state, db_id, job_id)
+            if database is None:
+                return False
+            document = self._document(state, db_id, doc_id)
+            document.update(graph_status='failed' if error else 'completed', graph_error=error)
+            revision = database['graph_build'].get('revision')
+            version = database.get('graph_versions', {}).get(revision)
+            if version and not error and doc_id not in version['documents']:
+                version['documents'].append(doc_id)
+            if cleaned:
+                document['graph_attempted'] = False
+                if version:
+                    version['attempted_documents'] = [
+                        identifier for identifier in version.get('attempted_documents', []) if identifier != doc_id
+                    ]
+            build = database['graph_build']
+            if progress:
+                build['progress'] = progress
+            build['processed_documents'] += 1
+            build['failed_documents'] += int(error is not None)
+            build['current_document'] = None
+            if error and (not build['error'] or error['code'] == 'KNOWLEDGE_REINDEX_REQUIRED'):
+                build['error'] = error
+        return True
 
     async def _run_graph_build(self, db_id: str, job_id: str) -> None:
         try:
@@ -434,6 +567,12 @@ class KnowledgeRuntime:
                 if database is not None:
                     build = database['graph_build']
                     failed = build['failed_documents'] > 0
+                    if not failed:
+                        revision = build.get('revision')
+                        version = database.get('graph_versions', {}).get(revision)
+                        if version:
+                            database['graph_active_revision'] = revision
+                            database['llm_model_id'] = version['config']['llm_model_id']
                     build.update(
                         status='failed' if failed else 'completed',
                         finished_at=_now(),
@@ -529,7 +668,14 @@ class KnowledgeRuntime:
                         if document['db_id'] == db_id and document.get('graph_attempted')
                     ]
                     if database.get('index_spec'):
-                        await (await self._graph(database)).delete_database(graph_documents)
+                        for revision in database.get('graph_versions') or [db_id]:
+                            graph = await self._graph(self._graph_version_database(database, revision))
+                            await graph.delete_database(graph_documents)
+                            await graph.close()
+                            self._graphs.pop(revision, None)
+                preview = database.get('graph_preview')
+                if preview and preview.get('cleanup_pending'):
+                    await self._cleanup_graph_preview(database, preview)
             except Exception:
                 raise KnowledgeError.unavailable() from None
             async with self.metadata.transaction() as state:
@@ -781,14 +927,36 @@ class KnowledgeRuntime:
             await self._store(database['kb_type']).delete_chunks(
                 db_id, [chunk['id'] for chunk in document.get('chunks', [])]
             )
-            if database['enable_knowledge_graph'] and document.get('graph_attempted'):
-                await (await self._graph(database)).delete_document(document['id'])
+            if database['enable_knowledge_graph'] and (
+                database.get('graph_versions') or document.get('graph_attempted')
+            ):
+                for revision in database.get('graph_versions') or [db_id]:
+                    version = database.get('graph_versions', {}).get(revision)
+                    contributed = (
+                        document.get('graph_attempted')
+                        if version is None
+                        else (
+                            document['id'] in version.get('documents', [])
+                            or document['id'] in version.get('attempted_documents', [])
+                        )
+                    )
+                    if contributed:
+                        await (await self._graph(self._graph_version_database(database, revision))).delete_document(
+                            document['id']
+                        )
         except Exception:
             raise KnowledgeError.unavailable() from None
         upload = state['uploads'].get(document['upload_id'])
         async with self.metadata.transaction() as current:
             current['documents'].pop(document['id'], None)
             current['uploads'].pop(document['upload_id'], None)
+            for version in current['databases'][db_id].get('graph_versions', {}).values():
+                version['documents'] = [
+                    identifier for identifier in version['documents'] if identifier != document['id']
+                ]
+                version['attempted_documents'] = [
+                    identifier for identifier in version.get('attempted_documents', []) if identifier != document['id']
+                ]
         if upload:
             self._upload_path(upload).unlink(missing_ok=True)
 
@@ -951,7 +1119,9 @@ class KnowledgeRuntime:
             raise KnowledgeError('KNOWLEDGE_GRAPH_DISABLED', '该知识库未启用知识图谱', 409)
         from plugins.ai.knowledge.graph import KnowledgeGraph
 
-        db_id = database['db_id']
+        if '_graph_workspace' not in database:
+            database = self._graph_version_database(database)
+        db_id = database.get('_graph_workspace', database['db_id'])
         if db_id not in self._graphs:
             self._graphs[db_id] = KnowledgeGraph(self.data_dir, database, self.model_service_factory)
         self._graphs[db_id].database = database
@@ -962,13 +1132,19 @@ class KnowledgeRuntime:
         database = self._database(state, db_id)
         if not database['enable_knowledge_graph']:
             raise KnowledgeError('KNOWLEDGE_GRAPH_DISABLED', '该知识库未启用知识图谱', 409)
-        if self._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES or any(
-            document['db_id'] == db_id and self._document_graph_status(database, document) != 'completed'
-            for document in state['documents'].values()
+        active = self._active_graph_revision(database)
+        separate_active = self._graph_readable(database)
+        if not separate_active and (
+            self._graph_build(database)['status'] in _ACTIVE_GRAPH_STATES
+            or any(
+                document['db_id'] == db_id and self._document_graph_status(database, document) != 'completed'
+                for document in state['documents'].values()
+            )
         ):
             raise KnowledgeError(
                 'KNOWLEDGE_GRAPH_INDEX_INCOMPLETE', '知识图谱尚未构建完成，请先构建或重试失败文档', 409
             )
+        database = self._graph_version_database(database, active)
         if not resolve_models:
             return database
         resolved = await self._resolve(database['embed_model_id'], 'embedding')

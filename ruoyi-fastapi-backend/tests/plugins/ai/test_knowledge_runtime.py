@@ -30,6 +30,8 @@ EXPECTED_MAX_PASSAGES = 8
 EXPECTED_BACKFILL_DOCUMENTS = 2
 EXPECTED_RETRY_ATTEMPTS = 2
 EXPECTED_MAX_CONTEXT_BYTES = 24000
+PREVIEW_ENTITIES = 3
+PREVIEW_RELATIONS = 2
 
 
 class Models:
@@ -415,7 +417,11 @@ async def test_real_model_service_accepts_multiline_index_without_altering_passa
         @classmethod
         async def get_model_by_id(cls, db: object, model_id: str) -> SimpleNamespace:
             return SimpleNamespace(
-                model_id=model_id, lifecycle_status='active', model_type='embedding', default_parameters={}
+                model_id=model_id,
+                model_code='embed-model',
+                lifecycle_status='active',
+                model_type='embedding',
+                default_parameters={},
             )
 
     class BindingDao:
@@ -524,6 +530,278 @@ class ControlledGraph:
         self.closed = True
 
 
+@pytest.mark.asyncio
+async def test_graph_config_is_persisted_separately_and_rebuild_publishes_only_after_success(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, _, store, _ = setup_runtime
+    database = await create(runtime)
+    db_id = database['db_id']
+    document = await index(runtime, db_id)
+    config = knowledge_models.GraphConfiguration(llm_model_id=MODEL_ID)
+    saved = await runtime.save_graph_config(db_id, config)
+    assert saved['config']['reasoning_strategy'] == 'auto'
+    assert not (await runtime.get_database(db_id))['enable_knowledge_graph']
+    await runtime.start_graph_build(db_id, GraphBuildRequest())
+    assert (await graph_finished(runtime, db_id))['status'] == 'completed'
+    previous = (await runtime.graph_config_status(db_id))['active_revision']
+    assert previous
+    rows = dict(store.rows[db_id])
+    changed = config.model_copy(update={'reasoning_strategy': 'low'})
+    saved = await runtime.save_graph_config(db_id, changed)
+    assert saved['requires_rebuild']
+    assert saved['active_config']['reasoning_strategy'] == 'auto'
+    with pytest.raises(KnowledgeError) as caught:
+        await runtime.start_graph_build(db_id, GraphBuildRequest())
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_REBUILD_REQUIRED'
+    controlled_graph.fail_documents.add(document)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(rebuild=True))
+    assert (await graph_finished(runtime, db_id))['status'] == 'failed'
+    assert (await runtime.graph_config_status(db_id))['active_revision'] == previous
+    assert await runtime.graph_labels(db_id) == {'labels': ['Invoice']}
+    failed_revision = (await runtime.graph_build_status(db_id))['revision']
+    controlled_graph.fail_documents.clear()
+    await runtime.start_graph_build(db_id, GraphBuildRequest())
+    assert (await graph_finished(runtime, db_id))['status'] == 'completed'
+    assert (await runtime.graph_config_status(db_id))['active_revision'] == failed_revision != previous
+    assert store.rows[db_id] == rows
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_config_cannot_change_during_build_and_original_graph_remains_readable(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    await index(runtime, db_id)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(llm_model_id=MODEL_ID))
+    await graph_finished(runtime, db_id)
+    controlled_graph.started.clear()
+    controlled_graph.release.clear()
+    await runtime.start_graph_build(db_id, GraphBuildRequest(rebuild=True))
+    await asyncio.wait_for(controlled_graph.started.wait(), 2)
+    try:
+        with pytest.raises(KnowledgeError) as caught:
+            await runtime.save_graph_config(db_id, knowledge_models.GraphConfiguration(llm_model_id=MODEL_ID))
+        assert caught.value.code == 'KNOWLEDGE_GRAPH_BUSY'
+        assert await asyncio.wait_for(runtime.graph_labels(db_id), 0.5) == {'labels': ['Invoice']}
+    finally:
+        controlled_graph.release.set()
+        await graph_finished(runtime, db_id)
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_versions_are_isolated_and_document_deletion_cleans_every_owned_version(
+    setup_runtime: RuntimeSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, *_ = setup_runtime
+    instances = {}
+
+    def graph_factory(directory: Path, database: dict, factory: Any) -> ControlledGraph:
+        revision = database.get('_graph_workspace', database['db_id'])
+        graph = ControlledGraph()
+        instances[revision] = graph
+        return graph
+
+    monkeypatch.setattr(stores, 'require_graph', lambda: None)
+    monkeypatch.setattr(graph_module, 'KnowledgeGraph', graph_factory)
+    db_id = (await create(runtime))['db_id']
+    doc_id = await index(runtime, db_id)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(llm_model_id=MODEL_ID))
+    first = (await graph_finished(runtime, db_id))['revision']
+    await runtime.start_graph_build(db_id, GraphBuildRequest(rebuild=True))
+    second = (await graph_finished(runtime, db_id))['revision']
+    assert first != second
+    assert instances[first].documents == instances[second].documents == {doc_id}
+    await runtime.delete_document(db_id, doc_id)
+    assert not instances[first].documents
+    assert not instances[second].documents
+    await runtime.delete_database(db_id)
+    assert instances[first].deleted_databases and instances[second].deleted_databases
+    assert not runtime._graphs
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_saving_config_does_not_change_legacy_active_graph_model(setup_runtime: RuntimeSetup) -> None:
+    runtime, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    async with runtime.metadata.transaction() as state:
+        state['databases'][db_id].update(
+            enable_knowledge_graph=True, llm_model_id=MODEL_ID, graph_build={'status': 'completed'}
+        )
+    other = 'mdl_423e4567e89b42d3a456426614174445'
+    await runtime.save_graph_config(db_id, knowledge_models.GraphConfiguration(llm_model_id=other))
+    database = (await runtime.metadata.read())['databases'][db_id]
+    active = runtime._graph_version_database(database)
+    assert active['_graph_config']['llm_model_id'] == active['llm_model_id'] == MODEL_ID
+
+
+@pytest.mark.asyncio
+async def test_stale_preview_worker_never_cleans_a_replacement_job(setup_runtime: RuntimeSetup) -> None:
+    runtime, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    async with runtime.metadata.transaction() as state:
+        state['databases'][db_id]['graph_preview'] = {'job_id': 'replacement', 'status': 'queued'}
+    cleaned = []
+
+    async def cleanup(database: dict, preview: dict) -> None:
+        cleaned.append(preview['job_id'])
+
+    runtime._cleanup_graph_preview = cleanup
+    await runtime._run_graph_preview(db_id, 'old-job')
+    assert not cleaned
+    assert (await runtime.metadata.read())['databases'][db_id]['graph_preview'] == {
+        'job_id': 'replacement',
+        'status': 'queued',
+    }
+
+
+@pytest.mark.asyncio
+async def test_build_does_not_overwrite_configuration_saved_while_model_resolves(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, models, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    await runtime.save_graph_config(db_id, knowledge_models.GraphConfiguration(llm_model_id=MODEL_ID))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = models.resolve_model
+
+    async def resolve(model_id: str, expected_type: str | None = None) -> Any:
+        if model_id == MODEL_ID and expected_type == 'chat':
+            entered.set()
+            await release.wait()
+        return await original(model_id, expected_type)
+
+    models.resolve_model = resolve
+    building = asyncio.create_task(runtime.start_graph_build(db_id, GraphBuildRequest()))
+    await entered.wait()
+    other = 'mdl_423e4567e89b42d3a456426614174445'
+    await runtime.save_graph_config(db_id, knowledge_models.GraphConfiguration(llm_model_id=other))
+    release.set()
+    with pytest.raises(KnowledgeError) as caught:
+        await building
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_CONFIG_CHANGED'
+    assert (await runtime.graph_config_status(db_id))['config']['llm_model_id'] == other
+    assert not controlled_graph.inserted
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_new_vector_document_succeeds_when_saved_graph_config_requires_rebuild(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    await index(runtime, db_id)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(llm_model_id=MODEL_ID))
+    await graph_finished(runtime, db_id)
+    await runtime.save_graph_config(
+        db_id, knowledge_models.GraphConfiguration(llm_model_id=MODEL_ID, reasoning_strategy='low')
+    )
+    doc_id = await index(runtime, db_id, b'new indexed document')
+    assert (await runtime.metadata.read())['documents'][doc_id]['status'] == 'done'
+    assert (await runtime.graph_config_status(db_id))['requires_rebuild']
+    assert await runtime.graph_labels(db_id) == {'labels': ['Invoice']}
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_new_vector_document_succeeds_after_only_chat_model_binding_changes(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, models, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    await index(runtime, db_id)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(llm_model_id=MODEL_ID))
+    await graph_finished(runtime, db_id)
+    original = models.resolve_model
+
+    async def resolve(model_id: str, expected_type: str | None = None) -> Any:
+        result = await original(model_id, expected_type)
+        if expected_type == 'chat':
+            result.binding_id = 'changed-chat-only'
+        return result
+
+    models.resolve_model = resolve
+    doc_id = await index(runtime, db_id, b'new vector document')
+    assert (await runtime.metadata.read())['documents'][doc_id]['status'] == 'done'
+    assert (await runtime.graph_config_status(db_id))['requires_rebuild']
+    assert await runtime.graph_labels(db_id) == {'labels': ['Invoice']}
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_legacy_synchronous_graph_remains_active_during_rebuild(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, *_ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    doc_id = await index(runtime, db_id)
+    async with runtime.metadata.transaction() as state:
+        database = state['databases'][db_id]
+        database.update(enable_knowledge_graph=True, llm_model_id=MODEL_ID)
+        database.pop('graph_build', None)
+        document = state['documents'][doc_id]
+        document.pop('graph_status', None)
+        document.update(graph_attempted=True)
+    controlled_graph.release.clear()
+    await runtime.start_graph_build(db_id, GraphBuildRequest(rebuild=True))
+    await controlled_graph.started.wait()
+    try:
+        assert (await runtime.graph_config_status(db_id))['active_revision'] == db_id
+        assert await runtime.graph_labels(db_id) == {'labels': ['Invoice']}
+    finally:
+        controlled_graph.release.set()
+        await graph_finished(runtime, db_id)
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_document_deletion_cleans_failed_old_revision_after_new_revision_cleanup(
+    setup_runtime: RuntimeSetup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, *_ = setup_runtime
+    instances = {}
+    db_id = (await create(runtime))['db_id']
+    doc_id = await index(runtime, db_id)
+
+    async def fail_cleanup(document_id: str) -> None:
+        raise RuntimeError('private storage failure')
+
+    def factory(directory: Path, database: dict, models: Any) -> ControlledGraph:
+        graph = ControlledGraph()
+        graph.fail_documents.add(doc_id)
+        if not instances:
+            graph.delete_document = fail_cleanup
+        instances[database['_graph_workspace']] = graph
+        return graph
+
+    monkeypatch.setattr(stores, 'require_graph', lambda: None)
+    monkeypatch.setattr(graph_module, 'KnowledgeGraph', factory)
+    await runtime.start_graph_build(db_id, GraphBuildRequest(llm_model_id=MODEL_ID))
+    first = (await graph_finished(runtime, db_id))['revision']
+    await runtime.start_graph_build(db_id, GraphBuildRequest(rebuild=True))
+    assert (await graph_finished(runtime, db_id))['status'] == 'failed'
+    state = await runtime.metadata.read()
+    assert not state['documents'][doc_id]['graph_attempted']
+    assert doc_id in state['databases'][db_id]['graph_versions'][first]['attempted_documents']
+    instances[first].delete_document = ControlledGraph.delete_document.__get__(instances[first])
+    await runtime.delete_document(db_id, doc_id)
+    assert not instances[first].documents
+    await runtime.close()
+
+
 @pytest.fixture
 def controlled_graph(monkeypatch: pytest.MonkeyPatch) -> ControlledGraph:
     graph = ControlledGraph()
@@ -541,6 +819,48 @@ async def graph_finished(runtime: KnowledgeRuntime, db_id: str) -> dict[str, Any
             await asyncio.sleep(0.01)
 
     return await asyncio.wait_for(finished(), timeout=3)
+
+
+@pytest.mark.asyncio
+async def test_graph_preview_is_background_isolated_and_does_not_change_document_status(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, _, store, _ = setup_runtime
+    db_id = (await create(runtime))['db_id']
+    doc_id = await index(runtime, db_id)
+    before = await runtime.metadata.read()
+    rows = dict(store.rows[db_id])
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def preview(document_id: str, content: str, title: str) -> dict:
+        assert document_id != doc_id
+        assert controlled_graph.database['_graph_workspace'] != db_id
+        entered.set()
+        await release.wait()
+        return {'entities': 3, 'relations': 2, 'chunks': 1}
+
+    controlled_graph.preview = preview
+    payload = knowledge_models.GraphPreviewRequest(config=knowledge_models.GraphConfiguration(llm_model_id=MODEL_ID))
+    started = await runtime.start_graph_preview(db_id, payload)
+    assert started['status'] == 'queued'
+    await asyncio.wait_for(entered.wait(), 2)
+    assert (await runtime.start_graph_preview(db_id, payload))['job_id'] == started['job_id']
+    release.set()
+    await asyncio.gather(*tuple(runtime._graph_tasks.values()))
+    result = await runtime.graph_preview_status(db_id)
+    assert result['status'] == 'completed'
+    assert result['result']['entities'] == PREVIEW_ENTITIES
+    assert result['result']['relations'] == PREVIEW_RELATIONS
+    assert result['result']['seconds'] >= 0
+    after = await runtime.metadata.read()
+    assert after['documents'] == before['documents']
+    assert not after['databases'][db_id]['enable_knowledge_graph']
+    assert store.rows[db_id] == rows
+    assert len(controlled_graph.deleted_databases) == 1
+    assert doc_id not in controlled_graph.deleted_databases[0]
+    assert 'model_snapshot' not in result and 'workspace' not in result
+    await runtime.close()
 
 
 @pytest.mark.asyncio

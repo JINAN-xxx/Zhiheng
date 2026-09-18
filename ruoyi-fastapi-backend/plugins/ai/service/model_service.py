@@ -79,6 +79,7 @@ class ModelServiceChatResult:
     engine_type: str
     engine_model_snapshot: str
     response: ModelChatResponse
+    resolved_model: ResolvedModel | None = None
 
 
 @dataclass(frozen=True)
@@ -230,6 +231,7 @@ class ModelService:
             engine_type=resolved.engine_type,
             engine_model_snapshot=resolved.engine_model_snapshot,
             response=response,
+            resolved_model=resolved,
         )
 
     async def embed(

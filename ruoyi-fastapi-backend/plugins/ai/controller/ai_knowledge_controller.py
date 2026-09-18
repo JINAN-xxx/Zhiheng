@@ -20,6 +20,8 @@ from plugins.ai.knowledge.models import (
     FolderCreate,
     FolderUpdate,
     GraphBuildRequest,
+    GraphConfiguration,
+    GraphPreviewRequest,
     KnowledgeError,
     KnowledgeQuery,
 )
@@ -123,6 +125,34 @@ async def graph_build_status(request: Request, db_id: str) -> Response:
 )
 async def start_graph_build(request: Request, db_id: str, payload: GraphBuildRequest) -> Response:
     return await _call(_runtime(request).start_graph_build(db_id, payload))
+
+
+@ai_knowledge_controller.get(
+    '/databases/{db_id}/graph-config', dependencies=[UserInterfaceAuthDependency('ai:knowledge:query')]
+)
+async def graph_config_status(request: Request, db_id: str) -> Response:
+    return await _call(_runtime(request).graph_config_status(db_id))
+
+
+@ai_knowledge_controller.put(
+    '/databases/{db_id}/graph-config', dependencies=[UserInterfaceAuthDependency('ai:knowledge:edit')]
+)
+async def save_graph_config(request: Request, db_id: str, payload: GraphConfiguration) -> Response:
+    return await _call(_runtime(request).save_graph_config(db_id, payload))
+
+
+@ai_knowledge_controller.get(
+    '/databases/{db_id}/graph-preview', dependencies=[UserInterfaceAuthDependency('ai:knowledge:query')]
+)
+async def graph_preview_status(request: Request, db_id: str) -> Response:
+    return await _call(_runtime(request).graph_preview_status(db_id))
+
+
+@ai_knowledge_controller.post(
+    '/databases/{db_id}/graph-preview', dependencies=[UserInterfaceAuthDependency('ai:knowledge:edit')]
+)
+async def start_graph_preview(request: Request, db_id: str, payload: GraphPreviewRequest) -> Response:
+    return await _call(_runtime(request).start_graph_preview(db_id, payload))
 
 
 @ai_knowledge_controller.put('/databases/{db_id}', dependencies=[UserInterfaceAuthDependency('ai:knowledge:edit')])
