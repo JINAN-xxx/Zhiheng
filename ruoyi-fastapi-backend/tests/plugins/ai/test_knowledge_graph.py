@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import os
 import sys
 import threading
@@ -17,6 +18,8 @@ from plugins.ai.knowledge import stores
 from plugins.ai.knowledge.models import KnowledgeError, QueryParameters, embedding_fingerprint
 
 MODEL_CONCURRENCY = 2
+PROVIDER_BATCH_LIMIT = 8
+EXTRACTION_OUTPUT_LIMIT = 16384
 MODEL_SNAPSHOT = SimpleNamespace(
     platform_model_id='mdl_embedding',
     binding_id='binding-one',
@@ -289,6 +292,156 @@ async def test_model_callbacks_use_published_models_and_validate_vectors(graph: 
     with pytest.raises(KnowledgeError):
         await embedding.func(['one'])
     await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_embeddings_split_provider_batches_and_keep_input_order(graph: Any) -> None:
+    async def provider_embed(model_id: str, texts: list[str]) -> SimpleNamespace:
+        assert len(texts) <= PROVIDER_BATCH_LIMIT, 'Proxy indices restart after each provider batch of eight'
+        return SimpleNamespace(
+            platform_model_id=MODEL_SNAPSHOT.platform_model_id,
+            binding_id=MODEL_SNAPSHOT.binding_id,
+            engine_model_snapshot=MODEL_SNAPSHOT.engine_model_snapshot,
+            response=SimpleNamespace(
+                vectors=[
+                    SimpleNamespace(index=i, values=[float(text), 0.0, 1.0])
+                    for i, text in reversed(list(enumerate(texts)))
+                ]
+            ),
+        )
+
+    graph.test_service.embed.side_effect = provider_embed
+    rag = await graph._ensure()
+    result = await rag.kwargs['embedding_func'].func([str(i) for i in range(19)])
+    assert result.tolist() == [[float(i), 0.0, 1.0] for i in range(19)]
+    assert [len(call.args[1]) for call in graph.test_service.embed.call_args_list] == [8, 8, 3]
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_embedding_batch_rejects_binding_changes(graph: Any) -> None:
+    calls = 0
+
+    async def provider_embed(model_id: str, texts: list[str]) -> SimpleNamespace:
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(
+            platform_model_id=MODEL_SNAPSHOT.platform_model_id,
+            binding_id=MODEL_SNAPSHOT.binding_id if calls == 1 else 'changed-binding',
+            engine_model_snapshot=MODEL_SNAPSHOT.engine_model_snapshot,
+            response=SimpleNamespace(
+                vectors=[SimpleNamespace(index=i, values=[1.0, 0.0, 0.0]) for i in range(len(texts))]
+            ),
+        )
+
+    graph.test_service.embed.side_effect = provider_embed
+    rag = await graph._ensure()
+    with pytest.raises(KnowledgeError) as error:
+        await rag.kwargs['embedding_func'].func(['text'] * 9)
+    assert error.value.code == 'KNOWLEDGE_REINDEX_REQUIRED'
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_model_failure_survives_lightrag_swallowing_error_and_retry_clears_it(graph: Any) -> None:
+    rag = await graph._ensure()
+    graph.test_service.chat.side_effect = asyncio.TimeoutError('private-token prompt text')
+
+    async def swallow(**kwargs: Any) -> None:
+        try:
+            await rag.kwargs['llm_model_func']('private-document')
+        except Exception:
+            rag.doc_status.get_by_id.return_value = {'status': 'failed'}
+
+    rag.ainsert.side_effect = swallow
+    with pytest.raises(KnowledgeError) as caught:
+        await graph.insert('doc_timeout', 'content', 'file.txt')
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_LLM_TIMEOUT'
+    assert 'private' not in str(caught.value)
+    graph.test_service.chat.side_effect = None
+    rag.ainsert.side_effect = rag._insert
+    rag.doc_status.get_by_id.return_value = None
+    await graph.insert('doc_retry', 'content', 'file.txt')
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_llm_output_is_bounded_and_empty_output_is_failure(graph: Any) -> None:
+    rag = await graph._ensure()
+    await rag.kwargs['llm_model_func']('question')
+    assert graph.test_service.chat.call_args.kwargs['parameters']['max_tokens'] == EXTRACTION_OUTPUT_LIMIT
+    graph.test_service.chat.return_value.response.text = ''
+    with pytest.raises(KnowledgeError) as caught:
+        await rag.kwargs['llm_model_func']('question')
+    assert caught.value.code == 'KNOWLEDGE_GRAPH_EMPTY_RESPONSE'
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_disables_thinking_only_for_configured_models(graph: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rag = await graph._ensure()
+    monkeypatch.setenv('KNOWLEDGE_GRAPH_DISABLE_THINKING_MODEL_IDS', 'mdl_another')
+    await rag.kwargs['llm_model_func']('Extract')
+    assert 'thinking_mode' not in graph.test_service.chat.call_args.kwargs['parameters']
+    monkeypatch.setenv('KNOWLEDGE_GRAPH_DISABLE_THINKING_MODEL_IDS', ' mdl_another, mdl_chat ')
+    await rag.kwargs['llm_model_func']('Extract')
+    assert graph.test_service.chat.call_args.kwargs['parameters']['thinking_mode'] == 'disabled'
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_lightrag_config_copy_does_not_copy_live_storage_clients(graph: Any) -> None:
+    rag = await graph._ensure()
+
+    class LiveStorage:
+        def __deepcopy__(self, memo: dict) -> Any:
+            raise AssertionError('Copying a live graph or storage is unsafe')
+
+    rag.live_storage = LiveStorage()
+    copied = copy.deepcopy(rag.kwargs['llm_model_func'])
+    assert await copied('prompt') == 'answer'
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_truncated_model_output_is_not_accepted_as_complete_extraction(graph: Any) -> None:
+    rag = await graph._ensure()
+    graph.test_service.chat.return_value.response.finish_reason = 'length'
+    with pytest.raises(KnowledgeError) as error:
+        await rag.kwargs['llm_model_func']('Extract')
+    assert error.value.code == 'KNOWLEDGE_GRAPH_OUTPUT_TRUNCATED'
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_late_callback_does_not_attach_previous_document_error_to_next_insert(graph: Any) -> None:
+    rag = await graph._ensure()
+    late_release = asyncio.Event()
+    late_tasks = []
+    graph.test_service.chat.side_effect = asyncio.TimeoutError('private previous prompt')
+    async def late_model_call() -> None:
+        await late_release.wait()
+        try:
+            await rag.kwargs['llm_model_func']('previous doc')
+        except KnowledgeError:
+            pass
+    async def insert(**kwargs: Any) -> None:
+        if kwargs['ids'] == 'first':
+            late_tasks.append(asyncio.create_task(late_model_call()))
+        else:
+            late_release.set()
+            await asyncio.gather(*late_tasks)
+        rag.doc_status.get_by_id.return_value = {'status': 'failed'}
+    rag.ainsert.side_effect = insert
+    try:
+        for identifier in ('first', 'second'):
+            with pytest.raises(KnowledgeError) as error:
+                await graph.insert(identifier, 'content', 'file.txt')
+            assert error.value.code == 'KNOWLEDGE_GRAPH_INDEX_FAILED'
+    finally:
+        late_release.set()
+        await asyncio.gather(*late_tasks)
+        await graph.close()
 
 
 @pytest.mark.asyncio

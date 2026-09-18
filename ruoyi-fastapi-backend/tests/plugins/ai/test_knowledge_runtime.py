@@ -479,6 +479,16 @@ async def test_malformed_control_character_is_not_sent_to_embedding(setup_runtim
     assert not store.rows
 
 
+@pytest.mark.asyncio
+async def test_vector_index_embeddings_do_not_exceed_provider_batch_size(setup_runtime: RuntimeSetup) -> None:
+    runtime, models, *_ = setup_runtime
+    database = await create(runtime)
+    resolved = await models.resolve_model(MODEL_ID, 'embedding')
+    vectors = await runtime._embed(database, [f'text-{i}' for i in range(19)], resolved)
+    assert len(vectors) == sum([8, 8, 3])
+    assert [len(texts) for _, texts in models.embedding_requests] == [8, 8, 3]
+
+
 class ControlledGraph:
     def __init__(self) -> None:
         self.started = asyncio.Event()
@@ -651,6 +661,29 @@ async def test_failed_backfill_rolls_back_and_retry_skips_successful_documents(
     assert controlled_graph.inserted.count(first) == 1
     assert controlled_graph.inserted.count(second) == EXPECTED_RETRY_ATTEMPTS
     assert controlled_graph.documents == {first, second}
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_graph_build_retains_safe_failure_reason_in_job_and_document(
+    setup_runtime: RuntimeSetup,
+    controlled_graph: ControlledGraph,
+) -> None:
+    runtime, *_ = setup_runtime
+    database = await create(runtime)
+    doc_id = await index(runtime, database['db_id'])
+
+    async def fail(doc_id: str, content: str, title: str) -> None:
+        raise KnowledgeError('KNOWLEDGE_GRAPH_LLM_TIMEOUT', 'private-password document')
+
+    controlled_graph.insert = fail
+    await runtime.start_graph_build(database['db_id'], GraphBuildRequest(llm_model_id=MODEL_ID))
+    job = await graph_finished(runtime, database['db_id'])
+    assert job['error']['code'] == 'KNOWLEDGE_GRAPH_LLM_TIMEOUT'
+    state = await runtime.metadata.read()
+    assert state['documents'][doc_id]['graph_error']['code'] == 'KNOWLEDGE_GRAPH_LLM_TIMEOUT'
+    assert 'private' not in json.dumps(job)
+    assert state['documents'][doc_id]['status'] == 'done'
     await runtime.close()
 
 

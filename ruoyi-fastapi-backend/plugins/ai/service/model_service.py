@@ -43,7 +43,7 @@ _DEFAULT_PARAMETERS_BY_TYPE = {
     'rerank': _RERANK_DEFAULT_PARAMETERS,
 }
 _REQUEST_PARAMETERS_BY_TYPE = {
-    'chat': _CHAT_DEFAULT_PARAMETERS | {'stop', 'user'},
+    'chat': _CHAT_DEFAULT_PARAMETERS | {'stop', 'user', 'thinking_mode'},
     'embedding': _EMBEDDING_DEFAULT_PARAMETERS | {'user'},
     'rerank': _RERANK_DEFAULT_PARAMETERS,
 }
@@ -389,6 +389,10 @@ class ModelService:
             result['stop'] = ModelService._validate_stop(parameters['stop'])
         if 'user' in parameters:
             result['user'] = ModelService._validate_user(parameters['user'])
+        if 'thinking_mode' in parameters:
+            if parameters['thinking_mode'] != 'disabled':
+                raise ValueError(_INVALID_PARAMETER_MESSAGE)
+            result['thinking_mode'] = 'disabled'
         return result
 
     @staticmethod

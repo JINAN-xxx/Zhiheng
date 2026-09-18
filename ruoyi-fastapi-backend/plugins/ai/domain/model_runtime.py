@@ -110,6 +110,7 @@ class ModelChatResponse:
     reasoning: str | None = None
     usage: ModelUsage = field(default_factory=ModelUsage)
     request_id: str | None = None
+    finish_reason: Literal['stop', 'length', 'content_filter', 'tool_calls', 'function_call'] | None = None
 
 
 @dataclass(frozen=True)

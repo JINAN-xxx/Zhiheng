@@ -17,8 +17,10 @@ from uuid import uuid4
 
 from module_Knowledge.src.knowledge.indexing import SUPPORTED_EXTENSIONS, process_file_to_markdown
 from module_Knowledge.src.knowledge.kb_utils import normalize_embedding_text, split_text_into_chunks
+from plugins.ai.knowledge.graph_errors import safe_graph_error
 from plugins.ai.knowledge.metadata import MetadataStore
 from plugins.ai.knowledge.models import (
+    KNOWLEDGE_EMBEDDING_BATCH_SIZE,
     ChunkParameters,
     DatabaseCreate,
     GraphBuildRequest,
@@ -387,7 +389,8 @@ class KnowledgeRuntime:
                 raise
             except Exception as failure:
                 reindex = isinstance(failure, KnowledgeError) and failure.code == 'KNOWLEDGE_REINDEX_REQUIRED'
-                error = KnowledgeError.reindex().public_dict() if reindex else self._graph_error()
+                known_error = safe_graph_error(failure)
+                error = known_error.public_dict() if known_error else self._graph_error()
                 if graph is not None:
                     try:
                         await graph.delete_document(doc_id)
@@ -407,7 +410,7 @@ class KnowledgeRuntime:
                 build['processed_documents'] += 1
                 build['failed_documents'] += int(error is not None)
                 build['current_document'] = None
-                if error and error['code'] == 'KNOWLEDGE_REINDEX_REQUIRED':
+                if error and (not build['error'] or error['code'] == 'KNOWLEDGE_REINDEX_REQUIRED'):
                     build['error'] = error
             return True
 
@@ -622,8 +625,8 @@ class KnowledgeRuntime:
         vectors = []
         try:
             async with self.model_service_factory() as models:
-                for offset in range(0, len(texts), 32):
-                    batch = texts[offset : offset + 32]
+                for offset in range(0, len(texts), KNOWLEDGE_EMBEDDING_BATCH_SIZE):
+                    batch = texts[offset : offset + KNOWLEDGE_EMBEDDING_BATCH_SIZE]
                     result = await asyncio.wait_for(models.embed(database['embed_model_id'], batch), timeout=30)
                     if (
                         getattr(result, 'binding_id', resolved.binding_id) != resolved.binding_id
@@ -632,7 +635,7 @@ class KnowledgeRuntime:
                     ):
                         raise KnowledgeError.reindex()
                     returned = sorted(result.response.vectors, key=lambda vector: vector.index)
-                    if len(returned) != len(batch):
+                    if [vector.index for vector in returned] != list(range(len(batch))):
                         raise ValueError('invalid vector count')
                     vectors.extend([list(vector.values) for vector in returned])
             if (

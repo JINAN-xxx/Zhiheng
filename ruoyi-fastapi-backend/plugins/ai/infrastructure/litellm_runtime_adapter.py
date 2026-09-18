@@ -42,6 +42,7 @@ _ALLOWED_PARAMETERS = frozenset(
         'frequency_penalty',
         'stop',
         'user',
+        'thinking_mode',
     }
 )
 _FORBIDDEN_MODEL_ID_CATEGORIES = frozenset({'Cc', 'Zl', 'Zp'})
@@ -211,11 +212,15 @@ class LiteLLMRuntimeAdapter:
         unsupported = set(request.parameters).difference(_ALLOWED_PARAMETERS)
         if unsupported:
             raise ValueError('不支持的模型参数')
+        thinking_mode = request.parameters.get('thinking_mode')
+        if 'thinking_mode' in request.parameters and thinking_mode != 'disabled':
+            raise ValueError('模型参数无效')
         messages = [LiteLLMRuntimeAdapter._message_payload(message) for message in request.messages]
         return {
             'model': request.engine_model,
             'messages': messages,
-            **{key: _thaw(value) for key, value in request.parameters.items()},
+            **{key: _thaw(value) for key, value in request.parameters.items() if key != 'thinking_mode'},
+            **({'extra_body': {'thinking': {'type': 'disabled'}}} if thinking_mode == 'disabled' else {}),
             'stream': stream,
             **({'stream_options': {'include_usage': True}} if stream else {}),
         }
@@ -419,7 +424,18 @@ class LiteLLMRuntimeAdapter:
         reasoning = reasoning_value if isinstance(reasoning_value, str) else None
         request_id_value = result.request_id or response.get('id')
         request_id = request_id_value if isinstance(request_id_value, str) and request_id_value else None
-        return ModelChatResponse(text=text, reasoning=reasoning, usage=usage, request_id=request_id)
+        finish_reason = choices[0].get('finish_reason')
+        if not isinstance(finish_reason, str) or finish_reason not in {
+            'stop',
+            'length',
+            'content_filter',
+            'tool_calls',
+            'function_call',
+        }:
+            finish_reason = None
+        return ModelChatResponse(
+            text=text, reasoning=reasoning, usage=usage, request_id=request_id, finish_reason=finish_reason
+        )
 
     @staticmethod
     def _normalize_usage(response: Mapping[str, object], *, response_cost: object) -> ModelUsage | None:

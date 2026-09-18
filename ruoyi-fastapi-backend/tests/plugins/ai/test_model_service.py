@@ -274,6 +274,18 @@ def _messages() -> tuple[ModelMessage, ...]:
 
 
 @pytest.mark.asyncio
+async def test_explicit_non_thinking_parameter_is_validated_and_defaults_remain_unchanged() -> None:
+    service, runtime = _service()
+    await service.chat(MODEL_ID, _messages(), {'thinking_mode': 'disabled'})
+    assert runtime.chat_requests[-1].parameters['thinking_mode'] == 'disabled'
+    await service.chat(MODEL_ID, _messages())
+    assert 'thinking_mode' not in runtime.chat_requests[-1].parameters
+    for invalid in ({'type': 'disabled'}, True, 'enabled', 'arbitrary'):
+        with pytest.raises(ValueError):
+            await service.chat(MODEL_ID, _messages(), {'thinking_mode': invalid})
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('model_type', ['chat', 'embedding', 'rerank'])
 async def test_legacy_catalog_defaults_ignore_known_null_fields_from_other_model_types(model_type: str) -> None:
     FakeModelDao.model = _model(

@@ -6,6 +6,6 @@
 
 前端 43 组插件测试通过。桌面浏览器验证亮暗主题的内边距、行高、字体和输入框样式一致；45 条工作记录下分页可见且列表可滚动，归档切换、状态筛选、搜索、翻页和行内菜单正常。既有工作生命周期、重试及取消恢复浏览器脚本通过。接口使用隔离 fixture，不修改真实对话或工作记录。
 
-发布入口：`data/agent-releases/20260917-history-ui-alignment/manage.sh`。本次只更新前端静态目录和前端容器。回退前端使用 `data/agent-releases/20260917-chat-display-defaults/manage.sh up -d --no-deps ruoyi-frontend`。
+发布入口：`data/agent-releases/20260917-history-ui-alignment/manage.sh`。本次只更新前端静态目录和前端容器。回退前端使用 `data/agent-releases/20260917-chat-display-defaults/manage.sh up -d --no-deps ruoyi-frontend`。后续后台更新见 [图谱构建失败修复](2026-09-18-graph-build-reliability.md)。
 
 公网亮暗主题的相同检查已通过，前后端容器状态正常。公网首页与发布产物一致，SHA-256 为 `52b2593535862315c92f857d171ab8e3ffb18161cae9589be563a61f80592e08`。

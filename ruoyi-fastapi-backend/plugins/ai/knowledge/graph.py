@@ -7,15 +7,23 @@ vector index with verified document/chunk membership in KnowledgeRuntime.
 """
 
 import asyncio
+import os
 import shutil
 from collections.abc import Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 from module_Knowledge.src.knowledge.kb_utils import normalize_embedding_text
 from plugins.ai.domain.model_runtime import ModelMessage
+from plugins.ai.knowledge.graph_errors import GRAPH_ERROR_MESSAGES, graph_model_error, safe_graph_error
 from plugins.ai.knowledge.graph_tokenizer import load_graph_tokenizer
-from plugins.ai.knowledge.models import KnowledgeError, QueryParameters, embedding_fingerprint
+from plugins.ai.knowledge.models import (
+    KNOWLEDGE_EMBEDDING_BATCH_SIZE,
+    KnowledgeError,
+    QueryParameters,
+    embedding_fingerprint,
+)
 from plugins.ai.knowledge.stores import (
     MILVUS_REQUEST_TIMEOUT_SECONDS,
     _blocking,
@@ -39,9 +47,11 @@ _STORAGE_NAMES = (
     'doc_status',
 )
 _EMBEDDING_TIMEOUT = 30
-_LLM_TIMEOUT = 90
+_LLM_TIMEOUT = 240
+_LLM_MAX_OUTPUT_TOKENS = 16384
 _INITIALIZATION_TIMEOUT = 120
 _VECTOR_STORAGE_NAMES = ('entities_vdb', 'relationships_vdb', 'chunks_vdb')
+_INSERT_MODEL_ERRORS: ContextVar[list[KnowledgeError] | None] = ContextVar('graph_insert_model_errors', default=None)
 
 
 def _processed(status: dict | None) -> bool:
@@ -133,7 +143,7 @@ class KnowledgeGraph:
         if not spec or spec['model_id'] != self.database['embed_model_id']:
             raise KnowledgeError.reindex()
 
-        async def embed(texts: Sequence[str], **kwargs) -> Any:
+        async def embed_batch(texts: Sequence[str]) -> Any:
             try:
                 async with self._embedding_slots:
                     async with self.model_service_factory() as service:
@@ -165,32 +175,28 @@ class KnowledgeGraph:
                 if values.shape != (len(texts), spec['dimension']) or not np.isfinite(values).all():
                     raise KnowledgeError.reindex()
                 return values
-            except KnowledgeError:
+            except KnowledgeError as error:
+                self._record_model_error(error)
                 raise
-            except Exception:
-                raise KnowledgeError.unavailable() from None
+            except Exception as failure:
+                error = graph_model_error(failure, 'EMBEDDING')
+                self._record_model_error(error)
+                raise error from None
 
-        async def complete(
-            prompt: str, system_prompt: str | None = None, history_messages: list[dict] | None = None, **kwargs
-        ) -> str:
-            try:
-                messages = []
-                if system_prompt:
-                    messages.append(ModelMessage(role='system', content=system_prompt))
-                messages.extend(
-                    ModelMessage(role=item['role'], content=item['content']) for item in (history_messages or [])
-                )
-                messages.append(ModelMessage(role='user', content=prompt))
-                async with self._llm_slots, self.model_service_factory() as service:
-                    result = await asyncio.wait_for(
-                        service.chat(self.database['llm_model_id'], messages),
-                        timeout=_LLM_TIMEOUT,
-                    )
-                return result.response.text
-            except KnowledgeError:
-                raise
-            except Exception:
-                raise KnowledgeError.unavailable() from None
+        async def embed(texts: Sequence[str], **kwargs) -> Any:
+            # Some OpenAI-compatible providers restart vector indices after eight
+            # inputs. Bound each call and validate it independently; never guess
+            # the association of malformed vectors to documents.
+            batches = [
+                await embed_batch(texts[offset : offset + KNOWLEDGE_EMBEDDING_BATCH_SIZE])
+                for offset in range(0, len(texts), KNOWLEDGE_EMBEDDING_BATCH_SIZE)
+            ]
+            return np.concatenate(batches, axis=0) if batches else np.empty((0, spec['dimension']), dtype=np.float32)
+
+        async def complete(*args: Any, **kwargs: Any) -> str:
+            # LightRAG deep-copies dataclass fields into its pipeline config.
+            # A bound method would recursively copy this instance and live stores.
+            return await self._complete(*args, **kwargs)
 
         return LightRAG(
             working_dir=str(self.directory),
@@ -211,7 +217,7 @@ class KnowledgeGraph:
             chunk_token_size=self.database['chunk_size'],
             chunk_overlap_token_size=self.database['chunk_overlap'],
             embedding_func_max_async=2,
-            embedding_batch_num=16,
+            embedding_batch_num=KNOWLEDGE_EMBEDDING_BATCH_SIZE,
             llm_model_max_async=2,
             max_parallel_insert=1,
             default_embedding_timeout=_EMBEDDING_TIMEOUT,
@@ -219,18 +225,72 @@ class KnowledgeGraph:
             addon_params={'language': 'Chinese'},
         )
 
+    async def _complete(
+        self, prompt: str, system_prompt: str | None = None, history_messages: list[dict] | None = None, **kwargs
+    ) -> str:
+        try:
+            messages = []
+            if system_prompt:
+                messages.append(ModelMessage(role='system', content=system_prompt))
+            messages.extend(
+                ModelMessage(role=item['role'], content=item['content']) for item in (history_messages or [])
+            )
+            messages.append(ModelMessage(role='user', content=prompt))
+            parameters: dict[str, Any] = {'max_tokens': _LLM_MAX_OUTPUT_TOKENS}
+            nonthinking_models = {
+                item.strip()
+                for item in os.getenv('KNOWLEDGE_GRAPH_DISABLE_THINKING_MODEL_IDS', '').split(',')
+                if item.strip()
+            }
+            if self.database['llm_model_id'] in nonthinking_models:
+                parameters['thinking_mode'] = 'disabled'
+            async with self._llm_slots, self.model_service_factory() as service:
+                result = await asyncio.wait_for(
+                    service.chat(self.database['llm_model_id'], messages, parameters=parameters),
+                    timeout=_LLM_TIMEOUT,
+                )
+            if getattr(result.response, 'finish_reason', None) == 'length':
+                code = 'KNOWLEDGE_GRAPH_OUTPUT_TRUNCATED'
+                raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 503)
+            if not result.response.text.strip():
+                code = 'KNOWLEDGE_GRAPH_EMPTY_RESPONSE'
+                raise KnowledgeError(code, GRAPH_ERROR_MESSAGES[code], 503)
+            return result.response.text
+        except KnowledgeError as error:
+            self._record_model_error(error)
+            raise
+        except Exception as failure:
+            error = graph_model_error(failure, 'LLM')
+            self._record_model_error(error)
+            raise error from None
+
+    @staticmethod
+    def _record_model_error(error: KnowledgeError) -> None:
+        errors = _INSERT_MODEL_ERRORS.get()
+        known = safe_graph_error(error)
+        if errors is not None and not errors and known is not None:
+            errors.append(known)
+
     async def insert(self, doc_id: str, content: str, title: str) -> None:
+        errors: list[KnowledgeError] = []
+        token = _INSERT_MODEL_ERRORS.set(errors)
         try:
             rag = await self._ensure()
             if _processed(await rag.doc_status.get_by_id(doc_id)):
                 return
             await rag.ainsert(input=content, ids=doc_id, file_paths=title)
             if not _processed(await rag.doc_status.get_by_id(doc_id)):
+                if errors:
+                    raise errors[0]
                 raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_FAILED', '知识图谱索引未完成，请重试', 503)
         except KnowledgeError:
             raise
         except Exception:
+            if errors:
+                raise errors[0] from None
             raise KnowledgeError('KNOWLEDGE_GRAPH_INDEX_FAILED', '知识图谱索引未完成，请重试', 503) from None
+        finally:
+            _INSERT_MODEL_ERRORS.reset(token)
 
     async def delete_document(self, doc_id: str) -> None:
         try:

@@ -981,3 +981,35 @@ async def test_stream_chat_maps_runtime_errors_to_sanitized_model_service_error(
         await anext(stream)
 
     _assert_sanitized_domain_error(raised.value, expected_code)
+
+
+@pytest.mark.parametrize('finish_reason', ['stop', 'length', 'content_filter', 'unknown-private'])
+def test_chat_exposes_only_known_completion_reason(finish_reason: str) -> None:
+    response = LiteLLMRuntimeAdapter._normalize_chat_response(
+        RuntimeChatResult(
+            payload={
+                'choices': [{'finish_reason': finish_reason, 'message': {'content': 'partial text'}}],
+            }
+        )
+    )
+    assert response.finish_reason == (finish_reason if finish_reason in {'stop', 'length', 'content_filter'} else None)
+
+
+def test_non_thinking_mode_maps_to_fixed_provider_extension() -> None:
+    request = ModelChatRequest(
+        engine_model='graph-extraction',
+        messages=(ModelMessage(role='user', content='Extract entities'),),
+        parameters={'thinking_mode': 'disabled', 'max_tokens': 4096},
+    )
+    payload = LiteLLMRuntimeAdapter._build_chat_payload(request, stream=False)
+    assert payload['extra_body'] == {'thinking': {'type': 'disabled'}}
+    assert 'thinking_mode' not in payload
+    plain = ModelChatRequest(engine_model='ordinary-chat', messages=request.messages)
+    assert 'extra_body' not in LiteLLMRuntimeAdapter._build_chat_payload(plain, stream=False)
+    with pytest.raises(ValueError):
+        LiteLLMRuntimeAdapter._build_chat_payload(
+            ModelChatRequest(
+                engine_model='graph-extraction', messages=request.messages, parameters={'thinking_mode': 'unexpected'}
+            ),
+            stream=False,
+        )

@@ -100,3 +100,11 @@ The installed LightRAG 1.5.7 API test constructs the real PostgreSQL/Milvus
 storage classes and invokes the real embedding wrapper without external
 connections. Infrastructure validation must also exercise PostgreSQL, Milvus
 and the published models together in an isolated KB.
+
+### 图谱模型调用限制
+
+图谱和普通知识库向量索引按每批最多 8 条生成向量，兼容会在较大批次重置向量编号的服务。每批仍校验编号、维度及模型绑定，不猜测向量与文本的对应关系。
+
+图谱 LLM 请求上限为 16384 输出 tokens、240 秒。服务返回 `finish_reason=length` 时构建失败并明确提示，避免把截断结果标为完成。任务和文档会保留经过脱敏的模型超时、认证、限流或向量失败原因。
+
+对于已确认支持 DeepSeek `thinking.type=disabled` 扩展的模型，可在后端设置 `KNOWLEDGE_GRAPH_DISABLE_THINKING_MODEL_IDS` 为逗号分隔的平台模型 ID。仅这些模型的图谱调用关闭深度思考，普通聊天和未配置的模型保持原行为。不要将不支持该扩展的模型加入列表。当前部署配置了原 DeepSeek Flash 的平台 ID；新增同类模型需明确更新该部署配置。

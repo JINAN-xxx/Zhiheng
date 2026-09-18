@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from plugins.ai.entity.vo.ai_model_catalog_vo import ModelResourceId
 
 Name = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=200)]
+KNOWLEDGE_EMBEDDING_BATCH_SIZE = 8
 
 
 def embedding_fingerprint(resolved: Any) -> str:
