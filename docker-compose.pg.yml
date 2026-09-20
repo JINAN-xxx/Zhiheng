@@ -1,3 +1,4 @@
+# 旧拆分部署兼容配置；新部署使用根 compose.yaml 和 ./deploy.sh init。
 services:
   # 前端服务
   ruoyi-frontend:

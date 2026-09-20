@@ -365,10 +365,11 @@ esac
     results = [process.communicate(timeout=10) for process in processes]
 
     assert [process.returncode for process in processes] == [0, 0], results
-    assert openssl_calls.read_text(encoding='utf-8').splitlines() == ['call', 'call']
+    assert openssl_calls.read_text(encoding='utf-8').splitlines() == ['call', 'call', 'call']
     content = platform_environment.read_text(encoding='utf-8')
     assert content.count('RUOYI_DB_PASSWORD=') == 1
     assert content.count('JWT_SECRET_KEY=') == 1
+    assert content.count('RUOYI_REDIS_PASSWORD=') == 1
 
 
 def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp_path: Path) -> None:
@@ -479,8 +480,10 @@ def test_postgres_image_build_tolerates_slow_package_mirror() -> None:
     """首次镜像构建允许国内 PyPI 镜像出现短暂读取停顿。"""
     dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-backend/Dockerfile.pg').read_text(encoding='utf-8')
 
-    assert '--timeout 600' in dockerfile
-    assert '--retries 5' in dockerfile
+    assert '--timeout 60' in dockerfile
+    assert '--retries 3' in dockerfile
+    assert 'https://pypi.org/simple' in dockerfile
+    assert '--mount=type=cache,target=/root/.cache/pip' in dockerfile
 
 
 def test_postgres_image_includes_default_ai_plugin_python_dependencies() -> None:
@@ -497,11 +500,12 @@ def test_postgres_image_includes_default_ai_plugin_python_dependencies() -> None
     assert set(manifest['dependencies']['python']) <= requirements
 
 
-def test_frontend_image_build_has_enough_v8_heap() -> None:
-    """完整前端打包不受 Node 默认约 2 GiB 堆上限约束。"""
+def test_frontend_image_uses_the_committed_build_without_requiring_node() -> None:
+    """部署镜像直接使用已发布前端，不在服务器重复执行 Node 构建。"""
     dockerfile = (REPOSITORY_ROOT / 'ruoyi-fastapi-frontend/Dockerfile').read_text(encoding='utf-8')
 
-    assert 'NODE_OPTIONS=--max-old-space-size=4096' in dockerfile
+    assert 'COPY dist .' in dockerfile
+    assert 'npm ' not in dockerfile
 
 
 def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path: Path) -> None:

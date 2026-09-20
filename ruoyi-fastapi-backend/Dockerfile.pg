@@ -1,15 +1,32 @@
 FROM python:3.10
 WORKDIR /app
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 复制源代码
+# pip 25.2 支持中断下载续传，避免旧版 pip 因大包传输中断丢弃全部进度。
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --timeout 60 --retries 3 pip==25.2 -i "$PIP_INDEX_URL" \
+    || python -m pip install --timeout 60 --retries 3 pip==25.2 -i https://pypi.org/simple
+
+# 依赖层独立缓存，更新源码无需重新下载全部 Python 包。
+COPY requirements*.txt ./
+RUN --mount=type=cache,target=/root/.cache/pip \
+    set -eu; \
+    sed '/^\.$/d' requirements-pg.txt > requirements-dependencies.txt; \
+    dependency_installed=0; \
+    for dependency_index in "$PIP_INDEX_URL" https://pypi.org/simple; do \
+        if pip install --timeout 60 --retries 3 --resume-retries 5 -r requirements-dependencies.txt -i "$dependency_index"; then \
+            dependency_installed=1; break; \
+        fi; \
+    done; \
+    test "$dependency_installed" = 1; \
+    rm requirements-dependencies.txt
+
 COPY . .
-
-# 安装依赖
-RUN pip install --no-cache-dir --timeout 600 --retries 5 \
-    -r requirements-pg.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --no-deps --no-build-isolation .
+RUN python scripts/build_platform_sql.py --check
 
 ENV TIKTOKEN_CACHE_DIR=/app/tokenizer-cache
-RUN python scripts/prepare_graph_tokenizer.py --cache-dir /app/tokenizer-cache
+RUN python scripts/prepare_graph_tokenizer.py --cache-dir /app/tokenizer-cache --source-cache /app/resources/tokenizer
 
 # 暴露端口
 EXPOSE 9099

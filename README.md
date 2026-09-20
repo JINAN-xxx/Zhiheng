@@ -60,49 +60,36 @@ docs/                      架构、设计和开发文档
 
 ### 环境要求
 
-- Docker Engine 和 Docker Compose v2。
-- Node.js `>= 20`（本地前端开发）。
-- Python `>= 3.10`（本地后端开发）。
-- 至少 4 GB 可用内存，首次构建模型相关依赖时建议 8 GB。
+- Docker Engine、Docker Compose v2 和 Python 3.10+。
+- 建议至少 8 GB 内存，首次部署需要网络下载镜像与依赖。
+- 前端 dist 已随仓库发布，部署无需 Node.js。
 
-### 首次部署（推荐）
+### 首次部署
 
-LiteLLM 和 RuoYi 使用独立的 Compose 项目。首次部署先启动 LiteLLM，再启动 RuoYi。
+在新环境的仓库根目录执行一条命令：
 
 ```bash
-# 1. 启动 LiteLLM、PostgreSQL 和 Redis
-cd deploy/litellm
-./init-env.sh
-docker compose --env-file .env -f compose.yaml up -d
-
-# 2. 为 RuoYi 创建 Runtime Key，并写入仓库根目录 .env
-LITELLM_MANAGEMENT_KEY='<LiteLLM 管理密钥>' ./init-platform-runtime-key.sh
-
-# 3. 返回仓库根目录，一键初始化数据库并启动平台
-cd ../..
 ./deploy.sh init
 ```
 
-`init` 会生成或复用 RuoYi 的数据库密码和 JWT 密钥，初始化 `ruoyi-fastapi` 数据库，构建前后端镜像并启动服务。脚本不会删除数据库或数据卷。
-初始化过程还会创建 `data/agent-skills` 持久目录，已上传的技能不会因后端容器重建而丢失。
+根目录 `compose.yaml` 统一管理 PostgreSQL、Redis、LiteLLM、Milvus、初始化任务、后端和 nginx。脚本自动生成并复用密钥，导入完整 PostgreSQL 初始化 SQL、创建网关运行密钥、安装内置插件，等待健康检查后显示访问地址。
+
+可先复制 `deploy/platform.env.example` 为 `.env`，修改 `PLATFORM_PORT` 和数据目录。详细说明见 [一键部署说明](./deploy/README.md)。
 
 ### 日常运维
 
-在仓库根目录执行：
-
 ```bash
-./deploy.sh start      # 启动已有容器
-./deploy.sh restart    # 重启服务
-./deploy.sh stop       # 停止服务，保留容器和数据卷
-./deploy.sh status     # 查看服务状态
-./deploy.sh logs       # 查看实时日志
+./deploy.sh start      # 启动完整服务并等待就绪
+./deploy.sh restart    # 重启应用
+./deploy.sh stop       # 停止服务，保留数据
+./deploy.sh status
 ./deploy.sh logs --tail=100
-./deploy.sh update     # 重新构建镜像并更新
+./deploy.sh update     # 构建镜像、执行增量迁移并更新
 ```
 
-脚本默认管理 Compose 项目 `ruoyi-vue3-fastapi`，从其他目录执行时仍会指向同一组容器。完整说明见 [`deploy/ruoyi/README.md`](./deploy/ruoyi/README.md)。
+统一部署默认项目名为 `zhiheng`。旧拆分部署入口保留在 `deploy/legacy/manage.sh`，已有发布目录管理的实例沿用对应发布入口；统一脚本不会自动接管旧数据卷。
 
-前端 `dist` 产物已随仓库发布，远端部署不需要安装 Node.js 或重新执行前端构建；Compose 会直接用 Nginx 挂载该目录。`init` 和 `update` 仍可能按需构建后端镜像。
+完整数据库初始化文件为 [`ruoyi-fastapi-backend/sql/platform-pg.sql`](./ruoyi-fastapi-backend/sql/platform-pg.sql)，按现有增量迁移自动生成。新库导入合并文件，旧库按迁移账本升级。
 
 ### 访问地址
 
@@ -111,15 +98,14 @@ cd ../..
 | 智衡平台 | <http://127.0.0.1:12580/> |
 | Swagger | <http://127.0.0.1:12580/docker-api/docs> |
 | ReDoc | <http://127.0.0.1:12580/docker-api/redoc> |
-| LiteLLM 管理界面 | <http://127.0.0.1:14000/ui/> |
-| LiteLLM OpenAI 兼容接口 | `http://127.0.0.1:14000/v1` |
+| 平台开放 API | `http://127.0.0.1:12580/v1` |
 
 默认管理员账号由项目初始化数据提供。生产环境请首次登录后修改密码，不要在公开环境使用默认凭据。
 
 ## 接入模型
 
-1. 打开 LiteLLM 管理界面，配置上游模型和 Provider 凭据。
-2. 在智衡平台进入「模型中心」，创建模型目录记录并填写模型编码、类型和能力。
+1. 在智衡平台进入「模型中心 → 模型接入」，选择模型类型并填写模型名称。
+2. 选择服务商，配置连接地址和凭据，测试通过后接入并发布模型。
 3. 在「开发接入」创建应用，为应用授权可用模型。
 4. 在「访问密钥」生成 API Key。密钥只在创建时完整展示，请妥善保存。
 5. 使用平台 API 地址和 Bearer Token 发起调用。
@@ -137,7 +123,7 @@ curl http://127.0.0.1:12580/v1/chat/completions \
   }'
 ```
 
-Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。网页和 API 统一经过 Nginx：页面接口使用 `/docker-api/`，开放 API 使用 `/v1/`，已有 `/docker-api/v1/` 地址继续兼容。后端 `19099` 仅绑定本机用于调试。通过当前 FRP 入口调用时，开放 API Base URL 为 `http://115.190.121.37:8060/v1`。
+Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体请求字段以平台内「API 说明」为准。网页和 API 统一经过 Nginx：页面接口使用 `/docker-api/`，开放 API 使用 `/v1/`，已有 `/docker-api/v1/` 地址继续兼容。统一部署不单独暴露后端和模型网关端口。已有 FRP 部署可继续使用配置好的公网地址。
 
 ## 使用平台技能
 
@@ -221,10 +207,11 @@ python tests/e2e/platform_shell_check.py
 
 ### 数据持久化
 
-PostgreSQL 和 Redis 数据由 Docker 数据卷持久化，技能文件保存在 `data/agent-skills`。停止服务不会删除数据；执行带 `--volumes` 的 Compose 命令或清理技能目录前必须先完成备份。
+PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、平台附件及 Milvus 文件保存在 `PLATFORM_DATA_DIR` 下。停止服务不会删除数据；执行带 `--volumes` 的 Compose 命令或清理技能目录前必须先完成备份。
 
 ## 文档索引
 
+- [统一一键部署说明](./deploy/README.md)
 - [LiteLLM 部署说明](./deploy/litellm/README.md)
 - [RuoYi PostgreSQL 部署说明](./deploy/ruoyi/README.md)
 - [移动端说明](./ruoyi-fastapi-app/README.md)

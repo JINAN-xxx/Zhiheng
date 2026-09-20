@@ -1,4 +1,6 @@
-# RuoYi 共享 PostgreSQL 启动说明
+# 旧拆分部署：共享 PostgreSQL
+
+新部署请使用 [统一一键部署入口](../README.md)。本文保留用于已有拆分部署。
 
 RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owner 和密码彼此独立：
 
@@ -12,18 +14,18 @@ RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owne
 先确保 LiteLLM 的三个容器正常运行，再从仓库根目录执行：
 
 ```bash
-./deploy.sh init
+./deploy/legacy/manage.sh init
 ```
 
 日常管理使用统一脚本：
 
 ```bash
-./deploy.sh start      # 启动已有服务
-./deploy.sh restart    # 重启服务
-./deploy.sh stop       # 停止服务并保留数据
-./deploy.sh status     # 查看状态
-./deploy.sh logs       # 查看日志
-./deploy.sh update     # 重新构建并更新
+./deploy/legacy/manage.sh start      # 启动已有服务
+./deploy/legacy/manage.sh restart    # 重启服务
+./deploy/legacy/manage.sh stop       # 停止服务并保留数据
+./deploy/legacy/manage.sh status     # 查看状态
+./deploy/legacy/manage.sh logs       # 查看日志
+./deploy/legacy/manage.sh update     # 重新构建并更新
 ```
 
 前端构建产物位于 `ruoyi-fastapi-frontend/dist`，已随仓库提交。RuoYi Compose 直接用 Nginx 挂载该目录，远端启动无需安装 Node.js 或重新构建前端。

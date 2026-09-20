@@ -1,5 +1,7 @@
 # LiteLLM Runtime
 
+新部署请使用 [统一一键部署入口](../README.md)，无需单独执行本文步骤。本文保留供已有独立 LiteLLM 部署维护。
+
 本目录提供 AI Open Platform V0.1 使用的 LiteLLM 运行基线，包括独立的 PostgreSQL、Redis 和 LiteLLM Proxy。
 
 ## 启动
