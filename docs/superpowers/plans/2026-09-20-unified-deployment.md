@@ -30,7 +30,8 @@
 - [x] 更新 README 与环境模板，旧入口迁至 legacy，根命令 init/start/update/stop/status/logs/restart 保持易用。
 - [x] 执行相关 Python/Node 测试、Compose config、shell/lint 及独立规格/质量审查。
 - [x] 使用独立项目/端口/数据目录启动完整测试栈，验证首次启动、菜单权限、上传/配置入口、初始化重复执行、更新迁移、停启数据保留及错误阻断。
-- [x] 整理验证记录并提交/推送 zhiheng 分支；当前线上部署只做只读健康检查。
+- [x] 整理验证记录并提交到 release/platform-integration；当前线上部署只做只读健康检查。
+- [ ] 推送到 zhiheng：当前凭据缓存不可用，HTTPS 无法取得用户名，SSH 也没有可用公钥；需在已登录的终端执行 git push。
 
 ## 验收约束
 
