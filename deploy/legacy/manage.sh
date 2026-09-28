@@ -92,9 +92,9 @@ print_access_hint() {
 }
 
 init_platform() {
-    [ -x "$repository_root/deploy/ruoyi/init-shared-postgres.sh" ] || \
-        fail '数据库初始化脚本不存在或不可执行：deploy/ruoyi/init-shared-postgres.sh'
-    "$repository_root/deploy/ruoyi/init-shared-postgres.sh" "$platform_environment"
+    [ -x "$repository_root/deploy/zhiheng/init-shared-postgres.sh" ] || \
+        fail '数据库初始化脚本不存在或不可执行：deploy/zhiheng/init-shared-postgres.sh'
+    "$repository_root/deploy/zhiheng/init-shared-postgres.sh" "$platform_environment"
     compose up -d --build
     print_access_hint
 }

@@ -29,7 +29,7 @@ Web Crypto 的安全上下文限制见 [MDN Crypto.subtle](https://developer.moz
 重复检查命令（需安装 Playwright Chromium，目标启用传输加密）：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```
 
@@ -38,11 +38,11 @@ CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captc
 发布目录内 `compose.override.yml` 仅替换前端静态挂载。沿用 `20260916-nginx-entrypoint/nginx.conf`，后端宿主机端口仍绑定 `127.0.0.1:19099`。本次仅重建前端容器，无数据库迁移。
 
 ```bash
-data/agent-releases/20260916-captcha-http/manage.sh up -d --no-deps --no-build ruoyi-frontend
+data/agent-releases/20260916-captcha-http/manage.sh up -d --no-deps --no-build zhiheng-frontend
 ```
 
 回退使用上一版入口，仅重建前端；回退会重新出现公网 HTTP 的验证码问题：
 
 ```bash
-data/agent-releases/20260916-nginx-entrypoint/manage.sh up -d --no-deps --no-build ruoyi-frontend
+data/agent-releases/20260916-nginx-entrypoint/manage.sh up -d --no-deps --no-build zhiheng-frontend
 ```

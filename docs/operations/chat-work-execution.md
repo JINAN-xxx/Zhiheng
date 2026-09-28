@@ -49,18 +49,18 @@
 - `tests/e2e/chat_work_mode_check.py`：桌面创建失败恢复、聊天技能、多智能体接续、历史切换和 390px 任务页通过。
 - `tests/e2e/work_access_check.py`：5 个场景通过；覆盖查询权限深链、缺少智能体使用权限、无工作权限、320px 长标题/目标/成员及按钮横纵向边界。
 - `tests/e2e/work_task_actions_check.py`：3 个场景通过；覆盖成员失效、显式升级后旧回复版本不变、移除后历史保留、完成/重开/归档/删除，以及活动重放、取消后等待 claim 释放和刷新恢复部分输出。真实失败流保留输入与失败历史，主动重试发送新的幂等键。
-- 最终源码的 Docker 模式生产构建成功，产物位于 `/tmp/ruoyi-chat-work-build`；上述三套浏览器脚本直接针对该产物运行，全部通过。
+- 最终源码的 Docker 模式生产构建成功，产物位于 `/tmp/zhiheng-chat-work-build`；上述三套浏览器脚本直接针对该产物运行，全部通过。
 - 5 份编辑器 worker 及其 gzip 文件已纳入产物，HTTP 检查均返回 200 和 JavaScript 内容类型。
 
 浏览器验收使用真实前端与拦截的 API，后端持久化与权限由数据库会话及接口测试验证。截图位于 `/tmp/chat-work-acceptance/`。
 
-在本工作树前端目录执行的最终构建命令如下。临时输出目录使用相对路径，以兼容 Monaco 插件对路径的拼接；解析后的目标仍为 `/tmp/ruoyi-chat-work-build`。
+在本工作树前端目录执行的最终构建命令如下。临时输出目录使用相对路径，以兼容 Monaco 插件对路径的拼接；解析后的目标仍为 `/tmp/zhiheng-chat-work-build`。
 
 ```bash
-env NODE_OPTIONS=--max-old-space-size=4096 npm exec vite build -- --mode docker --outDir ../../../../../../../tmp/ruoyi-chat-work-build --emptyOutDir --logLevel warn
+env NODE_OPTIONS=--max-old-space-size=4096 npm exec vite build -- --mode docker --outDir ../../../../../../../tmp/zhiheng-chat-work-build --emptyOutDir --logLevel warn
 ```
 
-后端 280 项回归的完整命令（在 `ruoyi-fastapi-backend` 执行）：
+后端 280 项回归的完整命令（在 `zhiheng-fastapi-backend` 执行）：
 
 ```bash
 pytest -q --tb=short --show-capture=no tests/plugins/agent_extension tests/plugins/sample_plugins/test_agent_extension_plugin.py tests/plugins/ai/test_platform_chat_service.py tests/plugins/ai/test_platform_chat_controller.py tests/plugins/ai/test_platform_chat_dao.py tests/plugins/ai/test_platform_chat_schema.py tests/plugins/ai/test_platform_chat_provider.py tests/plugins/ai/test_skill_context_adapter.py

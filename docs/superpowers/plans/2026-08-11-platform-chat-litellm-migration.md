@@ -21,23 +21,23 @@
 
 ## 目标文件
 
-- 创建 ruoyi-fastapi-backend/plugins/ai/migrations/mysql/003_platform_chat.sql
-- 创建 ruoyi-fastapi-backend/plugins/ai/migrations/postgresql/003_platform_chat.sql
-- 创建 ruoyi-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/dao/platform_chat_dao.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/service/chat_preferences_service.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/service/platform_chat_service.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/service/chat_runtime_coordinator.py
-- 创建 ruoyi-fastapi-backend/plugins/ai/infrastructure/platform_sse.py
-- 修改 ruoyi-fastapi-backend/plugins/ai/domain/model_runtime.py
-- 修改 ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py
-- 重写 ruoyi-fastapi-backend/plugins/ai/controller/ai_chat_controller.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/migrations/mysql/003_platform_chat.sql
+- 创建 zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/003_platform_chat.sql
+- 创建 zhiheng-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/dao/platform_chat_dao.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/service/chat_preferences_service.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/service/chat_runtime_coordinator.py
+- 创建 zhiheng-fastapi-backend/plugins/ai/infrastructure/platform_sse.py
+- 修改 zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py
+- 修改 zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py
+- 重写 zhiheng-fastapi-backend/plugins/ai/controller/ai_chat_controller.py
 - 创建后端测试 tests/plugins/ai/test_platform_chat_*.py
-- 创建 ruoyi-fastapi-frontend/plugins/ai/utils/sseParser.js
-- 修改 ruoyi-fastapi-frontend/plugins/ai/api/chat.js
-- 重写 ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue
-- 修改 ruoyi-fastapi-backend/plugins/ai/plugin.yaml、README.md 和 tests/plugins/sample_plugins/test_ai_plugin.py
+- 创建 zhiheng-fastapi-frontend/plugins/ai/utils/sseParser.js
+- 修改 zhiheng-fastapi-frontend/plugins/ai/api/chat.js
+- 重写 zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue
+- 修改 zhiheng-fastapi-backend/plugins/ai/plugin.yaml、README.md 和 tests/plugins/sample_plugins/test_ai_plugin.py
 
 ### 任务 1：建立 Platform Chat 数据库和实体
 
@@ -65,7 +65,7 @@
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_schema.py -v
 ~~~
 
@@ -141,10 +141,10 @@ error_message 只保存 Platform 脱敏文案，不保存上游正文；原始 P
 - [ ] 步骤 5：登记迁移并运行测试
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_schema.py tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/migrations ruoyi-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py ruoyi-fastapi-backend/plugins/ai/plugin.yaml ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add zhiheng-fastapi-backend/plugins/ai/migrations zhiheng-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py zhiheng-fastapi-backend/plugins/ai/plugin.yaml zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 建立平台对话数据模型"
 ~~~
 
@@ -165,7 +165,7 @@ git commit -m "feat: 建立平台对话数据模型"
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_dao.py tests/plugins/ai/test_chat_preferences_service.py -v
 ~~~
 
@@ -180,10 +180,10 @@ DAO 不提交事务；Service 负责 commit/rollback。Preference Service 映射
 - [ ] 步骤 5：测试并提交
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_dao.py tests/plugins/ai/test_chat_preferences_service.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py ruoyi-fastapi-backend/plugins/ai/dao/platform_chat_dao.py ruoyi-fastapi-backend/plugins/ai/service/chat_preferences_service.py ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py ruoyi-fastapi-backend/tests/plugins/ai/test_chat_preferences_service.py
+git add zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py zhiheng-fastapi-backend/plugins/ai/dao/platform_chat_dao.py zhiheng-fastapi-backend/plugins/ai/service/chat_preferences_service.py zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py zhiheng-fastapi-backend/tests/plugins/ai/test_chat_preferences_service.py
 git commit -m "feat: 实现平台会话持久化与偏好"
 ~~~
 
@@ -201,7 +201,7 @@ git commit -m "feat: 实现平台会话持久化与偏好"
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_chat_runtime_coordinator.py -v
 ~~~
 
@@ -212,10 +212,10 @@ conda run -n dj pytest tests/plugins/ai/test_chat_runtime_coordinator.py -v
 - [ ] 步骤 4：测试并提交
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_chat_runtime_coordinator.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/service/chat_runtime_coordinator.py ruoyi-fastapi-backend/tests/plugins/ai/test_chat_runtime_coordinator.py
+git add zhiheng-fastapi-backend/plugins/ai/service/chat_runtime_coordinator.py zhiheng-fastapi-backend/tests/plugins/ai/test_chat_runtime_coordinator.py
 git commit -m "feat: 增加跨 Worker 对话协调"
 ~~~
 
@@ -248,7 +248,7 @@ data: [DONE]
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_sse_parser.py -v
 ~~~
 
@@ -269,10 +269,10 @@ Platform SSE 事件为 meta、content、reasoning、usage、done，数据字段�
 - [ ] 步骤 6：运行测试并提交
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_sse_parser.py tests/plugins/ai/test_platform_chat_service.py tests/plugins/ai/test_chat_runtime_coordinator.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/infrastructure/platform_sse.py ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py ruoyi-fastapi-backend/plugins/ai/service/platform_chat_service.py ruoyi-fastapi-backend/tests/plugins/ai/test_platform_sse_parser.py ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py
+git add zhiheng-fastapi-backend/plugins/ai/infrastructure/platform_sse.py zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py zhiheng-fastapi-backend/tests/plugins/ai/test_platform_sse_parser.py zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py
 git commit -m "feat: 实现 LiteLLM 平台流式对话服务"
 ~~~
 
@@ -291,7 +291,7 @@ git commit -m "feat: 实现 LiteLLM 平台流式对话服务"
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_controller.py -v
 ~~~
 
@@ -302,10 +302,10 @@ Controller 只做依赖注入、VO 解析和 StreamingResponse 构造，业务�
 - [ ] 步骤 4：测试并提交
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai/test_platform_chat_controller.py tests/plugins/ai/test_platform_chat_service.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/controller/ai_chat_controller.py ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_controller.py
+git add zhiheng-fastapi-backend/plugins/ai/controller/ai_chat_controller.py zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_controller.py
 git commit -m "feat: 切换平台对话接口"
 ~~~
 
@@ -313,11 +313,11 @@ git commit -m "feat: 切换平台对话接口"
 
 文件：
 
-- 创建 ruoyi-fastapi-frontend/plugins/ai/utils/sseParser.js
-- 创建 ruoyi-fastapi-frontend/tests/plugins/sseParser.test.js
-- 修改 ruoyi-fastapi-frontend/plugins/ai/api/chat.js
-- 重写 ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue
-- 修改 ruoyi-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue
+- 创建 zhiheng-fastapi-frontend/plugins/ai/utils/sseParser.js
+- 创建 zhiheng-fastapi-frontend/tests/plugins/sseParser.test.js
+- 修改 zhiheng-fastapi-frontend/plugins/ai/api/chat.js
+- 重写 zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue
+- 修改 zhiheng-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue
 
 - [ ] 步骤 1：先写纯 JS SSE Parser 测试
 
@@ -326,7 +326,7 @@ Parser 输入 Uint8Array/ReadableStream，输出 Platform 事件对象。测试�
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 ~~~
 
@@ -345,12 +345,12 @@ AI 插件样式使用 system-ui、Noto Sans SC、HarmonyOS Sans SC、MiSans、Pi
 - [ ] 步骤 6：运行前端测试和构建并提交
 
 ~~~bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 npm run build:docker
 cd ..
 git diff --check
-git add ruoyi-fastapi-frontend/plugins/ai/api/chat.js ruoyi-fastapi-frontend/plugins/ai/utils/sseParser.js ruoyi-fastapi-frontend/plugins/ai/views/chat ruoyi-fastapi-frontend/tests/plugins/sseParser.test.js
+git add zhiheng-fastapi-frontend/plugins/ai/api/chat.js zhiheng-fastapi-frontend/plugins/ai/utils/sseParser.js zhiheng-fastapi-frontend/plugins/ai/views/chat zhiheng-fastapi-frontend/tests/plugins/sseParser.test.js
 git commit -m "feat: 迁移平台调试对话流式协议"
 ~~~
 
@@ -376,7 +376,7 @@ assert '/ai/model/list' not in route_paths
 - [ ] 步骤 2：运行测试并确认红灯
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -v
 ~~~
 
@@ -387,7 +387,7 @@ conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -v
 - [ ] 步骤 4：检查导入和依赖锁
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 rg -n "agno|AiUtil|SessionType|acancel_run|from plugins.ai.service.ai_chat_service|from plugins.ai.entity.do.ai_model_do" plugins/ai
 python -m compileall plugins/ai
 ~~~
@@ -397,14 +397,14 @@ python -m compileall plugins/ai
 - [ ] 步骤 5：运行后端/前端回归并提交
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py -v
-cd ../ruoyi-fastapi-frontend
+cd ../zhiheng-fastapi-frontend
 npm run test:plugin
 npm run build:docker
 cd ..
 git diff --check
-git add ruoyi-fastapi-backend/plugins/ai ruoyi-fastapi-frontend/plugins/ai ruoyi-fastapi-backend/tests/plugins/ai ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py ruoyi-fastapi-frontend/tests/plugins
+git add zhiheng-fastapi-backend/plugins/ai zhiheng-fastapi-frontend/plugins/ai zhiheng-fastapi-backend/tests/plugins/ai zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py zhiheng-fastapi-frontend/tests/plugins
 git commit -m "refactor: 移除活跃对话链路中的 Agno"
 ~~~
 
@@ -413,10 +413,10 @@ git commit -m "refactor: 移除活跃对话链路中的 Agno"
 - [ ] 步骤 1：验证迁移和容器
 
 ~~~bash
-docker compose -f docker-compose.pg.yml restart ruoyi-backend-pg
+docker compose -f docker-compose.pg.yml restart zhiheng-backend-pg
 docker compose -f docker-compose.pg.yml ps
-docker compose -f docker-compose.pg.yml logs --tail=250 ruoyi-backend-pg
-docker exec litellm-db psql -U ruoyi -d ruoyi-fastapi -Atc "select tablename from pg_tables where schemaname='public' and tablename in ('ai_model_catalog','ai_resource_binding','ai_chat_session','ai_chat_message','ai_chat_run','ai_chat_preferences') order by tablename"
+docker compose -f docker-compose.pg.yml logs --tail=250 zhiheng-backend-pg
+docker exec litellm-db psql -U zhiheng -d zhiheng-fastapi -Atc "select tablename from pg_tables where schemaname='public' and tablename in ('ai_model_catalog','ai_resource_binding','ai_chat_session','ai_chat_message','ai_chat_run','ai_chat_preferences') order by tablename"
 ~~~
 
 预期新表全部存在、迁移 checksum 无冲突、Backend 健康，旧 ai_sessions 不存在。
@@ -436,9 +436,9 @@ docker exec litellm-db psql -U ruoyi -d ruoyi-fastapi -Atc "select tablename fro
 - [ ] 步骤 5：执行最终验证
 
 ~~~bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py tests/deploy/test_litellm_runtime.py -v
-cd ../ruoyi-fastapi-frontend
+cd ../zhiheng-fastapi-frontend
 npm run test:plugin
 npm run build:docker
 cd ..

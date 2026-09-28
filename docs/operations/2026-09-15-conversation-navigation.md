@@ -9,7 +9,7 @@
 ## 验证
 
 - 修改前的回归按预期失败；修改后 `npm run test:plugin` 共 31 组通过。
-- Docker 模式生产构建成功，产物为 `/tmp/ruoyi-conversation-nav-build`。
+- Docker 模式生产构建成功，产物为 `/tmp/zhiheng-conversation-nav-build`。
 - `chat_work_mode_check.py`：桌面单一入口、中心切换、新建、工作历史恢复、手机抽屉和旧链接兼容通过。
 - `work_access_check.py`：5 个只读权限、无工作权限和 320px 场景通过。
 - `work_task_actions_check.py`：失败重试、运行恢复及生命周期 3 个场景通过。
@@ -21,7 +21,7 @@
 
 ## 部署定位
 
-新静态产物为 `data/agent-releases/20260915-conversation-navigation/frontend/`，前端容器仍为 `ruoyi-frontend`。部署只重建该容器，继续使用原 Nginx 镜像和配置。
+新静态产物为 `data/agent-releases/20260915-conversation-navigation/frontend/`，前端容器仍为 `zhiheng-frontend`。部署只重建该容器，继续使用原 Nginx 镜像和配置。
 
 Compose 在初次聊天/工作部署组合后追加以下文件：
 
@@ -29,6 +29,6 @@ Compose 在初次聊天/工作部署组合后追加以下文件：
 data/agent-releases/20260915-conversation-navigation/compose.override.yml
 ```
 
-完整组合为 `.worktrees/antd-minimal-loop/docker-compose.pg.yml`、`data/agent-releases/20260914-chat-work-dual-mode/compose.override.yml`、上述新 override；项目名仍为 `ruoyi-vue3-fastapi`，环境文件仍为 `data/agent-releases/20260914-chat-work-dual-mode/private/compose.env`。
+完整组合为 `.worktrees/antd-minimal-loop/docker-compose.pg.yml`、`data/agent-releases/20260914-chat-work-dual-mode/compose.override.yml`、上述新 override；项目名仍为 `zhiheng-vue3-fastapi`，环境文件仍为 `data/agent-releases/20260914-chat-work-dual-mode/private/compose.env`。
 
-前次 `20260914-chat-work-dual-mode/frontend/` 产物保留，可通过移除最后一份前端 override 并重建 `ruoyi-frontend` 回退；不涉及数据库恢复。
+前次 `20260914-chat-work-dual-mode/frontend/` 产物保留，可通过移除最后一份前端 override 并重建 `zhiheng-frontend` 回退；不涉及数据库恢复。

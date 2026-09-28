@@ -30,8 +30,8 @@
 ### 任务一：建立中文工作台骨架契约
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
 
 - [ ] **步骤 1：编写失败的全局骨架测试**
 
@@ -78,19 +78,19 @@ node tests/plugins/antdAiViewsContract.test.js
 - [ ] **步骤 4：提交测试基线**
 
 ```bash
-git add ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
+git add zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
 git commit -m "test: 建立中文工作台布局契约"
 ```
 
 ### 任务二：实现统一全局骨架
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`
 
 - [ ] **步骤 1：更新主题尺寸和色彩变量**
 
@@ -150,23 +150,23 @@ node tests/plugins/platformShellContract.test.js
 - [ ] **步骤 7：提交全局骨架**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/assets/styles/workspace.scss ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue
+git add zhiheng-fastapi-frontend/src/assets/styles/workspace.scss zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue
 git commit -m "feat: 统一中文工作台骨架"
 ```
 
 ### 任务三：改造智能对话和模型中心
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
 
 - [ ] **步骤 1：改造对话工作区**
 
@@ -210,16 +210,16 @@ node tests/plugins/sseParser.test.js
 - [ ] **步骤 6：提交对话与模型中心**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/chat ruoyi-fastapi-frontend/plugins/ai/views/model
+git add zhiheng-fastapi-frontend/plugins/ai/views/chat zhiheng-fastapi-frontend/plugins/ai/views/model
 git commit -m "feat: 重做对话与模型中心布局"
 ```
 
 ### 任务四：改造开发接入和用量记录
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/utils/application.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/application.js`
 
 - [ ] **步骤 1：重排开发接入主从区域**
 
@@ -258,15 +258,15 @@ node tests/plugins/applicationTransforms.test.js
 - [ ] **步骤 6：提交开发接入与用量记录**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue ruoyi-fastapi-frontend/plugins/ai/utils/application.js
+git add zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue zhiheng-fastapi-frontend/plugins/ai/utils/application.js
 git commit -m "feat: 重做开发接入与用量记录布局"
 ```
 
 ### 任务五：完整验证、构建与部署
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/antd_chat_check.py`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/antd_chat_check.py`
 - 生成但不提交：桌面端与移动端截图。
 
 - [ ] **步骤 1：更新真实浏览器断言**
@@ -295,7 +295,7 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 
 - [ ] **步骤 4：构建可回滚前端镜像**
 
-先给当前镜像添加回滚标签，再将构建产物制作成新镜像并更新 `ruoyi-frontend:latest`。只重建 `ruoyi-frontend` 容器，不重启数据库、Redis、LiteLLM 和后端。
+先给当前镜像添加回滚标签，再将构建产物制作成新镜像并更新 `zhiheng-frontend:latest`。只重建 `zhiheng-frontend` 容器，不重启数据库、Redis、LiteLLM 和后端。
 
 - [ ] **步骤 5：执行真实浏览器验收**
 
@@ -315,6 +315,6 @@ document.documentElement.scrollWidth <= window.innerWidth
 - [ ] **步骤 7：提交验收脚本**
 
 ```bash
-git add ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py ruoyi-fastapi-frontend/tests/e2e/antd_chat_check.py
+git add zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py zhiheng-fastapi-frontend/tests/e2e/antd_chat_check.py
 git commit -m "test: 验证统一工作台响应式布局"
 ```

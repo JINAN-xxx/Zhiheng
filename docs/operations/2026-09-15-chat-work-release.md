@@ -8,7 +8,7 @@
 
 - 本地发布分支：`release/platform-integration`，已快进合并 `feat/chat-work-dual-mode`。
 - 部署代码：`df38d7a9ea19833e7a6d5308ae9f38ed23aa667d`；最终产品源码提交为 `5e6ad6be`。
-- 后端镜像：`ruoyi-backend-pg:chat-work-dual-mode-20260914`。
+- 后端镜像：`zhiheng-backend-pg:chat-work-dual-mode-20260914`。
 - 镜像 ID：`sha256:991c4cef07180802a9e658171c673440ae8dc63ffd15a3c8fcb86c4429329056`。
 - 发布目录：`data/agent-releases/20260914-chat-work-dual-mode/`，保留准备阶段日期。
 - 前端静态文件：上述目录的 `frontend/`；包含 5 份 Monaco worker 及 gzip 文件。
@@ -20,8 +20,8 @@
 
 升级前已完成 PostgreSQL 自定义格式备份，并通过 `pg_restore --list` 验证备份可读取：
 
-- 数据库：`ruoyi-fastapi`，数据库容器：`litellm-db`。
-- 备份：发布目录的 `private/ruoyi-before-chat-work-20260915.dump`。
+- 数据库：`zhiheng-fastapi`，数据库容器：`litellm-db`。
+- 备份：发布目录的 `private/zhiheng-before-chat-work-20260915.dump`。
 - 备份 SHA-256：`73a5627aa84f60c1c6ef0d988ef3e10dce69108e22215848578ecf6156cbb279`。
 
 智能体扩展通过插件 CLI 从 `0.3.0` 升级到 `0.4.0`。PostgreSQL `004_work_tasks.sql` 执行成功，共 7 条语句，迁移校验值为 `34e9a8bad29d8140c1e5d2741d07f699812cba897be0241ac20bcaa168ff2f42`。已安装的 001–003 迁移校验一致，跳过重复执行。
@@ -47,8 +47,8 @@
 
 ## 运行与回退定位
 
-当前组合使用 `.worktrees/antd-minimal-loop/docker-compose.pg.yml` 与本发布目录的 `compose.override.yml`，项目名为 `ruoyi-vue3-fastapi`，环境文件为本发布目录的 `private/compose.env`。日常操作应继续使用这一组合，避免旧 override 把前端挂载切回旧产物。
+当前组合使用 `.worktrees/antd-minimal-loop/docker-compose.pg.yml` 与本发布目录的 `compose.override.yml`，项目名为 `zhiheng-vue3-fastapi`，环境文件为本发布目录的 `private/compose.env`。日常操作应继续使用这一组合，避免旧 override 把前端挂载切回旧产物。
 
-旧后端镜像 `ruoyi-backend-pg:milvus-integration-20260909`、旧静态产物 `data/agent-releases/20260909-knowledge-integration/frontend-final/` 和升级前备份均保留。需要回退时应明确切换应用镜像及静态挂载；不得直接恢复旧数据库覆盖部署后的用户数据。
+旧后端镜像 `zhiheng-backend-pg:milvus-integration-20260909`、旧静态产物 `data/agent-releases/20260909-knowledge-integration/frontend-final/` 和升级前备份均保留。需要回退时应明确切换应用镜像及静态挂载；不得直接恢复旧数据库覆盖部署后的用户数据。
 
 `12584` 仍为隔离工作树的开发预览，原开发代理 `9099` 未启动，不作为当前使用入口；临时构建预览 `12585` 已停止。

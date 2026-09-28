@@ -1,6 +1,6 @@
 # 知识图谱构建失败修复
 
-本版修复实体抽取超时及图谱批量向量生成失败。后端镜像为 `ruoyi-backend-pg:graph-build-reliability-20260918`，运维入口为 `data/agent-releases/20260918-graph-build-reliability/manage.sh`，前端沿用历史列表统一版本。
+本版修复实体抽取超时及图谱批量向量生成失败。后端镜像为 `zhiheng-backend-pg:graph-build-reliability-20260918`，运维入口为 `data/agent-releases/20260918-graph-build-reliability/manage.sh`，前端沿用历史列表统一版本。
 
 ## 根因
 

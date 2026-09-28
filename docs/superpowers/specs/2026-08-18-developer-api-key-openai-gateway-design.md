@@ -17,7 +17,7 @@ Model Entitlement、Quota、Usage Ledger 和 Public OpenAPI 能力。
 - Model Service、ModelRuntimeEngine 和 LiteLLM Runtime Adapter。
 - LiteLLM Provider Credential、Deployment 和 Management 控制面。
 - 平台调试聊天、Session、Message、Run、Usage 和流式取消能力。
-- 一个仅供 RuoYi Backend 使用的 LiteLLM `platform-runtime` Key。
+- 一个仅供 ZhiHeng Backend 使用的 LiteLLM `platform-runtime` Key。
 
 当前三类凭据的含义必须区分：
 
@@ -25,9 +25,9 @@ Model Entitlement、Quota、Usage Ledger 和 Public OpenAPI 能力。
 |---|---|---|---|
 | Provider Credential | LiteLLM 控制面 | LiteLLM 访问模型 Provider | 否 |
 | Management Key | 平台运维 | 管理 LiteLLM Credential 和 Deployment | 否 |
-| Platform Runtime Key | RuoYi Backend | Model Service 通过 LiteLLM 执行模型调用 | 否 |
+| Platform Runtime Key | ZhiHeng Backend | Model Service 通过 LiteLLM 执行模型调用 | 否 |
 
-目前不存在面向平台用户或应用的 Developer API Key。浏览器用户使用 RuoYi JWT 调用
+目前不存在面向平台用户或应用的 Developer API Key。浏览器用户使用 ZhiHeng JWT 调用
 `/ai/chat/*`，Backend 再使用共享 Runtime Key 访问 LiteLLM。共享 Runtime Key 不携带
 Application 身份、模型授权、业务配额或最终计费语义，不能直接当作用户 Key。
 
@@ -324,7 +324,7 @@ Authorization: Bearer sk-zh_<key_id>_<secret>
 
 ## 管理 API
 
-管理 API 使用 RuoYi 登录 JWT、PreAuth、RBAC 和操作审计，不接受 Developer API Key。
+管理 API 使用 ZhiHeng 登录 JWT、PreAuth、RBAC 和操作审计，不接受 Developer API Key。
 
 ```text
 GET    /ai/applications
@@ -394,7 +394,7 @@ ai:application:usage:query
 
 ## OpenAI 兼容 Public API
 
-Public API 不使用 RuoYi JWT，也不经过会将认证错误转换为 HTTP 200 的后台异常包装。它必须保留
+Public API 不使用 ZhiHeng JWT，也不经过会将认证错误转换为 HTTP 200 的后台异常包装。它必须保留
 真实 HTTP 状态码和 OpenAI 兼容错误结构。
 
 ### `GET /v1/models`

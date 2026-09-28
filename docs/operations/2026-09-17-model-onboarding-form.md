@@ -1,6 +1,6 @@
 # 模型接入单页表单发布
 
-现有 8060 平台的模型接入已改为单页抽屉。本版运维入口为 `data/agent-releases/20260917-model-onboarding-form/manage.sh`；后端镜像 `ruoyi-backend-pg:model-onboarding-form-20260917` 基于上一版自动授权修复增量构建。后续更新见 [连接地址复用与诊断修复](2026-09-17-model-connection-fix.md)。
+现有 8060 平台的模型接入已改为单页抽屉。本版运维入口为 `data/agent-releases/20260917-model-onboarding-form/manage.sh`；后端镜像 `zhiheng-backend-pg:model-onboarding-form-20260917` 基于上一版自动授权修复增量构建。后续更新见 [连接地址复用与诊断修复](2026-09-17-model-connection-fix.md)。
 
 ## 用户流程
 
@@ -28,4 +28,4 @@
 
 ## 回退
 
-使用 `data/agent-releases/20260917-model-runtime-access/manage.sh up -d --no-deps ruoyi-backend-pg ruoyi-frontend` 可恢复上一版应用和前端。此次没有数据库迁移，既有模型及其授权无需回退。临时验证环境文件在完成验证后删除，发布目录不提交 Git。
+使用 `data/agent-releases/20260917-model-runtime-access/manage.sh up -d --no-deps zhiheng-backend-pg zhiheng-frontend` 可恢复上一版应用和前端。此次没有数据库迁移，既有模型及其授权无需回退。临时验证环境文件在完成验证后删除，发布目录不提交 Git。

@@ -223,7 +223,7 @@ def _deploy(
         validate_environment(values)
     compose = compose_command(path, values)
     if action in {"init", "start", "update", "restart"}:
-        if not (ROOT / "ruoyi-fastapi-frontend/dist/index.html").is_file():
+        if not (ROOT / "zhiheng-fastapi-frontend/dist/index.html").is_file():
             raise DeploymentError(
                 "缺少前端 dist/index.html，请拉取包含构建产物的完整仓库"
             )
@@ -234,13 +234,13 @@ def _deploy(
             (data_dir / name).mkdir(parents=True, exist_ok=True, mode=0o700)
         run(compose + ["config", "--quiet"])
         if build and action in {"init", "update"}:
-            run(compose + ["build", "ruoyi-backend-pg"])
+            run(compose + ["build", "zhiheng-backend-pg"])
         existing_app = action in {"init", "start"} and bool(
-            run(compose + ["ps", "-q", "ruoyi-backend-pg"], capture=True).strip()
+            run(compose + ["ps", "-q", "zhiheng-backend-pg"], capture=True).strip()
         )
         if action in {"update", "restart"} or existing_app:
             # 迁移时停应用写入，保留数据库与所有持久卷。
-            run(compose + ["stop", "ruoyi-frontend", "ruoyi-backend-pg"])
+            run(compose + ["stop", "zhiheng-frontend", "zhiheng-backend-pg"])
         if action in {"init", "update"}:
             run(compose + ["rm", "-f", "platform-init"])
         arguments = ["up", "-d", "--wait", "--wait-timeout", "600"]

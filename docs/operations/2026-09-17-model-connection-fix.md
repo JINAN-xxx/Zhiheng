@@ -1,6 +1,6 @@
 # 模型连接地址复用与诊断修复
 
-本版修复硅基流动等 OpenAI 兼容服务在复用已有凭据时丢失服务地址、混选不同服务商及失败提示不明确的问题。运维入口为 `data/agent-releases/20260917-model-connection-fix/manage.sh`，后端镜像为 `ruoyi-backend-pg:model-connection-fix-20260917`。后续前端更新见 [聊天默认显示调整](2026-09-17-chat-display-defaults.md)。
+本版修复硅基流动等 OpenAI 兼容服务在复用已有凭据时丢失服务地址、混选不同服务商及失败提示不明确的问题。运维入口为 `data/agent-releases/20260917-model-connection-fix/manage.sh`，后端镜像为 `zhiheng-backend-pg:model-connection-fix-20260917`。后续前端更新见 [聊天默认显示调整](2026-09-17-chat-display-defaults.md)。
 
 ## 根因与处理
 
@@ -27,6 +27,6 @@
 
 只替换前后端应用镜像／静态目录，原 Nginx、FRP、数据库、向量库、文件及技能挂载保留。发布前确认没有活动聊天执行。发布产物和验证记录位于上述发布目录；临时验证环境文件完成后删除。
 
-如需回退，使用上一版 `data/agent-releases/20260917-model-onboarding-form/manage.sh up -d --no-deps ruoyi-backend-pg ruoyi-frontend`。本次无数据库迁移，回退会重新出现旧连接地址遗漏及混选问题，不应通过删除凭据或模型回退。
+如需回退，使用上一版 `data/agent-releases/20260917-model-onboarding-form/manage.sh up -d --no-deps zhiheng-backend-pg zhiheng-frontend`。本次无数据库迁移，回退会重新出现旧连接地址遗漏及混选问题，不应通过删除凭据或模型回退。
 
 上线核对：后端 healthy、Nginx 语法检查通过、FRP active，本机及公网验证码均正常；OpenAPI 含 connectionProfile 和 failureReason。公网与本机首页、发布产物一致，SHA-256 为 `c502fa2cd4c3624eb61f17817d6884f0cb8b7df35c6460f9ec90a1315b0d8bef`。公网隔离浏览器也通过了连接筛选、地址显示和错误分类验证。

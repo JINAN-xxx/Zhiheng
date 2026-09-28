@@ -14,69 +14,69 @@
 
 ### 新建文件
 
-- `ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.css`：Yuxi 浅色 Token 唯一来源。
-- `ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css`：Yuxi 暗色 Token 覆盖。
-- `ruoyi-fastapi-frontend/THIRD_PARTY_NOTICES.md`：记录 Yuxi 来源、版权和 MIT License。
-- `ruoyi-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`：验证 Token、许可、主题入口和禁止的旧主色。
-- `ruoyi-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`：验证全局壳与核心页面只使用统一语义颜色和表面规则。
+- `zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.css`：Yuxi 浅色 Token 唯一来源。
+- `zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css`：Yuxi 暗色 Token 覆盖。
+- `zhiheng-fastapi-frontend/THIRD_PARTY_NOTICES.md`：记录 Yuxi 来源、版权和 MIT License。
+- `zhiheng-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`：验证 Token、许可、主题入口和禁止的旧主色。
+- `zhiheng-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`：验证全局壳与核心页面只使用统一语义颜色和表面规则。
 
 ### 主题与全局样式
 
-- `ruoyi-fastapi-frontend/src/main.js`：按浅色、暗色、兼容层顺序加载主题。
-- `ruoyi-fastapi-frontend/src/design/antdTheme.js`：将 Ant Design Vue Token 固定映射到 Yuxi 色值。
-- `ruoyi-fastapi-frontend/src/design/useAntdTheme.js`：移除任意用户主色覆盖。
-- `ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`：改为 Yuxi Token 兼容别名和布局规则。
-- `ruoyi-fastapi-frontend/src/assets/styles/antd-reset.scss`：统一 Ant 浮层、控件和反馈表面。
-- `ruoyi-fastapi-frontend/src/assets/styles/variables.module.scss`：旧 SCSS 变量映射到 Yuxi 色值。
-- `ruoyi-fastapi-frontend/src/assets/styles/ruoyi.scss`：清理会覆盖核心页面的旧蓝色、绿色和重阴影。
-- `ruoyi-fastapi-frontend/src/assets/styles/sidebar.scss`：移除旧 `#409EFF` 侧栏强调色。
-- `ruoyi-fastapi-frontend/src/utils/theme.js`：停止运行时写入任意 `--workspace-main`。
-- `ruoyi-fastapi-frontend/src/store/modules/settings.js`：固定 Yuxi 主色，仅持久化明暗和布局设置。
-- `ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue`：删除主题颜色选择器，保留深色与密度控制。
+- `zhiheng-fastapi-frontend/src/main.js`：按浅色、暗色、兼容层顺序加载主题。
+- `zhiheng-fastapi-frontend/src/design/antdTheme.js`：将 Ant Design Vue Token 固定映射到 Yuxi 色值。
+- `zhiheng-fastapi-frontend/src/design/useAntdTheme.js`：移除任意用户主色覆盖。
+- `zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`：改为 Yuxi Token 兼容别名和布局规则。
+- `zhiheng-fastapi-frontend/src/assets/styles/antd-reset.scss`：统一 Ant 浮层、控件和反馈表面。
+- `zhiheng-fastapi-frontend/src/assets/styles/variables.module.scss`：旧 SCSS 变量映射到 Yuxi 色值。
+- `zhiheng-fastapi-frontend/src/assets/styles/zhiheng.scss`：清理会覆盖核心页面的旧蓝色、绿色和重阴影。
+- `zhiheng-fastapi-frontend/src/assets/styles/sidebar.scss`：移除旧 `#409EFF` 侧栏强调色。
+- `zhiheng-fastapi-frontend/src/utils/theme.js`：停止运行时写入任意 `--workspace-main`。
+- `zhiheng-fastapi-frontend/src/store/modules/settings.js`：固定 Yuxi 主色，仅持久化明暗和布局设置。
+- `zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`：删除主题颜色选择器，保留深色与密度控制。
 
 ### 全局壳与公共组件
 
-- `ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`：浅色 AI 侧栏。
-- `ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue`：统一管理侧栏。
-- `ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`：浅色会话列表和选中态。
-- `ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`：白色顶栏和中性工具按钮。
-- `ruoyi-fastapi-frontend/src/layout/components/TagsView/index.vue`：移除动态任意主题色。
-- `ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`：使用 Yuxi 响应式页面间距。
-- `ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`：标题、说明和操作层级。
-- `ruoyi-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`：8px 轻边框表面。
-- `ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`：统一加载、空、错误和过期状态。
-- `ruoyi-fastapi-frontend/src/components/Antd/AuthShell.vue`：Yuxi 风格认证表面。
+- `zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`：浅色 AI 侧栏。
+- `zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`：统一管理侧栏。
+- `zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`：浅色会话列表和选中态。
+- `zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`：白色顶栏和中性工具按钮。
+- `zhiheng-fastapi-frontend/src/layout/components/TagsView/index.vue`：移除动态任意主题色。
+- `zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`：使用 Yuxi 响应式页面间距。
+- `zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`：标题、说明和操作层级。
+- `zhiheng-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`：8px 轻边框表面。
+- `zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`：统一加载、空、错误和过期状态。
+- `zhiheng-fastapi-frontend/src/components/Antd/AuthShell.vue`：Yuxi 风格认证表面。
 
 ### 核心页面
 
-- `ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`
-- `ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue`
-- `ruoyi-fastapi-frontend/src/views/login.vue`
-- `ruoyi-fastapi-frontend/src/views/register.vue`
-- `ruoyi-fastapi-frontend/src/views/lock.vue`
-- `ruoyi-fastapi-frontend/src/views/error/401.vue`
-- `ruoyi-fastapi-frontend/src/views/error/404.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
+- `zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
+- `zhiheng-fastapi-frontend/src/views/login.vue`
+- `zhiheng-fastapi-frontend/src/views/register.vue`
+- `zhiheng-fastapi-frontend/src/views/lock.vue`
+- `zhiheng-fastapi-frontend/src/views/error/401.vue`
+- `zhiheng-fastapi-frontend/src/views/error/404.vue`
 
 ### 测试与验收
 
-- `ruoyi-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
-- `ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
-- `ruoyi-fastapi-frontend/tests/e2e/antd_chat_check.py`
+- `zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
+- `zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- `zhiheng-fastapi-frontend/tests/e2e/antd_chat_check.py`
 
 ## 实施约束
 
@@ -89,11 +89,11 @@
 ### 任务 1：建立 Yuxi Token 与许可边界
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.css`
-- 创建：`ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css`
-- 创建：`ruoyi-fastapi-frontend/THIRD_PARTY_NOTICES.md`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/main.js`
+- 创建：`zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.css`
+- 创建：`zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css`
+- 创建：`zhiheng-fastapi-frontend/THIRD_PARTY_NOTICES.md`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/main.js`
 
 - [ ] **步骤 1：编写失败的 Token 与许可测试**
 
@@ -127,7 +127,7 @@ assert.match(main, /yuxi-tokens\.dark\.css/)
 
 - [ ] **步骤 2：运行测试并确认正确失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js`
 
 预期：FAIL，提示 `yuxi-tokens.css` 不存在。
 
@@ -207,31 +207,31 @@ html.dark {
 
 - [ ] **步骤 4：运行目标测试和完整插件测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js && npm run test:plugin`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js && npm run test:plugin`
 
 预期：新增测试 PASS；现有插件测试全部 PASS。
 
 - [ ] **步骤 5：提交 Token 基线**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.css \
-  ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css \
-  ruoyi-fastapi-frontend/THIRD_PARTY_NOTICES.md \
-  ruoyi-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js \
-  ruoyi-fastapi-frontend/src/main.js
+git add zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.css \
+  zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.dark.css \
+  zhiheng-fastapi-frontend/THIRD_PARTY_NOTICES.md \
+  zhiheng-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js \
+  zhiheng-fastapi-frontend/src/main.js
 git commit -m "feat: 引入 Yuxi 视觉 Token"
 ```
 
 ### 任务 2：固定 Ant Design 主题并移除任意主色
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/design/antdTheme.js`
-- 修改：`ruoyi-fastapi-frontend/src/design/useAntdTheme.js`
-- 修改：`ruoyi-fastapi-frontend/src/store/modules/settings.js`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/utils/theme.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/design/antdTheme.js`
+- 修改：`zhiheng-fastapi-frontend/src/design/useAntdTheme.js`
+- 修改：`zhiheng-fastapi-frontend/src/store/modules/settings.js`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/utils/theme.js`
 
 - [ ] **步骤 1：把主题契约改为 Yuxi 固定主色**
 
@@ -254,7 +254,7 @@ assert.doesNotMatch(settingsStoreSource, /storageSetting\.theme/)
 
 - [ ] **步骤 2：运行测试确认旧主题失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdThemeContract.test.js && node tests/plugins/platformShellContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdThemeContract.test.js && node tests/plugins/platformShellContract.test.js`
 
 预期：FAIL，当前 `colorPrimary` 为 `#3996AE`，设置面板仍包含颜色选择器。
 
@@ -290,28 +290,28 @@ export const lightTheme = {
 
 - [ ] **步骤 4：运行主题与壳测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdThemeContract.test.js && node tests/plugins/platformShellContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdThemeContract.test.js && node tests/plugins/platformShellContract.test.js`
 
 预期：两个测试 PASS。
 
 - [ ] **步骤 5：提交主题入口**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/design ruoyi-fastapi-frontend/src/store/modules/settings.js \
-  ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue \
-  ruoyi-fastapi-frontend/src/utils/theme.js \
-  ruoyi-fastapi-frontend/tests/plugins/antdThemeContract.test.js \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/design zhiheng-fastapi-frontend/src/store/modules/settings.js \
+  zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue \
+  zhiheng-fastapi-frontend/src/utils/theme.js \
+  zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat: 固定 Yuxi Ant Design 主题"
 ```
 
 ### 任务 3：建立工作台与旧组件兼容层
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/variables.module.scss`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/antd-reset.scss`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/variables.module.scss`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/antd-reset.scss`
 
 - [ ] **步骤 1：增加兼容别名失败测试**
 
@@ -330,7 +330,7 @@ assert.doesNotMatch(workspace, /#2f7e78|#226862|#172a2e|#20383c/)
 
 - [ ] **步骤 2：运行测试确认旧别名失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js`
 
 预期：FAIL，当前工作台变量仍写死旧主色和深色侧栏。
 
@@ -365,29 +365,29 @@ assert.doesNotMatch(workspace, /#2f7e78|#226862|#172a2e|#20383c/)
 
 - [ ] **步骤 4：运行主题测试和差异检查**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js && npm run test:plugin && git diff --check`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/yuxiThemeContract.test.js && npm run test:plugin && git diff --check`
 
 预期：全部 PASS。
 
 - [ ] **步骤 5：提交兼容层**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/assets/styles \
-  ruoyi-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js
+git add zhiheng-fastapi-frontend/src/assets/styles \
+  zhiheng-fastapi-frontend/tests/plugins/yuxiThemeContract.test.js
 git commit -m "feat: 统一工作台主题兼容层"
 ```
 
 ### 任务 4：迁移浅色侧栏与全局壳
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/TagsView/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/TagsView/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
 
 - [ ] **步骤 1：增加浅色壳契约和浏览器断言**
 
@@ -417,7 +417,7 @@ assert active_background == 'rgb(225, 246, 251)'
 
 - [ ] **步骤 2：运行契约测试确认深色侧栏失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/platformShellContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/platformShellContract.test.js`
 
 预期：FAIL，当前侧栏使用 `--workspace-sidebar-bg` 深色体系。
 
@@ -451,26 +451,26 @@ assert active_background == 'rgb(225, 246, 251)'
 
 - [ ] **步骤 4：运行壳契约测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/platformShellContract.test.js && npm run test:plugin`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/platformShellContract.test.js && npm run test:plugin`
 
 预期：全部 PASS。浏览器断言在任务 10 启动 Vite 后统一执行。
 
 - [ ] **步骤 5：提交全局壳**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/layout ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js \
-  ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py
+git add zhiheng-fastapi-frontend/src/layout zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js \
+  zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py
 git commit -m "feat: 迁移 Yuxi 浅色工作台壳"
 ```
 
 ### 任务 5：统一公共工作台组件
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`
 
 - [ ] **步骤 1：创建公共组件视觉失败测试**
 
@@ -495,7 +495,7 @@ assert.match(toolbar, /font-size:\s*2[0-4]px/)
 
 - [ ] **步骤 2：运行测试确认旧工作台变量失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/yuxiVisualContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/yuxiVisualContract.test.js`
 
 预期：FAIL，组件仍使用旧表面别名且测试文件尚未满足新规则。
 
@@ -505,32 +505,32 @@ assert.match(toolbar, /font-size:\s*2[0-4]px/)
 
 - [ ] **步骤 4：运行公共组件测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdComponentsContract.test.js && node tests/plugins/yuxiVisualContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdComponentsContract.test.js && node tests/plugins/yuxiVisualContract.test.js`
 
 预期：两个测试 PASS。
 
 - [ ] **步骤 5：提交公共组件**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/components/Workspace \
-  ruoyi-fastapi-frontend/tests/plugins/antdComponentsContract.test.js \
-  ruoyi-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js
+git add zhiheng-fastapi-frontend/src/components/Workspace \
+  zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js \
+  zhiheng-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js
 git commit -m "feat: 统一 Yuxi 工作台公共组件"
 ```
 
 ### 任务 6：迁移智能对话与认证页面
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
-- 修改：`ruoyi-fastapi-frontend/src/components/Antd/AuthShell.vue`
-- 修改：`ruoyi-fastapi-frontend/src/views/login.vue`
-- 修改：`ruoyi-fastapi-frontend/src/views/register.vue`
-- 修改：`ruoyi-fastapi-frontend/src/views/lock.vue`
-- 修改：`ruoyi-fastapi-frontend/src/views/error/401.vue`
-- 修改：`ruoyi-fastapi-frontend/src/views/error/404.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
+- 修改：`zhiheng-fastapi-frontend/src/components/Antd/AuthShell.vue`
+- 修改：`zhiheng-fastapi-frontend/src/views/login.vue`
+- 修改：`zhiheng-fastapi-frontend/src/views/register.vue`
+- 修改：`zhiheng-fastapi-frontend/src/views/lock.vue`
+- 修改：`zhiheng-fastapi-frontend/src/views/error/401.vue`
+- 修改：`zhiheng-fastapi-frontend/src/views/error/404.vue`
 
 - [ ] **步骤 1：增加对话与认证视觉契约**
 
@@ -547,7 +547,7 @@ assert.doesNotMatch(login, /AI WORKSPACE/)
 
 - [ ] **步骤 2：运行测试确认当前认证和对话表面失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/antdAuthShellContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/antdAuthShellContract.test.js`
 
 预期：FAIL，认证页仍有英文眉题和阴影，对话输入区仍使用软阴影。
 
@@ -561,34 +561,34 @@ assert.doesNotMatch(login, /AI WORKSPACE/)
 
 - [ ] **步骤 4：运行对话、认证和 SSE 测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/antdAuthShellContract.test.js && node tests/plugins/sseParser.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/antdAuthShellContract.test.js && node tests/plugins/sseParser.test.js`
 
 预期：全部 PASS。
 
 - [ ] **步骤 5：提交对话与认证页面**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/chat \
-  ruoyi-fastapi-frontend/src/components/Antd/AuthShell.vue \
-  ruoyi-fastapi-frontend/src/views/login.vue ruoyi-fastapi-frontend/src/views/register.vue \
-  ruoyi-fastapi-frontend/src/views/lock.vue ruoyi-fastapi-frontend/src/views/error \
-  ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js \
-  ruoyi-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js
+git add zhiheng-fastapi-frontend/plugins/ai/views/chat \
+  zhiheng-fastapi-frontend/src/components/Antd/AuthShell.vue \
+  zhiheng-fastapi-frontend/src/views/login.vue zhiheng-fastapi-frontend/src/views/register.vue \
+  zhiheng-fastapi-frontend/src/views/lock.vue zhiheng-fastapi-frontend/src/views/error \
+  zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js \
+  zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js
 git commit -m "feat: 迁移 Yuxi 对话与认证视觉"
 ```
 
 ### 任务 7：迁移模型中心
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
 
 - [ ] **步骤 1：增加模型中心视觉契约**
 
@@ -604,7 +604,7 @@ assert.match(modelIndex, /background:\s*var\(--gray-0\)/)
 
 - [ ] **步骤 2：运行模型页面契约确认失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js`
 
 预期：FAIL，模型页面仍使用旧 `--workspace-*` 表面规则和旧边框层级。
 
@@ -619,24 +619,24 @@ assert.match(modelIndex, /background:\s*var\(--gray-0\)/)
 
 - [ ] **步骤 4：运行模型契约和接入转换测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/modelOnboardingContract.test.js && node tests/plugins/modelEngineTransforms.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/modelOnboardingContract.test.js && node tests/plugins/modelEngineTransforms.test.js`
 
 预期：全部 PASS。
 
 - [ ] **步骤 5：提交模型中心**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/model \
-  ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
+git add zhiheng-fastapi-frontend/plugins/ai/views/model \
+  zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
 git commit -m "feat: 统一 Yuxi 模型中心视觉"
 ```
 
 ### 任务 8：迁移开发接入与用量记录
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
 
 - [ ] **步骤 1：增加应用与用量视觉契约**
 
@@ -652,7 +652,7 @@ assert.match(applicationView, /application-row\.is-active[\s\S]*var\(--main-50\)
 
 - [ ] **步骤 2：运行契约确认旧表面规则失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js`
 
 预期：FAIL，页面仍使用旧工作台表面与选中态变量。
 
@@ -666,34 +666,34 @@ assert.match(applicationView, /application-row\.is-active[\s\S]*var\(--main-50\)
 
 - [ ] **步骤 4：运行应用转换与页面契约测试**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/applicationTransforms.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/antdAiViewsContract.test.js && node tests/plugins/applicationTransforms.test.js`
 
 预期：全部 PASS。
 
 - [ ] **步骤 5：提交开发接入与用量**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue \
-  ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue \
-  ruoyi-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
+git add zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue \
+  zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue \
+  zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
 git commit -m "feat: 统一 Yuxi 开发接入与用量视觉"
 ```
 
 ### 任务 9：清理旧全局主题污染并兼容低频页面
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/ruoyi.scss`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/sidebar.scss`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/index.scss`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/zhiheng.scss`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/sidebar.scss`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/index.scss`
 
 - [ ] **步骤 1：增加旧主色扫描测试**
 
 ```js
 const bannedThemeColors = /#(?:2f7e78|226862|409eff|20b2aa|48d1cc|42b983)\b/i
 const compatibilityTargets = [
-  'src/assets/styles/ruoyi.scss',
+  'src/assets/styles/zhiheng.scss',
   'src/assets/styles/sidebar.scss',
   'src/assets/styles/index.scss',
 ]
@@ -710,7 +710,7 @@ assert.ok(references.length <= 43, 'Yuxi 视觉迁移不得增加 Element Plus �
 运行：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 node tests/plugins/yuxiVisualContract.test.js
 rg -n '#(?:2F7E78|226862|409EFF|20B2AA|48D1CC|42B983)' src plugins/ai -g '*.{vue,js,scss,css}'
 ```
@@ -728,25 +728,25 @@ rg -n '#(?:2F7E78|226862|409EFF|20B2AA|48D1CC|42B983)' src plugins/ai -g '*.{vue
 
 - [ ] **步骤 4：运行全量插件测试和扫描**
 
-运行：`cd ruoyi-fastapi-frontend && npm run test:plugin && git diff --check`
+运行：`cd zhiheng-fastapi-frontend && npm run test:plugin && git diff --check`
 
 预期：所有插件测试 PASS；旧主题色扫描无核心或全局样式命中；Element Plus 引用文件数不高于基线。
 
 - [ ] **步骤 5：提交兼容清理**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/assets/styles \
-  ruoyi-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js \
-  ruoyi-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js
+git add zhiheng-fastapi-frontend/src/assets/styles \
+  zhiheng-fastapi-frontend/tests/plugins/yuxiVisualContract.test.js \
+  zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js
 git commit -m "refactor: 清理旧前端主题污染"
 ```
 
 ### 任务 10：完成浏览器视觉验收、构建和部署验证
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/antd_chat_check.py`
-- 验证：`ruoyi-fastapi-frontend/tests/plugins/*.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/antd_chat_check.py`
+- 验证：`zhiheng-fastapi-frontend/tests/plugins/*.test.js`
 
 - [ ] **步骤 1：补齐四个目标视口与明暗主题截图场景**
 
@@ -777,14 +777,14 @@ await page.screenshot(path=str(SCREENSHOT_DIR / screenshot_name), full_page=True
 终端 A：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 NODE_OPTIONS=--max-old-space-size=4096 npm run dev -- --host 127.0.0.1 --port 15174
 ```
 
 终端 B：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 PLATFORM_SHELL_BASE_URL=http://127.0.0.1:15174 \
 PLATFORM_SHELL_SCREENSHOT_DIR=/tmp/yuxi-visual \
 /root/miniconda3/envs/dj/bin/python tests/e2e/platform_shell_check.py
@@ -809,7 +809,7 @@ PLATFORM_SHELL_BASE_URL=http://127.0.0.1:15174 \
 - [ ] **步骤 4：运行最终全量验证**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 git diff --check
@@ -828,19 +828,19 @@ test -f "dist/$main_asset.gz"
 - [ ] **步骤 5：提交最终验收并记录部署结果**
 
 ```bash
-git add ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py \
-  ruoyi-fastapi-frontend/tests/e2e/antd_chat_check.py
+git add zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py \
+  zhiheng-fastapi-frontend/tests/e2e/antd_chat_check.py
 git commit -m "test: 验证 Yuxi 视觉层迁移"
 ```
 
 部署环境具备 npm 网络时执行：
 
 ```bash
-docker compose -p ruoyi-vue3-fastapi \
-  --env-file /home/ja/project/RuoYi-Vue3-FastAPI/.env \
-  -f docker-compose.pg.yml up -d --build ruoyi-frontend
-docker compose -p ruoyi-vue3-fastapi \
-  --env-file /home/ja/project/RuoYi-Vue3-FastAPI/.env \
+docker compose -p zhiheng-vue3-fastapi \
+  --env-file /home/ja/project/ZhiHeng-Vue3-FastAPI/.env \
+  -f docker-compose.pg.yml up -d --build zhiheng-frontend
+docker compose -p zhiheng-vue3-fastapi \
+  --env-file /home/ja/project/ZhiHeng-Vue3-FastAPI/.env \
   -f docker-compose.pg.yml ps
 ```
 

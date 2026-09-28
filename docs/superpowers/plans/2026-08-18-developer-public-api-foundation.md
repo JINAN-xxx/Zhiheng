@@ -14,7 +14,7 @@
 
 ## 固定架构约束
 
-- Public API 不使用 RuoYi JWT、`PreAuth`、后台 `ResponseUtil` 或操作日志装饰器。
+- Public API 不使用 ZhiHeng JWT、`PreAuth`、后台 `ResponseUtil` 或操作日志装饰器。
 - HTTP 错误保持真实状态码和 OpenAI `error` 对象。
 - Developer Key 只允许存在于入站 `Authorization` 和认证敏感 helper；不得进入 URL、日志、异常、Traceback locals 或下游 Runtime。
 - 鉴权和授权查询必须在 Runtime 调用前结束数据库事务。
@@ -145,7 +145,7 @@ conda run -n dj pytest \
 
 - [x] **步骤 1：编写 Controller 红灯**
 
-断言 `/v1/models` 和 `/v1/chat/completions` 无 PreAuth、无 RuoYi `ResponseUtil`，Feature Flag 关闭返回真实 404。重复 Authorization、非法 Content-Length、chunked 超限、未知字段返回 OpenAI JSON 400/401，且零 Runtime 调用。
+断言 `/v1/models` 和 `/v1/chat/completions` 无 PreAuth、无 ZhiHeng `ResponseUtil`，Feature Flag 关闭返回真实 404。重复 Authorization、非法 Content-Length、chunked 超限、未知字段返回 OpenAI JSON 400/401，且零 Runtime 调用。
 
 - [x] **步骤 2：锁定普通与流式 HTTP 契约**
 

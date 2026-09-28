@@ -9,7 +9,7 @@
 ## 发布定位
 
 - 源码提交：`03b781b3`，发布基于包含验证记录的 `ad0adabb`。
-- 后端镜像：`ruoyi-backend-pg:chat-session-archive-20260915`。
+- 后端镜像：`zhiheng-backend-pg:chat-session-archive-20260915`。
 - 镜像 ID：`sha256:cc824c33a23f8109b5a2507f53dc8101cb18dfc2be92971c3873961a08f94445`。
 - 发布目录：`data/agent-releases/20260915-chat-session-archive/`。
 - 前端：发布目录中的 `frontend/`，包含 5 份 Monaco worker。
@@ -17,7 +17,7 @@
 
 后端镜像基于当前运行镜像，只覆盖归档功能涉及的 4 个 Python 源文件；构建前逐文件确认运行代码与归档前源码一致。Compose 渲染后逐项确认应用环境变量与持久化挂载匹配当前服务。
 
-沿用 PostgreSQL 与已有 status 字段，无数据库迁移。此次只更新 `ruoyi-backend-pg`、`ruoyi-frontend` 两个应用容器。
+沿用 PostgreSQL 与已有 status 字段，无数据库迁移。此次只更新 `zhiheng-backend-pg`、`zhiheng-frontend` 两个应用容器。
 
 ## 验证
 

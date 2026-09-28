@@ -4,7 +4,7 @@
 
 ## 初始化和升级
 
-- `ruoyi-fastapi-backend/sql/platform-pg.sql` 根据基础 SQL、AI/智能体扩展的 PostgreSQL 迁移及种子生成。新库包含 53 张业务表、14 条成功迁移记录和 37 条服务商字典。后端启动可能按当前实体补充内部表，知识图谱按需初始化自身存储。
+- `zhiheng-fastapi-backend/sql/platform-pg.sql` 根据基础 SQL、AI/智能体扩展的 PostgreSQL 迁移及种子生成。新库包含 53 张业务表、14 条成功迁移记录和 37 条服务商字典。后端启动可能按当前实体补充内部表，知识图谱按需初始化自身存储。
 - 生成器 `scripts/build_platform_sql.py --check` 检查产物是否过时，Docker 构建也执行此检查。历史 migration 源文件与 checksum 未修改。
 - 合并 SQL 拒绝非空 public schema；实际导入与完成标记处于同一事务，错误整体回滚。已有库不重新导入含 DROP 的基础 SQL。
 - 每次初始化显式调用现有 MigrationRunner 校验账本并应用缺失迁移，插件版本相同也会执行。随后复用内置插件启动生命周期同步菜单、默认配置、任务、种子与安装状态，保留已停用插件的状态。

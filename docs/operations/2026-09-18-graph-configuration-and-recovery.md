@@ -1,6 +1,6 @@
 # 知识图谱独立配置、试构建与版本恢复
 
-2026-09-18 发布，业务范围仅知识图谱。参考 Yuxi 的图谱配置、结果复用和分阶段处理，保留现有 LightRAG、PostgreSQL 与 Milvus。后端镜像为 `ruoyi-backend-pg:graph-configuration-20260918`，发布入口为 `data/agent-releases/20260918-graph-configuration/manage.sh`。
+2026-09-18 发布，业务范围仅知识图谱。参考 Yuxi 的图谱配置、结果复用和分阶段处理，保留现有 LightRAG、PostgreSQL 与 Milvus。后端镜像为 `zhiheng-backend-pg:graph-configuration-20260918`，发布入口为 `data/agent-releases/20260918-graph-configuration/manage.sh`。
 
 ## 行为
 

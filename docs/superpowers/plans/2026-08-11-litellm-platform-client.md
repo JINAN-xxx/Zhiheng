@@ -2,9 +2,9 @@
 
 > **面向实现者：** 按任务顺序执行；每个任务严格遵循红灯、绿灯、重构、提交。执行前使用 `test-driven-development`，完成前使用 `verification-before-completion`。
 
-**目标：** 在不改变现有 Agno 对话链路和业务表的前提下，为 RuoYi AI 插件增加一个使用独立 Runtime Key 的 LiteLLM HTTP 接入层，并提供受权限保护的健康与模型诊断接口。
+**目标：** 在不改变现有 Agno 对话链路和业务表的前提下，为 ZhiHeng AI 插件增加一个使用独立 Runtime Key 的 LiteLLM HTTP 接入层，并提供受权限保护的健康与模型诊断接口。
 
-**架构：** 每个 FastAPI Worker 通过 AI 插件生命周期 Hook 创建一个共享的 `httpx.AsyncClient`，保存到 `app.state.ai_litellm_runtime_client`。业务代码只依赖 `LiteLLMRuntimeClient`，由它统一注入认证和追踪头、映射网络错误并管理流式响应。LiteLLM 与 RuoYi 使用独立 Compose，通过外部 `litellm-network` 互通。
+**架构：** 每个 FastAPI Worker 通过 AI 插件生命周期 Hook 创建一个共享的 `httpx.AsyncClient`，保存到 `app.state.ai_litellm_runtime_client`。业务代码只依赖 `LiteLLMRuntimeClient`，由它统一注入认证和追踪头、映射网络错误并管理流式响应。LiteLLM 与 ZhiHeng 使用独立 Compose，通过外部 `litellm-network` 互通。
 
 **技术栈：** FastAPI、Pydantic Settings、HTTPX、Pytest、Docker Compose、POSIX shell、LiteLLM Proxy v1.95.0
 
@@ -12,25 +12,25 @@
 
 ## 文件结构
 
-- 创建 `ruoyi-fastapi-backend/plugins/ai/config.py`：AI 插件 LiteLLM 配置和校验。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/infrastructure/__init__.py`：基础设施包。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`：稳定的内部异常模型。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`：Runtime HTTP 客户端。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/hooks.py`：每 Worker 客户端生命周期。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`：诊断接口响应模型。
-- 创建 `ruoyi-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`：健康和模型诊断接口。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/config.py`：AI 插件 LiteLLM 配置和校验。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/__init__.py`：基础设施包。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`：稳定的内部异常模型。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`：Runtime HTTP 客户端。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/hooks.py`：每 Worker 客户端生命周期。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`：诊断接口响应模型。
+- 创建 `zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`：健康和模型诊断接口。
 - 创建 `deploy/litellm/init-platform-runtime-key.sh`：创建一次性 Runtime Virtual Key 并安全写入仓库根 `.env`。
-- 修改 `ruoyi-fastapi-backend/plugins/ai/plugin.yaml`：声明 Hook、权限和 HTTPX 直接依赖。
-- 修改 `ruoyi-fastapi-backend/.env.dev`、`.env.prod`、`.env.dockerpg`：增加非敏感配置模板。
+- 修改 `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：声明 Hook、权限和 HTTPX 直接依赖。
+- 修改 `zhiheng-fastapi-backend/.env.dev`、`.env.prod`、`.env.dockerpg`：增加非敏感配置模板。
 - 修改 `docker-compose.pg.yml`：Backend 加入 LiteLLM 网络并只注入 Runtime Key。
 - 修改 `deploy/litellm/README.md`：记录 Runtime Key 初始化和双 Compose 启动顺序。
-- 创建 `ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_config.py`。
-- 创建 `ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_client.py`。
-- 创建 `ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`。
-- 创建 `ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`。
-- 创建 `ruoyi-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`。
-- 修改 `ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`。
-- 修改 `ruoyi-fastapi-backend/tests/deploy/test_litellm_runtime.py`。
+- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`。
+- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py`。
+- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`。
+- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`。
+- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`。
+- 修改 `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`。
+- 修改 `zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`。
 
 本阶段不修改前端文件、数据库 Migration、`ai_models`、`AiChatService` 或 `AiUtil`。
 
@@ -38,10 +38,10 @@
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_config.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/config.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/infrastructure/__init__.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/config.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/__init__.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`
 
 - [ ] **步骤 1：编写配置和错误模型测试**
 
@@ -95,7 +95,7 @@ def test_litellm_errors_have_stable_public_contract(error_type, status_code, cod
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_config.py -v
 ```
 
@@ -138,12 +138,12 @@ class LiteLLMSettings(BaseSettings):
 - [ ] **步骤 5：运行测试并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_config.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/config.py \
-  ruoyi-fastapi-backend/plugins/ai/infrastructure \
-  ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_config.py
+git add zhiheng-fastapi-backend/plugins/ai/config.py \
+  zhiheng-fastapi-backend/plugins/ai/infrastructure \
+  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py
 git commit -m "feat: 定义 LiteLLM 接入配置与错误边界"
 ```
 
@@ -151,8 +151,8 @@ git commit -m "feat: 定义 LiteLLM 接入配置与错误边界"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_client.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
 
 - [ ] **步骤 1：先写 HTTP 契约测试**
 
@@ -166,7 +166,7 @@ async def test_list_models_adds_runtime_auth_and_trace_headers():
         assert request.headers['authorization'] == 'Bearer runtime-secret'
         assert request.headers['request-id'] == 'request-1'
         assert request.headers['trace-id'] == 'trace-1'
-        assert request.headers['user-agent'] == 'RuoYi-AI-Platform/0.1'
+        assert request.headers['user-agent'] == 'ZhiHeng-AI-Platform/0.1'
         return httpx.Response(200, json={'object': 'list', 'data': []})
 
     client = build_client(handler)
@@ -212,7 +212,7 @@ async def test_timeout_and_connect_errors_have_distinct_mappings():
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_client.py -v
 ```
 
@@ -222,7 +222,7 @@ pytest tests/plugins/ai/test_litellm_client.py -v
 
 ```python
 class LiteLLMRuntimeClient:
-    USER_AGENT = 'RuoYi-AI-Platform/0.1'
+    USER_AGENT = 'ZhiHeng-AI-Platform/0.1'
 
     def __init__(
         self,
@@ -261,11 +261,11 @@ class LiteLLMRuntimeClient:
 - [ ] **步骤 4：验证并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_client.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
-  ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_client.py
+git add zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
+  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py
 git commit -m "feat: 添加 LiteLLM Runtime HTTP 客户端"
 ```
 
@@ -273,8 +273,8 @@ git commit -m "feat: 添加 LiteLLM Runtime HTTP 客户端"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
 
 - [ ] **步骤 1：编写流式红灯测试**
 
@@ -311,7 +311,7 @@ async def test_closing_downstream_generator_closes_upstream_response():
 - [ ] **步骤 2：运行并确认因方法缺失或行为不完整而失败**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_streaming.py -v
 ```
 
@@ -345,11 +345,11 @@ async def stream_chat_completion(
 - [ ] **步骤 4：验证并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_client.py tests/plugins/ai/test_litellm_streaming.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
-  ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py
+git add zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
+  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py
 git commit -m "feat: 添加 LiteLLM 流式响应边界"
 ```
 
@@ -357,10 +357,10 @@ git commit -m "feat: 添加 LiteLLM 流式响应边界"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/hooks.py`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/hooks.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
+- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：编写 Hook 和清单红灯测试**
 
@@ -398,7 +398,7 @@ async def test_shutdown_is_idempotent_and_removes_state(monkeypatch):
 - [ ] **步骤 2：运行并确认红灯**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_hooks.py \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_template_can_be_discovered \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_runtime_paths_exist -v
@@ -432,13 +432,13 @@ async def on_shutdown(context: PluginHookContext) -> None:
 - [ ] **步骤 4：更新清单、验证并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_litellm_hooks.py tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/hooks.py \
-  ruoyi-fastapi-backend/plugins/ai/plugin.yaml \
-  ruoyi-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py \
-  ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add zhiheng-fastapi-backend/plugins/ai/hooks.py \
+  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
+  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py \
+  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 接入 LiteLLM 客户端生命周期"
 ```
 
@@ -446,9 +446,9 @@ git commit -m "feat: 接入 LiteLLM 客户端生命周期"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`
-- 创建：`ruoyi-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`
+- 创建：`zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`
 
 - [ ] **步骤 1：编写控制器红灯测试**
 
@@ -496,7 +496,7 @@ async def test_models_maps_internal_error_to_gateway_http_status_without_leaking
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_ai_runtime_controller.py -v
 ```
 
@@ -559,13 +559,13 @@ async def get_ai_runtime_models(request: Request) -> Response: ...
 - [ ] **步骤 5：验证并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai/test_ai_runtime_controller.py \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_structure_check_passes -v
 cd ..
-git add ruoyi-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py \
-  ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py \
-  ruoyi-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py
+git add zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py \
+  zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py \
+  zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py
 git commit -m "feat: 添加 LiteLLM Runtime 诊断接口"
 ```
 
@@ -573,12 +573,12 @@ git commit -m "feat: 添加 LiteLLM Runtime 诊断接口"
 
 **文件：**
 
-- 修改：`ruoyi-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
 - 创建：`deploy/litellm/init-platform-runtime-key.sh`
 - 修改：`docker-compose.pg.yml`
-- 修改：`ruoyi-fastapi-backend/.env.dev`
-- 修改：`ruoyi-fastapi-backend/.env.prod`
-- 修改：`ruoyi-fastapi-backend/.env.dockerpg`
+- 修改：`zhiheng-fastapi-backend/.env.dev`
+- 修改：`zhiheng-fastapi-backend/.env.prod`
+- 修改：`zhiheng-fastapi-backend/.env.dockerpg`
 - 修改：`deploy/litellm/README.md`
 
 - [ ] **步骤 1：扩展部署契约红灯测试**
@@ -586,17 +586,17 @@ git commit -m "feat: 添加 LiteLLM Runtime 诊断接口"
 新增断言：
 
 ```python
-def test_ruoyi_backend_joins_external_litellm_network_with_runtime_only_credentials():
+def test_zhiheng_backend_joins_external_litellm_network_with_runtime_only_credentials():
     compose = load_repository_yaml('docker-compose.pg.yml')
-    backend = compose['services']['ruoyi-backend-pg']
+    backend = compose['services']['zhiheng-backend-pg']
 
-    assert set(backend['networks']) == {'ruoyi-network', 'litellm-network'}
+    assert set(backend['networks']) == {'zhiheng-network', 'litellm-network'}
     assert compose['networks']['litellm-network'] == {'external': True, 'name': 'litellm-network'}
     assert backend['environment']['LITELLM_BASE_URL'] == 'http://litellm-proxy:4000'
     assert backend['environment']['LITELLM_RUNTIME_KEY'].startswith('${LITELLM_RUNTIME_KEY:')
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
-    assert 'litellm-network' not in compose['services']['ruoyi-pg']['networks']
-    assert 'litellm-network' not in compose['services']['ruoyi-redis']['networks']
+    assert 'litellm-network' not in compose['services']['zhiheng-pg']['networks']
+    assert 'litellm-network' not in compose['services']['zhiheng-redis']['networks']
 
 
 def test_platform_environment_templates_contain_no_runtime_secret():
@@ -619,7 +619,7 @@ def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path,
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -632,7 +632,7 @@ environment:
   LITELLM_BASE_URL: http://litellm-proxy:4000
   LITELLM_RUNTIME_KEY: ${LITELLM_RUNTIME_KEY:?set LITELLM_RUNTIME_KEY in repository .env}
 networks:
-  - ruoyi-network
+  - zhiheng-network
   - litellm-network
 ```
 
@@ -669,15 +669,15 @@ Content-Type: application/json
 - [ ] **步骤 5：更新运行手册，验证 Compose 渲染并提交**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
 docker compose --env-file deploy/litellm/.env -f deploy/litellm/compose.yaml config >/dev/null
 LITELLM_RUNTIME_KEY=test-only docker compose -f docker-compose.pg.yml config >/dev/null
 git add docker-compose.pg.yml deploy/litellm/init-platform-runtime-key.sh \
-  deploy/litellm/README.md ruoyi-fastapi-backend/.env.dev \
-  ruoyi-fastapi-backend/.env.prod ruoyi-fastapi-backend/.env.dockerpg \
-  ruoyi-fastapi-backend/tests/deploy/test_litellm_runtime.py
+  deploy/litellm/README.md zhiheng-fastapi-backend/.env.dev \
+  zhiheng-fastapi-backend/.env.prod zhiheng-fastapi-backend/.env.dockerpg \
+  zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
 git commit -m "feat: 打通平台与 LiteLLM 内部网络"
 ```
 
@@ -690,21 +690,21 @@ git commit -m "feat: 打通平台与 LiteLLM 内部网络"
 - [ ] **步骤 1：运行 AI 插件和部署测试**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py tests/deploy/test_litellm_runtime.py -v
 ```
 
 - [ ] **步骤 2：运行后端相关回归测试**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest tests/plugins/core tests/server/test_plugin_runtime.py -v
 ```
 
 - [ ] **步骤 3：执行静态检查**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 ruff check plugins/ai tests/plugins/ai tests/deploy/test_litellm_runtime.py
 ruff format --check plugins/ai tests/plugins/ai tests/deploy/test_litellm_runtime.py
 ```
@@ -724,12 +724,12 @@ git check-ignore .env
 - [ ] **步骤 5：重建 Backend 并验证内部网络**
 
 ```bash
-docker compose -f docker-compose.pg.yml up -d --build ruoyi-backend-pg
+docker compose -f docker-compose.pg.yml up -d --build zhiheng-backend-pg
 docker compose -f docker-compose.pg.yml ps
-docker exec ruoyi-backend-pg python -c "import urllib.request; print(urllib.request.urlopen('http://litellm-proxy:4000/health/liveliness').status)"
+docker exec zhiheng-backend-pg python -c "import urllib.request; print(urllib.request.urlopen('http://litellm-proxy:4000/health/liveliness').status)"
 ```
 
-预期容器 DNS 健康请求返回 `200`。如果 RuoYi PostgreSQL/Redis 尚未启动，先用 Compose 启动其依赖，不停止 LiteLLM Compose。
+预期容器 DNS 健康请求返回 `200`。如果 ZhiHeng PostgreSQL/Redis 尚未启动，先用 Compose 启动其依赖，不停止 LiteLLM Compose。
 
 - [ ] **步骤 6：验证 Runtime Key 的数据面权限**
 
@@ -748,7 +748,7 @@ curl --fail --silent \
 
 - [ ] **步骤 7：验证诊断接口和降级行为**
 
-使用 RuoYi 已登录管理员 Token 调用：
+使用 ZhiHeng 已登录管理员 Token 调用：
 
 ```text
 GET /dev-api/ai/runtime/health

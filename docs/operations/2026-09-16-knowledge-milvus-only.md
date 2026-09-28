@@ -16,8 +16,8 @@
 
 当前运维入口：`data/agent-releases/20260916-knowledge-milvus-only/manage.sh`。它组合上一版 `20260916-captcha-http/manage.sh`，只更新应用镜像和前端静态挂载。
 
-- 后端镜像：`ruoyi-backend-pg:knowledge-milvus-only-20260916`。
-- 镜像以此前运行的 `ruoyi-backend-pg:chat-session-archive-20260915` 为基础，仅复制经过验证的 `models.py`、`runtime.py`；基线文件与旧容器逐字一致，构建输入和 Dockerfile 保存在发布目录的 `backend/`。
+- 后端镜像：`zhiheng-backend-pg:knowledge-milvus-only-20260916`。
+- 镜像以此前运行的 `zhiheng-backend-pg:chat-session-archive-20260915` 为基础，仅复制经过验证的 `models.py`、`runtime.py`；基线文件与旧容器逐字一致，构建输入和 Dockerfile 保存在发布目录的 `backend/`。
 - 静态文件：发布目录内 `frontend/`，5 个 Monaco worker 齐全。
 - Nginx 配置沿用 `20260916-nginx-entrypoint/nginx.conf`，FRP 公网 8060、本机 12580、后端仅绑定 `127.0.0.1:19099`。
 - Compose 差异校验确认只改变后端镜像和前端静态挂载。发布前检查无 pending/running 工作消息，仅重建应用容器。
@@ -37,7 +37,7 @@
 复测桌面页面：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 KNOWLEDGE_CHECK_BASE_URL=http://115.190.121.37:8060 KNOWLEDGE_CHECK_DESKTOP_ONLY=1 ../.venv/bin/python tests/e2e/knowledge_check.py
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```
@@ -47,5 +47,5 @@ CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captc
 使用上一版应用组合恢复镜像和页面，无数据库迁移：
 
 ```bash
-data/agent-releases/20260916-captcha-http/manage.sh up -d --no-deps --no-build ruoyi-backend-pg ruoyi-frontend
+data/agent-releases/20260916-captcha-http/manage.sh up -d --no-deps --no-build zhiheng-backend-pg zhiheng-frontend
 ```

@@ -13,10 +13,10 @@
 ### 任务一：定义会话修改接口契约
 
 **文件：**
-- 修改：`ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/controller/ai_chat_controller.py`
-- 测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py`
-- 测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_ai_chat_controller.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/controller/ai_chat_controller.py`
+- 测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py`
+- 测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_ai_chat_controller.py`
 
 - [ ] 编写失败测试：标题为空、超过 200 字或包含控制字符时校验失败；控制器包含 `PATCH /session/{session_id}`。
 - [ ] 运行目标测试，确认因 `PlatformSessionRenameRequestModel` 和接口缺失而失败。
@@ -33,10 +33,10 @@ class PlatformSessionRenameRequestModel(_StrictRequestModel):
 ### 任务二：实现事务重命名与永久删除
 
 **文件：**
-- 修改：`ruoyi-fastapi-backend/plugins/ai/dao/platform_chat_dao.py`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/service/platform_chat_service.py`
-- 测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py`
-- 测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/dao/platform_chat_dao.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py`
+- 测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py`
+- 测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_dao.py`
 
 - [ ] 编写失败测试：重命名提交标题；删除按运行、消息、会话顺序执行；运行中会话拒绝删除；失败时回滚。
 - [ ] 运行目标测试，确认因服务方法与删除方法缺失而失败。
@@ -54,12 +54,12 @@ delete(AiChatSession).where(AiChatSession.session_id == session_id, AiChatSessio
 ### 任务三：实现前端重命名与删除交互
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/src/api/platformWorkspace.js`
-- 修改：`ruoyi-fastapi-frontend/src/store/modules/workspace.js`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/api/platformWorkspace.js`
+- 修改：`zhiheng-fastapi-frontend/src/store/modules/workspace.js`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
 
 - [ ] 编写失败合约测试：菜单包含“重命名”“删除会话”，接口使用 PATCH 和 DELETE，状态仓库具有 `renameSession` 与 `deleteSession`。
 - [ ] 运行测试确认失败。
@@ -70,7 +70,7 @@ delete(AiChatSession).where(AiChatSession.session_id == session_id, AiChatSessio
 ### 任务四：构建、部署与真实验收
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
 
 - [ ] 更新浏览器模拟接口，支持 PATCH 重命名与 DELETE 删除。
 - [ ] 运行后端目标测试、Ruff 和前端 15 组插件测试。

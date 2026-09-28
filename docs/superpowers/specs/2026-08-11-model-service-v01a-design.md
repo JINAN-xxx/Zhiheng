@@ -4,16 +4,16 @@
 
 本规格是当前有效的 V0.1-A 实施基线，替代 `2026-08-11-litellm-model-gateway-design.md`。
 
-当前 RuoYi-Vue3-FastAPI 仓库就是新 AI Open Platform 的工程载体。RuoYi 提供登录、RBAC、菜单、审计、插件运行时和运营后台外壳；Platform 核心领域在当前仓库中重新建设，而不是把旧 AI 插件直接延伸成最终平台模型。
+当前 ZhiHeng-Vue3-FastAPI 仓库就是新 AI Open Platform 的工程载体。ZhiHeng 提供登录、RBAC、菜单、审计、插件运行时和运营后台外壳；Platform 核心领域在当前仓库中重新建设，而不是把旧 AI 插件直接延伸成最终平台模型。
 
 ## 背景与已验证现状
 
 当前环境已经具备：
 
 - LiteLLM Proxy `1.95.0`、PostgreSQL 和 Redis 独立运行。
-- RuoYi Backend 通过内部 Docker 网络使用 Runtime Key 访问 LiteLLM。
+- ZhiHeng Backend 通过内部 Docker 网络使用 Runtime Key 访问 LiteLLM。
 - `/ai/runtime/health` 与 `/ai/runtime/models` 已完成真实联通验证。
-- RuoYi 和 LiteLLM 共用一个 PostgreSQL 实例，但使用独立数据库和账号。
+- ZhiHeng 和 LiteLLM 共用一个 PostgreSQL 实例，但使用独立数据库和账号。
 - LiteLLM 数据库启用了动态模型管理。
 
 当前旧 AI 插件仍存在以下耦合：
@@ -21,7 +21,7 @@
 - `ai_models` 同时保存模型业务信息和 Provider API Key。
 - `AiChatService` 通过 Agno 创建 Provider 模型并执行对话。
 - 会话、消息、运行状态、取消和 Usage 依赖 Agno Session 与 Run 对象。
-- 模型管理页面是旧式 RuoYi CRUD，并直接读写 `ai_models`。
+- 模型管理页面是旧式 ZhiHeng CRUD，并直接读写 `ai_models`。
 
 数据库已实查：
 
@@ -36,7 +36,7 @@
 V0.1-A 完成第一个可运行的 Model Service 垂直闭环：
 
 ```text
-RuoYi Model Center / Debug Chat
+ZhiHeng Model Center / Debug Chat
                 |
                 v
           Platform API
@@ -76,8 +76,8 @@ RuoYi Model Center / Debug Chat
 
 - 建立 Platform Model Catalog 和通用 Resource Binding。
 - 建立可替换的 `ModelRuntimeEngine` 协议和 LiteLLM Adapter。
-- 在 RuoYi 中管理 LiteLLM Provider Credential、Engine Deployment 和运行状态。
-- 在 RuoYi 中发布 Platform Model，并绑定 LiteLLM 模型别名。
+- 在 ZhiHeng 中管理 LiteLLM Provider Credential、Engine Deployment 和运行状态。
+- 在 ZhiHeng 中发布 Platform Model，并绑定 LiteLLM 模型别名。
 - 将现有调试对话迁移为 Platform 自有 Session、Message 和 Run。
 - 通过 LiteLLM 完成普通和流式 Chat Completions。
 - 保留图片、Reasoning、历史上下文、Usage、取消和会话归属能力。
@@ -214,7 +214,7 @@ Provider Credential、物理 Deployment、重试和路由仍由 LiteLLM 持久�
 
 约束：
 
-- 两类 Key 都只注入 RuoYi Backend。
+- 两类 Key 都只注入 ZhiHeng Backend。
 - Key 不写入 Platform 数据库、不返回前端、不进入日志。
 - Runtime Client 和 Management Client 是独立类，不能混用认证头。
 - Management Key 缺失不阻止 Platform 启动；控制面显示未配置并禁用写操作。
@@ -571,7 +571,7 @@ Model Service 下提供：
 - Frontend 不接收任何 LiteLLM Key。
 - 初始化脚本从部署侧环境安全同步 Platform 所需凭据，不输出 Key，并保证目标 `.env` 权限为 `0600`。
 - 受版本控制的环境模板只包含空值或说明。
-- RuoYi 和 LiteLLM 保持独立 Compose 生命周期，通过 `litellm-network` 互通。
+- ZhiHeng 和 LiteLLM 保持独立 Compose 生命周期，通过 `litellm-network` 互通。
 - 现有共享 PostgreSQL 实例继续使用独立数据库和账号，不跨库授予业务表权限。
 
 ## 测试策略
@@ -676,7 +676,7 @@ Model Service 下提供：
 
 V0.1-A 完成时必须满足：
 
-1. 当前 RuoYi 仓库作为新 Platform，拥有独立 Model Catalog 和稳定 Platform Model ID。
+1. 当前 ZhiHeng 仓库作为新 Platform，拥有独立 Model Catalog 和稳定 Platform Model ID。
 2. Platform Model 通过 Resource Binding 解析到 LiteLLM 模型别名，不向产品层暴露 Deployment ID。
 3. 用户可在模型中心管理 Credential、Deployment、Platform Model、Binding 和 Runtime 状态。
 4. Provider 密钥创建后不回显，Key、Prompt、图片和响应正文不进入日志。
@@ -687,7 +687,7 @@ V0.1-A 完成时必须满足：
 9. LiteLLM 故障或配置缺失不阻止 Platform 主应用启动。
 10. 活跃模型和聊天链路不导入或调用 Agno。
 11. 前端插件测试、生产构建、后端相关测试和数据库结构测试全部通过。
-12. RuoYi、PostgreSQL、Redis 和 LiteLLM 实际运行健康。
+12. ZhiHeng、PostgreSQL、Redis 和 LiteLLM 实际运行健康。
 13. 无付费端到端闭环通过，且无测试资源残留。
 14. 模型中心和调试对话在桌面与移动视口无明显溢出、遮挡或布局跳动。
 

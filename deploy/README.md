@@ -37,12 +37,12 @@ cp deploy/platform.env.example .env
 
 ## 数据库入口
 
-完整初始化文件为 [`ruoyi-fastapi-backend/sql/platform-pg.sql`](../ruoyi-fastapi-backend/sql/platform-pg.sql)。该文件按基础 SQL、AI 插件、智能体扩展的迁移和种子自动生成，包含成功迁移账本。
+完整初始化文件为 [`zhiheng-fastapi-backend/sql/platform-pg.sql`](../zhiheng-fastapi-backend/sql/platform-pg.sql)。该文件按基础 SQL、AI 插件、智能体扩展的迁移和种子自动生成，包含成功迁移账本。
 
 维护迁移后，在后端开发环境重新生成并提交：
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 python scripts/build_platform_sql.py
 python scripts/build_platform_sql.py --check
 ```

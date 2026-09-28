@@ -101,7 +101,7 @@ This separation does not make model output an authorization mechanism. Provider 
 
 ## Verification
 
-From `ruoyi-fastapi-backend`, run:
+From `zhiheng-fastapi-backend`, run:
 
 ```bash
 ../.venv/bin/python -m pytest -q tests/plugins/agent_extension/test_agent_knowledge.py

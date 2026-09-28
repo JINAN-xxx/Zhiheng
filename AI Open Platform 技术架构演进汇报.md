@@ -2,7 +2,7 @@
 
 ## 一、背景
 
-前期我们基于 RuoYi-Vue3-FastAPI 进行了 AI 能力魔改，已实现：
+前期我们基于 ZhiHeng-Vue3-FastAPI 进行了 AI 能力魔改，已实现：
 
 - 模型管理
 - AI Chat
@@ -16,7 +16,7 @@
 原有调用链主要为：
 
 ```text
-RuoYi Platform
+ZhiHeng Platform
       │
       ▼
    AI Chat
@@ -58,7 +58,7 @@ OpenAI Compatible API
 
 源码评审确认，现有系统的 Tenant、Project、Application、开发者 API Key、Quota、Usage、Billing 等 AI PaaS 核心能力基本需要重新建设。
 
-如果继续在原 RuoYi 项目上开发，将同时改造：
+如果继续在原 ZhiHeng 项目上开发，将同时改造：
 
 - 认证体系
 - 权限体系
@@ -75,7 +75,7 @@ OpenAI Compatible API
 
 > **在旧项目中重新建设一个新的 AI Platform。**
 
-此前评审也明确指出，继续在当前 RuoYi 中实施新平台能力，实际接近在旧目录中重写一个平台。
+此前评审也明确指出，继续在当前 ZhiHeng 中实施新平台能力，实际接近在旧目录中重写一个平台。
 
 ---
 
@@ -85,7 +85,7 @@ OpenAI Compatible API
 
 > **新建独立 AI Platform。**
 
-旧 RuoYi 不再作为 AI Platform 核心，仅作为：
+旧 ZhiHeng 不再作为 AI Platform 核心，仅作为：
 
 - 代码资产参考
 - 运营后台参考
@@ -316,7 +316,7 @@ Workflow
 MCP
 ```
 
-如果继续全部自研，会重新回到旧 RuoYi 的路线。
+如果继续全部自研，会重新回到旧 ZhiHeng 的路线。
 
 因此当前考虑使用 BISHENG 承担 AI Engine 能力。
 
@@ -858,7 +858,7 @@ Agent Engine
 技术路线由：
 
 ```text
-RuoYi
+ZhiHeng
   ↓
 Agno
   ↓

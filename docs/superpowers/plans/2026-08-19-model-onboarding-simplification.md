@@ -6,26 +6,26 @@
 
 **架构：** 在现有 `modelEngine.js` 中新增无副作用的快速接入命名和状态转换函数；`CredentialForm`、`DeploymentForm` 通过显式 `quick` 属性隐藏内部资源字段并保留原高级管理模式；`ModelOnboardingDrawer` 继续调用现有 API 和对账函数，但只呈现“连接信息、测试模型、确认接入”三段状态。模型中心默认只突出平台模型，高级标签由用户主动展开。
 
-**技术栈：** Vue 3、Vite、Element Plus、现有 RuoYi 权限体系、Node 原生断言测试、Python Playwright、Docker Nginx。
+**技术栈：** Vue 3、Vite、Element Plus、现有 ZhiHeng 权限体系、Node 原生断言测试、Python Playwright、Docker Nginx。
 
 ---
 
 ## 文件与职责
 
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/utils/modelEngine.js`，增加快速接入资源命名和步骤文案纯函数。
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`，锁定安全命名、默认值和步骤映射。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`，增加隐藏 Credential Name 与重复 Provider 字段的快速模式。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`，增加只展示模型、测试和折叠高级参数的快速模式。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`，重排三步流程并复用现有失败保留、精确对账和发布逻辑。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`，默认突出平台模型，将底层资源标签收进高级管理。
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`，静态锁定快速模式、用户文案和高级管理入口。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`，增加快速接入资源命名和步骤文案纯函数。
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`，锁定安全命名、默认值和步骤映射。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`，增加隐藏 Credential Name 与重复 Provider 字段的快速模式。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`，增加只展示模型、测试和折叠高级参数的快速模式。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`，重排三步流程并复用现有失败保留、精确对账和发布逻辑。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`，默认突出平台模型，将底层资源标签收进高级管理。
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`，静态锁定快速模式、用户文案和高级管理入口。
 - 创建：`docs/superpowers/verification/2026-08-19-model-onboarding-simplification.md`，记录构建、视口、网络调用和失败重试证据。
 
 ## 任务 1：建立快速接入纯函数契约
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/utils/modelEngine.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
 
 - [ ] **步骤 1：编写失败测试**
 
@@ -51,7 +51,7 @@ assert.equal(getQuickOnboardingStep('published').title, '接入成功')
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`cd ruoyi-fastapi-frontend && node tests/plugins/modelEngineTransforms.test.js`
+运行：`cd zhiheng-fastapi-frontend && node tests/plugins/modelEngineTransforms.test.js`
 
 预期：FAIL，提示 `buildQuickResourceIdentity` 或 `getQuickOnboardingStep` 未导出。
 
@@ -102,9 +102,9 @@ git commit -m "feat: 建立模型快速接入状态契约"
 ## 任务 2：为凭据与部署表单增加快速模式
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：编写结构红灯**
 
@@ -167,8 +167,8 @@ git commit -m "feat: 简化模型接入表单"
 ## 任务 3：将接入抽屉重排为三步
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：扩展抽屉红灯**
 
@@ -213,8 +213,8 @@ git commit -m "feat: 发布三步模型快速接入"
 ## 任务 4：将底层资源标签收进高级管理
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：编写高级管理红灯**
 
@@ -277,7 +277,7 @@ git diff --check
 
 - [ ] **步骤 5：更新前端容器并复验**
 
-确认新 `dist` 包含新版文案后，保留当前镜像回滚标签，将 `dist` 注入干净 Nginx 镜像，只替换 `ruoyi-frontend`。访问 `http://127.0.0.1:12580/` 重复截图与控制台检查，不重建后端、数据库、Redis 或 LiteLLM。
+确认新 `dist` 包含新版文案后，保留当前镜像回滚标签，将 `dist` 注入干净 Nginx 镜像，只替换 `zhiheng-frontend`。访问 `http://127.0.0.1:12580/` 重复截图与控制台检查，不重建后端、数据库、Redis 或 LiteLLM。
 
 - [ ] **步骤 6：记录证据并提交**
 

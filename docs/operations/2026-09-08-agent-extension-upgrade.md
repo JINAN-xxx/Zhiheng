@@ -9,7 +9,7 @@
 - `agent_extension` 已由 `0.1.0` 升级为 `0.2.0`，保持启用。
 - PostgreSQL 的 `002_agent_management.sql` 执行成功；已执行的技能迁移按校验值跳过。
 - 新增智能体管理菜单与权限，实际路由组件为 `plugin/agent_extension/agent/index`。
-- 后端镜像：`ruoyi-backend-pg:agent-extension-0.2.0-20260908`。
+- 后端镜像：`zhiheng-backend-pg:agent-extension-0.2.0-20260908`。
 - 后端镜像 ID：`sha256:83797416ad36f91be2c5edb83d39995e2df9466ca8ab9732824f2fd1326f8ef8`。
 - 前端按 Docker 模式构建，使用 `/docker-api`，已切换到独立发布目录。
 - 17 项 Compose 环境配置与升级前容器一致。现有模型、API 密钥配置和技能存储挂载沿用原配置。
@@ -43,7 +43,7 @@
 - `compose.override.yml`：本次镜像、前端资源及前端源码挂载配置。
 - `deployment.json`：原镜像及 Compose 命令记录。
 - `browser-result.json`：真实浏览器验证结果。
-- `private/ruoyi-before-upgrade.dump`：升级前数据库备份，已用 `pg_restore --list` 验证可读。
+- `private/zhiheng-before-upgrade.dump`：升级前数据库备份，已用 `pg_restore --list` 验证可读。
 - `private/compose.env`：从原容器继承的部署配置，仅供本机部署使用；目录权限 0700、文件权限 0600。
 - `private/probe-state.json`：已移除会话令牌和明文密钥的联调结果。
 
@@ -51,12 +51,12 @@
 
 ```bash
 docker compose \
-  --project-directory /home/ja/project/RuoYi-Vue3-FastAPI/.worktrees/antd-minimal-loop \
-  --env-file /home/ja/project/RuoYi-Vue3-FastAPI/data/agent-releases/20260908-agent-extension-0.2.0/private/compose.env \
-  -p ruoyi-vue3-fastapi \
-  -f /home/ja/project/RuoYi-Vue3-FastAPI/.worktrees/antd-minimal-loop/docker-compose.pg.yml \
-  -f /home/ja/project/RuoYi-Vue3-FastAPI/data/agent-releases/20260908-agent-extension-0.2.0/compose.override.yml \
-  up -d --no-deps --no-build ruoyi-backend-pg ruoyi-frontend
+  --project-directory /home/ja/project/ZhiHeng-Vue3-FastAPI/.worktrees/antd-minimal-loop \
+  --env-file /home/ja/project/ZhiHeng-Vue3-FastAPI/data/agent-releases/20260908-agent-extension-0.2.0/private/compose.env \
+  -p zhiheng-vue3-fastapi \
+  -f /home/ja/project/ZhiHeng-Vue3-FastAPI/.worktrees/antd-minimal-loop/docker-compose.pg.yml \
+  -f /home/ja/project/ZhiHeng-Vue3-FastAPI/data/agent-releases/20260908-agent-extension-0.2.0/compose.override.yml \
+  up -d --no-deps --no-build zhiheng-backend-pg zhiheng-frontend
 ```
 
 真实页面截图保存在 `/tmp/agent-live-list.png`、`/tmp/agent-live-config.png`、`/tmp/agent-live-api.png` 和 `/tmp/agent-live-mobile.png`。

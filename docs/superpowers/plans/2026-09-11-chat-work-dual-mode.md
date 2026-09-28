@@ -14,56 +14,56 @@
 
 ### 后端
 
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py` — 工作任务、成员和消息 ORM。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py` — 请求、响应、查询和流式运行模型。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py` — 所有者隔离的任务持久化与行锁。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_service.py` — CRUD、状态流转、成员快照和恢复。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py` — 幂等运行、上下文装配、模型流和终态持久化。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py` — 工作任务内部接口和 SSE。
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/dao/agent_dao.py` — 当前用户可使用的已发布智能体目录查询。
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/service/agent_service.py` — 查询当前用户可使用的已发布智能体快照。
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/hooks.py` — 启动时恢复遗留运行状态。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql`。
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql`。
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/plugin.yaml` — 迁移、版本和权限声明。
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py`。
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py`。
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py`。
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py`。
-- 修改：`ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py` — 插件清单契约。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py` — 工作任务、成员和消息 ORM。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py` — 请求、响应、查询和流式运行模型。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py` — 所有者隔离的任务持久化与行锁。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_service.py` — CRUD、状态流转、成员快照和恢复。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py` — 幂等运行、上下文装配、模型流和终态持久化。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py` — 工作任务内部接口和 SSE。
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/dao/agent_dao.py` — 当前用户可使用的已发布智能体目录查询。
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/service/agent_service.py` — 查询当前用户可使用的已发布智能体快照。
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/hooks.py` — 启动时恢复遗留运行状态。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql`。
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql`。
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/plugin.yaml` — 迁移、版本和权限声明。
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py`。
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py`。
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py`。
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py`。
+- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py` — 插件清单契约。
 
 ### 前端
 
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue` — 删除新聊天知识库选择并接入中心模式空态。
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js` — 固化聊天无知识库、技能保留行为。
-- 修改：`ruoyi-fastapi-frontend/src/router/index.js` — 注册权限感知的隐藏 `/ai/work` 路由。
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js` — 工作路由、模式和落地页规则。
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue` — 新建聊天/工作与模式化历史。
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/RecentWorkTasks.vue`。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/api/workTask.js`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/utils/workTask.js`。
-- 创建：`ruoyi-fastapi-frontend/src/store/modules/workTask.js`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/index.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue`。
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue`。
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`。
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`。
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`。
-- 创建：`ruoyi-fastapi-frontend/tests/e2e/chat_work_mode_check.py`。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue` — 删除新聊天知识库选择并接入中心模式空态。
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js` — 固化聊天无知识库、技能保留行为。
+- 修改：`zhiheng-fastapi-frontend/src/router/index.js` — 注册权限感知的隐藏 `/ai/work` 路由。
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js` — 工作路由、模式和落地页规则。
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue` — 新建聊天/工作与模式化历史。
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/RecentWorkTasks.vue`。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/api/workTask.js`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/utils/workTask.js`。
+- 创建：`zhiheng-fastapi-frontend/src/store/modules/workTask.js`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/index.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue`。
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue`。
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`。
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`。
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`。
+- 创建：`zhiheng-fastapi-frontend/tests/e2e/chat_work_mode_check.py`。
 
 ### 任务 1：工作任务数据结构与双数据库迁移
 
 **文件：**
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py`
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py`
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql`
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql`
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py`
 
 - [ ] **步骤 1：编写失败的 schema 测试**
 
@@ -187,18 +187,18 @@ pytest -q tests/plugins/agent_extension/test_work_task_schema.py
 - [ ] **步骤 7：提交数据结构**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py ruoyi-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py ruoyi-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql ruoyi-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py
+git add zhiheng-fastapi-backend/plugins/agent_extension/entity/do/work_task_do.py zhiheng-fastapi-backend/plugins/agent_extension/entity/vo/work_task_vo.py zhiheng-fastapi-backend/plugins/agent_extension/migrations/mysql/004_work_tasks.sql zhiheng-fastapi-backend/plugins/agent_extension/migrations/postgresql/004_work_tasks.sql zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_schema.py
 git commit -m "feat(agent): 增加工作任务数据模型"
 ```
 
 ### 任务 2：任务 CRUD、所有者隔离与成员快照
 
 **文件：**
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py`
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_service.py`
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/dao/agent_dao.py`
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/service/agent_service.py`
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_service.py`
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/dao/agent_dao.py`
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/service/agent_service.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py`
 
 - [ ] **步骤 1：编写失败的服务测试**
 
@@ -317,16 +317,16 @@ pytest -q tests/plugins/agent_extension/test_work_task_service.py
 - [ ] **步骤 7：提交 CRUD 与成员服务**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py ruoyi-fastapi-backend/plugins/agent_extension/dao/agent_dao.py ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_service.py ruoyi-fastapi-backend/plugins/agent_extension/service/agent_service.py ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py
+git add zhiheng-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py zhiheng-fastapi-backend/plugins/agent_extension/dao/agent_dao.py zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_service.py zhiheng-fastapi-backend/plugins/agent_extension/service/agent_service.py zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_service.py
 git commit -m "feat(agent): 实现工作任务与成员管理"
 ```
 
 ### 任务 3：多智能体共享上下文与幂等流式运行
 
 **文件：**
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py`
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py`
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py`
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py`
 
 - [ ] **步骤 1：编写失败的运行服务测试**
 
@@ -405,18 +405,18 @@ pytest -q tests/plugins/agent_extension/test_work_task_run_service.py
 - [ ] **步骤 7：提交运行服务**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py ruoyi-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py
+git add zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py zhiheng-fastapi-backend/plugins/agent_extension/dao/work_task_dao.py zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_run_service.py
 git commit -m "feat(agent): 实现多智能体工作流式运行"
 ```
 
 ### 任务 4：内部 API、权限与插件恢复
 
 **文件：**
-- 创建：`ruoyi-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py`
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/hooks.py`
-- 修改：`ruoyi-fastapi-backend/plugins/agent_extension/plugin.yaml`
-- 创建：`ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py`
-- 修改：`ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py`
+- 创建：`zhiheng-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py`
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/hooks.py`
+- 修改：`zhiheng-fastapi-backend/plugins/agent_extension/plugin.yaml`
+- 创建：`zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py`
+- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py`
 
 - [ ] **步骤 1：编写失败的控制器和清单测试**
 
@@ -486,20 +486,20 @@ pytest -q tests/plugins/agent_extension
 - [ ] **步骤 8：提交 API 与插件声明**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py ruoyi-fastapi-backend/plugins/agent_extension/hooks.py ruoyi-fastapi-backend/plugins/agent_extension/plugin.yaml ruoyi-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py
+git add zhiheng-fastapi-backend/plugins/agent_extension/controller/work_task_controller.py zhiheng-fastapi-backend/plugins/agent_extension/hooks.py zhiheng-fastapi-backend/plugins/agent_extension/plugin.yaml zhiheng-fastapi-backend/tests/plugins/agent_extension/test_work_task_controller.py zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py
 git commit -m "feat(agent): 暴露工作任务内部接口"
 ```
 
 ### 任务 5：聊天去知识库与中心模式入口
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`
-- 修改：`ruoyi-fastapi-frontend/src/router/index.js`
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`
+- 修改：`zhiheng-fastapi-frontend/src/router/index.js`
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
 
 - [ ] **步骤 1：编写失败的聊天与模式测试**
 
@@ -550,22 +550,22 @@ node tests/plugins/workspaceTransforms.test.js
 - [ ] **步骤 7：提交聊天双模式入口**
 
 ```bash
-git add ruoyi-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js ruoyi-fastapi-frontend/src/router/index.js ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue ruoyi-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue
+git add zhiheng-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js zhiheng-fastapi-frontend/src/router/index.js zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceModeSwitch.vue zhiheng-fastapi-frontend/plugins/ai/views/chat/components/ChatEmptyState.vue zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue
 git commit -m "feat(chat): 拆分聊天与工作空态"
 ```
 
 ### 任务 6：工作任务 API、store、空态和独立历史
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/api/workTask.js`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/utils/workTask.js`
-- 创建：`ruoyi-fastapi-frontend/src/store/modules/workTask.js`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue`
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/RecentWorkTasks.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/api/workTask.js`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/utils/workTask.js`
+- 创建：`zhiheng-fastapi-frontend/src/store/modules/workTask.js`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/RecentWorkTasks.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：编写失败的工作转换和侧栏测试**
 
@@ -623,18 +623,18 @@ node tests/plugins/platformShellContract.test.js
 - [ ] **步骤 8：提交工作空态和历史**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/agent_extension/api/workTask.js ruoyi-fastapi-frontend/plugins/agent_extension/utils/workTask.js ruoyi-fastapi-frontend/src/store/modules/workTask.js ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue ruoyi-fastapi-frontend/src/layout/components/RecentWorkTasks.vue ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue ruoyi-fastapi-frontend/tests/plugins/workTaskTransforms.test.js ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/plugins/agent_extension/api/workTask.js zhiheng-fastapi-frontend/plugins/agent_extension/utils/workTask.js zhiheng-fastapi-frontend/src/store/modules/workTask.js zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkAgentPicker.vue zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkEmptyState.vue zhiheng-fastapi-frontend/src/layout/components/RecentWorkTasks.vue zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue zhiheng-fastapi-frontend/tests/plugins/workTaskTransforms.test.js zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat(work): 增加工作空态与独立历史"
 ```
 
 ### 任务 7：多智能体工作任务页面
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/index.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/index.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/workTaskTransforms.test.js`
 
 - [ ] **步骤 1：扩充失败的任务页面契约测试**
 
@@ -681,14 +681,14 @@ node tests/plugins/workTaskTransforms.test.js
 - [ ] **步骤 7：提交工作任务页面**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/agent_extension/views/work/index.vue ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue ruoyi-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue ruoyi-fastapi-frontend/plugins/agent_extension/utils/workTask.js ruoyi-fastapi-frontend/src/store/modules/workTask.js ruoyi-fastapi-frontend/tests/plugins/workTaskTransforms.test.js
+git add zhiheng-fastapi-frontend/plugins/agent_extension/views/work/index.vue zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMemberBar.vue zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkMessageTimeline.vue zhiheng-fastapi-frontend/plugins/agent_extension/views/work/components/WorkTaskPage.vue zhiheng-fastapi-frontend/plugins/agent_extension/utils/workTask.js zhiheng-fastapi-frontend/src/store/modules/workTask.js zhiheng-fastapi-frontend/tests/plugins/workTaskTransforms.test.js
 git commit -m "feat(work): 实现多智能体任务页面"
 ```
 
 ### 任务 8：端到端、视觉、构建与回归
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/tests/e2e/chat_work_mode_check.py`
+- 创建：`zhiheng-fastapi-frontend/tests/e2e/chat_work_mode_check.py`
 - 修改：本计划列出的文件中验证发现的本功能问题
 
 - [ ] **步骤 1：编写失败的 Playwright 双模式流程**
@@ -759,7 +759,7 @@ CHAT_WORK_CHECK_BASE_URL=http://127.0.0.1:12584 python tests/e2e/chat_work_mode_
 运行：
 
 ```bash
-NODE_OPTIONS=--max-old-space-size=4096 npm exec vite build -- --logLevel error --outDir /tmp/ruoyi-chat-work-build --emptyOutDir
+NODE_OPTIONS=--max-old-space-size=4096 npm exec vite build -- --logLevel error --outDir /tmp/zhiheng-chat-work-build --emptyOutDir
 ```
 
 预期：退出码 0，仓库 `dist` 不产生新改动。
@@ -773,13 +773,13 @@ git diff --check
 git status --short
 ```
 
-预期：只包含计划列出的后端、前端和测试文件；现有 `ruoyi-fastapi-app` 删除、`dist` 构建产物和 `.superpowers` 原型保持未暂存。
+预期：只包含计划列出的后端、前端和测试文件；现有 `zhiheng-fastapi-app` 删除、`dist` 构建产物和 `.superpowers` 原型保持未暂存。
 
 - [ ] **步骤 8：提交最终验证修正**
 
 只暂存本功能源文件和测试：
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension ruoyi-fastapi-backend/tests/plugins/agent_extension ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py ruoyi-fastapi-frontend/plugins/ai/views/chat ruoyi-fastapi-frontend/plugins/agent_extension ruoyi-fastapi-frontend/src/components/Workspace ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue ruoyi-fastapi-frontend/src/layout/components/RecentWorkTasks.vue ruoyi-fastapi-frontend/src/router/index.js ruoyi-fastapi-frontend/src/store/modules/workTask.js ruoyi-fastapi-frontend/tests/plugins ruoyi-fastapi-frontend/tests/e2e/chat_work_mode_check.py
+git add zhiheng-fastapi-backend/plugins/agent_extension zhiheng-fastapi-backend/tests/plugins/agent_extension zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py zhiheng-fastapi-frontend/plugins/ai/views/chat zhiheng-fastapi-frontend/plugins/agent_extension zhiheng-fastapi-frontend/src/components/Workspace zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue zhiheng-fastapi-frontend/src/layout/components/RecentWorkTasks.vue zhiheng-fastapi-frontend/src/router/index.js zhiheng-fastapi-frontend/src/store/modules/workTask.js zhiheng-fastapi-frontend/tests/plugins zhiheng-fastapi-frontend/tests/e2e/chat_work_mode_check.py
 git commit -m "fix(work): 完成聊天与工作双模式回归"
 ```

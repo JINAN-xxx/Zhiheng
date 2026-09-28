@@ -10,8 +10,8 @@
 
 ## 任务 1：后端状态与查询
 
-文件：`ruoyi-fastapi-backend/plugins/ai/{entity/vo/ai_platform_chat_vo.py,dao/platform_chat_dao.py,service/platform_chat_service.py,controller/ai_chat_controller.py}`。
-测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_{dao,service,controller}.py`。
+文件：`zhiheng-fastapi-backend/plugins/ai/{entity/vo/ai_platform_chat_vo.py,dao/platform_chat_dao.py,service/platform_chat_service.py,controller/ai_chat_controller.py}`。
+测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_{dao,service,controller}.py`。
 
 - [x] 添加归档隔离、状态变更保留消息、越权、生成中保护、幂等和无效参数测试，运行确认因缺少功能失败。
 - [x] 查询增加 `status='active'`，DAO 在分页前过滤所有权和状态。
@@ -21,8 +21,8 @@
 
 ## 任务 2：前端状态管理
 
-文件：`ruoyi-fastapi-frontend/src/api/platformWorkspace.js`、`src/store/modules/workspace.js`。
-测试：`ruoyi-fastapi-frontend/tests/plugins/chatArchiveStore.test.js`。
+文件：`zhiheng-fastapi-frontend/src/api/platformWorkspace.js`、`src/store/modules/workspace.js`。
+测试：`zhiheng-fastapi-frontend/tests/plugins/chatArchiveStore.test.js`。
 
 - [x] 使用真实 Pinia 加网络替身验证状态筛选、分页、归档/恢复、迟到查询、操作失败和当前页回退，先运行失败测试。
 - [x] API 增加 status 请求与分页参数；Store 增加状态筛选、分页和已确认的会话变更通知。
@@ -31,7 +31,7 @@
 
 ## 任务 3：侧栏与归档阅读
 
-文件：`ruoyi-fastapi-frontend/src/layout/components/{RecentSessions,PlatformSidebar}.vue`、`plugins/ai/views/chat/index.vue`。
+文件：`zhiheng-fastapi-frontend/src/layout/components/{RecentSessions,PlatformSidebar}.vue`、`plugins/ai/views/chat/index.vue`。
 
 - [x] 最近会话区域增加已归档切换与分页，按当前状态显示归档或恢复菜单项。
 - [x] 归档当前对话返回新对话，创建新对话切回最近会话；永久删除保持确认。

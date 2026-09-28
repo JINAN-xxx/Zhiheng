@@ -4,7 +4,7 @@
 
 ## 配置与结果
 
-使用线上镜像 `ruoyi-backend-pg:graph-build-reliability-20260918`、已发布模型 `zai-org-glm-5.3`（`mdl_4b55ba2984df4eb484759a9807c9f17e`）、原 Qwen 向量模型及相同文档切片设置。图谱请求沿用16384输出token上限和240秒超时，没有对 GLM 套用 DeepSeek 的关闭思考扩展。每次模型调用断言了目标平台模型ID。
+使用线上镜像 `zhiheng-backend-pg:graph-build-reliability-20260918`、已发布模型 `zai-org-glm-5.3`（`mdl_4b55ba2984df4eb484759a9807c9f17e`）、原 Qwen 向量模型及相同文档切片设置。图谱请求沿用16384输出token上限和240秒超时，没有对 GLM 套用 DeepSeek 的关闭思考扩展。每次模型调用断言了目标平台模型ID。
 
 | 文档 | 结果 |
 | --- | --- |

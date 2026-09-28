@@ -11,7 +11,7 @@ Architecture: Agent Extension owns configuration and publication. AI's existing 
 - [x] Add frontend agent API, list/editor/trial/publish/key controls at `plugins/agent_extension/views/agent/index.vue`. Add navigation and plugin menu permissions. Test transforms and workflow with browser fixtures.
 - [x] Add integration documentation, review permission/plugin wiring, run targeted Python tests and frontend plugin tests/build, verify desktop/mobile browser workflows, and start a local development server.
 
-Run backend checks from `ruoyi-fastapi-backend`: `python -m pytest -q tests/plugins/agent_extension` and relevant existing public API tests. Run frontend checks from `ruoyi-fastapi-frontend`: `npm run test:plugin`; build output must use `/tmp/ruoyi-configurable-agent-build` to avoid tracked `dist` changes.
+Run backend checks from `zhiheng-fastapi-backend`: `python -m pytest -q tests/plugins/agent_extension` and relevant existing public API tests. Run frontend checks from `zhiheng-fastapi-frontend`: `npm run test:plugin`; build output must use `/tmp/zhiheng-configurable-agent-build` to avoid tracked `dist` changes.
 
 Implementation is authorized in the current branch. Preserve existing deleted mobile-app files and generated build outputs. Do not merge remote divergence or commit unrelated files.
 

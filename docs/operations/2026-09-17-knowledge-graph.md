@@ -20,7 +20,7 @@
 - 保持一个后端 worker。每个知识库使用独立 workspace；禁止全局 POSTGRES_WORKSPACE、MILVUS_WORKSPACE 覆盖。
 - 本次没有新增数据库服务或对外端口。LightRAG 初始化自己的 lightrag_* 表；初始化前已确认这些表不存在。
 - 固定并保留原镜像全部 185 个依赖版本，只增加 11 个依赖，`pip check` 通过。依赖 wheel 和约束记录在发布目录 `dependency-image/`。
-- 后端镜像为 `ruoyi-backend-pg:knowledge-graph-20260917`，基于 `knowledge-graph-deps-20260917` 增量复制本次代码。
+- 后端镜像为 `zhiheng-backend-pg:knowledge-graph-20260917`，基于 `knowledge-graph-deps-20260917` 增量复制本次代码。
 - 镜像预置校验 SHA-256 的 o200k 分词数据，TIKTOKEN_CACHE_DIR 为 `/app/tokenizer-cache`。资源缺失或损坏立即报错，不在请求中联网下载；加载在线程中完成。
 - Milvus 首次集合初始化在线程中执行，保留 SDK 初始化锁。连续取消及初始化超时均等待线程结束后再清理连接，已在 Python 3.10 验证。
 

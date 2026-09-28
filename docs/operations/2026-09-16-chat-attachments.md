@@ -18,7 +18,7 @@
 
 ## 发布
 
-- 后端镜像：`ruoyi-backend-pg:chat-attachments-20260916`，基于上一版 Milvus 镜像，只覆盖本次后端源文件；构建输入保存在发布目录 `backend/`。
+- 后端镜像：`zhiheng-backend-pg:chat-attachments-20260916`，基于上一版 Milvus 镜像，只覆盖本次后端源文件；构建输入保存在发布目录 `backend/`。
 - PostgreSQL 主依赖清单加入固定版本 `pypdf==6.18.0`、`python-docx==1.2.0`。当前镜像已包含这两个版本，另有 Pillow 和 openpyxl。
 - 前端静态目录为发布目录的 `frontend/`；Nginx 挂载同目录 `nginx.conf`。
 - Nginx 上传请求上限为 `101m`，覆盖后端通用 100 MiB 文件上限及 multipart 开销。补充通用上传白名单中的 WebP、MD、CSV。
@@ -41,7 +41,7 @@
 复测桌面上传交互（fixture）及真实验证码：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 PLATFORM_SHELL_BASE_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/chat_attachments_check.py
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```
@@ -55,5 +55,5 @@ CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captc
 ```bash
 data/agent-releases/20260916-chat-attachments/manage.sh \
   -f data/agent-releases/20260916-chat-attachments/rollback.override.yml \
-  up -d --no-deps --no-build ruoyi-backend-pg ruoyi-frontend
+  up -d --no-deps --no-build zhiheng-backend-pg zhiheng-frontend
 ```

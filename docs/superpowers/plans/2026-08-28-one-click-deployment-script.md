@@ -4,7 +4,7 @@
 
 **目标：** 在仓库根目录提供安全、幂等、可从任意目录执行的 `deploy.sh`，覆盖首次部署、启动、重启、停止、状态、日志和更新。
 
-**架构：** 脚本只负责命令编排和依赖检查，服务定义继续由 `docker-compose.pg.yml` 管理，数据库初始化复用 `deploy/ruoyi/init-shared-postgres.sh`。所有命令通过脚本目录解析仓库根路径，避免依赖当前工作目录。
+**架构：** 脚本只负责命令编排和依赖检查，服务定义继续由 `docker-compose.pg.yml` 管理，数据库初始化复用 `deploy/zhiheng/init-shared-postgres.sh`。所有命令通过脚本目录解析仓库根路径，避免依赖当前工作目录。
 
 **技术栈：** POSIX `sh`、Docker Compose、ShellCheck、Node.js 静态契约测试。
 
@@ -13,8 +13,8 @@
 ### 任务 1：新增脚本契约测试
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/deployScriptContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/run-plugin-tests.js`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/deployScriptContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js`
 
 - [x] **步骤 1：编写失败的测试**
 
@@ -33,7 +33,7 @@
 
 - [x] **步骤 1：实现依赖和路径函数**
 
-使用 `CDPATH= cd "$(dirname "$0")"` 解析根目录；固定默认 Compose 项目名 `ruoyi-vue3-fastapi`（可由 `RUOYI_COMPOSE_PROJECT` 覆盖）；检查 Docker、Compose 和 Compose 文件；优先使用 `docker compose`，不可用时回退到 `docker-compose`。
+使用 `CDPATH= cd "$(dirname "$0")"` 解析根目录；固定默认 Compose 项目名 `zhiheng-vue3-fastapi`（可由 `RUOYI_COMPOSE_PROJECT` 覆盖）；检查 Docker、Compose 和 Compose 文件；优先使用 `docker compose`，不可用时回退到 `docker-compose`。
 
 - [x] **步骤 2：实现命令分发**
 
@@ -49,7 +49,7 @@
 
 **文件：**
 - 修改：`README.md`
-- 修改：`deploy/ruoyi/README.md`
+- 修改：`deploy/zhiheng/README.md`
 
 - [x] **步骤 1：补充快速使用说明**
 
@@ -62,6 +62,6 @@
 - [x] **步骤 3：提交实现**
 
 ```bash
-git add deploy.sh README.md deploy/ruoyi/README.md ruoyi-fastapi-frontend/tests/plugins/deployScriptContract.test.js ruoyi-fastapi-frontend/tests/plugins/run-plugin-tests.js
+git add deploy.sh README.md deploy/zhiheng/README.md zhiheng-fastapi-frontend/tests/plugins/deployScriptContract.test.js zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js
 git commit -m "feat: 增加一键部署管理脚本"
 ```

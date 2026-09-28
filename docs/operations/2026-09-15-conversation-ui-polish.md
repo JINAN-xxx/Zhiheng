@@ -19,8 +19,8 @@
 
 ## 部署定位
 
-静态产物：`data/agent-releases/20260915-conversation-ui-polish/frontend/`。仅重建 `ruoyi-frontend`，后端与数据库沿用先前版本。
+静态产物：`data/agent-releases/20260915-conversation-ui-polish/frontend/`。仅重建 `zhiheng-frontend`，后端与数据库沿用先前版本。
 
-当前 Compose 组合为 `.worktrees/antd-minimal-loop/docker-compose.pg.yml`、`data/agent-releases/20260914-chat-work-dual-mode/compose.override.yml`、`data/agent-releases/20260915-conversation-ui-polish/compose.override.yml`。项目名为 `ruoyi-vue3-fastapi`，环境文件仍为 `data/agent-releases/20260914-chat-work-dual-mode/private/compose.env`。
+当前 Compose 组合为 `.worktrees/antd-minimal-loop/docker-compose.pg.yml`、`data/agent-releases/20260914-chat-work-dual-mode/compose.override.yml`、`data/agent-releases/20260915-conversation-ui-polish/compose.override.yml`。项目名为 `zhiheng-vue3-fastapi`，环境文件仍为 `data/agent-releases/20260914-chat-work-dual-mode/private/compose.env`。
 
 旧 `20260915-conversation-navigation` 静态产物和 override 均保留；需要回退时将最后一份前端 override 替换为该版本并重建前端，不涉及数据库恢复。临时 `12585` 预览已停止。

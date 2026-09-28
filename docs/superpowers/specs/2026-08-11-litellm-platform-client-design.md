@@ -2,7 +2,7 @@
 
 ## 背景
 
-LiteLLM Proxy、PostgreSQL 和 Redis 已经独立部署并通过健康、认证与端口隔离验证。现有 RuoYi AI 插件仍通过 Agno 和各 Provider SDK 直接调用模型，Platform 后端尚无稳定的 LiteLLM HTTP 边界。
+LiteLLM Proxy、PostgreSQL 和 Redis 已经独立部署并通过健康、认证与端口隔离验证。现有 ZhiHeng AI 插件仍通过 Agno 和各 Provider SDK 直接调用模型，Platform 后端尚无稳定的 LiteLLM HTTP 边界。
 
 本规格是平台改造的第一阶段。它只建立 Platform 到 LiteLLM 的内部接入层，不迁移现有模型业务数据，也不替换当前 Agno 对话链路。
 
@@ -13,7 +13,7 @@ LiteLLM Proxy、PostgreSQL 和 Redis 已经独立部署并通过健康、认证�
 - 为普通响应、流式响应、超时、连接失败和上游错误定义稳定边界。
 - 使用单独的内部 Runtime Key 调用数据面，不向 Platform 进程注入 LiteLLM Master Key。
 - 复用现有 Trace ID 和 Request ID，并保证日志不泄露 Credential、Prompt 或响应正文。
-- 让 Docker 中的 RuoYi Backend 通过内部网络直接访问 LiteLLM Proxy。
+- 让 Docker 中的 ZhiHeng Backend 通过内部网络直接访问 LiteLLM Proxy。
 
 ## 非目标
 
@@ -31,7 +31,7 @@ LiteLLM Proxy、PostgreSQL 和 Redis 已经独立部署并通过健康、认证�
 ## 架构
 
 ```text
-RuoYi AI Plugin Service
+ZhiHeng AI Plugin Service
           |
           v
 LiteLLMRuntimeClient
@@ -57,7 +57,7 @@ AI 插件通过启动和关闭 Hook 管理客户端。每个 FastAPI Worker 持�
 - `LITELLM_RUNTIME_KEY` 只存在于未提交的运行环境中。
 - Runtime Key 不写入 Platform 数据库，不返回前端，不进入日志。
 - 本阶段 LiteLLM Master Key 只用于部署侧一次性创建 Runtime Key。
-- RuoYi Backend 进程不注入 `LITELLM_MASTER_KEY`。
+- ZhiHeng Backend 进程不注入 `LITELLM_MASTER_KEY`。
 - 第二阶段新增管理面客户端时，Master Key 和 Runtime Key 必须继续分离。
 
 真实 Runtime Key 在仓库根目录未提交的 `.env` 中提供给 Docker Compose，文件权限为 `0600`。本地非容器开发通过进程环境变量注入。已有受版本控制的 `.env.dev`、`.env.prod` 和 `.env.dockerpg` 只包含空值或非敏感示例，不保存真实 Key。
@@ -76,24 +76,24 @@ AI 插件通过启动和关闭 Hook 管理客户端。每个 FastAPI Worker 持�
 
 Docker 环境覆盖 `LITELLM_BASE_URL=http://litellm-proxy:4000`。超时值必须大于零，基础地址只接受包含主机名的 `http` 或 `https` URL。
 
-Runtime Key 缺失时 RuoYi 主应用仍可启动，AI Runtime 状态为 `misconfigured`，所有需要认证的 LiteLLM 调用快速失败。LiteLLM 暂时不可用也不能阻止 RuoYi 管理功能启动；状态接口返回 `unavailable`，由运维修复依赖。
+Runtime Key 缺失时 ZhiHeng 主应用仍可启动，AI Runtime 状态为 `misconfigured`，所有需要认证的 LiteLLM 调用快速失败。LiteLLM 暂时不可用也不能阻止 ZhiHeng 管理功能启动；状态接口返回 `unavailable`，由运维修复依赖。
 
 明确配置了非法 URL 时，AI 插件启动失败并由现有插件运行时记录错误，避免带着错误目标地址继续运行。
 
 ## Docker 网络
 
-`docker-compose.pg.yml` 中的 `ruoyi-backend-pg` 同时加入：
+`docker-compose.pg.yml` 中的 `zhiheng-backend-pg` 同时加入：
 
-- 原有 `ruoyi-network`
+- 原有 `zhiheng-network`
 - 外部网络 `litellm-network`
 
 `litellm-network` 由 LiteLLM Compose 创建，Platform Compose 将其声明为 `external: true`。两个 Compose 项目保持独立，Platform 不通过 `depends_on` 管理 LiteLLM 生命周期。
 
 网络边界保持不变：
 
-- RuoYi Backend 通过 `http://litellm-proxy:4000` 访问 Proxy。
+- ZhiHeng Backend 通过 `http://litellm-proxy:4000` 访问 Proxy。
 - LiteLLM PostgreSQL 和 Redis 不发布宿主机端口。
-- RuoYi PostgreSQL 和 Redis 不加入 `litellm-network`。
+- ZhiHeng PostgreSQL 和 Redis 不加入 `litellm-network`。
 - LiteLLM 故障时 Platform 管理端仍能启动并报告降级状态。
 
 ## 客户端接口
@@ -181,18 +181,18 @@ LiteLLM 的 `401` 或 `403` 不直接返回为客户认证失败，因为它表�
 预计新增或修改：
 
 ```text
-ruoyi-fastapi-backend/plugins/ai/config.py
-ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_client.py
-ruoyi-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py
-ruoyi-fastapi-backend/plugins/ai/hooks.py
-ruoyi-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py
-ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py
-ruoyi-fastapi-backend/plugins/ai/plugin.yaml
-ruoyi-fastapi-backend/.env.dev
-ruoyi-fastapi-backend/.env.prod
-ruoyi-fastapi-backend/.env.dockerpg
+zhiheng-fastapi-backend/plugins/ai/config.py
+zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py
+zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py
+zhiheng-fastapi-backend/plugins/ai/hooks.py
+zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py
+zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py
+zhiheng-fastapi-backend/plugins/ai/plugin.yaml
+zhiheng-fastapi-backend/.env.dev
+zhiheng-fastapi-backend/.env.prod
+zhiheng-fastapi-backend/.env.dockerpg
 docker-compose.pg.yml
-ruoyi-fastapi-backend/tests/plugins/ai/
+zhiheng-fastapi-backend/tests/plugins/ai/
 ```
 
 本阶段不修改前端文件和数据库 Migration。
@@ -215,17 +215,17 @@ HTTP 测试使用 `httpx.MockTransport`，不依赖真实 Provider，也不产�
 
 ### 部署契约测试
 
-- Platform Backend 同时加入 `ruoyi-network` 和外部 `litellm-network`。
+- Platform Backend 同时加入 `zhiheng-network` 和外部 `litellm-network`。
 - Docker Compose 只向 Backend 注入 Runtime Key，不注入 LiteLLM Master Key。
 - 三个受控环境模板不包含真实 Key。
 
 ### 真实集成验证
 
 - 创建单个 `platform-runtime` 内部 Key，真实值只写入未提交环境。
-- RuoYi Backend 能通过容器 DNS 访问 LiteLLM。
+- ZhiHeng Backend 能通过容器 DNS 访问 LiteLLM。
 - `GET /ai/runtime/health` 返回 `healthy`。
 - `GET /ai/runtime/models` 认证成功并返回当前空模型列表。
-- 删除或替换 Runtime Key 后，诊断接口返回脱敏错误且 RuoYi 主应用保持运行。
+- 删除或替换 Runtime Key 后，诊断接口返回脱敏错误且 ZhiHeng 主应用保持运行。
 
 ## 验收标准
 
@@ -234,13 +234,13 @@ HTTP 测试使用 `httpx.MockTransport`，不依赖真实 Provider，也不产�
 1. LiteLLM Runtime 三个容器继续健康运行。
 2. Platform Backend 通过内部 Docker 网络访问 LiteLLM Proxy。
 3. Platform 使用独立 Runtime Key，不持有 Master Key。
-4. 健康和模型诊断接口受 RuoYi 登录与权限保护。
+4. 健康和模型诊断接口受 ZhiHeng 登录与权限保护。
 5. 普通请求、流式请求和 Embedding 客户端契约有自动化测试。
-6. LiteLLM 故障不会阻止 RuoYi 管理端启动。
+6. LiteLLM 故障不会阻止 ZhiHeng 管理端启动。
 7. Credential、Prompt 和响应正文不进入日志。
 8. 当前 Agno 模型和对话功能保持原状。
 9. 不新增或修改业务数据库表。
 
 ## 后续衔接
 
-第二阶段在此客户端和网络边界上增加 LiteLLM 管理面客户端，以及 RuoYi Provider、Credential 和 Deployment 管理界面。管理面使用独立 Master Key；Runtime Key 继续只承担模型查询和推理调用。
+第二阶段在此客户端和网络边界上增加 LiteLLM 管理面客户端，以及 ZhiHeng Provider、Credential 和 Deployment 管理界面。管理面使用独立 Master Key；Runtime Key 继续只承担模型查询和推理调用。

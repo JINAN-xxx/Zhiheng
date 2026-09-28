@@ -14,56 +14,56 @@
 
 ### 新增后端插件
 
-- `ruoyi-fastapi-backend/plugins/agent_extension/plugin.yaml`：插件、菜单、迁移和权限声明。
-- `ruoyi-fastapi-backend/plugins/agent_extension/config.py`：技能存储路径与固定安全上限。
-- `ruoyi-fastapi-backend/plugins/agent_extension/hooks.py`：创建存储目录并注册技能上下文提供器。
-- `ruoyi-fastapi-backend/plugins/agent_extension/domain/skill_package.py`：Markdown/ZIP 解析与路径安全校验。
-- `ruoyi-fastapi-backend/plugins/agent_extension/domain/skill_errors.py`：固定公开错误契约。
-- `ruoyi-fastapi-backend/plugins/agent_extension/infrastructure/skill_storage.py`：草稿、正式目录和垃圾目录的原子文件操作。
-- `ruoyi-fastapi-backend/plugins/agent_extension/entity/do/skill_do.py`：`AgentSkill` ORM 模型。
-- `ruoyi-fastapi-backend/plugins/agent_extension/entity/vo/skill_vo.py`：分页、上传、状态和响应模型。
-- `ruoyi-fastapi-backend/plugins/agent_extension/dao/skill_dao.py`：技能查询与状态写入。
-- `ruoyi-fastapi-backend/plugins/agent_extension/service/skill_service.py`：上传确认、启停、删除和对话上下文服务。
-- `ruoyi-fastapi-backend/plugins/agent_extension/controller/skill_controller.py`：管理接口和可用技能接口。
-- `ruoyi-fastapi-backend/plugins/agent_extension/migrations/{mysql,postgresql}/001_skill_management.sql`：技能表结构。
-- `ruoyi-fastapi-backend/plugins/agent_extension/buildin/{deep-research,document-summary}/SKILL.md`：两项纯提示词内置技能。
+- `zhiheng-fastapi-backend/plugins/agent_extension/plugin.yaml`：插件、菜单、迁移和权限声明。
+- `zhiheng-fastapi-backend/plugins/agent_extension/config.py`：技能存储路径与固定安全上限。
+- `zhiheng-fastapi-backend/plugins/agent_extension/hooks.py`：创建存储目录并注册技能上下文提供器。
+- `zhiheng-fastapi-backend/plugins/agent_extension/domain/skill_package.py`：Markdown/ZIP 解析与路径安全校验。
+- `zhiheng-fastapi-backend/plugins/agent_extension/domain/skill_errors.py`：固定公开错误契约。
+- `zhiheng-fastapi-backend/plugins/agent_extension/infrastructure/skill_storage.py`：草稿、正式目录和垃圾目录的原子文件操作。
+- `zhiheng-fastapi-backend/plugins/agent_extension/entity/do/skill_do.py`：`AgentSkill` ORM 模型。
+- `zhiheng-fastapi-backend/plugins/agent_extension/entity/vo/skill_vo.py`：分页、上传、状态和响应模型。
+- `zhiheng-fastapi-backend/plugins/agent_extension/dao/skill_dao.py`：技能查询与状态写入。
+- `zhiheng-fastapi-backend/plugins/agent_extension/service/skill_service.py`：上传确认、启停、删除和对话上下文服务。
+- `zhiheng-fastapi-backend/plugins/agent_extension/controller/skill_controller.py`：管理接口和可用技能接口。
+- `zhiheng-fastapi-backend/plugins/agent_extension/migrations/{mysql,postgresql}/001_skill_management.sql`：技能表结构。
+- `zhiheng-fastapi-backend/plugins/agent_extension/buildin/{deep-research,document-summary}/SKILL.md`：两项纯提示词内置技能。
 
 ### 新增前端插件
 
-- `ruoyi-fastapi-frontend/plugins/agent_extension/api/skill.js`：技能管理和可用技能接口。
-- `ruoyi-fastapi-frontend/plugins/agent_extension/utils/skill.js`：响应标准化与状态转换。
-- `ruoyi-fastapi-frontend/plugins/agent_extension/views/skill/index.vue`：技能列表页。
-- `ruoyi-fastapi-frontend/plugins/agent_extension/views/skill/components/SkillUploadModal.vue`：两步上传确认。
-- `ruoyi-fastapi-frontend/plugins/agent_extension/views/skill/components/SkillDetailDrawer.vue`：详情和主文件预览。
-- `ruoyi-fastapi-frontend/plugins/ai/views/chat/components/SkillPicker.vue`：对话技能选择器。
+- `zhiheng-fastapi-frontend/plugins/agent_extension/api/skill.js`：技能管理和可用技能接口。
+- `zhiheng-fastapi-frontend/plugins/agent_extension/utils/skill.js`：响应标准化与状态转换。
+- `zhiheng-fastapi-frontend/plugins/agent_extension/views/skill/index.vue`：技能列表页。
+- `zhiheng-fastapi-frontend/plugins/agent_extension/views/skill/components/SkillUploadModal.vue`：两步上传确认。
+- `zhiheng-fastapi-frontend/plugins/agent_extension/views/skill/components/SkillDetailDrawer.vue`：详情和主文件预览。
+- `zhiheng-fastapi-frontend/plugins/ai/views/chat/components/SkillPicker.vue`：对话技能选择器。
 
 ### 修改现有对话与部署
 
-- `ruoyi-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py`：消息技能快照列。
-- `ruoyi-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py`：请求技能标识与消息快照模型。
-- `ruoyi-fastapi-backend/plugins/ai/infrastructure/skill_context_adapter.py`：应用状态提供器适配和错误映射。
-- `ruoyi-fastapi-backend/plugins/ai/infrastructure/platform_chat_provider.py`：注入适配器。
-- `ruoyi-fastapi-backend/plugins/ai/service/platform_chat_service.py`：解析、快照和当前请求注入。
-- `ruoyi-fastapi-backend/plugins/ai/migrations/{mysql,postgresql}/008_chat_skill_snapshots.sql`：消息快照字段。
-- `ruoyi-fastapi-backend/plugins/ai/plugin.yaml`：登记迁移。
-- `ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`：技能标签与发送参数。
+- `zhiheng-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py`：消息技能快照列。
+- `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_platform_chat_vo.py`：请求技能标识与消息快照模型。
+- `zhiheng-fastapi-backend/plugins/ai/infrastructure/skill_context_adapter.py`：应用状态提供器适配和错误映射。
+- `zhiheng-fastapi-backend/plugins/ai/infrastructure/platform_chat_provider.py`：注入适配器。
+- `zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py`：解析、快照和当前请求注入。
+- `zhiheng-fastapi-backend/plugins/ai/migrations/{mysql,postgresql}/008_chat_skill_snapshots.sql`：消息快照字段。
+- `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：登记迁移。
+- `zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`：技能标签与发送参数。
 - `docker-compose.pg.yml`、`docker-compose.my.yml`：技能数据持久目录挂载和环境变量。
-- `deploy/ruoyi/init-shared-postgres.sh`：创建技能数据目录。
+- `deploy/zhiheng/init-shared-postgres.sh`：创建技能数据目录。
 
 ### 测试
 
-- `ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py`
-- `ruoyi-fastapi-backend/tests/plugins/agent_extension/test_skill_schema.py`
-- `ruoyi-fastapi-backend/tests/plugins/agent_extension/test_skill_package.py`
-- `ruoyi-fastapi-backend/tests/plugins/agent_extension/test_skill_storage.py`
-- `ruoyi-fastapi-backend/tests/plugins/agent_extension/test_skill_service.py`
-- `ruoyi-fastapi-backend/tests/plugins/agent_extension/test_skill_controller.py`
-- 修改 `ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py`
-- 修改 `ruoyi-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`
-- `ruoyi-fastapi-frontend/tests/plugins/agentExtensionContract.test.js`
-- `ruoyi-fastapi-frontend/tests/plugins/skillTransforms.test.js`
-- 修改 `ruoyi-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js`
-- 修改 `ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py`
+- `zhiheng-fastapi-backend/tests/plugins/agent_extension/test_skill_schema.py`
+- `zhiheng-fastapi-backend/tests/plugins/agent_extension/test_skill_package.py`
+- `zhiheng-fastapi-backend/tests/plugins/agent_extension/test_skill_storage.py`
+- `zhiheng-fastapi-backend/tests/plugins/agent_extension/test_skill_service.py`
+- `zhiheng-fastapi-backend/tests/plugins/agent_extension/test_skill_controller.py`
+- 修改 `zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_service.py`
+- 修改 `zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`
+- `zhiheng-fastapi-frontend/tests/plugins/agentExtensionContract.test.js`
+- `zhiheng-fastapi-frontend/tests/plugins/skillTransforms.test.js`
+- 修改 `zhiheng-fastapi-frontend/tests/plugins/chatBehaviorContract.test.js`
+- 修改 `zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
 
 ## 任务 1：插件清单、表结构和领域模型
 
@@ -84,7 +84,7 @@ def test_agent_extension_manifest_declares_skill_menu_and_permissions():
 运行：
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest -q tests/plugins/sample_plugins/test_agent_extension_plugin.py tests/plugins/agent_extension/test_skill_schema.py
 ```
 
@@ -124,7 +124,7 @@ ruff check plugins/agent_extension tests/plugins/agent_extension
 - [ ] **步骤 5：提交任务 1**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension ruoyi-fastapi-backend/tests/plugins/agent_extension ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py
+git add zhiheng-fastapi-backend/plugins/agent_extension zhiheng-fastapi-backend/tests/plugins/agent_extension zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_agent_extension_plugin.py
 git commit -m "feat: 建立智能体扩展技能插件"
 ```
 
@@ -178,7 +178,7 @@ ruff check plugins/agent_extension/domain plugins/agent_extension/infrastructure
 - [ ] **步骤 5：提交任务 2**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension/domain ruoyi-fastapi-backend/plugins/agent_extension/infrastructure ruoyi-fastapi-backend/plugins/agent_extension/config.py ruoyi-fastapi-backend/tests/plugins/agent_extension
+git add zhiheng-fastapi-backend/plugins/agent_extension/domain zhiheng-fastapi-backend/plugins/agent_extension/infrastructure zhiheng-fastapi-backend/plugins/agent_extension/config.py zhiheng-fastapi-backend/tests/plugins/agent_extension
 git commit -m "feat: 增加技能包安全解析与存储"
 ```
 
@@ -229,7 +229,7 @@ ruff check plugins/agent_extension tests/plugins/agent_extension
 - [ ] **步骤 5：提交任务 3**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/agent_extension ruoyi-fastapi-backend/tests/plugins/agent_extension
+git add zhiheng-fastapi-backend/plugins/agent_extension zhiheng-fastapi-backend/tests/plugins/agent_extension
 git commit -m "feat: 完成平台技能管理接口"
 ```
 
@@ -248,7 +248,7 @@ assert.doesNotMatch(skillView, /#[0-9a-f]{6}/i)
 - [ ] **步骤 2：运行测试确认前端插件不存在**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 node tests/plugins/skillTransforms.test.js
 node tests/plugins/agentExtensionContract.test.js
 ```
@@ -278,7 +278,7 @@ npm run test:plugin
 - [ ] **步骤 5：提交任务 4**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/agent_extension ruoyi-fastapi-frontend/tests/plugins
+git add zhiheng-fastapi-frontend/plugins/agent_extension zhiheng-fastapi-frontend/tests/plugins
 git commit -m "feat: 增加技能管理页面"
 ```
 
@@ -330,7 +330,7 @@ ruff check plugins/ai tests/plugins/ai/test_platform_chat_service.py tests/plugi
 - [ ] **步骤 5：提交任务 5**
 
 ```bash
-git add ruoyi-fastapi-backend/plugins/ai ruoyi-fastapi-backend/tests/plugins/ai
+git add zhiheng-fastapi-backend/plugins/ai zhiheng-fastapi-backend/tests/plugins/ai
 git commit -m "feat: 支持对话按消息加载技能"
 ```
 
@@ -376,7 +376,7 @@ npm run test:plugin
 - [ ] **步骤 5：提交任务 6**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai ruoyi-fastapi-frontend/plugins/agent_extension ruoyi-fastapi-frontend/tests/plugins
+git add zhiheng-fastapi-frontend/plugins/ai zhiheng-fastapi-frontend/plugins/agent_extension zhiheng-fastapi-frontend/tests/plugins
 git commit -m "feat: 支持对话选择平台技能"
 ```
 
@@ -394,7 +394,7 @@ assert.match(composePg, /AGENT_SKILL_DATA_DIR/)
 - [ ] **步骤 2：运行部署契约确认失败**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 node tests/plugins/deployScriptContract.test.js
 ```
 
@@ -407,11 +407,11 @@ node tests/plugins/deployScriptContract.test.js
 - [ ] **步骤 4：执行完整验证**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 pytest -q tests/plugins/agent_extension tests/plugins/ai/test_platform_chat_service.py tests/plugins/ai/test_platform_chat_schema.py tests/plugins/ai/test_ai_chat_controller.py
 ruff check plugins/agent_extension plugins/ai tests/plugins/agent_extension
 
-cd ../ruoyi-fastapi-frontend
+cd ../zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 ```
@@ -422,8 +422,8 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 
 ```bash
 cd ..
-docker compose --project-name ruoyi-vue3-fastapi --env-file .env -f docker-compose.pg.yml up -d --build
-PLATFORM_SHELL_BASE_URL=http://127.0.0.1:12580 python ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py
+docker compose --project-name zhiheng-vue3-fastapi --env-file .env -f docker-compose.pg.yml up -d --build
+PLATFORM_SHELL_BASE_URL=http://127.0.0.1:12580 python zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py
 ```
 
 验收技能列表、上传、详情、启停、删除、对话选择和流式回复；检查 1280×800、1440×900、浅色和深色主题截图。
@@ -431,7 +431,7 @@ PLATFORM_SHELL_BASE_URL=http://127.0.0.1:12580 python ruoyi-fastapi-frontend/tes
 - [ ] **步骤 6：提交部署和构建产物**
 
 ```bash
-git add docker-compose.pg.yml docker-compose.my.yml deploy/ruoyi/init-shared-postgres.sh README.md ruoyi-fastapi-frontend/dist ruoyi-fastapi-frontend/tests
+git add docker-compose.pg.yml docker-compose.my.yml deploy/zhiheng/init-shared-postgres.sh README.md zhiheng-fastapi-frontend/dist zhiheng-fastapi-frontend/tests
 git commit -m "build: 交付智能体技能管理功能"
 ```
 

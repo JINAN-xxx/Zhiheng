@@ -2,7 +2,7 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 将传统 RuoYi 全局菜单重构为 Yuxi 风格的 AI 工作台优先外壳，把 Developer API 归入 AI 资源，同时保留管理控制台、动态菜单和 RBAC。
+**目标：** 将传统 ZhiHeng 全局菜单重构为 Yuxi 风格的 AI 工作台优先外壳，把 Developer API 归入 AI 资源，同时保留管理控制台、动态菜单和 RBAC。
 
 **架构：** 使用路由驱动的单一 `PlatformShell`，按当前路径在 AI 与管理模式间切换。AI 模式使用固定高频导航、最近会话和 AI 资源页面级标签；管理模式继续消费现有动态路由树。所有模式、默认入口、菜单过滤和权限组合由纯函数计算，业务 URL 与后端接口保持兼容。
 
@@ -12,11 +12,11 @@
 
 ## 实施前约束
 
-当前 `feat-litellm-deployment` 工作区包含未提交的 Embedding/Rerank、费率界面和既有 `ruoyi-fastapi-app` 删除项。本计划必须在当前工作区执行，但遵守以下隔离规则：
+当前 `feat-litellm-deployment` 工作区包含未提交的 Embedding/Rerank、费率界面和既有 `zhiheng-fastapi-app` 删除项。本计划必须在当前工作区执行，但遵守以下隔离规则：
 
 - 每个任务开始前运行 `git status --short`。
 - 只编辑任务列出的文件。
-- 每次提交前运行 `git diff --cached --name-status`，确认没有 Backend 文件、`ruoyi-fastapi-app` 删除项、`.superpowers/` 或架构汇报文档进入暂存区。
+- 每次提交前运行 `git diff --cached --name-status`，确认没有 Backend 文件、`zhiheng-fastapi-app` 删除项、`.superpowers/` 或架构汇报文档进入暂存区。
 - 对已经有其他未提交修改的 `plugins/ai/plugin.yaml` 和 `tests/plugins/sample_plugins/test_ai_plugin.py`，使用精确补丁暂存本任务 hunk；不得直接 `git add` 这两个完整文件。
 - 不回滚、不格式化、不重写本计划范围外的用户改动。
 
@@ -24,42 +24,42 @@
 
 ### 新建
 
-- `ruoyi-fastapi-frontend/src/layout/workspaceRouteResolver.js`：路由模式、默认入口、AI 标签和管理菜单纯函数。
-- `ruoyi-fastapi-frontend/src/api/platformWorkspace.js`：全局最近会话只读/归档 API。
-- `ruoyi-fastapi-frontend/src/store/modules/workspace.js`：最近会话、请求代次和过期状态。
-- `ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`：AI 模式主侧栏。
-- `ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`：会话搜索、切换和归档。
-- `ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue`：管理模式动态菜单。
-- `ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`：精简顶栏和模式操作。
-- `ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`：AI 资源标题和页面级标签。
-- `ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue`：按应用查看用量台账。
-- `ruoyi-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`：纯函数行为测试。
-- `ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`：组件、可访问性和源文件契约。
-- `ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`：四视口浏览器验收脚本。
+- `zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`：路由模式、默认入口、AI 标签和管理菜单纯函数。
+- `zhiheng-fastapi-frontend/src/api/platformWorkspace.js`：全局最近会话只读/归档 API。
+- `zhiheng-fastapi-frontend/src/store/modules/workspace.js`：最近会话、请求代次和过期状态。
+- `zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`：AI 模式主侧栏。
+- `zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`：会话搜索、切换和归档。
+- `zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`：管理模式动态菜单。
+- `zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`：精简顶栏和模式操作。
+- `zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`：AI 资源标题和页面级标签。
+- `zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`：按应用查看用量台账。
+- `zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`：纯函数行为测试。
+- `zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`：组件、可访问性和源文件契约。
+- `zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`：四视口浏览器验收脚本。
 
 ### 修改
 
-- `ruoyi-fastapi-frontend/src/layout/index.vue`：装配单一平台外壳。
-- `ruoyi-fastapi-frontend/src/layout/components/AppMain.vue`：AI 资源容器和模式化内容高度。
-- `ruoyi-fastapi-frontend/src/layout/components/index.js`：导出新布局组件。
-- `ruoyi-fastapi-frontend/src/store/modules/app.js`：桌面折叠与移动抽屉分离。
-- `ruoyi-fastapi-frontend/src/store/modules/settings.js`：停止旧 navType 影响布局。
-- `ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue`：移除旧导航布局选项。
-- `ruoyi-fastapi-frontend/src/permission.js`：使用新的默认入口解析。
-- `ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`：移除重复会话侧栏并同步路由会话 ID。
-- `ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`：适配 AI 资源容器。
-- `ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`：适配 AI 资源容器。
-- `ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`：全局外壳、侧栏、顶栏和响应式变量。
-- `ruoyi-fastapi-backend/plugins/ai/plugin.yaml`：注册 `/ai/usage` 隐藏业务路由声明。
-- `ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`：锁定用量页面声明。
+- `zhiheng-fastapi-frontend/src/layout/index.vue`：装配单一平台外壳。
+- `zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`：AI 资源容器和模式化内容高度。
+- `zhiheng-fastapi-frontend/src/layout/components/index.js`：导出新布局组件。
+- `zhiheng-fastapi-frontend/src/store/modules/app.js`：桌面折叠与移动抽屉分离。
+- `zhiheng-fastapi-frontend/src/store/modules/settings.js`：停止旧 navType 影响布局。
+- `zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`：移除旧导航布局选项。
+- `zhiheng-fastapi-frontend/src/permission.js`：使用新的默认入口解析。
+- `zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`：移除重复会话侧栏并同步路由会话 ID。
+- `zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`：适配 AI 资源容器。
+- `zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`：适配 AI 资源容器。
+- `zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`：全局外壳、侧栏、顶栏和响应式变量。
+- `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：注册 `/ai/usage` 隐藏业务路由声明。
+- `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`：锁定用量页面声明。
 
 ## 任务 1：路由模式与菜单解析纯函数
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/src/layout/workspaceRouteResolver.js`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/permission.js`
+- 创建：`zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/permission.js`
 
 - [ ] **步骤 1：编写失败的模式、权限和默认入口测试**
 
@@ -97,7 +97,7 @@ assert.deepEqual(
 运行：
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 node tests/plugins/platformShellTransforms.test.js
 ```
 
@@ -138,7 +138,7 @@ export function filterAdminWorkspaceRoutes(routes) {
 - [ ] **步骤 4：运行纯函数和现有插件测试**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 node tests/plugins/platformShellTransforms.test.js
 npm run test:plugin
 ```
@@ -148,9 +148,9 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/layout/workspaceRouteResolver.js \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellTransforms.test.js \
-  ruoyi-fastapi-frontend/src/permission.js
+git add zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js \
+  zhiheng-fastapi-frontend/src/permission.js
 git diff --cached --name-status
 git commit -m "feat: 建立工作台路由模式解析"
 ```
@@ -159,10 +159,10 @@ git commit -m "feat: 建立工作台路由模式解析"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/src/api/platformWorkspace.js`
-- 创建：`ruoyi-fastapi-frontend/src/store/modules/workspace.js`
-- 修改：`ruoyi-fastapi-frontend/src/layout/workspaceRouteResolver.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
+- 创建：`zhiheng-fastapi-frontend/src/api/platformWorkspace.js`
+- 创建：`zhiheng-fastapi-frontend/src/store/modules/workspace.js`
+- 修改：`zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
 
 - [ ] **步骤 1：编写失败的会话归一化和迟到响应测试**
 
@@ -225,10 +225,10 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/api/platformWorkspace.js \
-  ruoyi-fastapi-frontend/src/store/modules/workspace.js \
-  ruoyi-fastapi-frontend/src/layout/workspaceRouteResolver.js \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellTransforms.test.js
+git add zhiheng-fastapi-frontend/src/api/platformWorkspace.js \
+  zhiheng-fastapi-frontend/src/store/modules/workspace.js \
+  zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js
 git commit -m "feat: 建立全局最近会话状态"
 ```
 
@@ -236,11 +236,11 @@ git commit -m "feat: 建立全局最近会话状态"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/index.js`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/index.js`
 
 - [ ] **步骤 1：编写失败的组件契约测试**
 
@@ -296,11 +296,11 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
-  ruoyi-fastapi-frontend/src/layout/components/RecentSessions.vue \
-  ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue \
-  ruoyi-fastapi-frontend/src/layout/components/index.js \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
+  zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue \
+  zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue \
+  zhiheng-fastapi-frontend/src/layout/components/index.js \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat: 重构平台全局侧栏"
 ```
 
@@ -308,11 +308,11 @@ git commit -m "feat: 重构平台全局侧栏"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AppMain.vue`
-- 修改：`ruoyi-fastapi-frontend/src/store/modules/app.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`
+- 修改：`zhiheng-fastapi-frontend/src/store/modules/app.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：扩展失败契约测试**
 
@@ -365,11 +365,11 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  ruoyi-fastapi-frontend/src/layout/index.vue \
-  ruoyi-fastapi-frontend/src/layout/components/AppMain.vue \
-  ruoyi-fastapi-frontend/src/store/modules/app.js \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
+  zhiheng-fastapi-frontend/src/layout/index.vue \
+  zhiheng-fastapi-frontend/src/layout/components/AppMain.vue \
+  zhiheng-fastapi-frontend/src/store/modules/app.js \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat: 建立 AI 工作台全局外壳"
 ```
 
@@ -377,9 +377,9 @@ git commit -m "feat: 建立 AI 工作台全局外壳"
 
 **文件：**
 
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
 
 - [ ] **步骤 1：编写失败的会话路由契约**
 
@@ -421,9 +421,9 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js \
-  ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js
+git add zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js \
+  zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js
 git commit -m "feat: 统一全局与对话会话导航"
 ```
 
@@ -431,14 +431,14 @@ git commit -m "feat: 统一全局与对话会话导航"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AppMain.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 创建：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
+- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：编写失败的标签和清单测试**
 
@@ -461,8 +461,8 @@ assert plugin.manifest.frontend.menus[0].children[3].component == 'plugin/ai/usa
 - [ ] **步骤 2：运行测试验证失败**
 
 ```bash
-cd ruoyi-fastapi-frontend && node tests/plugins/platformShellContract.test.js
-cd ../ruoyi-fastapi-backend && conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
+cd zhiheng-fastapi-frontend && node tests/plugins/platformShellContract.test.js
+cd ../zhiheng-fastapi-backend && conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
 ```
 
 预期：前端文件不存在，插件清单未声明用量页面。
@@ -502,9 +502,9 @@ const lastSuccessAt = ref(null)
 - [ ] **步骤 4：运行前后端清单和构建测试**
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
-cd ../ruoyi-fastapi-frontend
+cd ../zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 ```
@@ -516,15 +516,15 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 先暂存不冲突文件：
 
 ```bash
-git add ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue \
-  ruoyi-fastapi-frontend/plugins/ai/views/usage/index.vue \
-  ruoyi-fastapi-frontend/src/layout/components/AppMain.vue \
-  ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue \
-  ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue \
+  zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue \
+  zhiheng-fastapi-frontend/src/layout/components/AppMain.vue \
+  zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue \
+  zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 ```
 
-使用 `git diff -U3 -- ruoyi-fastapi-backend/plugins/ai/plugin.yaml ruoyi-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py` 检查 hunk，并分别通过只包含“用量菜单”和对应断言的补丁执行 `git apply --cached <patch-file>`。随后：
+使用 `git diff -U3 -- zhiheng-fastapi-backend/plugins/ai/plugin.yaml zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py` 检查 hunk，并分别通过只包含“用量菜单”和对应断言的补丁执行 `git apply --cached <patch-file>`。随后：
 
 ```bash
 git diff --cached --name-status
@@ -536,10 +536,10 @@ git commit -m "feat: 归并模型与开发者资源入口"
 
 **文件：**
 
-- 修改：`ruoyi-fastapi-frontend/src/store/modules/settings.js`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/store/modules/settings.js`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：编写失败的旧导航设置移除测试**
 
@@ -578,10 +578,10 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/store/modules/settings.js \
-  ruoyi-fastapi-frontend/src/layout/components/Settings/index.vue \
-  ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/store/modules/settings.js \
+  zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue \
+  zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "fix: 收敛旧版导航布局设置"
 ```
 
@@ -589,13 +589,13 @@ git commit -m "fix: 收敛旧版导航布局设置"
 
 **文件：**
 
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`ruoyi-fastapi-frontend/src/layout/index.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 修改：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
+- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
+- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：扩展失败的尺寸和可访问性契约**
 
@@ -651,13 +651,13 @@ git diff --check
 - [ ] **步骤 5：提交**
 
 ```bash
-git add ruoyi-fastapi-frontend/src/assets/styles/workspace.scss \
-  ruoyi-fastapi-frontend/src/layout/index.vue \
-  ruoyi-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
-  ruoyi-fastapi-frontend/src/layout/components/AdminSidebar.vue \
-  ruoyi-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  ruoyi-fastapi-frontend/src/layout/components/AiResourceShell.vue \
-  ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add zhiheng-fastapi-frontend/src/assets/styles/workspace.scss \
+  zhiheng-fastapi-frontend/src/layout/index.vue \
+  zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
+  zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue \
+  zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
+  zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue \
+  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
 git commit -m "style: 统一 AI 工作台全局布局"
 ```
 
@@ -665,7 +665,7 @@ git commit -m "style: 统一 AI 工作台全局布局"
 
 **文件：**
 
-- 创建：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 创建：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
 - 可能修改：仅前面任务已列出的文件，用于修复验收发现的问题。
 
 - [ ] **步骤 1：编写 Playwright 验收脚本**
@@ -695,7 +695,7 @@ assert page_errors == []
 - [ ] **步骤 2：运行 Playwright，确认若存在缺陷则先失败**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 conda run -n dj python tests/e2e/platform_shell_check.py
 ```
 
@@ -708,10 +708,10 @@ conda run -n dj python tests/e2e/platform_shell_check.py
 - [ ] **步骤 4：运行完整前端与插件清单回归**
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
-cd ../ruoyi-fastapi-backend
+cd ../zhiheng-fastapi-backend
 conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
 cd ..
 git diff --check
@@ -722,7 +722,7 @@ git diff --check
 - [ ] **步骤 5：提交验收脚本和最终修复**
 
 ```bash
-git add ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py
+git add zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py
 # 仅追加暂存验收实际修改过的本计划文件
 git diff --cached --name-status
 git commit -m "test: 验证 AI 工作台全局导航"
@@ -731,7 +731,7 @@ git commit -m "test: 验证 AI 工作台全局导航"
 ## 最终检查清单
 
 - [ ] `git status --short` 中所有本计划文件均已提交。
-- [ ] 原有 Backend 未提交功能和 `ruoyi-fastapi-app` 删除项仍保持原状态，未被本计划提交。
+- [ ] 原有 Backend 未提交功能和 `zhiheng-fastapi-app` 删除项仍保持原状态，未被本计划提交。
 - [ ] `/index` 根据权限进入 AI 对话、AI 资源或管理页面。
 - [ ] Developer API 不再作为独立主菜单出现。
 - [ ] AI 资源包含模型、应用接入和用量三个权限隔离标签。

@@ -6,7 +6,7 @@
 
 **架构：** 先建立语义化 CSS 变量和小型 Workspace 展示组件，再让全局布局承载 AI 主导航与管理控制台入口；业务页面只接入外壳和状态组件，不把请求、权限或数据状态塞进展示组件。每个页面批次都保留现有 API 和状态机，并用插件测试、生产构建和 Playwright 视口检查收口。
 
-**技术栈：** Vue 3、Vite、Element Plus、SCSS、Pinia、现有 RuoYi 路由/权限体系、Node 插件测试脚本、Python Playwright。
+**技术栈：** Vue 3、Vite、Element Plus、SCSS、Pinia、现有 ZhiHeng 路由/权限体系、Node 插件测试脚本、Python Playwright。
 
 ---
 
@@ -14,44 +14,44 @@
 
 第一阶段新增平台样式与展示组件：
 
-- 创建：`ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`，定义 Yuxi 风格语义变量、Element Plus 覆盖、表面、状态、滚动条和响应式尺寸。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`，提供导航、状态和移动操作分组等无副作用纯函数。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceShell.vue`，提供 AI 工作台主内容与移动端抽屉槽位。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceSidebar.vue`，负责主导航、最近会话、管理控制台入口和折叠状态展示。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`，负责页面标题、状态、筛选与操作插槽。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`，负责轻边框面板和统一内边距。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceStatus.vue`，负责语义状态图标、文字和颜色。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`，负责 loading、empty、首次 error 和 stale error。
-- 创建：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceMoreMenu.vue`，负责移动端行操作。
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`，测试导航可见性、状态文案和响应式 action 分组等纯函数。
+- 创建：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`，定义 Yuxi 风格语义变量、Element Plus 覆盖、表面、状态、滚动条和响应式尺寸。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`，提供导航、状态和移动操作分组等无副作用纯函数。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceShell.vue`，提供 AI 工作台主内容与移动端抽屉槽位。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceSidebar.vue`，负责主导航、最近会话、管理控制台入口和折叠状态展示。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`，负责页面标题、状态、筛选与操作插槽。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspacePanel.vue`，负责轻边框面板和统一内边距。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceStatus.vue`，负责语义状态图标、文字和颜色。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`，负责 loading、empty、首次 error 和 stale error。
+- 创建：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceMoreMenu.vue`，负责移动端行操作。
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`，测试导航可见性、状态文案和响应式 action 分组等纯函数。
 
 第二阶段修改全局框架：
 
-- 修改：`ruoyi-fastapi-frontend/src/main.js`，全局引入 `workspace.scss`。
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/variables.module.scss`，将 Element 主题和布局变量映射到 Workspace 变量。
-- 修改：`ruoyi-fastapi-frontend/src/layout/index.vue`，接入 AI 工作台壳，同时保留管理路由壳和锁屏。
-- 修改：`ruoyi-fastapi-frontend/src/layout/components/Sidebar/index.vue`、`Sidebar/Logo.vue`、`Navbar.vue`、`TopNav/index.vue`，接入窄侧栏、智衡品牌和管理控制台入口。
-- 修改：`ruoyi-fastapi-frontend/src/router/index.js`，确认登录后默认重定向到 AI 对话，不改变已有 route name。
-- 修改：`ruoyi-fastapi-frontend/src/permission.js`，动态路由注册完成后，仅在用户拥有 `ai:chat:list` 时将 `/index` 重定向到 `/ai/chat`。
+- 修改：`zhiheng-fastapi-frontend/src/main.js`，全局引入 `workspace.scss`。
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/variables.module.scss`，将 Element 主题和布局变量映射到 Workspace 变量。
+- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`，接入 AI 工作台壳，同时保留管理路由壳和锁屏。
+- 修改：`zhiheng-fastapi-frontend/src/layout/components/Sidebar/index.vue`、`Sidebar/Logo.vue`、`Navbar.vue`、`TopNav/index.vue`，接入窄侧栏、智衡品牌和管理控制台入口。
+- 修改：`zhiheng-fastapi-frontend/src/router/index.js`，确认登录后默认重定向到 AI 对话，不改变已有 route name。
+- 修改：`zhiheng-fastapi-frontend/src/permission.js`，动态路由注册完成后，仅在用户拥有 `ai:chat:list` 时将 `/index` 重定向到 `/ai/chat`。
 
 第三阶段修改入口与业务页：
 
-- 修改：`ruoyi-fastapi-frontend/src/views/login.vue`、`src/views/register.vue`，重做品牌布局和表单表面。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/chat/index.vue`、`plugins/ai/views/chat/components/AiMessage.vue`，接入会话侧栏、工具栏、连续消息流和工作台输入区。
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/index.vue` 及其 `components/` 下七个面板/表单，统一资源页壳、状态和移动操作。
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/api/application.js`，封装应用、Key、轮换和撤销请求。
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/utils/application.js`，提供应用状态、Key 状态、分页和秘密字段的安全转换。
-- 创建：`ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`，展示开发者应用、Key 列表、授权模型和一次性 Key 创建结果。
-- 修改：`ruoyi-fastapi-backend/plugins/ai/plugin.yaml`，在已有 AI 管理菜单下新增 `application` 前端菜单，权限使用已有 `ai:application:*` 代码。
+- 修改：`zhiheng-fastapi-frontend/src/views/login.vue`、`src/views/register.vue`，重做品牌布局和表单表面。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`、`plugins/ai/views/chat/components/AiMessage.vue`，接入会话侧栏、工具栏、连续消息流和工作台输入区。
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue` 及其 `components/` 下七个面板/表单，统一资源页壳、状态和移动操作。
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/api/application.js`，封装应用、Key、轮换和撤销请求。
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/utils/application.js`，提供应用状态、Key 状态、分页和秘密字段的安全转换。
+- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`，展示开发者应用、Key 列表、授权模型和一次性 Key 创建结果。
+- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`，在已有 AI 管理菜单下新增 `application` 前端菜单，权限使用已有 `ai:application:*` 代码。
 - 系统管理页面的具体文件在任务 6 中逐项列出，任务 6 不使用通配路径。
 
 ## 任务 1：建立视觉变量和纯函数契约
 
 **文件：**
-- 创建：`ruoyi-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`ruoyi-fastapi-frontend/src/main.js`
-- 修改：`ruoyi-fastapi-frontend/src/assets/styles/variables.module.scss`
-- 创建：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
+- 创建：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
+- 修改：`zhiheng-fastapi-frontend/src/main.js`
+- 修改：`zhiheng-fastapi-frontend/src/assets/styles/variables.module.scss`
+- 创建：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
 
 - [ ] **步骤 1：编写失败测试**
 
@@ -244,7 +244,7 @@ git commit -m "feat: 重构智衡 AI 对话工作台"
 - 创建：`plugins/ai/api/application.js`
 - 创建：`plugins/ai/utils/application.js`
 - 创建：`plugins/ai/views/application/index.vue`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/plugin.yaml`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
 
 - [ ] **步骤 1：写资源页回归契约**
 

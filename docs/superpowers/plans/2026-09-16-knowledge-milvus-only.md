@@ -10,7 +10,7 @@
 
 ## 步骤
 
-- [x] 后端：先在 `ruoyi-fastapi-backend/tests/plugins/ai/test_knowledge_runtime.py` 增加创建默认类型与类型能力接口测试，验证旧实现失败。
+- [x] 后端：先在 `zhiheng-fastapi-backend/tests/plugins/ai/test_knowledge_runtime.py` 增加创建默认类型与类型能力接口测试，验证旧实现失败。
 
 ```python
 assert DatabaseCreate(database_name='资料', embed_model_id=MODEL_ID).kb_type == 'milvus'
@@ -26,9 +26,9 @@ assert set((await runtime.types())['kb_types']) == {'milvus'}
 - [x] 验证后端知识库相关测试、前端 34 组插件测试、Docker 模式构建，执行独立代码审查。
 
 ```bash
-cd ruoyi-fastapi-backend
-/home/ja/project/RuoYi-Vue3-FastAPI/.venv/bin/python -m pytest tests/plugins/ai/test_knowledge_runtime.py tests/plugins/ai/test_knowledge_controller.py tests/plugins/ai/test_knowledge_stores.py -q
-cd ../ruoyi-fastapi-frontend
+cd zhiheng-fastapi-backend
+/home/ja/project/ZhiHeng-Vue3-FastAPI/.venv/bin/python -m pytest tests/plugins/ai/test_knowledge_runtime.py tests/plugins/ai/test_knowledge_controller.py tests/plugins/ai/test_knowledge_stores.py -q
+cd ../zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker -- --outDir .milvus-only-dist
 ```

@@ -19,7 +19,7 @@
 - `/docker-api/` 转发时去掉前缀，`/v1/` 保留完整 URI。`/v1` 本身也转到后端，不再落入前端 SPA。
 - 保留外部 Host 端口；Nginx 自身使用相对跳转，后端跳转保留 `8060`。
 - API 使用 HTTP/1.1，关闭代理缓冲及缓存，读写超时为 300 秒，支持聊天与工作的流式响应。
-- 后端宿主机端口仅为 `127.0.0.1:19099`，用于本机调试；Docker 内部仍使用 `ruoyi-backend-pg:9099`。
+- 后端宿主机端口仅为 `127.0.0.1:19099`，用于本机调试；Docker 内部仍使用 `zhiheng-backend-pg:9099`。
 
 配置语义参考 [Nginx 代理模块](https://nginx.org/en/docs/http/ngx_http_proxy_module.html)。
 

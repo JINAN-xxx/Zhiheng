@@ -10,18 +10,18 @@
 
 ## 文件职责
 
-- 后端模型状态机：`ruoyi-fastapi-backend/plugins/ai/service/model_catalog_service.py`、`dao/ai_model_catalog_dao.py`。
-- 模型状态测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py`、`test_model_catalog_dao.py`。
-- AI 导航：`ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`、`src/layout/components/PlatformSidebar.vue`。
-- 模型界面：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`、`ModelOnboardingDrawer.vue`、`plugins/ai/utils/modelEngine.js`。
-- 桌面壳层：`ruoyi-fastapi-frontend/src/layout/index.vue`、`PlatformSidebar.vue`、`AdminSidebar.vue`、`PlatformTopbar.vue`。
-- 新建账户区：`ruoyi-fastapi-frontend/src/layout/components/PlatformAccountMenu.vue`。
-- 组件导出：`ruoyi-fastapi-frontend/src/layout/components/index.js`。
-- 页面骨架：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`、`src/layout/components/AiResourceShell.vue`、`src/assets/styles/yuxi-tokens*.css`。
-- API 文档：`ruoyi-fastapi-frontend/plugins/ai/utils/apiDocs.js`、`views/application/components/ApplicationApiDocs.vue`、`views/application/index.vue`。
-- 验收：`ruoyi-fastapi-frontend/tests/plugins/*.test.js`、`tests/e2e/platform_shell_check.py`。
+- 后端模型状态机：`zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py`、`dao/ai_model_catalog_dao.py`。
+- 模型状态测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py`、`test_model_catalog_dao.py`。
+- AI 导航：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`、`src/layout/components/PlatformSidebar.vue`。
+- 模型界面：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`、`ModelOnboardingDrawer.vue`、`plugins/ai/utils/modelEngine.js`。
+- 桌面壳层：`zhiheng-fastapi-frontend/src/layout/index.vue`、`PlatformSidebar.vue`、`AdminSidebar.vue`、`PlatformTopbar.vue`。
+- 新建账户区：`zhiheng-fastapi-frontend/src/layout/components/PlatformAccountMenu.vue`。
+- 组件导出：`zhiheng-fastapi-frontend/src/layout/components/index.js`。
+- 页面骨架：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`、`src/layout/components/AiResourceShell.vue`、`src/assets/styles/yuxi-tokens*.css`。
+- API 文档：`zhiheng-fastapi-frontend/plugins/ai/utils/apiDocs.js`、`views/application/components/ApplicationApiDocs.vue`、`views/application/index.vue`。
+- 验收：`zhiheng-fastapi-frontend/tests/plugins/*.test.js`、`tests/e2e/platform_shell_check.py`。
 
-除非步骤另有说明，后端命令在 `ruoyi-fastapi-backend` 目录执行，前端命令在 `ruoyi-fastapi-frontend` 目录执行，Git 命令在仓库工作树根目录执行。
+除非步骤另有说明，后端命令在 `zhiheng-fastapi-backend` 目录执行，前端命令在 `zhiheng-fastapi-frontend` 目录执行，Git 命令在仓库工作树根目录执行。
 
 ---
 
@@ -30,10 +30,10 @@
 **目标：** 停用模型后可恢复为 `active`，且首次发布时间保持不变。
 
 **文件：**
-- 测试：`ruoyi-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py`、`test_model_catalog_dao.py`
-- 修改：`ruoyi-fastapi-backend/plugins/ai/service/model_catalog_service.py`、`dao/ai_model_catalog_dao.py`
-- 前端测试：`ruoyi-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
-- 前端修改：`ruoyi-fastapi-frontend/plugins/ai/utils/modelEngine.js`、`views/model/components/PlatformModelsPanel.vue`
+- 测试：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py`、`test_model_catalog_dao.py`
+- 修改：`zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py`、`dao/ai_model_catalog_dao.py`
+- 前端测试：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
+- 前端修改：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`、`views/model/components/PlatformModelsPanel.vue`
 
 - [ ] **步骤 1：写后端状态测试**
 
@@ -78,8 +78,8 @@ assert.equal(getLifecycleAction('disabled'), '重新启用')
 **目标：** 视觉层级为“模型中心 / 模型目录、开发接入、用量记录”，原路径保持不变。
 
 **文件：**
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`、`platformShellContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`、`src/layout/components/PlatformSidebar.vue`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`、`platformShellContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`、`src/layout/components/PlatformSidebar.vue`
 
 - [ ] **步骤 1：写失败的分组测试**
 
@@ -119,8 +119,8 @@ export function resolveAiResourceGroups(permissions) {
 **目标：** 能力 JSON 继续兼容历史数据，但不再占用列表列宽或要求人工勾选。
 
 **文件：**
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`、`antdAiViewsContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`、`ModelOnboardingDrawer.vue`、`plugins/ai/utils/modelEngine.js`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`、`antdAiViewsContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`、`ModelOnboardingDrawer.vue`、`plugins/ai/utils/modelEngine.js`
 
 - [ ] **步骤 1：写失败的界面契约**
 
@@ -155,10 +155,10 @@ export function defaultModelCapabilities(type) {
 **目标：** 桌面去掉常驻顶部栏，把折叠、主题、通知和用户操作收进侧栏；移动端保留顶部栏。
 
 **文件：**
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/platformShellContract.test.js`、`antdComponentsContract.test.js`
-- 新建：`ruoyi-fastapi-frontend/src/layout/components/PlatformAccountMenu.vue`
-- 修改：`ruoyi-fastapi-frontend/src/layout/index.vue`、`PlatformSidebar.vue`、`AdminSidebar.vue`、`PlatformTopbar.vue`、`src/layout/components/index.js`
-- 样式：`ruoyi-fastapi-frontend/src/assets/styles/yuxi-tokens.css`、`yuxi-tokens.dark.css`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`、`antdComponentsContract.test.js`
+- 新建：`zhiheng-fastapi-frontend/src/layout/components/PlatformAccountMenu.vue`
+- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`、`PlatformSidebar.vue`、`AdminSidebar.vue`、`PlatformTopbar.vue`、`src/layout/components/index.js`
+- 样式：`zhiheng-fastapi-frontend/src/assets/styles/yuxi-tokens.css`、`yuxi-tokens.dark.css`
 
 - [ ] **步骤 1：写桌面壳层契约**
 
@@ -189,8 +189,8 @@ assert.match(sidebar, /折叠侧边栏|展开侧边栏/)
 **目标：** 页面直接使用满高内容区和紧凑标题栏，去掉 AI 资源页外层大留白和嵌套卡片感。
 
 **文件：**
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/subpageLayoutContract.test.js`
-- 修改：`ruoyi-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`、`src/layout/components/AiResourceShell.vue`、`src/assets/styles/yuxi-tokens*.css`、`src/assets/styles/workspace.scss`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/subpageLayoutContract.test.js`
+- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`、`src/layout/components/AiResourceShell.vue`、`src/assets/styles/yuxi-tokens*.css`、`src/assets/styles/workspace.scss`
 - 复核：`plugins/ai/views/chat/index.vue`、`views/model/index.vue`、`views/application/index.vue`、`views/usage/index.vue`
 
 - [ ] **步骤 1：写失败的骨架契约**
@@ -224,9 +224,9 @@ assert.match(workspaceToolbar, /min-height:\s*56px/)
 **目标：** 开发接入标题栏进入 `/ai/application?view=docs`，页面覆盖四个公开接口、Bearer 鉴权、流式调用和错误码。
 
 **文件：**
-- 测试：`ruoyi-fastapi-frontend/tests/plugins/applicationTransforms.test.js`、`antdAiViewsContract.test.js`
-- 新建：`ruoyi-fastapi-frontend/plugins/ai/utils/apiDocs.js`、`views/application/components/ApplicationApiDocs.vue`
-- 修改：`ruoyi-fastapi-frontend/plugins/ai/views/application/index.vue`
+- 测试：`zhiheng-fastapi-frontend/tests/plugins/applicationTransforms.test.js`、`antdAiViewsContract.test.js`
+- 新建：`zhiheng-fastapi-frontend/plugins/ai/utils/apiDocs.js`、`views/application/components/ApplicationApiDocs.vue`
+- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
 
 - [ ] **步骤 1：写失败的文档数据测试**
 
@@ -290,7 +290,7 @@ function closeApiDocs() {
 ### 任务 7：桌面截图和回归验收
 
 **文件：**
-- 修改：`ruoyi-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 修改：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
 
 - [ ] **步骤 1：更新 Playwright 场景**
 
@@ -331,10 +331,10 @@ conda run -n dj pytest -q tests/plugins/ai/test_model_catalog_service.py tests/p
 - [ ] **步骤 2：重启服务**
 
 ```bash
-docker compose -p ruoyi-vue3-fastapi \
-  --env-file /home/ja/project/RuoYi-Vue3-FastAPI/.env \
-  -f docker-compose.pg.yml up -d --no-build --force-recreate ruoyi-frontend
-docker restart ruoyi-backend-pg
+docker compose -p zhiheng-vue3-fastapi \
+  --env-file /home/ja/project/ZhiHeng-Vue3-FastAPI/.env \
+  -f docker-compose.pg.yml up -d --no-build --force-recreate zhiheng-frontend
+docker restart zhiheng-backend-pg
 docker ps --format '{{.Names}} {{.Status}}'
 ```
 

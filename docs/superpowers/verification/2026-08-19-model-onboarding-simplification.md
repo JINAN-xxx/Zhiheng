@@ -12,7 +12,7 @@
 ## 自动化验证
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 ```
@@ -70,15 +70,15 @@ pageErrors=[]
 
 ## 正式容器
 
-- 新镜像：`ruoyi-frontend:quick-onboarding`
+- 新镜像：`zhiheng-frontend:quick-onboarding`
 - 新镜像 ID：`sha256:f69ce0e7b2cd488097042c893cb4d71a824b357cf9a389fff6222aff25386308`
-- 运行标签：`ruoyi-frontend:latest`
-- 回滚标签：`ruoyi-frontend:pre-quick-onboarding`
+- 运行标签：`zhiheng-frontend:latest`
+- 回滚标签：`zhiheng-frontend:pre-quick-onboarding`
 - 回滚镜像 ID：`sha256:35b1bc7669c643202a3c119fdad56b0937bbbc56494a22d3d9fc4191ede0dc74`
 - 本地与容器 `index.html` SHA256：`201fb2496daa1dd61d2ff4e6cb82cf78bafcdb759eb58a0dafe308a25aa55c32`
 - 页面标题：`智衡 AI`
 
-运行状态检查确认 `ruoyi-frontend`、`ruoyi-backend-pg`、`ruoyi-redis`、`litellm-proxy`、`litellm-db` 和 `litellm-redis` 均为 running；带健康检查的服务均为 healthy。
+运行状态检查确认 `zhiheng-frontend`、`zhiheng-backend-pg`、`zhiheng-redis`、`litellm-proxy`、`litellm-db` 和 `litellm-redis` 均为 running；带健康检查的服务均为 healthy。
 
 ## 残余边界
 

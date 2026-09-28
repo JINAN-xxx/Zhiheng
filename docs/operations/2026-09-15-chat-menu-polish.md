@@ -10,4 +10,4 @@
 
 发布目录为 `data/agent-releases/20260915-chat-menu-polish/`，运维入口为该目录 `manage.sh`。它沿用归档版本配置，再追加本次仅修改前端静态挂载的 `compose.override.yml`；本次只重建前端容器。布局摘要与截图分别在 `published-layout-summary.json` 和 `screenshots/`。
 
-首页 SHA-256：`437653f1bdf9a6c85a6ccfbfaf214ce765d439d8a3519dd7f73ce134ee87d2e3`，与 `12580` 实际响应一致。需要回退时，用前一版 `20260915-chat-session-archive/manage.sh` 仅重建 `ruoyi-frontend`。
+首页 SHA-256：`437653f1bdf9a6c85a6ccfbfaf214ce765d439d8a3519dd7f73ce134ee87d2e3`，与 `12580` 实际响应一致。需要回退时，用前一版 `20260915-chat-session-archive/manage.sh` 仅重建 `zhiheng-frontend`。

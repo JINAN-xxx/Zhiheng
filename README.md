@@ -1,6 +1,6 @@
 # 智衡 AI 开放平台
 
-智衡 AI 开放平台基于 RuoYi-Vue3-FastAPI 构建，面向企业和团队提供模型接入、统一调用、智能对话、应用开发接入和用量记录能力。平台采用插件化架构，既支持本地管理后台，也支持通过 OpenAI 兼容接口接入外部应用。
+智衡 AI 开放平台基于 ZhiHeng-Vue3-FastAPI 构建，面向企业和团队提供模型接入、统一调用、智能对话、应用开发接入和用量记录能力。平台采用插件化架构，既支持本地管理后台，也支持通过 OpenAI 兼容接口接入外部应用。
 
 ## 当前版本
 
@@ -36,7 +36,7 @@
 浏览器 / 外部应用
         |
         v
-RuoYi 前端（Vue 3） ---> RuoYi 后端（FastAPI） ---> PostgreSQL
+ZhiHeng 前端（Vue 3） ---> ZhiHeng 后端（FastAPI） ---> PostgreSQL
                                   |
                                   +---------------> Redis
                                   |
@@ -46,13 +46,13 @@ RuoYi 前端（Vue 3） ---> RuoYi 后端（FastAPI） ---> PostgreSQL
 目录职责：
 
 ```text
-ruoyi-fastapi-frontend/   Web 前端和 AI 工作台
-ruoyi-fastapi-backend/    FastAPI 后端、插件和数据库迁移
-ruoyi-fastapi-app/        uni-app 移动端
-ruoyi-fastapi-test/       自动化测试
+zhiheng-fastapi-frontend/   Web 前端和 AI 工作台
+zhiheng-fastapi-backend/    FastAPI 后端、插件和数据库迁移
+zhiheng-fastapi-app/        uni-app 移动端
+zhiheng-fastapi-test/       自动化测试
 data/agent-skills/         平台技能持久文件（运行时生成，不提交 Git）
 deploy/litellm/            LiteLLM 独立运行环境
-deploy/ruoyi/              RuoYi PostgreSQL 初始化脚本
+deploy/zhiheng/              ZhiHeng PostgreSQL 初始化脚本
 docs/                      架构、设计和开发文档
 ```
 
@@ -89,7 +89,7 @@ docs/                      架构、设计和开发文档
 
 统一部署默认项目名为 `zhiheng`。旧拆分部署入口保留在 `deploy/legacy/manage.sh`，已有发布目录管理的实例沿用对应发布入口；统一脚本不会自动接管旧数据卷。
 
-完整数据库初始化文件为 [`ruoyi-fastapi-backend/sql/platform-pg.sql`](./ruoyi-fastapi-backend/sql/platform-pg.sql)，按现有增量迁移自动生成。新库导入合并文件，旧库按迁移账本升级。
+完整数据库初始化文件为 [`zhiheng-fastapi-backend/sql/platform-pg.sql`](./zhiheng-fastapi-backend/sql/platform-pg.sql)，按现有增量迁移自动生成。新库导入合并文件，旧库按迁移账本升级。
 
 ### 访问地址
 
@@ -138,19 +138,19 @@ Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体�
 ### 后端
 
 ```bash
-cd ruoyi-fastapi-backend
+cd zhiheng-fastapi-backend
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-pg.txt
-ruoyi app run --env=dev
+zhiheng app run --env=dev
 ```
 
-后端本地开发需要 PostgreSQL、Redis 和 LiteLLM。数据库初始化和环境变量说明见 [`deploy/ruoyi/README.md`](./deploy/ruoyi/README.md) 与 [`deploy/litellm/README.md`](./deploy/litellm/README.md)。
+后端本地开发需要 PostgreSQL、Redis 和 LiteLLM。数据库初始化和环境变量说明见 [`deploy/zhiheng/README.md`](./deploy/zhiheng/README.md) 与 [`deploy/litellm/README.md`](./deploy/litellm/README.md)。
 
 ### 前端
 
 ```bash
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm install
 npm run dev
 ```
@@ -160,22 +160,22 @@ npm run dev
 ### 移动端
 
 ```bash
-cd ruoyi-fastapi-app
+cd zhiheng-fastapi-app
 pnpm install
 pnpm dev:h5
 ```
 
-移动端详细说明见 [`ruoyi-fastapi-app/README.md`](./ruoyi-fastapi-app/README.md)。
+移动端详细说明见 [`zhiheng-fastapi-app/README.md`](./zhiheng-fastapi-app/README.md)。
 
 ## 测试与质量检查
 
 ```bash
 # 前端插件和契约测试
-cd ruoyi-fastapi-frontend
+cd zhiheng-fastapi-frontend
 npm run test:plugin
 
 # 后端测试
-cd ../ruoyi-fastapi-backend
+cd ../zhiheng-fastapi-backend
 pytest -q
 
 # Shell 脚本语法检查
@@ -186,8 +186,8 @@ sh -n deploy.sh
 端到端测试需要安装 Playwright 浏览器：
 
 ```bash
-cd ruoyi-fastapi-frontend
-pip install -r ../ruoyi-fastapi-test/requirements.txt
+cd zhiheng-fastapi-frontend
+pip install -r ../zhiheng-fastapi-test/requirements.txt
 playwright install chromium
 python tests/e2e/platform_shell_check.py
 ```
@@ -196,7 +196,7 @@ python tests/e2e/platform_shell_check.py
 
 ### 根目录 `.env`
 
-根目录 `.env` 由初始化脚本维护，包含 RuoYi 数据库连接、JWT 密钥、LiteLLM Runtime Key 和 Management Key。文件权限应为 `0600`，已被 Git 忽略，禁止提交。
+根目录 `.env` 由初始化脚本维护，包含 ZhiHeng 数据库连接、JWT 密钥、LiteLLM Runtime Key 和 Management Key。文件权限应为 `0600`，已被 Git 忽略，禁止提交。
 
 ### API Key 安全
 
@@ -213,10 +213,10 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 
 - [统一一键部署说明](./deploy/README.md)
 - [LiteLLM 部署说明](./deploy/litellm/README.md)
-- [RuoYi PostgreSQL 部署说明](./deploy/ruoyi/README.md)
-- [移动端说明](./ruoyi-fastapi-app/README.md)
-- [测试说明](./ruoyi-fastapi-test/README.md)
-- [CLI 使用说明](./ruoyi-fastapi-backend/docs/cli_usage.md)
+- [ZhiHeng PostgreSQL 部署说明](./deploy/zhiheng/README.md)
+- [移动端说明](./zhiheng-fastapi-app/README.md)
+- [测试说明](./zhiheng-fastapi-test/README.md)
+- [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
 - [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
 - [变更日志](./CHANGELOG.md)

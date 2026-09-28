@@ -1,23 +1,23 @@
-# RuoYi LiteLLM 模型网关设计
+# ZhiHeng LiteLLM 模型网关设计
 
 > **已被替代：** 本规格错误地将 LiteLLM 视为模型业务主数据源，并将旧 Agno 聊天排除在本期迁移之外。请勿据此实施。有效规格为 [2026-08-11-model-service-v01a-design.md](./2026-08-11-model-service-v01a-design.md)。
 
 ## 背景
 
-LiteLLM Proxy、PostgreSQL 和 Redis 已经完成独立部署，RuoYi Backend 也已通过内部 Docker 网络使用 Runtime Key 访问 LiteLLM。当前 RuoYi 的“模型管理”页面仍然管理 `ai_models` 业务表，并由 Agno 对话链路直接读取 Provider API Key；它不是 LiteLLM 的控制面。
+LiteLLM Proxy、PostgreSQL 和 Redis 已经完成独立部署，ZhiHeng Backend 也已通过内部 Docker 网络使用 Runtime Key 访问 LiteLLM。当前 ZhiHeng 的“模型管理”页面仍然管理 `ai_models` 业务表，并由 Agno 对话链路直接读取 Provider API Key；它不是 LiteLLM 的控制面。
 
-本规格定义下一阶段改造：将 RuoYi 作为唯一的模型管理界面，在其中管理 LiteLLM Provider 凭据、模型部署和运行状态。同时保留现有 Agno 对话链路，避免在一个阶段内同时改造控制面和推理链路。
+本规格定义下一阶段改造：将 ZhiHeng 作为唯一的模型管理界面，在其中管理 LiteLLM Provider 凭据、模型部署和运行状态。同时保留现有 Agno 对话链路，避免在一个阶段内同时改造控制面和推理链路。
 
 ## 目标
 
 - 将现有“模型管理”菜单升级为现代化的“模型网关”运维工作台。
-- 在 RuoYi 中完成 LiteLLM 模型部署的查询、新增、编辑、删除和连接测试。
-- 在 RuoYi 中完成 Provider 凭据的查询、创建、轮换和删除。
-- 使用 LiteLLM 数据库作为部署和凭据的唯一数据源，不在 RuoYi 建立镜像表。
+- 在 ZhiHeng 中完成 LiteLLM 模型部署的查询、新增、编辑、删除和连接测试。
+- 在 ZhiHeng 中完成 Provider 凭据的查询、创建、轮换和删除。
+- 使用 LiteLLM 数据库作为部署和凭据的唯一数据源，不在 ZhiHeng 建立镜像表。
 - 从 LiteLLM 动态获取 Provider 及其凭据字段，避免维护易过期的硬编码 Provider 列表。
-- 将管理凭据限制在 RuoYi Backend，任何管理密钥和 Provider 密钥都不得返回浏览器。
-- 保持现有 RuoYi 权限、操作日志、插件加载和页面导航体系。
-- LiteLLM 管理能力未配置或暂时不可用时，RuoYi 主应用仍能正常启动和使用其他模块。
+- 将管理凭据限制在 ZhiHeng Backend，任何管理密钥和 Provider 密钥都不得返回浏览器。
+- 保持现有 ZhiHeng 权限、操作日志、插件加载和页面导航体系。
+- LiteLLM 管理能力未配置或暂时不可用时，ZhiHeng 主应用仍能正常启动和使用其他模块。
 
 ## 非目标
 
@@ -33,14 +33,14 @@ LiteLLM Proxy、PostgreSQL 和 Redis 已经完成独立部署，RuoYi Backend �
 
 ## 已选方案
 
-采用 RuoYi 后端代理 LiteLLM 管理 API 的方案：
+采用 ZhiHeng 后端代理 LiteLLM 管理 API 的方案：
 
 ```text
-RuoYi 模型网关页面
+ZhiHeng 模型网关页面
         |
-        | RuoYi 登录态与 ai:* 权限
+        | ZhiHeng 登录态与 ai:* 权限
         v
-RuoYi /ai/gateway/*
+ZhiHeng /ai/gateway/*
         |
         | Backend-only Management Key
         v
@@ -52,8 +52,8 @@ LiteLLM PostgreSQL
 
 不采用以下方案：
 
-- 不在 RuoYi 建立第二套 Provider、Credential 和 Deployment 表并做双向同步，因为这会引入一致性、迁移和冲突处理问题。
-- 不嵌入或反向代理 LiteLLM 原生管理页面，因为它无法统一 RuoYi 的登录、权限、导航和视觉体验。
+- 不在 ZhiHeng 建立第二套 Provider、Credential 和 Deployment 表并做双向同步，因为这会引入一致性、迁移和冲突处理问题。
+- 不嵌入或反向代理 LiteLLM 原生管理页面，因为它无法统一 ZhiHeng 的登录、权限、导航和视觉体验。
 
 ## 数据所有权与兼容边界
 
@@ -66,7 +66,7 @@ LiteLLM PostgreSQL
 - Deployment ID、模型别名、上游模型和运行参数。
 - LiteLLM 健康检查和部署状态。
 
-RuoYi 只做经过白名单规范化的管理 API 代理，不持久化上述数据，也不缓存 Provider 密钥。
+ZhiHeng 只做经过白名单规范化的管理 API 代理，不持久化上述数据，也不缓存 Provider 密钥。
 
 ### 旧 AI 插件数据
 
@@ -78,7 +78,7 @@ RuoYi 只做经过白名单规范化的管理 API 代理，不持久化上述数
 
 ### 双凭据边界
 
-RuoYi Backend 同时持有两类不同用途的 LiteLLM 凭据：
+ZhiHeng Backend 同时持有两类不同用途的 LiteLLM 凭据：
 
 | 配置 | 用途 | 允许的操作 |
 |---|---|---|
@@ -90,15 +90,15 @@ RuoYi Backend 同时持有两类不同用途的 LiteLLM 凭据：
 安全约束：
 
 - Management Key 只存在于未提交且权限为 `0600` 的运行环境文件中。
-- Docker Compose 只向 RuoYi Backend 注入 Management Key，不向 Frontend 注入。
+- Docker Compose 只向 ZhiHeng Backend 注入 Management Key，不向 Frontend 注入。
 - 配置模板只保留空值或非敏感示例。
-- Management Key、Runtime Key 和 Provider Credential 不写入 RuoYi 业务数据库。
+- Management Key、Runtime Key 和 Provider Credential 不写入 ZhiHeng 业务数据库。
 - 请求方法不允许调用方覆盖 `Authorization`。
 - 日志、异常和监控数据不得包含认证头、请求密钥或 LiteLLM 原始错误正文。
 
 ### 配置降级
 
-`LiteLLMSettings` 增加独立的 `management_key: SecretStr` 和 `management_configured` 属性。Management Key 缺失不会阻止 AI 插件或 RuoYi 启动：
+`LiteLLMSettings` 增加独立的 `management_key: SecretStr` 和 `management_configured` 属性。Management Key 缺失不会阻止 AI 插件或 ZhiHeng 启动：
 
 - Runtime Key 正常时，现有 Runtime 诊断和后续推理能力不受影响。
 - 模型网关可打开，但显示“管理能力未配置”，禁用所有管理写操作。
@@ -116,22 +116,22 @@ RuoYi Backend 同时持有两类不同用途的 LiteLLM 凭据：
 - 只接受明确的请求模型，不提供任意 URL、Header 或原始 JSON 透传入口。
 - 关闭时释放 HTTPX 连接池。
 
-Runtime Client 与 Management Client 保持独立类和独立认证头。AI 插件启动 Hook 为每个 FastAPI Worker 创建两个客户端并保存在 `app.state`；关闭 Hook 幂等释放两者。启动时不主动调用 LiteLLM，避免外部故障阻塞 RuoYi 启动。
+Runtime Client 与 Management Client 保持独立类和独立认证头。AI 插件启动 Hook 为每个 FastAPI Worker 创建两个客户端并保存在 `app.state`；关闭 Hook 幂等释放两者。启动时不主动调用 LiteLLM，避免外部故障阻塞 ZhiHeng 启动。
 
 ### `AiGatewayService`
 
 Controller 不直接拼装 LiteLLM Payload。新增服务层负责：
 
-- 将 RuoYi 查询参数转换为 LiteLLM 分页和筛选参数。
+- 将 ZhiHeng 查询参数转换为 LiteLLM 分页和筛选参数。
 - 将 LiteLLM 响应转换为前端安全 VO。
 - 根据 Provider 元数据校验动态凭据字段。
 - 将受支持的部署参数映射到 LiteLLM `Deployment` 和 `updateDeployment`。
 - 执行凭据引用检查和删除冲突判断。
 - 保证错误中不保留敏感请求或响应对象。
 
-## RuoYi 管理接口
+## ZhiHeng 管理接口
 
-所有接口使用 `PreAuthDependency` 和对应的 `UserInterfaceAuthDependency`，并返回 RuoYi 统一响应结构。
+所有接口使用 `PreAuthDependency` 和对应的 `UserInterfaceAuthDependency`，并返回 ZhiHeng 统一响应结构。
 
 ### Provider
 
@@ -149,7 +149,7 @@ Controller 不直接拼装 LiteLLM Payload。新增服务层负责：
 
 ### Deployment
 
-| RuoYi 接口 | LiteLLM 接口 | 用途 |
+| ZhiHeng 接口 | LiteLLM 接口 | 用途 |
 |---|---|---|
 | `GET /ai/gateway/deployments` | `GET /v2/model/info` | 分页、搜索和筛选 |
 | `GET /ai/gateway/deployments/{id}` | `GET /v2/model/info?modelId=...` | 安全详情 |
@@ -182,13 +182,13 @@ Controller 不直接拼装 LiteLLM Payload。新增服务层负责：
 - `rpm`、`tpm`。
 - 备注或描述等非敏感 `model_info` 字段。
 
-LiteLLM 允许多个 Deployment 使用同一个模型别名，以支持负载均衡。RuoYi 使用 `deploymentId` 作为编辑、删除和列表行的唯一标识，不对模型别名施加唯一约束。
+LiteLLM 允许多个 Deployment 使用同一个模型别名，以支持负载均衡。ZhiHeng 使用 `deploymentId` 作为编辑、删除和列表行的唯一标识，不对模型别名施加唯一约束。
 
 连接测试会真实访问 Provider。界面必须明确提示“可能产生一次极小调用费用”，只在用户主动点击后执行，不在页面加载、表单输入或保存后自动执行。
 
 ### Credential
 
-| RuoYi 接口 | 用途 |
+| ZhiHeng 接口 | 用途 |
 |---|---|
 | `GET /ai/gateway/credentials` | 返回安全元数据列表 |
 | `POST /ai/gateway/credentials` | 创建凭据 |
@@ -242,7 +242,7 @@ Credential 创建、轮换和连接测试使用操作日志的排除模式，至
 
 ## 前端信息架构
 
-采用已确认的“A · 运维工作台”方向，保持 RuoYi 整体布局但重做页面内容。
+采用已确认的“A · 运维工作台”方向，保持 ZhiHeng 整体布局但重做页面内容。
 
 ### 页面头部
 
@@ -292,12 +292,12 @@ Credential 创建、轮换和连接测试使用操作日志的排除模式，至
 | LiteLLM 不可达 | `503` | 保留已有数据，标记可能过期 |
 | LiteLLM 超时 | `504` | 提示稍后重试，保留表单 |
 | Management Key 被拒绝 | `502` | 显示内部管理凭据故障 |
-| RuoYi 请求字段非法 | `400` 或 `422` | 定位到具体表单字段 |
+| ZhiHeng 请求字段非法 | `400` 或 `422` | 定位到具体表单字段 |
 | Credential 被引用 | `409` | 展示引用数量并阻止删除 |
 | 上游 Provider 认证失败 | `502` | 显示脱敏的上游认证失败 |
 | Provider 限流 | `502` | 显示上游限流，不透传原文 |
 
-LiteLLM 的 `401/403` 表示 RuoYi 内部管理凭据故障，不能作为当前用户认证失败直接返回。Provider 原始响应、内部 URL、认证头和 Credential 不进入异常对象。
+LiteLLM 的 `401/403` 表示 ZhiHeng 内部管理凭据故障，不能作为当前用户认证失败直接返回。Provider 原始响应、内部 URL、认证头和 Credential 不进入异常对象。
 
 列表刷新失败时保留当前页面已有数据并显示“数据可能已过期”和最后成功刷新时间。首次加载失败时显示错误空状态，不把依赖故障展示为“暂无数据”。
 
@@ -316,13 +316,13 @@ LiteLLM 的 `401/403` 表示 RuoYi 内部管理凭据故障，不能作为当前
 - Deployment 分页、详情、创建、局部更新、删除和同名别名。
 - Credential 列表脱敏、创建、轮换和引用删除冲突。
 - 连接测试的请求转换和脱敏错误映射。
-- Controller 登录、权限和 RuoYi 统一响应结构。
+- Controller 登录、权限和 ZhiHeng 统一响应结构。
 - 操作日志排除所有动态秘密字段。
 - 启动和关闭 Hook 的双客户端生命周期与幂等性。
 
 ### 前端测试
 
-不新增前端测试框架。将查询参数、LiteLLM/RuoYi 展示模型转换、动态表单校验和秘密字段清理拆为纯 JavaScript，并加入现有 `npm run test:plugin` 测试入口。
+不新增前端测试框架。将查询参数、LiteLLM/ZhiHeng 展示模型转换、动态表单校验和秘密字段清理拆为纯 JavaScript，并加入现有 `npm run test:plugin` 测试入口。
 
 执行：
 
@@ -335,7 +335,7 @@ LiteLLM 的 `401/403` 表示 RuoYi 内部管理凭据故障，不能作为当前
 
 使用无付费的 LiteLLM 模拟配置执行一次完整管理闭环：
 
-1. 使用 RuoYi 登录态读取 Provider、Status、空或已有 Deployment 列表。
+1. 使用 ZhiHeng 登录态读取 Provider、Status、空或已有 Deployment 列表。
 2. 创建临时测试 Credential，不使用真实 Provider Key。
 3. 创建、查询、编辑并删除一个模拟 Deployment。
 4. 删除临时 Credential。
@@ -347,7 +347,7 @@ LiteLLM 的 `401/403` 表示 RuoYi 内部管理凭据故障，不能作为当前
 
 - 回归现有 AI 插件、Runtime Client、Compose 和共享 PostgreSQL 测试。
 - 确认旧 Agno 聊天页面仍能读取 `ai_models` 并保持现有行为。
-- 实际启动 RuoYi 和 LiteLLM 后，在桌面与移动视口检查部署列表、空状态、错误状态、Credential 页和新增抽屉。
+- 实际启动 ZhiHeng 和 LiteLLM 后，在桌面与移动视口检查部署列表、空状态、错误状态、Credential 页和新增抽屉。
 - 检查文本溢出、固定控件尺寸、抽屉遮挡、按钮权限和加载状态引起的布局变化。
 
 ## 实现阶段
@@ -369,22 +369,22 @@ LiteLLM 的 `401/403` 表示 RuoYi 内部管理凭据故障，不能作为当前
 
 - 将 Management Key 只注入 Backend 运行环境。
 - 更新部署初始化脚本和说明文档，不输出或提交密钥。
-- 启动 RuoYi 与 LiteLLM，执行权限、CRUD、故障降级和 Agno 回归验证。
+- 启动 ZhiHeng 与 LiteLLM，执行权限、CRUD、故障降级和 Agno 回归验证。
 
 ## 验收标准
 
 首期完成时必须满足：
 
-1. 用户只通过 RuoYi 的“模型网关”管理 LiteLLM Deployment 和 Credential。
-2. LiteLLM 是管理数据的唯一数据源，RuoYi 不新增镜像业务表。
+1. 用户只通过 ZhiHeng 的“模型网关”管理 LiteLLM Deployment 和 Credential。
+2. LiteLLM 是管理数据的唯一数据源，ZhiHeng 不新增镜像业务表。
 3. Runtime Key 与 Management Key 分离，浏览器无法获取两类 Key。
 4. Provider Credential 创建后不再回显，列表、日志和异常中不存在秘密字段。
 5. Deployment 可分页查询、新增、编辑、删除和主动测试连接。
 6. Credential 可查询安全元数据、创建、轮换和在无引用时删除。
-7. Management 配置缺失或 LiteLLM 故障不会阻止 RuoYi 主应用启动。
+7. Management 配置缺失或 LiteLLM 故障不会阻止 ZhiHeng 主应用启动。
 8. 工作台在桌面和移动视口无明显溢出、遮挡或布局跳动。
 9. 所有新增后端测试、前端插件测试、生产构建和相关回归测试通过。
-10. RuoYi 与 LiteLLM 实际启动后完成无付费 CRUD 闭环，且无测试数据残留。
+10. ZhiHeng 与 LiteLLM 实际启动后完成无付费 CRUD 闭环，且无测试数据残留。
 11. 现有 Agno 聊天功能在本阶段保持可用。
 
 ## 后续衔接

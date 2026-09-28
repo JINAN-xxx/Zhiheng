@@ -26,4 +26,4 @@
 - 首页 SHA-256：`55b91244fcf14381e8400ba51a2b2a35b6f91e5ebda9032f7ad605cb26a9bdb1`，与 `12580` 实际响应一致。
 - 运维入口：发布目录内 `manage.sh`，沿用上一版菜单修正配置并追加本次前端挂载。
 
-本次只重建前端容器，后端继续使用归档功能镜像并保持健康。回退时使用 `20260915-chat-menu-polish/manage.sh` 仅重建 `ruoyi-frontend`。截图及测量结果位于发布目录，不提交 Git。
+本次只重建前端容器，后端继续使用归档功能镜像并保持健康。回退时使用 `20260915-chat-menu-polish/manage.sh` 仅重建 `zhiheng-frontend`。截图及测量结果位于发布目录，不提交 Git。

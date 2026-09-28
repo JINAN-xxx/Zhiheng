@@ -52,7 +52,7 @@
 新增独立后端插件和对应前端插件：
 
 ```text
-ruoyi-fastapi-backend/plugins/agent_extension/
+zhiheng-fastapi-backend/plugins/agent_extension/
 ├── controller/
 │   └── skill_controller.py
 ├── dao/
@@ -74,7 +74,7 @@ ruoyi-fastapi-backend/plugins/agent_extension/
 ├── plugin.yaml
 └── README.md
 
-ruoyi-fastapi-frontend/plugins/agent_extension/
+zhiheng-fastapi-frontend/plugins/agent_extension/
 ├── api/
 │   └── skill.js
 ├── utils/

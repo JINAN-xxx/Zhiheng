@@ -33,21 +33,21 @@ jobs:
 
       - name: Create temporary Dockerfile with Python ${{ matrix.python-version }}
         run: |
-          cp ruoyi-fastapi-backend/Dockerfile.pg ruoyi-fastapi-backend/Dockerfile.pg.bak
+          cp zhiheng-fastapi-backend/Dockerfile.pg zhiheng-fastapi-backend/Dockerfile.pg.bak
           sed -e "s/FROM python:3.10/FROM python:${{ matrix.python-version }}/g" \
               -e 's| -i https://pypi.tuna.tsinghua.edu.cn/simple||g' \
-              ruoyi-fastapi-backend/Dockerfile.pg.bak > ruoyi-fastapi-backend/Dockerfile.pg
+              zhiheng-fastapi-backend/Dockerfile.pg.bak > zhiheng-fastapi-backend/Dockerfile.pg
 
       - name: Start services with docker-compose
         run: |
-          cd ruoyi-fastapi-test
+          cd zhiheng-fastapi-test
           docker compose -f docker-compose.test.pg.yml up -d --build
 
       - name: Wait for services to be ready
         run: |
-          cd ruoyi-fastapi-test
-          timeout 180 bash -c 'until docker compose -f docker-compose.test.pg.yml ps ruoyi-backend-pg | grep -q "Up"; do sleep 5; done'
-          timeout 120 bash -c 'until docker compose -f docker-compose.test.pg.yml ps ruoyi-frontend | grep -q "Up"; do sleep 5; done'
+          cd zhiheng-fastapi-test
+          timeout 180 bash -c 'until docker compose -f docker-compose.test.pg.yml ps zhiheng-backend-pg | grep -q "Up"; do sleep 5; done'
+          timeout 120 bash -c 'until docker compose -f docker-compose.test.pg.yml ps zhiheng-frontend | grep -q "Up"; do sleep 5; done'
           sleep 30
           echo "Checking if backend service is ready..."
           for i in {1..30}; do
@@ -60,13 +60,13 @@ jobs:
           done
           if ! curl -f http://localhost:9099/captchaImage > /dev/null 2>&1; then
             echo "Backend service failed to start properly. Checking logs..."
-            docker logs ruoyi-backend-pg-test
+            docker logs zhiheng-backend-pg-test
             exit 1
           fi
 
       - name: Run tests
         run: |
-          cd ruoyi-fastapi-test
+          cd zhiheng-fastapi-test
           pip install -r requirements.txt
           playwright install
           pytest -v
@@ -74,10 +74,10 @@ jobs:
       - name: Stop services
         if: always()
         run: |
-          cd ruoyi-fastapi-test
+          cd zhiheng-fastapi-test
           docker compose -f docker-compose.test.pg.yml down
 
       - name: Restore original Dockerfile.pg
         if: always()
         run: |
-          mv ruoyi-fastapi-backend/Dockerfile.pg.bak ruoyi-fastapi-backend/Dockerfile.pg
+          mv zhiheng-fastapi-backend/Dockerfile.pg.bak zhiheng-fastapi-backend/Dockerfile.pg

@@ -13,8 +13,8 @@
 - `compose.yaml`：完整服务拓扑、健康依赖、持久卷、统一环境变量。
 - `deploy.sh`、`deploy/platform.py`：一条命令入口、生成/复用私密环境文件、Compose 编排、启动健康检查和更新。
 - `deploy/legacy/manage.sh`：保存旧拆分部署入口以兼容现有实例，旧 Compose 文件仅供兼容。
-- `ruoyi-fastapi-backend/scripts/build_platform_sql.py`、`sql/platform-pg.sql`：按现有基础 SQL、插件 manifest 生成完整初始结构和迁移记录。
-- `ruoyi-fastapi-backend/scripts/initialize_platform.py`：仅初始化服务持有 PostgreSQL 管理凭据，创建业务角色/库、非空库防护、复用历史记录执行插件升级、创建受限 Runtime Key。
+- `zhiheng-fastapi-backend/scripts/build_platform_sql.py`、`sql/platform-pg.sql`：按现有基础 SQL、插件 manifest 生成完整初始结构和迁移记录。
+- `zhiheng-fastapi-backend/scripts/initialize_platform.py`：仅初始化服务持有 PostgreSQL 管理凭据，创建业务角色/库、非空库防护、复用历史记录执行插件升级、创建受限 Runtime Key。
 - `deploy/platform.env.example`、`README.md`、部署说明：最短部署/更新指令，必要配置和老部署说明。
 - 部署测试：真实命令编排、密钥复用、失败阻断、SQL 生成一致性及独立 Docker 栈验收。
 
