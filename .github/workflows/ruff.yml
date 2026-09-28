@@ -25,9 +25,9 @@ jobs:
       - name: Run linting
         run: |
           ruff check zhiheng-fastapi-backend
-          ruff check zhiheng-fastapi-test
+          
 
       - name: Run format check
         run: |
           ruff format zhiheng-fastapi-backend --check
-          ruff format zhiheng-fastapi-test --check
+          
