@@ -15,7 +15,7 @@
 
 ### 平台工作台
 
-- 智能对话：支持流式输出、历史会话、重命名、归档、恢复和删除。通过会话菜单归档后，可在侧栏“已归档”中查看历史并恢复继续对话；归档保留消息，永久删除仍需确认。
+- 智能对话：支持流式输出、历史会话、重命名、归档、恢复和删除。通过会话菜单归档后，可在侧栏"已归档"中查看历史并恢复继续对话；归档保留消息，永久删除仍需确认。
 - 模型中心：统一查看和管理模型目录。
 - 模型能力：支持对话模型、Embedding 模型和 Ranker 模型的能力标识。
 - 开发接入：创建应用、配置模型授权、生成和轮换 API Key。
@@ -48,8 +48,6 @@ ZhiHeng 前端（Vue 3） ---> ZhiHeng 后端（FastAPI） ---> PostgreSQL
 ```text
 zhiheng-fastapi-frontend/   Web 前端和 AI 工作台
 zhiheng-fastapi-backend/    FastAPI 后端、插件和数据库迁移
-zhiheng-fastapi-app/        uni-app 移动端
-zhiheng-fastapi-test/       自动化测试
 data/agent-skills/         平台技能持久文件（运行时生成，不提交 Git）
 deploy/litellm/            LiteLLM 独立运行环境
 deploy/zhiheng/              ZhiHeng PostgreSQL 初始化脚本
@@ -129,7 +127,7 @@ Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体�
 
 管理员进入「智能体扩展 / 技能管理」，可以上传单个 `SKILL.md` 或根目录包含 `SKILL.md` 的 ZIP 技能包。技能安装后支持查看、启用、停用和删除；启用中的技能必须先停用再删除，平台内置技能不能删除。
 
-普通用户在智能对话输入框输入独立的 `@`，或点击“选择技能”按钮，即可为当前消息选择最多 5 个已启用技能。技能只作用于本次发送，消息发出后自动清空选择，不会改变整个会话的永久设置。
+普通用户在智能对话输入框输入独立的 `@`，或点击"选择技能"按钮，即可为当前消息选择最多 5 个已启用技能。技能只作用于本次发送，消息发出后自动清空选择，不会改变整个会话的永久设置。
 
 技能包不会执行脚本或自动安装依赖。生产部署应限制 `data/agent-skills` 的宿主机访问权限，并随数据库一起备份。
 
@@ -157,16 +155,6 @@ npm run dev
 
 开发服务器默认地址为 <http://127.0.0.1:5173/>。前端通过 Vite 代理访问本地后端。
 
-### 移动端
-
-```bash
-cd zhiheng-fastapi-app
-pnpm install
-pnpm dev:h5
-```
-
-移动端详细说明见 [`zhiheng-fastapi-app/README.md`](./zhiheng-fastapi-app/README.md)。
-
 ## 测试与质量检查
 
 ```bash
@@ -181,15 +169,6 @@ pytest -q
 # Shell 脚本语法检查
 cd ..
 sh -n deploy.sh
-```
-
-端到端测试需要安装 Playwright 浏览器：
-
-```bash
-cd zhiheng-fastapi-frontend
-pip install -r ../zhiheng-fastapi-test/requirements.txt
-playwright install chromium
-python tests/e2e/platform_shell_check.py
 ```
 
 ## 重要配置
@@ -214,8 +193,6 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [统一一键部署说明](./deploy/README.md)
 - [LiteLLM 部署说明](./deploy/litellm/README.md)
 - [ZhiHeng PostgreSQL 部署说明](./deploy/zhiheng/README.md)
-- [移动端说明](./zhiheng-fastapi-app/README.md)
-- [测试说明](./zhiheng-fastapi-test/README.md)
 - [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
 - [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
