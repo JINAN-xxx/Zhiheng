@@ -2,8 +2,7 @@
   <div class="workspace-sidebar">
     <div class="workspace-sidebar__brand">
       <slot name="brand">
-        <span class="workspace-sidebar__mark" aria-hidden="true">智</span>
-        <span v-if="!collapsed" class="workspace-sidebar__name">智衡 AI</span>
+        <img :src="logo" alt="智衡平台" class="workspace-sidebar__logo" />
       </slot>
     </div>
     <nav class="workspace-sidebar__nav" aria-label="工作台导航">
@@ -27,6 +26,8 @@
 </template>
 
 <script setup>
+import logo from '@/assets/logo/logo.png'
+
 defineProps({
   items: { type: Array, default: () => [] },
   collapsed: { type: Boolean, default: false },
@@ -48,23 +49,12 @@ const emit = defineEmits(['select'])
     min-height: 40px;
     gap: var(--workspace-space-2);
     padding: 0 var(--workspace-space-2) var(--workspace-space-4);
-    color: var(--workspace-text);
-    font-weight: 700;
   }
 
-  &__mark {
-    display: inline-flex;
-    width: 30px;
-    height: 30px;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--workspace-radius-sm);
-    background: var(--workspace-main);
-    color: #ffffff;
-  }
-
-  &__name {
-    white-space: nowrap;
+  &__logo {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
   }
 
   &__nav {

@@ -104,7 +104,6 @@ CLI 不单独维护配置系统，仍然复用项目原有的 `config/env.py` �
 
 - `--env=dev` -> `.env.dev`
 - `--env=prod` -> `.env.prod`
-- `--env=dockermy` -> `.env.dockermy`
 - `--env=dockerpg` -> `.env.dockerpg`
 
 ### 3.3 帮助命令

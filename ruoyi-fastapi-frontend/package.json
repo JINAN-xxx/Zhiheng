@@ -7,9 +7,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build:prod": "vite build",
-    "build:docker": "vite build --mode docker",
-    "build:stage": "vite build --mode staging",
+    "build:prod": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
+    "build:docker": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build --mode docker",
+    "build:stage": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build --mode staging",
     "test:plugin": "node tests/plugins/run-plugin-tests.js",
     "preview": "vite preview"
   },

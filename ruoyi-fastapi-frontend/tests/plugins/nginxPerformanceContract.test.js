@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-for (const fileName of ['bin/nginx.dockermy.conf', 'bin/nginx.dockerpg.conf']) {
+for (const fileName of ['bin/nginx.dockerpg.conf']) {
   const source = readFileSync(fileName, 'utf8')
   assert.match(source, /gzip_static\s+on;/)
   assert.match(source, /location \^~ \/static\//)

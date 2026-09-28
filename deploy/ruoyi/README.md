@@ -50,7 +50,7 @@ RuoYi 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Owne
 ```bash
 docker exec litellm-db psql -U litellm -d postgres -Atc \
   "select datname, pg_get_userbyid(datdba) from pg_database where datname in ('litellm','ruoyi-fastapi') order by datname"
-docker compose -f docker-compose.pg.yml ps
+docker compose ps
 ```
 
 数据库查询应显示 `litellm|litellm` 和 `ruoyi-fastapi|ruoyi`。

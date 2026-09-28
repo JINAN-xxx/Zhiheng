@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_ENVIRONMENTS = ('dev', 'prod', 'dockermy', 'dockerpg')
+DEFAULT_ENVIRONMENTS = ('dev', 'prod', 'dockerpg')
 
 
 @dataclass(frozen=True)

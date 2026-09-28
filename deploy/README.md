@@ -59,7 +59,7 @@ PostgreSQL、平台 Redis 和 LiteLLM Redis 使用 Compose 项目专属数据卷
 
 ## 旧部署
 
-旧的 `docker-compose.pg.yml`、`docker-compose.milvus.yml` 和 `deploy/litellm/compose.yaml` 保留供已有拆分部署使用。原入口迁至：
+旧的拆分部署入口迁至：
 
 ```bash
 ./deploy/legacy/manage.sh status

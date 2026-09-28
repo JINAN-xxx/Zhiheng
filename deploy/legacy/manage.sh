@@ -3,8 +3,8 @@ set -eu
 
 script_directory=$(CDPATH= cd "$(dirname "$0")" && pwd)
 repository_root=$(CDPATH= cd "$script_directory/../.." && pwd)
-compose_file=${RUOYI_COMPOSE_FILE:-"$repository_root/docker-compose.pg.yml"}
-compose_project=${RUOYI_COMPOSE_PROJECT:-ruoyi-vue3-fastapi}
+compose_file=${RUOYI_COMPOSE_FILE:-"$repository_root/compose.yaml"}
+compose_project=${RUOYI_COMPOSE_PROJECT:-zhiheng}
 platform_environment=${RUOYI_ENV_FILE:-"$repository_root/.env"}
 docker_command=${DOCKER_COMMAND:-docker}
 compose_command=${COMPOSE_COMMAND:-}
@@ -29,7 +29,7 @@ usage() {
   RUOYI_ENV_FILE        自定义环境文件路径
   DOCKER_COMMAND        Docker 命令，默认 docker
   COMPOSE_COMMAND       Compose 命令，默认优先 docker compose
-  RUOYI_COMPOSE_PROJECT Compose 项目名，默认 ruoyi-vue3-fastapi
+  RUOYI_COMPOSE_PROJECT Compose 项目名，默认 zhiheng
 EOF
 }
 

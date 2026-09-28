@@ -34,13 +34,13 @@ LITELLM_MANAGEMENT_KEY='<proxy-admin-key>' ./init-platform-runtime-key.sh
 
 首期 LiteLLM 未提供独立管理角色时，运维可以显式将具有 Proxy Admin 权限的值配置为 `LITELLM_MANAGEMENT_KEY`（包括当前 Master Key 的值）。该兼容做法只属于运维配置；Platform 代码、环境变量名和 HTTP 客户端始终保持 Management 凭据语义。本地开发不使用控制面时可留空，此时仅能查看本地 Model Catalog。
 
-随后在仓库根目录启动 RuoYi PostgreSQL 版本：
+随后在仓库根目录启动 RuoYi：
 
 ```bash
-docker compose -f docker-compose.pg.yml up -d
+docker compose up -d
 ```
 
-RuoYi Backend 通过外部 `litellm-network` 访问 `http://litellm-proxy:4000`。Docker Compose 会要求仓库根 `.env` 同时提供 `LITELLM_RUNTIME_KEY` 和 `LITELLM_MANAGEMENT_KEY`；缺失任一变量都会在启动前失败。两个 Compose 项目生命周期独立，启动 RuoYi 前应先确保 LiteLLM 三个容器健康。
+RuoYi Backend 通过内部网络访问 `http://litellm-proxy:4000`。Docker Compose 会要求仓库根 `.env` 同时提供 `LITELLM_RUNTIME_KEY` 和 `LITELLM_MANAGEMENT_KEY`；缺失任一变量都会在启动前失败。两个 Compose 项目生命周期独立，启动 RuoYi 前应先确保 LiteLLM 三个容器健康。
 
 ## 访问
 

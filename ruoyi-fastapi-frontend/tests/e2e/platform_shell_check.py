@@ -1297,7 +1297,7 @@ async def check_auth_dark(browser: Browser) -> None:
     try:
         assert not await context.cookies(BASE_URL)
         await page.goto(f"{BASE_URL}/login")
-        await page.get_by_role("heading", name="登录 智衡 AI").wait_for()
+        await page.get_by_role("heading", name="登录").wait_for()
         await page.locator("html.dark").wait_for()
         assert await page.locator(".auth-shell").evaluate(
             "element => getComputedStyle(element).backgroundColor !== 'rgba(0, 0, 0, 0)'"
@@ -1318,7 +1318,7 @@ async def check_default_login_landing(browser: Browser) -> None:
     )
     try:
         await page.goto(f"{BASE_URL}/")
-        await page.get_by_role("heading", name="登录 智衡 AI").wait_for()
+        await page.get_by_role("heading", name="登录").wait_for()
         assert urlparse(page.url).path == "/login"
         assert "redirect=%2Fai%2Fchat" in page.url or "redirect=/ai/chat" in page.url
         await page.get_by_placeholder("账号").fill("admin")

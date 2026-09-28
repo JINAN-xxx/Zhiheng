@@ -1,1 +1,0 @@
-import{r,o,c as t,k as a}from"./index-GdOh2fgW.js";const d={__name:"index",setup(n){return r("/docker-api/druid/login.html"),(l,e)=>(o(),t("div",null,[...e[0]||(e[0]=[a("div",null,"我是数据监控",-1)])]))}};export{d as default};

@@ -1,10 +1,9 @@
 <template>
   <aside class="admin-sidebar" :class="{ 'is-collapsed': collapsed }" aria-label="管理控制台导航">
     <div class="admin-sidebar__header">
-      <button type="button" class="admin-sidebar__back" aria-label="返回 AI 工作台" title="返回 AI 工作台" @click="emit('open-ai')">
-        <ArrowLeftOutlined />
-        <span v-if="!collapsed">返回 AI 工作台</span>
-      </button>
+      <router-link class="admin-sidebar__brand" to="/ai/chat" aria-label="返回智能工作台">
+        <img :src="logo" alt="智衡平台" class="admin-sidebar__brand-logo" />
+      </router-link>
       <button
         v-if="showCollapseControl"
         type="button"
@@ -43,6 +42,7 @@
 
 <script setup>
 import { ArrowLeftOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons-vue'
+import logo from '@/assets/logo/logo.png'
 import { filterAdminWorkspaceRoutes } from '@/components/Workspace/workspaceTransforms.js'
 import usePermissionStore from '@/store/modules/permission'
 import { getNormalPath } from '@/utils/ruoyi'
@@ -100,6 +100,9 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 <style scoped lang="scss">
 .admin-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font: inherit; line-height: normal; }
 .admin-sidebar__header { min-height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 10px; border-bottom: 1px solid var(--gray-150); }
+.admin-sidebar__brand { min-width: 0; display: flex; flex: 1; align-items: center; gap: 8px; text-decoration: none; }
+.admin-sidebar__brand-logo { height: 40px; width: auto; object-fit: contain; }
+.admin-sidebar__brand-text { font-size: 14px; font-weight: 700; white-space: nowrap; color: var(--color-text); font-family: Helvetica Neue, Helvetica, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif; }
 .admin-sidebar__back { min-width: 0; min-height: 32px; display: flex; flex: 1; align-items: center; gap: 10px; padding: 0 4px; overflow: hidden; border: 0; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text); white-space: nowrap; cursor: pointer; }
 .admin-sidebar__collapse { width: 30px; height: 30px; display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .admin-sidebar__back:hover,
@@ -119,5 +122,7 @@ watch([adminRoutes, activeMenu], syncOpenKeys, { immediate: true })
 .admin-sidebar.is-collapsed :deep(.ant-menu-title-content) { display: none; }
 .admin-sidebar.is-collapsed :deep(.svg-icon) { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; }
 .admin-sidebar.is-collapsed .admin-sidebar__header { gap: 0; padding-inline: 0; }
+.admin-sidebar.is-collapsed .admin-sidebar__brand { justify-content: center; width: 26px; flex: 0 0 26px; }
+.admin-sidebar.is-collapsed .admin-sidebar__brand-logo { height: 28px; width: auto; }
 .admin-sidebar.is-collapsed .admin-sidebar__back { width: 26px; flex: 0 0 26px; justify-content: center; padding: 0; }
 </style>

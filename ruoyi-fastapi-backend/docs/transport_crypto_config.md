@@ -63,24 +63,21 @@ TRANSPORT_CRYPTO_MAX_GET_URL_LENGTH=4096
 
 当前项目的 Docker 部署使用：
 
-- `docker-compose.my.yml` + `Dockerfile.my`
-- `docker-compose.pg.yml` + `Dockerfile.pg`
+- `compose.yaml` + `Dockerfile.pg`
 
-后端容器启动命令分别是：
+后端容器启动命令为：
 
-- `python app.py --env=dockermy`
 - `python app.py --env=dockerpg`
 
 所以 Docker 环境需要直接在以下文件中配置传输层密钥：
 
-- `ruoyi-fastapi-backend/.env.dockermy`
 - `ruoyi-fastapi-backend/.env.dockerpg`
 
-配置方式与生产环境相同；`.env.dockermy` / `.env.dockerpg` 里也已经默认提供一套可用示例值，正式部署前请替换为正式密钥。
+配置方式与生产环境相同；`.env.dockerpg` 里也已经默认提供一套可用示例值，正式部署前请替换为正式密钥。
 
 使用时只需要：
 
-1. 修改对应的 `.env.dockermy` 或 `.env.dockerpg`
+1. 修改对应的 `.env.dockerpg`
 2. 重新构建并启动 Docker 服务
 
 ## 密钥生成

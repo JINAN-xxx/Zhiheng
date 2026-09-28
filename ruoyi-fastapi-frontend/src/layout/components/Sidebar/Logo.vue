@@ -2,12 +2,10 @@
   <div class="sidebar-logo-container" :class="{ 'collapse': collapse }">
     <transition name="sidebarLogoFade">
       <router-link v-if="collapse" key="collapse" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo" />
-        <h1 v-else class="sidebar-title">{{ title }}</h1>
+        <img :src="logo" alt="智衡平台" class="sidebar-logo-full" />
       </router-link>
       <router-link v-else key="expand" class="sidebar-logo-link" to="/">
-        <img v-if="logo" :src="logo" class="sidebar-logo" />
-        <h1 class="sidebar-title">{{ title }}</h1>
+        <img :src="logo" alt="智衡平台" class="sidebar-logo-full" />
       </router-link>
     </transition>
   </div>
@@ -25,7 +23,6 @@ defineProps({
   }
 })
 
-const title = import.meta.env.VITE_APP_TITLE || '智衡 AI';
 const settingsStore = useSettingsStore();
 const sideTheme = computed(() => settingsStore.sideTheme);
 
@@ -40,7 +37,6 @@ const getLogoBackground = computed(() => {
   return sideTheme.value === 'theme-dark' ? variables.menuBg : variables.menuLightBg;
 });
 
-// 获取Logo文字颜色
 const getLogoTextColor = computed(() => {
   if (settingsStore.isDark) {
     return 'var(--sidebar-logo-text)'
@@ -73,29 +69,33 @@ const getLogoTextColor = computed(() => {
   & .sidebar-logo-link {
     height: 100%;
     width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 
-    & .sidebar-logo {
-      width: 32px;
-      height: 32px;
+    & .sidebar-logo-full {
+      height: 40px;
+      width: auto;
+      object-fit: contain;
       vertical-align: middle;
-      margin-right: 12px;
     }
 
-    & .sidebar-title {
-      display: inline-block;
-      margin: 0;
-      color: v-bind(getLogoTextColor);
-      font-weight: 600;
-      line-height: 50px;
+    & .sidebar-logo-text {
+      margin-left: 10px;
       font-size: 14px;
-      font-family: Avenir, Helvetica Neue, Arial, Helvetica, sans-serif;
-      vertical-align: middle;
+      font-weight: 700;
+      white-space: nowrap;
+      color: v-bind(getLogoTextColor);
+      font-family: Helvetica Neue, Helvetica, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif;
     }
   }
 
   &.collapse {
-    .sidebar-logo {
-      margin-right: 0px;
+    .sidebar-logo-full {
+      height: 28px;
+    }
+    .sidebar-logo-text {
+      display: none;
     }
   }
 }

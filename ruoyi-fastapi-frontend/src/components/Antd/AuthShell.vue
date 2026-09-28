@@ -1,8 +1,11 @@
 <template>
-  <main class="auth-shell" :class="{ 'auth-shell--wide': wide }">
-    <header class="auth-shell__brand" aria-label="智衡 AI">
-      <span class="auth-shell__mark" aria-hidden="true">智</span>
-      <span>{{ brand }}</span>
+  <main class="auth-shell" :class="{ 'auth-shell--wide': wide, 'auth-shell--split': split }">
+    <div v-if="split" class="auth-shell__left">
+      <img :src="logo" alt="智衡平台" class="auth-shell__left-logo" />
+    </div>
+
+    <header v-if="!split" class="auth-shell__brand" aria-label="智衡 AI">
+      <img :src="logo" alt="智衡平台" class="auth-shell__logo" />
     </header>
 
     <section class="auth-shell__panel">
@@ -21,6 +24,8 @@
 </template>
 
 <script setup>
+import logo from '@/assets/logo/logo.png'
+
 defineProps({
   brand: {
     type: String,
@@ -39,6 +44,10 @@ defineProps({
     default: '',
   },
   wide: {
+    type: Boolean,
+    default: false,
+  },
+  split: {
     type: Boolean,
     default: false,
   },
@@ -61,27 +70,49 @@ defineProps({
   font-family: var(--workspace-font-family);
 }
 
+.auth-shell--split {
+  padding: 0;
+}
+
+.auth-shell__left {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 33.333%;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.auth-shell__left-logo {
+  height: 48px;
+  width: auto;
+  object-fit: contain;
+}
+
 .auth-shell__brand {
   position: absolute;
   top: 28px;
   left: 32px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: var(--color-text);
-  font-size: 16px;
-  font-weight: 650;
 }
 
-.auth-shell__mark {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--main-color);
-  color: var(--gray-0);
-  font-size: 15px;
+.auth-shell__logo {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+
+.auth-shell__brand-text {
+  margin-left: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-family: Helvetica Neue, Helvetica, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif;
 }
 
 .auth-shell__panel {
@@ -90,6 +121,10 @@ defineProps({
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
+}
+
+.auth-shell--split .auth-shell__panel {
+  width: min(100%, 420px);
 }
 
 .auth-shell--wide .auth-shell__panel {
@@ -131,10 +166,25 @@ defineProps({
   text-align: center;
 }
 
+.auth-shell--split .auth-shell__footer {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  margin-top: 24px;
+}
+
 @media (max-width: 560px) {
   .auth-shell {
     align-items: start;
     padding: 84px 16px 64px;
+  }
+
+  .auth-shell__left {
+    position: relative;
+    width: 100%;
+    height: auto;
+    padding: 24px 0;
   }
 
   .auth-shell__brand {

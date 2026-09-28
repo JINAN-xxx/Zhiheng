@@ -2,8 +2,8 @@
   <aside class="platform-sidebar" :class="{ collapsed }" aria-label="智能工作台导航">
     <div class="platform-brand-row">
       <router-link class="platform-brand" to="/ai/chat" aria-label="返回智能工作台">
-        <img :src="logo" alt="" />
-        <span v-if="!collapsed">智衡平台</span>
+        <img :src="logo" alt="智衡平台" class="platform-brand-logo" />
+        <span v-if="!collapsed" class="platform-brand-text">智衡平台</span>
       </router-link>
       <button
         v-if="showCollapseControl"
@@ -328,8 +328,9 @@ watch([resourceGroups, () => route.path], ([groups]) => {
 <style scoped lang="scss">
 .platform-sidebar { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; margin: 0; padding: 0; border-radius: 0; background: var(--bg-sider); border-right: 1px solid var(--gray-150); color: var(--color-text); font-family: var(--workspace-font-family); line-height: normal; }
 .platform-brand-row { min-height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; }
-.platform-brand { min-width: 0; display: flex; flex: 1; align-items: center; gap: 9px; color: var(--color-text); font-size: 15px; font-weight: 700; text-decoration: none; }
-.platform-brand img { width: 27px; height: 27px; object-fit: contain; filter: brightness(1.12); }
+.platform-brand { min-width: 0; display: flex; flex: 1; align-items: center; gap: 8px; color: var(--color-text); text-decoration: none; }
+.platform-brand-logo { height: 40px; width: auto; object-fit: contain; }
+.platform-brand-text { font-size: 14px; font-weight: 700; white-space: nowrap; color: var(--color-text); font-family: Helvetica Neue, Helvetica, PingFang SC, Hiragino Sans GB, Microsoft YaHei, Arial, sans-serif; }
 .platform-collapse-button { width: 30px; height: 30px; display: inline-flex; flex: 0 0 30px; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .platform-collapse-button:hover { border-color: var(--gray-150); background: var(--gray-50); color: var(--color-text); }
 .platform-primary-nav { display: grid; gap: 3px; padding: 6px 10px 14px; border-bottom: 1px solid var(--gray-150); }
@@ -352,7 +353,7 @@ watch([resourceGroups, () => route.path], ([groups]) => {
 .platform-sidebar.collapsed .platform-brand-row { gap: 0; padding-inline: 0; }
 .platform-sidebar.collapsed .platform-brand { justify-content: center; }
 .platform-sidebar.collapsed .platform-brand { width: 26px; flex: 0 0 26px; }
-.platform-sidebar.collapsed .platform-brand img { width: 23px; height: 23px; }
+.platform-sidebar.collapsed .platform-brand-logo { height: 28px; width: auto; }
 .platform-sidebar.collapsed .platform-nav-link,
 .platform-sidebar.collapsed .platform-new-chat,
 .platform-sidebar.collapsed .platform-admin-entry { justify-content: center; padding-inline: 0; }

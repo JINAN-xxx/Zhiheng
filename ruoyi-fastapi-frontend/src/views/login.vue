@@ -1,8 +1,8 @@
 <template>
   <AuthShell
     class="login auth-shell"
-    :brand="title"
-    :title="`登录 ${title}`"
+    split
+    title="登录"
     description="统一模型接入、对话协作与开发者访问。"
   >
     <a-form
