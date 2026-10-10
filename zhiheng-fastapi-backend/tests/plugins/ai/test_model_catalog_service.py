@@ -26,7 +26,8 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     PlatformModelModel,
     ResourceBindingUpsertModel,
 )
-from plugins.ai.service.model_catalog_service import ModelCatalogService, NoModelReferenceChecker
+from plugins.ai.public.rate_cards import RateCardService
+from plugins.ai.service.model_catalog_service import ModelCatalogService, UnavailableModelReferenceChecker
 from plugins.ai.service.model_service import ModelService
 
 NOW = datetime(2026, 8, 13, 9, 30)
@@ -439,7 +440,7 @@ def _service(
         reference_checker or FakeReferenceChecker(),
         model_dao=FakeModelDao,
         binding_dao=FakeBindingDao,
-        rate_card_dao=FakeRateCardDao,
+        rate_cards=RateCardService(fake_session, dao=FakeRateCardDao),
     )
     return service, fake_session, fake_runtime
 
@@ -1210,17 +1211,19 @@ async def test_delete_rejects_chat_references_before_any_write() -> None:
     with pytest.raises(ServiceException) as exc_info:
         await service.delete_model(model.model_id)
 
-    assert exc_info.value.message == '模型已被对话、密钥授权、费率或调用记录引用，不能删除'
+    assert exc_info.value.message == '模型仍被业务数据引用，不能删除'
     assert events == ['get_model_for_update', 'check_references', 'rollback']
     assert session.commit_count == 1
     assert session.rollback_count == 1
 
 
 @pytest.mark.asyncio
-async def test_default_reference_checker_is_explicit_and_does_not_query_database() -> None:
-    checker = NoModelReferenceChecker()
+async def test_default_reference_checker_refuses_unverified_deletion() -> None:
+    checker = UnavailableModelReferenceChecker()
 
-    assert await checker.has_model_references('mdl_00000000000040008000000000000001') is False
+    with pytest.raises(ServiceException) as caught:
+        await checker.has_model_references('mdl_00000000000040008000000000000001')
+    assert '引用检查不可用' in caught.value.message
 
 
 @pytest.mark.asyncio

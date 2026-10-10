@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
 from contextlib import suppress
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from plugins.agent_extension.domain.agent_knowledge import AgentKnowledgeProvider, KnowledgeIdentity, KnowledgePassage
-from plugins.agent_extension.entity.vo.work_task_vo import WorkTaskRunRequestModel
 
 from plugins.agent_extension.dao.work_task_dao import WorkTaskDao
 from plugins.agent_extension.domain.agent_errors import AgentServiceError
@@ -22,10 +17,23 @@ from plugins.agent_extension.entity.vo.agent_vo import AgentPublishedModel
 from plugins.agent_extension.service.agent_invocation_service import prepare_agent_call
 from plugins.agent_extension.service.agent_service import AgentService
 from plugins.agent_extension.service.work_task_service import WorkTaskService, conflict
-from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.domain.model_runtime import ModelMessage, ModelRuntimeEngine
+from plugins.ai.public.model_queries import PublishedChatModel, get_published_chat_model, lock_model_reference
 from plugins.ai.service.model_service import ModelService
-from plugins.ai.service.platform_chat_service import PlatformChatEvent, ChatSkillResolver
+from plugins.ai.service.platform_chat_service import ChatSkillResolver, PlatformChatEvent
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from plugins.agent_extension.domain.agent_knowledge import (
+        AgentKnowledgeProvider,
+        KnowledgeIdentity,
+        KnowledgePassage,
+    )
+    from plugins.agent_extension.entity.vo.work_task_vo import WorkTaskRunRequestModel
+
 
 RUNNING = ('pending', 'streaming')
 PUBLIC_ERROR = {'code': 'WORK_RUN_FAILED', 'message': '智能体执行失败，请重试'}
@@ -115,7 +123,7 @@ class WorkTaskRunService:
         skill_resolver: ChatSkillResolver | None = None,
         knowledge_provider: AgentKnowledgeProvider | None = None,
         model_service_factory: Callable[..., ModelService] = ModelService,
-        model_loader: Callable[[AsyncSession, str], Awaitable[Any]] = AiModelCatalogDao.get_model_by_id,
+        model_loader: Callable[[AsyncSession, str], Awaitable[PublishedChatModel | None]] = get_published_chat_model,
         poll_seconds: float = 0.2,
         lease_seconds: float = 120,
     ) -> None:
@@ -186,9 +194,11 @@ class WorkTaskRunService:
             if member is None or member.removed_at is not None:
                 raise AgentServiceError('WORK_MEMBER_UNAVAILABLE', '请选择可用的任务智能体', status_code=422)
             await AgentService(db).get_usable_published_agent(
-                payload.agent_id, actor_user_id=actor_user_id, is_admin=is_admin
+                payload.agent_id, actor_user_id=actor_user_id, is_admin=is_admin, protect_reference=False
             )
             config = AgentPublishedModel.model_validate(member.config_snapshot)
+            if not await lock_model_reference(db, config.model_id):
+                raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用')
             run_id = str(uuid4())
             claimed = await WorkTaskDao.compare_and_swap(
                 db,
@@ -314,21 +324,19 @@ class WorkTaskRunService:
                 )
                 await db.commit()
 
+    async def _model_code(self, model_id: str) -> str:
+        async with self.session_factory() as db:
+            model = await self.model_loader(db, model_id)
+            if model is None:
+                raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用')
+            return str(model.model_code)
+
     async def _drive(
         self, stream: WorkTaskStream, config: AgentPublishedModel, history: AgentInvocationRequestModel
     ) -> bool | None:
         upstream = None
         try:
-            async with self.session_factory() as db:
-                model = await self.model_loader(db, config.model_id)
-                if (
-                    model is None
-                    or model.lifecycle_status != 'active'
-                    or not model.published_at
-                    or model.model_type != 'chat'
-                ):
-                    raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用')
-                model_code = str(model.model_code)
+            model_code = await self._model_code(config.model_id)
             provider = (
                 _AuditKnowledge(self.knowledge_provider, stream.audit) if self.knowledge_provider is not None else None
             )
@@ -364,7 +372,7 @@ class WorkTaskRunService:
                 if len(stream.content.encode('utf-8')) + len(stream.reasoning.encode('utf-8')) > MAX_OUTPUT_BYTES:
                     raise ValueError('Model output limit exceeded')
                 if await self._persist(stream) not in RUNNING:
-                    return
+                    return None
                 if event.event_type in ('content', 'reasoning'):
                     stream.emit(event.event_type, delta=event.delta)
                 elif event.event_type == 'usage':
@@ -386,10 +394,7 @@ class WorkTaskRunService:
         terminal, error = 'interrupted', None
         try:
             finished, _ = await asyncio.wait((driver, watcher), return_when=asyncio.FIRST_COMPLETED)
-            if watcher in finished:
-                terminal = watcher.result()
-            else:
-                terminal = 'completed' if driver.result() else 'interrupted'
+            terminal = watcher.result() if watcher in finished else 'completed' if driver.result() else 'interrupted'
         except asyncio.CancelledError:
             terminal = 'interrupted'
         except Exception:

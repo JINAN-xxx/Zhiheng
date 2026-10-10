@@ -105,6 +105,7 @@ def test_ai_plugin_template_can_be_discovered() -> None:
         'migrations/postgresql/007_application_lifecycle.sql',
         'migrations/postgresql/008_chat_skill_snapshots.sql',
         'migrations/postgresql/009_chat_knowledge.sql',
+        'migrations/postgresql/010_chat_attachments.sql',
     ]
     assert plugin.manifest.backend.seeds == [
         'seeds/mysql/ai_provider_type.sql',

@@ -12,9 +12,10 @@ zhiheng-fastapi-frontend/plugins/<plugin_id>/
 ```
 
 运行时不会把前后端仓库名写死在各操作入口中。插件系统优先使用显式传入的目录，其次读取
-`RUOYI_PLUGIN_BACKEND_ROOT`/`RUOYI_BACKEND_ROOT` 和
-`RUOYI_PLUGIN_FRONTEND_ROOT`/`RUOYI_FRONTEND_ROOT`，再尝试从后端同级目录中识别前端工程；
+`ZHIHENG_PLUGIN_BACKEND_ROOT`/`ZHIHENG_BACKEND_ROOT` 和
+`ZHIHENG_PLUGIN_FRONTEND_ROOT`/`ZHIHENG_FRONTEND_ROOT`，再尝试从后端同级目录中识别前端工程；
 最后才按后端目录名把 `backend` 推断为 `frontend`。非默认目录名的项目，应优先配置上述环境变量或在运行时注入目录。
+旧前缀环境变量仅作兼容回退；同一目录的所有 `ZHIHENG_*` 变量均优先于旧变量。
 
 后端插件必须包含 `plugin.yaml`。插件发现、安装、菜单、依赖、配置、迁移、种子数据和定时任务都以这个文件为入口。
 
@@ -858,3 +859,24 @@ npm run build:prod
 - 生命周期钩子中的全局写操作检查 `startup_write_enabled`。
 - 依赖声明完整，并通过 `check-deps`。
 - 插件状态只使用 `status` 的四个生命周期值。
+
+## 15. 持久资源引用查询
+
+插件数据引用其他模块资源时，可以声明所属模块提供的只读检查：
+
+```yaml
+backend:
+  module: plugins.agent_extension
+  resourceReferences:
+    ai.model: plugins.agent_extension.public.model_references:has_model_references
+```
+
+查询签名为 `async def has_model_references(db, resource_id: str) -> bool`。它使用传入的会话，只返回是否存在引用，不能提交、回滚或启动插件运行服务。应覆盖所有用户的持久数据，以及仍然保留的发布、冻结和历史快照。不要按当前操作用户过滤引用。
+
+核心端口 `plugins.core.runtime.resource_references.has_resource_references` 会查询所有已安装插件，包括停用或运行异常的插件；仅发现但未安装的插件不参与。缺失源码、查询加载失败、查询异常或非布尔结果均向调用方报错，不能当作“没有引用”。因此这类查询模块的导入应保持轻量，不能依赖启用钩子生成的临时运行对象。
+
+对于 `ai.model`，写入引用时应先取得模型锁，再锁本模块的业务行，并持有到自身事务结束。配置校验可用 `get_published_chat_model_for_update`；冻结配置使用 `lock_model_reference`，后者允许停用但仍存在的模型。多个模型按 ID 排序加锁。不得在已持有业务行锁时反向申请模型锁。
+
+知识库的文件元数据采用独立的引用共享/独占锁：新增引用从模型校验到 metadata 原子写入持共享锁，模型删除直到 SQL 提交结束持独占锁，避免检查与写入之间出现空隙。原 metadata 事务锁仍负责文件原子性。
+
+当前模型删除同时检查平台聊天、授权/费率/用量、声明的插件引用和知识库元数据。存在持久引用时应先停用模型；删除不会级联清除业务历史。尚未装配完整检查器的调用必须拒绝删除。

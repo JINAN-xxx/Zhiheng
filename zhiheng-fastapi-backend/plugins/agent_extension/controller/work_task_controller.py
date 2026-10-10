@@ -6,9 +6,7 @@ import anyio
 from fastapi import Path, Query, Request, Response, params
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.types import Scope, Receive, Send
-
-from plugins.agent_extension.service.work_task_run_service import WorkTaskStream
+from starlette.types import Receive, Scope, Send
 
 from common.aspect.db_seesion import DBSessionDependency
 from common.aspect.interface_auth import UserInterfaceAuthDependency
@@ -27,6 +25,7 @@ from plugins.agent_extension.entity.vo.work_task_vo import (
 )
 from plugins.agent_extension.infrastructure.work_task_provider import get_work_task_run_service
 from plugins.agent_extension.service.agent_service import AgentService
+from plugins.agent_extension.service.work_task_run_service import WorkTaskStream
 from plugins.agent_extension.service.work_task_service import WorkTaskService
 from utils.response_util import ResponseUtil
 

@@ -25,7 +25,7 @@
 - `docker-compose.pg.yml`：继续作为唯一的 PostgreSQL 服务编排来源，不在脚本中复制服务定义。
 - `.env`：由现有初始化脚本维护，脚本只检查存在性，不打印密钥内容。
 
-脚本通过脚本自身目录计算仓库根路径，因此从任意当前目录执行都有效。可通过 `DOCKER_COMMAND` 覆盖 Docker 命令，通过 `COMPOSE_COMMAND` 覆盖 Compose 命令，通过 `RUOYI_COMPOSE_FILE` 选择 Compose 文件，通过 `RUOYI_COMPOSE_PROJECT` 指定 Compose 项目名；默认项目名为 `zhiheng-vue3-fastapi`，避免从不同目录执行时找不到已有容器。
+脚本通过脚本自身目录计算仓库根路径，因此从任意当前目录执行都有效。可通过 `DOCKER_COMMAND` 覆盖 Docker 命令，通过 `COMPOSE_COMMAND` 覆盖 Compose 命令，通过 `ZHIHENG_COMPOSE_FILE` 选择 Compose 文件，通过 `ZHIHENG_COMPOSE_PROJECT` 指定 Compose 项目名；默认项目名为 `zhiheng-vue3-fastapi`，避免从不同目录执行时找不到已有容器。
 
 ## 安全与错误处理
 

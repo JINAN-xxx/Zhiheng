@@ -1149,7 +1149,8 @@ class PluginRuntimeStartupManager:
             [
                 replace(plugin, enabled=False, status='error') if plugin.plugin_id in plugin_ids else plugin
                 for plugin in plugin_registry.list_plugins()
-            ]
+            ],
+            unresolved_installed_plugin_ids=plugin_registry.unresolved_installed_plugin_ids,
         )
 
     @staticmethod

@@ -165,6 +165,7 @@ cython_debug/
 
 # Runtime Agent Skills
 /data/agent-skills/
+/data/platform-files/
 /data/knowledge/
 /data/milvus/
 /zhiheng-fastapi-backend/data/knowledge/

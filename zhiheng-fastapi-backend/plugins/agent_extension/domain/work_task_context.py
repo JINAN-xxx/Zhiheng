@@ -4,7 +4,6 @@ from plugins.agent_extension.domain.agent_errors import AgentServiceError
 from plugins.agent_extension.entity.do.work_task_do import AgentWorkMessage
 from plugins.agent_extension.entity.vo.agent_invocation_vo import MAX_HISTORY_BYTES, AgentInvocationRequestModel
 
-
 MAX_HISTORY_MESSAGES = 96
 
 

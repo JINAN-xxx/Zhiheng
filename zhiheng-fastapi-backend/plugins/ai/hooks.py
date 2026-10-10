@@ -13,7 +13,13 @@ from plugins.ai.infrastructure.runtime_state import (
 )
 from plugins.core.runtime.hooks import PluginHookContext
 
-__all__ = ['CLIENT_STATE_NAME', 'MANAGEMENT_CLIENT_STATE_NAME', 'RUNTIME_CLIENT_STATE_NAME', 'on_shutdown', 'on_startup']
+__all__ = [
+    'CLIENT_STATE_NAME',
+    'MANAGEMENT_CLIENT_STATE_NAME',
+    'RUNTIME_CLIENT_STATE_NAME',
+    'on_shutdown',
+    'on_startup',
+]
 
 
 class AsyncClosable(Protocol):

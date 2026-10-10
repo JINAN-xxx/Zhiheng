@@ -14,6 +14,8 @@ metadata:
 
 backend:
   module: plugins.agent_extension
+  resourceReferences:
+    ai.model: plugins.agent_extension.public.model_references:has_model_references
   hooks:
     onStartup: plugins.agent_extension.hooks:on_startup
     onShutdown: plugins.agent_extension.hooks:on_shutdown

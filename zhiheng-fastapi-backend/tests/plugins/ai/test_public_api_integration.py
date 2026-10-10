@@ -12,7 +12,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from openai import AsyncOpenAI
 from pydantic import SecretStr
-from sqlalchemy import event, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from config.get_db import get_db
@@ -66,6 +66,13 @@ HTTP_NOT_FOUND = 404
 HTTP_SERVICE_UNAVAILABLE = 503
 HTTP_RATE_LIMITED = 429
 EXPECTED_TOTAL_TOKENS = 7
+EXPECTED_CHAT_INPUT_TOKENS = 4
+EXPECTED_CHAT_OUTPUT_TOKENS = 3
+EXPECTED_STREAM_OUTPUT_TOKENS = 2
+EXPECTED_EMBEDDING_DIMENSIONS = 2
+EXPECTED_EMBEDDING_TOKENS = 8
+EXPECTED_RERANK_TOKENS = 22
+EXPECTED_RERANK_ID_LENGTH = 36
 
 
 class RuntimeByteStream:
@@ -417,7 +424,7 @@ async def public_api_environment(monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
     redis = fakeredis.aioredis.FakeRedis()
     app = FastAPI()
     setattr(app.state, CLIENT_STATE_NAME, runtime)
-    setattr(app.state, 'redis', redis)
+    app.state.redis = redis
     app.include_router(controller.openai_compat_controller)
 
     async def test_db() -> AsyncIterator[AsyncSession]:
@@ -512,14 +519,12 @@ async def test_openai_sdk_lists_only_granted_model_and_completes_without_interna
     assert all(states == (False,) for _, states in environment.runtime.transaction_observations)
 
     async with environment.session_maker() as session:
-        from sqlalchemy import select
-
         ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].status == 'completed'
     assert ledgers[0].operation_type == 'chat'
-    assert ledgers[0].input_tokens == 4
-    assert ledgers[0].output_tokens == 3
+    assert ledgers[0].input_tokens == EXPECTED_CHAT_INPUT_TOKENS
+    assert ledgers[0].output_tokens == EXPECTED_CHAT_OUTPUT_TOKENS
     assert ledgers[0].cost_estimated is False
     assert ledgers[0].model_code == MODEL_CODE
 
@@ -566,14 +571,12 @@ async def test_openai_sdk_consumes_true_sse_stream_with_stable_public_chunks(
     assert all(states == (False,) for _, states in environment.runtime.transaction_observations)
 
     async with environment.session_maker() as session:
-        from sqlalchemy import select
-
         ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].status == 'completed'
     assert ledgers[0].operation_type == 'chat'
-    assert ledgers[0].input_tokens == 4
-    assert ledgers[0].output_tokens == 2
+    assert ledgers[0].input_tokens == EXPECTED_CHAT_INPUT_TOKENS
+    assert ledgers[0].output_tokens == EXPECTED_STREAM_OUTPUT_TOKENS
 
 
 @pytest.mark.asyncio
@@ -593,8 +596,8 @@ async def test_openai_sdk_creates_embedding_without_internal_leaks(
     assert response.model == EMBEDDING_MODEL_CODE
     assert response.object == 'list'
     assert [item.index for item in response.data] == [0, 1]
-    assert len(response.data[0].embedding) == 2
-    assert response.usage is not None and response.usage.prompt_tokens == 8
+    assert len(response.data[0].embedding) == EXPECTED_EMBEDDING_DIMENSIONS
+    assert response.usage is not None and response.usage.prompt_tokens == EXPECTED_EMBEDDING_TOKENS
     serialized = response.model_dump_json()
     assert EMBEDDING_MODEL_ID not in serialized
     assert EMBEDDING_ENGINE_MODEL not in serialized
@@ -608,13 +611,11 @@ async def test_openai_sdk_creates_embedding_without_internal_leaks(
     ]
 
     async with environment.session_maker() as session:
-        from sqlalchemy import select
-
         ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].status == 'completed'
     assert ledgers[0].operation_type == 'embedding'
-    assert ledgers[0].input_tokens == 8
+    assert ledgers[0].input_tokens == EXPECTED_EMBEDDING_TOKENS
     assert ledgers[0].cost_estimated is False
     assert ledgers[0].model_code == EMBEDDING_MODEL_CODE
 
@@ -643,7 +644,7 @@ async def test_rerank_returns_stable_bounded_results_and_search_unit_ledger(
 
     assert response.status_code == HTTP_OK
     payload = response.json()
-    assert payload['id'].startswith('rrk_') and len(payload['id']) == 36
+    assert payload['id'].startswith('rrk_') and len(payload['id']) == EXPECTED_RERANK_ID_LENGTH
     assert [item['index'] for item in payload['results']] == [1, 0]
     assert payload['results'][0]['document'] == {'text': 'Refunds are accepted within thirty days.'}
     assert payload['meta'] == {'billed_units': {'search_units': 1}, 'tokens': {'input_tokens': 22}}
@@ -654,8 +655,8 @@ async def test_rerank_returns_stable_bounded_results_and_search_unit_ledger(
             'model': RERANK_ENGINE_MODEL,
             'query': 'Which document describes the refund policy?',
             'documents': [
-                {'text': 'Shipping usually takes three days.'},
-                {'text': 'Refunds are accepted within thirty days.'},
+                'Shipping usually takes three days.',
+                'Refunds are accepted within thirty days.',
             ],
             'top_n': 2,
             'return_documents': True,
@@ -663,14 +664,12 @@ async def test_rerank_returns_stable_bounded_results_and_search_unit_ledger(
     ]
 
     async with environment.session_maker() as session:
-        from sqlalchemy import select
-
         ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].status == 'completed'
     assert ledgers[0].operation_type == 'rerank'
     assert ledgers[0].search_units == 1
-    assert ledgers[0].input_tokens == 22
+    assert ledgers[0].input_tokens == EXPECTED_RERANK_TOKENS
     assert ledgers[0].billable_cost == Decimal('0.001')
     assert ledgers[0].cost_estimated is False
 
@@ -822,8 +821,6 @@ async def test_runtime_failure_returns_fixed_error_without_key_or_upstream_detai
     assert 'runtime.internal' not in response.text
 
     async with environment.session_maker() as session:
-        from sqlalchemy import select
-
         ledgers = (await session.execute(select(AiApiUsageLedger))).scalars().all()
     assert len(ledgers) == 1
     assert ledgers[0].status == 'failed'

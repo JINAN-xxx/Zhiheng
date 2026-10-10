@@ -46,9 +46,8 @@
 <script setup name="AiWork">
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
-import useWorkTaskStore from '@/store/modules/workTask'
 import { normalizeErrorMessage } from '@/utils/errorMessage'
-import { resolveWorkTaskCapabilities } from '../../utils/workTask.js'
+import { useWorkTaskStore, resolveWorkTaskCapabilities } from '../../public/workTasks.js'
 import WorkEmptyState from './components/WorkEmptyState.vue'
 import WorkTaskPage from './components/WorkTaskPage.vue'
 

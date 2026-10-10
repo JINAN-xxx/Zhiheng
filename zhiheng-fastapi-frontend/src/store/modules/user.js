@@ -1,3 +1,4 @@
+import { defineStore } from 'pinia'
 import router from '@/router'
 import cache from '@/plugins/cache'
 import feedback from '@/plugins/antdFeedback'
@@ -7,7 +8,7 @@ import { bestEffortLogout } from '@/utils/sessionLogout'
 import { isHttp, isEmpty } from "@/utils/validate"
 import useLockStore from '@/store/modules/lock'
 import defAva from '@/assets/images/profile.jpg'
-import { clearWorkTaskSession } from '../../../plugins/agent_extension/utils/workTaskSession.js'
+import { clearSessionState } from '../sessionLifecycle.js'
 
 const useUserStore = defineStore(
   'user',
@@ -30,6 +31,7 @@ const useUserStore = defineStore(
         const uuid = userInfo.uuid
         return new Promise((resolve, reject) => {
           login(username, password, code, uuid).then(res => {
+            this.clearSession()
             setToken(res.token)
             this.token = res.token
             useLockStore().unlockScreen()
@@ -78,11 +80,13 @@ const useUserStore = defineStore(
         })
       },
       clearSession() {
-        clearWorkTaskSession()
         this.token = ''
         this.roles = []
         this.permissions = []
         removeToken()
+        if (clearSessionState(this).length) {
+          console.warn('部分模块的会话状态未能清理。')
+        }
       },
       // 先清理本地会话，避免后端不可用或令牌失效时卡在退出请求。
       async logOut() {

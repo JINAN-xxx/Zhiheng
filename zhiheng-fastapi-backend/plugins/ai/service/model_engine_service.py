@@ -18,6 +18,7 @@ from plugins.ai.entity.vo.ai_model_engine_vo import (
     ModelEngineStatusModel,
     ProviderModel,
 )
+from plugins.ai.infrastructure.connection_probe_policy import prepare_connection_probe
 from plugins.ai.infrastructure.litellm_management_adapter import LiteLLMManagementAdapter
 from plugins.ai.infrastructure.litellm_management_errors import (
     LiteLLMManagementMisconfiguredError,
@@ -28,6 +29,7 @@ from plugins.ai.infrastructure.model_connection_resolver import (
     resolve_deployment_connection,
     safe_api_base,
 )
+from plugins.ai.infrastructure.rerank_compatibility import prepare_rerank_payload, restore_connection_parameters
 
 ResultT = TypeVar('ResultT')
 Clock = Callable[[], datetime]
@@ -360,6 +362,7 @@ class ModelEngineService:
         profile = await self._saved_connection(request.credential_name, request.provider, providers)
         payload = self._build_payload(self._adapter.build_deployment_create_payload, request, providers)
         _apply_connection_address(payload, profile)
+        payload = prepare_rerank_payload(payload)
         operation = client.create_deployment(payload)
         del payload
         result = await operation
@@ -376,12 +379,17 @@ class ModelEngineService:
         client = self._require_configured_client()
         providers: Sequence[ProviderModel] = ()
         profile = None
+        current_type = None
+        current_provider = None
         if {'provider', 'credential_name'} & request.model_fields_set:
             providers = await _load_providers(client, self._adapter)
-            profile = await self._updated_connection(deployment_id, request, providers)
+            profile, current_type, current_provider = await self._updated_connection(deployment_id, request, providers)
         payload = self._build_payload(self._adapter.build_deployment_update_payload, request, providers)
         if profile is not None:
             _apply_connection_address(payload, profile)
+            if current_type == 'rerank':
+                payload['litellm_params'].setdefault('custom_llm_provider', current_provider)
+                payload = prepare_rerank_payload(payload, model_type=current_type)
         operation = client.update_deployment(deployment_id, payload)
         del deployment_id, request, providers, payload
         await operation
@@ -400,6 +408,7 @@ class ModelEngineService:
         payload = self._build_payload(self._adapter.build_connection_test_payload, request, providers)
         if profile is not None:
             _apply_connection_address(payload, profile)
+        payload = prepare_connection_probe(prepare_rerank_payload(payload))
         started_at = self._timer()
         operation = client.test_connection(payload)
         del request, providers, payload
@@ -426,8 +435,8 @@ class ModelEngineService:
         deployment_id: str,
         request: DeploymentUpdateModel,
         providers: Sequence[ProviderModel],
-    ) -> ConnectionProfileModel:
-        current, credentials, old_profile, has_explicit_address = await _load_connection_update_context(
+    ) -> tuple[ConnectionProfileModel, str | None, str]:
+        current, credentials, old_profile, has_explicit_address, model_type = await _load_connection_update_context(
             self._require_configured_client(),
             self._adapter,
             deployment_id,
@@ -448,7 +457,7 @@ class ModelEngineService:
         # LiteLLM PATCH excludes None; it cannot clear an old api_base with a null value.
         if profile.api_base is None and has_explicit_address:
             raise ModelEngineServiceError.connection_missing()
-        return profile
+        return profile, model_type, current.provider
 
     async def get_status(self) -> ModelEngineStatusModel:
         started_at = self._timer()
@@ -541,10 +550,11 @@ async def _load_connection_update_context(
     adapter: LiteLLMManagementAdapter,
     deployment_id: str,
     providers: Sequence[ProviderModel],
-) -> tuple[DeploymentModel, list[CredentialSummaryModel], ConnectionProfileModel, bool]:
+) -> tuple[DeploymentModel, list[CredentialSummaryModel], ConnectionProfileModel, bool, str | None]:
     deployments_payload = await client.list_all_deployments()
     credentials_payload = None
     parameters = None
+    row = None
     try:
         deployments = adapter.normalize_deployments(deployments_payload)
         index = next((index for index, item in enumerate(deployments) if item.deployment_id == deployment_id), None)
@@ -553,16 +563,19 @@ async def _load_connection_update_context(
         current = deployments[index]
         credentials_payload = await client.list_credentials()
         credentials = resolve_credential_connections(credentials_payload, deployments_payload, providers)
-        parameters = deployments_payload.get('data', deployments_payload.get('items'))[index]['litellm_params']
+        row = deployments_payload.get('data', deployments_payload.get('items'))[index]
+        parameters = restore_connection_parameters(row['litellm_params'], row['model_info'])
+        mode = row['model_info'].get('mode')
+        model_type = mode if isinstance(mode, str) and mode in {'chat', 'embedding', 'rerank'} else None
         profile, has_explicit_address = resolve_deployment_connection(
             current,
             parameters,
             _credential_profile(credentials, current.credential_name),
             providers,
         )
-        return current, credentials, profile, has_explicit_address
+        return current, credentials, profile, has_explicit_address, model_type
     finally:
-        del deployments_payload, credentials_payload, parameters
+        del deployments_payload, credentials_payload, parameters, row
 
 
 def _validate_saved_values(request: ConnectionTestRequestModel, profile: ConnectionProfileModel) -> None:

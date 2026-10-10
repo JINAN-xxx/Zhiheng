@@ -41,33 +41,43 @@ def initialize_database(settings: dict, admin_password: str, sql_path: Path) -> 
         admin.autocommit = True
         with admin.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_lock(982147, 1)')
+            cursor.execute('SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = %s', (settings['dbname'],))
+            row = cursor.fetchone()
+            if row is not None and row[0] != settings['user']:
+                raise BootstrapError('业务数据库已存在但所有者不匹配，初始化已停止')
+            if row is None and settings['dbname'] in ('ruoyi-fastapi', 'zhiheng-fastapi'):
+                other_name = 'zhiheng-fastapi' if settings['dbname'] == 'ruoyi-fastapi' else 'ruoyi-fastapi'
+                cursor.execute('SELECT 1 FROM pg_database WHERE datname = %s', (other_name,))
+                if cursor.fetchone():
+                    raise BootstrapError(
+                        f'检测到已有业务数据库 {other_name}，拒绝创建第二个空库；'
+                        '请在部署环境中将 PLATFORM_DB_NAME 和 PLATFORM_DB_USER 配置为已有数据库及其所有者'
+                    )
             cursor.execute('SELECT 1 FROM pg_roles WHERE rolname = %s', (settings['user'],))
             if cursor.fetchone() is None:
                 cursor.execute(
                     sql.SQL('CREATE ROLE {} LOGIN PASSWORD %s').format(sql.Identifier(settings['user'])),
                     (settings['password'],),
                 )
-            cursor.execute('SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = %s', (settings['dbname'],))
-            row = cursor.fetchone()
             if row is None:
                 cursor.execute(
                     sql.SQL('CREATE DATABASE {} OWNER {}').format(
                         sql.Identifier(settings['dbname']), sql.Identifier(settings['user'])
                     )
                 )
-            elif row[0] != settings['user']:
-                raise BootstrapError('业务数据库已存在但所有者不匹配，初始化已停止')
         # 以业务角色验证已保存密码；已有角色密码不自动重置。
         connection = psycopg2.connect(**settings)
         try:
             with connection, connection.cursor() as cursor:
-                cursor.execute("SELECT to_regclass('public.zhiheng_bootstrap_state')")
-                marked = cursor.fetchone()[0]
-                if marked:
-                    cursor.execute('SELECT 1 FROM public.zhiheng_bootstrap_state WHERE marker_id=1')
-                    if cursor.fetchone():
-                        print('数据库已初始化，保留现有数据并检查增量迁移。', flush=True)
-                        return
+                for marker in ('zhiheng_bootstrap_state', 'ruoyi_bootstrap_state'):
+                    cursor.execute('SELECT to_regclass(%s)', (f'public.{marker}',))
+                    if cursor.fetchone()[0]:
+                        cursor.execute(
+                            sql.SQL('SELECT 1 FROM public.{} WHERE marker_id=1').format(sql.Identifier(marker))
+                        )
+                        if cursor.fetchone():
+                            print('数据库已初始化，保留现有数据并检查增量迁移。', flush=True)
+                            return
                 cursor.execute("SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'")
                 if cursor.fetchone()[0]:
                     raise BootstrapError('数据库非空且缺少初始化完成标记，拒绝导入完整 SQL')

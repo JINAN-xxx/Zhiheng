@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import Path, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from common.annotation.log_annotation import AuditedHTTPException
@@ -21,8 +21,6 @@ from plugins.agent_extension.entity.vo.agent_vo import AgentDetailModel, AgentId
 from plugins.agent_extension.service.agent_invocation_service import prepare_agent_call
 from plugins.agent_extension.service.agent_service import AgentService
 from plugins.ai.config import LiteLLMSettings
-from plugins.ai.controller import openai_compat_controller as public_transport
-from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.domain.model_runtime import ModelMessage
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.public_api_errors import PublicApiError
@@ -30,13 +28,17 @@ from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIChatCompletionRequest
 from plugins.ai.infrastructure.model_runtime_provider import get_model_runtime_engine
 from plugins.ai.infrastructure.public_api_provider import get_public_api_services
 from plugins.ai.infrastructure.skill_context_adapter import SkillContextAdapter
+from plugins.ai.public import api_transport as public_transport
+from plugins.ai.public.model_queries import get_published_chat_model
 from plugins.ai.service.model_service import ModelService
 from plugins.ai.service.platform_chat_service import PlatformChatError
 from utils.response_util import ResponseUtil
 
 agent_public_controller = APIRouterPro(prefix='/v1/agents', order_num=27, tags=['智能体调用'])
 agent_preview_controller = APIRouterPro(
-    prefix='/agent_extension/agents', order_num=26, tags=['智能体扩展-试聊'],
+    prefix='/agent_extension/agents',
+    order_num=26,
+    tags=['智能体扩展-试聊'],
     dependencies=[PreAuthDependency(), UserInterfaceAuthDependency('agent_extension:agent:test')],
 )
 _settings_factory = LiteLLMSettings
@@ -45,8 +47,8 @@ _agent_service = AgentService
 
 
 async def _model_code(db: AsyncSession, model_id: str) -> str:
-    model = await AiModelCatalogDao.get_model_by_id(db, model_id)
-    if model is None or model.lifecycle_status != 'active' or model.published_at is None or model.model_type != 'chat':
+    model = await get_published_chat_model(db, model_id)
+    if model is None:
         raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用', status_code=422)
     return str(model.model_code)
 
@@ -71,7 +73,8 @@ async def _prepare(
             getattr(request.app.state, 'agent_skill_context_provider', None),
         )
     return await prepare_agent_call(
-        config, payload,
+        config,
+        payload,
         agent_id=config.agent_id,
         owner_user_id=config.owner_user_id,
         application_id=application_id,
@@ -102,8 +105,10 @@ async def invoke_published_agent(
         if not settings.public_api_enabled:
             raise PublicApiError.feature_disabled()
         services = await _public_api_services(request, query_db, settings)
-        identity = await public_transport._authenticate_request(request, services.authenticator)
-        body = await public_transport._read_request(request, settings.api_max_request_bytes, AgentInvocationRequestModel)
+        identity = await public_transport.authenticate_request(request, services.authenticator)
+        body = await public_transport.read_json_request(
+            request, settings.api_max_request_bytes, AgentInvocationRequestModel
+        )
         if body.cancelled:
             raise asyncio.CancelledError
         if body.value is None:
@@ -117,19 +122,16 @@ async def invoke_published_agent(
         # The existing public service remains responsible for model grants, quota and usage settlement.
         if prepared.stream:
             stream = await services.compat.stream(identity, prepared)
-            return StreamingResponse(
-                public_transport._stream_bytes(stream), media_type='text/event-stream',
-                headers=public_transport.OPENAI_SSE_HEADERS,
-            )
+            return public_transport.streaming_response(stream)
         result = await services.compat.complete(identity, prepared)
         return JSONResponse(result.model_dump(mode='json'))
     except (AgentServiceError, KnowledgeRetrievalError, PlatformChatError, ModelServiceError) as error:
         return _agent_error_response(error)
     except PublicApiError as error:
-        return public_transport._error_response(error)
+        return public_transport.error_response(error)
     except Exception:
         error = PublicApiError.service_unavailable()
-        return public_transport._error_response(error)
+        return public_transport.error_response(error)
 
 
 @agent_preview_controller.post('/{agent_id}/preview')
@@ -154,19 +156,31 @@ async def preview_agent(
             parameters={'temperature': prepared.temperature, 'max_tokens': prepared.max_tokens},
         )
         usage = result.response.usage
-        response = OpenAIChatCompletionResponseModel.model_validate({
-            'id': f'chatcmpl_{uuid4().hex}', 'created': int(datetime.now(timezone.utc).timestamp()),
-            'model': prepared.model,
-            'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': result.response.text}, 'finish_reason': 'stop'}],
-            'usage': {
-                'prompt_tokens': usage.input_tokens, 'completion_tokens': usage.output_tokens,
-                'total_tokens': usage.input_tokens + usage.output_tokens,
-            },
-        })
+        response = OpenAIChatCompletionResponseModel.model_validate(
+            {
+                'id': f'chatcmpl_{uuid4().hex}',
+                'created': int(datetime.now(timezone.utc).timestamp()),
+                'model': prepared.model,
+                'choices': [
+                    {
+                        'index': 0,
+                        'message': {'role': 'assistant', 'content': result.response.text},
+                        'finish_reason': 'stop',
+                    }
+                ],
+                'usage': {
+                    'prompt_tokens': usage.input_tokens,
+                    'completion_tokens': usage.output_tokens,
+                    'total_tokens': usage.input_tokens + usage.output_tokens,
+                },
+            }
+        )
         return ResponseUtil.success(data=response)
     except (AgentServiceError, KnowledgeRetrievalError, PlatformChatError, ModelServiceError) as error:
         detail = error.public_dict()
         raise AuditedHTTPException(
-            status_code=getattr(error, 'status_code', 503), detail=detail,
-            audit_code=detail['code'], audit_message=detail['message'],
+            status_code=getattr(error, 'status_code', 503),
+            detail=detail,
+            audit_code=detail['code'],
+            audit_message=detail['message'],
         ) from None

@@ -182,7 +182,7 @@ async def test_dashboard_grid_expands_to_fit_status_panels(
         collect_dashboard,
     )
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     async with app.run_test(size=(160, 60)) as pilot:
         await pilot.pause()
         await pilot.pause()

@@ -3,9 +3,10 @@ set -eu
 
 script_directory=$(CDPATH= cd "$(dirname "$0")" && pwd)
 repository_root=$(CDPATH= cd "$script_directory/../.." && pwd)
-compose_file=${RUOYI_COMPOSE_FILE:-"$repository_root/compose.yaml"}
-compose_project=${RUOYI_COMPOSE_PROJECT:-zhiheng}
-platform_environment=${RUOYI_ENV_FILE:-"$repository_root/.env"}
+# 旧变量只作为读取兼容；默认值和帮助文本统一使用 ZHIHENG 命名。
+compose_file=${ZHIHENG_COMPOSE_FILE:-${RUOYI_COMPOSE_FILE:-"$repository_root/docker-compose.pg.yml"}}
+compose_project=${ZHIHENG_COMPOSE_PROJECT:-${RUOYI_COMPOSE_PROJECT:-zhiheng-vue3-fastapi}}
+platform_environment=${ZHIHENG_ENV_FILE:-${RUOYI_ENV_FILE:-"$repository_root/.env"}}
 docker_command=${DOCKER_COMMAND:-docker}
 compose_command=${COMPOSE_COMMAND:-}
 compose_kind=
@@ -25,11 +26,11 @@ usage() {
   ./deploy/legacy/manage.sh help       显示此帮助
 
 环境变量：
-  RUOYI_COMPOSE_FILE    自定义 Compose 文件路径
-  RUOYI_ENV_FILE        自定义环境文件路径
+  ZHIHENG_COMPOSE_FILE    自定义 Compose 文件路径
+  ZHIHENG_ENV_FILE        自定义环境文件路径
   DOCKER_COMMAND        Docker 命令，默认 docker
   COMPOSE_COMMAND       Compose 命令，默认优先 docker compose
-  RUOYI_COMPOSE_PROJECT Compose 项目名，默认 zhiheng
+  ZHIHENG_COMPOSE_PROJECT Compose 项目名，默认 zhiheng-vue3-fastapi
 EOF
 }
 
@@ -44,6 +45,7 @@ command_exists() {
 
 require_docker() {
     command_exists "$docker_command" || fail "未找到 Docker 命令：$docker_command"
+    command_exists python3 || fail '未找到 Python 3，请先安装 python3。'
 }
 
 select_compose() {
@@ -76,14 +78,44 @@ require_files() {
 
 compose() {
     if [ "$compose_kind" = docker ]; then
-        "$docker_command" compose --project-name "$compose_project" --env-file "$platform_environment" -f "$compose_file" "$@"
+        set -- "$docker_command" compose --project-name "$compose_project" --env-file "$platform_environment" -f "$compose_file" "$@"
     else
-        "$compose_command" --project-name "$compose_project" --env-file "$platform_environment" -f "$compose_file" "$@"
+        set -- "$compose_command" --project-name "$compose_project" --env-file "$platform_environment" -f "$compose_file" "$@"
     fi
+    # 与统一入口共用旧密钥名读取兼容；不 source 配置、不输出密钥、不改写 env 文件。
+    python3 - "$repository_root" "$platform_environment" "$@" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("platform_deployment", Path(sys.argv[1]) / "deploy/platform.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+try:
+    module.run(sys.argv[3:], environment=module.read_environment(Path(sys.argv[2])))
+except module.DeploymentError as error:
+    print(f"错误：{error}", file=sys.stderr)
+    raise SystemExit(1) from None
+PY
 }
 
 require_environment() {
     [ -f "$platform_environment" ] || fail "环境文件不存在：$platform_environment，请先执行 ./deploy/legacy/manage.sh init"
+}
+
+require_migrated_service_names() {
+    deployed_services=$(
+        "$docker_command" ps --all \
+            --filter "label=com.docker.compose.project=$compose_project" \
+            --format '{{.Label "com.docker.compose.service"}}'
+    ) || fail '无法检查现有部署容器，已停止操作。'
+    for service in $deployed_services; do
+        case "$service" in
+            ruoyi-backend-pg|ruoyi-frontend|ruoyi-redis)
+                fail '检测到同项目的旧命名容器，请按 deploy/README.md 完成迁移并保留数据卷后重试。'
+                ;;
+        esac
+    done
 }
 
 print_access_hint() {
@@ -145,6 +177,9 @@ main() {
             require_docker
             select_compose
             require_files
+            case "$action" in
+                init|start|restart|update) require_migrated_service_names ;;
+            esac
             case "$action" in
                 init)
                     init_platform

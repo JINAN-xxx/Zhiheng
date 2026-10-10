@@ -111,19 +111,19 @@
     />
     <RecentWorkTasks
       v-if="workCapabilities.list && !collapsed && conversationMode === 'work'"
-      :tasks="workTaskStore.tasks"
+      :tasks="workNavigation.tasks"
       :active-task-id="activeTaskId"
-      :loading="workTaskStore.listLoading"
-      :error="workTaskStore.listError"
-      :total="workTaskStore.total"
-      :page-num="workTaskStore.pageNum"
-      :page-size="workTaskStore.pageSize"
-      :keyword="workTaskStore.listQuery.keyword"
-      :status="workTaskStore.listQuery.status"
+      :loading="workNavigation.listLoading"
+      :error="workNavigation.listError"
+      :total="workNavigation.total"
+      :page-num="workNavigation.pageNum"
+      :page-size="workNavigation.pageSize"
+      :keyword="workNavigation.listQuery.keyword"
+      :status="workNavigation.listQuery.status"
       :can-open="workCapabilities.query"
       :can-edit="workCapabilities.edit"
       :can-remove="workCapabilities.remove"
-      @filter="workTaskStore.loadTasks"
+      @filter="workNavigation.loadTasks"
       @open="openWork"
       @rename="renameWork"
       @delete="deleteWork"
@@ -162,11 +162,10 @@ import {
   resolveAiResourceGroups,
   resolveConversationWorkspaceMode,
 } from '@/components/Workspace/workspaceTransforms.js'
-import { resolveWorkTaskCapabilities } from '../../../plugins/agent_extension/utils/workTask.js'
+import { useWorkTaskNavigation, resolveWorkTaskCapabilities } from '../../../plugins/agent_extension/public/workTasks.js'
 import feedback from '@/plugins/antdFeedback'
 import useUserStore from '@/store/modules/user'
 import useWorkspaceStore from '@/store/modules/workspace'
-import useWorkTaskStore from '@/store/modules/workTask'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import RecentSessions from './RecentSessions.vue'
 import RecentWorkTasks from './RecentWorkTasks.vue'
@@ -181,7 +180,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const workspaceStore = useWorkspaceStore()
-const workTaskStore = useWorkTaskStore()
+const workNavigation = useWorkTaskNavigation()
 
 const permissionSet = computed(() => new Set(userStore.permissions))
 const canChat = computed(
@@ -296,26 +295,26 @@ async function renameWork(task) {
     const result = await feedback.prompt('请输入新的工作标题')
     const title = String(result?.value || '').trim()
     if (!title || title.length > 100) return feedback.msgWarning('工作标题须为 1 至 100 个字符')
-    await workTaskStore.renameListedTask(task, title)
+    await workNavigation.renameListedTask(task, title)
   } catch (error) { if (error !== 'cancel' && error !== 'close') feedback.msgError(error?.message || '重命名失败') }
 }
 
 async function deleteWork(task) {
   try {
     await feedback.confirm('删除后无法恢复，确定删除这个工作吗？')
-    await workTaskStore.removeTask(task.taskId)
+    await workNavigation.removeTask(task.taskId)
     if (activeTaskId.value === task.taskId) await router.push('/ai/chat/work')
   } catch (error) { if (error !== 'cancel' && error !== 'close') feedback.msgError(error?.message || '删除失败') }
 }
 
 onMounted(() => {
   if (conversationMode.value === 'chat' && canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
-  if (conversationMode.value === 'work' && workCapabilities.value.list && !workTaskStore.tasks.length) workTaskStore.loadTasks()
+  if (conversationMode.value === 'work' && workCapabilities.value.list && !workNavigation.tasks.length) workNavigation.loadTasks()
 })
 
 watch(conversationMode, (mode) => {
   if (mode === 'chat' && canChat.value && !workspaceStore.sessions.length) workspaceStore.loadSessions()
-  if (mode === 'work' && workCapabilities.value.list && !workTaskStore.tasks.length) workTaskStore.loadTasks()
+  if (mode === 'work' && workCapabilities.value.list && !workNavigation.tasks.length) workNavigation.loadTasks()
 })
 
 watch([resourceGroups, () => route.path], ([groups]) => {

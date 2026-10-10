@@ -67,7 +67,9 @@ class SkillService:
         self._id_factory = id_factory
         self._clock = clock
 
-    async def list_skills(self, query: SkillPageQueryModel, *, is_page: bool = False) -> PageModel | list[dict[str, Any]]:
+    async def list_skills(
+        self, query: SkillPageQueryModel, *, is_page: bool = False
+    ) -> PageModel | list[dict[str, Any]]:
         try:
             return await self._dao.list_skills(self._db, query, is_page=is_page)
         finally:

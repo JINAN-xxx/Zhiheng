@@ -22,7 +22,7 @@ from cli.tui.screens import BrowserScreen, DashboardScreen, DetailScreen
 from cli.tui.widgets import NavigationItem, WorkspaceSidebar
 
 PageSnapshot = BrowserPageSnapshot | DashboardSnapshot | DetailPageSnapshot
-SnapshotCollector = Callable[['RuoyiTuiApp'], Awaitable[PageSnapshot]]
+SnapshotCollector = Callable[['ZhihengTuiApp'], Awaitable[PageSnapshot]]
 TUI_NAVIGATION_DEBOUNCE_SECONDS = 0.075
 TUI_SNAPSHOT_CACHE_TTL_SECONDS = 15.0
 TUI_SNAPSHOT_CACHE_MAX_ENTRIES = 18
@@ -62,7 +62,7 @@ class TuiViewRegistry:
     TUI 视图注册表。
 
     该对象集中维护视图打开、刷新与顺序导航所需的元数据，
-    避免 `RuoyiTuiApp` 内继续手工维护多份视图映射。
+    避免 `ZhihengTuiApp` 内继续手工维护多份视图映射。
 
     :param definitions: 视图定义映射
     :param navigation_items: 导航项列表
@@ -93,7 +93,7 @@ class TuiViewRegistry:
             return normalized_view_key
         return 'dashboard'
 
-    async def collect_snapshot(self, app: 'RuoyiTuiApp', view_key: str) -> PageSnapshot:
+    async def collect_snapshot(self, app: 'ZhihengTuiApp', view_key: str) -> PageSnapshot:
         """
         采集指定视图的页面快照。
 
@@ -314,7 +314,7 @@ class TuiBindingBuilder:
     """
     TUI 快捷键绑定构建器。
 
-    该对象负责统一装配应用级固定绑定和视图跳转绑定，避免 `RuoyiTuiApp`
+    该对象负责统一装配应用级固定绑定和视图跳转绑定，避免 `ZhihengTuiApp`
     继续手工维护重复的绑定元组列表。
     """
 
@@ -395,7 +395,7 @@ class TuiViewRegistryBuilder:
         :return: 页面快照采集器
         """
 
-        async def collect(app: 'RuoyiTuiApp') -> PageSnapshot:
+        async def collect(app: 'ZhihengTuiApp') -> PageSnapshot:
             collect_kwargs: dict[str, str] = {}
             if spec.include_filter:
                 collect_kwargs['filter_key'] = app.get_browser_filter(spec.view_key)
@@ -431,7 +431,7 @@ class TuiViewStateStore:
     TUI 视图状态存储。
 
     该对象集中维护页面级动作反馈、浏览页筛选键和搜索词，避免
-    `RuoyiTuiApp` 本体继续直接操作多份同类字典状态。
+    `ZhihengTuiApp` 本体继续直接操作多份同类字典状态。
 
     :param action_feedback_by_view: 动作反馈映射
     :param browser_filter_by_view: 浏览页筛选映射
@@ -528,7 +528,7 @@ class TuiScreenFactory:
     """
     TUI 工作台页面工厂。
 
-    该对象负责把页面快照转换为具体 screen 实例，避免 `RuoyiTuiApp`
+    该对象负责把页面快照转换为具体 screen 实例，避免 `ZhihengTuiApp`
     同时承担状态协调和 screen 构建职责。
     """
 
@@ -598,7 +598,7 @@ class TuiScreenNavigator:
     :param initialized: 工作台屏幕是否已初始化
     """
 
-    app: 'RuoyiTuiApp'
+    app: 'ZhihengTuiApp'
     initialized: bool = False
 
     def show(self, screen: BrowserScreen | DashboardScreen | DetailScreen) -> None:
@@ -681,7 +681,7 @@ class TuiViewOpeningCoordinator:
     TUI 视图打开协调器。
 
     该对象负责串联视图解析、快照采集、screen 构建与切屏展示，
-    让 `RuoyiTuiApp` 更专注于状态暴露与 Textual action 桥接。
+    让 `ZhihengTuiApp` 更专注于状态暴露与 Textual action 桥接。
 
     :param view_registry: 视图注册表
     :param screen_factory: 工作台页面工厂
@@ -723,7 +723,7 @@ class TuiViewOpeningCoordinator:
 
     async def show(
         self,
-        app: 'RuoyiTuiApp',
+        app: 'ZhihengTuiApp',
         view_key: str,
         *,
         request_id: int,
@@ -772,7 +772,7 @@ class TuiViewOpeningCoordinator:
         app.screen_navigator.show(screen)
 
 
-class RuoyiTuiApp(App[None]):
+class ZhihengTuiApp(App[None]):
     """
     ZhiHeng CLI Textual 应用。
 
@@ -1055,7 +1055,7 @@ class TuiAppRunner:
     :param app_factory: TUI 应用工厂
     """
 
-    app_factory: Callable[[str], RuoyiTuiApp]
+    app_factory: Callable[[str], ZhihengTuiApp]
 
     def run(self, env: str) -> None:
         """
@@ -1067,4 +1067,4 @@ class TuiAppRunner:
         self.app_factory(env).run()
 
 
-TUI_APP_RUNNER = TuiAppRunner(RuoyiTuiApp)
+TUI_APP_RUNNER = TuiAppRunner(ZhihengTuiApp)

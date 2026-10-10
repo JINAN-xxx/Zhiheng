@@ -259,8 +259,11 @@ class LiteLLMRuntimeAdapter:
         payload: dict[str, object] = {
             'model': request.engine_model,
             'query': request.query,
-            'documents': [{'text': document.text} for document in request.documents],
-            'return_documents': request.return_documents,
+            'documents': [document.text for document in request.documents],
+            # Request a consistent non-null document shape from compatible
+            # providers. Public APIs reconstruct optional documents from the
+            # original request; upstream document text is never forwarded.
+            'return_documents': True,
         }
         if request.top_n is not None:
             payload['top_n'] = request.top_n
@@ -413,6 +416,10 @@ class LiteLLMRuntimeAdapter:
         search_units = billed_units.get('search_units') if isinstance(billed_units, Mapping) else None
         if input_tokens is not None and (type(input_tokens) is not int or input_tokens < 0):
             return False, None, None
+        # A zero field is not a usable positive search-unit measurement. Keep
+        # token usage and let settlement apply its existing missing-unit estimate.
+        if type(search_units) is int and search_units == 0:
+            search_units = None
         if search_units is not None and (type(search_units) is not int or search_units < 1):
             return False, None, None
         return True, input_tokens, search_units

@@ -214,6 +214,31 @@ class BackendManifest(BaseModel):
     seeds: list[str] = Field(default_factory=list, description='初始化数据脚本列表')
     hooks: HookManifest = Field(default_factory=HookManifest, description='生命周期钩子声明')
     jobs: list[PluginJobManifest] = Field(default_factory=list, description='插件定时任务声明列表')
+    resource_references: dict[str, str] = Field(
+        default_factory=dict,
+        alias='resourceReferences',
+        description='持久资源引用查询，资源类型到异步只读 callable 的映射',
+    )
+
+    @field_validator('resource_references')
+    @classmethod
+    def validate_resource_references(cls, value: dict[str, str]) -> dict[str, str]:
+        """校验持久资源引用查询 callable 的声明格式。"""
+        for callable_path in value.values():
+            if not HOOK_PATTERN.fullmatch(callable_path):
+                raise ValueError('资源引用查询必须使用 <module_path>:<callable_name> 格式')
+        return value
+
+    @model_validator(mode='after')
+    def validate_resource_reference_modules(self) -> 'BackendManifest':
+        """资源引用查询与其他插件 callable 一样，只能指向本插件模块。"""
+        for callable_path in self.resource_references.values():
+            module_path = callable_path.split(':', maxsplit=1)[0]
+            if module_path.startswith('plugins.') and not (
+                module_path == self.module or module_path.startswith(f'{self.module}.')
+            ):
+                raise ValueError(f'资源引用查询只能指向当前插件模块：{module_path}')
+        return self
 
     @field_validator('module')
     @classmethod

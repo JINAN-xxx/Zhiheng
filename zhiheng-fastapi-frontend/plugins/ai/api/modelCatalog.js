@@ -3,10 +3,6 @@ import { buildSafeResourcePath } from '../utils/modelEngine.js'
 
 const modelPath = (modelId, suffix = '') => buildSafeResourcePath('/ai/models', modelId, suffix.replace(/^\//, ''))
 
-export function listPlatformModels(query) {
-  return request({ url: '/ai/models', method: 'get', params: query })
-}
-
 export function getPlatformModel(modelId) {
   return request({ url: modelPath(modelId), method: 'get' })
 }
@@ -56,3 +52,5 @@ export function createModelRateCard(modelId, data) {
     data,
   })
 }
+
+export { listPlatformModels } from '../public/resourceSelection.js'

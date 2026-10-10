@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
+from fastapi import status as http_status
 from sqlalchemy import select
 
 from plugins.agent_extension.domain.agent_errors import AgentServiceError
@@ -15,28 +19,50 @@ from plugins.agent_extension.entity.vo.work_task_vo import WorkTaskRunRequestMod
 from plugins.agent_extension.service.work_task_run_service import WorkTaskRunService
 from plugins.agent_extension.service.work_task_service import WorkTaskService
 from plugins.ai.domain.model_runtime import ModelStreamEvent
+from plugins.ai.public.model_queries import PublishedChatModel
 from plugins.ai.service.platform_chat_service import ResolvedChatSkills
-from tests.plugins.agent_extension.test_work_task_service import create_payload, work_db
+from tests.plugins.agent_extension.test_work_task_service import create_payload
+from tests.plugins.agent_extension.test_work_task_service import (
+    work_db as work_db,  # noqa: PLC0414 - expose pytest fixture
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable, Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from plugins.agent_extension.domain.agent_knowledge import KnowledgeIdentity
+    from plugins.agent_extension.service.work_task_run_service import WorkTaskStream
+    from plugins.ai.domain.model_runtime import ModelMessage, ModelRuntimeEngine
+    from plugins.ai.service.platform_chat_service import PlatformChatEvent
+
+EXPECTED_TURN_MESSAGE_COUNT = 2
+EXPECTED_RETRY_CALL_COUNT = 2
+AGENT_OWNER_USER_ID = 10
+EXPECTED_HISTORY_LIMIT = 96
+EXPECTED_FOLLOWUP_MESSAGE_COUNT = 3
 
 
 class FakeModels:
-    def __init__(self, *, slow=False, fail=False, eof=False):
+    def __init__(self, *, slow: bool = False, fail: bool = False, eof: bool = False) -> None:
         self.calls = []
         self.closed = False
         self.slow = slow
         self.fail = fail
         self.eof = eof
 
-    def factory(self, db, runtime):
+    def factory(self, db: AsyncSession, runtime: ModelRuntimeEngine | None) -> FakeModels:
         return self
 
-    async def model(self, db, model_id):
-        return SimpleNamespace(model_code='fake', lifecycle_status='active', published_at=True, model_type='chat')
+    async def model(self, db: AsyncSession, model_id: str) -> PublishedChatModel:
+        return PublishedChatModel(model_id=model_id, model_code='fake', max_output_tokens=None)
 
-    async def stream_chat(self, model_id, messages, parameters):
+    async def stream_chat(
+        self, model_id: str, messages: Sequence[ModelMessage], parameters: dict[str, object]
+    ) -> AsyncIterator[ModelStreamEvent]:
         self.calls.append((model_id, messages, parameters))
 
-        async def stream():
+        async def stream() -> AsyncIterator[ModelStreamEvent]:
             try:
                 yield ModelStreamEvent(event_type='content', delta='result')
                 yield ModelStreamEvent(event_type='reasoning', delta='thought')
@@ -52,14 +78,16 @@ class FakeModels:
         return stream()
 
 
-def runner(factory, model):
+def runner(factory: Callable[[], AsyncSession], model: FakeModels) -> WorkTaskRunService:
     return WorkTaskRunService(
         factory, model_runtime=None, model_service_factory=model.factory, model_loader=model.model, poll_seconds=0.01
     )
 
 
 @pytest.mark.asyncio
-async def test_run_uses_frozen_context_persists_and_replays(work_db):
+async def test_run_uses_frozen_context_persists_and_replays(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -76,13 +104,15 @@ async def test_run_uses_frozen_context_persists_and_replays(work_db):
     assert len(model.calls) == 1
     async with factory() as db:
         detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
-        assert len(detail.messages) == 2
+        assert len(detail.messages) == EXPECTED_TURN_MESSAGE_COUNT
         assert detail.messages[-1].content == 'result'
         assert detail.messages[-1].reasoning_content == 'thought'
 
 
 @pytest.mark.asyncio
-async def test_cross_service_cancel_stops_silent_upstream(work_db):
+async def test_cross_service_cancel_stops_silent_upstream(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -101,13 +131,15 @@ async def test_cross_service_cancel_stops_silent_upstream(work_db):
     assert model.closed
 
 
-async def _collect(stream):
+async def _collect(stream: AsyncIterator[PlatformChatEvent]) -> list[PlatformChatEvent]:
     return [event async for event in stream]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(('mode', 'status'), [('fail', 'failed'), ('eof', 'interrupted')])
-async def test_failed_and_truncated_streams_keep_partial_history(work_db, mode, status):
+async def test_failed_and_truncated_streams_keep_partial_history(
+    work_db: tuple[async_sessionmaker[AsyncSession], str], mode: str, status: str
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -127,12 +159,42 @@ async def test_failed_and_truncated_streams_keep_partial_history(work_db, mode, 
         task.task_id, payload.model_copy(update={'client_message_id': 'retry'}), actor_user_id=10
     )
     assert (await _collect(retried))[-1].data['status'] == 'completed'
-    assert len(model.calls) == 2
+    assert len(model.calls) == EXPECTED_RETRY_CALL_COUNT
+
+
+@pytest.mark.asyncio
+async def test_unavailable_model_query_keeps_failure_and_releases_the_task_claim(work_db: tuple) -> None:
+    factory, agent_id = work_db
+    async with factory() as db:
+        task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
+    models = FakeModels()
+
+    async def unavailable(_db: object, _model_id: str) -> None:
+        return None
+
+    service = WorkTaskRunService(
+        factory, model_runtime=None, model_service_factory=models.factory, model_loader=unavailable, poll_seconds=0.01
+    )
+    stream = await service.start(
+        task.task_id,
+        WorkTaskRunRequestModel(agentId=agent_id, clientMessageId='missing-model', message=task.goal),
+        actor_user_id=10,
+    )
+    events = [event async for event in stream]
+    assert events[-1].data['status'] == 'failed'
+    assert any(event.data.get('code') == 'WORK_RUN_FAILED' for event in events)
+    assert models.calls == []
+    async with factory() as db:
+        detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
+        assert detail.current_run_id is None
+        assert detail.messages[-1].run_status == 'failed'
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('iterate', [False, True])
-async def test_stream_close_before_or_during_iteration_persists_terminal(work_db, iterate):
+async def test_stream_close_before_or_during_iteration_persists_terminal(
+    work_db: tuple[async_sessionmaker[AsyncSession], str], iterate: bool
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -155,7 +217,9 @@ async def test_stream_close_before_or_during_iteration_persists_terminal(work_db
 
 
 @pytest.mark.asyncio
-async def test_concurrent_same_key_runs_once_and_live_run_blocks_edits(work_db):
+async def test_concurrent_same_key_runs_once_and_live_run_blocks_edits(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -177,7 +241,7 @@ async def test_concurrent_same_key_runs_once_and_live_run_blocks_edits(work_db):
     ):
         with pytest.raises(AgentServiceError) as conflict:
             await service.start(task.task_id, changed, actor_user_id=10)
-        assert conflict.value.status_code == 409
+        assert conflict.value.status_code == http_status.HTTP_409_CONFLICT
     async with factory() as db:
         for operation in (
             WorkTaskService(db).update_task(
@@ -189,14 +253,16 @@ async def test_concurrent_same_key_runs_once_and_live_run_blocks_edits(work_db):
                 await operation
     with pytest.raises(AgentServiceError) as forbidden:
         await service.cancel(task.task_id, original.run_id, actor_user_id=11)
-    assert forbidden.value.status_code == 404
+    assert forbidden.value.status_code == http_status.HTTP_404_NOT_FOUND
     with pytest.raises(AgentServiceError):
         await service.cancel(task.task_id, str(uuid4()), actor_user_id=10)
     await original.aclose()
 
 
 @pytest.mark.asyncio
-async def test_unpublished_agent_cannot_execute_frozen_member(work_db):
+async def test_unpublished_agent_cannot_execute_frozen_member(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -218,7 +284,9 @@ async def test_unpublished_agent_cannot_execute_frozen_member(work_db):
 
 
 @pytest.mark.asyncio
-async def test_skill_and_knowledge_use_agent_owner_and_audit_sources(work_db):
+async def test_skill_and_knowledge_use_agent_owner_and_audit_sources(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         agent = await db.get(AgentConfiguration, agent_id)
@@ -227,13 +295,15 @@ async def test_skill_and_knowledge_use_agent_owner_and_audit_sources(work_db):
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=1, is_admin=True)
 
     class Skills:
-        async def resolve(self, user_id, slugs):
-            assert user_id == 10 and slugs == ['research']
+        async def resolve(self, user_id: int, slugs: list[str]) -> ResolvedChatSkills:
+            assert user_id == AGENT_OWNER_USER_ID and slugs == ['research']
             return ResolvedChatSkills(system_prompt='Skill instructions', snapshots=())
 
     class Knowledge:
-        async def retrieve(self, *, identity, knowledge_base_ids, query):
-            assert identity.owner_user_id == 10 and identity.agent_id == agent_id
+        async def retrieve(
+            self, *, identity: KnowledgeIdentity, knowledge_base_ids: tuple[str, ...], query: str
+        ) -> list[KnowledgePassage]:
+            assert identity.owner_user_id == AGENT_OWNER_USER_ID and identity.agent_id == agent_id
             assert knowledge_base_ids == ('kb-1',)
             return [KnowledgePassage(content='Reference text', source_id='source-1', knowledge_base_id='kb-1')]
 
@@ -257,8 +327,8 @@ async def test_skill_and_knowledge_use_agent_owner_and_audit_sources(work_db):
         assert message.audit_snapshot['knowledgeSources'] == [{'sourceId': 'source-1', 'knowledgeBaseId': 'kb-1'}]
 
 
-def test_history_keeps_latest_user_bounds_bytes_and_attributes_assistants():
-    def message(sequence, role, content):
+def test_history_keeps_latest_user_bounds_bytes_and_attributes_assistants() -> None:
+    def message(sequence: int, role: str, content: str) -> SimpleNamespace:
         return SimpleNamespace(
             sequence=sequence,
             message_id=str(sequence),
@@ -272,7 +342,7 @@ def test_history_keeps_latest_user_bounds_bytes_and_attributes_assistants():
     history = build_work_history(
         [message(i, 'assistant' if i % 2 else 'user', 'old') for i in range(120)] + [latest], latest
     )
-    assert len(history.messages) == 96
+    assert len(history.messages) == EXPECTED_HISTORY_LIMIT
     assert history.messages[-1].content == 'latest'
     assert any('publishedVersion: 2' in item.content for item in history.messages)
     huge = message(122, 'user', '你' * 32000)
@@ -283,7 +353,9 @@ def test_history_keeps_latest_user_bounds_bytes_and_attributes_assistants():
 
 
 @pytest.mark.asyncio
-async def test_lease_recovery_preserves_fresh_and_releases_expired_claim(work_db):
+async def test_lease_recovery_preserves_fresh_and_releases_expired_claim(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     run_id = str(uuid4())
     async with factory() as db:
@@ -322,7 +394,9 @@ async def test_lease_recovery_preserves_fresh_and_releases_expired_claim(work_db
 
 
 @pytest.mark.asyncio
-async def test_terminal_storage_failure_still_closes_stream(work_db, monkeypatch):
+async def test_terminal_storage_failure_still_closes_stream(
+    work_db: tuple[async_sessionmaker[AsyncSession], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -330,7 +404,9 @@ async def test_terminal_storage_failure_still_closes_stream(work_db, monkeypatch
     service = runner(factory, model)
     persist = service._persist
 
-    async def fail_terminal(stream, *, terminal=None, error=None):
+    async def fail_terminal(
+        stream: WorkTaskStream, *, terminal: str | None = None, error: dict[str, str] | None = None
+    ) -> str:
         if terminal is not None:
             raise RuntimeError('database-secret')
         return await persist(stream, terminal=terminal, error=error)
@@ -348,7 +424,9 @@ async def test_terminal_storage_failure_still_closes_stream(work_db, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_cancel_keeps_claim_until_old_upstream_closes(work_db):
+async def test_cancel_keeps_claim_until_old_upstream_closes(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -369,7 +447,7 @@ async def test_cancel_keeps_claim_until_old_upstream_closes(work_db):
             replacement = await new_service.start(
                 task.task_id, payload.model_copy(update={'client_message_id': 'retry'}), actor_user_id=10
             )
-        assert blocked.value.status_code == 409
+        assert blocked.value.status_code == http_status.HTTP_409_CONFLICT
         async with factory() as db:
             detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
             assert detail.current_run_id == old_stream.run_id
@@ -386,7 +464,9 @@ async def test_cancel_keeps_claim_until_old_upstream_closes(work_db):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_orphan_claim_recovers_only_after_lease_expiry(work_db):
+async def test_cancelled_orphan_claim_recovers_only_after_lease_expiry(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     run_id = str(uuid4())
     async with factory() as db:
@@ -424,7 +504,9 @@ async def test_cancelled_orphan_claim_recovers_only_after_lease_expiry(work_db):
 
 
 @pytest.mark.asyncio
-async def test_late_initial_key_conflicts_without_changing_history(work_db):
+async def test_late_initial_key_conflicts_without_changing_history(
+    work_db: tuple[async_sessionmaker[AsyncSession], str],
+) -> None:
     factory, agent_id = work_db
     async with factory() as db:
         task = await WorkTaskService(db).create_task(create_payload(agent_id), actor_user_id=10)
@@ -439,9 +521,9 @@ async def test_late_initial_key_conflicts_without_changing_history(work_db):
             payload.model_copy(update={'client_message_id': 'create', 'message': task.goal}),
             actor_user_id=10,
         )
-    assert late.value.status_code == 409
+    assert late.value.status_code == http_status.HTTP_409_CONFLICT
     assert len(model.calls) == 1
     async with factory() as db:
         detail = await WorkTaskService(db).get_task(task.task_id, actor_user_id=10)
-        assert len(detail.messages) == 3
+        assert len(detail.messages) == EXPECTED_FOLLOWUP_MESSAGE_COUNT
         assert detail.current_run_id is None

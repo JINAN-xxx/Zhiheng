@@ -20,6 +20,7 @@ from plugins.ai.entity.vo.ai_model_engine_vo import (
 )
 from plugins.ai.infrastructure.connection_test_diagnostics import classify_connection_failure
 from plugins.ai.infrastructure.litellm_management_errors import LiteLLMManagementUpstreamInvalidError
+from plugins.ai.infrastructure.rerank_compatibility import restore_connection_parameters
 
 ALLOWED_CREDENTIAL_KEYS = frozenset(
     {
@@ -283,6 +284,7 @@ def _build_deployment_create_payload(
         _set_if_not_none(litellm_params, 'tpm', request.tpm)
         model_info: dict[str, object] = {}
         _set_if_not_none(model_info, 'description', request.description)
+        _set_if_not_none(model_info, 'mode', request.model_type)
         return _CredentialPayloadOutcome(
             payload={
                 'model_name': request.model_alias,
@@ -490,6 +492,8 @@ def _normalize_deployment(item: object) -> DeploymentModel | None:
     raw_info = item.get('model_info')
     if not _is_string_key_mapping(raw_params) or not _is_string_key_mapping(raw_info):
         return None
+
+    raw_params = restore_connection_parameters(raw_params, raw_info)
 
     deployment_id = _safe_text(raw_info.get('id'), maximum=255)
     model_alias = _safe_text(item.get('model_name'), maximum=255)

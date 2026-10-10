@@ -16,15 +16,21 @@ async def session_factory() -> AsyncIterator[SimpleNamespace]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('active,roles,permissions,expected', [
-    (True, [1], [], True),
-    (True, [2], ['ai:knowledge:query'], True),
-    (True, [2], ['ai:knowledge:list'], False),
-    (True, [2], [], False),
-    (False, [1], ['*:*:*'], False),
-])
+@pytest.mark.parametrize(
+    'active,roles,permissions,expected',
+    [
+        (True, [1], [], True),
+        (True, [2], ['ai:knowledge:query'], True),
+        (True, [2], ['ai:knowledge:list'], False),
+        (True, [2], [], False),
+        (False, [1], ['*:*:*'], False),
+    ],
+)
 async def test_owner_permission_is_queried_from_current_user_state(
-    active: bool, roles: list[int], permissions: list[str], expected: bool,
+    active: bool,
+    roles: list[int],
+    permissions: list[str],
+    expected: bool,
 ) -> None:
     profile = {
         'user_basic_info': SimpleNamespace(user_id=7, status='0', del_flag='0') if active else None,

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from plugins.core.discovery.registry import PluginRegistry
 from plugins.core.discovery.scanner import DiscoveredPlugin
 from plugins.core.management.entity.vo.schemas import PluginModel
@@ -153,3 +155,29 @@ def test_registry_skips_controller_dir_when_auto_scan_disabled(tmp_path: Path) -
     registry = PluginRegistry.build([discovered_plugin], [database_plugin])
 
     assert registry.get_enabled_controller_dirs() == []
+
+
+def test_registry_preserves_installed_plugin_ids_without_discovered_source(tmp_path: Path) -> None:
+    discovered_plugin = build_discovered_plugin(tmp_path)
+    uninstalled_plugin = build_database_plugin('uninstalled')
+    uninstalled_plugin.installed_version = None
+
+    registry = PluginRegistry.build(
+        [discovered_plugin],
+        [
+            build_database_plugin(),
+            build_database_plugin('missing_enabled'),
+            build_database_plugin('missing_disabled', enabled='1'),
+            build_database_plugin('missing_error', status='error'),
+            uninstalled_plugin,
+        ],
+    )
+
+    assert registry.unresolved_installed_plugin_ids == ('missing_disabled', 'missing_enabled', 'missing_error')
+    assert [plugin.plugin_id for plugin in registry.list_plugins()] == ['demo']
+    with pytest.raises(AttributeError):
+        registry.unresolved_installed_plugin_ids = ()
+
+
+def test_registry_direct_construction_defaults_to_no_unresolved_installed_plugins() -> None:
+    assert PluginRegistry([]).unresolved_installed_plugin_ids == ()

@@ -11,12 +11,12 @@ x-backend-environment: &backend-environment
   DB_TYPE: postgresql
   DB_HOST: litellm-db
   DB_PORT: "5432"
-  DB_USERNAME: zhiheng
-  DB_PASSWORD: ${RUOYI_DB_PASSWORD:?run ./deploy.sh init}
-  DB_DATABASE: zhiheng-fastapi
+  DB_USERNAME: ${PLATFORM_DB_USER:-zhiheng}
+  DB_PASSWORD: ${ZHIHENG_DB_PASSWORD:?run ./deploy.sh init}
+  DB_DATABASE: ${PLATFORM_DB_NAME:-zhiheng-fastapi}
   DB_ECHO: "false"
   REDIS_HOST: zhiheng-redis
-  REDIS_PASSWORD: ${RUOYI_REDIS_PASSWORD:?run ./deploy.sh init}
+  REDIS_PASSWORD: ${ZHIHENG_REDIS_PASSWORD:?run ./deploy.sh init}
   JWT_SECRET_KEY: ${JWT_SECRET_KEY:?run ./deploy.sh init}
   LITELLM_BASE_URL: http://litellm-proxy:4000
   LITELLM_RUNTIME_KEY: ${LITELLM_RUNTIME_KEY:?run ./deploy.sh init}
@@ -77,7 +77,7 @@ services:
     image: ${REDIS_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redis:7.4.7}
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${RUOYI_REDIS_PASSWORD:?run ./deploy.sh init}
+      REDIS_PASSWORD: ${ZHIHENG_REDIS_PASSWORD:?run ./deploy.sh init}
     command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
     volumes:
       - platform-redis-data:/data

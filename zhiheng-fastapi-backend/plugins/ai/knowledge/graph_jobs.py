@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from plugins.ai.knowledge.graph_config import database_graph_config, graph_fingerprint, model_snapshot
 from plugins.ai.knowledge.graph_errors import safe_graph_error
+from plugins.ai.knowledge.model_references import model_reference_write
 from plugins.ai.knowledge.models import GraphConfiguration, GraphPreviewRequest, KnowledgeError
 
 
@@ -88,6 +89,7 @@ class GraphConfigurationRuntime:
         database = self._database(await self._graph_state(), db_id)
         return self._graph_config_result(database)
 
+    @model_reference_write
     async def save_graph_config(self, db_id: str, config: GraphConfiguration) -> dict:
         database = self._database(await self._graph_state(), db_id)
         self._ensure_graph_idle(database)
@@ -187,6 +189,7 @@ class GraphConfigurationRuntime:
             result['progress'] = await graph.progress(preview['probe_document_id'])
         return result
 
+    @model_reference_write
     async def start_graph_preview(self, db_id: str, payload: GraphPreviewRequest) -> dict:
         if self._closing:
             raise KnowledgeError.unavailable()

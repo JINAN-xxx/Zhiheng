@@ -4,7 +4,7 @@
 
 **目标：** 让 ZhiHeng 与 LiteLLM 复用现有 PostgreSQL 16.14 容器，同时使用独立数据库、用户和凭据，并启动完整 ZhiHeng 平台。
 
-**架构：** `litellm-db` 同时承载 `litellm` 与 `zhiheng-fastapi` 两个数据库，Owner 分别为 `litellm` 与 `zhiheng`。初始化脚本通过容器本地 socket 创建 ZhiHeng 角色和数据库，Backend 只获得 `RUOYI_DB_PASSWORD`，ZhiHeng Redis 继续独立运行。
+**架构：** `litellm-db` 同时承载 `litellm` 与 `zhiheng-fastapi` 两个数据库，Owner 分别为 `litellm` 与 `zhiheng`。初始化脚本通过容器本地 socket 创建 ZhiHeng 角色和数据库，Backend 只获得 `ZHIHENG_DB_PASSWORD`，ZhiHeng Redis 继续独立运行。
 
 **技术栈：** Docker Compose、PostgreSQL 16.14、POSIX shell、Pytest、PyYAML
 
@@ -39,7 +39,7 @@ def test_zhiheng_compose_reuses_litellm_postgres_with_separate_credentials() -> 
     assert backend['environment']['DB_HOST'] == 'litellm-db'
     assert backend['environment']['DB_USERNAME'] == 'zhiheng'
     assert backend['environment']['DB_DATABASE'] == 'zhiheng-fastapi'
-    assert backend['environment']['DB_PASSWORD'].startswith('${RUOYI_DB_PASSWORD:')
+    assert backend['environment']['DB_PASSWORD'].startswith('${ZHIHENG_DB_PASSWORD:')
     assert 'LITELLM_DB_PASSWORD' not in backend['environment']
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
 
@@ -49,7 +49,7 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
 
     assert "to_regclass('public.sys_user')" in script
     assert 'zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql' in script
-    assert 'RUOYI_DB_PASSWORD' in script
+    assert 'ZHIHENG_DB_PASSWORD' in script
     assert 'LITELLM_DB_PASSWORD' not in script
 ```
 
@@ -84,7 +84,7 @@ git commit -m "test: 定义 ZhiHeng 共享 PostgreSQL 契约"
 ```python
 def test_shared_postgres_initializer_generates_private_password_without_leaking(tmp_path: Path) -> None:
     # fake docker 对 inspect 返回 true，对 to_regclass 返回空，其余命令记录 stdin。
-    # 执行脚本后断言环境文件为 0600、保留 LITELLM_RUNTIME_KEY、增加 RUOYI_DB_PASSWORD。
+    # 执行脚本后断言环境文件为 0600、保留 LITELLM_RUNTIME_KEY、增加 ZHIHENG_DB_PASSWORD。
     # stdout/stderr 不得包含生成的测试密码。
 
 
@@ -110,7 +110,7 @@ set -eu
 
 # 默认目标为仓库根 .env，可通过第一个参数覆盖以便测试。
 # 检查 litellm-db 正在运行。
-# 缺少 RUOYI_DB_PASSWORD 时用 openssl rand -hex 24 生成并原子写回 0600 文件。
+# 缺少 ZHIHENG_DB_PASSWORD 时用 openssl rand -hex 24 生成并原子写回 0600 文件。
 # 通过 psql \gexec 幂等创建 zhiheng 角色和 "zhiheng-fastapi" 数据库。
 # 用 to_regclass('public.sys_user') 判断是否需要导入基线 SQL。
 # 所有输出都不得包含密码或 SQL 响应正文。
@@ -157,7 +157,7 @@ environment:
   DB_HOST: litellm-db
   DB_PORT: "5432"
   DB_USERNAME: zhiheng
-  DB_PASSWORD: "${RUOYI_DB_PASSWORD:?run deploy/zhiheng/init-shared-postgres.sh first}"
+  DB_PASSWORD: "${ZHIHENG_DB_PASSWORD:?run deploy/zhiheng/init-shared-postgres.sh first}"
   DB_DATABASE: zhiheng-fastapi
   LITELLM_BASE_URL: http://litellm-proxy:4000
   LITELLM_RUNTIME_KEY: "${LITELLM_RUNTIME_KEY:?set LITELLM_RUNTIME_KEY in repository .env}"
@@ -183,7 +183,7 @@ DB_DATABASE = 'zhiheng-fastapi'
 cd zhiheng-fastapi-backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
-RUOYI_DB_PASSWORD=test LITELLM_RUNTIME_KEY=test docker compose -f docker-compose.pg.yml config --quiet
+ZHIHENG_DB_PASSWORD=test LITELLM_RUNTIME_KEY=test docker compose -f docker-compose.pg.yml config --quiet
 git add docker-compose.pg.yml zhiheng-fastapi-backend/.env.dockerpg
 git commit -m "feat: 复用 LiteLLM PostgreSQL 实例"
 ```

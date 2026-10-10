@@ -56,11 +56,7 @@ class SkillStorage:
                 'draft_id': draft_id,
                 'owner': owner,
                 'created_at': datetime.now(timezone.utc).isoformat(),
-                'package': {
-                    key: value
-                    for key, value in asdict(package).items()
-                    if key not in {'root', 'metadata'}
-                },
+                'package': {key: value for key, value in asdict(package).items() if key not in {'root', 'metadata'}},
                 'metadata': package.metadata,
             }
             self._write_json(draft_dir / 'draft.json', metadata)

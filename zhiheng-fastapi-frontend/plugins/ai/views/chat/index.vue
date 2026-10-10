@@ -173,7 +173,7 @@ import SkillPicker from './components/SkillPicker.vue'
 import ChatEmptyState from './components/ChatEmptyState.vue'
 import WorkspaceStatus from "@/components/Workspace/WorkspaceStatus.vue";
 import { beginSend, chatMessageLabel, resolveChatModelOptions, legacyKnowledgeLabels } from "../../utils/chatTransforms.js";
-import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agent_extension/utils/skill.js'
+import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agent_extension/public/skills.js'
 import { CHAT_FILE_ACCEPT, chatFilePayload, chatImageHint, createChatFileQueue } from '../../utils/chatFiles.js'
 
 const { proxy } = getCurrentInstance();

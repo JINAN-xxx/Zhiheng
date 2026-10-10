@@ -4,11 +4,12 @@ import vm from 'node:vm'
 import { createPinia, defineStore, setActivePinia } from 'pinia'
 import { v4 as uuidv4 } from 'uuid'
 import * as workUtils from '../../plugins/agent_extension/utils/workTask.js'
-import * as workSession from '../../plugins/agent_extension/utils/workTaskSession.js'
+import { createApp } from 'vue'
+import { sessionLifecyclePlugin, clearSessionState } from '../../src/store/sessionLifecycle.js'
 
 // Execute the production actions with real Pinia state/getters and replace only
 // network imports. This catches wiring errors outside the pure transforms.
-const source = readFileSync(new URL('../../src/store/modules/workTask.js', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../plugins/agent_extension/stores/workTask.js', import.meta.url), 'utf8')
   .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\s*$/gm, '')
   .replace('export default useWorkTaskStore', 'globalThis.useStore = useWorkTaskStore')
 
@@ -30,10 +31,11 @@ const deferred = () => {
 }
 
 function actualStore(api) {
-  setActivePinia(createPinia())
+  const pinia = createPinia().use(sessionLifecyclePlugin)
+  createApp({}).use(pinia)
+  setActivePinia(pinia)
   const scope = {
     ...workUtils,
-    ...workSession,
     defineStore,
     uuidv4,
     crypto: globalThis.crypto,
@@ -136,7 +138,7 @@ await check('logout discards late task creation and agent catalogue responses', 
   })
   const pendingCreation = store.createTask({ goal: '私有工作目标', agentIds: [agentId], activeAgentId: agentId })
   const pendingCatalogue = store.loadAvailableAgents()
-  workSession.clearWorkTaskSession()
+  clearSessionState(store)
   creation.resolve(reply(task('previous-user-task')))
   catalogue.resolve(reply([{ agentId, name: '前一个账号的智能体' }]))
   await Promise.allSettled([pendingCreation, pendingCatalogue])
@@ -375,6 +377,30 @@ await check('another client claim cannot confirm a newly rejected request', asyn
   assert.equal(store.retryAttempt.clientMessageId, 'this-key')
   assert.equal(store.retryAttempt.kind, 'uncertain')
   assert.equal(store.draftMessage, '本次请求')
+})
+
+await check('session reset clears loading flags, errors and pagination while rejecting late reads', async () => {
+  const listing = deferred()
+  const detail = deferred()
+  const store = actualStore({ listWorkTasks: () => listing.promise, getWorkTask: () => detail.promise })
+  store.pageNum = 4
+  store.pageSize = 50
+  const pendingList = store.loadTasks({ keyword: 'private', pageNum: 4, pageSize: 50 })
+  const pendingDetail = store.loadTask('old-task')
+  store.listError = 'old list error'
+  store.detailError = 'old detail error'
+  clearSessionState(store)
+  assert.equal(store.listLoading, false)
+  assert.equal(store.detailLoading, false)
+  assert.equal(store.listError, '')
+  assert.equal(store.detailError, '')
+  assert.equal(store.pageNum, 1)
+  assert.equal(store.pageSize, 20)
+  listing.resolve({ rows: [task('old-task')], total: 1, pageNum: 4, pageSize: 50 })
+  detail.resolve(reply(task('old-task')))
+  assert.deepEqual(await Promise.all([pendingList, pendingDetail]), [false, false])
+  assert.equal(store.tasks.length, 0)
+  assert.equal(store.currentTask, null)
 })
 
 if (failures.length) {

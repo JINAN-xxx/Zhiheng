@@ -143,6 +143,7 @@ async def typed_existing(browser):
             await expect(drawer.get_by_text('接入成功', exact=True)).to_be_visible()
             assert len(fixture.writes('/ai/models')) == 1
             assert fixture.writes('/ai/models')[0]['modelType'] == kind
+            assert fixture.writes('/deployments')[0]['modelType'] == kind
             assert fixture.writes('/binding')[0]['engineResourceId'] == fixture.deployments[0]['modelAlias']
             assert not errors, errors
         finally:

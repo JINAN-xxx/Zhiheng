@@ -109,4 +109,4 @@ def test_render_powershell_completion_script_contains_native_completer() -> None
     rendered_script = installer.render_completion_script(root_cli, 'powershell')
 
     assert 'Register-ArgumentCompleter -Native -CommandName zhiheng' in rendered_script
-    assert '$env:_RUOYI_COMPLETE = "powershell_complete"' in rendered_script
+    assert '$env:_ZHIHENG_COMPLETE = "powershell_complete"' in rendered_script

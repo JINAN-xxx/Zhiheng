@@ -19,9 +19,7 @@ class SkillDao:
 
     @classmethod
     async def get_by_id(cls, db: AsyncSession, skill_id: str) -> AgentSkill | None:
-        return (
-            (await db.execute(select(AgentSkill).where(AgentSkill.skill_id == skill_id))).scalars().first()
-        )
+        return (await db.execute(select(AgentSkill).where(AgentSkill.skill_id == skill_id))).scalars().first()
 
     @classmethod
     async def get_by_id_for_update(cls, db: AsyncSession, skill_id: str) -> AgentSkill | None:
@@ -40,9 +38,7 @@ class SkillDao:
 
     @classmethod
     async def get_by_slug(cls, db: AsyncSession, slug: str) -> AgentSkill | None:
-        return (
-            (await db.execute(select(AgentSkill).where(AgentSkill.skill_slug == slug))).scalars().first()
-        )
+        return (await db.execute(select(AgentSkill).where(AgentSkill.skill_slug == slug))).scalars().first()
 
     @classmethod
     async def list_skills(
@@ -117,4 +113,3 @@ class SkillDao:
             )
         )
         return int(result.rowcount or 0)
-

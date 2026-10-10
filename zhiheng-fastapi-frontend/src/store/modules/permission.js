@@ -5,6 +5,7 @@ import Layout from '@/layout/index'
 import ParentView from '@/components/ParentView'
 import InnerLink from '@/layout/components/InnerLink'
 import { resolvePluginViewPath } from '@/utils/pluginViewResolver'
+import { filterRetiredWorkspaceRoutes } from '@/components/Workspace/workspaceTransforms.js'
 
 // 匹配内置 views 和插件 views 里面所有的 .vue 文件
 const builtinModules = import.meta.glob('./../../views/**/*.vue')
@@ -39,9 +40,10 @@ const usePermissionStore = defineStore(
         return new Promise(resolve => {
           // 向后端请求路由数据
           getRouters().then(res => {
-            const sdata = JSON.parse(JSON.stringify(res.data))
-            const rdata = JSON.parse(JSON.stringify(res.data))
-            const defaultData = JSON.parse(JSON.stringify(res.data))
+            const navigationRoutes = filterRetiredWorkspaceRoutes(res.data)
+            const sdata = JSON.parse(JSON.stringify(navigationRoutes))
+            const rdata = JSON.parse(JSON.stringify(navigationRoutes))
+            const defaultData = JSON.parse(JSON.stringify(navigationRoutes))
             const sidebarRoutes = filterAsyncRouter(sdata)
             const rewriteRoutes = filterAsyncRouter(rdata, false, true)
             const defaultRoutes = filterAsyncRouter(defaultData)

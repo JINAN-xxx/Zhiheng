@@ -2,12 +2,14 @@ import json
 from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException, Request
 
 from plugins.ai.controller import ai_knowledge_controller as controller
 from plugins.ai.knowledge.models import GraphBuildRequest, KnowledgeError
+from plugins.ai.public.model_queries import ModelOption
 
 
 def test_every_knowledge_route_has_login_and_specific_operation_permission() -> None:
@@ -59,6 +61,20 @@ def test_missing_runtime_has_explicit_unavailable_response() -> None:
     with pytest.raises(HTTPException) as caught:
         controller._runtime(request)
     assert caught.value.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_model_choices_keep_the_existing_wire_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    query = AsyncMock(return_value=[ModelOption(model_id='model-id', display_name='显示名称', model_code='model-code')])
+    monkeypatch.setattr(controller, 'list_active_bound_models', query)
+    database = object()
+    response = await controller.list_models(database, model_type='embedding')
+    query.assert_awaited_once_with(database, model_type='embedding')
+    payload = json.loads(response.body)
+    assert payload['code'] == HTTPStatus.OK
+    assert payload['data'] == {
+        'models': [{'model_id': 'model-id', 'display_name': '显示名称', 'model_code': 'model-code'}]
+    }
 
 
 def test_graph_build_routes_require_separate_read_and_edit_permissions() -> None:

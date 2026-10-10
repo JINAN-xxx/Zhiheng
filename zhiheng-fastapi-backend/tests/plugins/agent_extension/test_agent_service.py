@@ -1,6 +1,7 @@
 # ruff: noqa: PLR2004
 from collections.abc import AsyncIterator
 from datetime import datetime
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -19,8 +20,10 @@ from plugins.agent_extension.entity.vo.agent_vo import (
     AgentUpdateModel,
 )
 from plugins.agent_extension.service.agent_service import AgentService
+from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.entity.do.ai_developer_api_do import AiApplication
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
+from plugins.ai.public.application_queries import is_active_owned_application
 from tests.plugins.agent_extension.test_agent_schema import APPLICATION_ID, MODEL_ID, config_payload
 
 
@@ -351,6 +354,100 @@ async def test_binding_must_remain_active_and_belong_to_agent_owner_even_for_adm
                 agent.agent_id, AgentPublishModel(expectedVersion=1), actor_user_id=11, is_admin=True
             )
         assert invalid.value.code == 'AGENT_APPLICATION_UNAVAILABLE'
+
+
+@pytest.mark.asyncio
+async def test_admin_updates_and_publishes_using_original_owner_in_public_application_query(
+    database: async_sessionmaker[AsyncSession],
+) -> None:
+    async with database() as db:
+        agent = await AgentService(db).create_agent(AgentConfigModel(**config_payload()), actor_user_id=10)
+        query = AsyncMock(wraps=is_active_owned_application)
+        service = AgentService(db, application_query=query)
+        updated = await service.update_agent(
+            agent.agent_id, AgentUpdateModel(**config_payload(expectedVersion=1)), actor_user_id=11, is_admin=True
+        )
+        query.assert_awaited_once_with(db, APPLICATION_ID, 10)
+        assert not db.in_transaction()
+        query.reset_mock()
+        published = await service.publish_agent(
+            agent.agent_id, AgentPublishModel(expectedVersion=updated.version), actor_user_id=11, is_admin=True
+        )
+        query.assert_awaited_once_with(db, APPLICATION_ID, 10)
+        assert published.owner_user_id == 10
+        assert published.status == 'published'
+        assert not db.in_transaction()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_application_query_keeps_error_and_caller_rollback(
+    database: async_sessionmaker[AsyncSession],
+) -> None:
+    async with database() as db:
+        query = AsyncMock(return_value=False)
+        with pytest.raises(AgentServiceError) as invalid:
+            await AgentService(db, application_query=query).create_agent(
+                AgentConfigModel(**config_payload()), actor_user_id=10
+            )
+        query.assert_awaited_once_with(db, APPLICATION_ID, 10)
+        assert invalid.value.public_dict() == {
+            'code': 'AGENT_APPLICATION_UNAVAILABLE',
+            'message': 'Select an active application belonging to the agent owner',
+        }
+        assert invalid.value.status_code == 422
+        assert not db.in_transaction()
+        assert (await AgentService(db).list_agents(AgentPageQueryModel(), actor_user_id=10, is_admin=False)).total == 0
+
+
+@pytest.mark.asyncio
+async def test_unbound_draft_skips_public_application_query_and_cannot_publish(
+    database: async_sessionmaker[AsyncSession],
+) -> None:
+    async with database() as db:
+        query = AsyncMock(return_value=False)
+        service = AgentService(db, application_query=query)
+        agent = await service.create_agent(AgentConfigModel(**config_payload(applicationId=None)), actor_user_id=10)
+        assert agent.application_id is None
+        with pytest.raises(AgentServiceError) as invalid:
+            await service.publish_agent(
+                agent.agent_id, AgentPublishModel(expectedVersion=1), actor_user_id=10, is_admin=False
+            )
+        assert invalid.value.code == 'AGENT_APPLICATION_REQUIRED'
+        query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('operation', ['update', 'publish'])
+async def test_configuration_writes_lock_model_before_agent_row(
+    database: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    async with database() as db:
+        agent = await AgentService(db).create_agent(AgentConfigModel(**config_payload()), actor_user_id=10)
+        events = []
+        original_agent = AgentDao.get_by_id
+        original_model = AiModelCatalogDao.get_model_for_update
+
+        async def agent_query(session: AsyncSession, agent_id: str, *, for_update: bool = False) -> AgentConfiguration:
+            if for_update:
+                events.append('agent')
+            return await original_agent(session, agent_id, for_update=for_update)
+
+        async def model_query(session: AsyncSession, model_id: str) -> AiModelCatalog:
+            events.append('model')
+            return await original_model(session, model_id)
+
+        monkeypatch.setattr(AgentDao, 'get_by_id', agent_query)
+        monkeypatch.setattr(AiModelCatalogDao, 'get_model_for_update', model_query)
+        service = AgentService(db)
+        if operation == 'update':
+            await service.update_agent(
+                agent.agent_id, AgentUpdateModel(**config_payload(expectedVersion=1)), actor_user_id=10, is_admin=False
+            )
+        else:
+            await service.publish_agent(
+                agent.agent_id, AgentPublishModel(expectedVersion=1), actor_user_id=10, is_admin=False
+            )
+        assert events.index('model') < events.index('agent')
 
 
 @pytest.mark.asyncio

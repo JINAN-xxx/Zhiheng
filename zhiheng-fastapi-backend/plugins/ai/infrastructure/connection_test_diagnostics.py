@@ -19,6 +19,7 @@ MESSAGES = {
     'unknown': '连接测试失败，请检查模型类型、名称和连接配置',
 }
 PATTERNS = (
+    ('invalid_request', r'unsupported provider\s*:'),
     ('timeout', r'time.?out|timed out'),
     ('network', r'apiconnectionerror|connecterror|connection error|connection refused|certificate|name resolution|dns'),
     ('quota', r'insufficient.{0,20}(balance|quota|credit)|payment required|\b402\b|余额不足|额度不足'),

@@ -9,7 +9,23 @@ AI_ROOT = BACKEND_ROOT / 'plugins' / 'ai'
 def test_ai_manifest_has_no_agno_or_provider_sdk_dependencies() -> None:
     manifest = yaml.safe_load((AI_ROOT / 'plugin.yaml').read_text(encoding='utf-8'))
     dependencies = manifest['dependencies']['python']
-    assert not any(name.split('==', 1)[0] in {'agno', 'anthropic', 'cerebras-cloud-sdk', 'cohere', 'google-genai', 'groq', 'llama-api-client', 'mistralai', 'ollama', 'openai', 'portkey-ai'} for name in dependencies)
+    assert not any(
+        name.split('==', 1)[0]
+        in {
+            'agno',
+            'anthropic',
+            'cerebras-cloud-sdk',
+            'cohere',
+            'google-genai',
+            'groq',
+            'llama-api-client',
+            'mistralai',
+            'ollama',
+            'openai',
+            'portkey-ai',
+        }
+        for name in dependencies
+    )
 
 
 def test_active_ai_sources_have_no_legacy_agno_chain() -> None:
@@ -22,7 +38,7 @@ def test_active_ai_sources_have_no_legacy_agno_chain() -> None:
 
 
 def test_active_ai_routes_do_not_expose_legacy_model_crud() -> None:
-    controller = (AI_ROOT / 'controller' / 'ai_model_controller.py')
+    controller = AI_ROOT / 'controller' / 'ai_model_controller.py'
     assert not controller.exists()
     assert (AI_ROOT / 'controller' / 'ai_model_catalog_controller.py').exists()
     assert (AI_ROOT / 'controller' / 'ai_model_engine_controller.py').exists()

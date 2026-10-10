@@ -20,7 +20,7 @@ class CompletionInstructionSupport:
     :param supported_shells: 支持的 shell 名称列表
     """
 
-    complete_env_var: str = '_RUOYI_COMPLETE'
+    complete_env_var: str = '_ZHIHENG_COMPLETE'
     supported_shells: tuple[str, ...] = ('bash', 'zsh', 'fish', 'powershell')
 
     def is_click_style_instruction(self, instruction: str) -> bool:

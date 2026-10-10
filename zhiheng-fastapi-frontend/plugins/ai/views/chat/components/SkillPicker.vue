@@ -45,8 +45,7 @@ import { CheckOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/
 import feedback from '@/plugins/antdFeedback'
 import { normalizeErrorMessage } from '@/utils/errorMessage'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
-import { listAvailableSkills } from '../../../../agent_extension/api/skill.js'
-import { normalizeAvailableSkills } from '../../../../agent_extension/utils/skill.js'
+import { listAvailableSkills, normalizeAvailableSkills } from '../../../../agent_extension/public/skills.js'
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },

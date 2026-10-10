@@ -13,6 +13,10 @@ from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.infrastructure.litellm_client import RuntimeRerankResult
 from plugins.ai.infrastructure.litellm_runtime_adapter import LiteLLMRuntimeAdapter
 
+EXPECTED_EMBEDDING_TOKENS = 8
+EXPECTED_RERANK_TOKENS = 22
+EXPECTED_RERANK_ID_LENGTH = 36
+
 EMBEDDING_REQUEST = ModelEmbeddingRequest(
     engine_model='runtime-embedding-v1',
     inputs=('first document', 'second document'),
@@ -138,7 +142,7 @@ async def test_embed_builds_strict_payload_and_normalizes_finite_vectors() -> No
         }
     ]
     assert client.embedding_limits == [33_554_432]
-    assert response.input_tokens == 8
+    assert response.input_tokens == EXPECTED_EMBEDDING_TOKENS
     assert response.raw_cost is None
     assert response.vectors == (
         ModelEmbeddingVector(index=0, values=(0.0123, -0.0456)),
@@ -205,8 +209,8 @@ async def test_rerank_builds_strict_payload_sorts_stably_and_normalizes_meta() -
             'model': 'runtime-rerank-v1',
             'query': 'Which document describes the refund policy?',
             'documents': [
-                {'text': 'Shipping usually takes three days.'},
-                {'text': 'Refunds are accepted within thirty days.'},
+                'Shipping usually takes three days.',
+                'Refunds are accepted within thirty days.',
             ],
             'top_n': 2,
             'return_documents': True,
@@ -215,7 +219,7 @@ async def test_rerank_builds_strict_payload_sorts_stably_and_normalizes_meta() -
     assert client.rerank_limits == [33_554_432]
     assert response.request_id == 'PRIVATE-request-id'
     assert [(item.index, item.relevance_score) for item in response.results] == [(1, 0.9921), (0, 0.11)]
-    assert response.input_tokens == 22
+    assert response.input_tokens == EXPECTED_RERANK_TOKENS
     assert response.search_units == 1
     assert response.raw_cost == Decimal('0.001')
 
@@ -230,7 +234,7 @@ async def test_rerank_generates_platform_request_id_when_upstream_id_missing() -
     response = await adapter.rerank(RERANK_REQUEST)
 
     assert response.request_id.startswith('rrk_')
-    assert len(response.request_id) == 36
+    assert len(response.request_id) == EXPECTED_RERANK_ID_LENGTH
 
 
 @pytest.mark.asyncio
@@ -276,7 +280,7 @@ async def test_rerank_respects_top_n_and_missing_search_units() -> None:
 
     assert len(response.results) == 1
     assert response.search_units is None
-    assert response.input_tokens == 22
+    assert response.input_tokens == EXPECTED_RERANK_TOKENS
 
 
 @pytest.mark.asyncio

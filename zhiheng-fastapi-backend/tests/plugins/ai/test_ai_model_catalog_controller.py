@@ -120,8 +120,11 @@ class FakeCatalogService:
     instances: list['FakeCatalogService'] = []
     error: ModelServiceError | None = None
 
-    def __init__(self, db: object, runtime: object, *, runtime_access: object = None) -> None:
+    def __init__(
+        self, db: object, runtime: object, *, runtime_access: object = None, reference_checker: object = None
+    ) -> None:
         self.db = db
+        self.reference_checker = reference_checker
         self.runtime = runtime
         self.runtime_access = runtime_access
         self.calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []

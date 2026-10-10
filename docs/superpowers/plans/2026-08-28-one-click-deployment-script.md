@@ -33,7 +33,7 @@
 
 - [x] **步骤 1：实现依赖和路径函数**
 
-使用 `CDPATH= cd "$(dirname "$0")"` 解析根目录；固定默认 Compose 项目名 `zhiheng-vue3-fastapi`（可由 `RUOYI_COMPOSE_PROJECT` 覆盖）；检查 Docker、Compose 和 Compose 文件；优先使用 `docker compose`，不可用时回退到 `docker-compose`。
+使用 `CDPATH= cd "$(dirname "$0")"` 解析根目录；固定默认 Compose 项目名 `zhiheng-vue3-fastapi`（可由 `ZHIHENG_COMPOSE_PROJECT` 覆盖）；检查 Docker、Compose 和 Compose 文件；优先使用 `docker compose`，不可用时回退到 `docker-compose`。
 
 - [x] **步骤 2：实现命令分发**
 

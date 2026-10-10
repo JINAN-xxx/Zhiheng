@@ -159,9 +159,44 @@ export function resolveAuthorizedWorkspacePath(currentPath, accessiblePaths = []
 }
 
 export function filterAdminWorkspaceRoutes(routes = []) {
-  return routes.filter((route) => {
+  return filterRetiredWorkspaceRoutes(routes).filter((route) => {
     const path = typeof route?.path === 'string' ? route.path : ''
     return !isAiWorkspacePath(path)
+  })
+}
+
+function isLegacyWebsite(value) {
+  if (typeof value !== 'string') return false
+  const path = value.replace(/^\/(?=https?:\/\/)/iu, '')
+  if (!/^(?:https?:)?\/\//iu.test(path)) return false
+  try {
+    const { hostname } = new URL(path.startsWith('//') ? `https:${path}` : path)
+    return ['ruoyi.vip', 'www.ruoyi.vip', 'zhiheng.vip', 'www.zhiheng.vip'].includes(hostname)
+  } catch {
+    return false
+  }
+}
+
+// Existing installations can still return the old seed menu. Filter it at the
+// navigation boundary so sidebar, search, landing and persisted tabs agree.
+export function filterRetiredWorkspaceRoutes(routes = [], parentPath = '') {
+  return routes.flatMap((route) => {
+    if (!route) return []
+    const path = typeof route.path === 'string' ? route.path : ''
+    const fullPath = path.startsWith('/') || isExternalWorkspacePath(path)
+      ? path
+      : `/${[parentPath.replace(/^\/+|\/+$/gu, ''), path].filter(Boolean).join('/')}`
+    if (fullPath.replace(/\/+$/u, '') === '/index'
+      || route.meta?.title === '若依官网'
+      || route.title === '若依官网'
+      || isLegacyWebsite(path)
+      || isLegacyWebsite(route.meta?.link)) return []
+
+    if (Array.isArray(route.children) && route.children.length) {
+      const children = filterRetiredWorkspaceRoutes(route.children, fullPath)
+      return children.length ? [{ ...route, children }] : []
+    }
+    return [{ ...route }]
   })
 }
 

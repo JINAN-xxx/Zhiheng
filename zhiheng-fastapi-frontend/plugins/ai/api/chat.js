@@ -1,8 +1,14 @@
 import request from "@/utils/request";
 import { getToken } from "@/utils/auth";
 import { normalizeErrorMessage } from "@/utils/errorMessage";
-import { parsePlatformSSE } from "../utils/sseParser";
+import { parsePlatformSSE } from "@/utils/platformSse.js";
 import { assertChatUploadResponse, chatFileDownloadPath } from "../utils/chatFiles.js";
+
+export {
+  listChatSessions as listChatSession,
+  getChatSession,
+  deleteChatSession as delChatSession,
+} from "../public/chatSessions.js";
 
 export async function uploadChatFile(file, { signal, onUploadProgress } = {}) {
   const data = new FormData();
@@ -45,30 +51,6 @@ export async function downloadChatFile(file, signal) {
     throw new Error(normalizeErrorMessage(detail, "文件下载失败"));
   }
   return blob;
-}
-
-// 获取会话列表
-export function listChatSession() {
-  return request({
-    url: "/ai/chat/session/list",
-    method: "get",
-  });
-}
-
-// 删除会话
-export function delChatSession(sessionId) {
-  return request({
-    url: "/ai/chat/session/" + sessionId,
-    method: "delete",
-  });
-}
-
-// 获取会话详情
-export function getChatSession(sessionId) {
-  return request({
-    url: "/ai/chat/session/" + sessionId,
-    method: "get",
-  });
 }
 
 // 获取用户对话配置

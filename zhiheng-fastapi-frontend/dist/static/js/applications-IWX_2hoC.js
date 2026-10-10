@@ -1,0 +1,1 @@
+import{s as i}from"./index-D8vy1hoX.js";function o(t){return i({url:"/ai/applications",method:"get",params:t})}function p(t){return i({url:"/ai/applications",method:"post",data:t})}export{p as c,o as l};

@@ -31,6 +31,10 @@
                 <a-input v-model:value="form.displayName" :disabled="inputsDisabled" :maxlength="100" :placeholder="form.upstreamModel ? identity.displayName : '留空时使用模型名称'" />
               </a-form-item>
             </div>
+            <a-form-item v-if="form.modelType === 'chat'" label="支持图片理解">
+              <a-switch v-model:checked="form.vision" :disabled="inputsDisabled" aria-label="支持图片理解" />
+              <div class="field-description">模型支持视觉输入时开启，可在对话中上传图片。请以服务商说明为准；连接测试仅验证基本调用。</div>
+            </a-form-item>
           </a-form>
         </section>
 
@@ -126,7 +130,7 @@ const selectedCredential = ref('')
 const resourceSuffix = ref('')
 const resources = reactive({ credential: null, deployment: null, model: null, binding: null })
 const requestGate = createRequestGate()
-const emptyForm = () => ({ modelType: 'chat', upstreamModel: '', displayName: '', timeout: null, maxRetries: null, dimensions: null, topN: null, returnDocuments: false })
+const emptyForm = () => ({ modelType: 'chat', upstreamModel: '', displayName: '', vision: false, timeout: null, maxRetries: null, dimensions: null, topN: null, returnDocuments: false })
 const form = reactive(emptyForm())
 const rules = {
   modelType: [{ required: true, message: '请选择模型类型' }],
@@ -165,6 +169,7 @@ watch(selectedProvider, () => {
   credentialMode.value = selectedCredential.value ? 'existing' : 'new'
   invalidateTest()
 }, { flush: 'sync' })
+watch(() => [form.modelType, form.upstreamModel, selectedProvider.value], () => { form.vision = false }, { flush: 'sync' })
 watch(() => form.modelType, () => { form.dimensions = null; form.topN = null; form.returnDocuments = false }, { flush: 'sync' })
 
 function resetWorkflow() {
@@ -218,6 +223,7 @@ async function readConfiguration() {
     displayName: form.displayName.trim() || identity.value.displayName,
     modelCode: `${identity.value.modelCode.slice(0, 80)}-${resourceSuffix.value}`,
     alias: identity.value.deploymentAlias, credentialPayload, credentialName, defaults,
+    capabilities: { ...defaultModelCapabilities(form.modelType), ...(form.modelType === 'chat' ? { vision: form.vision } : {}) },
     deploymentOptions: { ...(form.timeout == null ? {} : { timeout: form.timeout }), ...(form.maxRetries == null ? {} : { maxRetries: form.maxRetries }) },
   }
 }
@@ -295,7 +301,7 @@ async function lookupDeployment(payload) {
 async function ensureDeployment(config, generation) {
   if (resources.deployment) return
   const payload = { modelAlias: config.alias, upstreamModel: config.upstreamModel, provider: config.provider,
-    credentialName: resources.credential.name, ...config.deploymentOptions }
+    modelType: config.modelType, credentialName: resources.credential.name, ...config.deploymentOptions }
   const before = await lookupDeployment(payload)
   checkCurrent(generation)
   if (before.kind === 'match') { resources.deployment = before.deployment; return }
@@ -336,7 +342,7 @@ async function ensureCatalog(config, generation) {
   attempted.model = true
   try {
     const response = await createPlatformModel({ modelCode: config.modelCode, displayName: config.displayName,
-      modelType: config.modelType, capabilities: defaultModelCapabilities(config.modelType), defaultParameters: config.defaults })
+      modelType: config.modelType, capabilities: config.capabilities, defaultParameters: config.defaults })
     checkCurrent(generation)
     if (!response?.data?.modelId) throw new Error('missing model')
     resources.model = response.data

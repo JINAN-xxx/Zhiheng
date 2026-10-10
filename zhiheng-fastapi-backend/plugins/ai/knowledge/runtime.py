@@ -21,6 +21,7 @@ from plugins.ai.knowledge.graph_config import database_graph_config, model_snaps
 from plugins.ai.knowledge.graph_errors import safe_graph_error
 from plugins.ai.knowledge.graph_jobs import GraphConfigurationRuntime
 from plugins.ai.knowledge.metadata import MetadataStore
+from plugins.ai.knowledge.model_references import model_reference_write
 from plugins.ai.knowledge.models import (
     KNOWLEDGE_EMBEDDING_BATCH_SIZE,
     ChunkParameters,
@@ -346,6 +347,7 @@ class KnowledgeRuntime(GraphConfigurationRuntime):
             raise KnowledgeError('KNOWLEDGE_GRAPH_MODEL_REQUIRED', '首次启用知识图谱时必须选择对话模型')
         return model_id
 
+    @model_reference_write
     async def start_graph_build(self, db_id: str, payload: GraphBuildRequest) -> dict:
         _check_id(db_id, 'kb')
         if self._closing:
@@ -620,12 +622,14 @@ class KnowledgeRuntime(GraphConfigurationRuntime):
         except Exception:
             raise KnowledgeError.unavailable() from None
 
+    @model_reference_write
     async def create_database(self, payload: DatabaseCreate) -> dict:
         self._store(payload.kb_type)
         if payload.enable_knowledge_graph:
             from plugins.ai.knowledge.stores import require_graph
 
             require_graph()
+        if payload.llm_model_id is not None:
             await self._resolve(payload.llm_model_id, 'chat')
         await self._resolve(payload.embed_model_id, 'embedding')
         database = {

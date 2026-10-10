@@ -58,7 +58,7 @@ def run_cli_completion_command(
                 **os.environ,
                 'COMP_WORDS': comp_words,
                 'COMP_CWORD': str(comp_cword),
-                '_RUOYI_COMPLETE': instruction,
+                '_ZHIHENG_COMPLETE': instruction,
             },
         )
 

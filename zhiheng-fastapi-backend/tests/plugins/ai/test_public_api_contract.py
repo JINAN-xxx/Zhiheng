@@ -9,10 +9,17 @@ from plugins.ai.entity.vo.ai_openai_compat_vo import (
     OpenAIChatCompletionChunkModel,
     OpenAIChatCompletionRequestModel,
     OpenAIChatCompletionResponseModel,
+    OpenAIEmbeddingRequestModel,
+    OpenAIEmbeddingResponseModel,
     OpenAIModelListResponseModel,
+    OpenAIRerankRequestModel,
+    OpenAIRerankResponseModel,
 )
 
 MODEL_CODE = 'deepseek-chat'
+EMBEDDING_DIMENSIONS = 1024
+EXPECTED_VECTOR_COUNT = 2
+RERANK_TOP_N = 2
 
 
 @pytest.mark.parametrize(
@@ -291,26 +298,22 @@ def valid_embedding_request() -> dict[str, object]:
         'model': 'company-embedding-v1',
         'input': ['first document', 'second document'],
         'encoding_format': 'float',
-        'dimensions': 1024,
+        'dimensions': EMBEDDING_DIMENSIONS,
         'user': 'external-user-42',
     }
 
 
 def test_embedding_request_accepts_first_release_fields_and_snake_case() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
-
     request = OpenAIEmbeddingRequestModel.model_validate(valid_embedding_request())
 
     assert request.model == 'company-embedding-v1'
     assert request.input == ['first document', 'second document']
-    assert request.dimensions == 1024
+    assert request.dimensions == EMBEDDING_DIMENSIONS
     assert request.user == 'external-user-42'
     assert request.model_dump(exclude_none=True) == valid_embedding_request()
 
 
 def test_embedding_request_accepts_single_string_input() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
-
     request = OpenAIEmbeddingRequestModel.model_validate({'model': 'company-embedding-v1', 'input': 'text'})
 
     assert request.input == 'text'
@@ -334,8 +337,6 @@ def test_embedding_request_accepts_single_string_input() -> None:
     ),
 )
 def test_embedding_request_rejects_invalid_or_private_fields(field: str, value: object) -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
-
     payload = valid_embedding_request()
     payload[field] = value
     with pytest.raises(ValidationError):
@@ -343,15 +344,11 @@ def test_embedding_request_rejects_invalid_or_private_fields(field: str, value: 
 
 
 def test_embedding_request_rejects_more_than_256_inputs() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingRequestModel
-
     with pytest.raises(ValidationError):
         OpenAIEmbeddingRequestModel.model_validate({'model': 'company-embedding-v1', 'input': ['x'] * 257})
 
 
 def test_embedding_response_uses_openai_shape_and_ignores_internal_fields() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingResponseModel
-
     response = OpenAIEmbeddingResponseModel.model_validate(
         {
             'object': 'list',
@@ -375,8 +372,6 @@ def test_embedding_response_uses_openai_shape_and_ignores_internal_fields() -> N
 
 
 def test_embedding_response_rejects_non_finite_or_empty_vectors() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIEmbeddingResponseModel
-
     base = {
         'object': 'list',
         'data': [{'object': 'embedding', 'index': 0, 'embedding': [0.1]}],
@@ -401,7 +396,7 @@ def test_embedding_response_rejects_non_finite_or_empty_vectors() -> None:
             ],
         }
     )
-    assert len(mixed.data) == 2
+    assert len(mixed.data) == EXPECTED_VECTOR_COUNT
 
 
 def valid_rerank_request() -> dict[str, object]:
@@ -412,20 +407,18 @@ def valid_rerank_request() -> dict[str, object]:
             'Shipping usually takes three days.',
             {'text': 'Refunds are accepted within thirty days.'},
         ],
-        'top_n': 2,
+        'top_n': RERANK_TOP_N,
         'return_documents': True,
     }
 
 
 def test_rerank_request_accepts_first_release_fields_and_document_union() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
-
     request = OpenAIRerankRequestModel.model_validate(valid_rerank_request())
 
     assert request.model == 'company-rerank-v1'
     assert request.documents[0] == 'Shipping usually takes three days.'
     assert request.documents[1].text == 'Refunds are accepted within thirty days.'
-    assert request.top_n == 2
+    assert request.top_n == RERANK_TOP_N
     assert request.return_documents is True
 
 
@@ -449,8 +442,6 @@ def test_rerank_request_accepts_first_release_fields_and_document_union() -> Non
     ),
 )
 def test_rerank_request_rejects_invalid_or_private_fields(field: str, value: object) -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
-
     payload = valid_rerank_request()
     payload[field] = value
     with pytest.raises(ValidationError):
@@ -458,15 +449,11 @@ def test_rerank_request_rejects_invalid_or_private_fields(field: str, value: obj
 
 
 def test_rerank_request_rejects_more_than_256_documents() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankRequestModel
-
     with pytest.raises(ValidationError):
         OpenAIRerankRequestModel.model_validate({'model': 'company-rerank-v1', 'query': 'q', 'documents': ['x'] * 257})
 
 
 def test_rerank_response_is_stable_bounded_and_drops_unknown_meta() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankResponseModel
-
     response = OpenAIRerankResponseModel.model_validate(
         {
             'id': 'rrk_01Habc',
@@ -496,8 +483,6 @@ def test_rerank_response_is_stable_bounded_and_drops_unknown_meta() -> None:
 
 
 def test_rerank_response_rejects_non_finite_scores() -> None:
-    from plugins.ai.entity.vo.ai_openai_compat_vo import OpenAIRerankResponseModel
-
     with pytest.raises(ValidationError):
         OpenAIRerankResponseModel.model_validate(
             {

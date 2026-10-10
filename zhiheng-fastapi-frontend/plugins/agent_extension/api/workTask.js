@@ -1,7 +1,7 @@
 import request from '@/utils/request'
 import { getToken } from '@/utils/auth'
 import { normalizeErrorMessage } from '@/utils/errorMessage'
-import { parsePlatformSSE } from '../../ai/utils/sseParser.js'
+import { parsePlatformSSE } from '@/utils/platformSse.js'
 import {
   buildCreateWorkTaskPayload,
   buildRunWorkTaskPayload,

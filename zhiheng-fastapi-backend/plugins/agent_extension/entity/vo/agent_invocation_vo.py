@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 MAX_HISTORY_BYTES = 65536
 
+
 class AgentMessageModel(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
 

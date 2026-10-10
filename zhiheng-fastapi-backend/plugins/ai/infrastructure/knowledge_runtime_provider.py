@@ -30,10 +30,7 @@ async def owner_can_query_knowledge(
         return False
     if any(role.role_id == 1 for role in profile.get('user_role_info', ())):
         return True
-    return any(
-        menu.perms in {'*:*:*', 'ai:knowledge:query'}
-        for menu in profile.get('user_menu_info', ())
-    )
+    return any(menu.perms in {'*:*:*', 'ai:knowledge:query'} for menu in profile.get('user_menu_info', ()))
 
 
 def create_knowledge_runtime(
@@ -44,6 +41,7 @@ def create_knowledge_runtime(
     session_factory: SessionFactory = AsyncSessionLocal,
 ) -> Any:
     """创建知识库运行时；实际模型调用使用独立数据库会话和平台连接池。"""
+
     @asynccontextmanager
     async def model_service_factory() -> AsyncIterator[ModelService]:
         async with session_factory() as session:

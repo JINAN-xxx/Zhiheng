@@ -49,4 +49,3 @@ def test_skill_entity_matches_schema_for_both_databases() -> None:
     assert 'metadata_json jsonb not null' in postgres_ddl
     assert "status in ('enabled', 'disabled')" in mysql_ddl
     assert "status in ('enabled', 'disabled')" in postgres_ddl
-

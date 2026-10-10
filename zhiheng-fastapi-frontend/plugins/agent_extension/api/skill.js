@@ -6,10 +6,6 @@ export function listSkills(query) {
   return request({ url: BASE_URL, method: 'get', params: query })
 }
 
-export function listAvailableSkills() {
-  return request({ url: `${BASE_URL}/available`, method: 'get' })
-}
-
 export function getSkill(skillId) {
   return request({ url: `${BASE_URL}/${encodeURIComponent(skillId)}`, method: 'get' })
 }
@@ -44,3 +40,5 @@ export function updateSkillStatus(skillId, data) {
 export function deleteSkill(skillId) {
   return request({ url: `${BASE_URL}/${encodeURIComponent(skillId)}`, method: 'delete' })
 }
+
+export { listAvailableSkills } from '../public/skills.js'

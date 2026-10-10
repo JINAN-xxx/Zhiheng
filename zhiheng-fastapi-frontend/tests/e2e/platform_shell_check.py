@@ -1,22 +1,31 @@
 import asyncio
 import hashlib
+import io
 import json
 import os
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from urllib.parse import urlparse
 
+from PIL import Image, ImageChops
 from playwright.async_api import (
     Browser,
     BrowserContext,
     Page,
     Route,
-    TimeoutError as PlaywrightTimeoutError,
     async_playwright,
+)
+from playwright.async_api import (
+    Error as PlaywrightError,
+)
+from playwright.async_api import (
+    TimeoutError as PlaywrightTimeoutError,
 )
 
 BASE_URL = os.environ.get("PLATFORM_SHELL_BASE_URL", "http://127.0.0.1:15174")
 SCREENSHOT_DIR = Path(os.environ.get("PLATFORM_SHELL_SCREENSHOT_DIR", "/tmp"))
+ACTIVE_CHECK_PAGES = ContextVar("platform_check_pages", default=None)
 DESKTOP_VIEWPORT = {"width": 1440, "height": 900}
 ADMIN_VIEWPORT = {"width": 1280, "height": 800}
 TABLET_VIEWPORT = {"width": 768, "height": 1024}
@@ -188,6 +197,11 @@ def routes_for(access: str) -> list[dict]:
             ],
         }
     )
+    # Old installations can still return these seeded entries.
+    routes.extend([
+        {"path": "http://zhiheng.vip", "component": "Layout", "meta": {"title": "若依官网", "link": "http://zhiheng.vip"}},
+        {"path": "/index", "component": "dashboard/index", "meta": {"title": "首页", "affix": True}},
+    ])
     return routes
 
 
@@ -571,7 +585,112 @@ async def new_page(
         ),
     )
     page.on("pageerror", lambda error: page_errors.append(str(error)))
+    observe_check_page(context, page, console_errors, page_errors)
     return context, page, console_errors, page_errors
+
+
+def observe_check_page(context, page, console_errors, page_errors) -> None:
+    pages = ACTIVE_CHECK_PAGES.get()
+    if pages is None:
+        return
+    record = {
+        "context": context,
+        "page": page,
+        "console_errors": console_errors,
+        "page_errors": page_errors,
+        "api_events": [],
+        "business_requests": [],
+        "failed_requests": [],
+        "pending_requests": set(),
+    }
+    pages.append(record)
+
+    def api_path(request):
+        path = urlparse(request.url).path
+        if path.startswith(("/dev-api/", "/docker-api/")):
+            return "/" + path.split("/", 2)[-1]
+        if path in {"/transport/crypto/frontend-config", "/captchaImage"}:
+            return path
+        return None
+
+    def requested(request):
+        record["pending_requests"].add(request)
+        path = api_path(request)
+        if path is not None:
+            record["api_events"].append({"event": "request", "url": request.url})
+            if request.method != "GET" or path not in {
+                "/transport/crypto/frontend-config", "/captchaImage",
+            }:
+                record["business_requests"].append(request.url)
+
+    def finished(request):
+        record["pending_requests"].discard(request)
+        if api_path(request) is not None:
+            record["api_events"].append({"event": "finished", "url": request.url})
+
+    def failed(request):
+        record["pending_requests"].discard(request)
+        record["failed_requests"].append({
+            "url": request.url,
+            "resource_type": request.resource_type,
+            "error": request.failure,
+        })
+
+    page.on("request", requested)
+    page.on("requestfinished", finished)
+    page.on("requestfailed", failed)
+    page.on("response", lambda response: record["api_events"].append({
+        "event": "response", "url": response.url, "status": response.status,
+    }) if api_path(response.request) is not None else None)
+
+
+async def run_browser_check(check, browser: Browser, *args, **kwargs) -> int:
+    for attempt in range(2):
+        pages = []
+        token = ACTIVE_CHECK_PAGES.set(pages)
+        try:
+            await check(browser, *args, **kwargs)
+            return attempt
+        except (AssertionError, PlaywrightError) as error:
+            # Chromium can lose Vite modules with ERR_NETWORK_CHANGED before
+            # authentication starts. Never replay a check after business API use.
+            record = pages[0] if len(pages) == 1 else None
+            retry = (
+                attempt == 0
+                and record is not None
+                and bool(record["failed_requests"])
+                and not record["business_requests"]
+                and not record["page_errors"]
+                and all("net::ERR_NETWORK_CHANGED" in message for message in record["console_errors"])
+                and all(
+                    failure["error"] == "net::ERR_NETWORK_CHANGED"
+                    and failure["resource_type"] in {"document", "script", "stylesheet"}
+                    and urlparse(failure["url"]).netloc == urlparse(BASE_URL).netloc
+                    for failure in record["failed_requests"]
+                )
+            )
+            diagnostics = {
+                "check": check.__name__, "args": args, "attempt": attempt + 1,
+                "error": str(error), "retry": retry,
+                "pages": [{
+                    "actual_url": item["page"].url,
+                    "console_errors": item["console_errors"],
+                    "page_errors": item["page_errors"],
+                    "api_events": item["api_events"],
+                    "failed_requests": item["failed_requests"],
+                    "pending_requests": sorted(request.url for request in item["pending_requests"]),
+                } for item in pages],
+            }
+            SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+            diagnostic_file = SCREENSHOT_DIR / f"{check.__name__}-failure-{time.time_ns()}.json"
+            diagnostic_file.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2))
+            print(f"browser check failure ({diagnostic_file}): {json.dumps(diagnostics, ensure_ascii=False)}")
+            if not retry:
+                raise
+        finally:
+            ACTIVE_CHECK_PAGES.reset(token)
+            for item in pages:
+                await item["context"].close()
 
 
 async def assert_no_overflow(page: Page) -> None:
@@ -803,12 +922,32 @@ def screenshot_hash(filename: str) -> str:
     return hashlib.sha256(screenshot.read_bytes()).hexdigest()
 
 
+def compare_screenshots(first: bytes, second: bytes) -> tuple[int, int]:
+    with Image.open(io.BytesIO(first)) as first_image, Image.open(io.BytesIO(second)) as second_image:
+        assert first_image.size == second_image.size, (
+            f"screenshot dimensions changed: {first_image.size} != {second_image.size}"
+        )
+        difference = ImageChops.difference(first_image.convert("RGB"), second_image.convert("RGB"))
+    red, green, blue = difference.split()
+    largest_channel_difference = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+    histogram = largest_channel_difference.histogram()
+    changed_pixels = sum(histogram[1:])
+    max_channel_difference = largest_channel_difference.getextrema()[1]
+    # Chromium's rounded image clipping varies by a few low-amplitude edge pixels.
+    # Both limits apply so layout shifts and even one substantial color change fail.
+    assert changed_pixels <= 32 and max_channel_difference <= 8, (
+        f"screenshot changed: {changed_pixels} pixels (limit 32), "
+        f"maximum channel difference {max_channel_difference} (limit 8)"
+    )
+    return changed_pixels, max_channel_difference
+
+
 async def check_desktop(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(
         browser, DESKTOP_VIEWPORT
     )
     await page.goto(f"{BASE_URL}/ai/chat")
-    await page.get_by_text("从一个问题开始", exact=True).wait_for()
+    await page.locator(".chat-empty-state h2").wait_for()
     assert await page.locator(".platform-sidebar").count() == 1
     assert await page.locator(".platform-sidebar .platform-account-menu").count() == 0
     desktop_account = page.locator(".platform-shell__desktop-topbar")
@@ -881,8 +1020,8 @@ async def check_desktop(browser: Browser) -> None:
             ),
         )
 
-    await page.route("**/dev-api/ai/chat/session/list", fail_session_refresh)
-    await page.get_by_role("button", name="刷新最近会话").click()
+    await page.route("**/dev-api/ai/chat/session/list*", fail_session_refresh)
+    await page.get_by_role("button", name="刷新会话列表").click()
     await page.get_by_text("刷新失败，列表可能已过期", exact=True).wait_for()
     await page.get_by_text(LONG_ERROR, exact=True).wait_for()
     await assert_text_is_constrained(page, LONG_ERROR)
@@ -891,7 +1030,7 @@ async def check_desktop(browser: Browser) -> None:
     assert console_errors == [], console_errors
     assert page_errors == [], page_errors
     await take_screenshot(page, "platform-shell-chat-1440x900-light.png")
-    await page.unroute("**/dev-api/ai/chat/session/list", fail_session_refresh)
+    await page.unroute("**/dev-api/ai/chat/session/list*", fail_session_refresh)
 
     session_row = page.locator(".recent-session").filter(has_text=LONG_SESSION_TITLE)
     await session_row.get_by_role("button", name="更多操作").click()
@@ -947,6 +1086,11 @@ async def check_admin(browser: Browser) -> None:
     ) == "rgb(3, 3, 3)"
     await page.get_by_role("menuitem", name="系统概览").wait_for()
     assert await page.locator("#tags-view-container").count() == 1
+    assert await page.locator(".admin-sidebar").get_by_text("若依官网", exact=True).count() == 0
+    assert await page.locator(".admin-sidebar").get_by_text("首页", exact=True).count() == 0
+    assert await page.locator("#tags-view-container").get_by_text("首页", exact=True).count() == 0
+    topbar_back = page.locator(".platform-shell__desktop-topbar").get_by_role("button", name="返回 AI 工作台", exact=True)
+    assert await topbar_back.is_visible()
     await page.get_by_role("button", name="折叠侧边栏").click()
     await page.wait_for_timeout(250)
     assert await page.locator(".platform-shell__sidebar").evaluate(
@@ -967,14 +1111,75 @@ async def check_admin(browser: Browser) -> None:
     assert console_errors == [], console_errors
     assert page_errors == [], page_errors
     await take_screenshot(page, "platform-shell-admin-1280x800-dark.png")
-    await page.get_by_role("button", name="返回 AI 工作台").first.click()
+    await topbar_back.click()
     await page.wait_for_url("**/ai/chat")
-    await page.get_by_text("从一个问题开始", exact=True).wait_for()
+    await page.locator(".chat-empty-state h2").wait_for()
     assert await page.locator("#tags-view-container").count() == 0
     await assert_no_overflow(page)
     assert console_errors == []
     assert page_errors == []
     await context.close()
+
+
+async def check_admin_navigation(browser: Browser, width: int, access: str) -> None:
+    context, page, console_errors, page_errors = await new_page(browser, {"width": width, "height": 800}, access)
+    try:
+        await page.goto(f"{BASE_URL}/system/overview")
+        await page.locator('main[aria-label="用量记录"]').wait_for()
+        topbar = page.locator(".platform-shell__desktop-topbar, .platform-topbar")
+        back = topbar.get_by_role("button", name="返回 AI 工作台", exact=True)
+        if access == "none":
+            assert await back.count() == 0
+        else:
+            assert await back.is_visible()
+            assert await back.locator("span").last.is_visible()
+            await assert_no_overflow(page)
+            await take_screenshot(page, f"admin-navigation-{width}-{access}.png")
+            await back.click()
+            target = "/ai/model" if access == "model" else "/ai/chat"
+            await page.wait_for_url(f"**{target}")
+        await page.goto(f"{BASE_URL}/index")
+        target = {"none": "/system/overview", "model": "/ai/model", "all": "/ai/chat"}[access]
+        await page.wait_for_url(f"**{target}")
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
+async def check_admin_sidebar_return(browser: Browser, width: int, access: str = "all", collapsed: bool = False) -> None:
+    context, page, console_errors, page_errors = await new_page(browser, {"width": width, "height": 800}, access)
+    try:
+        await page.goto(f"{BASE_URL}/system/overview")
+        await page.locator('main[aria-label="用量记录"]').wait_for()
+        if width < 992:
+            await page.get_by_role("button", name="打开主菜单").click()
+            await page.locator(".platform-mobile-drawer.ant-drawer-open").wait_for()
+        elif collapsed:
+            await page.get_by_role("button", name="折叠侧边栏").click()
+            await page.locator(".admin-sidebar.is-collapsed").wait_for()
+
+        sidebar = page.get_by_role("complementary", name="管理控制台导航")
+        back = sidebar.get_by_role("button", name="返回 AI 工作台", exact=True)
+        if access == "none":
+            assert await back.count() == 0
+        else:
+            assert await back.is_visible(), "管理导航中应有明确的返回 AI 工作台按钮"
+            if collapsed:
+                assert await back.get_attribute("title") == "返回 AI 工作台"
+            else:
+                assert await back.get_by_text("返回 AI 工作台", exact=True).is_visible()
+            await assert_no_overflow(page)
+            await take_screenshot(page, f"admin-sidebar-return-{width}-{access}-{collapsed}.png")
+            await back.focus()
+            await page.keyboard.press("Enter")
+            target = "/ai/model" if access == "model" else "/ai/chat"
+            await page.wait_for_url(f"**{target}")
+            assert await page.locator(".platform-mobile-drawer.ant-drawer-open").count() == 0
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
 
 
 async def check_mobile(browser: Browser, width: int, height: int) -> None:
@@ -1070,6 +1275,58 @@ async def check_model_resource_drawer(browser: Browser) -> None:
     assert console_errors == []
     assert page_errors == []
     await context.close()
+
+
+async def check_model_connection_delay(browser: Browser) -> None:
+    context, page, console_errors, page_errors = await new_page(browser, ADMIN_VIEWPORT)
+    tested = asyncio.Event()
+
+    async def probe_routes(route: Route) -> None:
+        path = urlparse(route.request.url).path.split("/", 2)[-1]
+        if path == "getInfo":
+            payload = response_for("/getInfo", "GET", "all")
+            payload["permissions"] = [*payload["permissions"],
+                "ai:engine:credential:list", "ai:engine:credential:add",
+                "ai:engine:deployment:list", "ai:engine:deployment:add"]
+        elif path == "ai/model-engine/providers":
+            payload = {"code": 200, "data": [{"provider": "OpenAI_Compatible", "displayName": "Compatible",
+                "litellmProvider": "openai", "defaultModelPlaceholder": "Qwen/Qwen3.8-27B",
+                "credentialFields": [
+                    {"fieldKey": "api_base", "label": "API Base", "fieldType": "text", "required": True},
+                    {"fieldKey": "api_key", "label": "API Key", "fieldType": "password", "required": True},
+                ]}]}
+        elif path == "ai/model-engine/credentials":
+            payload = {"code": 200, "data": []}
+        elif path == "ai/model-engine/test-connection":
+            body = route.request.post_data_json
+            assert body["upstreamModel"] == "Qwen/Qwen3.8-27B"
+            assert body["values"]["api_base"] == "https://api.siliconflow.cn/v1"
+            assert body["values"]["api_key"] == "browser-test-only"
+            await asyncio.sleep(12)
+            tested.set()
+            payload = {"code": 200, "data": {"success": True, "latencyMs": 12000, "message": "连接测试成功"}}
+        else:
+            await route.fallback()
+            return
+        await route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    try:
+        await context.route("**/dev-api/**", probe_routes)
+        await context.route("**/docker-api/**", probe_routes)
+        await page.goto(f"{BASE_URL}/ai/model")
+        await page.get_by_role("button", name="接入模型").click()
+        drawer = page.locator(".model-onboarding-drawer")
+        await drawer.get_by_label("模型名称", exact=True).fill("Qwen/Qwen3.8-27B")
+        await drawer.get_by_placeholder("输入API Key", exact=True).fill("browser-test-only")
+        await drawer.get_by_role("button", name="测试连接").click()
+        await asyncio.wait_for(tested.wait(), 20)
+        await drawer.get_by_text("连接测试通过 · 12000 ms", exact=True).wait_for(timeout=5000)
+        assert await drawer.get_by_role("button", name="接入模型").is_enabled()
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+        await take_screenshot(page, "model-connection-delayed-success.png")
+    finally:
+        await context.close()
 
 
 async def check_model_dark(browser: Browser) -> None:
@@ -1253,7 +1510,7 @@ async def check_skill_management_and_chat_picker(browser: Browser) -> None:
         await page.keyboard.press("Escape")
 
         await page.goto(f"{BASE_URL}/ai/chat")
-        await page.get_by_text("从一个问题开始", exact=True).wait_for()
+        await page.locator(".chat-empty-state h2").wait_for()
         composer = page.locator(".composer")
         textarea = composer.locator("textarea")
         await textarea.fill("请分析 @")
@@ -1325,38 +1582,52 @@ async def check_default_login_landing(browser: Browser) -> None:
         await page.get_by_placeholder("密码").fill("password")
         await page.locator('.login-form button[type="submit"]').click()
         await page.wait_for_url("**/ai/chat")
-        await page.get_by_text("从一个问题开始", exact=True).wait_for()
+        await page.locator(".chat-empty-state h2").wait_for()
         assert console_errors == [], console_errors
         assert page_errors == [], page_errors
     finally:
         await context.close()
 
 
-async def check_permission_landings(browser: Browser) -> None:
+async def check_permission_landings(browser: Browser) -> int:
     expectations = {
-        "chat": "/ai/chat",
-        "model": "/ai/model",
-        "application": "/ai/application",
-        "usage": "/ai/usage",
-        "skill": "/extensions/skill",
-        "none": "/system/overview",
+        "chat": ("/ai/chat", ".chat-empty-state h2"),
+        "model": ("/ai/model", ".ai-model-center"),
+        "application": ("/ai/application", ".developer-api-page"),
+        "usage": ("/ai/usage", ".usage-ledger-page"),
+        "skill": ("/extensions/skill", ".skill-management-page"),
+        "none": ("/system/overview", ".usage-ledger-page"),
     }
-    for access, expected_path in expectations.items():
-        context, page, console_errors, page_errors = await new_page(
-            browser, {"width": 1024, "height": 768}, access
+    retries = 0
+    for access, (expected_path, expected_selector) in expectations.items():
+        retries += await run_browser_check(
+            check_permission_landing, browser, access, expected_path, expected_selector
         )
+    print(f"permission landing checks passed; infrastructure retries: {retries}")
+    return retries
+
+
+async def check_permission_landing(
+    browser: Browser, access: str, expected_path: str, expected_selector: str
+) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, {"width": 1024, "height": 768}, access
+    )
+    try:
         await page.goto(f"{BASE_URL}/ai/unavailable")
         await page.wait_for_url(f"**{expected_path}")
         assert urlparse(page.url).path == expected_path
-        assert console_errors == []
-        assert page_errors == []
+        await page.locator(expected_selector).wait_for()
+        assert console_errors == [], console_errors
+        assert page_errors == [], page_errors
+    finally:
         await context.close()
 
 
 async def check_dark_theme(browser: Browser) -> None:
     context, page, console_errors, page_errors = await new_page(browser, DESKTOP_VIEWPORT)
     await page.goto(f"{BASE_URL}/ai/chat")
-    await page.get_by_text("从一个问题开始", exact=True).wait_for()
+    await page.locator(".chat-empty-state h2").wait_for()
     await page.get_by_role("button", name="切换主题").click()
     await page.locator("html.dark").wait_for()
     assert await page.locator(".platform-sidebar").evaluate(
@@ -1370,7 +1641,10 @@ async def check_dark_theme(browser: Browser) -> None:
     await surface.wait_for()
     assert await surface.evaluate(
         "element => getComputedStyle(element).backgroundColor"
-    ) == "rgb(31, 31, 31)"
+    ) == "rgba(0, 0, 0, 0)"
+    assert await page.locator(".platform-chat").evaluate(
+        "element => getComputedStyle(element).backgroundColor"
+    ) == "rgb(8, 8, 8)"
     session_row = page.locator(".recent-session").filter(has_text=LONG_SESSION_TITLE)
     await session_row.get_by_role("button", name="更多操作").click()
     await page.get_by_text("重命名", exact=True).click()
@@ -1388,25 +1662,32 @@ async def check_dark_theme(browser: Browser) -> None:
     await context.close()
 
 
-async def run_platform_checks(browser: Browser) -> dict[str, str]:
+async def run_platform_checks(browser: Browser) -> dict[str, bytes]:
     reset_model_lifecycle()
-    await check_desktop(browser)
-    await check_admin(browser)
-    await check_mobile(browser, **MOBILE_VIEWPORT)
-    await check_model_resource_drawer(browser)
-    await check_dark_theme(browser)
-    await check_model_dark(browser)
-    await check_model_reenable(browser)
-    await check_application_api_docs(browser)
-    await check_application_usage_dark(browser)
-    await check_skill_management_and_chat_picker(browser)
-    await check_skill_management_dark(browser)
-    await check_auth_dark(browser)
-    await check_default_login_landing(browser)
-    await check_permission_landings(browser)
+    retries = 0
+    retries += await run_browser_check(check_desktop, browser)
+    retries += await run_browser_check(check_admin, browser)
+    for width, access in ((1280, "model"), (1280, "none"), (390, "all"), (320, "all")):
+        retries += await run_browser_check(check_admin_navigation, browser, width, access)
+    for width, access, collapsed in ((1280, "all", False), (1280, "model", True), (1280, "none", False), (375, "all", False), (320, "none", False)):
+        retries += await run_browser_check(check_admin_sidebar_return, browser, width, access, collapsed)
+    retries += await run_browser_check(check_mobile, browser, **MOBILE_VIEWPORT)
+    retries += await run_browser_check(check_model_resource_drawer, browser)
+    retries += await run_browser_check(check_model_connection_delay, browser)
+    retries += await run_browser_check(check_dark_theme, browser)
+    retries += await run_browser_check(check_model_dark, browser)
+    retries += await run_browser_check(check_model_reenable, browser)
+    retries += await run_browser_check(check_application_api_docs, browser)
+    retries += await run_browser_check(check_application_usage_dark, browser)
+    retries += await run_browser_check(check_skill_management_and_chat_picker, browser)
+    retries += await run_browser_check(check_skill_management_dark, browser)
+    retries += await run_browser_check(check_auth_dark, browser)
+    retries += await run_browser_check(check_default_login_landing, browser)
+    retries += await check_permission_landings(browser)
+    print(f"platform browser infrastructure retries: {retries}")
     hashes = {filename: screenshot_hash(filename) for filename in PLATFORM_STABLE_SCREENSHOTS}
     print(f"platform stable screenshot hashes: {hashes}")
-    return hashes
+    return {filename: (SCREENSHOT_DIR / filename).read_bytes() for filename in PLATFORM_STABLE_SCREENSHOTS}
 
 
 async def main() -> None:
@@ -1414,9 +1695,16 @@ async def main() -> None:
         browser = await playwright.chromium.launch(headless=True)
         try:
             await check_screenshot_helper_behavior(browser)
-            first_hashes = await run_platform_checks(browser)
-            second_hashes = await run_platform_checks(browser)
-            assert second_hashes == first_hashes, (first_hashes, second_hashes)
+            first_screenshots = await run_platform_checks(browser)
+            second_screenshots = await run_platform_checks(browser)
+            for filename, first_screenshot in first_screenshots.items():
+                try:
+                    changed_pixels, max_difference = compare_screenshots(
+                        first_screenshot, second_screenshots[filename]
+                    )
+                except AssertionError as error:
+                    raise AssertionError(f"{filename}: {error}") from error
+                print(f"{filename}: {changed_pixels} changed pixels, maximum channel difference {max_difference}")
             print("platform screenshot reproducibility passed (2 rounds)")
         finally:
             await browser.close()

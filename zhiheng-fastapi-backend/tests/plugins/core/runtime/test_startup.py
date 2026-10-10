@@ -1,5 +1,6 @@
 from pathlib import Path
 from subprocess import CompletedProcess
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -501,7 +502,9 @@ async def test_check_enabled_plugin_python_dependencies_marks_missing_dependency
     mark_plugin_runtime_error.assert_awaited_once_with(
         app,
         'ai',
-        ('插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'),
+        (
+            '插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'
+        ),
     )
 
 
@@ -603,7 +606,9 @@ async def test_check_enabled_plugin_python_dependencies_rechecks_dependency_erro
     mark_plugin_runtime_error.assert_awaited_once_with(
         app,
         'ai',
-        ('插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'),
+        (
+            '插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'
+        ),
     )
 
 
@@ -780,7 +785,9 @@ async def test_check_enabled_plugin_python_dependencies_never_installs_during_st
     mark_plugin_runtime_error.assert_awaited_once_with(
         app,
         'ai',
-        ('插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'),
+        (
+            '插件启动依赖检查失败：Python 依赖未安装：agno；安装依赖请执行：zhiheng plugin install-deps ai --env=dev --yes'
+        ),
     )
 
 
@@ -1113,6 +1120,18 @@ def test_disable_runtime_plugins_marks_plugins_disabled_in_current_registry() ->
     assert app.state.plugin_registry.get_plugin('ai').enabled is False
     assert app.state.plugin_registry.get_plugin('ai').status == 'error'
     assert [plugin.plugin_id for plugin in app.state.plugin_registry.list_enabled_plugins()] == ['demo']
+
+
+def test_disable_runtime_plugins_preserves_installed_plugins_without_source() -> None:
+    app = FastAPI()
+    app.state.plugin_registry = PluginRegistry.build(
+        [],
+        [SimpleNamespace(plugin_id='missing', installed_version='1.0.0')],
+    )
+
+    PluginRuntimeStartupManager.disable_runtime_plugins(app, {'failed'})
+
+    assert app.state.plugin_registry.unresolved_installed_plugin_ids == ('missing',)
 
 
 @pytest.mark.asyncio

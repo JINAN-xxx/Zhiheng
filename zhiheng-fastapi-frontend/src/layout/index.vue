@@ -16,6 +16,7 @@
       <AdminSidebar
         v-else
         :collapsed="collapsed"
+        :can-open-ai="Boolean(aiWorkspacePath)"
         show-collapse-control
         @open-ai="openAi"
         @set-layout="setLayout"
@@ -45,6 +46,7 @@
       <AdminSidebar
         v-else
         ref="mobileSidebarRef"
+        :can-open-ai="Boolean(aiWorkspacePath)"
         :show-account-menu="false"
         :show-collapse-control="false"
         @open-ai="openAi"
@@ -53,12 +55,23 @@
 
     <section class="platform-shell__main">
       <div v-if="!isMobile" class="platform-shell__desktop-topbar">
+        <button
+          v-if="mode === 'admin' && aiWorkspacePath"
+          type="button"
+          class="platform-shell__workspace-back"
+          aria-label="返回 AI 工作台"
+          @click="openAi"
+        >
+          <ArrowLeftOutlined />
+          <span>返回 AI 工作台</span>
+        </button>
         <PlatformAccountMenu class="platform-shell__desktop-account" compact @set-layout="setLayout" />
       </div>
       <PlatformTopbar
         v-if="isMobile"
         ref="topbarRef"
         :mode="mode"
+        :can-open-ai="Boolean(aiWorkspacePath)"
         @toggle-sidebar="toggleSidebar"
         @open-ai="openAi"
         @set-layout="setLayout"
@@ -72,18 +85,18 @@
 
 <script setup>
 import { useWindowSize } from '@vueuse/core'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import {
+  collectAuthorizedWorkspacePaths,
   collectWorkspaceLeafPaths,
   collectWorkspaceRoutePaths,
   filterAdminWorkspaceRoutes,
-  resolveAiResourceTabs,
   resolveWorkspaceLandingPath,
   resolveWorkspaceMode,
 } from '@/components/Workspace/workspaceTransforms.js'
 import useAppStore from '@/store/modules/app'
 import usePermissionStore from '@/store/modules/permission'
 import useSettingsStore from '@/store/modules/settings'
-import useUserStore from '@/store/modules/user'
 import {
   AdminSidebar,
   AppMain,
@@ -99,7 +112,6 @@ const router = useRouter()
 const appStore = useAppStore()
 const permissionStore = usePermissionStore()
 const settingsStore = useSettingsStore()
-const userStore = useUserStore()
 const settingRef = ref(null)
 const topbarRef = ref(null)
 const mobileSidebarRef = ref(null)
@@ -111,6 +123,11 @@ const mobileDrawerWidth = computed(() => Math.min(width.value * 0.86, 300))
 const collapsed = computed(() => !appStore.sidebar.opened)
 const needTagsView = computed(() => settingsStore.tagsView)
 const theme = computed(() => settingsStore.theme)
+const aiWorkspacePath = computed(() => {
+  const paths = collectAuthorizedWorkspacePaths(permissionStore.addRoutes)
+  const target = resolveWorkspaceLandingPath('/index', paths)
+  return resolveWorkspaceMode(target) === 'ai' ? target : ''
+})
 
 watch(() => route.fullPath, () => appStore.closeMobileSidebar())
 
@@ -147,13 +164,7 @@ function openAdmin() {
 }
 
 function openAi() {
-  const accessiblePaths = collectWorkspaceRoutePaths(permissionStore.addRoutes)
-  const target = resolveWorkspaceLandingPath('/index', accessiblePaths)
-  if (resolveWorkspaceMode(target) === 'ai') router.push(target)
-  else {
-    const firstResource = resolveAiResourceTabs(new Set(userStore.permissions))[0]
-    if (firstResource) router.push(firstResource.path)
-  }
+  if (aiWorkspacePath.value) router.push(aiWorkspacePath.value)
 }
 
 function setLayout() {
@@ -168,6 +179,8 @@ function setLayout() {
 .platform-shell__main { min-width: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
 .platform-shell__desktop-topbar { height: var(--platform-topbar-height); min-height: var(--platform-topbar-height); display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--gray-150); background: var(--bg-container); }
 .platform-shell__desktop-account { width: max-content; }
+.platform-shell__workspace-back { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; margin-right: auto; padding: 0 12px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); background: var(--bg-container); color: var(--color-text); font: inherit; cursor: pointer; }
+.platform-shell__workspace-back:hover { border-color: var(--main-500); background: var(--main-30); color: var(--main-700); }
 </style>
 
 <style lang="scss">

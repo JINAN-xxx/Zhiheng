@@ -342,7 +342,7 @@ def test_detail_screen_unmount_cancels_action_task(tui_modules: SimpleNamespace)
 @pytest.mark.asyncio
 async def test_detail_screen_scrolls_in_small_viewport(tui_modules: SimpleNamespace) -> None:
     thin_scrollbar_size = 1
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.action_show_dashboard = lambda: None  # type: ignore[method-assign]
     app.current_view = 'app'
     snapshot = tui_modules.cli_tui_app.DetailPageSnapshot(

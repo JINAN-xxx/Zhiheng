@@ -16,4 +16,3 @@ class SkillServiceError(ValueError):
 
     def public_dict(self) -> dict[str, str]:
         return {'code': self.code, 'message': self.message}
-
