@@ -48,13 +48,15 @@ ZhiHeng 前端（Vue 3） ---> ZhiHeng 后端（FastAPI） ---> PostgreSQL
 ```text
 zhiheng-fastapi-frontend/   Web 前端和 AI 工作台
 zhiheng-fastapi-backend/    FastAPI 后端、插件和数据库迁移
-zhiheng-fastapi-app/        uni-app 移动端
-zhiheng-fastapi-test/       自动化测试
+zhiheng-fastapi-frontend/tests/  前端插件、契约和端到端测试
+zhiheng-fastapi-backend/tests/   后端自动化测试
 data/agent-skills/         平台技能持久文件（运行时生成，不提交 Git）
 deploy/litellm/            LiteLLM 独立运行环境
-deploy/zhiheng/              ZhiHeng PostgreSQL 初始化脚本
-docs/                      架构、设计和开发文档
+deploy/zhiheng/            ZhiHeng PostgreSQL 初始化脚本
+docs/                     架构、设计和开发文档
 ```
+
+当前分支已移除移动端工程，自动化测试分别位于前后端工程内。切换自使用 `ruoyi-fastapi-*` 目录的旧分支时，Git 会保留旧目录中的本地依赖、缓存和日志；这些文件不属于当前分支源码。整理旧目录前应检查运行中的服务挂载，并备份需要保留的文件。
 
 ## 快速开始
 
@@ -157,16 +159,6 @@ npm run dev
 
 开发服务器默认地址为 <http://127.0.0.1:5173/>。前端通过 Vite 代理访问本地后端。
 
-### 移动端
-
-```bash
-cd zhiheng-fastapi-app
-pnpm install
-pnpm dev:h5
-```
-
-移动端详细说明见 [`zhiheng-fastapi-app/README.md`](./zhiheng-fastapi-app/README.md)。
-
 ## 测试与质量检查
 
 ```bash
@@ -183,13 +175,13 @@ cd ..
 sh -n deploy.sh
 ```
 
-端到端测试需要安装 Playwright 浏览器：
+前端页面检查脚本位于 `zhiheng-fastapi-frontend/tests/e2e/`。先在另一个终端启动前端开发服务器，再安装 Playwright 并执行检查；如开发服务器使用其他端口，应同步调整 `PLATFORM_SHELL_BASE_URL`：
 
 ```bash
 cd zhiheng-fastapi-frontend
-pip install -r ../zhiheng-fastapi-test/requirements.txt
-playwright install chromium
-python tests/e2e/platform_shell_check.py
+python -m pip install playwright
+python -m playwright install chromium
+PLATFORM_SHELL_BASE_URL=http://127.0.0.1:5173 python tests/e2e/platform_shell_check.py
 ```
 
 ## 重要配置
@@ -214,8 +206,8 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [统一一键部署说明](./deploy/README.md)
 - [LiteLLM 部署说明](./deploy/litellm/README.md)
 - [ZhiHeng PostgreSQL 部署说明](./deploy/zhiheng/README.md)
-- [移动端说明](./zhiheng-fastapi-app/README.md)
-- [测试说明](./zhiheng-fastapi-test/README.md)
+- [前端测试](./zhiheng-fastapi-frontend/tests/)
+- [后端测试](./zhiheng-fastapi-backend/tests/)
 - [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
 - [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
