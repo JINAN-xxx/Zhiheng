@@ -279,6 +279,7 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [ZhiHeng PostgreSQL 部署说明](./deploy/zhiheng/README.md)
 - [代码结构与测试目录](./代码结构说明.md)
 - [后端目录说明](./zhiheng-fastapi-backend/docs/后端目录说明.md)
+- [后端运行与数据约束](./zhiheng-fastapi-backend/docs/后端运行与数据约束.md)
 - [前端测试](./zhiheng-fastapi-frontend/tests/)
 - [后端测试](./zhiheng-fastapi-backend/tests/)
 - [当前模块边界与改造记录](./docs/architecture/2026-09-29-module-boundaries.md)
