@@ -1,6 +1,17 @@
 from datetime import datetime
 
-from sqlalchemy import CHAR, BigInteger, CheckConstraint, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CHAR,
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from config.database import Base
 from config.env import DataBaseConfig
@@ -51,6 +62,23 @@ class SysPlugin(Base):
         server_default=SqlalchemyUtil.get_server_default_null(DataBaseConfig.db_type),
         comment='备注',
     )
+
+
+class SysPluginResourceOwnership(Base):
+    """独立保留插件业务资源的检查责任，不随插件平台元数据清理。"""
+
+    __tablename__ = 'sys_plugin_resource_ownership'
+    __table_args__ = (
+        CheckConstraint("state in ('none', 'retained', 'unknown')", name='ck_sys_plugin_resource_ownership_state'),
+        {'comment': '插件持久资源归属表'},
+    )
+
+    # 不建立到 sys_plugin 的外键：安全卸载和元数据 purge 都可能保留业务数据。
+    plugin_id = Column(String(64), primary_key=True, nullable=False, comment='插件ID')
+    state = Column(String(16), nullable=False, server_default='unknown', comment='资源归属状态')
+    resource_references = Column(JSON, nullable=False, default=dict, comment='资源类型及引用回调路径快照')
+    create_time = Column(DateTime, nullable=True, default=datetime.now, comment='创建时间')
+    update_time = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
 class SysPluginMenu(Base):

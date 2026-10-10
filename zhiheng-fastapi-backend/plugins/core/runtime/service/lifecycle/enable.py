@@ -608,6 +608,7 @@ class PluginEnableUseCase(PluginLifecycleUseCaseSupport):
         """
         context.response = await self.dependencies.lifecycle_state_gateway.mark_plugin_uninstalled_state(
             context.plugin_id,
+            context.discovered_plugin,
         )
         if context.response.is_success:
             return None

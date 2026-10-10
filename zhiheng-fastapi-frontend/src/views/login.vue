@@ -128,8 +128,9 @@ async function handleLogin() {
     }, {})
     await router.push({ path: redirect.value || defaultLandingPath, query: otherQueryParams })
   } catch {
-    loading.value = false
     if (captchaEnabled.value) await getCode()
+  } finally {
+    loading.value = false
   }
 }
 

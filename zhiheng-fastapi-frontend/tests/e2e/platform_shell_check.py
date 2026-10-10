@@ -1589,6 +1589,55 @@ async def check_default_login_landing(browser: Browser) -> None:
         await context.close()
 
 
+async def check_login_menu_failure_recovery(browser: Browser, failure_mode: str) -> None:
+    context, page, console_errors, page_errors = await new_page(
+        browser, ADMIN_VIEWPORT, authenticated=False
+    )
+    menu_requests = 0
+
+    async def fail_first_menu(route: Route) -> None:
+        nonlocal menu_requests
+        menu_requests += 1
+        if menu_requests == 1:
+            await route.fulfill(
+                status=500 if failure_mode == "http" else 200,
+                json={"code": 500, "msg": "菜单服务暂不可用，请重试"},
+            )
+        else:
+            await route.fallback()
+
+    try:
+        await context.route("**/getRouters", fail_first_menu)
+        await page.goto(f"{BASE_URL}/login")
+        await page.get_by_placeholder("账号").fill("admin")
+        await page.get_by_placeholder("密码").fill("password")
+        button = page.locator('.login-form button[type="submit"]')
+        await button.click()
+        await page.get_by_text("菜单服务暂不可用，请重试", exact=True).first.wait_for()
+        await page.wait_for_function(
+            """() => {
+                const button = document.querySelector('.login-form button[type="submit"]')
+                return button && !button.disabled && !button.classList.contains('ant-btn-loading')
+            }"""
+        )
+        assert urlparse(page.url).path == "/login"
+        assert menu_requests == 1, "失败的业务请求不能被自动重放"
+        assert not any(cookie["name"] == "Admin-Token" for cookie in await context.cookies())
+        await button.click()
+        await page.wait_for_url("**/ai/chat")
+        await page.locator(".chat-empty-state h2").wait_for()
+        assert menu_requests == 2
+        expected_errors = [
+            error for error in console_errors
+            if failure_mode == "http" and "Failed to load resource" in error and "500" in error
+        ]
+        assert len(expected_errors) == (1 if failure_mode == "http" else 0), console_errors
+        assert len(console_errors) == len(expected_errors), console_errors
+        assert page_errors == [], page_errors
+    finally:
+        await context.close()
+
+
 async def check_permission_landings(browser: Browser) -> int:
     expectations = {
         "chat": ("/ai/chat", ".chat-empty-state h2"),
@@ -1683,6 +1732,8 @@ async def run_platform_checks(browser: Browser) -> dict[str, bytes]:
     retries += await run_browser_check(check_skill_management_dark, browser)
     retries += await run_browser_check(check_auth_dark, browser)
     retries += await run_browser_check(check_default_login_landing, browser)
+    for failure_mode in ("http", "business"):
+        retries += await run_browser_check(check_login_menu_failure_recovery, browser, failure_mode)
     retries += await check_permission_landings(browser)
     print(f"platform browser infrastructure retries: {retries}")
     hashes = {filename: screenshot_hash(filename) for filename in PLATFORM_STABLE_SCREENSHOTS}

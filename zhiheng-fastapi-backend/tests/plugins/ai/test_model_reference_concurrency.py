@@ -26,6 +26,7 @@ from plugins.ai.knowledge.metadata import MetadataStore
 from plugins.ai.knowledge.model_references import model_reference_write
 from plugins.ai.public.model_queries import lock_model_reference
 from plugins.ai.service.model_catalog_service import ModelCatalogService
+from plugins.core.management.entity.do.models import SysPlugin
 from tests.plugins.agent_extension.test_agent_schema import config_payload
 from tests.plugins.ai.test_model_deletion_references import BINDING, MODEL, REFERENCE_TABLES, agent_registry
 
@@ -48,6 +49,16 @@ async def postgres_db() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
                 await connection.run_sync(model.__table__.create)
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as db:
+            db.add(
+                SysPlugin(
+                    plugin_id='agent_extension',
+                    plugin_name='Agent',
+                    version='0.4.0',
+                    installed_version='0.4.0',
+                    enabled='1',
+                    status='installed',
+                )
+            )
             db.add(
                 AiModelCatalog(
                     model_id=MODEL,

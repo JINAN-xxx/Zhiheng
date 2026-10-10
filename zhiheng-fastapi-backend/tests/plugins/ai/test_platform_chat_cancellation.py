@@ -2,17 +2,19 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import NoReturn
 
 import anyio
 import httpx
 import pytest
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response, StreamingResponse
 from starlette.types import Message, Receive, Scope, Send
 
 from plugins.ai.config import LiteLLMSettings
+from plugins.ai.controller import ai_chat_controller as chat_controller
 from plugins.ai.controller.ai_chat_controller import _serialize_stream
 from plugins.ai.domain.model_runtime import ModelStreamEvent
 from plugins.ai.domain.resource_id import new_resource_id
@@ -71,6 +73,94 @@ def cancellation_service(
         coordinator=coordinator,
         stream=stream or CheckpointStream((ModelStreamEvent(event_type='content', delta='partial answer'),)),
     )
+
+
+@pytest.mark.asyncio
+async def test_close_before_first_event_finalizes_pending_run_once() -> None:
+    service, _, dao, runtime, coordinator = cancellation_service()
+    result = await service.send(USER_ID, _request())
+
+    with anyio.CancelScope() as request_scope:
+        request_scope.cancel()
+        await result.aclose()
+    await result.aclose()
+
+    assert dao.runs[0].status == 'interrupted'
+    assert dao.runs[0].finished_at is not None
+    assert runtime.stream.close_count == 1
+    assert coordinator.lock.exited == 1
+    assert len(dao.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_unstarted_close_failure_still_unlocks_and_does_not_repeat_cleanup() -> None:
+    class FailingTerminalSession(CheckpointSession):
+        async def commit(self) -> None:
+            if self.commit_count == 1:
+                raise RuntimeError('terminal write failed')
+            await super().commit()
+
+    service, _, _, runtime, coordinator = cancellation_service(db=FailingTerminalSession())
+    result = await service.send(USER_ID, _request())
+    with pytest.raises(RuntimeError, match='terminal write failed'):
+        await result.aclose()
+    await result.aclose()
+
+    assert coordinator.lock.exited == 1
+    assert runtime.stream.close_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure_mode', ['disconnect', 'send_error', 'discard'])
+async def test_controller_owns_unstarted_response_and_same_session_can_send_again(
+    monkeypatch: pytest.MonkeyPatch, failure_mode: str
+) -> None:
+    redis = FakeRedis()
+    service, db, dao, runtime, _ = cancellation_service()
+    service._coordinator = ChatRuntimeCoordinator(redis)
+    monkeypatch.setattr(chat_controller, '_platform_chat_service', lambda request, query_db: service)
+    scope: Scope = {
+        'type': 'http',
+        'asgi': {'version': '3.0', 'spec_version': '2.4' if failure_mode == 'send_error' else '2.3'},
+        'method': 'POST',
+        'path': '/ai/chat/send',
+        'headers': [],
+    }
+    response = await chat_controller.send_chat_message(
+        Request(scope), _request(), db, SimpleNamespace(user=SimpleNamespace(user_id=USER_ID))
+    )
+    starting = anyio.Event()
+
+    async def receive() -> Message:
+        await starting.wait()
+        return {'type': 'http.disconnect'}
+
+    async def send(message: Message) -> None:
+        if message['type'] == 'http.response.start':
+            starting.set()
+            if failure_mode == 'send_error':
+                raise OSError('client left before response body')
+            await anyio.sleep_forever()
+
+    with anyio.fail_after(5):
+        if failure_mode == 'discard':
+            await response.body_iterator.aclose()
+        elif failure_mode == 'send_error':
+            with pytest.raises(ClientDisconnect):
+                await response(scope, receive, send)
+        else:
+            await response(scope, receive, send)
+
+    assert dao.runs[0].status == 'interrupted'
+    assert await redis.get(f'ai:chat:lock:{SESSION_ID}') is None
+    assert runtime.stream.close_count == 1
+    service._id_factory = new_resource_id
+    runtime.stream = CheckpointStream((ModelStreamEvent(event_type='content', delta='continued'),))
+    request = _request(session_id=SESSION_ID).model_copy(update={'client_message_id': 'retry-after-disconnect'})
+    continued = await service.send(USER_ID, request)
+    events = [event async for event in continued]
+    assert events[-1].data['status'] == 'completed'
+    assert await redis.get(f'ai:chat:lock:{SESSION_ID}') is None
 
 
 @pytest.mark.asyncio

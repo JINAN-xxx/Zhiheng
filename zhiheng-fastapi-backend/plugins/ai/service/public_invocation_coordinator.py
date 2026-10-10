@@ -6,6 +6,7 @@ from decimal import Decimal
 from secrets import token_urlsafe
 from typing import Any, Literal, Protocol
 
+import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from plugins.ai.dao.ai_developer_api_dao import AiDeveloperApiDao, InvocationSnapshotRecord
@@ -470,7 +471,7 @@ class PublicInvocationCoordinator:
         operation_type: OperationType,
         input_bytes: int,
         output_ceiling: int | None = None,
-        operation: Callable[[InvocationSnapshotRecord], AsyncIterator[object]],
+        operation: Callable[[InvocationSnapshotRecord], Awaitable[AsyncIterator[object]]],
     ) -> 'CoordinatorStream':
         """流式调用：预留配额与 started Ledger 后返回受协调的流，结束时结算。"""
         snapshot = await self.resolve_invocation(identity, model_code, expected_type)
@@ -478,8 +479,32 @@ class PublicInvocationCoordinator:
         if not await self._write_started_ledger(snapshot, reservation, operation_type):
             await self._quota.release(snapshot, reservation)
             raise PublicApiError.service_unavailable()
-        stream = await operation(snapshot)
-        return CoordinatorStream(self, snapshot, reservation, operation_type, stream)
+        stream: AsyncIterator[object] | None = None
+        try:
+            stream = await operation(snapshot)
+            return CoordinatorStream(self, snapshot, reservation, operation_type, stream)
+        except (asyncio.CancelledError, Exception) as error:
+            # Setup owns the reservation until it hands off a usable stream.
+            with anyio.CancelScope(shield=True):
+                try:
+                    close = getattr(stream, 'aclose', None)
+                    if close is not None:
+                        await close()
+                except BaseException:
+                    pass
+                try:
+                    await self._finalize(
+                        snapshot,
+                        reservation,
+                        operation_type,
+                        status='cancelled' if isinstance(error, asyncio.CancelledError) else 'failed',
+                        usage=None,
+                        error_code=error.code if isinstance(error, ModelServiceError) else None,
+                    )
+                except BaseException:
+                    # Keep the setup error; reconciliation handles storage failures.
+                    pass
+            raise
 
     async def _reserve(
         self,
@@ -715,6 +740,7 @@ class CoordinatorStream:
         self._iterator = stream.__aiter__()
         self._lock = asyncio.Lock()
         self._finalized = False
+        self._terminal_outcome: tuple[LedgerStatus, str | None] | None = None
         self._saw_done = False
         self._usage: RuntimeUsage | None = None
 
@@ -730,8 +756,8 @@ class CoordinatorStream:
             except StopAsyncIteration:
                 await self._finalize_locked(status='completed', error_code=None, active_error=None)
                 raise
-            except asyncio.CancelledError:
-                await self._finalize_locked(status='cancelled', error_code=None, active_error=None)
+            except asyncio.CancelledError as error:
+                await self._finalize_locked(status='cancelled', error_code=None, active_error=error)
                 raise
             except ModelServiceError as error:
                 await self._finalize_locked(status='failed', error_code=error.code, active_error=error)
@@ -743,11 +769,14 @@ class CoordinatorStream:
             return event
 
     async def aclose(self) -> None:
-        async with self._lock:
-            if self._finalized:
-                return
-            status: LedgerStatus = 'completed' if self._saw_done else 'cancelled'
-            await self._finalize_locked(status=status, error_code=None, active_error=None)
+        # A disconnect can already be cancelling the caller while it waits for
+        # the reader's lock, so protect lock acquisition as well as cleanup.
+        with anyio.CancelScope(shield=True):
+            async with self._lock:
+                if self._finalized:
+                    return
+                status: LedgerStatus = 'completed' if self._saw_done else 'cancelled'
+                await self._finalize_locked(status=status, error_code=None, active_error=None)
 
     def _track_usage(self, event: object) -> None:
         if getattr(event, 'event_type', None) == 'done':
@@ -773,26 +802,42 @@ class CoordinatorStream:
     ) -> None:
         if self._finalized:
             return
-        self._finalized = True
-        try:
-            close = getattr(self._iterator, 'aclose', None)
-            if close is not None:
-                await close()
-        except asyncio.CancelledError:
-            raise
-        except BaseException:
-            # 关闭错误不得覆盖活动异常；无活动异常时按关闭失败结算。
-            if active_error is None:
-                status = 'failed'
-                error_code = error_code or 'INTERNAL'
-        await self._coordinator._finalize(
-            self._snapshot,
-            self._reservation,
-            self._operation_type,
-            status=status,
-            usage=self._usage,
-            error_code=error_code,
-        )
+        with anyio.CancelScope(shield=True):
+            close_cancellation: asyncio.CancelledError | None = None
+            try:
+                close = getattr(self._iterator, 'aclose', None)
+                if close is not None:
+                    await close()
+            except asyncio.CancelledError as error:
+                close_cancellation = error
+                if active_error is None:
+                    status = 'cancelled'
+            except BaseException:
+                # 关闭错误不得覆盖活动异常；无活动异常时按关闭失败结算。
+                if active_error is None:
+                    status = 'failed'
+                    error_code = error_code or 'INTERNAL'
+            # A settlement retry must keep the original effective outcome,
+            # including close failures, without retaining exception tracebacks.
+            if self._terminal_outcome is None:
+                self._terminal_outcome = (status, error_code)
+            status, error_code = self._terminal_outcome
+            try:
+                await self._coordinator._finalize(
+                    self._snapshot,
+                    self._reservation,
+                    self._operation_type,
+                    status=status,
+                    usage=self._usage,
+                    error_code=error_code,
+                )
+            except BaseException:
+                if active_error is None:
+                    raise
+            else:
+                self._finalized = True
+            if close_cancellation is not None and active_error is None:
+                raise close_cancellation
 
 
 class PublicQuotaReconciler:

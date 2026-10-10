@@ -8,6 +8,8 @@ import yaml
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from exceptions.exception import ServiceException
+from module_admin.entity.do.menu_do import SysMenu
+from module_admin.entity.do.role_do import SysRoleMenu
 from plugins.agent_extension.entity.do.agent_do import AgentConfiguration
 from plugins.agent_extension.entity.do.work_task_do import AgentWorkMessage, AgentWorkTask, AgentWorkTaskMember
 from plugins.ai.entity.do.ai_chat_platform_do import AiChatMessage, AiChatRun, AiChatSession
@@ -25,13 +27,29 @@ from plugins.ai.knowledge.metadata import MetadataStore
 from plugins.ai.service.model_catalog_service import ModelCatalogService
 from plugins.core.discovery.registry import PluginRegistry
 from plugins.core.discovery.scanner import DiscoveredPlugin
+from plugins.core.management.entity.do.models import (
+    SysPlugin,
+    SysPluginConfig,
+    SysPluginMenu,
+    SysPluginMigration,
+    SysPluginResourceOwnership,
+)
+from plugins.core.management.service.service import PluginService
 from plugins.core.manifest.schema import PluginManifest
+from tests.plugins.core.management.test_plugin_state import create_sqlite_sys_job_table
 
 MODEL = 'mdl_00000000000040008000000000000001'
 BINDING = 'bnd_00000000000040008000000000000001'
 
 
 REFERENCE_TABLES = [
+    SysPluginResourceOwnership,
+    SysPlugin,
+    SysPluginConfig,
+    SysPluginMenu,
+    SysPluginMigration,
+    SysMenu,
+    SysRoleMenu,
     AiModelCatalog,
     AiResourceBinding,
     AiApplication,
@@ -65,8 +83,12 @@ async def deletion_db() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     async with engine.begin() as conn:
         for model in REFERENCE_TABLES:
             await conn.run_sync(model.__table__.create)
+        await create_sqlite_sys_job_table(conn)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
+        discovered = agent_registry().get_plugin('agent_extension').discovered_plugin
+        await PluginService.upsert_discovered_plugin_services(db, discovered, discovered.backend_path.parent)
+        await PluginService.mark_plugin_installed_services(db, discovered)
         db.add(
             AiModelCatalog(
                 model_id=MODEL, model_code='model', display_name='Model', model_type='chat', lifecycle_status='disabled'
@@ -133,3 +155,33 @@ async def test_catalog_without_reference_checker_cannot_silently_delete(
         assert '引用检查不可用' in caught.value.message
         assert not db.in_transaction()
         assert await db.get(AiModelCatalog, MODEL) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('purge_metadata', [False, True])
+async def test_retained_agent_blocks_model_delete_after_uninstall_and_registry_reload(
+    deletion_db: async_sessionmaker[AsyncSession], tmp_path: Path, purge_metadata: bool
+) -> None:
+    discovered = agent_registry(enabled=False).get_plugin('agent_extension').discovered_plugin
+    async with deletion_db() as db:
+        await PluginService.upsert_discovered_plugin_services(db, discovered, discovered.backend_path.parent)
+        await PluginService.mark_plugin_installed_services(db, discovered)
+        db.add(AgentConfiguration(agent_id='retained', owner_user_id=1, name='Agent', model_id=MODEL))
+        await db.commit()
+    async with deletion_db() as db:
+        await PluginService.mark_plugin_uninstalled_services(db, 'agent_extension')
+        if purge_metadata:
+            await PluginService.purge_plugin_metadata_by_id_services(db, 'agent_extension')
+        await db.commit()
+    async with deletion_db() as db:
+        record = await db.get(SysPlugin, 'agent_extension')
+        registry = PluginRegistry.build([discovered], [record] if record else [])
+    async with deletion_db() as db:
+        checker = ModelDeletionReferences(db, registry=registry, metadata=MetadataStore(tmp_path))
+        with pytest.raises(ServiceException) as caught:
+            await ModelCatalogService(db, None, checker).delete_model(MODEL)
+        assert '引用' in caught.value.message
+    async with deletion_db() as db:
+        assert await db.get(AiModelCatalog, MODEL) is not None
+        assert await db.get(AiResourceBinding, BINDING) is not None
+        assert (await db.get(AgentConfiguration, 'retained')).model_id == MODEL

@@ -284,6 +284,7 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [当前模块边界与改造记录](./docs/architecture/2026-09-29-module-boundaries.md)
 - [模型图片理解配置](./docs/operations/2026-10-08-model-vision-settings.md)
 - [对话停止与断连恢复](./docs/operations/2026-10-10-chat-cancellation-recovery.md)
+- [严格审查六项修复、验收及旧库升级说明](./docs/operations/2026-10-10-strict-review-fixes.md)
 - [硅基流动重排序兼容与正式接入](./docs/operations/2026-10-10-siliconflow-rerank.md)
 - [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)

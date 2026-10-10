@@ -540,7 +540,11 @@ class PluginManagementRuntimeGateway:
                 await session.commit()
             return response
 
-    async def mark_plugin_uninstalled_state(self, plugin_id: str) -> object:
+    async def mark_plugin_uninstalled_state(
+        self,
+        plugin_id: str,
+        discovered_plugin: object | None = None,
+    ) -> object:
         """
         标记插件安全卸载。
 
@@ -550,7 +554,7 @@ class PluginManagementRuntimeGateway:
         async_session_local = self.get_async_session_local()
         plugin_service = self.get_plugin_service()
         async with async_session_local() as session:
-            response = await plugin_service.mark_plugin_uninstalled_services(session, plugin_id)
+            response = await plugin_service.mark_plugin_uninstalled_services(session, plugin_id, discovered_plugin)
             if getattr(response, 'is_success', False):
                 await session.commit()
             return response

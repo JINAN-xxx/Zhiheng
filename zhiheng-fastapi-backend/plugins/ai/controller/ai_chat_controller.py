@@ -27,6 +27,7 @@ from plugins.ai.entity.vo.ai_platform_chat_vo import (
     PlatformSessionStatusRequestModel,
 )
 from plugins.ai.infrastructure.platform_chat_provider import get_platform_chat_service
+from plugins.ai.public.api_transport import ManagedStreamingResponse
 from plugins.ai.service.chat_preferences_service import ChatPreferencesService
 from plugins.ai.service.chat_runtime_coordinator import ChatCoordinationError
 from plugins.ai.service.platform_chat_service import PlatformChatError, PlatformChatEvent
@@ -79,12 +80,25 @@ def _serialize_platform_event(event: PlatformChatEvent) -> str:
     return f'event: {event.event_type}\ndata: {payload}\n\n'
 
 
-async def _serialize_stream(stream: AsyncIterator[PlatformChatEvent]) -> AsyncIterator[str]:
-    try:
-        async for event in stream:
-            yield _serialize_platform_event(event)
-    finally:
-        await stream.aclose()
+class _SerializedPlatformStream:
+    """Keep the result closeable before the first serialized event is requested."""
+
+    def __init__(self, stream: AsyncIterator[PlatformChatEvent]) -> None:
+        self._stream = stream
+        self._iterator = stream.__aiter__()
+
+    def __aiter__(self) -> '_SerializedPlatformStream':
+        return self
+
+    async def __anext__(self) -> str:
+        return _serialize_platform_event(await anext(self._iterator))
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
+def _serialize_stream(stream: AsyncIterator[PlatformChatEvent]) -> _SerializedPlatformStream:
+    return _SerializedPlatformStream(stream)
 
 
 @ai_chat_controller.post(
@@ -100,7 +114,7 @@ async def send_chat_message(
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> StreamingResponse:
     stream = await _call(_platform_chat_service(request, query_db).send(_user_id(current_user), chat_req))
-    return StreamingResponse(
+    return ManagedStreamingResponse(
         _serialize_stream(stream), media_type=PLATFORM_SSE_MEDIA_TYPE, headers=PLATFORM_SSE_HEADERS
     )
 

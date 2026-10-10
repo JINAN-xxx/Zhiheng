@@ -37,28 +37,26 @@ const usePermissionStore = defineStore(
         this.sidebarRouters = routes
       },
       generateRoutes(roles) {
-        return new Promise(resolve => {
-          // 向后端请求路由数据
-          getRouters().then(res => {
-            const navigationRoutes = filterRetiredWorkspaceRoutes(res.data)
-            const sdata = JSON.parse(JSON.stringify(navigationRoutes))
-            const rdata = JSON.parse(JSON.stringify(navigationRoutes))
-            const defaultData = JSON.parse(JSON.stringify(navigationRoutes))
-            const sidebarRoutes = filterAsyncRouter(sdata)
-            const rewriteRoutes = filterAsyncRouter(rdata, false, true)
-            const defaultRoutes = filterAsyncRouter(defaultData)
-            const asyncRoutes = filterDynamicRoutes(dynamicRoutes)
-            const workspaceAccessRoutes = asyncRoutes.filter(route => route.meta?.workspaceAccess === true)
-            asyncRoutes
-              .filter(route => route.meta?.workspaceAccess !== true)
-              .forEach(route => { router.addRoute(route) })
-            const authorizedRoutes = rewriteRoutes.concat(workspaceAccessRoutes)
-            this.setRoutes(authorizedRoutes)
-            this.setSidebarRouters(constantRoutes.concat(sidebarRoutes))
-            this.setDefaultRoutes(sidebarRoutes)
-            this.setTopbarRoutes(defaultRoutes)
-            resolve(authorizedRoutes)
-          })
+        // 请求或路由转换失败时，交给导航守卫恢复登录状态。
+        return getRouters().then(res => {
+          const navigationRoutes = filterRetiredWorkspaceRoutes(res.data)
+          const sdata = JSON.parse(JSON.stringify(navigationRoutes))
+          const rdata = JSON.parse(JSON.stringify(navigationRoutes))
+          const defaultData = JSON.parse(JSON.stringify(navigationRoutes))
+          const sidebarRoutes = filterAsyncRouter(sdata)
+          const rewriteRoutes = filterAsyncRouter(rdata, false, true)
+          const defaultRoutes = filterAsyncRouter(defaultData)
+          const asyncRoutes = filterDynamicRoutes(dynamicRoutes)
+          const workspaceAccessRoutes = asyncRoutes.filter(route => route.meta?.workspaceAccess === true)
+          asyncRoutes
+            .filter(route => route.meta?.workspaceAccess !== true)
+            .forEach(route => { router.addRoute(route) })
+          const authorizedRoutes = rewriteRoutes.concat(workspaceAccessRoutes)
+          this.setRoutes(authorizedRoutes)
+          this.setSidebarRouters(constantRoutes.concat(sidebarRoutes))
+          this.setDefaultRoutes(sidebarRoutes)
+          this.setTopbarRoutes(defaultRoutes)
+          return authorizedRoutes
         })
       }
     }

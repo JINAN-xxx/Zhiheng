@@ -149,3 +149,21 @@ def test_builtin_sql_uses_ordered_plugin_operation_dict_ids() -> None:
         assert "insert into sys_dict_type values(12, '插件操作类型', 'plugin_operation_type'" in sql_content
         for dict_code in range(33, 48):
             assert f'insert into sys_dict_data values({dict_code},' in sql_content
+
+
+def test_resource_ownership_schema_has_non_destructive_upgrade_scripts() -> None:
+    """旧库升级只新增独立表，不重置旧版插件信息或业务数据。"""
+    for sql_path, _quote in SQL_FILES:
+        sql_content = read_sql(sql_path)
+        assert 'create table sys_plugin_resource_ownership' in sql_content
+        assert 'ck_sys_plugin_resource_ownership_state' in sql_content
+    for dialect in ('mysql', 'postgresql'):
+        upgrade = BACKEND_ROOT / 'sql' / 'upgrades' / dialect / '20261010_plugin_resource_ownership.sql'
+        assert upgrade.is_file(), 'Standalone CLI upgrades need a non-destructive ownership migration'
+        sql_content = read_sql(upgrade).lower()
+        assert 'create table if not exists sys_plugin_resource_ownership' in sql_content
+        assert 'resource_references' in sql_content
+        assert "'none', 'retained', 'unknown'" in sql_content
+        assert 'drop table' not in sql_content
+        assert 'delete from' not in sql_content
+        assert 'foreign key' not in sql_content

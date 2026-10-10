@@ -6,15 +6,17 @@ This module preserves the public API's request validation and response lifecycle
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Generic, Protocol, TypeVar
 
+import anyio
 from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
+from starlette.types import Receive, Scope, Send
 
 from plugins.ai.domain.public_api_errors import PublicApiError
 from plugins.ai.infrastructure.developer_key_authenticator import (
@@ -43,6 +45,81 @@ class ByteStream(Protocol):
     def __aiter__(self) -> AsyncIterator[bytes]: ...
 
     async def aclose(self) -> None: ...
+
+
+class CloseableStream(Protocol):
+    """An owned SSE source, including serializers that yield text frames."""
+
+    def __aiter__(self) -> AsyncIterator[bytes | str]: ...
+
+    async def aclose(self) -> None: ...
+
+
+class _ManagedStream:
+    def __init__(self, stream: CloseableStream) -> None:
+        self._stream = stream
+        self._iterator = stream.__aiter__()
+        self._lock = asyncio.Lock()
+        self._closed = False
+
+    def __aiter__(self) -> '_ManagedStream':
+        return self
+
+    async def __anext__(self) -> bytes | str:
+        async with self._lock:
+            if self._closed:
+                raise StopAsyncIteration
+            try:
+                return await anext(self._iterator)
+            except StopAsyncIteration:
+                await self._close_locked()
+                raise
+            except BaseException:
+                try:
+                    await self._close_locked()
+                except BaseException:
+                    pass
+                raise
+
+    async def aclose(self) -> None:
+        with anyio.CancelScope(shield=True):
+            async with self._lock:
+                await self._close_locked()
+
+    async def _close_locked(self) -> None:
+        if self._closed:
+            return
+        with anyio.CancelScope(shield=True):
+            await self._stream.aclose()
+            self._closed = True
+
+
+class ManagedStreamingResponse(StreamingResponse):
+    """Own a closeable stream even if sending headers fails before iteration."""
+
+    def __init__(
+        self,
+        stream: CloseableStream,
+        *,
+        media_type: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
+        self._owned_stream = _ManagedStream(stream)
+        super().__init__(self._owned_stream, media_type=media_type, headers=headers)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        active_error: BaseException | None = None
+        try:
+            await super().__call__(scope, receive, send)
+        except BaseException as error:
+            active_error = error
+            raise
+        finally:
+            try:
+                await self._owned_stream.aclose()
+            except BaseException:
+                if active_error is None:
+                    raise
 
 
 async def authenticate_request(request: Request, authenticator: DeveloperKeyAuthenticator) -> DeveloperApiIdentity:
@@ -93,8 +170,8 @@ def error_response(error: PublicApiError) -> JSONResponse:
 
 
 def streaming_response(stream: ByteStream) -> StreamingResponse:
-    """Forward SSE bytes unchanged and own stream cleanup after iteration starts."""
-    return StreamingResponse(_stream_bytes(stream), media_type=OPENAI_SSE_MEDIA_TYPE, headers=_OPENAI_SSE_HEADERS)
+    """Forward SSE bytes unchanged and own cleanup for the whole HTTP response."""
+    return ManagedStreamingResponse(stream, media_type=OPENAI_SSE_MEDIA_TYPE, headers=_OPENAI_SSE_HEADERS)
 
 
 def _single_authorization(request: Request) -> str | None:
@@ -131,19 +208,3 @@ def _single_header(request: Request, name: bytes) -> str | object | None:
 def _raw_header_values(request: Request, name: bytes) -> list[bytes]:
     headers = request.scope.get('headers', ())
     return [value for raw_name, value in headers if raw_name.lower() == name]
-
-
-async def _stream_bytes(stream: ByteStream) -> AsyncIterator[bytes]:
-    active_error: BaseException | None = None
-    try:
-        async for frame in stream:
-            yield frame
-    except BaseException as error:
-        active_error = error
-        raise
-    finally:
-        try:
-            await stream.aclose()
-        except BaseException:
-            if active_error is None:
-                raise

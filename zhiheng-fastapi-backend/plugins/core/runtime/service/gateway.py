@@ -211,12 +211,18 @@ class PluginManagementServiceProtocol(Protocol):
         """
 
     @classmethod
-    async def mark_plugin_uninstalled_services(cls, query_db: AsyncSession, plugin_id: str) -> CrudResponseModel:
+    async def mark_plugin_uninstalled_services(
+        cls,
+        query_db: AsyncSession,
+        plugin_id: str,
+        discovered_plugin: DiscoveredPlugin | None = None,
+    ) -> CrudResponseModel:
         """
         标记插件卸载完成。
 
         :param query_db: orm对象
         :param plugin_id: 插件ID
+        :param discovered_plugin: 已发现插件，用于保留旧版安装的资源引用声明
         :return: 操作响应
         """
 
@@ -690,7 +696,11 @@ class PluginLifecycleStateGateway(Protocol):
         :return: 操作响应
         """
 
-    async def mark_plugin_uninstalled_state(self, plugin_id: str) -> CrudResponseModel:
+    async def mark_plugin_uninstalled_state(
+        self,
+        plugin_id: str,
+        discovered_plugin: DiscoveredPlugin | None = None,
+    ) -> CrudResponseModel:
         """
         标记插件安全卸载。
 
@@ -1021,7 +1031,10 @@ class UnavailablePluginLifecycleStateGateway:
         raise RuntimeError('插件运行时缺少生命周期状态适配器')
 
     @staticmethod
-    async def mark_plugin_uninstalled_state(plugin_id: str) -> CrudResponseModel:
+    async def mark_plugin_uninstalled_state(
+        plugin_id: str,
+        discovered_plugin: DiscoveredPlugin | None = None,
+    ) -> CrudResponseModel:
         """
         标记插件安全卸载。
 

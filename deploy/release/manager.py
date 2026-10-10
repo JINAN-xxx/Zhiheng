@@ -212,18 +212,23 @@ class ReleaseManager:
 
     def _restore(
         self, target: dict, snapshot: dict, values: dict, site_id: str
-    ) -> None:
+    ) -> dict:
         path, manifest = self.stored(target)
         self.prepare_configuration(path)
         self.runtime.load_images(path, manifest)
         self.runtime.configure(path, manifest, values, site_id)
         self.runtime.check_ownership()
-        self.runtime.quiesce_operations()
         self.runtime.validate()
         self.runtime.stop_applications()
+        self.runtime.quiesce_operations()
+        # A saved pending baseline may predate the last management request or a
+        # crash while stopping. Preserve valid enablement only after all of this
+        # installation's writers have stopped; all other recovery guards remain.
+        snapshot = recovery_baseline(snapshot, self.runtime.recovery_snapshot())
         self.runtime.restore_plugin_state(snapshot)
         self.runtime.start_applications()
         self.runtime.verify()
+        return snapshot
 
     def deploy(self, bundle: Path) -> dict:
         bundle = Path(bundle).absolute()
@@ -280,6 +285,21 @@ class ReleaseManager:
             try:
                 self.runtime.start_infrastructure()
                 self.runtime.stop_applications()
+                self.runtime.quiesce_operations()
+                if state["current"]:
+                    # The old application could accept plugin enable/disable
+                    # requests during infrastructure startup. Re-read using its
+                    # image after writers stop, before the target can initialize.
+                    self.runtime.configure(
+                        current_path, current_manifest, values, site_id
+                    )
+                    snapshot = recovery_baseline(
+                        snapshot, self.runtime.snapshot_plugins()
+                    )
+                    state["current"]["snapshot"] = snapshot
+                    state["pending"]["snapshot"] = snapshot
+                    self.save(state)
+                    self.runtime.configure(target, manifest, values, site_id)
                 self.runtime.initialize()
                 self.runtime.start_applications()
                 self.runtime.verify()
@@ -290,11 +310,14 @@ class ReleaseManager:
             except Exception as error:
                 if state["current"]:
                     try:
-                        self._restore(state["current"], snapshot, values, site_id)
+                        restored = self._restore(
+                            state["current"], snapshot, values, site_id
+                        )
                     except Exception as recovery_error:
                         raise ReleaseError(
                             "新版本发布失败且恢复失败；保留未完成记录，请检查容器日志后执行 rollback"
                         ) from recovery_error
+                    state["current"]["snapshot"] = restored
                     state["pending"] = None
                     self.save(state)
                     raise ReleaseError(
@@ -342,7 +365,7 @@ class ReleaseManager:
                 }
                 self.save(state)
             try:
-                self._restore(target, snapshot, values, state["site_id"])
+                snapshot = self._restore(target, snapshot, values, state["site_id"])
             except Exception as error:
                 raise ReleaseError(
                     "应用恢复失败，未完成记录已保留；修正问题后重试 rollback"

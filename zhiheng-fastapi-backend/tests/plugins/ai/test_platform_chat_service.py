@@ -222,6 +222,10 @@ class FakeDao:
                 return run
         return None
 
+    async def has_active_run(self, db: object, session_id: str) -> bool:
+        del db
+        return any(run.session_id == session_id and run.status in {'pending', 'running'} for run in self.runs)
+
     async def update_session(
         self,
         db: object,
@@ -551,8 +555,10 @@ async def test_session_status_updates_hide_foreign_and_missing_sessions(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('run_status', ['pending', 'running'])
-async def test_archiving_rejects_any_active_run_without_mutating_history(
-    archive_db: AsyncSession, run_status: str
+@pytest.mark.parametrize('latest_status', ['failed', 'completed'])
+@pytest.mark.parametrize('operation', ['archive', 'delete'])
+async def test_session_removal_rejects_any_active_run_without_mutating_history(
+    archive_db: AsyncSession, run_status: str, latest_status: str, operation: str
 ) -> None:
     service, _ = _archive_service(archive_db)
     stream = await service.send(USER_ID, _request())
@@ -568,7 +574,7 @@ async def test_archiving_rejects_any_active_run_without_mutating_history(
             binding_id=BINDING_ID,
             engine_type='litellm',
             engine_model_snapshot='gpt-4o-mini',
-            status='failed',
+            status=latest_status,
             created_at=NOW + timedelta(minutes=1),
             updated_at=NOW + timedelta(minutes=1),
         )
@@ -577,7 +583,10 @@ async def test_archiving_rejects_any_active_run_without_mutating_history(
     before = await service.get_session_detail(USER_ID, stream.session_id)
 
     with pytest.raises(ChatCoordinationError) as raised:
-        await service.set_session_status(USER_ID, stream.session_id, 'archived')
+        if operation == 'archive':
+            await service.set_session_status(USER_ID, stream.session_id, 'archived')
+        else:
+            await service.delete_session(USER_ID, stream.session_id)
 
     assert raised.value.code == 'CHAT_SESSION_BUSY'
     assert not archive_db.in_transaction()

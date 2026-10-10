@@ -873,7 +873,13 @@ backend:
 
 查询签名为 `async def has_model_references(db, resource_id: str) -> bool`。它使用传入的会话，只返回是否存在引用，不能提交、回滚或启动插件运行服务。应覆盖所有用户的持久数据，以及仍然保留的发布、冻结和历史快照。不要按当前操作用户过滤引用。
 
-核心端口 `plugins.core.runtime.resource_references.has_resource_references` 会查询所有已安装插件，包括停用或运行异常的插件；仅发现但未安装的插件不参与。缺失源码、查询加载失败、查询异常或非布尔结果均向调用方报错，不能当作“没有引用”。因此这类查询模块的导入应保持轻量，不能依赖启用钩子生成的临时运行对象。
+核心端口 `plugins.core.runtime.resource_references.has_resource_references` 在调用方会话中只读汇总安装证据和独立的 `sys_plugin_resource_ownership`，注册表用于解析源码及回调。停用、运行异常、安全卸载或仅清理平台元数据都不会自动解除保留数据的检查责任；确认从未安装的 `none` 状态才直接跳过。检查不提交、回滚或显式开启事务，也不自动刷新调用方待写对象；普通 SELECT 仍遵守 SQLAlchemy 的隐式事务规则。
+
+归属记录包括 `none / retained / unknown` 状态和资源类型对应的回调路径快照。完整安装写入 `retained`，重装合并历史回调；回调重命名时应保留可用的兼容入口。旧版未安装状态无法可靠证明没有历史数据时记为 `unknown`，直接拒绝不完整检查；完整重装可以恢复可信状态。不得通过删除审计日志、迁移历史或插件元数据来绕过归属记录。
+
+缺失源码、声明、历史回调、查询加载失败、查询异常或非布尔结果均向调用方报错，不能当作“没有引用”。因此这类查询模块的导入应保持轻量，不能依赖启用钩子生成的临时运行对象。本轮保守保留 purge 后的检查责任，没有新增“业务数据已清空”的自动解除契约；若清理了业务表或源码，需要恢复可用的检查能力，不能直接把归属设成 `none`。
+
+旧数据库需新增归属表。新版服务启动使用已有 `create_all` 流程创建；单独使用 CLI 前应先完成建表，或执行相应的幂等增量 SQL：[PostgreSQL](../sql/upgrades/postgresql/20261010_plugin_resource_ownership.sql)、[MySQL](../sql/upgrades/mysql/20261010_plugin_resource_ownership.sql)。不要对已有库执行含 DROP 的完整初始化 SQL。升级前已删除全部平台历史证据的遗留数据不能被自动推断，需专项核对。
 
 对于 `ai.model`，写入引用时应先取得模型锁，再锁本模块的业务行，并持有到自身事务结束。配置校验可用 `get_published_chat_model_for_update`；冻结配置使用 `lock_model_reference`，后者允许停用但仍存在的模型。多个模型按 ID 排序加锁。不得在已持有业务行锁时反向申请模型锁。
 

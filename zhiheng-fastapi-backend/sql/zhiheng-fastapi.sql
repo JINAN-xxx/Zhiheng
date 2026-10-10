@@ -1087,3 +1087,17 @@ create table sys_plugin_operation_log (
   remark             varchar(500)    default null               comment '备注',
   primary key (operation_id)
 ) engine=innodb comment = '插件批量操作审计日志表';
+
+-- ----------------------------
+-- 34、插件持久资源归属表
+-- ----------------------------
+drop table if exists sys_plugin_resource_ownership;
+create table sys_plugin_resource_ownership (
+  plugin_id           varchar(64) not null comment '插件ID',
+  state               varchar(16) not null default 'unknown' comment '资源归属状态',
+  resource_references json not null comment '资源类型及引用回调路径快照',
+  create_time         datetime default null comment '创建时间',
+  update_time         datetime default null comment '更新时间',
+  primary key (plugin_id),
+  constraint ck_sys_plugin_resource_ownership_state check (state in ('none', 'retained', 'unknown'))
+) engine=innodb comment = '插件持久资源归属表';

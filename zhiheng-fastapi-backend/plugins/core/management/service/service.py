@@ -31,6 +31,7 @@ from plugins.core.management.entity.vo.schemas import (
 from plugins.core.management.service.config import PluginConfigManager
 from plugins.core.management.service.logs import PluginOperationLogBuilder
 from plugins.core.management.service.menus import PluginMenuInstaller
+from plugins.core.management.service.resource_ownership import PluginResourceOwnershipService
 from plugins.core.manifest.menu_tree import PluginMenuTree
 from plugins.core.state import PluginStateResolver, PluginStateSnapshot, PluginStateTransitionTable
 from plugins.core.validation.dependencies import PLUGIN_STARTUP_DEPENDENCY_ERROR_PREFIX
@@ -152,6 +153,7 @@ class PluginService:
         """
         manifest = discovered_plugin.manifest
         existing_plugin = await PluginDao.get_plugin_by_id(query_db, manifest.id)
+        await PluginResourceOwnershipService.preserve(query_db, manifest.id, existing_plugin, discovered_plugin)
         plugin_model = cls._build_plugin_model(discovered_plugin, backend_root, frontend_root, existing_plugin)
 
         if existing_plugin:
@@ -222,6 +224,7 @@ class PluginService:
         """
         manifest = discovered_plugin.manifest
         plugin = await PluginDao.get_plugin_by_id(query_db, manifest.id)
+        await PluginResourceOwnershipService.mark_installed(query_db, plugin, discovered_plugin)
         enabled = getattr(plugin, 'enabled', None) if plugin else '0'
         status = PluginStateTransitionTable.resolve_target(getattr(plugin, 'status', None), 'install') or 'installed'
         update_payload = {
@@ -248,7 +251,12 @@ class PluginService:
         )
 
     @classmethod
-    async def mark_plugin_uninstalled_services(cls, query_db: AsyncSession, plugin_id: str) -> CrudResponseModel:
+    async def mark_plugin_uninstalled_services(
+        cls,
+        query_db: AsyncSession,
+        plugin_id: str,
+        discovered_plugin: DiscoveredPlugin | None = None,
+    ) -> CrudResponseModel:
         """
         标记插件已卸载。
 
@@ -256,12 +264,14 @@ class PluginService:
 
         :param query_db: orm对象
         :param plugin_id: 插件ID
+        :param discovered_plugin: 已发现插件，用于保留旧版安装的资源引用声明
         :return: 操作响应
         """
         plugin = await PluginDao.get_plugin_by_id(query_db, plugin_id)
         if not plugin:
             return CrudResponseModel(is_success=False, message='插件不存在')
 
+        await PluginResourceOwnershipService.preserve(query_db, plugin_id, plugin, discovered_plugin)
         plugin_menus = await PluginDao.get_plugin_menu_list(query_db, plugin_id)
         menu_ids = [plugin_menu.menu_id for plugin_menu in plugin_menus]
         update_payload = {
@@ -754,7 +764,7 @@ class PluginService:
         """
         plugin_id = discovered_plugin.manifest.id
         plan = await cls.build_plugin_purge_plan_services(query_db, discovered_plugin)
-        await cls._purge_plugin_metadata_by_id(query_db, plugin_id)
+        await cls._purge_plugin_metadata_by_id(query_db, plugin_id, discovered_plugin)
 
         return plan
 
@@ -805,7 +815,12 @@ class PluginService:
         return plan
 
     @classmethod
-    async def _purge_plugin_metadata_by_id(cls, query_db: AsyncSession, plugin_id: str) -> None:
+    async def _purge_plugin_metadata_by_id(
+        cls,
+        query_db: AsyncSession,
+        plugin_id: str,
+        discovered_plugin: DiscoveredPlugin | None = None,
+    ) -> None:
         """
         删除平台能够按插件 ID 确认归属的元数据。
 
@@ -817,6 +832,8 @@ class PluginService:
         menu_ids = [plugin_menu.menu_id for plugin_menu in plugin_menus]
 
         plugin = await PluginDao.get_plugin_by_id(query_db, plugin_id)
+        # 业务资源归属独立于平台元数据；不能根据 onPurge 的声明认定数据已经清空。
+        await PluginResourceOwnershipService.preserve(query_db, plugin_id, plugin, discovered_plugin)
         if plugin:
             await cls.update_plugin_enabled_services(query_db, plugin_id, enabled=False)
         await PluginDao.delete_plugin_menus(query_db, plugin_id)

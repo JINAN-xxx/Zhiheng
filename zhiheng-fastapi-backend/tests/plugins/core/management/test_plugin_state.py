@@ -24,6 +24,7 @@ from plugins.core.management.entity.do.models import (
     SysPluginMenu,
     SysPluginMigration,
     SysPluginOperationLog,
+    SysPluginResourceOwnership,
 )
 from plugins.core.management.entity.vo.schemas import (
     PluginConfigUpdateModel,
@@ -38,6 +39,8 @@ from plugins.core.management.service.gateway import PluginManagementRuntimeGatew
 from plugins.core.management.service.logs import PluginOperationLogBuilder
 from plugins.core.management.service.service import PluginService
 from plugins.core.manifest.schema import PluginManifest
+
+PLUGIN_STATE_TABLES = [SysPlugin.__table__, SysPluginResourceOwnership.__table__, SysPluginMigration.__table__]
 
 INITIAL_MENU_ID = 100
 UPDATED_MENU_ID = 101
@@ -55,7 +58,10 @@ async def test_plugin_table_rejects_invalid_state_domains() -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=PLUGIN_STATE_TABLES,
+        )
 
     try:
         async with session_maker() as session:
@@ -436,7 +442,10 @@ async def test_upsert_discovered_plugin_persists_plugin(tmp_path: Path) -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
 
     try:
         async with session_maker() as session:
@@ -466,7 +475,10 @@ async def test_mark_plugin_installed_updates_installed_version(tmp_path: Path) -
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
 
     try:
         async with session_maker() as session:
@@ -497,7 +509,10 @@ async def test_install_plugin_with_disabled_menus_can_be_enabled_later(tmp_path:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
         await create_sqlite_sys_menu_table(connection)
         await create_sqlite_sys_job_table(connection)
 
@@ -602,7 +617,7 @@ async def test_mark_plugin_uninstalled_clears_installed_version(tmp_path: Path) 
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysRoleMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, SysRoleMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -698,7 +713,7 @@ async def test_mark_plugin_error_preserves_desired_state_and_isolates_resources(
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -773,7 +788,7 @@ async def test_recover_plugin_dependency_error_restores_lifecycle_state(
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -819,7 +834,7 @@ async def test_recover_plugin_dependency_error_preserves_explicit_disable_intent
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -863,7 +878,7 @@ async def test_recover_plugin_dependency_error_preserves_unrelated_error(tmp_pat
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -901,7 +916,7 @@ async def test_enable_plugin_rejects_uninstalled_error_state(tmp_path: Path) -> 
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -938,7 +953,7 @@ async def test_enable_plugin_rejects_error_state_without_repair_lifecycle(tmp_pa
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
         await create_sqlite_sys_job_table(connection)
 
@@ -1076,7 +1091,10 @@ async def test_disable_plugin_pauses_plugin_jobs(tmp_path: Path) -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
         await create_sqlite_sys_job_table(connection)
 
     try:
@@ -1108,7 +1126,10 @@ async def test_enable_plugin_restores_plugin_jobs(tmp_path: Path) -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
         await create_sqlite_sys_job_table(connection)
 
     try:
@@ -1147,7 +1168,10 @@ async def test_get_plugin_page_list_filters_by_status(tmp_path: Path) -> None:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
 
     try:
         async with session_maker() as session:
@@ -1180,7 +1204,10 @@ async def test_get_plugin_page_list_includes_discovered_plugins_without_database
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=PLUGIN_STATE_TABLES,
+        )
 
     try:
         async with session_maker() as session:
@@ -1219,7 +1246,10 @@ async def test_get_plugin_page_list_includes_database_orphan_for_metadata_purge(
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=PLUGIN_STATE_TABLES,
+        )
 
     try:
         async with session_maker() as session:
@@ -1268,7 +1298,10 @@ async def test_plugin_detail_returns_discovered_plugin_without_database_state(tm
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=PLUGIN_STATE_TABLES,
+        )
 
     try:
         async with session_maker() as session:
@@ -1307,7 +1340,10 @@ async def test_upsert_plugin_menu_updates_existing_menu_key(tmp_path: Path) -> N
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all, tables=[SysPlugin.__table__, SysPluginMenu.__table__])
+        await connection.run_sync(
+            Base.metadata.create_all,
+            tables=[*PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
+        )
 
     try:
         async with session_maker() as session:
@@ -1478,7 +1514,7 @@ async def test_check_installed_menu_conflict_reports_core_permission(tmp_path: P
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysMenu.__table__, SysPlugin.__table__, SysPluginMenu.__table__],
+            tables=[SysMenu.__table__, *PLUGIN_STATE_TABLES, SysPluginMenu.__table__],
         )
 
     try:
@@ -1709,7 +1745,7 @@ async def test_plugin_config_gateway_rejects_uninstalled_plugin_updates(tmp_path
     async with engine.begin() as connection:
         await connection.run_sync(
             Base.metadata.create_all,
-            tables=[SysPlugin.__table__, SysPluginConfig.__table__],
+            tables=[*PLUGIN_STATE_TABLES, SysPluginConfig.__table__],
         )
 
     class TestPluginManagementRuntimeGateway(PluginManagementRuntimeGateway):
@@ -1814,7 +1850,7 @@ async def test_build_plugin_purge_plan_counts_platform_metadata(tmp_path: Path) 
             tables=[
                 SysMenu.__table__,
                 SysRoleMenu.__table__,
-                SysPlugin.__table__,
+                *PLUGIN_STATE_TABLES,
                 SysPluginMenu.__table__,
                 SysPluginConfig.__table__,
             ],
@@ -1882,7 +1918,7 @@ async def test_purge_plugin_metadata_by_id_deletes_orphan_platform_metadata(tmp_
             tables=[
                 SysMenu.__table__,
                 SysRoleMenu.__table__,
-                SysPlugin.__table__,
+                *PLUGIN_STATE_TABLES,
                 SysPluginMenu.__table__,
                 SysPluginConfig.__table__,
             ],

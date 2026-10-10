@@ -3,9 +3,10 @@ import base64
 import json
 import re
 import sys
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, NoReturn, Protocol
 from uuid import UUID
@@ -317,13 +318,22 @@ def _freeze_data(data: Mapping[str, object]) -> Mapping[str, object]:
 
 
 class PlatformChatStreamResult:
-    def __init__(self, session_id: str, run_id: str, stream: AsyncIterator[PlatformChatEvent]) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        run_id: str,
+        stream: AsyncIterator[PlatformChatEvent],
+        *,
+        on_unstarted_close: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.session_id = session_id
         self.run_id = run_id
         self._stream = stream
         self._iterator = stream.__aiter__()
         self._lock = asyncio.Lock()
         self._closed = False
+        self._started = False
+        self._on_unstarted_close = on_unstarted_close
 
     def __aiter__(self) -> 'PlatformChatStreamResult':
         return self
@@ -333,6 +343,7 @@ class PlatformChatStreamResult:
             if self._closed:
                 raise StopAsyncIteration
             try:
+                self._started = True
                 return await anext(self._iterator)
             except StopAsyncIteration:
                 self._closed = True
@@ -342,16 +353,26 @@ class PlatformChatStreamResult:
                 raise
 
     async def aclose(self) -> None:
-        async with self._lock:
-            await self._close_iterator_locked()
+        with anyio.CancelScope(shield=True):
+            async with self._lock:
+                await self._close_iterator_locked()
 
     async def _close_iterator_locked(self) -> None:
         if self._closed:
             return
-        close = getattr(self._iterator, 'aclose', None)
-        if close is not None:
-            await close()
-        self._closed = True
+        with anyio.CancelScope(shield=True):
+            try:
+                close = getattr(self._iterator, 'aclose', None)
+                if close is not None:
+                    await close()
+            finally:
+                try:
+                    # Closing an unstarted async generator does not execute its
+                    # finally block. Its acquired resources still need an owner.
+                    if not self._started and self._on_unstarted_close is not None:
+                        await self._on_unstarted_close()
+                finally:
+                    self._closed = True
 
     async def _close_iterator_preserving_error(self) -> None:
         try:
@@ -523,11 +544,13 @@ class PlatformChatService:
 
     async def delete_session(self, user_id: int, session_id: str) -> None:
         try:
+            # End a read snapshot left by authentication before the locked check,
+            # matching send/archive coordination on the same session row.
+            await self._rollback_if_active()
             session = await self._dao.get_owned_session_for_update(self._db, session_id, user_id=user_id)
             if session is None:
                 raise PlatformChatError.session_not_found()
-            latest = await self._dao.get_latest_run(self._db, session_id)
-            if latest is not None and latest.status in {'pending', 'running'}:
+            if await self._dao.has_active_run(self._db, session_id):
                 raise ChatCoordinationError.session_busy()
             await self._dao.delete_runs(self._db, session_id)
             await self._dao.delete_messages(self._db, session_id)
@@ -687,6 +710,14 @@ class PlatformChatService:
                 binding_id=binding_id,
                 runtime_stream=runtime_stream,
                 lock=lock,
+            ),
+            on_unstarted_close=partial(
+                self._finish_generation,
+                session_id=session_id,
+                run_id=run_id,
+                runtime_stream=runtime_stream,
+                lock=lock,
+                state=_GenerationState(content_parts=[], reasoning_parts=[], final_status='interrupted'),
             ),
         )
 
@@ -920,41 +951,57 @@ class PlatformChatService:
             state.error_code = 'MODEL_RUNTIME_ERROR'
             state.error_message = '模型运行时调用失败'
         finally:
-            # Starlette/AnyIO keeps cancelling awaits after a browser disconnect.
-            # Finish the owned stream and persist its terminal state in a shield,
-            # and release the session lock even when persistence fails.
-            with anyio.CancelScope(shield=True):
-                try:
-                    try:
-                        await runtime_stream.aclose()
-                    except BaseException:
-                        if state.active_error is None:
-                            state.final_status = 'failed'
-                            state.error_code = 'MODEL_RUNTIME_ERROR'
-                            state.error_message = '模型运行时调用失败'
-                    await self._persist_terminal(
-                        session_id=session_id,
-                        run_id=run_id,
-                        status=state.final_status,
-                        content=''.join(state.content_parts),
-                        reasoning=''.join(state.reasoning_parts) or None,
-                        usage=state.usage,
-                        error_code=state.error_code,
-                        error_message=state.error_message,
-                    )
-                finally:
-                    try:
-                        await lock.__aexit__(
-                            type(state.active_error) if state.active_error else None, state.active_error, None
-                        )
-                    except BaseException:
-                        if state.active_error is None:
-                            raise
+            await self._finish_generation(
+                session_id=session_id,
+                run_id=run_id,
+                runtime_stream=runtime_stream,
+                lock=lock,
+                state=state,
+            )
         # A client may immediately send again after done; the session must already
         # be committed and unlocked when this event reaches the browser.
         if state.error_code is not None:
             yield self._error_event(session_id, run_id, state.error_code, state.error_message)
         yield self._status_event(session_id, run_id, state.final_status)
+
+    async def _finish_generation(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        runtime_stream: ModelServiceStreamResult,
+        lock: Any,
+        state: _GenerationState,
+    ) -> None:
+        # Both started and unstarted responses own these resources. Cancellation
+        # cannot skip persistence or unlock, and a failed write still unlocks.
+        with anyio.CancelScope(shield=True):
+            try:
+                try:
+                    await runtime_stream.aclose()
+                except BaseException:
+                    if state.active_error is None:
+                        state.final_status = 'failed'
+                        state.error_code = 'MODEL_RUNTIME_ERROR'
+                        state.error_message = '模型运行时调用失败'
+                await self._persist_terminal(
+                    session_id=session_id,
+                    run_id=run_id,
+                    status=state.final_status,
+                    content=''.join(state.content_parts),
+                    reasoning=''.join(state.reasoning_parts) or None,
+                    usage=state.usage,
+                    error_code=state.error_code,
+                    error_message=state.error_message,
+                )
+            finally:
+                try:
+                    await lock.__aexit__(
+                        type(state.active_error) if state.active_error else None, state.active_error, None
+                    )
+                except BaseException:
+                    if state.active_error is None:
+                        raise
 
     async def _start_run(self, run_id: str) -> None:
         await self._dao.transition_run_status(

@@ -310,7 +310,11 @@ class FakePluginRuntimeGateway:
                 await session.commit()
             return response
 
-    async def mark_plugin_uninstalled_state(self, plugin_id: str) -> SimpleNamespace:
+    async def mark_plugin_uninstalled_state(
+        self,
+        plugin_id: str,
+        discovered_plugin: object | None = None,
+    ) -> SimpleNamespace:
         """标记测试插件安全卸载。"""
         async with self.session_local() as session:
             response = await FakePluginService.mark_plugin_uninstalled_services(session, plugin_id)
