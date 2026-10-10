@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import TypeAlias
 
+import anyio
 import httpx
 
 from middlewares.trace_middleware.ctx import TraceCtx
@@ -335,7 +336,10 @@ class LiteLLMRuntimeClient:
         except LiteLLMError as error:
             failure = type(error)
         finally:
-            close_failure = await self._close_stream_response(response)
+            # Disconnect cancellation must not interrupt releasing the upstream
+            # response, whose generator unwinds before the chat service cleanup.
+            with anyio.CancelScope(shield=True):
+                close_failure = await self._close_stream_response(response)
             if not interrupted and failure is None:
                 failure = close_failure
         if failure is not None:

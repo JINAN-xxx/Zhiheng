@@ -45,6 +45,7 @@ def test_model_service_migrations_are_registered_after_initial_schema() -> None:
         'migrations/postgresql/007_application_lifecycle.sql',
         'migrations/postgresql/008_chat_skill_snapshots.sql',
         'migrations/postgresql/009_chat_knowledge.sql',
+        'migrations/postgresql/010_chat_attachments.sql',
     ]
 
 

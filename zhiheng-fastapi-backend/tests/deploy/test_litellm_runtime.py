@@ -50,6 +50,14 @@ if [ "${1:-}" = 'inspect' ]; then
     exit 0
 fi
 case "$*" in
+    *'pg_database'*'legacy-only'*)
+        if [ "${FAKE_LEGACY_DATABASE_ONLY:-0}" = '1' ]; then
+            printf '%s\n' 'legacy-only'
+        else
+            printf '%s\n' 'ready'
+        fi
+        exit 0
+        ;;
     *to_regclass*zhiheng_bootstrap_state*)
         if [ -n "${FAKE_BOOTSTRAP_STATE:-}" ]; then
             printf '%s\n' 'public.zhiheng_bootstrap_state'
@@ -247,9 +255,9 @@ def test_zhiheng_compose_reuses_litellm_postgres_with_separate_credentials() -> 
     assert 'zhiheng-redis' in services
     assert backend['environment']['DB_HOST'] == 'litellm-db'
     assert backend['environment']['DB_PORT'] == '5432'
-    assert backend['environment']['DB_USERNAME'] == 'zhiheng'
-    assert backend['environment']['DB_DATABASE'] == 'zhiheng-fastapi'
-    assert backend['environment']['DB_PASSWORD'].startswith('${RUOYI_DB_PASSWORD:')
+    assert backend['environment']['DB_USERNAME'] == '${PLATFORM_DB_USER:-zhiheng}'
+    assert backend['environment']['DB_DATABASE'] == '${PLATFORM_DB_NAME:-zhiheng-fastapi}'
+    assert backend['environment']['DB_PASSWORD'].startswith('${ZHIHENG_DB_PASSWORD:')
     assert 'LITELLM_DB_PASSWORD' not in backend['environment']
     assert 'LITELLM_MASTER_KEY' not in backend['environment']
 
@@ -281,7 +289,7 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     assert '--single-transaction' in script
     assert "to_regclass('public.sys_user')" not in script
     assert 'zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql' in script
-    assert 'RUOYI_DB_PASSWORD' in script
+    assert 'ZHIHENG_DB_PASSWORD' in script
     assert 'LITELLM_DB_PASSWORD' not in script
 
 
@@ -314,12 +322,57 @@ def test_shared_postgres_initializer_generates_private_password_without_leaking(
     assert platform_environment.read_text(encoding='utf-8') == first_content
     assert platform_environment.stat().st_mode & FILE_MODE_MASK == PRIVATE_FILE_MODE
     assert 'LITELLM_RUNTIME_KEY=sk-runtime-test' in first_content
-    assert f'RUOYI_DB_PASSWORD={password}' in first_content
+    assert f'ZHIHENG_DB_PASSWORD={password}' in first_content
     assert f'JWT_SECRET_KEY={jwt_secret}' in first_content
     command_output = first.stdout + first.stderr + second.stdout + second.stderr
     assert password not in command_output
     assert jwt_secret not in command_output
     assert capture_path.read_text(encoding='utf-8').count('drop table if exists sys_dept;') == 1
+
+
+def test_shared_postgres_initializer_migrates_legacy_secret_names_without_rotation(tmp_path: Path) -> None:
+    environment, _ = make_shared_postgres_test_environment(tmp_path)
+    target = tmp_path / '.env'
+    database_password = 'ab' * 24
+    redis_password = 'cd' * 24
+    jwt_secret = 'ef' * 32
+    target.write_text(
+        f'RUOYI_DB_PASSWORD={database_password}\nRUOYI_REDIS_PASSWORD={redis_password}\n'
+        f'JWT_SECRET_KEY={jwt_secret}\nLITELLM_RUNTIME_KEY=sk-preserved\n'
+    )
+    script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'
+    subprocess.run([str(script), str(target)], env=environment, check=True, capture_output=True, text=True)
+    content = target.read_text()
+    assert f'ZHIHENG_DB_PASSWORD={database_password}' in content
+    assert f'ZHIHENG_REDIS_PASSWORD={redis_password}' in content
+    assert f'JWT_SECRET_KEY={jwt_secret}' in content
+    assert 'LITELLM_RUNTIME_KEY=sk-preserved' in content
+    assert 'RUOYI_' not in content
+
+
+def test_shared_postgres_initializer_refuses_legacy_database_before_rewriting_secrets(tmp_path: Path) -> None:
+    environment, capture_path = make_shared_postgres_test_environment(tmp_path)
+    environment['FAKE_LEGACY_DATABASE_ONLY'] = '1'
+    target = tmp_path / '.env'
+    original = 'RUOYI_DB_PASSWORD=existing\n'
+    target.write_text(original)
+    script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'
+    result = subprocess.run([str(script), str(target)], env=environment, capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert 'legacy database' in result.stderr
+    assert target.read_text() == original
+    assert 'CREATE ROLE' not in capture_path.read_text()
+
+
+def test_legacy_secret_migration_rejects_invalid_values_without_rewriting(tmp_path: Path) -> None:
+    environment, _ = make_shared_postgres_test_environment(tmp_path)
+    target = tmp_path / '.env'
+    original = 'RUOYI_DB_PASSWORD=invalid-value\n'
+    target.write_text(original)
+    script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'
+    result = subprocess.run([str(script), str(target)], env=environment, capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert target.read_text() == original
 
 
 def test_shared_postgres_initializer_serializes_concurrent_secret_generation(tmp_path: Path) -> None:
@@ -362,9 +415,9 @@ esac
     assert [process.returncode for process in processes] == [0, 0], results
     assert openssl_calls.read_text(encoding='utf-8').splitlines() == ['call', 'call', 'call']
     content = platform_environment.read_text(encoding='utf-8')
-    assert content.count('RUOYI_DB_PASSWORD=') == 1
+    assert content.count('ZHIHENG_DB_PASSWORD=') == 1
     assert content.count('JWT_SECRET_KEY=') == 1
-    assert content.count('RUOYI_REDIS_PASSWORD=') == 1
+    assert content.count('ZHIHENG_REDIS_PASSWORD=') == 1
 
 
 def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp_path: Path) -> None:
@@ -373,7 +426,7 @@ def test_shared_postgres_initializer_skips_seed_when_bootstrap_marker_exists(tmp
     environment['FAKE_BOOTSTRAP_STATE'] = 'complete'
     platform_environment = tmp_path / '.env'
     platform_environment.write_text(
-        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\nLITELLM_RUNTIME_KEY=sk-runtime-test\n',
+        'ZHIHENG_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\nLITELLM_RUNTIME_KEY=sk-runtime-test\n',
         encoding='utf-8',
     )
     script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'
@@ -397,7 +450,7 @@ def test_shared_postgres_initializer_fails_atomically_without_reporting_ready(tm
     environment['FAKE_IMPORT_FAIL'] = '1'
     platform_environment = tmp_path / '.env'
     platform_environment.write_text(
-        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
+        'ZHIHENG_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
         encoding='utf-8',
     )
     script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'
@@ -423,7 +476,7 @@ def test_shared_postgres_initializer_refuses_unknown_existing_schema(tmp_path: P
     environment['FAKE_PUBLIC_TABLE_COUNT'] = '1'
     platform_environment = tmp_path / '.env'
     platform_environment.write_text(
-        'RUOYI_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
+        'ZHIHENG_DB_PASSWORD=abcdef0123456789abcdef0123456789abcdef0123456789\n',
         encoding='utf-8',
     )
     script = REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh'

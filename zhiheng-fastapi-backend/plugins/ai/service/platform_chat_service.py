@@ -10,6 +10,8 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Literal, NoReturn, Protocol
 from uuid import UUID
 
+import anyio
+
 from common.vo import PageModel
 from plugins.ai.dao.platform_chat_dao import PlatformChatDao
 from plugins.ai.domain.chat_files import (
@@ -666,11 +668,15 @@ class PlatformChatService:
                 parameters,
             )
         except BaseException as error:
-            await self._finish_setup_failure(run_id, error)
-            try:
-                await lock.__aexit__(type(error), error, error.__traceback__)
-            except BaseException:
-                pass
+            # Request cancellation must not cancel the database/Redis cleanup too.
+            with anyio.CancelScope(shield=True):
+                try:
+                    await self._finish_setup_failure(run_id, error)
+                finally:
+                    try:
+                        await lock.__aexit__(type(error), error, error.__traceback__)
+                    except BaseException:
+                        pass
             raise
         return PlatformChatStreamResult(
             session_id,
@@ -897,13 +903,10 @@ class PlatformChatService:
             )
             async for event in self._forward_events(session_id, run_id, runtime_stream, state):
                 yield event
-            yield self._status_event(session_id, run_id, 'completed')
         except (ModelServiceError, ChatCoordinationError) as error:
             state.final_status = 'failed'
             state.error_code = error.code
             state.error_message = error.public_message
-            yield self._error_event(session_id, run_id, state.error_code, state.error_message)
-            yield self._status_event(session_id, run_id, state.final_status)
         except asyncio.CancelledError:
             state.final_status = 'cancelled'
             state.active_error = sys.exc_info()[1]
@@ -916,31 +919,42 @@ class PlatformChatService:
             state.final_status = 'failed'
             state.error_code = 'MODEL_RUNTIME_ERROR'
             state.error_message = '模型运行时调用失败'
-            yield self._error_event(session_id, run_id, state.error_code, state.error_message)
-            yield self._status_event(session_id, run_id, state.final_status)
         finally:
-            try:
-                await runtime_stream.aclose()
-            except BaseException:
-                if state.active_error is None:
-                    state.final_status = 'failed'
-                    state.error_code = 'MODEL_RUNTIME_ERROR'
-                    state.error_message = '模型运行时调用失败'
-            await self._persist_terminal(
-                session_id=session_id,
-                run_id=run_id,
-                status=state.final_status,
-                content=''.join(state.content_parts),
-                reasoning=''.join(state.reasoning_parts) or None,
-                usage=state.usage,
-                error_code=state.error_code,
-                error_message=state.error_message,
-            )
-            try:
-                await lock.__aexit__(type(state.active_error) if state.active_error else None, state.active_error, None)
-            except BaseException:
-                if state.active_error is None:
-                    raise
+            # Starlette/AnyIO keeps cancelling awaits after a browser disconnect.
+            # Finish the owned stream and persist its terminal state in a shield,
+            # and release the session lock even when persistence fails.
+            with anyio.CancelScope(shield=True):
+                try:
+                    try:
+                        await runtime_stream.aclose()
+                    except BaseException:
+                        if state.active_error is None:
+                            state.final_status = 'failed'
+                            state.error_code = 'MODEL_RUNTIME_ERROR'
+                            state.error_message = '模型运行时调用失败'
+                    await self._persist_terminal(
+                        session_id=session_id,
+                        run_id=run_id,
+                        status=state.final_status,
+                        content=''.join(state.content_parts),
+                        reasoning=''.join(state.reasoning_parts) or None,
+                        usage=state.usage,
+                        error_code=state.error_code,
+                        error_message=state.error_message,
+                    )
+                finally:
+                    try:
+                        await lock.__aexit__(
+                            type(state.active_error) if state.active_error else None, state.active_error, None
+                        )
+                    except BaseException:
+                        if state.active_error is None:
+                            raise
+        # A client may immediately send again after done; the session must already
+        # be committed and unlocked when this event reaches the browser.
+        if state.error_code is not None:
+            yield self._error_event(session_id, run_id, state.error_code, state.error_message)
+        yield self._status_event(session_id, run_id, state.final_status)
 
     async def _start_run(self, run_id: str) -> None:
         await self._dao.transition_run_status(

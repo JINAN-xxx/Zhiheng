@@ -195,7 +195,9 @@ async def list_engine_deployments(
 ) -> Response:
     del query_db
     service = get_model_engine_service(request)
-    operation = service.list_deployments(model_alias=model_alias) if model_alias is not None else service.list_deployments()
+    operation = (
+        service.list_deployments(model_alias=model_alias) if model_alias is not None else service.list_deployments()
+    )
     result = await _call_engine(operation)
     return ResponseUtil.success(data=result)
 

@@ -34,13 +34,17 @@ LITELLM_MANAGEMENT_KEY='<proxy-admin-key>' ./init-platform-runtime-key.sh
 
 首期 LiteLLM 未提供独立管理角色时，运维可以显式将具有 Proxy Admin 权限的值配置为 `LITELLM_MANAGEMENT_KEY`（包括当前 Master Key 的值）。该兼容做法只属于运维配置；Platform 代码、环境变量名和 HTTP 客户端始终保持 Management 凭据语义。本地开发不使用控制面时可留空，此时仅能查看本地 Model Catalog。
 
-随后在仓库根目录启动 ZhiHeng：
+若需为新的拆分平台初始化数据库，随后在仓库根目录执行：
 
 ```bash
-docker compose up -d
+./deploy/legacy/manage.sh init
 ```
 
-ZhiHeng Backend 通过内部网络访问 `http://litellm-proxy:4000`。Docker Compose 会要求仓库根 `.env` 同时提供 `LITELLM_RUNTIME_KEY` 和 `LITELLM_MANAGEMENT_KEY`；缺失任一变量都会在启动前失败。两个 Compose 项目生命周期独立，启动 ZhiHeng 前应先确保 LiteLLM 三个容器健康。
+`legacy` 路径表示平台与 LiteLLM 分开编排的部署方式。该入口使用根目录 `docker-compose.pg.yml`，新默认项目名为 `zhiheng-vue3-fastapi`，平台服务、容器和平台网络使用 `zhiheng` 命名。`ZHIHENG_COMPOSE_PROJECT`、`ZHIHENG_COMPOSE_FILE`、`ZHIHENG_ENV_FILE` 可覆盖项目、编排文件和环境文件；初始化共享 PostgreSQL 时可用 `ZHIHENG_SHARED_POSTGRES_CONTAINER` 指定容器。
+
+原 `ruoyi` 实例先沿用原发布入口管理并完成迁移，参见 [拆分部署兼容入口](../README.md#拆分部署兼容入口)。已有实例使用 `./deploy/legacy/manage.sh update`，并通过 `PLATFORM_DB_NAME` / `PLATFORM_DB_USER` 显式选择已有数据库；`init` 用于新数据库，仅有旧默认库时会拒绝创建空的新库。
+
+平台后端通过外部 `litellm-network` 访问 `http://litellm-proxy:4000`。Docker Compose 会要求仓库根 `.env` 同时提供 `LITELLM_RUNTIME_KEY` 和 `LITELLM_MANAGEMENT_KEY`；缺失任一变量都会在启动前失败。两个 Compose 项目生命周期独立，启动平台前应先确保 LiteLLM 三个容器健康。
 
 ## 访问
 

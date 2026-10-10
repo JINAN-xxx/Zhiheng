@@ -64,7 +64,7 @@ async def test_tui_app_mount_pushes_first_workspace_screen(
     )
     monkeypatch.setattr(tui_modules.cli_tui_app, 'DashboardScreen', FakeDashboardScreen)
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     monkeypatch.setattr(app, 'push_screen', lambda screen: recorded_calls.append(('push', screen)))
     monkeypatch.setattr(app, 'switch_screen', lambda screen: recorded_calls.append(('switch', screen)))
 
@@ -84,7 +84,7 @@ async def test_tui_app_mount_pushes_first_workspace_screen(
 
 def test_open_view_switches_to_expected_action(tui_modules: SimpleNamespace) -> None:
     calls: list[str] = []
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
 
     def fake_show_view(view_key: str) -> None:
         calls.append(tui_modules.cli_tui_app.TUI_VIEW_REGISTRY.resolve_view_key(view_key))
@@ -204,7 +204,7 @@ async def test_tui_app_show_jobs_uses_remembered_filter(
     tui_modules: SimpleNamespace,
 ) -> None:
     recorded_filter_keys: list[tuple[str, str]] = []
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.remember_browser_filter('jobs', 'failed')
     app.remember_browser_query('jobs', 'sync')
 
@@ -239,7 +239,7 @@ async def test_tui_app_show_configs_uses_remembered_filter(
     tui_modules: SimpleNamespace,
 ) -> None:
     recorded_filter_keys: list[tuple[str, str]] = []
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.remember_browser_filter('configs', 'cache-drift')
     app.remember_browser_query('configs', 'site')
 
@@ -275,7 +275,7 @@ async def test_tui_app_show_cache_and_gen_use_remembered_query(
 ) -> None:
     cache_queries: list[str] = []
     gen_queries: list[str] = []
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.remember_browser_query('cache', 'sys')
     app.remember_browser_query('gen', 'user')
 
@@ -334,7 +334,7 @@ async def test_tui_app_detail_views_use_remembered_query(
     app_queries: list[str] = []
     ops_queries: list[str] = []
     crypto_queries: list[str] = []
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.remember_browser_query('database', 'head')
     app.remember_browser_query('app', 'route')
     app.remember_browser_query('ops', 'disk')
@@ -448,7 +448,7 @@ async def test_tui_app_open_view_updates_screen_across_multiple_switches(
         collect_ops,
     )
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
@@ -525,7 +525,7 @@ async def test_tui_sidebar_highlight_updates_screen_across_multiple_switches(
         collect_ops,
     )
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         await pilot.pause()
@@ -590,7 +590,7 @@ async def test_navigation_cancels_stale_load_and_only_renders_latest_view(
         collect_ops,
     )
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     async with app.run_test(size=(120, 40)) as pilot:
         await app._view_task
         app.open_view('app')
@@ -633,7 +633,7 @@ async def test_navigation_reuses_fresh_snapshot_cache(
         collect_app,
     )
 
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     async with app.run_test(size=(120, 40)) as pilot:
         await app._view_task
         app.open_view('app')

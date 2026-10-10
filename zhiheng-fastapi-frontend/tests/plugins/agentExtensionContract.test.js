@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const api = readFileSync('plugins/agent_extension/api/skill.js', 'utf8')
+const availableApi = readFileSync('plugins/agent_extension/public/skills.js', 'utf8')
 const view = readFileSync('plugins/agent_extension/views/skill/index.vue', 'utf8')
 const upload = readFileSync('plugins/agent_extension/views/skill/components/SkillUploadModal.vue', 'utf8')
 const detail = readFileSync('plugins/agent_extension/views/skill/components/SkillDetailDrawer.vue', 'utf8')
 
 assert.match(api, /\/agent_extension\/skills/)
-assert.match(api, /\/available/)
+assert.match(availableApi, /\/available/)
 assert.match(api, /\/import\/prepare/)
 assert.match(api, /\/confirm/)
 assert.match(view, /<WorkspaceToolbar\s+title="技能管理"/)

@@ -1,5 +1,6 @@
 import vue from '@vitejs/plugin-vue'
 import monacoEditorEsmPlugin from 'vite-plugin-monaco-editor-esm'
+import path from 'node:path'
 
 import createAutoImport from './auto-import'
 import createSvgIcon from './svg-icon'
@@ -35,7 +36,9 @@ export default function createVitePlugins(viteEnv, isBuild = false) {
 	vitePlugins.push(createSetupExtend())
 	vitePlugins.push(monacoEditorEsmPlugin({
         languageWorkers: [],
-        customWorkers: monacoWorkers
+        customWorkers: monacoWorkers,
+        // 绝对输出目录也必须把 worker 写入本次构建产物。
+        customDistPath: (root, outDir) => path.join(path.resolve(root, outDir), 'monacoeditorwork')
     }))
     vitePlugins.push(createSvgIcon(isBuild))
 	isBuild && vitePlugins.push(...createCompression(viteEnv))

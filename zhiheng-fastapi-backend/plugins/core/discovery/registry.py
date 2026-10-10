@@ -43,13 +43,25 @@ class PluginRegistry:
     使用 Registry 模式维护已发现插件与数据库状态合并后的运行时快照。
     """
 
-    def __init__(self, registered_plugins: list[RegisteredPlugin]) -> None:
+    def __init__(
+        self,
+        registered_plugins: list[RegisteredPlugin],
+        *,
+        unresolved_installed_plugin_ids: tuple[str, ...] = (),
+    ) -> None:
         """
         初始化插件运行时注册表。
 
         :param registered_plugins: 已注册插件运行时快照列表
+        :param unresolved_installed_plugin_ids: 已安装但未发现源码的插件 ID
         """
         self._registered_plugins = {plugin.plugin_id: plugin for plugin in registered_plugins}
+        self._unresolved_installed_plugin_ids = tuple(unresolved_installed_plugin_ids)
+
+    @property
+    def unresolved_installed_plugin_ids(self) -> tuple[str, ...]:
+        """保留已安装但未发现源码的插件，避免持久资源引用检查漏查。"""
+        return self._unresolved_installed_plugin_ids
 
     @classmethod
     def build(
@@ -70,7 +82,15 @@ class PluginRegistry:
             for discovered_plugin in discovered_plugins
         ]
 
-        return cls(registered_plugins)
+        discovered_plugin_ids = {plugin.manifest.id for plugin in discovered_plugins}
+        unresolved_installed_plugin_ids = tuple(
+            sorted(
+                plugin.plugin_id
+                for plugin in database_plugin_map.values()
+                if plugin.installed_version and plugin.plugin_id not in discovered_plugin_ids
+            )
+        )
+        return cls(registered_plugins, unresolved_installed_plugin_ids=unresolved_installed_plugin_ids)
 
     def get_plugin(self, plugin_id: str) -> RegisteredPlugin | None:
         """

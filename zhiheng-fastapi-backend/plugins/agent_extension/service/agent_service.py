@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -20,13 +20,17 @@ from plugins.agent_extension.entity.vo.agent_vo import (
     AgentUpdateModel,
 )
 from plugins.agent_extension.entity.vo.work_task_vo import WorkAgentOptionModel
-from plugins.ai.dao.ai_developer_api_dao import AiDeveloperApiDao
-from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
+from plugins.ai.public.application_queries import is_active_owned_application
+from plugins.ai.public.model_queries import (
+    PublishedChatModel,
+    get_published_chat_model_for_update,
+    lock_model_reference,
+)
 
 
 class AgentService:
     async def get_usable_published_agent(
-        self, agent_id: str, *, actor_user_id: int, is_admin: bool
+        self, agent_id: str, *, actor_user_id: int, is_admin: bool, protect_reference: bool = True
     ) -> AgentPublishedModel:
         # Transaction ownership stays with the caller: work creation must remain atomic.
         agent = await self._dao.get_by_id(self._db, agent_id)
@@ -39,6 +43,8 @@ class AgentService:
         ):
             raise AgentServiceError('AGENT_NOT_FOUND', '智能体不可用或无权使用')
         config = AgentConfigResponseModel.model_validate(agent.published_config)
+        if protect_reference and not await lock_model_reference(self._db, config.model_id):
+            raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用')
         return AgentPublishedModel(
             **config.model_dump(),
             agent_id=agent.agent_id,
@@ -67,17 +73,19 @@ class AgentService:
         db: AsyncSession,
         *,
         dao: type[AgentDao] = AgentDao,
-        model_dao: type[AiModelCatalogDao] = AiModelCatalogDao,
+        model_query: Callable[
+            [AsyncSession, str], Awaitable[PublishedChatModel | None]
+        ] = get_published_chat_model_for_update,
         skill_dao: type[SkillDao] = SkillDao,
-        application_dao: type[AiDeveloperApiDao] = AiDeveloperApiDao,
+        application_query: Callable[[AsyncSession, str, int], Awaitable[bool]] = is_active_owned_application,
         max_selected_skills: int = 5,
         clock: Callable[[], datetime] = datetime.now,
     ) -> None:
         self._db = db
         self._dao = dao
-        self._model_dao = model_dao
+        self._model_query = model_query
         self._skill_dao = skill_dao
-        self._application_dao = application_dao
+        self._application_query = application_query
         self._max_selected_skills = max_selected_skills
         self._clock = clock
 
@@ -153,8 +161,9 @@ class AgentService:
         is_admin: bool,
     ) -> AgentDetailModel:
         try:
-            agent = await self._require_agent(agent_id, actor_user_id, is_admin, for_update=True)
-            self._require_version(agent, payload.expected_version)
+            agent = await self._lock_configuration_write(
+                agent_id, actor_user_id, is_admin, payload.expected_version, model_id=payload.model_id
+            )
             await self._validate_config(payload, owner_user_id=agent.owner_user_id)
             return await self._write(agent, payload.expected_version, self._config_values(payload))
         except BaseException:
@@ -170,8 +179,7 @@ class AgentService:
         is_admin: bool,
     ) -> AgentDetailModel:
         try:
-            agent = await self._require_agent(agent_id, actor_user_id, is_admin, for_update=True)
-            self._require_version(agent, payload.expected_version)
+            agent = await self._lock_configuration_write(agent_id, actor_user_id, is_admin, payload.expected_version)
             config = AgentConfigResponseModel.model_validate(agent)
             if config.application_id is None:
                 raise AgentServiceError('AGENT_APPLICATION_REQUIRED', 'Bind an application before publishing')
@@ -228,13 +236,8 @@ class AgentService:
             raise
 
     async def _validate_config(self, config: AgentConfigModel, *, owner_user_id: int) -> None:
-        model = await self._model_dao.get_model_by_id(self._db, config.model_id)
-        if (
-            model is None
-            or model.model_type != 'chat'
-            or model.lifecycle_status != 'active'
-            or model.published_at is None
-        ):
+        model = await self._model_query(self._db, config.model_id)
+        if model is None:
             raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', 'Select a published, active chat model')
         if model.max_output_tokens is not None and config.max_tokens > model.max_output_tokens:
             raise AgentServiceError('AGENT_MAX_TOKENS_EXCEEDED', 'Output token limit exceeds the selected model limit')
@@ -243,12 +246,12 @@ class AgentService:
         skills = await self._skill_dao.get_by_slugs(self._db, config.skill_slugs)
         if len(skills) != len(config.skill_slugs) or any(skill.status != 'enabled' for skill in skills):
             raise AgentServiceError('AGENT_SKILL_UNAVAILABLE', 'Selected skills must exist and be enabled')
-        if config.application_id is not None:
-            application = await self._application_dao.get_application_by_id(self._db, config.application_id)
-            if application is None or application.owner_user_id != owner_user_id or application.status != 'active':
-                raise AgentServiceError(
-                    'AGENT_APPLICATION_UNAVAILABLE', 'Select an active application belonging to the agent owner'
-                )
+        if config.application_id is not None and not await self._application_query(
+            self._db, config.application_id, owner_user_id
+        ):
+            raise AgentServiceError(
+                'AGENT_APPLICATION_UNAVAILABLE', 'Select an active application belonging to the agent owner'
+            )
 
     async def _require_agent(
         self,
@@ -261,6 +264,20 @@ class AgentService:
         agent = await self._dao.get_by_id(self._db, agent_id, for_update=for_update)
         if agent is None or (not is_admin and agent.owner_user_id != actor_user_id):
             raise AgentServiceError('AGENT_NOT_FOUND', 'Agent not found')
+        return agent
+
+    async def _lock_configuration_write(
+        self, agent_id: str, actor_user_id: int, is_admin: bool, expected_version: int, *, model_id: str | None = None
+    ) -> AgentConfiguration:
+        # Check access first, then lock in the same model -> Agent order as deletion.
+        preview = await self._require_agent(agent_id, actor_user_id, is_admin)
+        self._require_version(preview, expected_version)
+        target_model_id = model_id if model_id is not None else preview.model_id
+        await lock_model_reference(self._db, target_model_id)
+        agent = await self._require_agent(agent_id, actor_user_id, is_admin, for_update=True)
+        self._require_version(agent, expected_version)
+        if model_id is None and agent.model_id != target_model_id:
+            raise AgentServiceError('AGENT_VERSION_CONFLICT', 'Agent changed; refresh and retry')
         return agent
 
     @staticmethod

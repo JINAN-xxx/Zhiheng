@@ -177,6 +177,7 @@ class DeploymentCreateModel(_StrictRequestModel):
     upstream_model: SafeIdentifier
     provider: SafeIdentifier
     credential_name: CredentialName
+    model_type: Literal['chat', 'embedding', 'rerank'] | None = None
     timeout: PositiveTimeout | None = None
     stream_timeout: PositiveTimeout | None = None
     max_retries: RetryCount | None = None

@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
-import { buildKnowledgeGraphParams } from '../../plugins/ai/utils/knowledge.js'
+import { loadPublicClients } from './helpers/loadPublicClients.js'
 
-const source = readFileSync(new URL('../../plugins/ai/api/knowledge.js', import.meta.url), 'utf8')
 const requests = []
-const scope = { request: config => { requests.push(config); return Promise.resolve({ code: 200 }) }, buildKnowledgeGraphParams }
-vm.createContext(scope)
-vm.runInContext(source.replace(/^import .+\n/gm, '').replaceAll('export const ', 'var '), scope)
+const { legacyKnowledge: scope } = await loadPublicClients(config => {
+  requests.push(config)
+  return Promise.resolve({ code: 200 })
+})
 assert.equal(typeof scope.getKnowledgeGraphConfig, 'function', 'graph settings need a protected configuration endpoint')
 const signal = new AbortController().signal
 const config = { llm_model_id: 'model', reasoning_strategy: 'auto', timeout_seconds: 240, max_output_tokens: 16384, concurrency: 2 }

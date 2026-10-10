@@ -29,7 +29,7 @@ def test_completion_show_bash_outputs_completion_script(
 
     assert completed.returncode == SUCCESS
     assert completed.stderr == ''
-    assert '_RUOYI_COMPLETE=bash_complete' in completed.stdout
+    assert '_ZHIHENG_COMPLETE=bash_complete' in completed.stdout
     assert '_zhiheng_completion()' in completed.stdout
     assert 'if command -v compopt >/dev/null 2>&1; then' in completed.stdout
     assert 'if complete -o nosort -F _zhiheng_completion zhiheng 2>/dev/null; then' in completed.stdout
@@ -44,7 +44,7 @@ def test_completion_show_powershell_outputs_completion_script(
     assert completed.returncode == SUCCESS
     assert completed.stderr == ''
     assert 'Register-ArgumentCompleter -Native -CommandName zhiheng' in completed.stdout
-    assert '$env:_RUOYI_COMPLETE = "powershell_complete"' in completed.stdout
+    assert '$env:_ZHIHENG_COMPLETE = "powershell_complete"' in completed.stdout
 
 
 def test_bash_completion_protocol_returns_candidates_without_not_supported_error(
@@ -94,7 +94,7 @@ def test_completion_doctor_json_output_has_stable_contract(
         'shells',
     }
     assert isinstance(payload['envChoices'], list)
-    assert payload['completeEnvVar'] == '_RUOYI_COMPLETE'
+    assert payload['completeEnvVar'] == '_ZHIHENG_COMPLETE'
     assert isinstance(payload['shells'], dict)
     assert set(payload['shells']) == {'bash', 'zsh', 'fish', 'powershell'}
     assert payload['shells']['bash']['supported'] is True
@@ -155,7 +155,7 @@ def test_completion_install_json_output_has_stable_contract(
     assert isinstance(payload['nextStep'], str)
     assert target_file.exists()
     assert rc_file.exists()
-    assert '_RUOYI_COMPLETE=bash_complete' in target_file.read_text(encoding='utf-8')
+    assert '_ZHIHENG_COMPLETE=bash_complete' in target_file.read_text(encoding='utf-8')
     assert payload['sourceCommand'] in rc_file.read_text(encoding='utf-8')
 
 

@@ -37,7 +37,9 @@ def test_unified_compose_is_self_contained_and_gates_backend_on_initialization()
         'zhiheng-backend-pg',
         'zhiheng-frontend',
     }
-    assert services['zhiheng-backend-pg']['depends_on']['platform-init']['condition'] == 'service_completed_successfully'
+    assert (
+        services['zhiheng-backend-pg']['depends_on']['platform-init']['condition'] == 'service_completed_successfully'
+    )
     assert all(not network.get('external') for network in compose.get('networks', {}).values())
     assert all('container_name' not in service for service in services.values())
     assert all(
@@ -62,12 +64,43 @@ def test_environment_generation_is_private_and_stable_across_repeated_runs(tmp_p
     for key in (
         'LITELLM_SALT_KEY',
         'JWT_SECRET_KEY',
-        'RUOYI_DB_PASSWORD',
-        'RUOYI_REDIS_PASSWORD',
+        'ZHIHENG_DB_PASSWORD',
+        'ZHIHENG_REDIS_PASSWORD',
         'AI_API_KEY_PEPPER_V1',
     ):
         assert len(first[key]) >= MINIMUM_SECRET_LENGTH
     assert first['PLATFORM_PORT'] == '12580'
+
+
+def test_legacy_secret_names_are_migrated_without_rotating_values(tmp_path: Path) -> None:
+    module = deployment_module()
+    path = tmp_path / '.env'
+    original = module.initialize_environment(path)
+    legacy = (
+        path.read_text()
+        .replace('ZHIHENG_DB_PASSWORD', 'RUOYI_DB_PASSWORD')
+        .replace('ZHIHENG_REDIS_PASSWORD', 'RUOYI_REDIS_PASSWORD')
+    )
+    path.write_text(legacy)
+    # Read-only commands must receive canonical values without rewriting the file.
+    assert module.read_environment(path)['ZHIHENG_DB_PASSWORD'] == original['ZHIHENG_DB_PASSWORD']
+    assert path.read_text() == legacy
+    migrated = module.initialize_environment(path)
+    assert migrated == original
+    assert 'RUOYI_DB_PASSWORD' not in path.read_text()
+    assert 'RUOYI_REDIS_PASSWORD' not in path.read_text()
+
+
+def test_conflicting_legacy_and_canonical_secrets_are_rejected_without_rewriting(tmp_path: Path) -> None:
+    module = deployment_module()
+    path = tmp_path / '.env'
+    content = 'ZHIHENG_DB_PASSWORD=canonical-private\nRUOYI_DB_PASSWORD=legacy-private\n'
+    path.write_text(content)
+    with pytest.raises(module.DeploymentError, match='冲突') as caught:
+        module.initialize_environment(path)
+    assert 'canonical-private' not in str(caught.value)
+    assert 'legacy-private' not in str(caught.value)
+    assert path.read_text() == content
 
 
 def test_environment_preserves_existing_keys_and_rejects_symlinks(tmp_path: Path) -> None:
@@ -86,7 +119,7 @@ def test_environment_preserves_existing_keys_and_rejects_symlinks(tmp_path: Path
 def test_existing_legacy_environment_is_not_silently_rekeyed(tmp_path: Path) -> None:
     module = deployment_module()
     path = tmp_path / '.env'
-    text = 'RUOYI_DB_PASSWORD=existing-password\nLITELLM_RUNTIME_KEY=sk-existing\n'
+    text = 'ZHIHENG_DB_PASSWORD=existing-password\nLITELLM_RUNTIME_KEY=sk-existing\n'
     path.write_text(text)
     with pytest.raises(module.DeploymentError, match='旧部署'):
         module.initialize_environment(path)

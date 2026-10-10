@@ -2,9 +2,9 @@ name: Ruff Check
 
 on:
   push:
-    branches: [master]
+    branches: [master, 'release/**']
   pull_request:
-    branches: [master]
+    branches: [master, 'release/**']
 
 jobs:
   lint-format:
@@ -20,14 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          pip install ruff==0.16.4
 
       - name: Run linting
-        run: |
-          ruff check zhiheng-fastapi-backend
-          ruff check zhiheng-fastapi-test
+        run: ruff check zhiheng-fastapi-backend deploy/release deploy/release_cli.py
 
       - name: Run format check
-        run: |
-          ruff format zhiheng-fastapi-backend --check
-          ruff format zhiheng-fastapi-test --check
+        run: ruff format zhiheng-fastapi-backend deploy/release deploy/release_cli.py --check

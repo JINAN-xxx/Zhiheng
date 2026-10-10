@@ -63,12 +63,11 @@ import { createAgent, deleteAgent, getAgent, publishAgent, unpublishAgent, updat
 import { listAvailableSkills } from '../../../api/skill.js'
 import { agentStatusLabel, buildAgentPayload, createAgentForm, normalizeAgent } from '../../../utils/agent.js'
 import { hasSkillPermission, normalizeAvailableSkills } from '../../../utils/skill.js'
-import { listPlatformModels } from '../../../../ai/api/modelCatalog.js'
-import { listAvailableKnowledgeBases } from '../../../../ai/api/knowledge.js'
-import { normalizeKnowledgeDatabases } from '../../../../ai/utils/knowledge.js'
-import { createApplication, listApplications } from '../../../../ai/api/application.js'
-import { isCallablePlatformModel, normalizeApplication, normalizeApplicationModelPage, normalizeApplicationPage } from '../../../../ai/utils/application.js'
-import { collectAllPages } from '../../../../ai/utils/modelEngine.js'
+import {
+  listPlatformModels, listAvailableKnowledgeBases, normalizeKnowledgeDatabases,
+  isCallablePlatformModel, normalizeApplicationModelPage, collectAllPages,
+} from '../../../../ai/public/resourceSelection.js'
+import { createApplication, listApplications, normalizeApplication, normalizeApplicationPage } from '../../../../ai/public/applications.js'
 
 const props = defineProps({ modelValue: Boolean, agentId: { type: String, default: '' }, permissions: { type: Array, default: () => [] } })
 const emit = defineEmits(['update:modelValue', 'changed', 'deleted', 'preview'])

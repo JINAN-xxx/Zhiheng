@@ -1,8 +1,8 @@
 from collections.abc import AsyncIterator, Awaitable
+from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import File, HTTPException, Query, Request, Response, UploadFile
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.aspect.db_seesion import DBSessionDependency
@@ -10,8 +10,6 @@ from common.aspect.interface_auth import UserInterfaceAuthDependency
 from common.aspect.pre_auth import CurrentUserDependency, PreAuthDependency
 from common.router import APIRouterPro
 from module_admin.entity.vo.user_vo import CurrentUserModel
-from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
-from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.knowledge.models import (
     ChunkParameters,
     DatabaseCreate,
@@ -26,6 +24,7 @@ from plugins.ai.knowledge.models import (
     KnowledgeQuery,
 )
 from plugins.ai.knowledge.runtime import KnowledgeRuntime
+from plugins.ai.public.model_queries import list_active_bound_models
 from utils.response_util import ResponseUtil
 
 ai_knowledge_controller = APIRouterPro(
@@ -85,27 +84,8 @@ async def list_models(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     model_type: Literal['embedding', 'chat'] = Query('embedding'),
 ) -> Response:
-    rows = (
-        (
-            await query_db.execute(
-                select(AiModelCatalog.model_id, AiModelCatalog.display_name, AiModelCatalog.model_code)
-                .join(
-                    AiResourceBinding,
-                    (AiResourceBinding.resource_id == AiModelCatalog.model_id)
-                    & (AiResourceBinding.resource_type == 'model'),
-                )
-                .where(
-                    AiModelCatalog.model_type == model_type,
-                    AiModelCatalog.lifecycle_status == 'active',
-                    AiResourceBinding.binding_status == 'active',
-                )
-                .order_by(AiModelCatalog.display_name)
-            )
-        )
-        .mappings()
-        .all()
-    )
-    return ResponseUtil.success(data={'models': [dict(row) for row in rows]})
+    models = await list_active_bound_models(query_db, model_type=model_type)
+    return ResponseUtil.success(data={'models': [asdict(model) for model in models]})
 
 
 @ai_knowledge_controller.get('/databases/{db_id}', dependencies=[UserInterfaceAuthDependency('ai:knowledge:query')])

@@ -18,9 +18,10 @@ from plugins.ai.entity.vo.ai_openai_compat_vo import (
     OpenAIChatCompletionResponseModel,
     OpenAIModelListResponseModel,
 )
-from plugins.ai.infrastructure.developer_key_authenticator import DeveloperApiIdentity
 from plugins.ai.infrastructure import public_api_provider
+from plugins.ai.infrastructure.developer_key_authenticator import DeveloperApiIdentity
 from plugins.ai.infrastructure.public_api_provider import PublicApiServices, get_public_api_services
+from plugins.ai.public import api_transport
 from plugins.ai.service.api_entitlement_service import ApiEntitlementService
 from plugins.ai.service.openai_compat_service import OpenAICompatService
 
@@ -407,7 +408,7 @@ async def test_stream_cancellation_is_not_replaced_by_close_failure() -> None:
         async def aclose(self) -> None:
             raise RuntimeError('close failed')
 
-    stream = controller._stream_bytes(CancellingStream())  # type: ignore[arg-type]
+    stream = api_transport.streaming_response(CancellingStream()).body_iterator
 
     with pytest.raises(asyncio.CancelledError):
         await anext(stream)
@@ -433,9 +434,11 @@ async def test_controller_cancellation_traceback_does_not_retain_authorization(
         '_settings_factory',
         lambda: SimpleNamespace(public_api_enabled=True, api_max_request_bytes=MAX_BODY_BYTES),
     )
+
     async def lambda_services(request: object, db: object, settings: object) -> PublicApiServices:
         del request, db, settings
         return services
+
     monkeypatch.setattr(controller, '_public_api_services', lambda_services)
     app = FastAPI()
     request = Request(
@@ -472,7 +475,7 @@ async def test_public_provider_builds_real_auth_entitlement_and_compat_services(
 
     def fake_session_factory(db: object) -> object:
         del db
-        return lambda: FakeSession()
+        return FakeSession
 
     monkeypatch.setattr(public_api_provider, '_session_factory_factory', fake_session_factory)
     services = await get_public_api_services(request, FakeSession(), settings)

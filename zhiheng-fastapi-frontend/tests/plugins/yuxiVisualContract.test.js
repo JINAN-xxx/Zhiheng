@@ -94,7 +94,8 @@ for (const [fileName, source] of aiContainerFiles) {
   assert.match(source, /background:\s*var\(--bg-container\)/, `${fileName} must include a container surface`)
 }
 
-assert.match(coreSurfaceFiles[0][1], /\.auth-shell__mark[\s\S]*?color:\s*var\(--gray-0\)/)
+assert.match(coreSurfaceFiles[0][1], /<img\b[^>]*:src="logo"[^>]*\balt="智衡平台"/)
+assert.match(coreSurfaceFiles[0][1], /\.auth-shell__logo\s*\{[^}]*object-fit:\s*contain/)
 assert.match(coreSurfaceFiles[5][1], /\.contextmenu\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)
 assert.match(antdReset, /\.antd-app-root\s*\{[\s\S]*?background:\s*var\(--bg-page\)/)
 assert.match(antdReset, /\.antd-global-loading__surface\s*\{[\s\S]*?background:\s*var\(--bg-elevated\)/)

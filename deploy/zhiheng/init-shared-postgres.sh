@@ -5,7 +5,7 @@ script_directory=$(CDPATH= cd "$(dirname "$0")" && pwd)
 repository_root=$(CDPATH= cd "$script_directory/../.." && pwd)
 platform_environment=${1:-"$repository_root/.env"}
 database_sql="$repository_root/zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql"
-postgres_container=${RUOYI_SHARED_POSTGRES_CONTAINER:-litellm-db}
+postgres_container=${ZHIHENG_SHARED_POSTGRES_CONTAINER:-${RUOYI_SHARED_POSTGRES_CONTAINER:-litellm-db}}
 docker_command=${DOCKER_COMMAND:-docker}
 database_name=zhiheng-fastapi
 database_user=zhiheng
@@ -62,11 +62,11 @@ write_platform_secrets() {
     umask 077
     temporary_file=$(mktemp "$platform_environment.tmp.XXXXXX")
     if [ -f "$platform_environment" ]; then
-        awk '$0 !~ /^[[:space:]]*(RUOYI_DB_PASSWORD|RUOYI_REDIS_PASSWORD|JWT_SECRET_KEY)[[:space:]]*=/' \
+        awk '$0 !~ /^[[:space:]]*(ZHIHENG_DB_PASSWORD|ZHIHENG_REDIS_PASSWORD|RUOYI_DB_PASSWORD|RUOYI_REDIS_PASSWORD|JWT_SECRET_KEY)[[:space:]]*=/' \
             "$platform_environment" > "$temporary_file"
     fi
-    printf 'RUOYI_DB_PASSWORD=%s\n' "$zhiheng_password" >> "$temporary_file"
-    printf 'RUOYI_REDIS_PASSWORD=%s\n' "$redis_password" >> "$temporary_file"
+    printf 'ZHIHENG_DB_PASSWORD=%s\n' "$zhiheng_password" >> "$temporary_file"
+    printf 'ZHIHENG_REDIS_PASSWORD=%s\n' "$redis_password" >> "$temporary_file"
     printf 'JWT_SECRET_KEY=%s\n' "$jwt_secret" >> "$temporary_file"
     chmod 600 "$temporary_file"
     mv "$temporary_file" "$platform_environment"
@@ -77,12 +77,35 @@ initialize_skill_storage
 [ -f "$database_sql" ] || fail "ZhiHeng PostgreSQL baseline SQL was not found."
 container_running=$($docker_command inspect -f '{{.State.Running}}' "$postgres_container" 2>/dev/null || true)
 [ "$container_running" = 'true' ] || fail "Shared PostgreSQL container is not running."
+# 仅识别历史库；不能因品牌改名创建第二个空库或重写已有密钥。
+database_identity=$(
+    $docker_command exec "$postgres_container" \
+        psql -v ON_ERROR_STOP=1 -U litellm -d postgres -Atc \
+        "select case when exists (select 1 from pg_database where datname='ruoyi-fastapi') and not exists (select 1 from pg_database where datname='zhiheng-fastapi') then 'legacy-only' else 'ready' end;"
+) || fail "Failed to inspect existing database identity."
+[ "$database_identity" = 'ready' ] || \
+    fail "An existing legacy database requires explicit migration; refusing to create an empty ZhiHeng database."
 acquire_platform_lock
 
-zhiheng_password=$(read_platform_value RUOYI_DB_PASSWORD)
-redis_password=$(read_platform_value RUOYI_REDIS_PASSWORD)
+zhiheng_password=$(read_platform_value ZHIHENG_DB_PASSWORD)
+redis_password=$(read_platform_value ZHIHENG_REDIS_PASSWORD)
 jwt_secret=$(read_platform_value JWT_SECRET_KEY)
 secrets_changed=false
+# 迁移旧配置中的密钥名，保留值；冲突时禁止自动选择或重新生成。
+legacy_db_password=$(read_platform_value RUOYI_DB_PASSWORD)
+legacy_redis_password=$(read_platform_value RUOYI_REDIS_PASSWORD)
+if [ -n "$legacy_db_password" ]; then
+    [ -z "$zhiheng_password" ] || [ "$zhiheng_password" = "$legacy_db_password" ] || \
+        fail "Conflicting legacy and ZHIHENG_DB_PASSWORD values."
+    zhiheng_password=$legacy_db_password
+    secrets_changed=true
+fi
+if [ -n "$legacy_redis_password" ]; then
+    [ -z "$redis_password" ] || [ "$redis_password" = "$legacy_redis_password" ] || \
+        fail "Conflicting legacy and ZHIHENG_REDIS_PASSWORD values."
+    redis_password=$legacy_redis_password
+    secrets_changed=true
+fi
 if [ -z "$zhiheng_password" ]; then
     zhiheng_password=$(openssl rand -hex 24)
     secrets_changed=true
@@ -95,24 +118,25 @@ if [ -z "$redis_password" ]; then
     redis_password=$(openssl rand -hex 24)
     secrets_changed=true
 fi
+
+case "$zhiheng_password" in
+    *[!0-9a-f]*|'') fail "ZHIHENG_DB_PASSWORD must be a lowercase hexadecimal value." ;;
+esac
+[ "${#zhiheng_password}" -eq 48 ] || fail "ZHIHENG_DB_PASSWORD must contain exactly 48 characters."
+case "$redis_password" in
+    *[!0-9a-f]*|'') fail "ZHIHENG_REDIS_PASSWORD must be a lowercase hexadecimal value." ;;
+esac
+[ "${#redis_password}" -eq 48 ] || fail "ZHIHENG_REDIS_PASSWORD must contain exactly 48 characters."
+case "$jwt_secret" in
+    *[!0-9a-f]*|'') fail "JWT_SECRET_KEY must be a lowercase hexadecimal value." ;;
+esac
+[ "${#jwt_secret}" -eq 64 ] || fail "JWT_SECRET_KEY must contain exactly 64 characters."
+
 if [ "$secrets_changed" = true ]; then
     write_platform_secrets
 else
     chmod 600 "$platform_environment"
 fi
-
-case "$zhiheng_password" in
-    *[!0-9a-f]*|'') fail "RUOYI_DB_PASSWORD must be a lowercase hexadecimal value." ;;
-esac
-[ "${#zhiheng_password}" -eq 48 ] || fail "RUOYI_DB_PASSWORD must contain exactly 48 characters."
-case "$redis_password" in
-    *[!0-9a-f]*|'') fail "RUOYI_REDIS_PASSWORD must be a lowercase hexadecimal value." ;;
-esac
-[ "${#redis_password}" -eq 48 ] || fail "RUOYI_REDIS_PASSWORD must contain exactly 48 characters."
-case "$jwt_secret" in
-    *[!0-9a-f]*|'') fail "JWT_SECRET_KEY must be a lowercase hexadecimal value." ;;
-esac
-[ "${#jwt_secret}" -eq 64 ] || fail "JWT_SECRET_KEY must contain exactly 64 characters."
 
 if ! {
     printf "\\set db_password '%s'\n" "$zhiheng_password"
@@ -136,6 +160,15 @@ bootstrap_relation=$(
         psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
         "select to_regclass('public.$bootstrap_marker');"
 ) || fail "Failed to inspect the ZhiHeng database schema."
+# 已迁移数据库可保留历史完成标记；新库只创建 zhiheng_bootstrap_state。
+if [ -z "$bootstrap_relation" ]; then
+    bootstrap_marker=ruoyi_bootstrap_state
+    bootstrap_relation=$(
+        $docker_command exec "$postgres_container" \
+            psql -v ON_ERROR_STOP=1 -U litellm -d "$database_name" -Atc \
+            "select to_regclass('public.$bootstrap_marker');"
+    ) || fail "Failed to inspect the legacy database bootstrap marker."
+fi
 bootstrap_state=
 if [ "$bootstrap_relation" = "$bootstrap_marker" ] || [ "$bootstrap_relation" = "public.$bootstrap_marker" ]; then
     bootstrap_state=$(

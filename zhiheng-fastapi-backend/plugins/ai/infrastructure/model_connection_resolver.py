@@ -12,6 +12,7 @@ from plugins.ai.entity.vo.ai_model_engine_vo import (
 )
 from plugins.ai.infrastructure.litellm_management_adapter import LiteLLMManagementAdapter
 from plugins.ai.infrastructure.litellm_management_errors import LiteLLMManagementUpstreamInvalidError
+from plugins.ai.infrastructure.rerank_compatibility import restore_connection_parameters
 
 _MAX_API_BASE_LENGTH = 2048
 _MAX_PORT = 65535
@@ -118,7 +119,7 @@ def _resolve_credential_connections(
                         item,
                         credential.provider,
                         [
-                            row['litellm_params']
+                            restore_connection_parameters(row['litellm_params'], row['model_info'])
                             for row in raw_deployments
                             if row['litellm_params'].get('litellm_credential_name') == credential.credential_name
                         ],

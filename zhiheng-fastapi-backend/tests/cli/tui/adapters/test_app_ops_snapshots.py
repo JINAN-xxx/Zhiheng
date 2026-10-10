@@ -80,7 +80,7 @@ async def test_collect_app_page_snapshot_builds_env_config_and_route_sections(
                     'activeShell': 'bash',
                     'projectDir': '/srv/backend',
                     'envChoices': ['dev', 'prod'],
-                    'completeEnvVar': '_RUOYI_COMPLETE',
+                    'completeEnvVar': '_ZHIHENG_COMPLETE',
                     'recommendedInstallCommand': 'zhiheng completion install --shell=bash --activate',
                     'shells': {
                         'bash': {
@@ -109,7 +109,7 @@ async def test_collect_app_page_snapshot_builds_env_config_and_route_sections(
         if arguments[0:2] == ('completion', 'show'):
             return SimpleNamespace(
                 returncode=0,
-                stdout='_RUOYI_COMPLETE=bash_complete\n_zhiheng_completion() {\n  COMPREPLY=()\n}\n',
+                stdout='_ZHIHENG_COMPLETE=bash_complete\n_zhiheng_completion() {\n  COMPREPLY=()\n}\n',
                 stderr='',
             )
         return SimpleNamespace(
@@ -162,7 +162,7 @@ async def test_collect_app_page_snapshot_builds_env_config_and_route_sections(
     assert any('活动 Shell: bash' in line for line in snapshot.sections[5].lines)
     assert any('source /tmp/zhiheng.bash' in line for line in snapshot.sections[5].lines)
     assert any('Shell: bash' in line for line in snapshot.sections[6].lines)
-    assert any('_RUOYI_COMPLETE=bash_complete' in line for line in snapshot.sections[6].lines)
+    assert any('_ZHIHENG_COMPLETE=bash_complete' in line for line in snapshot.sections[6].lines)
     assert any('completion install --activate --output=text' in line for line in snapshot.sections[7].lines)
     assert any('system · 2 条' in line for line in snapshot.sections[8].lines)
     assert any('app run --env=dev' in line for line in snapshot.sections[9].lines)
@@ -211,7 +211,7 @@ async def test_collect_app_page_snapshot_applies_query_filter(
                     'activeShell': 'bash',
                     'projectDir': '/srv/backend',
                     'envChoices': ['dev'],
-                    'completeEnvVar': '_RUOYI_COMPLETE',
+                    'completeEnvVar': '_ZHIHENG_COMPLETE',
                     'recommendedInstallCommand': 'zhiheng completion install --shell=bash --activate',
                     'shells': {'bash': {'supported': True, 'detected': True, 'autoDiscovery': False}},
                 }

@@ -5,7 +5,16 @@ from decimal import Decimal
 
 import pytest
 
-from plugins.ai.domain.model_runtime import ModelChatResponse, ModelMessage, ModelStreamEvent, ModelUsage
+from plugins.ai.domain.model_runtime import (
+    ModelChatResponse,
+    ModelEmbeddingResponse,
+    ModelEmbeddingVector,
+    ModelMessage,
+    ModelRerankResponse,
+    ModelRerankResult,
+    ModelStreamEvent,
+    ModelUsage,
+)
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.public_api_errors import PublicApiError
 from plugins.ai.entity.vo.ai_openai_compat_vo import (
@@ -189,8 +198,6 @@ class FakeModelService:
         self.embed_calls.append((model_id, tuple(inputs), {} if parameters is None else parameters))
         if self.error is not None:
             raise self.error
-        from plugins.ai.domain.model_runtime import ModelEmbeddingResponse, ModelEmbeddingVector
-
         return ModelServiceEmbeddingResultLike(
             ModelEmbeddingResponse(
                 vectors=(ModelEmbeddingVector(index=0, values=(0.1, 0.2)),),
@@ -208,8 +215,6 @@ class FakeModelService:
         self.rerank_calls.append((model_id, query, tuple(documents), {} if parameters is None else parameters))
         if self.error is not None:
             raise self.error
-        from plugins.ai.domain.model_runtime import ModelRerankResponse, ModelRerankResult
-
         return ModelServiceRerankResultLike(
             ModelRerankResponse(
                 request_id='rrk_PRIVATE',
@@ -517,3 +522,14 @@ async def test_rerank_goes_through_coordinator_and_rebuilds_documents_from_reque
     }
     assert MODEL_ID not in repr(response.model_dump())
     assert ENGINE_MODEL not in repr(response.model_dump())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('return_documents', [False, None])
+async def test_rerank_omits_document_text_unless_requested(return_documents: bool | None) -> None:
+    compat, _, _ = service()
+    request = rerank_request().model_copy(update={'return_documents': return_documents})
+    response = await compat.rerank(identity(), request)
+    assert all(item.document is None for item in response.results)
+    assert 'Shipping usually takes three days.' not in response.model_dump_json()
+    assert 'Refunds are accepted within thirty days.' not in response.model_dump_json()

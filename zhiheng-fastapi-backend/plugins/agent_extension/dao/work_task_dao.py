@@ -4,9 +4,8 @@ from typing import Any
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from plugins.agent_extension.entity.vo.work_task_vo import WorkTaskPageQueryModel
-
 from plugins.agent_extension.entity.do.work_task_do import AgentWorkMessage, AgentWorkTask, AgentWorkTaskMember
+from plugins.agent_extension.entity.vo.work_task_vo import WorkTaskPageQueryModel
 
 
 class WorkTaskDao:

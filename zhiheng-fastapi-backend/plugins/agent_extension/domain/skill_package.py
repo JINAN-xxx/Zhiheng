@@ -42,7 +42,9 @@ class ParsedSkillPackage:
 
 def compute_tree_hash(root: Path) -> str:
     digest = hashlib.sha256()
-    files = sorted((path for path in root.rglob('*') if path.is_file()), key=lambda path: path.relative_to(root).as_posix())
+    files = sorted(
+        (path for path in root.rglob('*') if path.is_file()), key=lambda path: path.relative_to(root).as_posix()
+    )
     for path in files:
         relative = path.relative_to(root).as_posix().encode()
         digest.update(len(relative).to_bytes(4, 'big'))
@@ -117,7 +119,9 @@ class SkillPackageParser:
         if not (target_dir / 'SKILL.md').is_file():
             raise SkillPackageError('技能包根目录缺少 SKILL.md')
 
-    def _copy_member(self, archive: zipfile.ZipFile, info: zipfile.ZipInfo, destination: Path, *, total_before: int) -> None:
+    def _copy_member(
+        self, archive: zipfile.ZipFile, info: zipfile.ZipInfo, destination: Path, *, total_before: int
+    ) -> None:
         written = 0
         with archive.open(info) as source, destination.open('xb') as output:
             while chunk := source.read(_HASH_CHUNK_SIZE):

@@ -18,13 +18,15 @@ DEFAULTS = {
     "PLATFORM_PORT": "12580",
     "PLATFORM_BIND_ADDRESS": "0.0.0.0",
     "PLATFORM_DATA_DIR": "./data",
+    "PLATFORM_DB_USER": "zhiheng",
+    "PLATFORM_DB_NAME": "zhiheng-fastapi",
     "PLATFORM_BACKEND_IMAGE": "zhiheng-backend:local",
     "AI_PUBLIC_API_ENABLED": "true",
     "AI_API_KEY_PEPPER_CURRENT_VERSION": "v1",
 }
 SECRET_KEYS = (
-    "RUOYI_DB_PASSWORD",
-    "RUOYI_REDIS_PASSWORD",
+    "ZHIHENG_DB_PASSWORD",
+    "ZHIHENG_REDIS_PASSWORD",
     "JWT_SECRET_KEY",
     "LITELLM_DB_PASSWORD",
     "LITELLM_REDIS_PASSWORD",
@@ -33,6 +35,11 @@ SECRET_KEYS = (
     "LITELLM_RUNTIME_KEY",
     "AI_API_KEY_PEPPER_V1",
 )
+# 仅用于读取旧部署配置；新配置只写 ZHIHENG_*，不能因改名轮换密钥。
+LEGACY_SECRET_KEYS = {
+    "RUOYI_DB_PASSWORD": "ZHIHENG_DB_PASSWORD",
+    "RUOYI_REDIS_PASSWORD": "ZHIHENG_REDIS_PASSWORD",
+}
 
 
 class DeploymentError(Exception):
@@ -61,6 +68,13 @@ def read_environment(path: Path) -> dict[str, str]:
         if name in result:
             raise DeploymentError(f"环境文件重复定义 {name}")
         result[name] = values[0] if values else ""
+    for legacy, canonical in LEGACY_SECRET_KEYS.items():
+        previous = result.pop(legacy, "")
+        current = result.get(canonical, "")
+        if previous and current and previous != current:
+            raise DeploymentError(f"{legacy} 与 {canonical} 配置冲突，请确认原有密钥")
+        if previous and not current:
+            result[canonical] = previous
     return result
 
 
@@ -104,7 +118,7 @@ def initialize_environment(path: Path) -> dict[str, str]:
                     + "，请从备份恢复环境文件"
                 )
         if (
-            values.get("RUOYI_DB_PASSWORD")
+            values.get("ZHIHENG_DB_PASSWORD")
             and values.get("LITELLM_RUNTIME_KEY")
             and not values.get("PLATFORM_DEPLOYMENT_VERSION")
         ):
@@ -165,7 +179,12 @@ def compose_command(path: Path, values: dict[str, str]) -> list[str]:
     ]
 
 
-def run(command: list[str], *, capture: bool = False) -> str:
+def run(
+    command: list[str],
+    *,
+    capture: bool = False,
+    environment: dict[str, str] | None = None,
+) -> str:
     try:
         result = subprocess.run(
             command,
@@ -173,6 +192,8 @@ def run(command: list[str], *, capture: bool = False) -> str:
             check=True,
             text=True,
             stdout=subprocess.PIPE if capture else None,
+            # 为仍使用旧密钥名的 env 文件提供内存中的规范化值；保留进程环境的覆盖优先级。
+            env={**environment, **os.environ} if environment is not None else None,
         )
         return result.stdout or ""
     except FileNotFoundError:
@@ -223,6 +244,28 @@ def _deploy(
         validate_environment(values)
     compose = compose_command(path, values)
     if action in {"init", "start", "update", "restart"}:
+        # 旧命名容器可能仍占用端口和 Redis 卷，迁移前不能启动第二套服务。
+        deployed_services = run(
+            [
+                docker,
+                "ps",
+                "--all",
+                "--filter",
+                f"label=com.docker.compose.project={values['PLATFORM_COMPOSE_PROJECT']}",
+                "--format",
+                '{{.Label "com.docker.compose.service"}}',
+            ],
+            capture=True,
+        )
+        if set(deployed_services.splitlines()) & {
+            "ruoyi-backend-pg",
+            "ruoyi-frontend",
+            "ruoyi-redis",
+        }:
+            raise DeploymentError(
+                "检测到同项目的旧命名容器，请先按 deploy/README.md 的旧命名迁移步骤处理，"
+                "保留数据卷并确认数据库配置后重试；不会自动删除旧容器"
+            )
         if not (ROOT / "zhiheng-fastapi-frontend/dist/index.html").is_file():
             raise DeploymentError(
                 "缺少前端 dist/index.html，请拉取包含构建产物的完整仓库"
@@ -232,28 +275,39 @@ def _deploy(
             data_dir = ROOT / data_dir
         for name in ("agent-skills", "knowledge", "platform-files", "milvus"):
             (data_dir / name).mkdir(parents=True, exist_ok=True, mode=0o700)
-        run(compose + ["config", "--quiet"])
+        run(compose + ["config", "--quiet"], environment=values)
         if build and action in {"init", "update"}:
-            run(compose + ["build", "zhiheng-backend-pg"])
+            run(compose + ["build", "zhiheng-backend-pg"], environment=values)
         existing_app = action in {"init", "start"} and bool(
-            run(compose + ["ps", "-q", "zhiheng-backend-pg"], capture=True).strip()
+            run(
+                compose + ["ps", "-q", "zhiheng-backend-pg"],
+                capture=True,
+                environment=values,
+            ).strip()
         )
         if action in {"update", "restart"} or existing_app:
             # 迁移时停应用写入，保留数据库与所有持久卷。
-            run(compose + ["stop", "zhiheng-frontend", "zhiheng-backend-pg"])
+            run(
+                compose + ["stop", "zhiheng-frontend", "zhiheng-backend-pg"],
+                environment=values,
+            )
         if action in {"init", "update"}:
-            run(compose + ["rm", "-f", "platform-init"])
+            run(compose + ["rm", "-f", "platform-init"], environment=values)
         arguments = ["up", "-d", "--wait", "--wait-timeout", "600"]
         arguments += ["--no-build"]
-        run(compose + arguments)
+        run(compose + arguments, environment=values)
         print(f"平台已就绪：http://127.0.0.1:{values['PLATFORM_PORT']}/", flush=True)
     elif action == "logs":
-        run(compose + ["logs", "-f", *(log_args or [])])
+        run(compose + ["logs", "-f", *(log_args or [])], environment=values)
     else:
-        run(compose + [{"status": "ps"}.get(action, action)])
+        run(compose + [{"status": "ps"}.get(action, action)], environment=values)
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "release":
+        from release.cli import main as release_main
+
+        return release_main(sys.argv[2:])
     parser = argparse.ArgumentParser(
         description="智衡完整平台一键部署（PostgreSQL + Milvus）"
     )
@@ -281,7 +335,10 @@ def main() -> int:
         parser.error("无法识别的参数")
     path = Path(
         os.environ.get(
-            "PLATFORM_ENV_FILE", os.environ.get("RUOYI_ENV_FILE", ROOT / ".env")
+            "PLATFORM_ENV_FILE",
+            os.environ.get(
+                "ZHIHENG_ENV_FILE", os.environ.get("RUOYI_ENV_FILE", ROOT / ".env")
+            ),
         )
     ).absolute()
     try:

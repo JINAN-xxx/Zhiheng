@@ -51,7 +51,8 @@ export function deleteEngineDeployment(deploymentId) {
 }
 
 export function testEngineConnection(data) {
-  return request({ url: enginePath('test-connection'), method: 'post', ...buildSecretBodyRequest(data) })
+  // The gateway can spend up to 60 seconds probing a cold or reasoning model.
+  return request({ url: enginePath('test-connection'), method: 'post', timeout: 120000, ...buildSecretBodyRequest(data) })
 }
 
 export function getEngineRuntimeStatus() {

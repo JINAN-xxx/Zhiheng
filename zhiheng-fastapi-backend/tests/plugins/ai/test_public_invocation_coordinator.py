@@ -9,9 +9,20 @@ import pytest_asyncio
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from plugins.ai import jobs
 from plugins.ai.dao.ai_developer_api_dao import InvocationSnapshotRecord
+from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.public_api_errors import PublicApiError
-from plugins.ai.entity.do.ai_developer_api_do import AiApiUsageLedger
+from plugins.ai.entity.do.ai_developer_api_do import (
+    AiApiKey,
+    AiApiKeyModelGrant,
+    AiApiQuotaPolicy,
+    AiApiUsageLedger,
+    AiApplication,
+    AiModelRateCard,
+)
+from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
+from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.infrastructure.developer_key_authenticator import DeveloperApiIdentity
 from plugins.ai.service.public_invocation_coordinator import (
     LEASE_TTL_SECONDS,
@@ -19,7 +30,6 @@ from plugins.ai.service.public_invocation_coordinator import (
     PublicInvocationCoordinator,
     PublicQuotaEngine,
     PublicQuotaReconciler,
-    Reservation,
     RuntimeUsage,
 )
 
@@ -30,6 +40,16 @@ MODEL_ID = 'mdl_00000000000040008000000000000001'
 BINDING_ID = 'bnd_00000000000040008000000000000001'
 RATE_CARD_ID = 'rate_00000000000040008000000000000001'
 MODEL_CODE = 'deepseek-chat'
+EXPECTED_RESERVATIONS = 2
+EXPECTED_RESERVED_TOKENS = 300
+EXPECTED_SETTLED_TOKENS = 280
+EXPECTED_REMAINING_TOKENS = 80
+EXPECTED_CHAT_INPUT_TOKENS = 4
+EXPECTED_CHAT_OUTPUT_TOKENS = 3
+EXPECTED_CONSERVATIVE_CHAT_TOKENS = 1034
+EXPECTED_SEARCH_UNITS = 2
+EXPECTED_CONSERVATIVE_EMBEDDING_TOKENS = 100
+EXPECTED_RECONCILED_LEDGERS = 3
 
 
 def _snapshot(
@@ -118,8 +138,8 @@ async def test_quota_reserve_settle_and_release_are_atomic_and_lease_scoped() ->
 
     rpm = await redis.get(f'ai:quota:rpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')
     tpm = await redis.get(f'ai:quota:tpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')
-    assert int(rpm) == 2
-    assert int(tpm) == 300
+    assert int(rpm) == EXPECTED_RESERVATIONS
+    assert int(tpm) == EXPECTED_RESERVED_TOKENS
 
     # 结算第一条：实际用量低于预留量。
     settled = await engine.settle(
@@ -130,12 +150,12 @@ async def test_quota_reserve_settle_and_release_are_atomic_and_lease_scoped() ->
         now=NOW,
     )
     assert settled is True
-    assert int(await redis.get(f'ai:quota:tpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')) == 280
+    assert int(await redis.get(f'ai:quota:tpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')) == EXPECTED_SETTLED_TOKENS
 
     # 释放第二条。
     released = await engine.release(snapshot, second, now=NOW)
     assert released is True
-    assert int(await redis.get(f'ai:quota:tpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')) == 80
+    assert int(await redis.get(f'ai:quota:tpm:{KEY_ID}:{int(NOW.timestamp()) // 60}')) == EXPECTED_REMAINING_TOKENS
 
     # 租约已删除，重复结算或释放返回 False。
     assert await engine.settle(snapshot, first, actual_tokens=1, actual_cost=Decimal('0'), now=NOW) is False
@@ -294,16 +314,6 @@ async def ledger_database() -> tuple[AsyncEngine, async_sessionmaker[AsyncSessio
     session_maker = async_sessionmaker(engine, expire_on_commit=True)
     async with engine.begin() as connection:
         # Ledger 外键引用的父表必须存在且包含对应主键行。
-        from plugins.ai.entity.do.ai_developer_api_do import (
-            AiApiKey,
-            AiApiKeyModelGrant,
-            AiApiQuotaPolicy,
-            AiApplication,
-            AiModelRateCard,
-        )
-        from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
-        from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
-
         for table in (
             AiModelCatalog.__table__,
             AiResourceBinding.__table__,
@@ -316,7 +326,6 @@ async def ledger_database() -> tuple[AsyncEngine, async_sessionmaker[AsyncSessio
         ):
             await connection.run_sync(table.create)
     async with session_maker() as session:
-        snapshot = StubSnapshotDao.snapshot
         session.add(
             AiApplication(
                 application_id=APPLICATION_ID,
@@ -445,13 +454,12 @@ async def test_coordinator_run_writes_started_and_completed_ledger_and_settles_q
         coordinator = PublicInvocationCoordinator(
             db,
             redis,
-            session_factory=lambda: session_maker(),
+            session_factory=session_maker,
             quota=quota,
             dao=StubSnapshotDao,
             clock=lambda: NOW,
             request_id_factory=lambda: 'use_00000000000040008000000000000001',
         )
-        snapshot = _snapshot()
 
         async def operation(snapshot: InvocationSnapshotRecord) -> OperationResult:
             del snapshot
@@ -472,8 +480,8 @@ async def test_coordinator_run_writes_started_and_completed_ledger_and_settles_q
 
     assert result.payload == 'payload-value'
     assert result.settled.status == 'completed'
-    assert result.settled.input_tokens == 4
-    assert result.settled.output_tokens == 3
+    assert result.settled.input_tokens == EXPECTED_CHAT_INPUT_TOKENS
+    assert result.settled.output_tokens == EXPECTED_CHAT_OUTPUT_TOKENS
     assert result.settled.cost_estimated is False
 
     async with session_maker() as session:
@@ -491,8 +499,8 @@ async def test_coordinator_run_writes_started_and_completed_ledger_and_settles_q
     assert ledger is not None
     assert ledger.status == 'completed'
     assert ledger.operation_type == 'chat'
-    assert ledger.input_tokens == 4
-    assert ledger.output_tokens == 3
+    assert ledger.input_tokens == EXPECTED_CHAT_INPUT_TOKENS
+    assert ledger.output_tokens == EXPECTED_CHAT_OUTPUT_TOKENS
     assert ledger.billable_cost == Decimal('0.000004') + Decimal('0.000006')
     # 租约已结算删除。
     assert await redis.get('ai:quota:lease:use_00000000000040008000000000000001') is None
@@ -543,14 +551,12 @@ async def test_coordinator_run_marks_failed_and_settles_conservatively_on_runtim
     redis = fakeredis.aioredis.FakeRedis()
     quota = PublicQuotaEngine(redis, clock=lambda: NOW, token_factory=lambda: 'lease-token')
 
-    from plugins.ai.domain.model_service_errors import ModelServiceError
-
     async with session_maker() as db:
         StubSnapshotDao.snapshot = _snapshot()
         coordinator = PublicInvocationCoordinator(
             db,
             redis,
-            session_factory=lambda: session_maker(),
+            session_factory=session_maker,
             quota=quota,
             dao=StubSnapshotDao,
             clock=lambda: NOW,
@@ -583,7 +589,7 @@ async def test_coordinator_run_marks_failed_and_settles_conservatively_on_runtim
     assert ledger.status == 'failed'
     assert ledger.cost_estimated is True
     assert ledger.error_code == 'MODEL_PROVIDER_AUTH_FAILED'
-    assert ledger.input_tokens == 1034  # 保守预留量（输入 bytes + 模型最大输出）
+    assert ledger.input_tokens == EXPECTED_CONSERVATIVE_CHAT_TOKENS  # 保守预留量（输入 bytes + 模型最大输出）
     await redis.aclose()
 
 
@@ -599,7 +605,7 @@ async def test_search_unit_settlement_does_not_charge_tokens(
         coordinator = PublicInvocationCoordinator(
             db,
             redis,
-            session_factory=lambda: session_maker(),
+            session_factory=session_maker,
             quota=quota,
             dao=StubSnapshotDao,
             clock=lambda: NOW,
@@ -620,7 +626,7 @@ async def test_search_unit_settlement_does_not_charge_tokens(
             operation=operation,
         )
 
-    assert result.settled.search_units == 2
+    assert result.settled.search_units == EXPECTED_SEARCH_UNITS
     assert result.settled.billable_cost == Decimal('0.002')
     assert result.settled.cost_estimated is False
 
@@ -637,7 +643,7 @@ async def test_search_unit_settlement_does_not_charge_tokens(
             .first()
         )
     assert ledger is not None
-    assert ledger.search_units == 2
+    assert ledger.search_units == EXPECTED_SEARCH_UNITS
     assert ledger.billable_cost == Decimal('0.002')
     await redis.aclose()
 
@@ -654,7 +660,7 @@ async def test_missing_usage_settles_with_estimated_conservative_cost(
         coordinator = PublicInvocationCoordinator(
             db,
             redis,
-            session_factory=lambda: session_maker(),
+            session_factory=session_maker,
             quota=quota,
             dao=StubSnapshotDao,
             clock=lambda: NOW,
@@ -671,7 +677,7 @@ async def test_missing_usage_settles_with_estimated_conservative_cost(
         )
 
     assert result.settled.cost_estimated is True
-    assert result.settled.input_tokens == 100
+    assert result.settled.input_tokens == EXPECTED_CONSERVATIVE_EMBEDDING_TOKENS
 
     async with session_maker() as session:
         ledger = (
@@ -730,7 +736,7 @@ async def test_reconciler_marks_stale_started_ledgers_abandoned(
     redis = fakeredis.aioredis.FakeRedis()
     quota = PublicQuotaEngine(redis, clock=lambda: stale_now)
     reconciler = PublicQuotaReconciler(
-        session_factory=lambda: session_maker(),
+        session_factory=session_maker,
         quota=quota,
         clock=lambda: stale_now,
         stale_after_seconds=900,
@@ -754,7 +760,7 @@ async def test_reconciler_marks_stale_started_ledgers_abandoned(
     assert ledger.status == 'abandoned'
     assert ledger.cost_estimated is True
     assert ledger.error_code == 'RECONCILED_ABANDONED'
-    assert ledger.input_tokens == 100
+    assert ledger.input_tokens == EXPECTED_CONSERVATIVE_EMBEDDING_TOKENS
     assert ledger.billable_cost == Decimal('0.0001')
     assert await redis.exists(f'ai:quota:lease:{ledger.request_id}') == 0
     await redis.aclose()
@@ -791,7 +797,7 @@ async def test_reconciler_skips_recent_started_ledgers(
 
     redis = fakeredis.aioredis.FakeRedis()
     reconciler = PublicQuotaReconciler(
-        session_factory=lambda: session_maker(),
+        session_factory=session_maker,
         quota=PublicQuotaEngine(redis, clock=lambda: NOW),
         clock=lambda: NOW,
         stale_after_seconds=900,
@@ -829,7 +835,7 @@ async def test_cancellation_during_run_finalizes_cancelled_ledger(
         coordinator = PublicInvocationCoordinator(
             db,
             redis,
-            session_factory=lambda: session_maker(),
+            session_factory=session_maker,
             quota=quota,
             dao=StubSnapshotDao,
             clock=lambda: NOW,
@@ -865,8 +871,6 @@ async def test_cancellation_during_run_finalizes_cancelled_ledger(
 
 @pytest.mark.asyncio
 async def test_scheduled_reconciler_builds_and_closes_owned_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugins.ai import jobs
-
     class FakeRedis:
         close_count = 0
 
@@ -894,7 +898,7 @@ async def test_scheduled_reconciler_builds_and_closes_owned_dependencies(monkeyp
     monkeypatch.setattr(jobs, 'RedisUtil', FakeRedisUtil)
     monkeypatch.setattr(jobs, 'PublicQuotaReconciler', FakeReconciler)
 
-    assert await jobs.reconcile_public_quota() == 3
+    assert await jobs.reconcile_public_quota() == EXPECTED_RECONCILED_LEDGERS
     assert captured['session_factory'] is session_factory
     assert isinstance(captured['quota'], PublicQuotaEngine)
     assert redis.close_count == 1

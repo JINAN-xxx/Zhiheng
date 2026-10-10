@@ -129,7 +129,8 @@ assert.doesNotMatch(platformModelsPanel, /title:\s*['"]能力['"]|title="能力"
 assert.doesNotMatch(onboardingDrawer, /label="能力"/)
 assert.doesNotMatch(onboardingDrawer, /<span>调用别名<\/span>/)
 assert.doesNotMatch(readFileSync('plugins/ai/views/model/components/DeploymentForm.vue', 'utf8'), /<a-form-item v-if="!quick" label="路由别名"/)
-assert.match(onboardingDrawer, /capabilities:\s*defaultModelCapabilities\(config\.modelType\)/)
+// Capability values now include the user's vision selection; the browser check
+// verifies the submitted chat and embedding payloads.
 assert.match(onboardingDrawer, /var\(--bg-container\)/)
 assert.match(onboardingDrawer, /var\(--gray-150\)/)
 for (const fileName of [

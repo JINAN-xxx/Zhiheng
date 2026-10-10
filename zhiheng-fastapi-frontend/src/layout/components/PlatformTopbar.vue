@@ -1,5 +1,5 @@
 <template>
-  <header class="platform-topbar">
+  <header class="platform-topbar" :class="{ 'has-workspace-return': mode !== 'ai' && canOpenAi }">
     <button ref="menuButtonRef" type="button" class="platform-topbar__menu" aria-label="打开主菜单" title="打开主菜单" @click="emit('toggle-sidebar')">
       <MenuOutlined />
     </button>
@@ -10,14 +10,15 @@
 
     <div class="platform-topbar__actions">
       <button
-        v-if="mode !== 'ai'"
+        v-if="mode !== 'ai' && canOpenAi"
         type="button"
         class="platform-topbar__mode"
-        title="返回智能工作台"
+        title="返回 AI 工作台"
+        aria-label="返回 AI 工作台"
         @click="emit('open-ai')"
       >
-        <MessageOutlined />
-        <span>返回智能工作台</span>
+        <ArrowLeftOutlined />
+        <span>返回 AI 工作台</span>
       </button>
       <PlatformAccountMenu compact @set-layout="emit('set-layout')" />
     </div>
@@ -25,10 +26,13 @@
 </template>
 
 <script setup>
-import { MenuOutlined, MessageOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, MenuOutlined } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 
-const props = defineProps({ mode: { type: String, required: true } })
+const props = defineProps({
+  mode: { type: String, required: true },
+  canOpenAi: { type: Boolean, default: false },
+})
 const emit = defineEmits(['open-ai', 'set-layout', 'toggle-sidebar'])
 const route = useRoute()
 const menuButtonRef = ref(null)
@@ -60,7 +64,7 @@ defineExpose({ focusMenu })
 .platform-topbar__menu:hover { border-color: var(--gray-150); background: var(--gray-50); color: var(--color-text); }
 .platform-topbar__context { min-width: 0; display: grid; gap: 1px; }
 .platform-topbar__context span { color: var(--color-text-tertiary); font-size: 11px; }
-.platform-topbar__context strong { overflow: hidden; color: var(--color-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.platform-topbar__context strong { display: block; overflow: hidden; color: var(--color-text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .platform-topbar__actions { min-width: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .platform-topbar__mode { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--gray-150); border-radius: var(--workspace-radius-sm); background: var(--bg-container); color: var(--color-text-secondary); cursor: pointer; }
 .platform-topbar__mode:hover { background: var(--gray-50); color: var(--color-text); }
@@ -68,8 +72,8 @@ defineExpose({ focusMenu })
   .platform-topbar { padding: 0 8px; }
   .platform-topbar__context { flex: 1 1 auto; }
   .platform-topbar__actions { flex: 0 0 auto; }
-  .platform-topbar__context span,
-  .platform-topbar__mode span { display: none; }
-  .platform-topbar__mode { width: 32px; min-width: 32px; flex: 0 0 32px; justify-content: center; padding: 0; overflow: visible; }
+  .platform-topbar__context span { display: none; }
+  .platform-topbar.has-workspace-return .platform-topbar__context { display: none; }
+  .platform-topbar__mode { flex: 0 0 auto; justify-content: center; white-space: nowrap; }
 }
 </style>

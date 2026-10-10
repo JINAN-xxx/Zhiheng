@@ -60,12 +60,16 @@ async def prepare_agent_call(
             }
             for item in passages
         ]
-        messages.append({'role': 'user', 'content': 'Knowledge references:\n' + json.dumps(sources, ensure_ascii=False)})
+        messages.append(
+            {'role': 'user', 'content': 'Knowledge references:\n' + json.dumps(sources, ensure_ascii=False)}
+        )
     messages.append(request.messages[-1].model_dump())
-    return OpenAIChatCompletionRequestModel.model_validate({
-        'model': model_code,
-        'messages': messages,
-        'temperature': config.temperature,
-        'max_tokens': config.max_tokens,
-        'stream': request.stream,
-    })
+    return OpenAIChatCompletionRequestModel.model_validate(
+        {
+            'model': model_code,
+            'messages': messages,
+            'temperature': config.temperature,
+            'max_tokens': config.max_tokens,
+            'stream': request.stream,
+        }
+    )

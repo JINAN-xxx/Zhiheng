@@ -92,9 +92,7 @@ async def test_upload_confirm_list_status_and_delete_closed_loop(
 
 
 @pytest.mark.asyncio
-async def test_builtin_skill_cannot_be_deleted(
-    database: async_sessionmaker[AsyncSession], tmp_path: Path
-) -> None:
+async def test_builtin_skill_cannot_be_deleted(database: async_sessionmaker[AsyncSession], tmp_path: Path) -> None:
     builtin_root = tmp_path / 'buildin'
     skill_root = builtin_root / 'document-summary'
     skill_root.mkdir(parents=True)
@@ -154,4 +152,3 @@ async def test_resolve_rejects_missing_and_disabled_skill(
         )
         with pytest.raises(SkillServiceError, match='已停用'):
             await service.resolve_enabled_skills(['deep-research'])
-

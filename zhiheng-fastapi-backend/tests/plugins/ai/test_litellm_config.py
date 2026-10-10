@@ -132,12 +132,16 @@ def test_gateway_settings_read_environment_defaults(monkeypatch: pytest.MonkeyPa
 
     settings = LiteLLMSettings()
 
-    assert settings.embedding_max_inputs == 256
-    assert settings.embedding_max_input_bytes == 32768
-    assert settings.rerank_max_documents == 256
-    assert settings.rerank_max_query_bytes == 8192
-    assert settings.rerank_max_document_bytes == 32768
-    assert settings.runtime_max_json_response_bytes == 33_554_432
+    expected_max_items = 256
+    expected_max_text_bytes = 32768
+    expected_max_query_bytes = 8192
+    expected_max_response_bytes = 33_554_432
+    assert settings.embedding_max_inputs == expected_max_items
+    assert settings.embedding_max_input_bytes == expected_max_text_bytes
+    assert settings.rerank_max_documents == expected_max_items
+    assert settings.rerank_max_query_bytes == expected_max_query_bytes
+    assert settings.rerank_max_document_bytes == expected_max_text_bytes
+    assert settings.runtime_max_json_response_bytes == expected_max_response_bytes
 
 
 def test_litellm_settings_read_environment_without_exposing_secret(monkeypatch: pytest.MonkeyPatch) -> None:

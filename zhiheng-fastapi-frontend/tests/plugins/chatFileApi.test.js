@@ -1,26 +1,17 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import vm from 'node:vm'
-import { assertChatUploadResponse, chatFileDownloadPath } from '../../plugins/ai/utils/chatFiles.js'
-import { normalizeErrorMessage } from '../../src/utils/errorMessage.js'
+import { loadChatApis } from './helpers/loadChatApis.js'
 
-const source = readFileSync(new URL('../../plugins/ai/api/chat.js', import.meta.url), 'utf8')
 const requests = []
 let response = { code: 200, fileId: 'private-file', originalFilename: 'report.pdf' }
 let rejectBusiness = false
 let networkFailure = false
-const scope = {
-  assertChatUploadResponse, chatFileDownloadPath, normalizeErrorMessage, FormData,
-  request: async config => {
-    requests.push(config)
-    if (networkFailure) throw new Error('网络连接已断开')
-    for (const transform of config.transformResponse || []) transform(JSON.stringify(response))
-    if (rejectBusiness) throw 'error'
-    return response
-  },
-}
-vm.createContext(scope)
-vm.runInContext(source.replace(/^import .+;?\n/gm, '').replaceAll('export ', '').replaceAll('import.meta.env.VITE_APP_BASE_API', '"/api"'), scope)
+const { chat: scope } = await loadChatApis(async config => {
+  requests.push(config)
+  if (networkFailure) throw new Error('网络连接已断开')
+  for (const transform of config.transformResponse || []) transform(JSON.stringify(response))
+  if (rejectBusiness) throw 'error'
+  return response
+})
 assert.equal(typeof scope.uploadChatFile, 'function', 'The chat API must expose a protected shared-client file upload')
 const upload = new File(['sample'], 'report.pdf', { type: 'application/pdf' })
 const controller = new AbortController()

@@ -499,7 +499,7 @@ def test_browser_screen_failure_sections_use_current_snapshot_title(tui_modules:
 @pytest.mark.asyncio
 async def test_browser_screen_scrolls_in_small_viewport(tui_modules: SimpleNamespace) -> None:
     thin_scrollbar_size = 1
-    app = tui_modules.cli_tui_app.RuoyiTuiApp('dev')
+    app = tui_modules.cli_tui_app.ZhihengTuiApp('dev')
     app.action_show_dashboard = lambda: None  # type: ignore[method-assign]
     app.current_view = 'jobs'
     snapshot = tui_modules.cli_tui_adapters.BrowserPageSnapshot(

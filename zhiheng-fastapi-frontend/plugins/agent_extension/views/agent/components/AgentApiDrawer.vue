@@ -45,9 +45,10 @@ import { normalizeErrorMessage } from '@/utils/errorMessage'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import { buildAgentPublicPath, getPublishedAgentAccess } from '../../../utils/agent.js'
 import { hasSkillPermission } from '../../../utils/skill.js'
-import { createDeveloperKey, listDeveloperKeys, revokeDeveloperKey } from '../../../../ai/api/application.js'
-import { developerKeyStatusLabel, extractIssuedKey, normalizeDeveloperKeys } from '../../../../ai/utils/application.js'
-import { buildPublicApiBase, copyText } from '../../../../ai/utils/apiDocs.js'
+import {
+  createDeveloperKey, listDeveloperKeys, revokeDeveloperKey,
+  developerKeyStatusLabel, extractIssuedKey, normalizeDeveloperKeys, buildPublicApiBase, copyText,
+} from '../../../../ai/public/developerKeys.js'
 
 const props = defineProps({ modelValue: Boolean, agent: { type: Object, default: null }, permissions: { type: Array, default: () => [] } })
 const emit = defineEmits(['update:modelValue'])

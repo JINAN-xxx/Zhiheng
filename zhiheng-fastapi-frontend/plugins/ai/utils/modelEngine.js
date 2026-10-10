@@ -359,6 +359,16 @@ export function defaultModelCapabilities(type) {
   return {}
 }
 
+export function buildModelVisionUpdate(model, vision) {
+  if (model?.modelType !== 'chat') throw new Error('仅对话模型可配置图片理解')
+  if (typeof vision !== 'boolean') throw new Error('图片理解配置必须为布尔值')
+  // PATCH replaces the capability object. Preserve other chat capabilities and
+  // omit fields belonging to embedding/rerank, which the API rejects for chat.
+  const capabilities = Object.fromEntries(Object.keys(defaultModelCapabilities('chat'))
+    .map(key => [key, model.capabilities?.[key] === true]))
+  return { capabilities: { ...capabilities, vision } }
+}
+
 export function getBindingStatusMeta(status) {
   return BINDING_META[status] || BINDING_META.missing
 }

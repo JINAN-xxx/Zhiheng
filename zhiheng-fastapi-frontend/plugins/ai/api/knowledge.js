@@ -8,7 +8,6 @@ const document = (dbId, docId) => `${database(dbId)}/documents/${id(docId)}`
 const slowOperation = { timeout: 600000 }
 
 export const listKnowledgeBases = () => request({ url: `${prefix}/databases`, method: 'get' })
-export const listAvailableKnowledgeBases = () => request({ url: `${prefix}/available`, method: 'get' })
 export const listKnowledgeModels = modelType => request({ url: `${prefix}/models`, method: 'get', params: { model_type: modelType } })
 export const listKnowledgeTypes = () => request({ url: `${prefix}/types`, method: 'get' })
 export const createKnowledgeBase = data => request({ url: `${prefix}/databases`, method: 'post', data, ...slowOperation })
@@ -41,3 +40,5 @@ export const getKnowledgeGraphConfig = (dbId, signal) => request({ url: `${datab
 export const saveKnowledgeGraphConfig = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-config`, method: 'put', data, signal })
 export const getKnowledgeGraphPreview = (dbId, signal) => request({ url: `${database(dbId)}/graph-preview`, method: 'get', signal })
 export const startKnowledgeGraphPreview = (dbId, data, signal) => request({ url: `${database(dbId)}/graph-preview`, method: 'post', data, signal, headers: { repeatSubmit: false } })
+
+export { listAvailableKnowledgeBases } from '../public/resourceSelection.js'

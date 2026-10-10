@@ -53,6 +53,7 @@
         <template v-else-if="column.key === 'updatedAt'">{{ formatTime(row.updatedAt) }}</template>
         <template v-else-if="column.key === 'actions'">
           <div class="row-actions desktop-actions">
+            <a-tooltip v-if="canEdit && canQuery && row.modelType === 'chat'" title="图片理解设置" placement="top"><a-button type="link" aria-label="图片理解设置" @click="openVision(row)"><template #icon><EyeOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canEdit" title="费率配置" placement="top"><a-button type="link" aria-label="费率配置" @click="openRateCards(row)"><template #icon><DollarOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canTest && row.lifecycleStatus === 'active'" title="类型化连接测试" placement="top"><a-button type="link" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)"><template #icon><ApiOutlined /></template></a-button></a-tooltip>
             <a-tooltip v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" :title="getLifecycleAction(row.lifecycleStatus)" placement="top"><a-button type="link" :aria-label="getLifecycleAction(row.lifecycleStatus)" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
@@ -62,6 +63,7 @@
           <a-dropdown class="mobile-actions" :trigger="['click']">
             <a-button type="text" aria-label="更多操作"><template #icon><EllipsisOutlined /></template></a-button>
             <template #overlay><a-menu @click="({ key }) => handleRowAction(key, row)">
+              <a-menu-item v-if="canEdit && canQuery && row.modelType === 'chat'" key="vision">图片理解设置</a-menu-item>
               <a-menu-item v-if="canEdit" key="rate">费率配置</a-menu-item>
               <a-menu-item v-if="canTest && row.lifecycleStatus === 'active'" key="test">类型化连接测试</a-menu-item>
               <a-menu-item v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" key="publish" :disabled="!canPublishPlatformModel(row)">{{ getLifecycleAction(row.lifecycleStatus) }}</a-menu-item>
@@ -83,6 +85,7 @@
       @change="load"
     />
 
+    <ModelVisionDialog v-model="visionDialogVisible" :model="visionModel" @saved="load" />
     <a-modal v-model:open="rateDialogVisible" title="费率配置" width="min(680px, 94vw)" destroy-on-close>
       <div class="rate-context">
         <strong>{{ rateModel?.modelCode }}</strong>
@@ -121,11 +124,12 @@
 
 <script setup>
 import {
-  ApiOutlined, CopyOutlined, DeleteOutlined, DollarOutlined, EllipsisOutlined,
+  ApiOutlined, CopyOutlined, DeleteOutlined, DollarOutlined, EllipsisOutlined, EyeOutlined,
   PauseCircleOutlined, ReloadOutlined, SendOutlined,
 } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
+import ModelVisionDialog from './ModelVisionDialog.vue'
 import {
   deletePlatformModel,
   disablePlatformModel,
@@ -177,6 +181,12 @@ const rateColumns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 78, align: 'center' },
 ]
 const testingId = ref(null)
+const visionDialogVisible = ref(false)
+const visionModel = ref(null)
+function openVision(row) {
+  visionModel.value = row
+  visionDialogVisible.value = true
+}
 const rateDialogVisible = ref(false)
 const rateLoading = ref(false)
 const rateSaving = ref(false)
@@ -370,6 +380,7 @@ async function smokeTest(row) {
 
 function handleRowAction(action, row) {
   const actions = {
+    vision: openVision,
     rate: openRateCards,
     test: smokeTest,
     publish,

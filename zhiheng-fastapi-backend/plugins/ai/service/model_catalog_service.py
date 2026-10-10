@@ -1,4 +1,5 @@
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import datetime
 from typing import Any, Protocol, TypeVar
 
@@ -7,13 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.vo import PageModel
 from exceptions.exception import ServiceException
-from plugins.ai.dao.ai_developer_api_dao import AiDeveloperApiDao
 from plugins.ai.dao.ai_model_catalog_dao import AiModelCatalogDao
 from plugins.ai.dao.ai_resource_binding_dao import AiResourceBindingDao
 from plugins.ai.domain.model_runtime import ModelRuntimeEngine
 from plugins.ai.domain.model_service_errors import ModelServiceError
 from plugins.ai.domain.resource_id import new_resource_id
-from plugins.ai.entity.do.ai_developer_api_do import AiModelRateCard
 from plugins.ai.entity.do.ai_model_catalog_do import AiModelCatalog
 from plugins.ai.entity.do.ai_resource_binding_do import AiResourceBinding
 from plugins.ai.entity.vo.ai_developer_api_vo import RateCardCreateModel, RateCardModel
@@ -26,6 +25,8 @@ from plugins.ai.entity.vo.ai_model_catalog_vo import (
     ResourceBindingModel,
     ResourceBindingUpsertModel,
 )
+from plugins.ai.public.model_references import ModelReferenceChecker, UnavailableModelReferenceChecker
+from plugins.ai.public.rate_cards import RateCardService
 
 ResultT = TypeVar('ResultT')
 
@@ -42,24 +43,11 @@ RUNTIME_ALIAS_MISSING = '模型尚未对平台调用密钥生效，请重试发�
 MODEL_STATE_CONFLICT = '模型状态已变化，请刷新后重试'
 MODEL_DISABLE_CONFLICT = '仅已发布模型可以停用'
 MODEL_DELETE_CONFLICT = '仅草稿或已停用模型可以删除'
-MODEL_REFERENCED = '模型已被对话、密钥授权、费率或调用记录引用，不能删除'
-RATE_CARD_TYPE_CONFLICT = '模型类型与计费模式不匹配'
-
-
-class ModelReferenceChecker(Protocol):
-    async def has_model_references(self, model_id: str) -> bool: ...
+MODEL_REFERENCED = '模型仍被业务数据引用，不能删除'
 
 
 class RuntimeModelAccess(Protocol):
     async def ensure_model_access(self, alias: str) -> None: ...
-
-
-class NoModelReferenceChecker:
-    """在 Chat 新表接入前使用的显式无引用实现。"""
-
-    async def has_model_references(self, model_id: str) -> bool:
-        del model_id
-        return False
 
 
 class ModelCatalogService:
@@ -73,15 +61,17 @@ class ModelCatalogService:
         *,
         model_dao: type[AiModelCatalogDao] = AiModelCatalogDao,
         binding_dao: type[AiResourceBindingDao] = AiResourceBindingDao,
-        rate_card_dao: type[AiDeveloperApiDao] = AiDeveloperApiDao,
+        rate_cards: RateCardService | None = None,
         runtime_access: RuntimeModelAccess | None = None,
     ) -> None:
         self._db = db
         self._runtime = runtime
-        self._reference_checker = reference_checker or NoModelReferenceChecker()
+        self._reference_checker = (
+            reference_checker if reference_checker is not None else UnavailableModelReferenceChecker()
+        )
         self._model_dao = model_dao
         self._binding_dao = binding_dao
-        self._rate_card_dao = rate_card_dao
+        self._rate_cards = rate_cards if rate_cards is not None else RateCardService(db)
         self._runtime_access = runtime_access
 
     async def list_models(
@@ -108,8 +98,7 @@ class ModelCatalogService:
 
     async def list_rate_cards(self, model_id: str) -> list[RateCardModel]:
         await self._require_model(model_id)
-        cards = await self._rate_card_dao.list_rate_cards_by_model(self._db, model_id)
-        return [RateCardModel.model_validate(card) for card in cards]
+        return await self._rate_cards.list_rate_cards(model_id)
 
     async def create_rate_card(
         self,
@@ -119,41 +108,15 @@ class ModelCatalogService:
         username: str,
         now: datetime,
     ) -> RateCardModel:
-        model = await self._require_model(model_id)
-        expected_billing_mode = 'search_unit' if model.model_type == 'rerank' else 'token'
-        if payload.billing_mode != expected_billing_mode:
-            await self._rollback_preserving_error()
-            raise ServiceException(message=RATE_CARD_TYPE_CONFLICT)
-        existing = await self._rate_card_dao.list_rate_cards_by_model(self._db, model_id)
-        next_version = max((card.version for card in existing), default=0) + 1
-        database_now = now.replace(tzinfo=None) if now.tzinfo is not None else now
-        effective_from = (
-            payload.effective_from.replace(tzinfo=None)
-            if payload.effective_from is not None and payload.effective_from.tzinfo is not None
-            else (payload.effective_from or database_now)
-        )
-
         async def operation() -> RateCardModel:
-            card = AiModelRateCard(
-                rate_card_id=new_resource_id('rate'),
-                platform_model_id=model_id,
-                version=next_version,
-                billing_mode=payload.billing_mode,
-                input_price_per_token=payload.input_price_per_token,
-                output_price_per_token=payload.output_price_per_token,
-                cache_price_per_token=payload.cache_price_per_token,
-                search_price_per_unit=payload.search_price_per_unit,
-                currency=payload.currency,
-                effective_from=effective_from,
-                effective_to=None,
-                status='active',
-                created_by=username,
-                created_at=database_now,
-                updated_by=username,
-                updated_at=database_now,
+            model = await self._require_model(model_id)
+            return await self._rate_cards.create_rate_card(
+                model_id,
+                model.model_type,
+                payload,
+                username=username,
+                now=now,
             )
-            created = await self._rate_card_dao.create_rate_card(self._db, card)
-            return RateCardModel.model_validate(created)
 
         return await self._run_write(operation)
 
@@ -358,7 +321,8 @@ class ModelCatalogService:
             if await self._model_dao.delete_removable_model(self._db, model_id) != 1:
                 raise ServiceException(message=MODEL_STATE_CONFLICT)
 
-        await self._run_write(operation, integrity_conflict=MODEL_REFERENCED)
+        guard = getattr(self._reference_checker, 'deletion_guard', nullcontext)()
+        await self._run_write(operation, integrity_conflict=MODEL_REFERENCED, guard=guard)
 
     async def _get_model_response(self, model_id: str) -> PlatformModelModel:
         return PlatformModelModel.model_validate(await self._require_model(model_id))
@@ -393,11 +357,13 @@ class ModelCatalogService:
         operation: Callable[[], Awaitable[ResultT]],
         *,
         integrity_conflict: str | None = None,
+        guard: AbstractAsyncContextManager | None = None,
     ) -> ResultT:
         integrity_failed = False
         try:
-            result = await operation()
-            await self._db.commit()
+            async with guard if guard is not None else nullcontext():
+                result = await operation()
+                await self._db.commit()
         except IntegrityError:
             integrity_failed = True
             await self._rollback_preserving_error()

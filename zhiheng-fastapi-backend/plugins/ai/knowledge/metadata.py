@@ -19,7 +19,7 @@ class MetadataStore:
         self.path = data_dir / 'metadata.json'
 
     @asynccontextmanager
-    async def lock(self, name: str = 'metadata') -> AsyncIterator[None]:
+    async def lock(self, name: str = 'metadata', *, shared: bool = False) -> AsyncIterator[None]:
         self.directory.mkdir(parents=True, exist_ok=True)
         lock_path = self.directory / f'.{name}.lock'
         descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -27,7 +27,7 @@ class MetadataStore:
             deadline = time.monotonic() + 120
             while True:
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(descriptor, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:

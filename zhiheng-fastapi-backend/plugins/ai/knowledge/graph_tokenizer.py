@@ -18,7 +18,8 @@ GRAPH_TOKENIZER_MAX_BYTES = 5 * 1024 * 1024
 def validate_graph_tokenizer_cache(directory: Path | None = None) -> Path:
     if directory is None:
         configured = os.environ.get(
-            'TIKTOKEN_CACHE_DIR', os.environ.get('DATA_GYM_CACHE_DIR', str(Path(tempfile.gettempdir()) / 'data-gym-cache'))
+            'TIKTOKEN_CACHE_DIR',
+            os.environ.get('DATA_GYM_CACHE_DIR', str(Path(tempfile.gettempdir()) / 'data-gym-cache')),
         )
         if not configured:
             raise KnowledgeError('KNOWLEDGE_GRAPH_UNAVAILABLE', '知识图谱处理资源尚未就绪，请联系管理员', 503)

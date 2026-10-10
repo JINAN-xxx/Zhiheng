@@ -71,7 +71,9 @@ def test_plugin_runtime_create_plugin_dry_run_does_not_write_files(tmp_path: Pat
     assert payload['files']
     assert not (backend_root / 'plugins' / 'demo' / 'plugin.yaml').exists()
     assert not (backend_root / 'tests' / 'plugins' / 'demo' / 'test_ping.py').exists()
-    assert not (project_root / 'zhiheng-fastapi-frontend' / 'tests' / 'plugins' / 'demo' / 'pluginView.test.js').exists()
+    assert not (
+        project_root / 'zhiheng-fastapi-frontend' / 'tests' / 'plugins' / 'demo' / 'pluginView.test.js'
+    ).exists()
 
 
 def test_plugin_runtime_create_plugin_rejects_unsafe_plugin_id(tmp_path: Path) -> None:

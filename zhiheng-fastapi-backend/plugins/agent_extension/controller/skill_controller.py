@@ -186,9 +186,7 @@ async def update_skill_status(
     query_db: Annotated[AsyncSession, DBSessionDependency()],
     current_user: Annotated[CurrentUserModel, CurrentUserDependency()],
 ) -> Response:
-    result = await _call(
-        _skill_service(query_db).update_status(skill_id, payload, operator=_operator(current_user))
-    )
+    result = await _call(_skill_service(query_db).update_status(skill_id, payload, operator=_operator(current_user)))
     return ResponseUtil.success(data=result)
 
 

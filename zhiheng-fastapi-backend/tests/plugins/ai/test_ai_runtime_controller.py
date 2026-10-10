@@ -193,7 +193,11 @@ def test_runtime_routes_require_login_and_runtime_query_permission() -> None:
     """两个诊断接口都要求登录并具备 Runtime 查询权限。"""
     assert ai_runtime_controller.prefix == '/ai/runtime'
     routes = [route for route in ai_runtime_controller.routes if isinstance(route, APIRoute)]
-    assert {route.path for route in routes} == {'/ai/runtime/health', '/ai/runtime/models', '/ai/runtime/quotas/reconcile'}
+    assert {route.path for route in routes} == {
+        '/ai/runtime/health',
+        '/ai/runtime/models',
+        '/ai/runtime/quotas/reconcile',
+    }
 
     for route in routes:
         dependencies = [dependency.dependency for dependency in route.dependencies]

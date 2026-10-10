@@ -1,0 +1,209 @@
+# 由 release 管理器装配固定镜像；运行端不需要源码或 Node.js。
+name: ${PLATFORM_COMPOSE_PROJECT:?release manager required}
+
+x-backend-environment: &backend-environment
+  APP_DEFAULT_ENABLED_PLUGINS: ai,agent_extension
+  APP_ENV: dockerpg
+  APP_ROOT_PATH: /docker-api
+  APP_VERSION: ${RELEASE_VERSION:?release manager required}
+  APP_RELEASE_ID: ${RELEASE_VERSION:?release manager required}
+  ZHIHENG_FRONTEND_ROOT: /frontend
+  TRANSPORT_CRYPTO_PUBLIC_KEY: ${TRANSPORT_CRYPTO_PUBLIC_KEY:?release manager required}
+  TRANSPORT_CRYPTO_PRIVATE_KEY: ${TRANSPORT_CRYPTO_PRIVATE_KEY:?release manager required}
+  TRANSPORT_CRYPTO_KID: ${TRANSPORT_CRYPTO_KID:?release manager required}
+  APP_WORKERS: "1"
+  APP_RELOAD: "false"
+  APP_DISABLE_SWAGGER: "false"
+  APP_DISABLE_REDOC: "false"
+  APP_IP_LOCATION_QUERY: "false"
+  DB_TYPE: postgresql
+  DB_HOST: litellm-db
+  DB_PORT: "5432"
+  DB_USERNAME: ${PLATFORM_DB_USER:-zhiheng}
+  DB_PASSWORD: ${ZHIHENG_DB_PASSWORD:?run ./deploy.sh init}
+  DB_DATABASE: ${PLATFORM_DB_NAME:-zhiheng-fastapi}
+  DB_ECHO: "false"
+  REDIS_HOST: zhiheng-redis
+  REDIS_PORT: "6379"
+  REDIS_DATABASE: "2"
+  REDIS_PASSWORD: ${ZHIHENG_REDIS_PASSWORD:?run ./deploy.sh init}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?run ./deploy.sh init}
+  LITELLM_BASE_URL: http://litellm-proxy:4000
+  LITELLM_RUNTIME_KEY: ${LITELLM_RUNTIME_KEY:?run ./deploy.sh init}
+  LITELLM_MANAGEMENT_KEY: ${LITELLM_MANAGEMENT_KEY:?run ./deploy.sh init}
+  AI_PUBLIC_API_ENABLED: ${AI_PUBLIC_API_ENABLED:-true}
+  AI_API_KEY_PEPPER_CURRENT_VERSION: v1
+  AI_API_KEY_PEPPER_V1: ${AI_API_KEY_PEPPER_V1:?run ./deploy.sh init}
+  AGENT_SKILL_DATA_DIR: /app/data/agent-skills
+  KNOWLEDGE_DATA_DIR: /app/data/knowledge
+  KNOWLEDGE_MILVUS_URI: http://milvus:19530
+  KNOWLEDGE_MILVUS_DB_NAME: default
+
+x-backend: &backend
+  image: ${RELEASE_BACKEND_IMAGE:?release manager required}
+  pull_policy: never
+  labels:
+    io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+  volumes:
+    - ${PLATFORM_DATA_DIR:?release manager required}/agent-skills:/app/data/agent-skills
+    - ${PLATFORM_DATA_DIR:?release manager required}/knowledge:/app/data/knowledge
+    - ${PLATFORM_DATA_DIR:?release manager required}/platform-files:/app/vf_admin
+
+services:
+  litellm-db:
+    image: ${RELEASE_POSTGRES_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?run ./deploy.sh init}
+      POSTGRES_INITDB_ARGS: --encoding=UTF8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U litellm -d litellm]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  litellm-redis:
+    image: ${RELEASE_REDIS_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${LITELLM_REDIS_PASSWORD:?run ./deploy.sh init}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
+    volumes:
+      - litellm-redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  zhiheng-redis:
+    image: ${RELEASE_REDIS_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${ZHIHENG_REDIS_PASSWORD:?run ./deploy.sh init}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
+    volumes:
+      - platform-redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  litellm-proxy:
+    image: ${RELEASE_LITELLM_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    restart: unless-stopped
+    init: true
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run ./deploy.sh init}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?run ./deploy.sh init}
+      LITELLM_MODE: PRODUCTION
+      STORE_MODEL_IN_DB: "True"
+      DISABLE_SCHEMA_UPDATE: "false"
+      LITELLM_REDIS_HOST: litellm-redis
+      LITELLM_REDIS_PORT: "6379"
+      LITELLM_REDIS_PASSWORD: ${LITELLM_REDIS_PASSWORD:?run ./deploy.sh init}
+    command: [--config, /app/config.yaml, --port, "4000", --num_workers, "1"]
+    volumes:
+      - ${RELEASE_CONFIG_DIR:?release manager required}/litellm/config.yaml:/app/config.yaml:ro
+    depends_on:
+      litellm-db: {condition: service_healthy}
+      litellm-redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 30
+
+  milvus:
+    image: ${RELEASE_MILVUS_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    command: [milvus, run, standalone]
+    restart: unless-stopped
+    stop_grace_period: 60s
+    security_opt: [seccomp:unconfined]
+    mem_limit: ${MILVUS_MEMORY_LIMIT:-4g}
+    cpus: 2.0
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      ETCD_ENDPOINTS: 127.0.0.1:2379
+      COMMON_STORAGETYPE: local
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - ${PLATFORM_DATA_DIR:?release manager required}/milvus:/var/lib/milvus
+      - ${RELEASE_CONFIG_DIR:?release manager required}/milvus/embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
+      - ${RELEASE_CONFIG_DIR:?release manager required}/milvus/user.yaml:/milvus/configs/user.yaml:ro
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9091/healthz]
+      interval: 10s
+      timeout: 5s
+      start_period: 90s
+      retries: 12
+
+  platform-init:
+    <<: *backend
+    restart: "no"
+    command: [python, scripts/initialize_platform.py, --env=dockerpg]
+    environment:
+      <<: *backend-environment
+      PLATFORM_POSTGRES_ADMIN_PASSWORD: ${LITELLM_DB_PASSWORD:?run ./deploy.sh init}
+    depends_on:
+      litellm-db: {condition: service_healthy}
+      litellm-proxy: {condition: service_healthy}
+      zhiheng-redis: {condition: service_healthy}
+
+  zhiheng-backend-pg:
+    <<: *backend
+    restart: unless-stopped
+    environment: *backend-environment
+    depends_on:
+      milvus: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:9099/docs', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 30
+
+  zhiheng-frontend:
+    image: ${RELEASE_FRONTEND_IMAGE:?release manager required}
+    pull_policy: never
+    labels:
+      io.zhiheng.installation: ${RELEASE_SITE_ID:?release manager required}
+    restart: unless-stopped
+    ports:
+      - ${PLATFORM_BIND_ADDRESS:-0.0.0.0}:${PLATFORM_PORT:-12580}:80
+    depends_on:
+      zhiheng-backend-pg: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost/]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:
+  litellm-redis-data:
+  platform-redis-data:

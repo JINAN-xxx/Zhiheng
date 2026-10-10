@@ -1,7 +1,7 @@
 {
-  "name": "vfadmin",
+  "name": "zhiheng-fastapi-frontend",
   "version": "1.10.0",
-  "description": "vfadmin管理系统",
+  "description": "智衡 AI 开放平台前端",
   "author": "insistence",
   "license": "MIT",
   "type": "module",
@@ -15,7 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://gitee.com/insistence2022/ZhiHeng-Vue3-FastAPI.git"
+    "url": "https://gitee.com/cyhja/zhiheng.git"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",

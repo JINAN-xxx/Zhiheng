@@ -1,5 +1,6 @@
 import cache from '@/plugins/cache'
 import useSettingsStore from '@/store/modules/settings'
+import { filterRetiredWorkspaceRoutes } from '@/components/Workspace/workspaceTransforms.js'
 
 const PERSIST_KEY = 'tags-view-visited'
 
@@ -14,7 +15,7 @@ function saveVisitedViews(views) {
 }
 
 function loadVisitedViews() {
-  return cache.local.getJSON(PERSIST_KEY) || []
+  return filterRetiredWorkspaceRoutes(cache.local.getJSON(PERSIST_KEY) || [])
 }
 
 function clearVisitedViews() {

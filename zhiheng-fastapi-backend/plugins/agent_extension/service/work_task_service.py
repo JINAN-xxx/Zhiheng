@@ -1,37 +1,39 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
 import json
 from datetime import datetime
 from functools import wraps
+from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import uuid4
 
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from plugins.agent_extension.entity.vo.agent_vo import AgentPublishedModel
-from plugins.agent_extension.entity.vo.work_task_vo import (
-    WorkTaskCreateModel,
-    WorkTaskUpdateModel,
-    WorkTaskPageQueryModel,
-    WorkTaskMemberAddModel,
-    WorkTaskMemberUpdateModel,
-)
 
 from plugins.agent_extension.dao.agent_dao import AgentDao
 from plugins.agent_extension.dao.work_task_dao import WorkTaskDao
 from plugins.agent_extension.domain.agent_errors import AgentServiceError
 from plugins.agent_extension.entity.do.work_task_do import AgentWorkMessage, AgentWorkTask, AgentWorkTaskMember
 from plugins.agent_extension.entity.vo.work_task_vo import (
+    WorkTaskCreateModel,
     WorkTaskDetailModel,
+    WorkTaskMemberAddModel,
     WorkTaskMemberModel,
+    WorkTaskMemberUpdateModel,
     WorkTaskMessageModel,
     WorkTaskModel,
+    WorkTaskPageQueryModel,
+    WorkTaskUpdateModel,
 )
 from plugins.agent_extension.service.agent_service import AgentService
+from plugins.ai.public.model_queries import lock_model_reference
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from plugins.agent_extension.entity.vo.agent_vo import AgentPublishedModel
 
 
 T = TypeVar('T')
@@ -130,10 +132,14 @@ class WorkTaskService:
             return await self.detail(existing, actor_user_id, is_admin)
         agents = [
             await AgentService(self.db).get_usable_published_agent(
-                agent_id, actor_user_id=actor_user_id, is_admin=is_admin
+                agent_id, actor_user_id=actor_user_id, is_admin=is_admin, protect_reference=False
             )
             for agent_id in dict.fromkeys(payload.agent_ids)
         ]
+        # All models are locked in one order even when users choose members in a different order.
+        for model_id in sorted({agent.model_id for agent in agents}):
+            if not await lock_model_reference(self.db, model_id):
+                raise AgentServiceError('AGENT_MODEL_UNAVAILABLE', '智能体模型不可用')
         task = AgentWorkTask(
             task_id=str(uuid4()),
             owner_user_id=actor_user_id,
@@ -192,9 +198,12 @@ class WorkTaskService:
             raise conflict('任务正在运行，请停止后再修改')
         if task.status == 'archived' and not deleting:
             raise conflict('归档任务只允许查看或删除')
-        if task.status == 'completed' and not deleting:
-            if not values or set(values) != {'status'} or values['status'] not in ('active', 'archived'):
-                raise conflict('请先重新打开已完成的任务')
+        if (
+            task.status == 'completed'
+            and not deleting
+            and (not values or set(values) != {'status'} or values['status'] not in ('active', 'archived'))
+        ):
+            raise conflict('请先重新打开已完成的任务')
         if task.version != expected_version:
             raise conflict()
         if not await WorkTaskDao.compare_and_swap(

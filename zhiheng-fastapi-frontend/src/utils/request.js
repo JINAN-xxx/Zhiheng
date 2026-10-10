@@ -19,7 +19,13 @@ import {
 // 是否显示重新登录
 export let isRelogin = { show: false };
 
-function handleExpiredSession() {
+function handleExpiredSession(config) {
+  const currentToken = getToken()
+  const authorization = config?.headers?.get?.('Authorization')
+    ?? config?.headers?.Authorization ?? config?.headers?.authorization
+  // An old account's response (or an anonymous login attempt) cannot expire
+  // the session that is active now. The request itself still rejects below.
+  if (!currentToken || authorization !== `Bearer ${currentToken}`) return
   useUserStore().clearSession()
   if (isRelogin.show) return
 
@@ -122,7 +128,7 @@ service.interceptors.response.use(async res => {
       return res.data
     }
     if (code === 401) {
-      handleExpiredSession()
+      handleExpiredSession(res.config)
       return Promise.reject(new Error('登录状态已失效，请重新登录。'))
     } else if (code === 500) {
       feedback.msgError(msg)
@@ -157,7 +163,7 @@ service.interceptors.response.use(async res => {
     const responseCode = response?.data?.code
     const responseMsg = normalizeErrorMessage(response?.data?.msg ?? response?.data?.detail, '')
     if (responseStatus === 401 || responseCode === 401) {
-      handleExpiredSession()
+      handleExpiredSession(error.config || response?.config)
       return Promise.reject(new Error('登录状态已失效，请重新登录。'))
     }
     if (responseMsg) {

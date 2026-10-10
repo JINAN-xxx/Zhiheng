@@ -8,8 +8,8 @@ from plugins.agent_extension.infrastructure.knowledge_context_provider import Pl
 from plugins.agent_extension.infrastructure.skill_storage import SkillStorage
 from plugins.agent_extension.service.skill_service import SkillContextProvider, SkillService
 from plugins.agent_extension.service.work_task_run_service import WorkTaskRunService
-from utils.log_util import logger
 from plugins.core.runtime.hooks import PluginHookContext
+from utils.log_util import logger
 
 BUILTIN_ROOT = Path(__file__).parent / 'buildin'
 

@@ -31,14 +31,14 @@ zhiheng-backend-pg
 
 ## 凭据
 
-仓库根目录未提交的 `.env` 增加 `RUOYI_DB_PASSWORD`。初始化脚本在该值缺失时生成随机密码，并保持文件权限为 `0600`。
+仓库根目录未提交的 `.env` 增加 `ZHIHENG_DB_PASSWORD`。初始化脚本在该值缺失时生成随机密码，并保持文件权限为 `0600`。
 
 ZhiHeng Backend 只注入：
 
 - `DB_HOST=litellm-db`
 - `DB_PORT=5432`
 - `DB_USERNAME=zhiheng`
-- `DB_PASSWORD=${RUOYI_DB_PASSWORD}`
+- `DB_PASSWORD=${ZHIHENG_DB_PASSWORD}`
 - `DB_DATABASE=zhiheng-fastapi`
 
 LiteLLM 的 `LITELLM_DB_PASSWORD` 仍只保存在 `deploy/litellm/.env`，不进入 ZhiHeng Backend。
@@ -48,7 +48,7 @@ LiteLLM 的 `LITELLM_DB_PASSWORD` 仍只保存在 `deploy/litellm/.env`，不进
 新增 `deploy/zhiheng/init-shared-postgres.sh`：
 
 1. 检查 `litellm-db` 容器处于运行状态。
-2. 在根 `.env` 中创建或读取 `RUOYI_DB_PASSWORD`。
+2. 在根 `.env` 中创建或读取 `ZHIHENG_DB_PASSWORD`。
 3. 通过容器本地 PostgreSQL socket，以现有 `litellm` 管理角色创建或更新 `zhiheng` 登录角色。
 4. 不存在时创建由 `zhiheng` 拥有的 `zhiheng-fastapi` 数据库。
 5. 检查 `zhiheng-fastapi.public.sys_user`。

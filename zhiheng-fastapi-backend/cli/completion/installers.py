@@ -16,7 +16,7 @@ from cli.exit_codes import ARGUMENT_ERROR, RUNTIME_ERROR
 from cli.metadata import COMPLETION_SHELL_SPEC_REGISTRY, CompletionShellSpec, CompletionShellSpecRegistry
 from cli.utils import format_cli_path
 
-CLICK_COMPLETE_ENV_VAR = '_RUOYI_COMPLETE'
+CLICK_COMPLETE_ENV_VAR = '_ZHIHENG_COMPLETE'
 
 
 class CompletionInstallerShellSupport:

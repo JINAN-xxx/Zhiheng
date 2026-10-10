@@ -38,4 +38,3 @@ class AgentSkill(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now, comment='创建时间')
     updated_by = Column(String(64), nullable=False, server_default='', comment='更新者')
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
