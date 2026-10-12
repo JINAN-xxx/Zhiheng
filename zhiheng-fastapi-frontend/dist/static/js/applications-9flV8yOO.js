@@ -1,1 +1,0 @@
-import{s as i}from"./index-DNz_kw5F.js";function o(t){return i({url:"/ai/applications",method:"get",params:t})}function p(t){return i({url:"/ai/applications",method:"post",data:t})}export{p as c,o as l};

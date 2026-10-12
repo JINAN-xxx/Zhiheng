@@ -1,15 +1,19 @@
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar title="模型目录">
+    <WorkspaceToolbar title="模型目录" :subtitle="currentSummary">
       <template #actions>
-        <a-tooltip title="刷新当前视图" placement="bottom">
-          <a-button shape="circle" aria-label="刷新当前视图" @click="refreshCurrent">
+        <a-tooltip :title="refreshLabel" placement="bottom">
+          <a-button shape="circle" :loading="!isMobile && currentPanel?.loading" :aria-label="refreshLabel" @click="refreshCurrent">
             <template #icon><ReloadOutlined /></template>
           </a-button>
         </a-tooltip>
-        <a-button v-if="canOnboard" type="primary" @click="onboardingOpen = true">
+        <a-button v-if="canOnboard && (isMobile || activeTab === 'platform')" type="primary" @click="onboardingOpen = true">
           <template #icon><PlusOutlined /></template>
           接入模型
+        </a-button>
+        <a-button v-if="!isMobile && activeTab === 'credentials' && can('ai:engine:credential:add')" type="primary" :disabled="credentialPanel?.notConfigured" @click="credentialPanel?.openCreate()">
+          <template #icon><PlusOutlined /></template>
+          新增凭据
         </a-button>
       </template>
     </WorkspaceToolbar>
@@ -53,6 +57,20 @@ const onboardingOpen = ref(false)
 const platformPanel = ref()
 const credentialPanel = ref()
 const activeTab = ref('platform')
+const currentPanel = computed(() => activeTab.value === 'credentials' ? credentialPanel.value : platformPanel.value)
+const refreshLabel = computed(() => {
+  if (isMobile.value) return '刷新当前视图'
+  return activeTab.value === 'credentials' ? '刷新服务商凭据' : '刷新平台模型'
+})
+const currentSummary = computed(() => {
+  const panel = currentPanel.value
+  if (isMobile.value || !panel?.lastSuccessAt) return ''
+  const countLabel = activeTab.value === 'credentials' ? '个服务商凭据' : '个平台模型'
+  const updatedAt = new Date(panel.lastSuccessAt).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+  return `${panel.total} ${countLabel} · 更新于 ${updatedAt}`
+})
 const availableTabs = computed(() => [
   can('ai:model:list') && 'platform',
   can('ai:engine:credential:list') && 'credentials',
@@ -121,4 +139,9 @@ function refreshAfterOnboarding() {
   :global(.model-onboarding-drawer .ant-drawer-body) { padding: 16px; }
 }
 @media (max-width: 640px) { .model-workspace { padding: 16px; } }
+@media (min-width: 761px) {
+  .model-workspace { padding: 12px var(--workspace-space-6) 24px; }
+  .workspace-tabs :deep(.ant-tabs-nav) { margin-bottom: 12px; }
+  .ai-model-center :deep(.workspace-toolbar__subtitle) { margin-top: 2px; font-size: 12px; }
+}
 </style>

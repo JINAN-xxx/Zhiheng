@@ -1,7 +1,7 @@
 <template>
   <section class="workspace-panel">
-    <div class="panel-toolbar">
-      <div class="panel-summary"><span>{{ total }} 个平台模型</span><span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span></div>
+    <div v-if="props.mobile" class="panel-toolbar">
+      <div class="panel-summary"><span v-if="lastSuccessAt">{{ total }} 个平台模型</span><span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span></div>
       <a-tooltip title="刷新平台模型" placement="top">
         <a-button shape="circle" :loading="loading" aria-label="刷新平台模型" @click="load">
           <template #icon><ReloadOutlined /></template>
@@ -22,13 +22,15 @@
       :data-source="rows"
       :loading="loading"
       :pagination="false"
+      :scroll="tableScroll"
       row-key="modelId"
       table-layout="fixed"
     >
       <template #bodyCell="{ column, record: row }">
         <template v-if="column.key === 'modelCode'">
           <div class="mobile-model-cell">
-            <div class="resource-value">
+            <span v-if="!props.mobile && row.displayName && row.displayName !== row.modelCode" class="model-display-name" :title="row.displayName">{{ row.displayName }}</span>
+            <div class="resource-value" :class="{ 'resource-value--secondary': !props.mobile && row.displayName && row.displayName !== row.modelCode }">
               <span class="resource-text" :title="row.modelCode">{{ row.modelCode }}</span>
               <a-tooltip title="复制模型代码" placement="top">
                 <button class="copy-button" type="button" aria-label="复制模型代码" @click="copyValue(row.modelCode)"><CopyOutlined /></button>
@@ -53,12 +55,17 @@
         <template v-else-if="column.key === 'updatedAt'">{{ formatTime(row.updatedAt) }}</template>
         <template v-else-if="column.key === 'actions'">
           <div class="row-actions desktop-actions">
-            <a-tooltip v-if="canEdit && canQuery && row.modelType === 'chat'" title="图片理解设置" placement="top"><a-button type="link" aria-label="图片理解设置" @click="openVision(row)"><template #icon><EyeOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canEdit" title="费率配置" placement="top"><a-button type="link" aria-label="费率配置" @click="openRateCards(row)"><template #icon><DollarOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canTest && row.lifecycleStatus === 'active'" title="类型化连接测试" placement="top"><a-button type="link" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)"><template #icon><ApiOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" :title="getLifecycleAction(row.lifecycleStatus)" placement="top"><a-button type="link" :aria-label="getLifecycleAction(row.lifecycleStatus)" :disabled="!canPublishPlatformModel(row)" @click="publish(row)"><template #icon><SendOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canEdit && row.lifecycleStatus === 'active'" title="停用" placement="top"><a-button type="link" class="warning-action" aria-label="停用" @click="disable(row)"><template #icon><PauseCircleOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canRemove && ['draft', 'disabled'].includes(row.lifecycleStatus)" title="删除模型" placement="top"><a-button type="link" danger aria-label="删除模型" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
+            <a-button v-if="canEdit && canQuery && row.modelType === 'chat'" type="link" size="small" aria-label="图片理解设置" @click="openVision(row)">图片理解</a-button>
+            <a-button v-if="canEdit" type="link" size="small" aria-label="费率配置" @click="openRateCards(row)">费率</a-button>
+            <a-button v-if="canTest && row.lifecycleStatus === 'active'" type="link" size="small" aria-label="连接测试" :loading="testingId === row.modelId" @click="smokeTest(row)">测试</a-button>
+            <a-button v-if="canPublish && ['draft', 'disabled'].includes(row.lifecycleStatus)" type="link" size="small" :aria-label="getLifecycleAction(row.lifecycleStatus)" :disabled="!canPublishPlatformModel(row)" @click="publish(row)">{{ getLifecycleAction(row.lifecycleStatus) }}</a-button>
+            <a-dropdown v-if="hasMoreActions(row)" :trigger="['click']">
+              <a-button type="link" size="small" aria-label="更多操作">更多</a-button>
+              <template #overlay><a-menu @click="({ key }) => handleRowAction(key, row)">
+                <a-menu-item v-if="canEdit && row.lifecycleStatus === 'active'" key="disable" danger>停用</a-menu-item>
+                <a-menu-item v-if="canRemove && ['draft', 'disabled'].includes(row.lifecycleStatus)" key="remove" danger>删除模型</a-menu-item>
+              </a-menu></template>
+            </a-dropdown>
           </div>
           <a-dropdown class="mobile-actions" :trigger="['click']">
             <a-button type="text" aria-label="更多操作"><template #icon><EllipsisOutlined /></template></a-button>
@@ -123,10 +130,7 @@
 </template>
 
 <script setup>
-import {
-  ApiOutlined, CopyOutlined, DeleteOutlined, DollarOutlined, EllipsisOutlined, EyeOutlined,
-  PauseCircleOutlined, ReloadOutlined, SendOutlined,
-} from '@ant-design/icons-vue'
+import { CopyOutlined, EllipsisOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import ModelVisionDialog from './ModelVisionDialog.vue'
@@ -165,14 +169,19 @@ const canEdit = computed(() => can('ai:model:edit'))
 const canRemove = computed(() => can('ai:model:remove'))
 const canTest = computed(() => can('ai:model:test'))
 const hasAnyAction = computed(() => canPublish.value || canEdit.value || canRemove.value || canTest.value)
+const hasMoreActions = (row) => (canEdit.value && row.lifecycleStatus === 'active')
+  || (canRemove.value && ['draft', 'disabled'].includes(row.lifecycleStatus))
 const columns = computed(() => [
-  { title: '模型代码', key: 'modelCode', width: props.mobile ? 180 : 160, align: 'left' },
-  !props.mobile && { title: '类型', key: 'modelType', width: 110, align: 'center' },
-  !props.mobile && { title: '绑定状态', key: 'bindingStatus', width: 100, align: 'center' },
-  !props.mobile && { title: '发布状态', key: 'lifecycle', width: 90, align: 'center' },
-  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 140, align: 'left' },
-  hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 180, align: 'right' },
+  { title: props.mobile ? '模型代码' : '模型', key: 'modelCode', width: props.mobile ? 180 : undefined, align: 'left' },
+  !props.mobile && { title: '类型', key: 'modelType', width: 80, align: 'center' },
+  !props.mobile && { title: '绑定状态', key: 'bindingStatus', width: 92, align: 'center' },
+  !props.mobile && { title: '发布状态', key: 'lifecycle', width: 88, align: 'center' },
+  !props.mobile && { title: '更新时间', key: 'updatedAt', width: 144, align: 'left' },
+  hasAnyAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 250, align: 'right' },
 ].filter(Boolean))
+const tableScroll = computed(() => props.mobile ? { x: '100%' } : {
+  x: 300 + columns.value.reduce((width, column) => width + (column.width || 0), 0),
+})
 const rateColumns = [
   { title: '版本', dataIndex: 'version', key: 'version', width: 72, align: 'center' },
   { title: '模式', dataIndex: 'billingMode', key: 'billingMode', width: 112, align: 'center' },
@@ -392,7 +401,7 @@ function handleRowAction(action, row) {
 
 onMounted(load)
 onBeforeUnmount(() => loadGate.invalidate())
-defineExpose({ refresh: load })
+defineExpose({ refresh: load, loading, total, lastSuccessAt })
 </script>
 
 <style scoped>
@@ -413,16 +422,25 @@ defineExpose({ refresh: load })
 .mobile-model-cell { display: grid; min-width: 0; gap: 8px; }
 .mobile-model-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .resource-text { min-width: 0; overflow: hidden; font-family: var(--workspace-font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.model-display-name { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.resource-value--secondary { color: var(--color-text-secondary); }
 .copy-button { display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center; border: 0; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .copy-button:hover { background: var(--gray-10); color: var(--main-700); }
 .copy-button:focus-visible { outline: 2px solid var(--main-color); outline-offset: 2px; }
 .copy-button svg { width: 14px; height: 14px; }
 .muted { color: var(--color-text-tertiary); }
-.warning-action { color: var(--color-warning-700); }
 .rate-context { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .rate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mobile-actions { display: none; }
 :deep(.ant-pagination) { display: flex; justify-content: flex-end; margin-top: 18px; }
+@media (min-width: 761px) {
+  .mobile-model-cell { gap: 2px; }
+  .model-table :deep(.ant-table-cell) { padding: 12px; }
+  .model-table :deep(.ant-table-tbody > tr > td) { font-size: 13px; }
+  .model-display-name { font-size: 14px; }
+  .desktop-actions { gap: 4px; white-space: nowrap; }
+  .desktop-actions :deep(.ant-btn) { height: 28px; padding-inline: 2px; font-size: 13px; }
+}
 @media (max-width: 760px) {
   .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }

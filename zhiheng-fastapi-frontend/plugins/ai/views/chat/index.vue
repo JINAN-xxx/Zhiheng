@@ -2,27 +2,22 @@
   <div class="platform-chat workspace-chat-page" :class="{ 'is-empty': messages.length === 0 && !sessionId && !route.query.sessionId }">
     <main class="chat-workspace">
       <header class="chat-toolbar">
-        <div>
-          <WorkspaceStatus v-if="stateLabel" :status="runState" :label="stateLabel" />
-        </div>
-        <div class="toolbar-actions">
-          <a-select
-            v-model:value="modelId"
-            class="model-select"
-            :options="modelOptions"
-            :filter-option="filterModelOption"
-            show-search
-            placeholder="选择平台模型"
-            :disabled="loading || sessionLoading || isArchived"
-          />
-          <a-tooltip title="对话偏好">
-            <a-button class="toolbar-icon-button" type="text" aria-label="对话偏好" @click="showPreferences = true">
-              <template #icon><SettingOutlined /></template>
-            </a-button>
-          </a-tooltip>
-        </div>
+        <a-select
+          v-model:value="modelId"
+          class="model-select"
+          :options="modelOptions"
+          :filter-option="filterModelOption"
+          show-search
+          aria-label="当前对话模型"
+          placeholder="选择平台模型"
+          :disabled="loading || sessionLoading || isArchived"
+        />
+        <a-tooltip title="对话偏好">
+          <a-button class="toolbar-icon-button" type="text" aria-label="对话偏好" @click="showPreferences = true">
+            <template #icon><SettingOutlined /></template>
+          </a-button>
+        </a-tooltip>
       </header>
-
       <section ref="historyRef" class="message-history">
         <ChatEmptyState
           v-if="messages.length === 0 && !sessionId && !route.query.sessionId"
@@ -58,67 +53,80 @@
         </article>
       </section>
 
-      <footer v-if="isArchived" class="composer composer--archived" role="status">
-        <div class="archived-message">
-          <InboxOutlined />
-          <span>此对话已归档，恢复后可继续发送消息。</span>
-        </div>
-        <a-button type="primary" aria-label="恢复对话" :loading="restoringSession" @click="restoreCurrentSession">
-          <RollbackOutlined />恢复对话
-        </a-button>
-      </footer>
-      <footer v-else class="composer">
-        <div v-if="selectedSkills.length" class="selected-skills">
-          <a-tag
-            v-for="skill in selectedSkills"
-            :key="skill.skillSlug"
-            closable
-            @close="removeSkill(skill.skillSlug)"
-          >技能：{{ skill.skillName }}</a-tag>
-        </div>
-        <div v-if="fileItems.length" class="file-queue" aria-label="待发送文件">
-          <div v-for="file in fileItems" :key="file.id" class="queued-file" :class="{ 'has-error': file.status === 'failed' }">
-            <img v-if="file.previewUrl" :src="file.previewUrl" :alt="file.fileName" class="queued-file-preview" />
-            <FileTextOutlined v-else class="queued-file-icon" />
-            <div class="queued-file-details">
-              <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
-              <span v-if="file.status === 'uploading'" class="queued-file-status" role="status">上传中 {{ file.progress }}%</span>
-              <span v-else-if="file.status === 'failed'" class="queued-file-error" role="alert">{{ file.error }}</span>
-              <span v-else class="queued-file-status">已上传</span>
-            </div>
-            <a-button v-if="file.status === 'failed'" type="link" size="small" :disabled="loading" :aria-label="`重试上传：${file.fileName}`" @click="fileQueue.retry(file.id)">重试</a-button>
-            <a-button type="text" size="small" :disabled="loading" :aria-label="`移除文件：${file.fileName}`" @click="fileQueue.remove(file.id)"><CloseOutlined /></a-button>
-          </div>
-        </div>
-        <div class="composer-surface">
-          <a-textarea
-            v-model:value="draft"
-            :auto-size="{ minRows: 3, maxRows: 6 }"
-            :disabled="loading || sessionLoading"
-            placeholder="输入消息，按回车发送，按住上档键回车换行"
-            @keydown.enter.exact.prevent="send"
-          />
-          <div class="composer-actions">
-            <SkillPicker
-              v-model="selectedSkills"
-              v-model:open="skillPickerOpen"
-              :disabled="loading"
-              @selected="handleSkillSelected"
-            />
-            <input ref="fileInputRef" class="chat-file-input" type="file" :accept="CHAT_FILE_ACCEPT" multiple :disabled="loading || sessionLoading" tabindex="-1" aria-label="选择图片或附件" @change="selectFiles" />
-            <a-tooltip title="添加图片或附件（PDF、DOCX、TXT、MD、XLSX、CSV）">
-              <a-button type="text" :disabled="loading || sessionLoading" aria-label="添加图片或附件" @click="fileInputRef?.click()">
-                <template #icon><PaperClipOutlined /></template>
-              </a-button>
+      <footer class="composer" :class="{ 'composer--archived': isArchived }">
+        <div class="composer-context">
+          <template v-if="uploadSettings.model">
+            <a-tooltip :trigger="['hover', 'focus']" :title="imageHint || '当前模型支持图片理解，也可上传文档附件。'">
+              <span class="model-capability" tabindex="0" :aria-describedby="capabilityDescriptionId">{{ imageHint ? '文本与文档' : '支持图片' }}</span>
             </a-tooltip>
-            <span class="composer-hint">图片 {{ imageCount }}/10 · 文档 {{ attachmentCount }}/5</span>
-            <a-button v-if="loading" class="composer-submit" danger @click="stop"><PauseCircleOutlined />停止</a-button>
-            <a-button v-else class="composer-submit" type="primary" aria-label="发送" :disabled="!canSend" @click="send"><SendOutlined />发送</a-button>
+            <span :id="capabilityDescriptionId" class="model-capability-description">{{ imageHint || '当前模型支持图片理解，也可上传文档附件。' }}</span>
+          </template>
+          <div class="composer-context-actions">
+            <WorkspaceStatus v-if="stateLabel" :status="runState" :label="stateLabel" />
           </div>
-          <p v-if="imageHint" class="file-guidance">{{ imageHint }}</p>
-          <p v-if="filesFailed" class="file-guidance file-guidance--error" role="status">请重试或移除上传失败的文件后再发送。</p>
-          <p v-else-if="fileItems.length" class="file-guidance">图片单张最多 {{ Math.min(50, preferences.imageMaxSizeMb || 10) }} MB，文档单个最多 20 MB。</p>
         </div>
+        <div v-if="isArchived" class="archived-actions" role="status">
+          <div class="archived-message">
+            <InboxOutlined />
+            <span>此对话已归档，恢复后可继续发送消息。</span>
+          </div>
+          <a-button type="primary" aria-label="恢复对话" :loading="restoringSession" @click="restoreCurrentSession">
+            <RollbackOutlined />恢复对话
+          </a-button>
+        </div>
+        <template v-else>
+          <div v-if="selectedSkills.length" class="selected-skills">
+            <a-tag
+              v-for="skill in selectedSkills"
+              :key="skill.skillSlug"
+              closable
+              @close="removeSkill(skill.skillSlug)"
+            >技能：{{ skill.skillName }}</a-tag>
+          </div>
+          <div v-if="fileItems.length" class="file-queue" aria-label="待发送文件">
+            <div v-for="file in fileItems" :key="file.id" class="queued-file" :class="{ 'has-error': file.status === 'failed' }">
+              <img v-if="file.previewUrl" :src="file.previewUrl" :alt="file.fileName" class="queued-file-preview" />
+              <FileTextOutlined v-else class="queued-file-icon" />
+              <div class="queued-file-details">
+                <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
+                <span v-if="file.status === 'uploading'" class="queued-file-status" role="status">上传中 {{ file.progress }}%</span>
+                <span v-else-if="file.status === 'failed'" class="queued-file-error" role="alert">{{ file.error }}</span>
+                <span v-else class="queued-file-status">已上传</span>
+              </div>
+              <a-button v-if="file.status === 'failed'" type="link" size="small" :disabled="loading" :aria-label="`重试上传：${file.fileName}`" @click="fileQueue.retry(file.id)">重试</a-button>
+              <a-button type="text" size="small" :disabled="loading" :aria-label="`移除文件：${file.fileName}`" @click="fileQueue.remove(file.id)"><CloseOutlined /></a-button>
+            </div>
+          </div>
+          <div class="composer-surface">
+            <a-textarea
+              v-model:value="draft"
+              :auto-size="{ minRows: 3, maxRows: 6 }"
+              :disabled="loading || sessionLoading"
+              placeholder="输入消息，按回车发送，按住上档键回车换行"
+              @keydown.enter.exact.prevent="send"
+            />
+            <div class="composer-actions">
+              <SkillPicker
+                v-model="selectedSkills"
+                v-model:open="skillPickerOpen"
+                :disabled="loading"
+                @selected="handleSkillSelected"
+              />
+              <input ref="fileInputRef" class="chat-file-input" type="file" :accept="CHAT_FILE_ACCEPT" multiple :disabled="loading || sessionLoading" tabindex="-1" aria-label="选择图片或附件" @change="selectFiles" />
+              <a-tooltip title="添加图片或附件（PDF、DOCX、TXT、MD、XLSX、CSV）">
+                <a-button type="text" :disabled="loading || sessionLoading" aria-label="添加图片或附件" @click="fileInputRef?.click()">
+                  <template #icon><PaperClipOutlined /></template>
+                </a-button>
+              </a-tooltip>
+              <span class="composer-hint">图片 {{ imageCount }}/10 · 文档 {{ attachmentCount }}/5</span>
+              <a-button v-if="loading" class="composer-submit" danger @click="stop"><PauseCircleOutlined />停止</a-button>
+              <a-button v-else class="composer-submit" type="primary" aria-label="发送" :disabled="!canSend" @click="send"><SendOutlined />发送</a-button>
+            </div>
+            <p v-if="imageCount && imageHint" class="file-guidance">{{ imageHint }}</p>
+            <p v-if="filesFailed" class="file-guidance file-guidance--error" role="status">请重试或移除上传失败的文件后再发送。</p>
+            <p v-else-if="fileItems.length" class="file-guidance">图片单张最多 {{ Math.min(50, preferences.imageMaxSizeMb || 10) }} MB，文档单个最多 20 MB。</p>
+          </div>
+        </template>
       </footer>
     </main>
 
@@ -141,7 +149,7 @@
 </template>
 
 <script setup name="AiChat">
-import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from "vue";
+import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch } from "vue";
 import { v4 as uuidv4 } from 'uuid';
 import {
   InboxOutlined,
@@ -177,6 +185,7 @@ import { removeTerminalSkillTrigger, shouldOpenSkillPicker } from '../../../agen
 import { CHAT_FILE_ACCEPT, chatFilePayload, chatImageHint, createChatFileQueue } from '../../utils/chatFiles.js'
 
 const { proxy } = getCurrentInstance();
+const capabilityDescriptionId = useId();
 const route = useRoute();
 const router = useRouter();
 const workspaceStore = useWorkspaceStore();
@@ -467,7 +476,7 @@ onDeactivated(cleanup);
 </script>
 
 <style scoped lang="scss">
-.composer--archived { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.archived-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .archived-message { display: flex; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: 13px; }
 .platform-chat {
   height: 100%;
@@ -478,7 +487,6 @@ onDeactivated(cleanup);
   font-family: system-ui, "Noto Sans SC", "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-.chat-toolbar,
 .composer-actions {
   display: flex;
   align-items: center;
@@ -502,35 +510,66 @@ onDeactivated(cleanup);
   background: var(--gray-10);
 }
 
-.toolbar-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .toolbar-icon-button {
-  width: 32px;
-  height: 32px;
+  flex-shrink: 0;
+  width: var(--workspace-control-height);
+  height: var(--workspace-control-height);
 }
 
 .model-select {
-  width: 220px;
+  width: min(320px, 100%);
+  min-width: 0;
 }
 
 .chat-toolbar {
-  gap: 8px;
-  flex-wrap: wrap;
-  min-height: 60px;
-  padding: 0 24px;
-  background: transparent;
-}
-
-.toolbar-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-shrink: 0;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  min-height: 52px;
+  padding: 8px 24px;
+}
+
+.composer-context {
+  display: flex;
+  flex-shrink: 0;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.composer-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.model-capability {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--gray-150);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.model-capability:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 2px;
+}
+
+.model-capability-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .message-history {
@@ -594,10 +633,10 @@ onDeactivated(cleanup);
 
 .message-row.user .message-skills { justify-content: flex-end; }
 
-.selected-skills { margin: 0 0 8px; }
+.selected-skills { flex-shrink: 0; margin: 0 0 8px; }
 
 .chat-file-input { display: none; }
-.file-queue { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
+.file-queue { display: flex; flex-wrap: wrap; gap: 8px; min-height: 60px; margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
 .queued-file { display: flex; align-items: center; gap: 8px; min-width: 0; width: min(100%, 380px); padding: 8px; border: 1px solid var(--gray-200); border-radius: 10px; background: var(--bg-container); }
 .queued-file.has-error { border-color: var(--ant-color-error, #ff4d4f); }
 .queued-file-preview { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex: 0 0 40px; }
@@ -616,6 +655,13 @@ onDeactivated(cleanup);
 }
 
 .composer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  // Reserve the 52px toolbar and 80px for the message history.
+  max-height: calc(100% - 132px);
+  overflow-y: auto;
   width: min(880px, 100%);
   align-self: center;
   padding: 12px 24px 24px;
@@ -623,6 +669,7 @@ onDeactivated(cleanup);
 }
 
 .composer-surface {
+  flex-shrink: 0;
   padding: 16px 18px 12px;
   border: 1px solid var(--gray-200);
   border-radius: 20px;
@@ -669,7 +716,7 @@ onDeactivated(cleanup);
 .composer-actions :deep(.ant-btn-text) { border-radius: 9px; color: var(--color-text-secondary); }
 .is-empty .chat-workspace { display: grid; grid-template-rows: auto minmax(min-content, 1fr) auto minmax(24px, 1fr); overflow-y: auto; }
 .is-empty .message-history { align-self: end; overflow: visible; padding: 28px 16px 0; }
-.is-empty .composer { width: min(800px, calc(100% - 48px)); justify-self: center; align-self: start; padding: 24px 0 8px; }
+.is-empty .composer { width: min(800px, calc(100% - 48px)); max-height: none; justify-self: center; align-self: start; padding: 24px 0 8px; }
 
 :deep(.ant-form-item .ant-input-number) {
   width: 100%;
@@ -688,8 +735,6 @@ onDeactivated(cleanup);
 }
 
 @media (max-width: 480px) {
-  .chat-toolbar { min-height: 56px; padding-top: 8px; padding-bottom: 8px; flex-wrap: nowrap; }
-  .toolbar-actions { min-width: 0; flex: 1; flex-wrap: nowrap; }
   .model-select { width: 150px; min-width: 0; }
   .composer-surface { padding: 12px; border-radius: 16px; }
   .composer-actions { gap: 5px; }

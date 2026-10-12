@@ -258,6 +258,10 @@ onBeforeUnmount(() => { requestGeneration += 1 })
 .usage-mobile-item__model { margin-top: 8px; overflow: hidden; color: var(--color-text-secondary); font-family: var(--workspace-font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .usage-mobile-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; color: var(--color-text-secondary); font-size: 12px; }
 .usage-table-wrap :deep(.ant-pagination) { display: flex; justify-content: flex-end; margin: 18px 16px; }
+@media (min-width: 992px) {
+  .usage-content { padding: var(--workspace-space-4) var(--workspace-space-6) var(--workspace-space-6); }
+}
+
 @media (max-width: 760px) {
   .usage-controls :deep(.ant-select:first-child) { width: 100%; flex: 1 1 100%; }
   .usage-controls :deep(.ant-select) { flex: 1; }

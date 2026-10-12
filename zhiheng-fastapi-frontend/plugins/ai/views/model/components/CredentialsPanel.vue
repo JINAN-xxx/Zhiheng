@@ -1,6 +1,6 @@
 <template>
   <section class="workspace-panel">
-    <div class="panel-toolbar">
+    <div v-if="props.mobile" class="panel-toolbar">
       <div class="panel-summary">
         <span v-if="lastSuccessAt">更新于 {{ formatTime(lastSuccessAt) }}</span>
       </div>
@@ -22,8 +22,13 @@
         <template v-else-if="column.key === 'updatedAt'">{{ formatTime(row.updatedAt) }}</template>
         <template v-else-if="column.key === 'actions'">
           <div class="row-actions desktop-actions">
-            <a-tooltip v-if="canRotate" title="轮换" placement="top"><a-button type="link" aria-label="轮换" @click="openRotate(row)"><template #icon><SyncOutlined /></template></a-button></a-tooltip>
-            <a-tooltip v-if="canRemove" title="删除" placement="top"><a-button type="link" danger aria-label="删除" :disabled="row.deploymentCount > 0" @click="remove(row)"><template #icon><DeleteOutlined /></template></a-button></a-tooltip>
+            <a-button v-if="canRotate" type="link" size="small" aria-label="轮换" @click="openRotate(row)">轮换</a-button>
+            <a-dropdown v-if="canRemove" :trigger="['click']">
+              <a-button type="link" size="small" aria-label="更多操作">更多</a-button>
+              <template #overlay><a-menu @click="({ key }) => handleRowAction(key, row)">
+                <a-menu-item key="remove" :disabled="row.deploymentCount > 0" danger>删除</a-menu-item>
+              </a-menu></template>
+            </a-dropdown>
           </div>
           <a-dropdown class="mobile-actions" :trigger="['click']">
             <a-button type="text" aria-label="更多操作"><template #icon><EllipsisOutlined /></template></a-button>
@@ -52,7 +57,7 @@
 </template>
 
 <script setup>
-import { DeleteOutlined, EllipsisOutlined, PlusOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons-vue'
+import { EllipsisOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import feedback from '@/plugins/antdFeedback'
 import WorkspaceState from '@/components/Workspace/WorkspaceState.vue'
 import {
@@ -71,6 +76,7 @@ const rows = ref([]); const providers = ref([]); const loading = ref(false); con
 const notConfigured = ref(false); const drawerOpen = ref(false); const saving = ref(false)
 const mode = ref('create'); const editing = ref(null)
 const lastSuccessAt = ref(null); const providersAvailable = ref(false)
+const total = computed(() => rows.value.length)
 const loadGate = createRequestGate()
 const can = (permission) => hasPermission(props.permissions, permission)
 const canAdd = computed(() => can('ai:engine:credential:add'))
@@ -78,11 +84,11 @@ const canRotate = computed(() => can('ai:engine:credential:rotate'))
 const canRemove = computed(() => can('ai:engine:credential:remove'))
 const hasAnyRowAction = computed(() => !notConfigured.value && (canRotate.value || canRemove.value))
 const columns = computed(() => [
-  { title: '名称', dataIndex: 'name', key: 'name', width: props.mobile ? 180 : 220, ellipsis: true },
+  { title: '名称', dataIndex: 'name', key: 'name', width: props.mobile ? 180 : undefined, ellipsis: true },
   !props.mobile && { title: '服务商', dataIndex: 'provider', key: 'provider', width: 150, align: 'left' },
   !props.mobile && { title: '引用数', dataIndex: 'deploymentCount', key: 'deploymentCount', width: 80, align: 'center' },
   !props.mobile && { title: '更新时间', key: 'updatedAt', width: 168, align: 'left' },
-  hasAnyRowAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 96, align: 'right' },
+  hasAnyRowAction.value && { title: '操作', key: 'actions', width: props.mobile ? 64 : 112, align: 'right' },
 ].filter(Boolean))
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 
@@ -144,7 +150,7 @@ function handleRowAction(action, row) {
 
 onMounted(load)
 onBeforeUnmount(() => loadGate.invalidate())
-defineExpose({ refresh: load })
+defineExpose({ refresh: load, openCreate, loading, total, lastSuccessAt, notConfigured })
 </script>
 
 <style scoped>
@@ -164,6 +170,11 @@ defineExpose({ refresh: load })
 code { font-family: var(--workspace-font-mono); color: var(--color-text); font-size: 13px; }
 :global(.model-form-drawer .ant-drawer-content) { background: var(--bg-elevated); }
 :global(.model-form-drawer .ant-drawer-header) { border-bottom: 1px solid var(--gray-150); background: var(--bg-elevated); }
+@media (min-width: 761px) {
+  .model-table :deep(.ant-table-cell) { padding: 12px; }
+  .desktop-actions { gap: 8px; white-space: nowrap; }
+  .desktop-actions :deep(.ant-btn) { height: 28px; padding-inline: 2px; font-size: 13px; }
+}
 @media (max-width: 760px) {
   .desktop-actions { display: none; }
   .mobile-actions { display: inline-flex; }

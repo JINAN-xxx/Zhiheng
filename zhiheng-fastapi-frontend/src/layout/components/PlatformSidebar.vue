@@ -89,8 +89,23 @@
       </template>
     </nav>
 
+    <button
+      v-if="canChat && !collapsed && !isConversationPage"
+      type="button"
+      class="platform-history-toggle"
+      :aria-label="historyExpanded ? '收起最近会话' : '展开最近会话'"
+      :aria-expanded="historyExpanded"
+      aria-controls="recent-conversations"
+      @click="historyExpanded = !historyExpanded"
+    >
+      <MessageOutlined />
+      <span>最近会话</span>
+      <DownOutlined v-if="historyExpanded" class="platform-nav-group-chevron" />
+      <RightOutlined v-else class="platform-nav-group-chevron" />
+    </button>
     <RecentSessions
-      v-if="canChat && !collapsed && conversationMode === 'chat'"
+      v-if="canChat && !collapsed && conversationMode === 'chat' && showHistory"
+      id="recent-conversations"
       :sessions="workspaceStore.sessions"
       :active-session-id="activeSessionId"
       :loading="workspaceStore.sessionsLoading"
@@ -188,6 +203,10 @@ const canChat = computed(
 )
 const workCapabilities = computed(() => resolveWorkTaskCapabilities(permissionSet.value))
 const conversationMode = computed(() => resolveConversationWorkspaceMode(route.path))
+const historyExpanded = ref(false)
+const isConversationPage = computed(() => route.path === '/ai/chat' || route.path.startsWith('/ai/chat/'))
+const showHistory = computed(() => isConversationPage.value || historyExpanded.value)
+watch(() => route.path, () => { historyExpanded.value = false })
 const resourceGroups = computed(() => [
   ...resolveAiResourceGroups(permissionSet.value),
   ...resolveAgentExtensionGroups(permissionSet.value),
@@ -337,6 +356,7 @@ watch([resourceGroups, () => route.path], ([groups]) => {
 .platform-nav-group-children { display: grid; gap: 2px; }
 .platform-nav-link,
 .platform-nav-group-link,
+.platform-history-toggle,
 .platform-new-chat,
 .platform-admin-entry { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--workspace-radius-sm); background: transparent; color: var(--color-text-secondary); text-decoration: none; cursor: pointer; white-space: nowrap; font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 400; }
 .platform-nav-group-link { height: var(--platform-menu-item-height); min-height: var(--platform-menu-item-height); color: var(--color-text); font-weight: 500; justify-content: flex-start; text-align: left; }
@@ -345,10 +365,13 @@ watch([resourceGroups, () => route.path], ([groups]) => {
 .platform-new-chat { margin-bottom: 5px; border-color: var(--gray-150); background: var(--bg-container); color: var(--color-text); }
 .platform-nav-link:hover,
 .platform-nav-group-link:hover,
+.platform-history-toggle:hover,
 .platform-admin-entry:hover { background: var(--gray-50); color: var(--color-text); }
 .platform-nav-link.router-link-active { background: var(--main-50); color: var(--main-700); }
 .platform-nav-group-collapsed.active { background: var(--main-50); color: var(--main-700); }
-.platform-admin-entry { margin: 8px 10px; border-top: 1px solid var(--gray-150); border-radius: 0; padding-top: 8px; }
+.platform-history-toggle { margin: 8px 10px; text-align: left; }
+.platform-history-toggle:focus-visible { outline: 2px solid var(--main-color); outline-offset: 2px; }
+.platform-admin-entry { margin: auto 10px 8px; border-top: 1px solid var(--gray-150); border-radius: 0; padding-top: 8px; }
 .platform-sidebar.collapsed .platform-brand-row { gap: 0; padding-inline: 0; }
 .platform-sidebar.collapsed .platform-brand { justify-content: center; }
 .platform-sidebar.collapsed .platform-brand { width: 26px; flex: 0 0 26px; }
@@ -356,4 +379,8 @@ watch([resourceGroups, () => route.path], ([groups]) => {
 .platform-sidebar.collapsed .platform-nav-link,
 .platform-sidebar.collapsed .platform-new-chat,
 .platform-sidebar.collapsed .platform-admin-entry { justify-content: center; padding-inline: 0; }
+@media (min-width: 992px) {
+  .platform-primary-nav { min-height: 0; overflow-y: auto; }
+  .recent-sessions { min-height: 160px; }
+}
 </style>

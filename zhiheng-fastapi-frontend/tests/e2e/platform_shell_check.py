@@ -1334,6 +1334,9 @@ async def check_model_dark(browser: Browser) -> None:
         browser, ADMIN_VIEWPORT
     )
     try:
+        # The header shows the last successful refresh time; freeze Date only,
+        # leaving animation and request timers running during screenshot checks.
+        await page.clock.set_fixed_time(1787212800000)
         await page.goto(f"{BASE_URL}/ai/model")
         await page.locator(".model-table").wait_for()
         await page.get_by_role("button", name="切换主题").click()

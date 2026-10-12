@@ -256,7 +256,11 @@ async def check_history_and_vision(browser):
     try:
         await page.goto(f'{BASE_URL}/ai/chat?sessionId=history-session')
         await page.get_by_text('历史附件仍可查看', exact=True).wait_for()
-        await expect(page.locator('.file-guidance').filter(has_text='当前模型未启用视觉能力')).to_be_visible()
+        capability = page.locator('.model-capability')
+        await expect(capability).to_have_text('文本与文档')
+        await expect(page.locator('.file-guidance')).to_have_count(0)
+        await capability.hover()
+        await expect(page.get_by_role('tooltip')).to_contain_text('当前模型未启用视觉能力')
         await choose(page, [chosen_file('unsupported.png'), chosen_file('allowed.pdf')])
         await expect(page.locator('.queued-file-status')).to_have_text('已上传')
         assert [item['name'] for item in fixture.uploads] == ['allowed.pdf']

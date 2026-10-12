@@ -771,6 +771,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+@media (min-width: 992px) {
+  .developer-grid { padding: var(--workspace-space-4) var(--workspace-space-6) var(--workspace-space-6); }
+}
+
 @media (max-width: 640px) {
   .developer-grid { padding: 16px; }
   .application-context-bar { gap: 12px; padding: 14px 16px; }

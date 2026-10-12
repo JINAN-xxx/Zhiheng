@@ -36,6 +36,7 @@ const emit = defineEmits(['open-sidebar'])
 <style scoped lang="scss">
 .workspace-toolbar {
   display: flex;
+  flex-shrink: 0;
   min-height: 56px;
   align-items: center;
   justify-content: space-between;
@@ -105,6 +106,21 @@ const emit = defineEmits(['open-sidebar'])
     &:focus-visible {
       outline: 2px solid var(--main-color);
       outline-offset: 2px;
+    }
+  }
+}
+
+@media (min-width: 992px) {
+  .workspace-toolbar {
+    min-height: 64px;
+    padding: 8px var(--workspace-space-6);
+
+    &__actions :deep(.ant-btn) {
+      height: var(--workspace-control-height);
+    }
+
+    &__subtitle {
+      font-size: 12px;
     }
   }
 }

@@ -61,6 +61,8 @@ jobs:
           CHAT_WORK_CHECK_BASE_URL="$PLATFORM_SHELL_BASE_URL" python -u tests/e2e/chat_work_mode_check.py
           python -u tests/e2e/platform_shell_check.py
           python -u tests/e2e/model_vision_check.py
+          python -u tests/e2e/desktop_layout_check.py
+          python -u tests/e2e/desktop_review_fixes_check.py
 
       - name: Upload browser screenshots and server log
         if: always()
