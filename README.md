@@ -2,16 +2,17 @@
 
 智衡 AI 开放平台基于 FastAPI 和 Vue 3 构建，面向企业和团队提供模型接入、智能对话、知识库、智能体、应用开发接入和用量记录能力。平台采用前后端分离的模块化单体架构：业务通过插件和公开接口协作，统一构建与发布；外部应用通过 OpenAI 兼容接口调用。
 
-文档更新：2026-10-10。本文与 `release/platform-integration-merge` 分支的集成代码对应。仓库目录名称不决定 Git 分支，开发前请用 `git branch --show-current` 核对；已有在线实例的版本以实际镜像与前端构建产物为准。
+文档更新：2026-10-19。本文与 `release/platform-integration-merge` 分支的集成代码对应。仓库目录名称不决定 Git 分支，开发前请用 `git branch --show-current` 核对；已有在线实例的版本以实际镜像与前端构建产物为准。
 
-## 当前版本
+## 技术组成与版本
 
-- 平台版本：`v0.1`
 - 后端：FastAPI、SQLAlchemy、PostgreSQL、Redis
-- 前端：Vue 3、Vite、Ant Design Vue
+- 前端：Vue 3、Vite、Ant Design Vue；部分管理页面沿用 Element Plus
 - 模型网关：LiteLLM Proxy
 - 认证方式：JWT、平台 API Key、Bearer Token
 - 默认平台端口：`12580`
+
+前端包版本见 `zhiheng-fastapi-frontend/package.json`，后端 CLI 包版本见 `zhiheng-fastapi-backend/pyproject.toml`，后端接口元信息版本由 `zhiheng-fastapi-backend/config/env.py` 的 `app_version` 配置。镜像交付版本以发布包 `release.json` 为准，这些版本号分别维护。
 
 ## 功能概览
 
@@ -57,23 +58,74 @@ flowchart LR
 
 前后端各有一个整体构建产物。模块化用于明确职责、减少跨模块内部依赖，并不提供独立进程隔离。后端公开入口位于业务插件的 `public/`，前端插件也通过 `public/` 向宿主暴露会话、资源选择与工作任务能力。完整说明见 [代码结构](./代码结构说明.md)。
 
-目录职责：
+### 目录结构
+
+以下按当前 Git 维护的目录列出主要入口；后端完整目录见[后端目录说明](./zhiheng-fastapi-backend/docs/后端目录说明.md)，前后端调用关系见[代码结构说明](./代码结构说明.md)。
 
 ```text
-zhiheng-fastapi-frontend/         Web 前端和 AI 工作台
-zhiheng-fastapi-frontend/tests/   前端契约与 Playwright 浏览器检查
-zhiheng-fastapi-backend/          FastAPI 后端、插件和数据库迁移
-zhiheng-fastapi-backend/tests/    后端单元、集成与部署测试
-data/agent-skills/               平台技能持久文件（运行时生成，不提交 Git）
-data/knowledge/                  知识库上传与元数据（不提交 Git）
-data/platform-files/             平台上传附件（不提交 Git）
-deploy/litellm/                  LiteLLM 独立运行环境
-deploy/zhiheng/                  平台 PostgreSQL 初始化脚本
-deploy/release/                  离线镜像发布、兼容升级与应用回滚
-docs/                           架构、设计和开发文档
+./
+├── zhiheng-fastapi-backend/       # FastAPI 后端
+│   ├── app.py                   # Uvicorn 启动入口
+│   ├── server.py                # 应用工厂与生命周期
+│   ├── cli/                     # zhiheng 命令行、向导与交互终端
+│   ├── module_admin/            # 用户、权限、文件、监控等基础管理
+│   ├── module_generator/        # 代码生成服务与模板
+│   ├── module_plugin/           # 插件管理 HTTP 入口
+│   ├── module_task/             # 定时任务实现
+│   ├── module_Knowledge/        # 文档解析与分块基础工具
+│   ├── plugins/
+│   │   ├── core/                # 插件发现、生命周期、迁移与运行时
+│   │   ├── ai/                  # 模型、对话、知识库、应用与开放 API
+│   │   └── agent_extension/     # 智能体、技能与工作任务
+│   ├── scripts/                 # 初始化、SQL 构建和文件迁移脚本
+│   ├── sql/                     # 数据库初始化与增量升级 SQL
+│   ├── tests/                   # 后端及部署工具测试
+│   └── docs/                    # 后端代码导航与使用说明
+├── zhiheng-fastapi-frontend/      # Web 前端
+│   ├── src/                     # 宿主布局、路由、公共组件和管理页面
+│   ├── plugins/
+│   │   ├── ai/                  # AI 工作台业务页面、API 和公开接口
+│   │   └── agent_extension/     # 智能体、技能和工作任务界面
+│   ├── tests/                   # plugins/ 契约测试与 e2e/ 浏览器检查
+│   ├── bin/                     # Nginx 配置和 Windows 前端辅助脚本
+│   └── dist/                    # 随仓库交付的前端构建产物
+├── deploy/
+│   ├── platform.py              # 根目录 deploy.sh 的源码部署实现
+│   ├── release_cli.py           # 镜像发布命令入口
+│   ├── compose.release.yaml     # 镜像发布专用编排模板
+│   ├── release/                 # 离线包构建、校验、部署与回滚
+│   ├── legacy/                  # 拆分部署兼容入口
+│   ├── litellm/                 # 网关配置、独立编排与密钥初始化
+│   ├── zhiheng/                 # PostgreSQL 初始化与部署说明
+│   ├── milvus/                  # 向量服务配置
+│   ├── frp/                     # FRP 服务单元
+│   └── windows/                 # Windows 局域网访问辅助脚本
+├── docs/                        # 架构、设计、实现计划与运维记录
+├── .github/workflows/            # 后端、前端浏览器及 Python 风格检查
+├── compose.yaml                 # 默认源码部署编排
+├── docker-compose.pg.yml         # 拆分部署兼容编排
+├── deploy.sh                     # 源码部署与 release 子命令入口
+├── 代码结构说明.md               # 前后端结构与调用关系
+└── README.md
 ```
 
-当前分支已移除移动端工程，测试随前后端工程维护。旧 `ruoyi-fastapi-*` 目录可能残留本地依赖、缓存与日志，它们不属于当前源码，也不应作为新代码提交。
+后端 `plugins/core/` 是插件框架。前端宿主框架位于 `zhiheng-fastapi-frontend/src/`，其中 `src/plugins/` 放置通用功能适配；前端业务插件则位于 `zhiheng-fastapi-frontend/plugins/`，包含 `ai/` 和 `agent_extension/`。知识库业务在后端 `plugins/ai/knowledge/`，`module_Knowledge/` 保留文档解析与分块工具。
+
+### 运行时目录与本地生成文件
+
+统一源码部署默认在仓库根目录生成以下文件数据目录；可用 `PLATFORM_DATA_DIR` 更改位置。镜像发布则默认使用安装目录下的 `data/`。
+
+```text
+data/
+├── agent-skills/                # 平台技能持久文件
+├── knowledge/                   # 知识库文档及相关文件
+├── platform-files/              # 平台附件，挂载到容器 /app/vf_admin
+└── milvus/                      # Milvus 持久数据
+```
+
+这些目录在运行时生成，不随源码提交。PostgreSQL 和 Redis 默认使用 Docker 命名卷，备份范围见[数据持久化](#数据持久化)。本地后端还可能生成 `vf_admin/`、`logs/` 等目录，位置与启动工作目录和配置有关；它们不是新的业务模块。
+
+当前分支维护桌面 Web 前端，已移除独立移动端工程。`.venv/`、`node_modules/`、Python 缓存及旧 `ruoyi-fastapi-*` 目录中的本地残留不属于当前源码结构；测试分别维护在前后端的 `tests/` 中。
 
 ## 快速开始
 
@@ -243,14 +295,19 @@ cd zhiheng-fastapi-frontend
 python -m pip install playwright Pillow
 python -m playwright install --with-deps chromium
 python -m unittest discover -s tests/e2e -p 'test_*.py' -v
+CHAT_WORK_CHECK_BASE_URL=http://127.0.0.1:15174 python tests/e2e/chat_work_mode_check.py
 python tests/e2e/platform_shell_check.py
 python tests/e2e/model_vision_check.py
+python tests/e2e/desktop_layout_check.py
+python tests/e2e/desktop_review_fixes_check.py
+
+# 可选：模型接入向导专项检查
 MODEL_ONBOARDING_BASE_URL=http://127.0.0.1:15174 python tests/e2e/model_onboarding_check.py
 ```
 
-默认访问 `http://127.0.0.1:15174`，可通过 `PLATFORM_SHELL_BASE_URL` 指定地址；截图默认保存到 `/tmp`，可通过 `PLATFORM_SHELL_SCREENSHOT_DIR` 指定目录。GitHub Actions 运行相同的前端契约测试与浏览器检查，Python 风格检查覆盖后端及其 `tests/`。
+平台浏览器检查默认访问 `http://127.0.0.1:15174`，可通过 `PLATFORM_SHELL_BASE_URL` 指定地址；工作模式和接入向导专项脚本分别使用 `CHAT_WORK_CHECK_BASE_URL`、`MODEL_ONBOARDING_BASE_URL`。截图默认保存到 `/tmp`，可通过 `PLATFORM_SHELL_SCREENSHOT_DIR` 指定目录。前端契约测试、浏览器辅助测试以及上面的工作模式、平台、视觉和两组桌面检查已接入 [Playwright 工作流](./.github/workflows/playwright.yml)。Python 风格检查覆盖后端及其 `tests/`。
 
-浏览器脚本运行两轮功能检查，并比较五张关键截图。Chromium 的圆角抗锯齿可能产生少量边缘差异，因此使用同尺寸 RGB 像素比较替代 PNG 字节哈希相等：至多允许 32 个像素变化，且任一通道差值不超过 8；任一条件超限即失败。日志保留每张图的哈希与实际像素差异，独立回归测试验证这些边界不会放过尺寸、大范围或明显颜色变化。
+其中 `platform_shell_check.py` 运行两轮功能检查，并比较五张关键截图。Chromium 的圆角抗锯齿可能产生少量边缘差异，因此使用同尺寸 RGB 像素比较替代 PNG 字节哈希相等：至多允许 32 个像素变化，且任一通道差值不超过 8；任一条件超限即失败。日志保留每张图的哈希与实际像素差异，独立回归测试验证这些边界不会放过尺寸、大范围或明显颜色变化。
 
 ## 重要配置
 
@@ -287,6 +344,7 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [对话停止与断连恢复](./docs/operations/2026-10-10-chat-cancellation-recovery.md)
 - [严格审查六项修复、验收及旧库升级说明](./docs/operations/2026-10-10-strict-review-fixes.md)
 - [硅基流动重排序兼容与正式接入](./docs/operations/2026-10-10-siliconflow-rerank.md)
+- [桌面 Web 布局与审查修复发布记录](./docs/operations/2026-10-10-desktop-web-layout-release.md)
 - [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
 - [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
