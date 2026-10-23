@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.chat.public import ConversationInfo, MessageInfo
+from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
 
 router = APIRouter(prefix='/api/chat/conversations', tags=['chat'])
@@ -20,6 +21,7 @@ class ChatRequest(BaseModel):
     model_id: UUID
     message: str = Field(min_length=1, max_length=16000)
     client_request_id: UUID
+    skill_slugs: list[SkillSlug] = Field(default_factory=list, max_length=5)
 
 
 @router.get('')
@@ -62,6 +64,7 @@ async def create_run(
             conversation_id=conversation_id,
             model_id=body.model_id,
             message=body.message,
+            skill_slugs=body.skill_slugs,
             client_request_id=body.client_request_id,
             token_limit=container.settings.token_limit,
         )

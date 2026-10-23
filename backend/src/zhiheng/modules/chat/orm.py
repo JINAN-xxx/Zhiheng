@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zhiheng.infrastructure.database import Base
@@ -26,5 +27,6 @@ class ChatMessage(Base):
     run_id: Mapped[UUID] = mapped_column(ForeignKey('runtime_runs.id'))
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
+    skill_snapshots: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list, server_default='[]')
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

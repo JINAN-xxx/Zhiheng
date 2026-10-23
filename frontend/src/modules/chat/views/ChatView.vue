@@ -20,6 +20,7 @@ import {
 } from '@ant-design/icons-vue'
 import { runStatusLabel } from '../../../shared/stream.ts'
 import { useChatWorkspace } from '../public.ts'
+import { SkillPicker } from '../../skills/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
 const {
@@ -28,6 +29,10 @@ const {
   modelId,
   messages,
   draft,
+  selectedSkills,
+  skillPickerOpen,
+  removeSkill,
+  handleSkillSelected,
   error,
   listError,
   loading,
@@ -113,6 +118,11 @@ onBeforeUnmount(() => {
             <div class="message-meta">{{ message.role === 'user' ? '我' : '智衡' }}</div>
             <AiMessage v-if="message.role === 'assistant'" :content="message.content" />
             <p v-else class="user-message">{{ message.content }}</p>
+            <div v-if="message.skill_snapshots.length" class="message-skills">
+              <ATag v-for="skill in message.skill_snapshots" :key="skill.revision_id"
+                >技能：{{ skill.name }}</ATag
+              >
+            </div>
           </div>
         </article>
         <article v-if="activeRun" class="message-row assistant">
@@ -142,6 +152,15 @@ onBeforeUnmount(() => {
             }}</span>
           </div>
         </div>
+        <div v-if="selectedSkills.length" class="selected-skills">
+          <ATag
+            v-for="skill in selectedSkills"
+            :key="skill.skillSlug"
+            :closable="!running && !sending"
+            @close="removeSkill(skill.skillSlug)"
+            >技能：{{ skill.skillName }}</ATag
+          >
+        </div>
         <div class="composer-surface">
           <ATextarea
             v-model:value="draft"
@@ -153,9 +172,12 @@ onBeforeUnmount(() => {
             @keydown="keydown"
           />
           <div class="composer-actions">
-            <AButton type="text" disabled aria-label="选择技能" title="当前版本暂不支持选择技能"
-              >@</AButton
-            >
+            <SkillPicker
+              v-model="selectedSkills"
+              v-model:open="skillPickerOpen"
+              :disabled="running || sending || loading"
+              @selected="handleSkillSelected"
+            />
             <AButton
               type="text"
               disabled

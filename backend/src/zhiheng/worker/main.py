@@ -48,6 +48,8 @@ async def publish_outbox(container: Container, queue: ArqRedis) -> None:
 
 async def periodic(context: dict[str, object]) -> None:
     container, queue = cast('Container', context['container']), cast('ArqRedis', context['redis'])
+    async with container.database.sessions.begin() as session:
+        await container.skills.cleanup_expired(session)
     await recover_expired(container)
     await publish_outbox(container, queue)
     await container.redis.set(container.settings.worker_health_key, str(time()), ex=15)

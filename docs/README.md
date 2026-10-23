@@ -12,7 +12,9 @@
 | [首条 AI 链路验收](superpowers/verification/2026-10-23-first-ai-slice.md) | 已运行的验证、交付范围及未覆盖项 |
 | [功能对齐计划](superpowers/plans/2026-10-23-feature-parity.md) | 开发接入、技能、智能体、Work、文件与知识库的实际推进状态 |
 | [开发接入与模型管理验收](superpowers/verification/2026-10-23-developer-models.md) | 本组 API、原页面、真实容器与数据升级的验证 |
-| [技能模块计划](superpowers/plans/2026-10-23-skills.md) | 两阶段技能安装、提示词包与聊天选择的下一域实现 |
+| [技能模块计划](superpowers/plans/2026-10-23-skills.md) | 已完成的两阶段安装、提示词包与聊天选择实现 |
+| [技能验收](superpowers/verification/2026-10-23-skills.md) | 安装、聊天冻结、原界面、迁移和真实容器验证 |
+| [智能体计划](superpowers/plans/2026-10-23-agents.md) | 草稿/发布、预览、公开调用及统一运行的下一域实现 |
 | [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
 | [部署说明](../deploy/core/README.md) | 新实例启动、健康检查和数据备份要求 |
 

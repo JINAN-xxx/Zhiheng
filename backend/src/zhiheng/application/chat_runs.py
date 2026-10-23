@@ -1,12 +1,14 @@
 import hashlib
 import json
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.chat.public import ChatService
+from zhiheng.modules.chat.public import ChatService, SkillSnapshot
 from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
+from zhiheng.modules.skills.public import resolve_selection
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -29,8 +31,9 @@ class ChatRunService:
         message: str,
         client_request_id: UUID,
         token_limit: int,
+        skill_slugs: Sequence[str] = (),
     ) -> RunSnapshot:
-        fingerprint = self._fingerprint('chat', conversation_id, model_id, message)
+        fingerprint = self._fingerprint('chat', conversation_id, model_id, message, skill_slugs)
         await self._runs.lock_request(session, principal.id, client_request_id)
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)
         if existing is not None:
@@ -41,8 +44,16 @@ class ChatRunService:
         binding = await self._models.resolve(session, model_id)
         if binding.model_type != 'chat':
             raise AppError('model_unavailable', '当前入口仅支持聊天模型', 422)
+        selection = await resolve_selection(session, skill_slugs)
+        skill_messages = tuple(ModelMessage('system', value.content) for value in selection.revisions)
+        snapshots = [
+            SkillSnapshot(
+                slug=value.slug, name=value.name, revision_id=value.revision_id, content_hash=value.content_hash
+            )
+            for value in selection.revisions
+        ]
         context = await self._chat.context(session, principal, conversation_id)
-        request = ModelRequest(binding=binding, messages=(*context, ModelMessage('user', message)))
+        request = ModelRequest(binding=binding, messages=(*skill_messages, *context, ModelMessage('user', message)))
         run = await self._reserve(
             session,
             principal,
@@ -53,7 +64,9 @@ class ChatRunService:
             request=request,
             token_limit=token_limit,
         )
-        await self._chat.add_user_message(session, conversation_id=conversation_id, run_id=run.id, content=message)
+        await self._chat.add_user_message(
+            session, conversation_id=conversation_id, run_id=run.id, content=message, skill_snapshots=snapshots
+        )
         return run
 
     async def admit_test(
@@ -138,8 +151,15 @@ class ChatRunService:
         return run
 
     @staticmethod
-    def _fingerprint(source: str, resource_id: UUID, model_id: UUID, message: str) -> str:
+    def _fingerprint(
+        source: str, resource_id: UUID, model_id: UUID, message: str, skill_slugs: Sequence[str] = ()
+    ) -> str:
+        fields: list[object] = [source, str(resource_id), str(model_id), message]
+        if skill_slugs:
+            fields.append(list(skill_slugs))
         value = json.dumps(
-            [source, str(resource_id), str(model_id), message], ensure_ascii=False, separators=(',', ':')
+            fields,
+            ensure_ascii=False,
+            separators=(',', ':'),
         )
         return hashlib.sha256(value.encode()).hexdigest()

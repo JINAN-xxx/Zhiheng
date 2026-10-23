@@ -67,11 +67,19 @@ export function createHttpClient(options: HttpOptions = {}) {
     const response = await fetcher(`/api${path}`, {
       method: init.method ?? 'GET',
       credentials: 'include',
-      headers:
-        init.body === undefined
-          ? { Accept: 'application/json, text/event-stream' }
-          : { Accept: 'application/json', 'Content-Type': 'application/json' },
-      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      headers: {
+        Accept:
+          init.body === undefined ? 'application/json, text/event-stream' : 'application/json',
+        ...(init.body !== undefined || (init.method !== undefined && init.method !== 'GET')
+          ? {
+              'Content-Type':
+                init.body instanceof Blob ? 'application/octet-stream' : 'application/json'
+            }
+          : {})
+      },
+      ...(init.body === undefined
+        ? {}
+        : { body: init.body instanceof Blob ? init.body : JSON.stringify(init.body) }),
       signal
     })
     if (!response.ok) {

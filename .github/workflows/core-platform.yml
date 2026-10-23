@@ -116,6 +116,7 @@ jobs:
           python tests/browser/ui_regressions.py
           python tests/browser/developer_regressions.py
           python tests/browser/model_management_regressions.py
+          python tests/browser/skills_regressions.py
       - name: Stop the preview
         if: always()
         run: |

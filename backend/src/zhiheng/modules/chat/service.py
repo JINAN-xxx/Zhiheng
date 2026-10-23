@@ -1,10 +1,11 @@
+from collections.abc import Sequence
 from typing import Literal, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.chat.contracts import ConversationInfo, MessageInfo
+from zhiheng.modules.chat.contracts import ConversationInfo, MessageInfo, SkillSnapshot
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.models.public import ModelMessage
 from zhiheng.shared.errors import AppError
@@ -59,6 +60,7 @@ class ChatService:
                 content=row.content,
                 run_id=row.run_id,
                 created_at=row.created_at,
+                skill_snapshots=[SkillSnapshot.model_validate(value) for value in row.skill_snapshots],
             )
             for row in reversed(rows)
         ]
@@ -84,9 +86,23 @@ class ChatService:
         )
 
     async def add_user_message(
-        self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str
+        self,
+        session: AsyncSession,
+        *,
+        conversation_id: UUID,
+        run_id: UUID,
+        content: str,
+        skill_snapshots: Sequence[SkillSnapshot] = (),
     ) -> None:
-        session.add(ChatMessage(conversation_id=conversation_id, run_id=run_id, role='user', content=content))
+        session.add(
+            ChatMessage(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                role='user',
+                content=content,
+                skill_snapshots=[value.model_dump(mode='json') for value in skill_snapshots],
+            )
+        )
         await session.execute(
             update(Conversation)
             .where(

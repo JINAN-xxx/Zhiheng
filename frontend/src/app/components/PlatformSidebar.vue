@@ -22,6 +22,7 @@ const emit = defineEmits<{ 'toggle-collapse': []; navigate: [] }>()
 const route = useRoute()
 const router = useRouter()
 const resourcesExpanded = ref(['models', 'usage', 'developer'].includes(String(route.name)))
+const extensionsExpanded = ref(route.name === 'skills')
 const historyExpanded = ref(false)
 watch(
   () => route.path,
@@ -29,6 +30,7 @@ watch(
     historyExpanded.value = false
     if (['models', 'usage', 'developer'].includes(String(route.name)))
       resourcesExpanded.value = true
+    if (route.name === 'skills') extensionsExpanded.value = true
   }
 )
 const { selectConversation } = useChatWorkspace()
@@ -148,16 +150,48 @@ async function openHistory(): Promise<void> {
           ></ADropdown
         >
       </div>
-      <button
-        type="button"
-        class="platform-nav-link"
-        disabled
-        aria-label="智能体扩展"
-        title="当前版本暂不支持智能体扩展"
-      >
-        <ThunderboltOutlined /><span v-if="!collapsed">智能体扩展</span
-        ><RightOutlined v-if="!collapsed" class="platform-nav-group-chevron" />
-      </button>
+      <div class="platform-nav-group">
+        <template v-if="!collapsed">
+          <button
+            type="button"
+            class="platform-nav-group-link"
+            aria-label="智能体扩展"
+            :aria-expanded="extensionsExpanded"
+            @click="extensionsExpanded = !extensionsExpanded"
+          >
+            <ThunderboltOutlined /><span>智能体扩展</span
+            ><DownOutlined
+              v-if="extensionsExpanded"
+              class="platform-nav-group-chevron"
+            /><RightOutlined v-else class="platform-nav-group-chevron" />
+          </button>
+          <div v-if="extensionsExpanded" class="platform-nav-group-children">
+            <RouterLink
+              to="/skills"
+              class="platform-nav-link platform-nav-child"
+              aria-label="技能管理"
+              @click="emit('navigate')"
+              >技能管理</RouterLink
+            >
+          </div>
+        </template>
+        <ADropdown v-else :trigger="['click']" placement="bottomLeft">
+          <button
+            type="button"
+            class="platform-nav-link platform-nav-group-collapsed"
+            aria-label="智能体扩展"
+          >
+            <ThunderboltOutlined />
+          </button>
+          <template #overlay
+            ><AMenu
+              ><AMenuItem
+                ><RouterLink to="/skills" aria-label="技能管理">技能管理</RouterLink></AMenuItem
+              ></AMenu
+            ></template
+          >
+        </ADropdown>
+      </div>
     </nav>
     <button
       v-if="!collapsed && route.name !== 'chat'"

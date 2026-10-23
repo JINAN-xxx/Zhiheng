@@ -5,6 +5,42 @@ const decodeString = (value: unknown): string => {
   assert.equal(typeof value, 'string')
   return String(value)
 }
+void test('file upload sends the original bytes with Cookie auth and binary content type', async () => {
+  const file = new File(['---\nname: example\n---\n技能内容'], 'SKILL.md')
+  let calls = 0
+  const client = createHttpClient({
+    fetch: (_input, init) => {
+      calls += 1
+      assert.equal(init?.credentials, 'include')
+      assert.equal(new Headers(init?.headers).get('Content-Type'), 'application/octet-stream')
+      assert.equal(init?.body, file)
+      return Promise.resolve(new Response(JSON.stringify('prepared'), { status: 201 }))
+    }
+  })
+  assert.equal(
+    await client.request('/skills/import/prepare?filename=SKILL.md', {
+      method: 'POST',
+      body: file,
+      decode: decodeString
+    }),
+    'prepared'
+  )
+  assert.equal(calls, 1)
+})
+void test('empty DELETE preserves the JSON metadata required by management write routes', async () => {
+  const client = createHttpClient({
+    fetch: (_input, init) => {
+      assert.equal(init?.method, 'DELETE')
+      assert.equal(new Headers(init?.headers).get('Content-Type'), 'application/json')
+      assert.equal(init?.body, undefined)
+      return Promise.resolve(new Response(JSON.stringify('deleted')))
+    }
+  })
+  assert.equal(
+    await client.request('/skills/skill-id', { method: 'DELETE', decode: decodeString }),
+    'deleted'
+  )
+})
 void test('HTTP uses Cookie credentials, direct DTO and stable error message without retries', async () => {
   let calls = 0
   const client = createHttpClient({

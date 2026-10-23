@@ -8,6 +8,7 @@ import type { RunSnapshot } from '../../../shared/stream.ts'
 import { identity } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
+import type { Skill } from '../../skills/public.ts'
 import {
   cancelRun,
   createConversation,
@@ -28,6 +29,8 @@ function createChatWorkspace() {
   const modelId = ref<string>()
   const messages = ref<ChatMessage[]>([])
   const draft = ref('')
+  const selectedSkills = ref<Skill[]>([])
+  const skillPickerOpen = ref(false)
   const error = ref('')
   const listError = ref('')
   const loading = ref(false)
@@ -59,6 +62,8 @@ function createChatWorkspace() {
     conversationScope.dispose()
     draft.value = ''
     pendingSend = null
+    selectedSkills.value = []
+    skillPickerOpen.value = false
   })
   async function scroll(): Promise<void> {
     await nextTick()
@@ -94,6 +99,8 @@ function createChatWorkspace() {
     activeRun.value = null
     error.value = ''
     draft.value = ''
+    selectedSkills.value = []
+    skillPickerOpen.value = false
     canRetry.value = false
     pendingSend = null
     disconnected.value = false
@@ -181,7 +188,8 @@ function createChatWorkspace() {
             {
               conversationId: selected.value?.id ?? null,
               model_id: model,
-              message
+              message,
+              skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug)
             },
             () => crypto.randomUUID()
           )
@@ -189,6 +197,7 @@ function createChatWorkspace() {
     if (!request) return
     pendingSend = request
     sending.value = true
+    skillPickerOpen.value = false
     error.value = ''
     canRetry.value = false
     try {
@@ -208,7 +217,8 @@ function createChatWorkspace() {
         {
           model_id: request.model_id,
           message: request.message,
-          client_request_id: request.client_request_id
+          client_request_id: request.client_request_id,
+          skill_slugs: request.skill_slugs ?? []
         },
         context.signal
       )
@@ -216,6 +226,7 @@ function createChatWorkspace() {
       activeRun.value = run
       pendingSend = null
       draft.value = ''
+      selectedSkills.value = []
       messages.value = await getMessages(conversationId, context.signal)
       if (!isCurrent()) return
       sending.value = false
@@ -271,6 +282,17 @@ function createChatWorkspace() {
       void send()
     }
   }
+  function removeSkill(slug: string): void {
+    if (!sending.value && !running.value)
+      selectedSkills.value = selectedSkills.value.filter((skill) => skill.skillSlug !== slug)
+  }
+  function handleSkillSelected(): void {
+    draft.value = draft.value.replace(/(^|\s)@$/, '$1').trimEnd()
+  }
+  watch(draft, (value) => {
+    if (!sending.value && !running.value && !loading.value && /(^|\s)@$/.test(value))
+      skillPickerOpen.value = true
+  })
 
   return {
     conversations,
@@ -278,6 +300,10 @@ function createChatWorkspace() {
     modelId,
     messages,
     draft,
+    selectedSkills,
+    skillPickerOpen,
+    removeSkill,
+    handleSkillSelected,
     error,
     listError,
     loading,

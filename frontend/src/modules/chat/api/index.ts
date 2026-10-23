@@ -13,6 +13,7 @@ export interface ChatMessage {
   content: string
   run_id: string | null
   created_at: string
+  skill_snapshots: { slug: string; name: string; revision_id: string; content_hash: string }[]
 }
 function parseConversation(value: unknown): Conversation {
   const data = object(value)
@@ -26,7 +27,19 @@ function parseMessage(value: unknown): ChatMessage {
     role: data.role,
     content: string(data.content),
     run_id: data.run_id === null ? null : string(data.run_id),
-    created_at: string(data.created_at)
+    created_at: string(data.created_at),
+    skill_snapshots:
+      data.skill_snapshots === undefined
+        ? []
+        : list((value) => {
+            const item = object(value)
+            return {
+              slug: string(item.slug),
+              name: string(item.name),
+              revision_id: string(item.revision_id),
+              content_hash: string(item.content_hash)
+            }
+          })(data.skill_snapshots)
   }
 }
 export const getConversations = (signal: AbortSignal) =>
@@ -45,7 +58,12 @@ export const getMessages = (id: string, signal: AbortSignal) =>
   })
 export const sendMessage = (
   id: string,
-  body: { model_id: string; message: string; client_request_id: string },
+  body: {
+    model_id: string
+    message: string
+    client_request_id: string
+    skill_slugs?: readonly string[]
+  },
   signal: AbortSignal
 ) =>
   http.request(`/chat/conversations/${encodeURIComponent(id)}/runs`, {

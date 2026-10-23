@@ -10,6 +10,7 @@ from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelService
+from zhiheng.modules.skills.public import SkillService
 from zhiheng.runtime.outbox import OutboxStore
 from zhiheng.runtime.runs import RunStore
 
@@ -27,6 +28,7 @@ class Container:
         self.keys = KeyService(self.applications, self.models, self.identity)
         self.runs = RunStore()
         self.model_management = ModelManagementService(self.models, self.runs, self.keys)
+        self.skills = SkillService()
         self.chat = ChatService()
         self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs)
         self.outbox = OutboxStore()

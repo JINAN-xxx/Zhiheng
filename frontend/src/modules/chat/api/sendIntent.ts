@@ -2,6 +2,7 @@ export interface SendInput {
   readonly conversationId: string | null
   readonly model_id: string
   readonly message: string
+  readonly skill_slugs?: readonly string[]
 }
 export interface SendIntent extends SendInput {
   readonly client_request_id: string
@@ -15,8 +16,14 @@ export function nextSendIntent(
     previous &&
     previous.conversationId === input.conversationId &&
     previous.model_id === input.model_id &&
-    previous.message === input.message
+    previous.message === input.message &&
+    (previous.skill_slugs ?? []).length === (input.skill_slugs ?? []).length &&
+    (previous.skill_slugs ?? []).every((slug, index) => slug === input.skill_slugs?.[index])
   )
     return previous
-  return { ...input, client_request_id: createId() }
+  return {
+    ...input,
+    ...(input.skill_slugs ? { skill_slugs: [...input.skill_slugs] } : {}),
+    client_request_id: createId()
+  }
 }

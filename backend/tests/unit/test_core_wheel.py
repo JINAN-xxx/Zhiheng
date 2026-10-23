@@ -11,9 +11,13 @@ REQUIRED_MEMBERS = (
     'zhiheng/cli/main.py',
     'zhiheng/__init__.py',
     'zhiheng/py.typed',
+    'zhiheng/modules/skills/public.py',
+    'zhiheng/modules/skills/package.py',
+    'zhiheng/modules/skills/validation.py',
+    'zhiheng/api/routes/skills.py',
     *(
         f'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/{name}'
-        for name in ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py')
+        for name in ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py', 'versions/0003_skills.py')
     ),
 )
 
@@ -58,7 +62,10 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         verify_wheel(tmp_path)
 
 
-def test_requires_both_database_migration_revisions(verify_wheel: Callable[[Path], Path], tmp_path: Path) -> None:
-    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if not name.endswith('0002_developer.py')))
+@pytest.mark.parametrize('revision', ['0001_core.py', '0002_developer.py', '0003_skills.py'])
+def test_requires_all_database_migration_revisions(
+    verify_wheel: Callable[[Path], Path], tmp_path: Path, revision: str
+) -> None:
+    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if not name.endswith(revision)))
     with pytest.raises(ValueError, match='migration'):
         verify_wheel(tmp_path)

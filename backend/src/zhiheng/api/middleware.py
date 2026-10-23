@@ -2,9 +2,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+MAX_LENGTH_HEADER_DIGITS = 20
+
 
 class RequestOriginMiddleware:
-    """Inspect request metadata without wrapping or consuming the ASGI receive channel."""
+    """Validate same-origin writes and bound the single binary upload route."""
 
     def __init__(self, app: ASGIApp, allowed_origins: tuple[str, ...]) -> None:
         self._app = app
@@ -25,13 +27,62 @@ class RequestOriginMiddleware:
                 )
                 await response(scope, receive, send)
                 return
-            if not request.headers.get('content-type', '').startswith('application/json'):
+            upload = scope['path'] == '/api/skills/import/prepare' and scope['method'] == 'POST'
+            content_types = request.headers.getlist('content-type')
+            content_type = content_types[0].split(';', 1)[0].strip().lower() if len(content_types) == 1 else ''
+            expected = 'application/octet-stream' if upload else 'application/json'
+            if content_type != expected:
                 response = JSONResponse(
                     {'error': {'code': 'invalid_content_type', 'message': '请使用 JSON 请求'}}, status_code=415
                 )
                 await response(scope, receive, send)
                 return
+            if upload:
+                await self._upload(scope, request, receive, send)
+                return
         await self._app(scope, receive, send)
+
+    async def _upload(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
+        limit = 10 * 1024 * 1024
+        lengths = request.headers.getlist('content-length')
+        if len(lengths) > 1 or (lengths and (not lengths[0].isascii() or not lengths[0].isdigit())):
+            await JSONResponse(
+                {'error': {'code': 'invalid_content_length', 'message': '无效请求长度'}}, status_code=400
+            )(scope, receive, send)
+            return
+        if lengths and (len(lengths[0]) > MAX_LENGTH_HEADER_DIGITS or int(lengths[0]) > limit):
+            await JSONResponse({'error': {'code': 'request_too_large', 'message': '技能包超过10MiB'}}, status_code=413)(
+                scope, receive, send
+            )
+            return
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message['type'] == 'http.disconnect':
+                return
+            body.extend(message.get('body', b''))
+            if len(body) > limit:
+                await JSONResponse(
+                    {'error': {'code': 'request_too_large', 'message': '技能包超过10MiB'}}, status_code=413
+                )(scope, receive, send)
+                return
+            if not message.get('more_body', False):
+                break
+        if lengths and int(lengths[0]) != len(body):
+            await JSONResponse(
+                {'error': {'code': 'invalid_content_length', 'message': '请求长度不匹配'}}, status_code=400
+            )(scope, receive, send)
+            return
+        delivered = False
+
+        async def replay() -> Message:
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {'type': 'http.request', 'body': bytes(body), 'more_body': False}
+            return await receive()
+
+        await self._app(scope, replay, send)
 
 
 class PublicTransportMiddleware:

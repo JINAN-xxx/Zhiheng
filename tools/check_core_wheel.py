@@ -4,7 +4,17 @@ import argparse
 import zipfile
 from pathlib import Path
 
-REQUIRED_FILES = frozenset({'zhiheng/cli/main.py', 'zhiheng/__init__.py', 'zhiheng/py.typed'})
+REQUIRED_FILES = frozenset(
+    {
+        'zhiheng/cli/main.py',
+        'zhiheng/__init__.py',
+        'zhiheng/py.typed',
+        'zhiheng/modules/skills/public.py',
+        'zhiheng/modules/skills/package.py',
+        'zhiheng/modules/skills/validation.py',
+        'zhiheng/api/routes/skills.py',
+    }
+)
 
 
 def verify_core_wheel(directory: Path) -> Path:
@@ -17,7 +27,7 @@ def verify_core_wheel(directory: Path) -> Path:
     missing = REQUIRED_FILES - names
     if missing:
         raise ValueError(f'Core wheel is missing: {", ".join(sorted(missing))}')
-    migrations = ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py')
+    migrations = ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py', 'versions/0003_skills.py')
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations
     ):

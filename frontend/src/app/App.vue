@@ -84,7 +84,7 @@ async function signOut(): Promise<void> {
           </header>
           <main class="platform-page" :class="{ 'is-conversation': route.name === 'chat' }">
             <AiResourceShell
-              v-if="['models', 'usage', 'developer'].includes(String(route.name))"
+              v-if="['models', 'usage', 'developer', 'skills'].includes(String(route.name))"
               inset
             >
               <RouterView :key="route.path" />
