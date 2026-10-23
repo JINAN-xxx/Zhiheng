@@ -10,7 +10,7 @@
 
 ## 任务 1：发布契约与构建
 
-- 创建 `deploy/release/{__init__,manifest,build}.py`、`deploy/release/data-version`、发布 Dockerfile；在 `zhiheng-fastapi-backend/tests/deploy/test_release_build.py` 验证。
+- 创建 `deploy/release/{__init__,manifest,build}.py`、`deploy/release/data-version`、发布 Dockerfile；在 `backend/tests/deploy/test_release_build.py` 验证。
 - [x] 先验证版本非法、文件篡改、符号链接、镜像错配、重复版本与敏感环境文件排除失败。
 - [x] 实现清单校验、源码快照摘要、隔离前端构建、后端镜像、镜像归档及完整运行包。
 - [x] 运行 `python3 -m pytest -q tests/deploy/test_release_build.py` 并审查规格与代码。

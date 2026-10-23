@@ -6,7 +6,7 @@
 
 此前 Agent 直接导入 `openai_compat_controller`，调用其中的四个私有 helper；修改模型调用 Controller 的内部组织可能连带影响 Agent。
 
-现在两种 Controller 共同使用 [api_transport.py](../../zhiheng-fastapi-backend/plugins/ai/public/api_transport.py)。HTTP 规则已有独立入口和测试，原 Controller 只保留路由、业务调用与结果处理。
+现在两种 Controller 共同使用 [api_transport.py](../../backend/plugins/ai/public/api_transport.py)。HTTP 规则已有独立入口和测试，原 Controller 只保留路由、业务调用与结果处理。
 
 | 公共函数 | 负责的行为 | 调用方责任 |
 | --- | --- | --- |

@@ -15,14 +15,14 @@
 - 创建 `deploy/zhiheng/init-shared-postgres.sh`：生成 ZhiHeng 数据库密码、创建角色和数据库、按需导入 SQL。
 - 创建 `deploy/zhiheng/README.md`：记录共享数据库启动、验证和故障边界。
 - 修改 `docker-compose.pg.yml`：删除 `zhiheng-pg`，向 Backend 注入独立数据库连接。
-- 修改 `zhiheng-fastapi-backend/.env.dockerpg`：同步容器内数据库主机、用户和空密码模板。
-- 修改 `zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`：增加共享 PostgreSQL 部署契约。
+- 修改 `backend/.env.dockerpg`：同步容器内数据库主机、用户和空密码模板。
+- 修改 `backend/tests/deploy/test_litellm_runtime.py`：增加共享 PostgreSQL 部署契约。
 
 ### 任务 1：定义共享 PostgreSQL 部署契约
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：编写失败测试**
 
@@ -48,7 +48,7 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
     script = (REPOSITORY_ROOT / 'deploy/zhiheng/init-shared-postgres.sh').read_text(encoding='utf-8')
 
     assert "to_regclass('public.sys_user')" in script
-    assert 'zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql' in script
+    assert 'backend/sql/zhiheng-fastapi-pg.sql' in script
     assert 'ZHIHENG_DB_PASSWORD' in script
     assert 'LITELLM_DB_PASSWORD' not in script
 ```
@@ -56,7 +56,7 @@ def test_shared_postgres_initializer_has_non_destructive_guard() -> None:
 - [ ] **步骤 2：运行红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -65,7 +65,7 @@ pytest tests/deploy/test_litellm_runtime.py -v
 - [ ] **步骤 3：提交红灯测试**
 
 ```bash
-git add zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+git add backend/tests/deploy/test_litellm_runtime.py
 git commit -m "test: 定义 ZhiHeng 共享 PostgreSQL 契约"
 ```
 
@@ -75,7 +75,7 @@ git commit -m "test: 定义 ZhiHeng 共享 PostgreSQL 契约"
 
 - 创建：`deploy/zhiheng/init-shared-postgres.sh`
 - 创建：`deploy/zhiheng/README.md`
-- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：扩展脚本行为测试**
 
@@ -96,7 +96,7 @@ def test_shared_postgres_initializer_skips_seed_when_schema_exists(tmp_path: Pat
 - [ ] **步骤 2：运行测试确认因脚本缺失而失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -132,11 +132,11 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'zhiheng-fastapi')
 - [ ] **步骤 4：运行测试、Shell 语法检查并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
 sh -n deploy/zhiheng/init-shared-postgres.sh
-git add deploy/zhiheng zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+git add deploy/zhiheng backend/tests/deploy/test_litellm_runtime.py
 git commit -m "feat: 添加 ZhiHeng 共享数据库初始化"
 ```
 
@@ -145,8 +145,8 @@ git commit -m "feat: 添加 ZhiHeng 共享数据库初始化"
 **文件：**
 
 - 修改：`docker-compose.pg.yml`
-- 修改：`zhiheng-fastapi-backend/.env.dockerpg`
-- 测试：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/.env.dockerpg`
+- 测试：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：删除 `zhiheng-pg` 服务并注入连接配置**
 
@@ -180,11 +180,11 @@ DB_DATABASE = 'zhiheng-fastapi'
 - [ ] **步骤 3：验证并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
 ZHIHENG_DB_PASSWORD=test LITELLM_RUNTIME_KEY=test docker compose -f docker-compose.pg.yml config --quiet
-git add docker-compose.pg.yml zhiheng-fastapi-backend/.env.dockerpg
+git add docker-compose.pg.yml backend/.env.dockerpg
 git commit -m "feat: 复用 LiteLLM PostgreSQL 实例"
 ```
 
@@ -231,7 +231,7 @@ docker exec zhiheng-backend-pg python -c \
 - [ ] **步骤 5：运行回归与安全检查**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py tests/plugins/ai -q
 ruff check tests/deploy/test_litellm_runtime.py plugins/ai
 cd ..

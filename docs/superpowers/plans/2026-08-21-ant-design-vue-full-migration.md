@@ -24,35 +24,35 @@
 
 ### 新建设计系统
 
-- `zhiheng-fastapi-frontend/src/design/antdTheme.js`：亮色、暗色和组件 Token。
-- `zhiheng-fastapi-frontend/src/design/AntdRoot.vue`：`ConfigProvider`、语言和主题入口。
-- `zhiheng-fastapi-frontend/src/design/useAntdTheme.js`：现有主题状态到 Ant Design 算法的映射。
-- `zhiheng-fastapi-frontend/src/assets/styles/antd-reset.scss`：仅包含平台级 reset 和布局变量。
-- `zhiheng-fastapi-frontend/src/components/Antd/WorkspacePage.vue`：页面标题、说明和工具条。
-- `zhiheng-fastapi-frontend/src/components/Antd/AsyncState.vue`：加载、空、失败、过期和误配置状态。
-- `zhiheng-fastapi-frontend/src/components/Antd/ResourceTable.vue`：资源列表与移动列策略。
-- `zhiheng-fastapi-frontend/src/components/Antd/ResourceDrawer.vue`：创建、编辑和详情抽屉。
-- `zhiheng-fastapi-frontend/src/components/Antd/PermissionAction.vue`：权限和运行时门禁。
-- `zhiheng-fastapi-frontend/src/components/Antd/SecretField.vue`：秘密输入与一次性展示边界。
-- `zhiheng-fastapi-frontend/src/components/Antd/index.js`：设计系统公开出口。
+- `frontend/src/design/antdTheme.js`：亮色、暗色和组件 Token。
+- `frontend/src/design/AntdRoot.vue`：`ConfigProvider`、语言和主题入口。
+- `frontend/src/design/useAntdTheme.js`：现有主题状态到 Ant Design 算法的映射。
+- `frontend/src/assets/styles/antd-reset.scss`：仅包含平台级 reset 和布局变量。
+- `frontend/src/components/Antd/WorkspacePage.vue`：页面标题、说明和工具条。
+- `frontend/src/components/Antd/AsyncState.vue`：加载、空、失败、过期和误配置状态。
+- `frontend/src/components/Antd/ResourceTable.vue`：资源列表与移动列策略。
+- `frontend/src/components/Antd/ResourceDrawer.vue`：创建、编辑和详情抽屉。
+- `frontend/src/components/Antd/PermissionAction.vue`：权限和运行时门禁。
+- `frontend/src/components/Antd/SecretField.vue`：秘密输入与一次性展示边界。
+- `frontend/src/components/Antd/index.js`：设计系统公开出口。
 
 ### 新建测试
 
-- `zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/antdGlobalServicesContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js`
-- `zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
-- `zhiheng-fastapi-frontend/tests/e2e/antd_full_migration_check.py`
-- `zhiheng-fastapi-frontend/tests/e2e/baselines/`：固定视觉基线截图。
+- `frontend/tests/plugins/antdThemeContract.test.js`
+- `frontend/tests/plugins/antdComponentsContract.test.js`
+- `frontend/tests/plugins/antdGlobalServicesContract.test.js`
+- `frontend/tests/plugins/antdAuthShellContract.test.js`
+- `frontend/tests/plugins/antdAiViewsContract.test.js`
+- `frontend/tests/plugins/antdAdminViewsContract.test.js`
+- `frontend/tests/plugins/elementPlusRemovalContract.test.js`
+- `frontend/tests/e2e/antd_full_migration_check.py`
+- `frontend/tests/e2e/baselines/`：固定视觉基线截图。
 
 ## 任务 1：建立独立迁移工作树和 Element Plus 清单门禁
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js`
+- 创建：`frontend/tests/plugins/elementPlusRemovalContract.test.js`
+- 修改：`frontend/tests/plugins/run-plugin-tests.js`
 
 - [ ] **步骤 1：创建独立工作树**
 
@@ -85,7 +85,7 @@ const elementPatterns = [
 运行：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 node tests/plugins/elementPlusRemovalContract.test.js
 ```
 
@@ -98,21 +98,21 @@ node tests/plugins/elementPlusRemovalContract.test.js
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js
+git add frontend/tests/plugins/elementPlusRemovalContract.test.js frontend/tests/plugins/run-plugin-tests.js
 git commit -m "test: 建立 Element Plus 迁移清单"
 ```
 
 ## 任务 2：建立 Ant Design Vue 主题根节点
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/src/design/antdTheme.js`
-- 创建：`zhiheng-fastapi-frontend/src/design/AntdRoot.vue`
-- 创建：`zhiheng-fastapi-frontend/src/design/useAntdTheme.js`
-- 创建：`zhiheng-fastapi-frontend/src/assets/styles/antd-reset.scss`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/App.vue`
-- 修改：`zhiheng-fastapi-frontend/src/main.js`
-- 修改：`zhiheng-fastapi-frontend/src/utils/theme.js`
+- 创建：`frontend/src/design/antdTheme.js`
+- 创建：`frontend/src/design/AntdRoot.vue`
+- 创建：`frontend/src/design/useAntdTheme.js`
+- 创建：`frontend/src/assets/styles/antd-reset.scss`
+- 创建：`frontend/tests/plugins/antdThemeContract.test.js`
+- 修改：`frontend/src/App.vue`
+- 修改：`frontend/src/main.js`
+- 修改：`frontend/src/utils/theme.js`
 
 - [ ] **步骤 1：编写主题契约红灯**
 
@@ -170,22 +170,22 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/design zhiheng-fastapi-frontend/src/assets/styles/antd-reset.scss zhiheng-fastapi-frontend/src/App.vue zhiheng-fastapi-frontend/src/main.js zhiheng-fastapi-frontend/src/utils/theme.js zhiheng-fastapi-frontend/tests/plugins/antdThemeContract.test.js
+git add frontend/src/design frontend/src/assets/styles/antd-reset.scss frontend/src/App.vue frontend/src/main.js frontend/src/utils/theme.js frontend/tests/plugins/antdThemeContract.test.js
 git commit -m "feat: 建立 Ant Design Vue 主题入口"
 ```
 
 ## 任务 3：建立平台业务组件
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/WorkspacePage.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/AsyncState.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/ResourceTable.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/ResourceDrawer.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/PermissionAction.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/SecretField.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/PlatformIcon.vue`
-- 创建：`zhiheng-fastapi-frontend/src/components/Antd/index.js`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js`
+- 创建：`frontend/src/components/Antd/WorkspacePage.vue`
+- 创建：`frontend/src/components/Antd/AsyncState.vue`
+- 创建：`frontend/src/components/Antd/ResourceTable.vue`
+- 创建：`frontend/src/components/Antd/ResourceDrawer.vue`
+- 创建：`frontend/src/components/Antd/PermissionAction.vue`
+- 创建：`frontend/src/components/Antd/SecretField.vue`
+- 创建：`frontend/src/components/Antd/PlatformIcon.vue`
+- 创建：`frontend/src/components/Antd/index.js`
+- 创建：`frontend/tests/plugins/antdComponentsContract.test.js`
 
 - [ ] **步骤 1：编写组件契约红灯**
 
@@ -242,21 +242,21 @@ npm run dev -- --host 127.0.0.1 --port 15175
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/components/Antd zhiheng-fastapi-frontend/tests/plugins/antdComponentsContract.test.js
+git add frontend/src/components/Antd frontend/tests/plugins/antdComponentsContract.test.js
 git commit -m "feat: 建立 Ant Design Vue 平台组件"
 ```
 
 ## 任务 4：迁移全局消息、确认、Loading 和下载服务
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/src/plugins/antdFeedback.js`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdGlobalServicesContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/plugins/modal.js`
-- 修改：`zhiheng-fastapi-frontend/src/plugins/download.js`
-- 修改：`zhiheng-fastapi-frontend/src/utils/request.js`
-- 修改：`zhiheng-fastapi-frontend/src/permission.js`
-- 修改：`zhiheng-fastapi-frontend/src/store/modules/user.js`
-- 修改：`zhiheng-fastapi-frontend/src/plugins/index.js`
+- 创建：`frontend/src/plugins/antdFeedback.js`
+- 创建：`frontend/tests/plugins/antdGlobalServicesContract.test.js`
+- 修改：`frontend/src/plugins/modal.js`
+- 修改：`frontend/src/plugins/download.js`
+- 修改：`frontend/src/utils/request.js`
+- 修改：`frontend/src/permission.js`
+- 修改：`frontend/src/store/modules/user.js`
+- 修改：`frontend/src/plugins/index.js`
 
 - [ ] **步骤 1：编写全局服务红灯**
 
@@ -297,19 +297,19 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/plugins zhiheng-fastapi-frontend/src/utils/request.js zhiheng-fastapi-frontend/src/permission.js zhiheng-fastapi-frontend/src/store/modules/user.js zhiheng-fastapi-frontend/tests/plugins/antdGlobalServicesContract.test.js
+git add frontend/src/plugins frontend/src/utils/request.js frontend/src/permission.js frontend/src/store/modules/user.js frontend/tests/plugins/antdGlobalServicesContract.test.js
 git commit -m "refactor: 迁移全局反馈与请求交互"
 ```
 
 ## 任务 5：重做登录、注册、锁屏和错误页
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/views/login.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/register.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/lock.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/error/401.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/error/404.vue`
+- 创建：`frontend/tests/plugins/antdAuthShellContract.test.js`
+- 修改：`frontend/src/views/login.vue`
+- 修改：`frontend/src/views/register.vue`
+- 修改：`frontend/src/views/lock.vue`
+- 修改：`frontend/src/views/error/401.vue`
+- 修改：`frontend/src/views/error/404.vue`
 
 - [ ] **步骤 1：编写认证页面红灯**
 
@@ -343,26 +343,26 @@ assert console_errors == []
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/views/login.vue zhiheng-fastapi-frontend/src/views/register.vue zhiheng-fastapi-frontend/src/views/lock.vue zhiheng-fastapi-frontend/src/views/error zhiheng-fastapi-frontend/tests/plugins/antdAuthShellContract.test.js
+git add frontend/src/views/login.vue frontend/src/views/register.vue frontend/src/views/lock.vue frontend/src/views/error frontend/tests/plugins/antdAuthShellContract.test.js
 git commit -m "feat: 重做 Ant Design 认证界面"
 ```
 
 ## 任务 6：迁移全局应用外壳和导航
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/HeaderNotice/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/HeaderNotice/DetailView.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/TagsView/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/TagsView/ScrollPane.vue`
-- 修改：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`frontend/src/layout/index.vue`
+- 修改：`frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`frontend/src/layout/components/AdminSidebar.vue`
+- 修改：`frontend/src/layout/components/RecentSessions.vue`
+- 修改：`frontend/src/layout/components/AiResourceShell.vue`
+- 修改：`frontend/src/layout/components/AppMain.vue`
+- 修改：`frontend/src/layout/components/HeaderNotice/index.vue`
+- 修改：`frontend/src/layout/components/HeaderNotice/DetailView.vue`
+- 修改：`frontend/src/layout/components/TagsView/index.vue`
+- 修改：`frontend/src/layout/components/TagsView/ScrollPane.vue`
+- 修改：`frontend/src/assets/styles/workspace.scss`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：扩展外壳红灯**
 
@@ -387,23 +387,23 @@ git commit -m "feat: 重做 Ant Design 认证界面"
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/layout zhiheng-fastapi-frontend/src/assets/styles/workspace.scss zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py
+git add frontend/src/layout frontend/src/assets/styles/workspace.scss frontend/tests/plugins/platformShellContract.test.js frontend/tests/e2e/platform_shell_check.py
 git commit -m "feat: 迁移 Ant Design 全局应用外壳"
 ```
 
 ## 任务 7：迁移 AI 对话和会话历史
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/AiMessage.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/components/ChatSessionPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceMoreMenu.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceState.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/WorkspaceToolbar.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/sseParser.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`frontend/plugins/ai/views/chat/index.vue`
+- 修改：`frontend/plugins/ai/views/chat/components/AiMessage.vue`
+- 修改：`frontend/plugins/ai/views/chat/components/ChatSessionPanel.vue`
+- 修改：`frontend/src/components/Workspace/WorkspaceSidebar.vue`
+- 修改：`frontend/src/components/Workspace/WorkspaceMoreMenu.vue`
+- 修改：`frontend/src/components/Workspace/WorkspaceState.vue`
+- 修改：`frontend/src/components/Workspace/WorkspaceToolbar.vue`
+- 修改：`frontend/tests/plugins/sseParser.test.js`
+- 修改：`frontend/tests/plugins/workspaceTransforms.test.js`
+- 创建：`frontend/tests/plugins/antdAiViewsContract.test.js`
 
 - [ ] **步骤 1：编写对话迁移红灯**
 
@@ -441,23 +441,23 @@ Mock SSE 覆盖 meta、delta、usage、done、503、无 meta 停止和历史加�
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/chat zhiheng-fastapi-frontend/src/components/Workspace zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js zhiheng-fastapi-frontend/tests/plugins/sseParser.test.js zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js
+git add frontend/plugins/ai/views/chat frontend/src/components/Workspace frontend/tests/plugins/antdAiViewsContract.test.js frontend/tests/plugins/sseParser.test.js frontend/tests/plugins/workspaceTransforms.test.js
 git commit -m "feat: 迁移 Ant Design AI 对话工作台"
 ```
 
 ## 任务 8：迁移模型中心与 Chat/Embedding/Rerank 接入
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`frontend/plugins/ai/views/model/index.vue`
+- 修改：`frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
+- 修改：`frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
+- 修改：`frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
+- 修改：`frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
+- 修改：`frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 修改：`frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 修改：`frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 修改：`frontend/tests/plugins/modelEngineTransforms.test.js`
+- 修改：`frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：编写模型页红灯**
 
@@ -496,17 +496,17 @@ node tests/plugins/antdAiViewsContract.test.js
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/model zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js
+git add frontend/plugins/ai/views/model frontend/tests/plugins/modelEngineTransforms.test.js frontend/tests/plugins/modelOnboardingContract.test.js
 git commit -m "feat: 迁移 Ant Design 模型中心"
 ```
 
 ## 任务 9：迁移应用接入、Developer API Key 和用量
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/applicationTransforms.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js`
+- 修改：`frontend/plugins/ai/views/application/index.vue`
+- 修改：`frontend/plugins/ai/views/usage/index.vue`
+- 修改：`frontend/tests/plugins/applicationTransforms.test.js`
+- 修改：`frontend/tests/plugins/antdAiViewsContract.test.js`
 
 - [ ] **步骤 1：编写应用页红灯**
 
@@ -536,35 +536,35 @@ node tests/plugins/antdAiViewsContract.test.js
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/application zhiheng-fastapi-frontend/plugins/ai/views/usage zhiheng-fastapi-frontend/tests/plugins/applicationTransforms.test.js zhiheng-fastapi-frontend/tests/plugins/antdAiViewsContract.test.js
+git add frontend/plugins/ai/views/application frontend/plugins/ai/views/usage frontend/tests/plugins/applicationTransforms.test.js frontend/tests/plugins/antdAiViewsContract.test.js
 git commit -m "feat: 迁移 Ant Design 应用与用量页面"
 ```
 
 ## 任务 10：迁移高频管理页面
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/view.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/authRole.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/profile/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/profile/userInfo.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/profile/resetPwd.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/user/profile/userAvatar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/role/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/role/authUser.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/role/selectUser.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/menu/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/dept/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/post/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/config/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/dict/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/dict/data.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/dict/detail.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/notice/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/notice/ReadUsers.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/dashboard/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/dashboard/editable-link-group.vue`
+- 创建：`frontend/tests/plugins/antdAdminViewsContract.test.js`
+- 修改：`frontend/src/views/system/user/index.vue`
+- 修改：`frontend/src/views/system/user/view.vue`
+- 修改：`frontend/src/views/system/user/authRole.vue`
+- 修改：`frontend/src/views/system/user/profile/index.vue`
+- 修改：`frontend/src/views/system/user/profile/userInfo.vue`
+- 修改：`frontend/src/views/system/user/profile/resetPwd.vue`
+- 修改：`frontend/src/views/system/user/profile/userAvatar.vue`
+- 修改：`frontend/src/views/system/role/index.vue`
+- 修改：`frontend/src/views/system/role/authUser.vue`
+- 修改：`frontend/src/views/system/role/selectUser.vue`
+- 修改：`frontend/src/views/system/menu/index.vue`
+- 修改：`frontend/src/views/system/dept/index.vue`
+- 修改：`frontend/src/views/system/post/index.vue`
+- 修改：`frontend/src/views/system/config/index.vue`
+- 修改：`frontend/src/views/system/dict/index.vue`
+- 修改：`frontend/src/views/system/dict/data.vue`
+- 修改：`frontend/src/views/system/dict/detail.vue`
+- 修改：`frontend/src/views/system/notice/index.vue`
+- 修改：`frontend/src/views/system/notice/ReadUsers.vue`
+- 修改：`frontend/src/views/dashboard/index.vue`
+- 修改：`frontend/src/views/dashboard/editable-link-group.vue`
 
 - [ ] **步骤 1：编写高频管理页红灯**
 
@@ -589,43 +589,43 @@ git commit -m "feat: 迁移 Ant Design 应用与用量页面"
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/views/system/user zhiheng-fastapi-frontend/src/views/system/role zhiheng-fastapi-frontend/src/views/system/menu zhiheng-fastapi-frontend/src/views/system/dept zhiheng-fastapi-frontend/src/views/system/post zhiheng-fastapi-frontend/src/views/system/config zhiheng-fastapi-frontend/src/views/system/dict zhiheng-fastapi-frontend/src/views/system/notice zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js
+git add frontend/src/views/system/user frontend/src/views/system/role frontend/src/views/system/menu frontend/src/views/system/dept frontend/src/views/system/post frontend/src/views/system/config frontend/src/views/system/dict frontend/src/views/system/notice frontend/tests/plugins/antdAdminViewsContract.test.js
 git commit -m "feat: 迁移 Ant Design 高频管理页面"
 ```
 
 ## 任务 11：迁移文件、插件、审计和监控页面
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileAclDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileAuditDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileDetailDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileReconcileDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileReferenceDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileRetentionPolicyDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileRetentionReminderDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileSearchForm.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileStatistics.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileTable.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/file/components/FileTransferDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/components/PluginConfigDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/components/PluginDependencyDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/components/PluginDetailDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/components/PluginDiagnosticDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/system/plugin/components/PluginPlanDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/cache/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/cache/list.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/job/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/job/detail.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/job/log.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/logininfor/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/online/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/operlog/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/operlog/detail.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/server/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/monitor/transportCrypto/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js`
+- 修改：`frontend/src/views/system/file/index.vue`
+- 修改：`frontend/src/views/system/file/components/FileAclDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileAuditDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileDetailDialog.vue`
+- 修改：`frontend/src/views/system/file/components/FileReconcileDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileReferenceDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileRetentionPolicyDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileRetentionReminderDrawer.vue`
+- 修改：`frontend/src/views/system/file/components/FileSearchForm.vue`
+- 修改：`frontend/src/views/system/file/components/FileStatistics.vue`
+- 修改：`frontend/src/views/system/file/components/FileTable.vue`
+- 修改：`frontend/src/views/system/file/components/FileTransferDialog.vue`
+- 修改：`frontend/src/views/system/plugin/index.vue`
+- 修改：`frontend/src/views/system/plugin/components/PluginConfigDialog.vue`
+- 修改：`frontend/src/views/system/plugin/components/PluginDependencyDialog.vue`
+- 修改：`frontend/src/views/system/plugin/components/PluginDetailDialog.vue`
+- 修改：`frontend/src/views/system/plugin/components/PluginDiagnosticDialog.vue`
+- 修改：`frontend/src/views/system/plugin/components/PluginPlanDialog.vue`
+- 修改：`frontend/src/views/monitor/cache/index.vue`
+- 修改：`frontend/src/views/monitor/cache/list.vue`
+- 修改：`frontend/src/views/monitor/job/index.vue`
+- 修改：`frontend/src/views/monitor/job/detail.vue`
+- 修改：`frontend/src/views/monitor/job/log.vue`
+- 修改：`frontend/src/views/monitor/logininfor/index.vue`
+- 修改：`frontend/src/views/monitor/online/index.vue`
+- 修改：`frontend/src/views/monitor/operlog/index.vue`
+- 修改：`frontend/src/views/monitor/operlog/detail.vue`
+- 修改：`frontend/src/views/monitor/server/index.vue`
+- 修改：`frontend/src/views/monitor/transportCrypto/index.vue`
+- 修改：`frontend/tests/plugins/antdAdminViewsContract.test.js`
 
 - [ ] **步骤 1：扩展管理页扫描红灯**
 
@@ -648,49 +648,49 @@ Playwright 覆盖文件搜索/详情、插件详情/配置、操作日志和在�
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/views/system/file zhiheng-fastapi-frontend/src/views/system/plugin zhiheng-fastapi-frontend/src/views/monitor zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js
+git add frontend/src/views/system/file frontend/src/views/system/plugin frontend/src/views/monitor frontend/tests/plugins/antdAdminViewsContract.test.js
 git commit -m "feat: 迁移 Ant Design 文件插件与监控页面"
 ```
 
 ## 任务 12：迁移代码生成和剩余公共组件
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/CodeTypeDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/DraggableItem.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/IconsDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/RightPanel.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/build/TreeNodeDialog.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/createTable.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/editTable.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/importTable.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/basicInfoForm.vue`
-- 修改：`zhiheng-fastapi-frontend/src/views/tool/gen/genInfoForm.vue`
-- 修改：`zhiheng-fastapi-frontend/src/utils/generator/config.js`
-- 修改：`zhiheng-fastapi-frontend/src/utils/generator/html.js`
-- 修改：`zhiheng-fastapi-frontend/src/components/BusinessFileUpload/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/result.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/second.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/min.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/hour.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/day.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/month.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/week.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Crontab/year.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/DictTag/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Editor/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/ExcelImportDialog/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/FileUpload/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/HeaderSearch/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/IconSelect/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/ImagePreview/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/ImageUpload/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/Pagination/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/RightToolbar/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/TreePanel/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js`
+- 修改：`frontend/src/views/tool/build/index.vue`
+- 修改：`frontend/src/views/tool/build/CodeTypeDialog.vue`
+- 修改：`frontend/src/views/tool/build/DraggableItem.vue`
+- 修改：`frontend/src/views/tool/build/IconsDialog.vue`
+- 修改：`frontend/src/views/tool/build/RightPanel.vue`
+- 修改：`frontend/src/views/tool/build/TreeNodeDialog.vue`
+- 修改：`frontend/src/views/tool/gen/index.vue`
+- 修改：`frontend/src/views/tool/gen/createTable.vue`
+- 修改：`frontend/src/views/tool/gen/editTable.vue`
+- 修改：`frontend/src/views/tool/gen/importTable.vue`
+- 修改：`frontend/src/views/tool/gen/basicInfoForm.vue`
+- 修改：`frontend/src/views/tool/gen/genInfoForm.vue`
+- 修改：`frontend/src/utils/generator/config.js`
+- 修改：`frontend/src/utils/generator/html.js`
+- 修改：`frontend/src/components/BusinessFileUpload/index.vue`
+- 修改：`frontend/src/components/Crontab/index.vue`
+- 修改：`frontend/src/components/Crontab/result.vue`
+- 修改：`frontend/src/components/Crontab/second.vue`
+- 修改：`frontend/src/components/Crontab/min.vue`
+- 修改：`frontend/src/components/Crontab/hour.vue`
+- 修改：`frontend/src/components/Crontab/day.vue`
+- 修改：`frontend/src/components/Crontab/month.vue`
+- 修改：`frontend/src/components/Crontab/week.vue`
+- 修改：`frontend/src/components/Crontab/year.vue`
+- 修改：`frontend/src/components/DictTag/index.vue`
+- 修改：`frontend/src/components/Editor/index.vue`
+- 修改：`frontend/src/components/ExcelImportDialog/index.vue`
+- 修改：`frontend/src/components/FileUpload/index.vue`
+- 修改：`frontend/src/components/HeaderSearch/index.vue`
+- 修改：`frontend/src/components/IconSelect/index.vue`
+- 修改：`frontend/src/components/ImagePreview/index.vue`
+- 修改：`frontend/src/components/ImageUpload/index.vue`
+- 修改：`frontend/src/components/Pagination/index.vue`
+- 修改：`frontend/src/components/RightToolbar/index.vue`
+- 修改：`frontend/src/components/TreePanel/index.vue`
+- 修改：`frontend/tests/plugins/antdAdminViewsContract.test.js`
 
 - [ ] **步骤 1：扩展剩余组件红灯**
 
@@ -718,28 +718,28 @@ node tests/plugins/elementPlusRemovalContract.test.js
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/views/tool zhiheng-fastapi-frontend/src/components zhiheng-fastapi-frontend/tests/plugins/antdAdminViewsContract.test.js
+git add frontend/src/views/tool frontend/src/components frontend/tests/plugins/antdAdminViewsContract.test.js
 git commit -m "feat: 迁移 Ant Design 工具与公共组件"
 ```
 
 ## 任务 13：移除旧布局兼容层和 Element Plus
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/src/main.js`
-- 修改：`zhiheng-fastapi-frontend/package.json`
-- 修改：`zhiheng-fastapi-frontend/src/components/SvgIcon/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/components/SvgIcon/svgicon.js`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Navbar.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Sidebar/index.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Sidebar/SidebarItem.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Sidebar/Link.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Sidebar/Logo.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/TopBar/index.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/TopNav/index.vue`
-- 删除：`zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`
-- 删除：`zhiheng-fastapi-frontend/src/components/Breadcrumb/index.vue`
-- 删除：`zhiheng-fastapi-frontend/src/components/SizeSelect/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js`
+- 修改：`frontend/src/main.js`
+- 修改：`frontend/package.json`
+- 修改：`frontend/src/components/SvgIcon/index.vue`
+- 修改：`frontend/src/components/SvgIcon/svgicon.js`
+- 删除：`frontend/src/layout/components/Navbar.vue`
+- 删除：`frontend/src/layout/components/Sidebar/index.vue`
+- 删除：`frontend/src/layout/components/Sidebar/SidebarItem.vue`
+- 删除：`frontend/src/layout/components/Sidebar/Link.vue`
+- 删除：`frontend/src/layout/components/Sidebar/Logo.vue`
+- 删除：`frontend/src/layout/components/TopBar/index.vue`
+- 删除：`frontend/src/layout/components/TopNav/index.vue`
+- 删除：`frontend/src/layout/components/Settings/index.vue`
+- 删除：`frontend/src/components/Breadcrumb/index.vue`
+- 删除：`frontend/src/components/SizeSelect/index.vue`
+- 修改：`frontend/tests/plugins/elementPlusRemovalContract.test.js`
 
 - [ ] **步骤 1：把清单测试改为最终零引用**
 
@@ -780,21 +780,21 @@ rg -a -n "element-plus|el-button" dist
 - [ ] **步骤 5：提交**
 
 ```bash
-git add -A zhiheng-fastapi-frontend/src zhiheng-fastapi-frontend/plugins/ai zhiheng-fastapi-frontend/package.json zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js
+git add -A frontend/src frontend/plugins/ai frontend/package.json frontend/tests/plugins/elementPlusRemovalContract.test.js
 git commit -m "refactor: 完成 Ant Design Vue 单栈切换"
 ```
 
 ## 任务 14：建立全页面视觉基线和真实联调验收
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/antd_full_migration_check.py`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/login-1440.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/chat-1440.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/model-1440.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/application-1440.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/admin-user-1440.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/chat-390.png`
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/baselines/model-320.png`
+- 创建：`frontend/tests/e2e/antd_full_migration_check.py`
+- 创建：`frontend/tests/e2e/baselines/login-1440.png`
+- 创建：`frontend/tests/e2e/baselines/chat-1440.png`
+- 创建：`frontend/tests/e2e/baselines/model-1440.png`
+- 创建：`frontend/tests/e2e/baselines/application-1440.png`
+- 创建：`frontend/tests/e2e/baselines/admin-user-1440.png`
+- 创建：`frontend/tests/e2e/baselines/chat-390.png`
+- 创建：`frontend/tests/e2e/baselines/model-320.png`
 - 创建：`docs/superpowers/verification/2026-08-21-ant-design-vue-full-migration.md`
 
 - [ ] **步骤 1：编写真实验收脚本**
@@ -829,12 +829,12 @@ conda run -n dj python tests/e2e/antd_full_migration_check.py --update-candidate
 运行：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 conda run -n dj python tests/e2e/antd_full_migration_check.py
 
-cd ../zhiheng-fastapi-backend
+cd ../backend
 conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py -q
 
 cd ..
@@ -848,7 +848,7 @@ git diff --check
 验证文档记录：提交范围、测试计数、构建模块数、四视口结果、真实后端接口、Element Plus 零引用证据、截图路径和非阻断第三方 warning。
 
 ```bash
-git add zhiheng-fastapi-frontend/tests/e2e docs/superpowers/verification/2026-08-21-ant-design-vue-full-migration.md
+git add frontend/tests/e2e docs/superpowers/verification/2026-08-21-ant-design-vue-full-migration.md
 git commit -m "test: 验证 Ant Design Vue 全量迁移"
 ```
 

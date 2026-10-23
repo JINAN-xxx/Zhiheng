@@ -12,7 +12,7 @@
 ## 自动化验证
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 ```

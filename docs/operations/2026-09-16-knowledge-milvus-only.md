@@ -37,7 +37,7 @@
 复测桌面页面：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 KNOWLEDGE_CHECK_BASE_URL=http://115.190.121.37:8060 KNOWLEDGE_CHECK_DESKTOP_ONLY=1 ../.venv/bin/python tests/e2e/knowledge_check.py
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```

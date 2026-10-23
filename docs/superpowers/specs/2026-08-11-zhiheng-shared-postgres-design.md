@@ -52,7 +52,7 @@ LiteLLM 的 `LITELLM_DB_PASSWORD` 仍只保存在 `deploy/litellm/.env`，不进
 3. 通过容器本地 PostgreSQL socket，以现有 `litellm` 管理角色创建或更新 `zhiheng` 登录角色。
 4. 不存在时创建由 `zhiheng` 拥有的 `zhiheng-fastapi` 数据库。
 5. 检查 `zhiheng-fastapi.public.sys_user`。
-6. 表不存在时以 `zhiheng` 用户导入 `zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql`；存在时跳过导入。
+6. 表不存在时以 `zhiheng` 用户导入 `backend/sql/zhiheng-fastapi-pg.sql`；存在时跳过导入。
 
 脚本不得输出数据库密码。重复运行不删除或覆盖已有业务表。
 

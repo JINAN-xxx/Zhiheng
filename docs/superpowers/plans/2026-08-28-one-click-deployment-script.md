@@ -13,8 +13,8 @@
 ### 任务 1：新增脚本契约测试
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/deployScriptContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js`
+- 创建：`frontend/tests/plugins/deployScriptContract.test.js`
+- 修改：`frontend/tests/plugins/run-plugin-tests.js`
 
 - [x] **步骤 1：编写失败的测试**
 
@@ -62,6 +62,6 @@
 - [x] **步骤 3：提交实现**
 
 ```bash
-git add deploy.sh README.md deploy/zhiheng/README.md zhiheng-fastapi-frontend/tests/plugins/deployScriptContract.test.js zhiheng-fastapi-frontend/tests/plugins/run-plugin-tests.js
+git add deploy.sh README.md deploy/zhiheng/README.md frontend/tests/plugins/deployScriptContract.test.js frontend/tests/plugins/run-plugin-tests.js
 git commit -m "feat: 增加一键部署管理脚本"
 ```

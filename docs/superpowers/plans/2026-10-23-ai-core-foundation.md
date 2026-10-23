@@ -21,7 +21,7 @@
 
 | 范围 | 文件 |
 | --- | --- |
-| 新核心包与打包 | zhiheng-fastapi-backend/src/zhiheng、pyproject.toml |
+| 新核心包与打包 | backend/src/zhiheng、pyproject.toml |
 | 依赖方向门禁 | tools/check_architecture.py、后端 tests/unit/test_architecture_rules.py |
 | 核心包导入隔离 | 后端 tests/unit/test_core_package.py |
 | 后端新代码质量 | 后端开发依赖、类型配置与 .github/workflows 中的新核心门禁 |
@@ -79,7 +79,7 @@ assert violations == []
 
 ~~~bash
 python -m pytest tests/unit/test_architecture_rules.py -q
-python tools/check_architecture.py zhiheng-fastapi-backend/src/zhiheng
+python tools/check_architecture.py backend/src/zhiheng
 ~~~
 
 ## 任务 3：前端锁定安装、渐进类型和生产构建门禁

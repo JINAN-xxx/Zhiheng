@@ -27,33 +27,33 @@
 
 ### 新建文件
 
-- `zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/004_developer_api_foundation.sql`：PostgreSQL 七张业务表、约束和索引。
-- `zhiheng-fastapi-backend/plugins/ai/migrations/mysql/004_developer_api_foundation.sql`：MySQL 等价迁移。
-- `zhiheng-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py`：Application、Key、Grant、Quota、Rate Card、Ledger、Bucket ORM Entity。
-- `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_developer_api_vo.py`：严格 camelCase 请求 VO 和脱敏响应 VO。
-- `zhiheng-fastapi-backend/plugins/ai/domain/developer_api_errors.py`：不可变固定领域错误。
-- `zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_key_codec.py`：Key 生成、掩码、HMAC 摘要和常量时间验证。
-- `zhiheng-fastapi-backend/plugins/ai/dao/ai_developer_api_dao.py`：条件读写、行锁、分页和关联替换。
-- `zhiheng-fastapi-backend/plugins/ai/service/application_service.py`：Application 生命周期和 owner/admin 可见性。
-- `zhiheng-fastapi-backend/plugins/ai/service/developer_key_service.py`：Key、Grant、Quota、轮换和撤销事务。
-- `zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_api_provider.py`：从配置和 AsyncSession 组装 Service，不读取 Runtime Client。
-- `zhiheng-fastapi-backend/plugins/ai/controller/ai_application_controller.py`：后台管理路由、RBAC 和审计。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_schema.py`：双方言 schema 与 Entity 约束。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_codec.py`：密码学和脱敏边界。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_application_service.py`：Application Service 事务和权限。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_service.py`：Key 生命周期、Grant、Quota 和并发。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_ai_application_controller.py`：路由、权限、一次性 Secret 与审计。
+- `backend/plugins/ai/migrations/postgresql/004_developer_api_foundation.sql`：PostgreSQL 七张业务表、约束和索引。
+- `backend/plugins/ai/migrations/mysql/004_developer_api_foundation.sql`：MySQL 等价迁移。
+- `backend/plugins/ai/entity/do/ai_developer_api_do.py`：Application、Key、Grant、Quota、Rate Card、Ledger、Bucket ORM Entity。
+- `backend/plugins/ai/entity/vo/ai_developer_api_vo.py`：严格 camelCase 请求 VO 和脱敏响应 VO。
+- `backend/plugins/ai/domain/developer_api_errors.py`：不可变固定领域错误。
+- `backend/plugins/ai/infrastructure/developer_key_codec.py`：Key 生成、掩码、HMAC 摘要和常量时间验证。
+- `backend/plugins/ai/dao/ai_developer_api_dao.py`：条件读写、行锁、分页和关联替换。
+- `backend/plugins/ai/service/application_service.py`：Application 生命周期和 owner/admin 可见性。
+- `backend/plugins/ai/service/developer_key_service.py`：Key、Grant、Quota、轮换和撤销事务。
+- `backend/plugins/ai/infrastructure/developer_api_provider.py`：从配置和 AsyncSession 组装 Service，不读取 Runtime Client。
+- `backend/plugins/ai/controller/ai_application_controller.py`：后台管理路由、RBAC 和审计。
+- `backend/tests/plugins/ai/test_developer_api_schema.py`：双方言 schema 与 Entity 约束。
+- `backend/tests/plugins/ai/test_developer_key_codec.py`：密码学和脱敏边界。
+- `backend/tests/plugins/ai/test_application_service.py`：Application Service 事务和权限。
+- `backend/tests/plugins/ai/test_developer_key_service.py`：Key 生命周期、Grant、Quota 和并发。
+- `backend/tests/plugins/ai/test_ai_application_controller.py`：路由、权限、一次性 Secret 与审计。
 
 ### 修改文件
 
-- `zhiheng-fastapi-backend/plugins/ai/config.py`：Developer API Feature Flag 与版本化 Pepper 配置。
-- `zhiheng-fastapi-backend/plugins/ai/domain/resource_id.py`：增加 `app`、`key`、`grt`、`qta`、`rate`、`use`、`qbk` 前缀。
-- `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：版本、004 迁移和 Application/Key 权限。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`：新增配置边界回归。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_contract.py`：资源前缀集合回归。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_schema.py`：插件版本和完整迁移顺序回归。
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`：插件版本和完整迁移顺序回归。
-- `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`：迁移和权限 manifest 回归。
+- `backend/plugins/ai/config.py`：Developer API Feature Flag 与版本化 Pepper 配置。
+- `backend/plugins/ai/domain/resource_id.py`：增加 `app`、`key`、`grt`、`qta`、`rate`、`use`、`qbk` 前缀。
+- `backend/plugins/ai/plugin.yaml`：版本、004 迁移和 Application/Key 权限。
+- `backend/tests/plugins/ai/test_litellm_config.py`：新增配置边界回归。
+- `backend/tests/plugins/ai/test_model_service_contract.py`：资源前缀集合回归。
+- `backend/tests/plugins/ai/test_model_service_schema.py`：插件版本和完整迁移顺序回归。
+- `backend/tests/plugins/ai/test_platform_chat_schema.py`：插件版本和完整迁移顺序回归。
+- `backend/tests/plugins/sample_plugins/test_ai_plugin.py`：迁移和权限 manifest 回归。
 
 ## 固定公开契约
 
@@ -113,14 +113,14 @@ _ERRORS = {
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/004_developer_api_foundation.sql`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/migrations/mysql/004_developer_api_foundation.sql`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_schema.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_schema.py`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/plugins/ai/migrations/postgresql/004_developer_api_foundation.sql`
+- 创建：`backend/plugins/ai/migrations/mysql/004_developer_api_foundation.sql`
+- 创建：`backend/plugins/ai/entity/do/ai_developer_api_do.py`
+- 创建：`backend/tests/plugins/ai/test_developer_api_schema.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/ai/test_model_service_schema.py`
+- 修改：`backend/tests/plugins/ai/test_platform_chat_schema.py`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：编写 schema 红灯测试**
 
@@ -148,7 +148,7 @@ assert 'secret' not in Base.metadata.tables['ai_api_key'].c
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_schema.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -q
 ```
@@ -183,19 +183,19 @@ UniqueConstraint('application_id', 'idempotency_key', name='uk_ai_api_usage_idem
 - [ ] **步骤 5：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_schema.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -q
 conda run -n dj ruff check plugins/ai/entity/do/ai_developer_api_do.py \
   tests/plugins/ai/test_developer_api_schema.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py \
-  zhiheng-fastapi-backend/plugins/ai/migrations \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_schema.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_schema.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_platform_chat_schema.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/entity/do/ai_developer_api_do.py \
+  backend/plugins/ai/migrations \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_developer_api_schema.py \
+  backend/tests/plugins/ai/test_model_service_schema.py \
+  backend/tests/plugins/ai/test_platform_chat_schema.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 建立开发者 API 数据基础"
 ```
 
@@ -203,13 +203,13 @@ git commit -m "feat: 建立开发者 API 数据基础"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-backend/plugins/ai/config.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/domain/resource_id.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/domain/developer_api_errors.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_developer_api_vo.py`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_contract.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_contract.py`
+- 修改：`backend/plugins/ai/config.py`
+- 修改：`backend/plugins/ai/domain/resource_id.py`
+- 创建：`backend/plugins/ai/domain/developer_api_errors.py`
+- 创建：`backend/plugins/ai/entity/vo/ai_developer_api_vo.py`
+- 修改：`backend/tests/plugins/ai/test_litellm_config.py`
+- 修改：`backend/tests/plugins/ai/test_model_service_contract.py`
+- 创建：`backend/tests/plugins/ai/test_developer_api_contract.py`
 
 - [ ] **步骤 1：编写契约红灯测试**
 
@@ -234,7 +234,7 @@ VO 测试必须验证 camelCase、`extra='forbid'`、控制字符预扫、Decima
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_contract.py \
   tests/plugins/ai/test_litellm_config.py \
   tests/plugins/ai/test_model_service_contract.py -q
@@ -278,19 +278,19 @@ class DeveloperKeyRotateModel(_StrictRequestModel):
 - [ ] **步骤 5：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_contract.py \
   tests/plugins/ai/test_litellm_config.py \
   tests/plugins/ai/test_model_service_contract.py -q
 conda run -n dj ruff check plugins/ai/config.py plugins/ai/domain \
   plugins/ai/entity/vo/ai_developer_api_vo.py tests/plugins/ai/test_developer_api_contract.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/config.py \
-  zhiheng-fastapi-backend/plugins/ai/domain \
-  zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_developer_api_vo.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_contract.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_contract.py
+git add backend/plugins/ai/config.py \
+  backend/plugins/ai/domain \
+  backend/plugins/ai/entity/vo/ai_developer_api_vo.py \
+  backend/tests/plugins/ai/test_litellm_config.py \
+  backend/tests/plugins/ai/test_model_service_contract.py \
+  backend/tests/plugins/ai/test_developer_api_contract.py
 git commit -m "feat: 定义开发者 API 管理契约"
 ```
 
@@ -298,8 +298,8 @@ git commit -m "feat: 定义开发者 API 管理契约"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_key_codec.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_codec.py`
+- 创建：`backend/plugins/ai/infrastructure/developer_key_codec.py`
+- 创建：`backend/tests/plugins/ai/test_developer_key_codec.py`
 
 - [ ] **步骤 1：编写密码学红灯测试**
 
@@ -323,7 +323,7 @@ assert codec.verify(issued.complete_key, version='v1', expected_digest=issued.di
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_key_codec.py -q
 ```
 
@@ -352,13 +352,13 @@ class DeveloperKeyCodec:
 - [ ] **步骤 4：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_key_codec.py -q
 conda run -n dj ruff check plugins/ai/infrastructure/developer_key_codec.py \
   tests/plugins/ai/test_developer_key_codec.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_key_codec.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_codec.py
+git add backend/plugins/ai/infrastructure/developer_key_codec.py \
+  backend/tests/plugins/ai/test_developer_key_codec.py
 git commit -m "feat: 实现开发者 API Key 安全编码"
 ```
 
@@ -366,8 +366,8 @@ git commit -m "feat: 实现开发者 API Key 安全编码"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/dao/ai_developer_api_dao.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_dao.py`
+- 创建：`backend/plugins/ai/dao/ai_developer_api_dao.py`
+- 创建：`backend/tests/plugins/ai/test_developer_api_dao.py`
 
 - [ ] **步骤 1：编写真实 AsyncSession 红灯测试**
 
@@ -387,7 +387,7 @@ assert await AiDeveloperApiDao.replace_grants(db, key_id, model_ids, now=now) ==
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_dao.py -q
 ```
 
@@ -407,13 +407,13 @@ DAO 提供：
 - [ ] **步骤 4：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_api_dao.py -q
 conda run -n dj ruff check plugins/ai/dao/ai_developer_api_dao.py \
   tests/plugins/ai/test_developer_api_dao.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/dao/ai_developer_api_dao.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_developer_api_dao.py
+git add backend/plugins/ai/dao/ai_developer_api_dao.py \
+  backend/tests/plugins/ai/test_developer_api_dao.py
 git commit -m "feat: 实现开发者 API 原子数据访问"
 ```
 
@@ -421,8 +421,8 @@ git commit -m "feat: 实现开发者 API 原子数据访问"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/service/application_service.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_application_service.py`
+- 创建：`backend/plugins/ai/service/application_service.py`
+- 创建：`backend/tests/plugins/ai/test_application_service.py`
 
 - [ ] **步骤 1：编写 Service 红灯测试**
 
@@ -451,7 +451,7 @@ assert result.application_id.startswith('app_')
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_application_service.py -q
 ```
 
@@ -472,13 +472,13 @@ owner/admin 检查只使用 `owner_user_id` 和 `current_user.user.admin`，不�
 - [ ] **步骤 4：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_application_service.py -q
 conda run -n dj ruff check plugins/ai/service/application_service.py \
   tests/plugins/ai/test_application_service.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/service/application_service.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_application_service.py
+git add backend/plugins/ai/service/application_service.py \
+  backend/tests/plugins/ai/test_application_service.py
 git commit -m "feat: 实现应用生命周期服务"
 ```
 
@@ -486,8 +486,8 @@ git commit -m "feat: 实现应用生命周期服务"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/service/developer_key_service.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_service.py`
+- 创建：`backend/plugins/ai/service/developer_key_service.py`
+- 创建：`backend/tests/plugins/ai/test_developer_key_service.py`
 
 - [ ] **步骤 1：编写 Key 生命周期红灯测试**
 
@@ -514,7 +514,7 @@ assert created.api_key not in repr(summaries)
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_key_service.py -q
 ```
 
@@ -534,13 +534,13 @@ async def revoke_key(application_id: str, key_id: str, *, actor: DeveloperApiAct
 - [ ] **步骤 4：运行测试转绿并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_developer_key_service.py -q
 conda run -n dj ruff check plugins/ai/service/developer_key_service.py \
   tests/plugins/ai/test_developer_key_service.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/service/developer_key_service.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_developer_key_service.py
+git add backend/plugins/ai/service/developer_key_service.py \
+  backend/tests/plugins/ai/test_developer_key_service.py
 git commit -m "feat: 实现开发者 API Key 生命周期"
 ```
 
@@ -548,11 +548,11 @@ git commit -m "feat: 实现开发者 API Key 生命周期"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_api_provider.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/controller/ai_application_controller.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_ai_application_controller.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/plugins/ai/infrastructure/developer_api_provider.py`
+- 创建：`backend/plugins/ai/controller/ai_application_controller.py`
+- 创建：`backend/tests/plugins/ai/test_ai_application_controller.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：编写 Controller 红灯测试**
 
@@ -582,7 +582,7 @@ ASGI 测试验证：
 - [ ] **步骤 2：运行测试确认失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_ai_application_controller.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -q
 ```
@@ -614,18 +614,18 @@ Key 创建/轮换的 Log 必须设置：
 `plugin.yaml` 增加上述九项权限，不新增菜单；开发者中心菜单留给前端里程碑统一加入。
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_ai_application_controller.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -q
 conda run -n dj ruff check plugins/ai/controller/ai_application_controller.py \
   plugins/ai/infrastructure/developer_api_provider.py \
   tests/plugins/ai/test_ai_application_controller.py
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/controller/ai_application_controller.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure/developer_api_provider.py \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_ai_application_controller.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/controller/ai_application_controller.py \
+  backend/plugins/ai/infrastructure/developer_api_provider.py \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_ai_application_controller.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 发布应用与 API Key 管理接口"
 ```
 
@@ -638,7 +638,7 @@ git commit -m "feat: 发布应用与 API Key 管理接口"
 - [ ] **步骤 1：运行 Developer API 定向测试**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest \
   tests/plugins/ai/test_developer_api_schema.py \
   tests/plugins/ai/test_developer_api_contract.py \
@@ -654,7 +654,7 @@ conda run -n dj pytest \
 - [ ] **步骤 2：运行 AI 插件全量回归**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py -q
 ```
 
@@ -663,7 +663,7 @@ conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plu
 - [ ] **步骤 3：运行静态与格式检查**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj ruff check plugins/ai tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py
 conda run -n dj ruff format --check plugins/ai tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py
 conda run -n dj python -m compileall -q plugins/ai tests/plugins/ai
@@ -675,9 +675,9 @@ git diff --check
 
 ```bash
 rg -n "secret_digest|api_key_pepper|complete_key|AI_API_KEY_PEPPER" \
-  zhiheng-fastapi-backend/plugins/ai/controller \
-  zhiheng-fastapi-backend/plugins/ai/entity/vo \
-  zhiheng-fastapi-backend/plugins/ai/service
+  backend/plugins/ai/controller \
+  backend/plugins/ai/entity/vo \
+  backend/plugins/ai/service
 ```
 
 逐项确认生产响应除 `DeveloperKeyCreatedModel.api_key` 外没有完整 Key 字段；Log 白名单排除该字段；异常生产帧 locals 测试覆盖创建、轮换、commit 失败和配置失败。
@@ -685,7 +685,7 @@ rg -n "secret_digest|api_key_pepper|complete_key|AI_API_KEY_PEPPER" \
 - [ ] **步骤 5：确认 Feature Flag 和路由边界**
 
 ```bash
-rg -n "prefix=['\"]?/v1|/v1/models|/v1/chat/completions" zhiheng-fastapi-backend/plugins/ai
+rg -n "prefix=['\"]?/v1|/v1/models|/v1/chat/completions" backend/plugins/ai
 ```
 
 预期：本里程碑未注册 Public API 路由。`AI_PUBLIC_API_ENABLED` 默认 false。

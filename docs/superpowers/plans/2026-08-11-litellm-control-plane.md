@@ -33,34 +33,34 @@ GET    /health/liveliness
 
 ## 目标文件
 
-- 创建 `zhiheng-fastapi-backend/plugins/ai/config.py` 的管理配置扩展
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_management_client.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_management_adapter.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_engine_vo.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/service/model_engine_service.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/controller/ai_model_engine_controller.py`
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_management_client.py`
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_adapter.py`
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_controller.py`
-- 修改 `zhiheng-fastapi-backend/plugins/ai/hooks.py`
-- 修改 `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改 `zhiheng-fastapi-backend/.env.dev`、`.env.prod`、`.env.dockerpg`
+- 创建 `backend/plugins/ai/config.py` 的管理配置扩展
+- 创建 `backend/plugins/ai/infrastructure/litellm_management_client.py`
+- 创建 `backend/plugins/ai/infrastructure/litellm_management_adapter.py`
+- 创建 `backend/plugins/ai/entity/vo/ai_model_engine_vo.py`
+- 创建 `backend/plugins/ai/service/model_engine_service.py`
+- 创建 `backend/plugins/ai/controller/ai_model_engine_controller.py`
+- 创建 `backend/tests/plugins/ai/test_litellm_management_client.py`
+- 创建 `backend/tests/plugins/ai/test_model_engine_adapter.py`
+- 创建 `backend/tests/plugins/ai/test_model_engine_controller.py`
+- 修改 `backend/plugins/ai/hooks.py`
+- 修改 `backend/plugins/ai/plugin.yaml`
+- 修改 `backend/.env.dev`、`.env.prod`、`.env.dockerpg`
 - 修改 `docker-compose.pg.yml`、`deploy/litellm/init-platform-runtime-key.sh`、`deploy/litellm/README.md`
-- 创建 `zhiheng-fastapi-frontend/plugins/ai/api/modelCatalog.js`
-- 创建 `zhiheng-fastapi-frontend/plugins/ai/api/modelEngine.js`
-- 创建 `zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`
-- 创建 `zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
-- 重写 `zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 创建模型中心组件目录 `zhiheng-fastapi-frontend/plugins/ai/views/model/components/`
+- 创建 `frontend/plugins/ai/api/modelCatalog.js`
+- 创建 `frontend/plugins/ai/api/modelEngine.js`
+- 创建 `frontend/plugins/ai/utils/modelEngine.js`
+- 创建 `frontend/tests/plugins/modelEngineTransforms.test.js`
+- 重写 `frontend/plugins/ai/views/model/index.vue`
+- 创建模型中心组件目录 `frontend/plugins/ai/views/model/components/`
 
 ### 任务 1：增加管理配置和独立 Management Client
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-backend/plugins/ai/config.py`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_management_client.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_management_client.py`
+- 修改：`backend/plugins/ai/config.py`
+- 修改：`backend/tests/plugins/ai/test_litellm_config.py`
+- 创建：`backend/plugins/ai/infrastructure/litellm_management_client.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_management_client.py`
 
 - [ ] **步骤 1：先写配置和 HTTP 契约测试**
 
@@ -85,7 +85,7 @@ assert settings.management_configured is True
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_litellm_config.py \
   tests/plugins/ai/test_litellm_management_client.py -v
 ```
@@ -105,17 +105,17 @@ Client 方法签名只接受已规范化的 Mapping，不接受调用方传入 h
 - [ ] **步骤 5：运行回归并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_litellm_config.py \
   tests/plugins/ai/test_litellm_client.py \
   tests/plugins/ai/test_litellm_management_client.py \
   tests/plugins/ai/test_litellm_hooks.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/config.py \
-  zhiheng-fastapi-backend/plugins/ai/hooks.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_management_client.py
+git add backend/plugins/ai/config.py \
+  backend/plugins/ai/hooks.py \
+  backend/plugins/ai/infrastructure \
+  backend/tests/plugins/ai/test_litellm_config.py \
+  backend/tests/plugins/ai/test_litellm_management_client.py
 git commit -m "feat: 增加 LiteLLM 管理面客户端"
 ```
 
@@ -123,9 +123,9 @@ git commit -m "feat: 增加 LiteLLM 管理面客户端"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_management_adapter.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_engine_vo.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_adapter.py`
+- 创建：`backend/plugins/ai/infrastructure/litellm_management_adapter.py`
+- 创建：`backend/plugins/ai/entity/vo/ai_model_engine_vo.py`
+- 创建：`backend/tests/plugins/ai/test_model_engine_adapter.py`
 
 - [ ] **步骤 1：先写归一化测试**
 
@@ -140,7 +140,7 @@ git commit -m "feat: 增加 LiteLLM 管理面客户端"
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_engine_adapter.py -v
 ```
 
@@ -165,12 +165,12 @@ Credential 名称只允许字母、数字、`.`、`_`、`-`，长度 1-128；删
 - [ ] **步骤 5：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_engine_adapter.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_engine_vo.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_management_adapter.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_adapter.py
+git add backend/plugins/ai/entity/vo/ai_model_engine_vo.py \
+  backend/plugins/ai/infrastructure/litellm_management_adapter.py \
+  backend/tests/plugins/ai/test_model_engine_adapter.py
 git commit -m "feat: 归一化 LiteLLM 控制面数据"
 ```
 
@@ -178,11 +178,11 @@ git commit -m "feat: 归一化 LiteLLM 控制面数据"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/service/model_engine_service.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/controller/ai_model_engine_controller.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_controller.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/plugins/ai/service/model_engine_service.py`
+- 创建：`backend/plugins/ai/controller/ai_model_engine_controller.py`
+- 创建：`backend/tests/plugins/ai/test_model_engine_controller.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：先写 Service 和路由测试**
 
@@ -215,7 +215,7 @@ GET    /ai/model-engine/status
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_engine_controller.py -v
 ```
 
@@ -246,16 +246,16 @@ ai:model:test
 - [ ] **步骤 6：运行回归并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_engine_controller.py \
   tests/plugins/ai/test_ai_runtime_controller.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/service/model_engine_service.py \
-  zhiheng-fastapi-backend/plugins/ai/controller/ai_model_engine_controller.py \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_controller.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/service/model_engine_service.py \
+  backend/plugins/ai/controller/ai_model_engine_controller.py \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_model_engine_controller.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 提供 LiteLLM 控制面管理接口"
 ```
 
@@ -263,14 +263,14 @@ git commit -m "feat: 提供 LiteLLM 控制面管理接口"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-backend/.env.dev`
-- 修改：`zhiheng-fastapi-backend/.env.prod`
-- 修改：`zhiheng-fastapi-backend/.env.dockerpg`
+- 修改：`backend/.env.dev`
+- 修改：`backend/.env.prod`
+- 修改：`backend/.env.dockerpg`
 - 修改：`docker-compose.pg.yml`
 - 修改：`deploy/litellm/init-platform-runtime-key.sh`
 - 修改：`deploy/litellm/.env.example`
 - 修改：`deploy/litellm/README.md`
-- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：先写部署契约测试**
 
@@ -285,7 +285,7 @@ git commit -m "feat: 提供 LiteLLM 控制面管理接口"
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -298,14 +298,14 @@ conda run -n dj pytest tests/deploy/test_litellm_runtime.py -v
 - [ ] **步骤 4：运行部署测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
 git diff --check
 git add docker-compose.pg.yml deploy/litellm/.env.example \
   deploy/litellm/init-platform-runtime-key.sh deploy/litellm/README.md \
-  zhiheng-fastapi-backend/.env.dev zhiheng-fastapi-backend/.env.prod \
-  zhiheng-fastapi-backend/.env.dockerpg zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+  backend/.env.dev backend/.env.prod \
+  backend/.env.dockerpg backend/tests/deploy/test_litellm_runtime.py
 git commit -m "feat: 配置 LiteLLM 双控制凭据"
 ```
 
@@ -313,18 +313,18 @@ git commit -m "feat: 配置 LiteLLM 双控制凭据"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/api/modelCatalog.js`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/api/modelEngine.js`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
-- 重写：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 创建：`frontend/plugins/ai/api/modelCatalog.js`
+- 创建：`frontend/plugins/ai/api/modelEngine.js`
+- 创建：`frontend/plugins/ai/utils/modelEngine.js`
+- 创建：`frontend/tests/plugins/modelEngineTransforms.test.js`
+- 重写：`frontend/plugins/ai/views/model/index.vue`
+- 创建：`frontend/plugins/ai/views/model/components/PlatformModelsPanel.vue`
+- 创建：`frontend/plugins/ai/views/model/components/EngineDeploymentsPanel.vue`
+- 创建：`frontend/plugins/ai/views/model/components/CredentialsPanel.vue`
+- 创建：`frontend/plugins/ai/views/model/components/RuntimeStatusPanel.vue`
+- 创建：`frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 创建：`frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 创建：`frontend/plugins/ai/views/model/components/DeploymentForm.vue`
 
 - [ ] **步骤 1：先写纯 JavaScript 转换测试**
 
@@ -347,7 +347,7 @@ assert.equal(JSON.stringify(row).includes('secret'), false)
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 ```
 
@@ -382,15 +382,15 @@ Credential 表格只显示名称、Provider、引用数、更新时间和轮换/
 - [ ] **步骤 7：运行前端测试和构建并提交**
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 npm run build:docker
 cd ..
 git diff --check
-git add zhiheng-fastapi-frontend/plugins/ai/api \
-  zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js \
-  zhiheng-fastapi-frontend/plugins/ai/views/model \
-  zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js
+git add frontend/plugins/ai/api \
+  frontend/plugins/ai/utils/modelEngine.js \
+  frontend/plugins/ai/views/model \
+  frontend/tests/plugins/modelEngineTransforms.test.js
 git commit -m "feat: 重建 LiteLLM 模型中心工作台"
 ```
 
@@ -420,15 +420,15 @@ curl --fail --silent http://127.0.0.1:14000/health/liveliness >/dev/null
 - [ ] **步骤 5：提交集成测试并记录结果**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai tests/deploy/test_litellm_runtime.py -v
-cd ../zhiheng-fastapi-frontend
+cd ../frontend
 npm run test:plugin
 npm run build:docker
 cd ..
 git status --short
 git diff --check
-git add zhiheng-fastapi-backend/tests/plugins/ai/test_model_engine_integration.py
+git add backend/tests/plugins/ai/test_model_engine_integration.py
 git commit -m "test: 验证 LiteLLM 控制面接入流程"
 ```
 

@@ -4,7 +4,7 @@ set -eu
 script_directory=$(CDPATH= cd "$(dirname "$0")" && pwd)
 repository_root=$(CDPATH= cd "$script_directory/../.." && pwd)
 platform_environment=${1:-"$repository_root/.env"}
-database_sql="$repository_root/zhiheng-fastapi-backend/sql/zhiheng-fastapi-pg.sql"
+database_sql="$repository_root/backend/sql/zhiheng-fastapi-pg.sql"
 postgres_container=${ZHIHENG_SHARED_POSTGRES_CONTAINER:-${RUOYI_SHARED_POSTGRES_CONTAINER:-litellm-db}}
 docker_command=${DOCKER_COMMAND:-docker}
 database_name=zhiheng-fastapi

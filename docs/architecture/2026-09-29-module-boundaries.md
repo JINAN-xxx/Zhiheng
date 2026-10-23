@@ -28,14 +28,14 @@ flowchart LR
 
 这是便于理解的主要依赖图，不是完整运行调用图。前端内部还存在 AI 与扩展插件之间的双向源码依赖，见第 4 节。
 
-- HTTP 入口、后台调度、插件生命周期集中在 [server.py](../../zhiheng-fastapi-backend/server.py)，主要装配位置为 L157–187、L190–223。
-- 业务 ORM 共享 [config/database.py](../../zhiheng-fastapi-backend/config/database.py) 的引擎、会话工厂和 `Base`（L104–108）。模块可以拥有自己的事务边界，但没有独立数据库连接身份。
-- 内置路由按目录扫描，插件另走清单、注册表和生命周期；这属于应用装配机制，见 [common/router.py](../../zhiheng-fastapi-backend/common/router.py) L306–337、[plugins/core/runtime/bootstrap.py](../../zhiheng-fastapi-backend/plugins/core/runtime/bootstrap.py)。
+- HTTP 入口、后台调度、插件生命周期集中在 [server.py](../../backend/server.py)，主要装配位置为 L157–187、L190–223。
+- 业务 ORM 共享 [config/database.py](../../backend/config/database.py) 的引擎、会话工厂和 `Base`（L104–108）。模块可以拥有自己的事务边界，但没有独立数据库连接身份。
+- 内置路由按目录扫描，插件另走清单、注册表和生命周期；这属于应用装配机制，见 [common/router.py](../../backend/common/router.py) L306–337、[plugins/core/runtime/bootstrap.py](../../backend/plugins/core/runtime/bootstrap.py)。
 - 前端插件通过菜单中的 `plugin/<pluginId>/<viewPath>` 加载页面，两个业务插件都声明 `delivery.type: source`、`buildRequired: true`。它们参与同一次 Vite 构建，动态导入不等于独立部署。
 
 ## 2. 按业务能力看模块与数据归属
 
-下表描述当前职责，路径省略后端根目录 `zhiheng-fastapi-backend/`。这些是业务边界候选，不代表下一步必须创建同名目录或服务。
+下表描述当前职责，路径省略后端根目录 `backend/`。这些是业务边界候选，不代表下一步必须创建同名目录或服务。
 
 | 业务能力 | 当前主要位置 | 主要数据归属 | 当前边界评价 |
 | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ flowchart LR
 
 特别说明：`module_Knowledge` 当前只有解析、分块等工具代码，没有独立 Controller、DAO 或业务 ORM 表。真正的知识库业务和持久化在 `plugins/ai/knowledge`。平台文件 `sys_file_*` 与知识库自己的 uploads 也不是同一套存储所有权。
 
-数据模型可从 [AI 模型目录](../../zhiheng-fastapi-backend/plugins/ai/entity/do/ai_model_catalog_do.py)、[开发接入模型](../../zhiheng-fastapi-backend/plugins/ai/entity/do/ai_developer_api_do.py)、[聊天模型](../../zhiheng-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py)、[扩展模型](../../zhiheng-fastapi-backend/plugins/agent_extension/entity/do/agent_do.py)、[文件模型](../../zhiheng-fastapi-backend/module_admin/entity/do/file_do.py)核对。
+数据模型可从 [AI 模型目录](../../backend/plugins/ai/entity/do/ai_model_catalog_do.py)、[开发接入模型](../../backend/plugins/ai/entity/do/ai_developer_api_do.py)、[聊天模型](../../backend/plugins/ai/entity/do/ai_chat_platform_do.py)、[扩展模型](../../backend/plugins/agent_extension/entity/do/agent_do.py)、[文件模型](../../backend/module_admin/entity/do/file_do.py)核对。
 
 ## 3. 后端主要依赖与需要收拢的入口
 
@@ -69,9 +69,9 @@ flowchart LR
 
 优先值得改善的四个具体点：
 
-1. **跨 Controller 调私有函数。** [agent_invocation_controller.py](../../zhiheng-fastapi-backend/plugins/agent_extension/controller/agent_invocation_controller.py) L24、L105–129 复用另一个 Controller 的认证、请求读取、流输出和错误转换。适合整理为公开的请求认证与流式响应能力，继续复用现有调用协调器。
-2. **模型可用性规则分散。** [agent_service.py](../../zhiheng-fastapi-backend/plugins/agent_extension/service/agent_service.py) L230–250 直接查询模型/应用 DAO；[ai_knowledge_controller.py](../../zhiheng-fastapi-backend/plugins/ai/controller/ai_knowledge_controller.py) L83–108 直接 join 模型与绑定。模型状态、可用条件一旦调整，需要同步检查多个消费者。适合通过模型查询接口提供稳定结果，保留各业务所需的不同筛选语义。
-3. **模型定价与开发接入之间的归属需要明确。** [model_catalog_service.py](../../zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py) L109–158 经 Developer API DAO 读写费率。可以明确价格维护的唯一入口和查询契约，页面仍可保留在模型中心。
+1. **跨 Controller 调私有函数。** [agent_invocation_controller.py](../../backend/plugins/agent_extension/controller/agent_invocation_controller.py) L24、L105–129 复用另一个 Controller 的认证、请求读取、流输出和错误转换。适合整理为公开的请求认证与流式响应能力，继续复用现有调用协调器。
+2. **模型可用性规则分散。** [agent_service.py](../../backend/plugins/agent_extension/service/agent_service.py) L230–250 直接查询模型/应用 DAO；[ai_knowledge_controller.py](../../backend/plugins/ai/controller/ai_knowledge_controller.py) L83–108 直接 join 模型与绑定。模型状态、可用条件一旦调整，需要同步检查多个消费者。适合通过模型查询接口提供稳定结果，保留各业务所需的不同筛选语义。
+3. **模型定价与开发接入之间的归属需要明确。** [model_catalog_service.py](../../backend/plugins/ai/service/model_catalog_service.py) L109–158 经 Developer API DAO 读写费率。可以明确价格维护的唯一入口和查询契约，页面仍可保留在模型中心。
 4. **资源删除的引用规则还不完整。** 同文件 L49–81 已有 `ModelReferenceChecker`，默认使用空实现；部分聊天/授权/费率/账本引用有数据库外键保护，扩展配置与知识库 JSON 引用则不是同一种约束。需要先明确引用时禁删还是允许失效，再设计生命周期接口，不能假设外键已覆盖所有消费者。
 
 正常的公共能力复用应保留：鉴权、日志、数据库会话、文件服务、统一模型运行时、用量结算都不应在各模块重复实现。改造重点是调用公开能力并遵守事务约定。
@@ -82,22 +82,22 @@ flowchart LR
 
 | 现状 | 证据与影响 | 可收拢方向 |
 | --- | --- | --- |
-| Chat 会话 API 同时由宿主与 AI 插件维护 | [platformWorkspace.js](../../zhiheng-fastapi-frontend/src/api/platformWorkspace.js) L3–31 与 [chat.js](../../zhiheng-fastapi-frontend/plugins/ai/api/chat.js) L50–70 定义重复的列表/删除入口 | 明确 Chat 是会话契约 owner，侧栏通过公开客户端使用 |
-| 工作任务状态主要放在宿主 | [workTask.js](../../zhiheng-fastapi-frontend/src/store/modules/workTask.js)、宿主侧栏与路由直接知道 Work 业务 | 明确状态 owner，外壳只消费导航摘要与公开动作 |
-| 宿主身份 store 直接清理扩展业务状态 | [user.js](../../zhiheng-fastapi-frontend/src/store/modules/user.js) L10、L80–85 | 用明确的会话清理扩展点接入，保持退出和 401 清理语义 |
+| Chat 会话 API 同时由宿主与 AI 插件维护 | [platformWorkspace.js](../../frontend/src/api/platformWorkspace.js) L3–31 与 [chat.js](../../frontend/plugins/ai/api/chat.js) L50–70 定义重复的列表/删除入口 | 明确 Chat 是会话契约 owner，侧栏通过公开客户端使用 |
+| 工作任务状态主要放在宿主 | [workTask.js](../../frontend/src/store/modules/workTask.js)、宿主侧栏与路由直接知道 Work 业务 | 明确状态 owner，外壳只消费导航摘要与公开动作 |
+| 宿主身份 store 直接清理扩展业务状态 | [user.js](../../frontend/src/store/modules/user.js) L10、L80–85 | 用明确的会话清理扩展点接入，保持退出和 401 清理语义 |
 | AI 与扩展插件有双向源码依赖 | Chat 的 SkillPicker 使用扩展 API；Agent 编辑器使用 AI 模型、知识库、应用接口；Work API 依赖 AI 内部 SSE parser | 使用公开客户端/共享传输协议，避免消费者绑定内部文件 |
-| 菜单、权限、导航分组共同决定入口 | [permission store](../../zhiheng-fastapi-frontend/src/store/modules/permission.js)、[workspaceTransforms.js](../../zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js)、[router](../../zhiheng-fastapi-frontend/src/router/index.js) | 把页面路径、权限码、导航、深链和默认落地作为一个可验证契约 |
+| 菜单、权限、导航分组共同决定入口 | [permission store](../../frontend/src/store/modules/permission.js)、[workspaceTransforms.js](../../frontend/src/components/Workspace/workspaceTransforms.js)、[router](../../frontend/src/router/index.js) | 把页面路径、权限码、导航、深链和默认落地作为一个可验证契约 |
 
 后端 manifest 声明扩展依赖 AI，但前端还存在 Chat 对 Skill 的反向消费。页面动态导入提供构建分块，不能据此认为任意插件可以独立发包或卸载。
 
-公共 [request.js](../../zhiheng-fastapi-frontend/src/utils/request.js) 已统一 Token、加密、重复提交和错误恢复，是好的基础；Chat/Work 的 SSE 使用 `fetch`，仍需单独遵循认证、错误和取消协议。通用 SSE parser 可以成为共享传输能力，业务事件和状态机仍归各自模块。
+公共 [request.js](../../frontend/src/utils/request.js) 已统一 Token、加密、重复提交和错误恢复，是好的基础；Chat/Work 的 SSE 使用 `fetch`，仍需单独遵循认证、错误和取消协议。通用 SSE parser 可以成为共享传输能力，业务事件和状态机仍归各自模块。
 
 ## 5. 已有基础应继续利用
 
-- [ModelRuntimeEngine](../../zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py) 提供 Protocol，LiteLLM 实现在适配层。
-- [platform_chat_service.py](../../zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py) 已定义模型、知识、技能、文件等协作接口，[platform_chat_provider.py](../../zhiheng-fastapi-backend/plugins/ai/infrastructure/platform_chat_provider.py) 集中装配依赖。
-- [SkillContextAdapter](../../zhiheng-fastapi-backend/plugins/ai/infrastructure/skill_context_adapter.py) 用独立只读会话，避免技能读取的 rollback 破坏聊天写事务。
-- [AgentKnowledgeProvider](../../zhiheng-fastapi-backend/plugins/agent_extension/domain/agent_knowledge.py) 已约束超时、片段数量、内容大小和来源范围。
+- [ModelRuntimeEngine](../../backend/plugins/ai/domain/model_runtime.py) 提供 Protocol，LiteLLM 实现在适配层。
+- [platform_chat_service.py](../../backend/plugins/ai/service/platform_chat_service.py) 已定义模型、知识、技能、文件等协作接口，[platform_chat_provider.py](../../backend/plugins/ai/infrastructure/platform_chat_provider.py) 集中装配依赖。
+- [SkillContextAdapter](../../backend/plugins/ai/infrastructure/skill_context_adapter.py) 用独立只读会话，避免技能读取的 rollback 破坏聊天写事务。
+- [AgentKnowledgeProvider](../../backend/plugins/agent_extension/domain/agent_knowledge.py) 已约束超时、片段数量、内容大小和来源范围。
 - 插件清单已经声明依赖、权限、菜单与迁移，插件扫描也有隔离损坏插件的处理；这些机制可以承载渐进模块化。
 - 数据表按能力有明显归属，当前阶段可以保留已有表名和数据库，在代码与审查规则中约束读写入口。
 
@@ -113,7 +113,7 @@ flowchart LR
 | 权限与资源归属 | 知识库目前是平台共享资源，按权限和绑定范围检查；不能把一次模块化改造当成新增每用户/每库 ACL 的授权 |
 | 数据库迁移 | 继续使用已有迁移账本和校验机制，不编辑已应用脚本来适配目录变化；公开 URL、权限码和插件 ID 也属于兼容契约 |
 
-代表证据：[调用快照 DAO](../../zhiheng-fastapi-backend/plugins/ai/dao/ai_developer_api_dao.py) L449、[密钥轮换服务](../../zhiheng-fastapi-backend/plugins/ai/service/developer_key_service.py) L263、[调用协调器](../../zhiheng-fastapi-backend/plugins/ai/service/public_invocation_coordinator.py) L419/L586、[聊天服务](../../zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py) L559/L1010、[任务服务](../../zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_service.py) L131、[知识库 metadata](../../zhiheng-fastapi-backend/plugins/ai/knowledge/metadata.py) L56、[知识库运行时](../../zhiheng-fastapi-backend/plugins/ai/knowledge/runtime.py) L597/L631/L1013。
+代表证据：[调用快照 DAO](../../backend/plugins/ai/dao/ai_developer_api_dao.py) L449、[密钥轮换服务](../../backend/plugins/ai/service/developer_key_service.py) L263、[调用协调器](../../backend/plugins/ai/service/public_invocation_coordinator.py) L419/L586、[聊天服务](../../backend/plugins/ai/service/platform_chat_service.py) L559/L1010、[任务服务](../../backend/plugins/agent_extension/service/work_task_service.py) L131、[知识库 metadata](../../backend/plugins/ai/knowledge/metadata.py) L56、[知识库运行时](../../backend/plugins/ai/knowledge/runtime.py) L597/L631/L1013。
 
 ## 7. 常见改动的影响范围
 
@@ -156,8 +156,8 @@ CI 浏览器入口使用 mock API，验证页面、导航、主题和部分业�
 
 | 范围 | 当前入口与规则 | 对应基线问题 |
 | --- | --- | --- |
-| 前端 Chat 会话 API | [chatSessions.js](../../zhiheng-fastapi-frontend/plugins/ai/public/chatSessions.js) 统一定义列表、详情、重命名、归档/恢复、删除请求；原 Chat 与宿主 API 文件通过 re-export 兼容原名称 | 第 4 节的重复会话请求定义已收拢；没有移动 store 或状态机 |
-| 后端模型查询 | [model_queries.py](../../zhiheng-fastapi-backend/plugins/ai/public/model_queries.py) 返回不可变字段快照；Agent 配置、公开调用、工作任务、知识库选项使用此入口 | 第 3 节第 2 项的模型 DAO/ORM 直接依赖已在这些调用点收拢；应用 DAO 仍待后续处理 |
+| 前端 Chat 会话 API | [chatSessions.js](../../frontend/plugins/ai/public/chatSessions.js) 统一定义列表、详情、重命名、归档/恢复、删除请求；原 Chat 与宿主 API 文件通过 re-export 兼容原名称 | 第 4 节的重复会话请求定义已收拢；没有移动 store 或状态机 |
+| 后端模型查询 | [model_queries.py](../../backend/plugins/ai/public/model_queries.py) 返回不可变字段快照；Agent 配置、公开调用、工作任务、知识库选项使用此入口 | 第 3 节第 2 项的模型 DAO/ORM 直接依赖已在这些调用点收拢；应用 DAO 仍待后续处理 |
 
 聊天查询保留“聊天类型、启用、已发布”的条件；知识库模型选项保留“类型匹配、模型启用、绑定启用”的条件，没有新增发布时间限制。公开查询使用调用方数据库会话，不提交、不回滚，也不负责授权和上游健康检查。
 
@@ -167,7 +167,7 @@ CI 浏览器入口使用 mock API，验证页面、导航、主题和部分业�
 
 ## 11. 第三个试点：公共调用传输接口（2026-09-29）
 
-Agent 和普通模型调用现已共同消费 [api_transport.py](../../zhiheng-fastapi-backend/plugins/ai/public/api_transport.py)，Agent 不再导入 AI Controller。公共入口负责单认证头读取、JSON 请求验证、固定错误响应，以及 SSE 响应头与流清理；它不负责数据库事务、模型授权、额度或结算。
+Agent 和普通模型调用现已共同消费 [api_transport.py](../../backend/plugins/ai/public/api_transport.py)，Agent 不再导入 AI Controller。公共入口负责单认证头读取、JSON 请求验证、固定错误响应，以及 SSE 响应头与流清理；它不负责数据库事务、模型授权、额度或结算。
 
 ```mermaid
 flowchart LR
@@ -186,9 +186,9 @@ flowchart LR
 
 ## 12. 第四个试点：Work 状态与会话生命周期（2026-09-29）
 
-Work 的 Pinia store 现由扩展插件的 [stores/workTask.js](../../zhiheng-fastapi-frontend/plugins/agent_extension/stores/workTask.js) 管理。旧宿主入口仅兼容转发，保留同一 store ID 和实例。平台侧栏使用 [public/workTasks.js](../../zhiheng-fastapi-frontend/plugins/agent_extension/public/workTasks.js) 的导航接口，读取任务摘要、分页、加载/错误状态，调用列表刷新、重命名和删除；执行、草稿、成员和重试状态仍由 Work 模块内部管理。
+Work 的 Pinia store 现由扩展插件的 [stores/workTask.js](../../frontend/plugins/agent_extension/stores/workTask.js) 管理。旧宿主入口仅兼容转发，保留同一 store ID 和实例。平台侧栏使用 [public/workTasks.js](../../frontend/plugins/agent_extension/public/workTasks.js) 的导航接口，读取任务摘要、分页、加载/错误状态，调用列表刷新、重命名和删除；执行、草稿、成员和重试状态仍由 Work 模块内部管理。
 
-平台 [sessionLifecycle.js](../../zhiheng-fastapi-frontend/src/store/sessionLifecycle.js) 提供按 Pinia 实例隔离的清理机制。已创建的 store 用 `sessionCleanup` 指定自己的同步清理动作，dispose 时注销。用户模块触发本应用清理，不再直接引用 Work；未打开的业务模块不会因此实例化。Work 是本轮接入该机制的业务模块，其他业务状态尚未全部接入。
+平台 [sessionLifecycle.js](../../frontend/src/store/sessionLifecycle.js) 提供按 Pinia 实例隔离的清理机制。已创建的 store 用 `sessionCleanup` 指定自己的同步清理动作，dispose 时注销。用户模块触发本应用清理，不再直接引用 Work；未打开的业务模块不会因此实例化。Work 是本轮接入该机制的业务模块，其他业务状态尚未全部接入。
 
 退出、登录过期和成功登录新会话都会清理 Work。清理保留递增的请求代次，丢弃旧结果，停止流与轮询，并重置加载、错误和分页状态。另修正既有请求竞态：只有请求携带的身份仍匹配当前令牌，其 401 才能清除当前会话；旧身份和匿名请求仍失败，但不能清掉新身份。
 
@@ -200,7 +200,7 @@ Work 的 Pinia store 现由扩展插件的 [stores/workTask.js](../../zhiheng-fa
 
 前端公共边界已进一步拆成五个小项：共享流解析、技能选择、模型/知识库选择、应用管理和密钥操作，见[逐步实施计划](../superpowers/plans/2026-09-29-frontend-public-boundaries.md)。共享 SSE 这一轮完成第一项，其他四项随后在第 14 节完成。
 
-Chat 和 Work 现在直接使用 [src/utils/platformSse.js](../../zhiheng-fastapi-frontend/src/utils/platformSse.js)。AI 的旧 `utils/sseParser.js` 仅兼容转发，Work 不再引用 AI 插件内部的流解析实现。共享函数处理平台 JSON SSE 事件，不依赖插件，不承载 HTTP 认证、错误映射或业务状态机。
+Chat 和 Work 现在直接使用 [src/utils/platformSse.js](../../frontend/src/utils/platformSse.js)。AI 的旧 `utils/sseParser.js` 仅兼容转发，Work 不再引用 AI 插件内部的流解析实现。共享函数处理平台 JSON SSE 事件，不依赖插件，不承载 HTTP 认证、错误映射或业务状态机。
 
 分块回归发现并修复了两个既有问题：CRLF 被分到不同数据块时可能丢失事件类型；读取提前结束或解析失败时没有取消 reader。现已正确保留跨块换行状态，并在非正常 EOF 结束时尽力取消及释放 reader，保留原读取、解析与取消异常。
 
@@ -210,10 +210,10 @@ Chat 和 Work 现在直接使用 [src/utils/platformSse.js](../../zhiheng-fastap
 
 | 入口 | 已接入的跨插件消费者 |
 | --- | --- |
-| [skills.js](../../zhiheng-fastapi-frontend/plugins/agent_extension/public/skills.js) | Chat 的可选技能列表、归一化及输入触发符 |
-| [resourceSelection.js](../../zhiheng-fastapi-frontend/plugins/ai/public/resourceSelection.js) | Agent 编辑器的模型、知识库选择、可调用判定和分页 |
-| [applications.js](../../zhiheng-fastapi-frontend/plugins/ai/public/applications.js) | Agent 编辑器的应用列表、创建和归一化 |
-| [developerKeys.js](../../zhiheng-fastapi-frontend/plugins/ai/public/developerKeys.js) | Agent API 抽屉的密钥操作、公开展示、API 地址与复制 |
+| [skills.js](../../frontend/plugins/agent_extension/public/skills.js) | Chat 的可选技能列表、归一化及输入触发符 |
+| [resourceSelection.js](../../frontend/plugins/ai/public/resourceSelection.js) | Agent 编辑器的模型、知识库选择、可调用判定和分页 |
+| [applications.js](../../frontend/plugins/ai/public/applications.js) | Agent 编辑器的应用列表、创建和归一化 |
+| [developerKeys.js](../../frontend/plugins/ai/public/developerKeys.js) | Agent API 抽屉的密钥操作、公开展示、API 地址与复制 |
 
 9 个 HTTP 请求函数的唯一实现迁入这些入口，原 API 文件直接 re-export。同模块纯辅助函数仍由原模块维护，public 明确选择要暴露的能力。四个消费组件仅修改 import，权限、加载和密钥明文生命周期保持一致。
 
@@ -225,7 +225,7 @@ Chat 和 Work 现在直接使用 [src/utils/platformSse.js](../../zhiheng-fastap
 
 ## 15. 后端应用查询公共入口（2026-09-29）
 
-AgentService 现通过 [application_queries.py](../../zhiheng-fastapi-backend/plugins/ai/public/application_queries.py) 的 `is_active_owned_application` 检查应用绑定条件，不再直接引用应用 DAO。
+AgentService 现通过 [application_queries.py](../../backend/plugins/ai/public/application_queries.py) 的 `is_active_owned_application` 检查应用绑定条件，不再直接引用应用 DAO。
 
 查询复用既有“按 ID 且未软删除”的 SQL，要求应用启用且属于指定所有者，只返回 bool。创建时传入创建者；管理员更新或发布时仍传入 Agent 原所有者。未绑定草稿、发布快照、错误码/文案/422 及事务提交回滚时机均保留，查询本身不管理事务，也不替代开发密钥认证、模型授权或额度检查。
 
@@ -235,13 +235,13 @@ AgentService 现通过 [application_queries.py](../../zhiheng-fastapi-backend/pl
 
 ## 16. 模型引用、费率边界与质量收尾（2026-09-29）
 
-模型删除由 [ModelDeletionReferences](../../zhiheng-fastapi-backend/plugins/ai/infrastructure/model_reference_provider.py) 汇总各数据所有者的检查：平台聊天/授权/费率/用量、[Agent 与 Work 持久快照](../../zhiheng-fastapi-backend/plugins/agent_extension/public/model_references.py)、[知识库配置及历史版本](../../zhiheng-fastapi-backend/plugins/ai/knowledge/model_references.py)。仅未发布草稿或已停用模型可删除，且必须没有持久引用。归档、已移除成员和仍保留的历史记录不会被当作“引用已经解除”。默认空 checker 已改为未装配即拒绝删除。
+模型删除由 [ModelDeletionReferences](../../backend/plugins/ai/infrastructure/model_reference_provider.py) 汇总各数据所有者的检查：平台聊天/授权/费率/用量、[Agent 与 Work 持久快照](../../backend/plugins/agent_extension/public/model_references.py)、[知识库配置及历史版本](../../backend/plugins/ai/knowledge/model_references.py)。仅未发布草稿或已停用模型可删除，且必须没有持久引用。归档、已移除成员和仍保留的历史记录不会被当作“引用已经解除”。默认空 checker 已改为未装配即拒绝删除。
 
 核心通过可选 `backend.resourceReferences` 声明发现公开查询，所有已安装插件都参与，不以启停状态代替数据存在性。已安装插件缺源、加载/查询失败和元数据读取失败都拒绝删除。AI 不直接导入 Agent 内部 DAO/ORM；具体引用判断仍由拥有数据的模块实现。
 
 引用写入与删除共用模型行锁，遵循模型在先、业务行在后的顺序，多模型按 ID 排序。知识库引用写入共享文件锁，删除独占文件锁并保持到 SQL 提交；这样保留配置更新并发，同时防止删除检查后新增引用。所有非空 LLM 配置都先验证，即使图谱尚未启用。真实 PostgreSQL 验证了两种竞争顺序，以及 Agent 更新/发布与删除无反向锁死锁。
 
-费率列表、模式规则、版本和价格字段映射由 [RateCardService](../../zhiheng-fastapi-backend/plugins/ai/public/rate_cards.py) 拥有。ModelCatalogService 消费公开服务并负责模型存在检查与事务；它不再直接操作开发接入 DAO/费率 ORM。价格仍追加版本，金额、时间和计费语义保留；模型不存在或费率历史读取失败也纳入回滚。授权/结算的原子快照查询没有拆散。
+费率列表、模式规则、版本和价格字段映射由 [RateCardService](../../backend/plugins/ai/public/rate_cards.py) 拥有。ModelCatalogService 消费公开服务并负责模型存在检查与事务；它不再直接操作开发接入 DAO/费率 ORM。价格仍追加版本，金额、时间和计费语义保留；模型不存在或费率历史读取失败也纳入回滚。授权/结算的原子快照查询没有拆散。
 
 此前全仓 Ruff 与格式问题已处理。浏览器检查复现到鉴权前的本地模块 `ERR_NETWORK_CHANGED`：仅对这一类且尚无业务请求/脚本异常的冷启动失败允许重建一次上下文，保存首次诊断；错误落地、业务/API 错误和连续失败仍报错。权限落地增加目标页面可见断言，截图阈值未放宽。
 

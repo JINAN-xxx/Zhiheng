@@ -12,25 +12,25 @@
 
 ## 文件结构
 
-- 创建 `zhiheng-fastapi-backend/plugins/ai/config.py`：AI 插件 LiteLLM 配置和校验。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/__init__.py`：基础设施包。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`：稳定的内部异常模型。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`：Runtime HTTP 客户端。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/hooks.py`：每 Worker 客户端生命周期。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`：诊断接口响应模型。
-- 创建 `zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`：健康和模型诊断接口。
+- 创建 `backend/plugins/ai/config.py`：AI 插件 LiteLLM 配置和校验。
+- 创建 `backend/plugins/ai/infrastructure/__init__.py`：基础设施包。
+- 创建 `backend/plugins/ai/infrastructure/litellm_errors.py`：稳定的内部异常模型。
+- 创建 `backend/plugins/ai/infrastructure/litellm_client.py`：Runtime HTTP 客户端。
+- 创建 `backend/plugins/ai/hooks.py`：每 Worker 客户端生命周期。
+- 创建 `backend/plugins/ai/entity/vo/ai_runtime_vo.py`：诊断接口响应模型。
+- 创建 `backend/plugins/ai/controller/ai_runtime_controller.py`：健康和模型诊断接口。
 - 创建 `deploy/litellm/init-platform-runtime-key.sh`：创建一次性 Runtime Virtual Key 并安全写入仓库根 `.env`。
-- 修改 `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：声明 Hook、权限和 HTTPX 直接依赖。
-- 修改 `zhiheng-fastapi-backend/.env.dev`、`.env.prod`、`.env.dockerpg`：增加非敏感配置模板。
+- 修改 `backend/plugins/ai/plugin.yaml`：声明 Hook、权限和 HTTPX 直接依赖。
+- 修改 `backend/.env.dev`、`.env.prod`、`.env.dockerpg`：增加非敏感配置模板。
 - 修改 `docker-compose.pg.yml`：Backend 加入 LiteLLM 网络并只注入 Runtime Key。
 - 修改 `deploy/litellm/README.md`：记录 Runtime Key 初始化和双 Compose 启动顺序。
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`。
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py`。
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`。
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`。
-- 创建 `zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`。
-- 修改 `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`。
-- 修改 `zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`。
+- 创建 `backend/tests/plugins/ai/test_litellm_config.py`。
+- 创建 `backend/tests/plugins/ai/test_litellm_client.py`。
+- 创建 `backend/tests/plugins/ai/test_litellm_streaming.py`。
+- 创建 `backend/tests/plugins/ai/test_litellm_hooks.py`。
+- 创建 `backend/tests/plugins/ai/test_ai_runtime_controller.py`。
+- 修改 `backend/tests/plugins/sample_plugins/test_ai_plugin.py`。
+- 修改 `backend/tests/deploy/test_litellm_runtime.py`。
 
 本阶段不修改前端文件、数据库 Migration、`ai_models`、`AiChatService` 或 `AiUtil`。
 
@@ -38,10 +38,10 @@
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/config.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/__init__.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_config.py`
+- 创建：`backend/plugins/ai/config.py`
+- 创建：`backend/plugins/ai/infrastructure/__init__.py`
+- 创建：`backend/plugins/ai/infrastructure/litellm_errors.py`
 
 - [ ] **步骤 1：编写配置和错误模型测试**
 
@@ -95,7 +95,7 @@ def test_litellm_errors_have_stable_public_contract(error_type, status_code, cod
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_config.py -v
 ```
 
@@ -138,12 +138,12 @@ class LiteLLMSettings(BaseSettings):
 - [ ] **步骤 5：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_config.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/config.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_config.py
+git add backend/plugins/ai/config.py \
+  backend/plugins/ai/infrastructure \
+  backend/tests/plugins/ai/test_litellm_config.py
 git commit -m "feat: 定义 LiteLLM 接入配置与错误边界"
 ```
 
@@ -151,8 +151,8 @@ git commit -m "feat: 定义 LiteLLM 接入配置与错误边界"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_client.py`
+- 创建：`backend/plugins/ai/infrastructure/litellm_client.py`
 
 - [ ] **步骤 1：先写 HTTP 契约测试**
 
@@ -212,7 +212,7 @@ async def test_timeout_and_connect_errors_have_distinct_mappings():
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_client.py -v
 ```
 
@@ -261,11 +261,11 @@ class LiteLLMRuntimeClient:
 - [ ] **步骤 4：验证并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_client.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py
+git add backend/plugins/ai/infrastructure/litellm_client.py \
+  backend/tests/plugins/ai/test_litellm_client.py
 git commit -m "feat: 添加 LiteLLM Runtime HTTP 客户端"
 ```
 
@@ -273,8 +273,8 @@ git commit -m "feat: 添加 LiteLLM Runtime HTTP 客户端"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_streaming.py`
+- 修改：`backend/plugins/ai/infrastructure/litellm_client.py`
 
 - [ ] **步骤 1：编写流式红灯测试**
 
@@ -311,7 +311,7 @@ async def test_closing_downstream_generator_closes_upstream_response():
 - [ ] **步骤 2：运行并确认因方法缺失或行为不完整而失败**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_streaming.py -v
 ```
 
@@ -345,11 +345,11 @@ async def stream_chat_completion(
 - [ ] **步骤 4：验证并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_client.py tests/plugins/ai/test_litellm_streaming.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_streaming.py
+git add backend/plugins/ai/infrastructure/litellm_client.py \
+  backend/tests/plugins/ai/test_litellm_streaming.py
 git commit -m "feat: 添加 LiteLLM 流式响应边界"
 ```
 
@@ -357,10 +357,10 @@ git commit -m "feat: 添加 LiteLLM 流式响应边界"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/hooks.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_hooks.py`
+- 创建：`backend/plugins/ai/hooks.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：编写 Hook 和清单红灯测试**
 
@@ -398,7 +398,7 @@ async def test_shutdown_is_idempotent_and_removes_state(monkeypatch):
 - [ ] **步骤 2：运行并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_hooks.py \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_template_can_be_discovered \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_runtime_paths_exist -v
@@ -432,13 +432,13 @@ async def on_shutdown(context: PluginHookContext) -> None:
 - [ ] **步骤 4：更新清单、验证并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_litellm_hooks.py tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/hooks.py \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_hooks.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/hooks.py \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_litellm_hooks.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 接入 LiteLLM 客户端生命周期"
 ```
 
@@ -446,9 +446,9 @@ git commit -m "feat: 接入 LiteLLM 客户端生命周期"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py`
+- 创建：`backend/tests/plugins/ai/test_ai_runtime_controller.py`
+- 创建：`backend/plugins/ai/entity/vo/ai_runtime_vo.py`
+- 创建：`backend/plugins/ai/controller/ai_runtime_controller.py`
 
 - [ ] **步骤 1：编写控制器红灯测试**
 
@@ -496,7 +496,7 @@ async def test_models_maps_internal_error_to_gateway_http_status_without_leaking
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_ai_runtime_controller.py -v
 ```
 
@@ -559,13 +559,13 @@ async def get_ai_runtime_models(request: Request) -> Response: ...
 - [ ] **步骤 5：验证并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai/test_ai_runtime_controller.py \
   tests/plugins/sample_plugins/test_ai_plugin.py::test_ai_plugin_structure_check_passes -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py \
-  zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_ai_runtime_controller.py
+git add backend/plugins/ai/controller/ai_runtime_controller.py \
+  backend/plugins/ai/entity/vo/ai_runtime_vo.py \
+  backend/tests/plugins/ai/test_ai_runtime_controller.py
 git commit -m "feat: 添加 LiteLLM Runtime 诊断接口"
 ```
 
@@ -573,12 +573,12 @@ git commit -m "feat: 添加 LiteLLM Runtime 诊断接口"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/tests/deploy/test_litellm_runtime.py`
 - 创建：`deploy/litellm/init-platform-runtime-key.sh`
 - 修改：`docker-compose.pg.yml`
-- 修改：`zhiheng-fastapi-backend/.env.dev`
-- 修改：`zhiheng-fastapi-backend/.env.prod`
-- 修改：`zhiheng-fastapi-backend/.env.dockerpg`
+- 修改：`backend/.env.dev`
+- 修改：`backend/.env.prod`
+- 修改：`backend/.env.dockerpg`
 - 修改：`deploy/litellm/README.md`
 
 - [ ] **步骤 1：扩展部署契约红灯测试**
@@ -619,7 +619,7 @@ def test_runtime_key_script_is_private_idempotent_and_never_prints_key(tmp_path,
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -669,15 +669,15 @@ Content-Type: application/json
 - [ ] **步骤 5：更新运行手册，验证 Compose 渲染并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ..
 docker compose --env-file deploy/litellm/.env -f deploy/litellm/compose.yaml config >/dev/null
 LITELLM_RUNTIME_KEY=test-only docker compose -f docker-compose.pg.yml config >/dev/null
 git add docker-compose.pg.yml deploy/litellm/init-platform-runtime-key.sh \
-  deploy/litellm/README.md zhiheng-fastapi-backend/.env.dev \
-  zhiheng-fastapi-backend/.env.prod zhiheng-fastapi-backend/.env.dockerpg \
-  zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+  deploy/litellm/README.md backend/.env.dev \
+  backend/.env.prod backend/.env.dockerpg \
+  backend/tests/deploy/test_litellm_runtime.py
 git commit -m "feat: 打通平台与 LiteLLM 内部网络"
 ```
 
@@ -690,21 +690,21 @@ git commit -m "feat: 打通平台与 LiteLLM 内部网络"
 - [ ] **步骤 1：运行 AI 插件和部署测试**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py tests/deploy/test_litellm_runtime.py -v
 ```
 
 - [ ] **步骤 2：运行后端相关回归测试**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/plugins/core tests/server/test_plugin_runtime.py -v
 ```
 
 - [ ] **步骤 3：执行静态检查**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 ruff check plugins/ai tests/plugins/ai tests/deploy/test_litellm_runtime.py
 ruff format --check plugins/ai tests/plugins/ai tests/deploy/test_litellm_runtime.py
 ```

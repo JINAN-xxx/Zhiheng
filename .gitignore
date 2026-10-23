@@ -10,8 +10,8 @@ __pycache__/
 .Python
 develop-eggs/
 dist/
-!zhiheng-fastapi-frontend/dist/
-!zhiheng-fastapi-frontend/dist/**
+!frontend/dist/
+!frontend/dist/**
 downloads/
 eggs/
 .eggs/
@@ -168,5 +168,5 @@ cython_debug/
 /data/platform-files/
 /data/knowledge/
 /data/milvus/
-/zhiheng-fastapi-backend/data/knowledge/
-zhiheng-fastapi-backend/tokenizer-cache/
+/backend/data/knowledge/
+backend/tokenizer-cache/

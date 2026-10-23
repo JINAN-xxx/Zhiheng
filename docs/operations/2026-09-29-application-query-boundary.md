@@ -4,7 +4,7 @@
 
 ## 改动与规则
 
-新增 [application_queries.py](../../zhiheng-fastapi-backend/plugins/ai/public/application_queries.py)，向消费者提供：
+新增 [application_queries.py](../../backend/plugins/ai/public/application_queries.py)，向消费者提供：
 
 ```python
 async def is_active_owned_application(db, application_id, owner_user_id) -> bool: ...
@@ -12,7 +12,7 @@ async def is_active_owned_application(db, application_id, owner_user_id) -> bool
 
 该查询复用已有应用 DAO 的软删除过滤，再判断所有者和 active 状态。消费者只需要绑定条件判断，因此返回 bool；不额外引入应用 DTO，也不暴露 ORM。它使用调用方会话，没有创建、关闭会话或提交/回滚事务，自动 flush 行为继续由原会话配置决定。
 
-[AgentService](../../zhiheng-fastapi-backend/plugins/agent_extension/service/agent_service.py) 从应用 DAO 注入改为公共查询函数注入。仓库中未发现旧 `application_dao=` 调用者。唯一的绑定查询调用点改为公共函数，其余创建、更新、发布、冻结快照与事务代码保持原语义。
+[AgentService](../../backend/plugins/agent_extension/service/agent_service.py) 从应用 DAO 注入改为公共查询函数注入。仓库中未发现旧 `application_dao=` 调用者。唯一的绑定查询调用点改为公共函数，其余创建、更新、发布、冻结快照与事务代码保持原语义。
 
 创建按创建者检查；更新和发布按 Agent 原所有者检查，即使操作人是管理员也一样。缺失、软删除、停用和其他所有者应用仍映射为 `AGENT_APPLICATION_UNAVAILABLE`，原英文文案和 HTTP 422 保留。未绑定应用的草稿仍可创建，发布仍返回 `AGENT_APPLICATION_REQUIRED`。
 

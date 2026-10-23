@@ -40,12 +40,12 @@ new-bundle/
 
 ```bash
 node --version                    # 使用 Node.js 24
-npm install --prefix zhiheng-fastapi-frontend
+npm install --prefix frontend
 ./deploy.sh release build --version 2026.09.30-rc1 --output /path/new-bundle
 ./deploy.sh release verify --bundle /path/new-bundle
 ```
 
-构建命令使用已经安装的 `zhiheng-fastapi-frontend/node_modules`，不会自动安装 npm 依赖。它构建前后端镜像、准备基础设施镜像并导出 `images.tar`，不部署服务。版本号为 1–64 位 ASCII 字母、数字、点、下划线或短横线，首位必须是字母或数字。每个发布版本使用独立版本号和输出目录。
+构建命令使用已经安装的 `frontend/node_modules`，不会自动安装 npm 依赖。它构建前后端镜像、准备基础设施镜像并导出 `images.tar`，不部署服务。版本号为 1–64 位 ASCII 字母、数字、点、下划线或短横线，首位必须是字母或数字。每个发布版本使用独立版本号和输出目录。
 
 从源码入口操作发布包时，`verify` 和 `deploy` 必须显式指定 `--bundle`：
 

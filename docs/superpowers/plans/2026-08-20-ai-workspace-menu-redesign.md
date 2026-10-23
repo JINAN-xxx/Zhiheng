@@ -24,42 +24,42 @@
 
 ### 新建
 
-- `zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`：路由模式、默认入口、AI 标签和管理菜单纯函数。
-- `zhiheng-fastapi-frontend/src/api/platformWorkspace.js`：全局最近会话只读/归档 API。
-- `zhiheng-fastapi-frontend/src/store/modules/workspace.js`：最近会话、请求代次和过期状态。
-- `zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`：AI 模式主侧栏。
-- `zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`：会话搜索、切换和归档。
-- `zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`：管理模式动态菜单。
-- `zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`：精简顶栏和模式操作。
-- `zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`：AI 资源标题和页面级标签。
-- `zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`：按应用查看用量台账。
-- `zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`：纯函数行为测试。
-- `zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`：组件、可访问性和源文件契约。
-- `zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`：四视口浏览器验收脚本。
+- `frontend/src/layout/workspaceRouteResolver.js`：路由模式、默认入口、AI 标签和管理菜单纯函数。
+- `frontend/src/api/platformWorkspace.js`：全局最近会话只读/归档 API。
+- `frontend/src/store/modules/workspace.js`：最近会话、请求代次和过期状态。
+- `frontend/src/layout/components/PlatformSidebar.vue`：AI 模式主侧栏。
+- `frontend/src/layout/components/RecentSessions.vue`：会话搜索、切换和归档。
+- `frontend/src/layout/components/AdminSidebar.vue`：管理模式动态菜单。
+- `frontend/src/layout/components/PlatformTopbar.vue`：精简顶栏和模式操作。
+- `frontend/src/layout/components/AiResourceShell.vue`：AI 资源标题和页面级标签。
+- `frontend/plugins/ai/views/usage/index.vue`：按应用查看用量台账。
+- `frontend/tests/plugins/platformShellTransforms.test.js`：纯函数行为测试。
+- `frontend/tests/plugins/platformShellContract.test.js`：组件、可访问性和源文件契约。
+- `frontend/tests/e2e/platform_shell_check.py`：四视口浏览器验收脚本。
 
 ### 修改
 
-- `zhiheng-fastapi-frontend/src/layout/index.vue`：装配单一平台外壳。
-- `zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`：AI 资源容器和模式化内容高度。
-- `zhiheng-fastapi-frontend/src/layout/components/index.js`：导出新布局组件。
-- `zhiheng-fastapi-frontend/src/store/modules/app.js`：桌面折叠与移动抽屉分离。
-- `zhiheng-fastapi-frontend/src/store/modules/settings.js`：停止旧 navType 影响布局。
-- `zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`：移除旧导航布局选项。
-- `zhiheng-fastapi-frontend/src/permission.js`：使用新的默认入口解析。
-- `zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`：移除重复会话侧栏并同步路由会话 ID。
-- `zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`：适配 AI 资源容器。
-- `zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`：适配 AI 资源容器。
-- `zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`：全局外壳、侧栏、顶栏和响应式变量。
-- `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`：注册 `/ai/usage` 隐藏业务路由声明。
-- `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`：锁定用量页面声明。
+- `frontend/src/layout/index.vue`：装配单一平台外壳。
+- `frontend/src/layout/components/AppMain.vue`：AI 资源容器和模式化内容高度。
+- `frontend/src/layout/components/index.js`：导出新布局组件。
+- `frontend/src/store/modules/app.js`：桌面折叠与移动抽屉分离。
+- `frontend/src/store/modules/settings.js`：停止旧 navType 影响布局。
+- `frontend/src/layout/components/Settings/index.vue`：移除旧导航布局选项。
+- `frontend/src/permission.js`：使用新的默认入口解析。
+- `frontend/plugins/ai/views/chat/index.vue`：移除重复会话侧栏并同步路由会话 ID。
+- `frontend/plugins/ai/views/model/index.vue`：适配 AI 资源容器。
+- `frontend/plugins/ai/views/application/index.vue`：适配 AI 资源容器。
+- `frontend/src/assets/styles/workspace.scss`：全局外壳、侧栏、顶栏和响应式变量。
+- `backend/plugins/ai/plugin.yaml`：注册 `/ai/usage` 隐藏业务路由声明。
+- `backend/tests/plugins/sample_plugins/test_ai_plugin.py`：锁定用量页面声明。
 
 ## 任务 1：路由模式与菜单解析纯函数
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/permission.js`
+- 创建：`frontend/src/layout/workspaceRouteResolver.js`
+- 创建：`frontend/tests/plugins/platformShellTransforms.test.js`
+- 修改：`frontend/src/permission.js`
 
 - [ ] **步骤 1：编写失败的模式、权限和默认入口测试**
 
@@ -97,7 +97,7 @@ assert.deepEqual(
 运行：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 node tests/plugins/platformShellTransforms.test.js
 ```
 
@@ -138,7 +138,7 @@ export function filterAdminWorkspaceRoutes(routes) {
 - [ ] **步骤 4：运行纯函数和现有插件测试**
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 node tests/plugins/platformShellTransforms.test.js
 npm run test:plugin
 ```
@@ -148,9 +148,9 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js \
-  zhiheng-fastapi-frontend/src/permission.js
+git add frontend/src/layout/workspaceRouteResolver.js \
+  frontend/tests/plugins/platformShellTransforms.test.js \
+  frontend/src/permission.js
 git diff --cached --name-status
 git commit -m "feat: 建立工作台路由模式解析"
 ```
@@ -159,10 +159,10 @@ git commit -m "feat: 建立工作台路由模式解析"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/src/api/platformWorkspace.js`
-- 创建：`zhiheng-fastapi-frontend/src/store/modules/workspace.js`
-- 修改：`zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js`
+- 创建：`frontend/src/api/platformWorkspace.js`
+- 创建：`frontend/src/store/modules/workspace.js`
+- 修改：`frontend/src/layout/workspaceRouteResolver.js`
+- 修改：`frontend/tests/plugins/platformShellTransforms.test.js`
 
 - [ ] **步骤 1：编写失败的会话归一化和迟到响应测试**
 
@@ -225,10 +225,10 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/api/platformWorkspace.js \
-  zhiheng-fastapi-frontend/src/store/modules/workspace.js \
-  zhiheng-fastapi-frontend/src/layout/workspaceRouteResolver.js \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellTransforms.test.js
+git add frontend/src/api/platformWorkspace.js \
+  frontend/src/store/modules/workspace.js \
+  frontend/src/layout/workspaceRouteResolver.js \
+  frontend/tests/plugins/platformShellTransforms.test.js
 git commit -m "feat: 建立全局最近会话状态"
 ```
 
@@ -236,11 +236,11 @@ git commit -m "feat: 建立全局最近会话状态"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 创建：`zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue`
-- 创建：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/index.js`
+- 创建：`frontend/src/layout/components/PlatformSidebar.vue`
+- 创建：`frontend/src/layout/components/RecentSessions.vue`
+- 创建：`frontend/src/layout/components/AdminSidebar.vue`
+- 创建：`frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`frontend/src/layout/components/index.js`
 
 - [ ] **步骤 1：编写失败的组件契约测试**
 
@@ -296,11 +296,11 @@ npm run test:plugin
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
-  zhiheng-fastapi-frontend/src/layout/components/RecentSessions.vue \
-  zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue \
-  zhiheng-fastapi-frontend/src/layout/components/index.js \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add frontend/src/layout/components/PlatformSidebar.vue \
+  frontend/src/layout/components/RecentSessions.vue \
+  frontend/src/layout/components/AdminSidebar.vue \
+  frontend/src/layout/components/index.js \
+  frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat: 重构平台全局侧栏"
 ```
 
@@ -308,11 +308,11 @@ git commit -m "feat: 重构平台全局侧栏"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`
-- 修改：`zhiheng-fastapi-frontend/src/store/modules/app.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 创建：`frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`frontend/src/layout/index.vue`
+- 修改：`frontend/src/layout/components/AppMain.vue`
+- 修改：`frontend/src/store/modules/app.js`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：扩展失败契约测试**
 
@@ -365,11 +365,11 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  zhiheng-fastapi-frontend/src/layout/index.vue \
-  zhiheng-fastapi-frontend/src/layout/components/AppMain.vue \
-  zhiheng-fastapi-frontend/src/store/modules/app.js \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add frontend/src/layout/components/PlatformTopbar.vue \
+  frontend/src/layout/index.vue \
+  frontend/src/layout/components/AppMain.vue \
+  frontend/src/store/modules/app.js \
+  frontend/tests/plugins/platformShellContract.test.js
 git commit -m "feat: 建立 AI 工作台全局外壳"
 ```
 
@@ -377,9 +377,9 @@ git commit -m "feat: 建立 AI 工作台全局外壳"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js`
+- 修改：`frontend/plugins/ai/views/chat/index.vue`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`frontend/tests/plugins/workspaceTransforms.test.js`
 
 - [ ] **步骤 1：编写失败的会话路由契约**
 
@@ -421,9 +421,9 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js \
-  zhiheng-fastapi-frontend/tests/plugins/workspaceTransforms.test.js
+git add frontend/plugins/ai/views/chat/index.vue \
+  frontend/tests/plugins/platformShellContract.test.js \
+  frontend/tests/plugins/workspaceTransforms.test.js
 git commit -m "feat: 统一全局与对话会话导航"
 ```
 
@@ -431,14 +431,14 @@ git commit -m "feat: 统一全局与对话会话导航"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AppMain.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 创建：`frontend/src/layout/components/AiResourceShell.vue`
+- 创建：`frontend/plugins/ai/views/usage/index.vue`
+- 修改：`frontend/src/layout/components/AppMain.vue`
+- 修改：`frontend/plugins/ai/views/model/index.vue`
+- 修改：`frontend/plugins/ai/views/application/index.vue`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：编写失败的标签和清单测试**
 
@@ -461,8 +461,8 @@ assert plugin.manifest.frontend.menus[0].children[3].component == 'plugin/ai/usa
 - [ ] **步骤 2：运行测试验证失败**
 
 ```bash
-cd zhiheng-fastapi-frontend && node tests/plugins/platformShellContract.test.js
-cd ../zhiheng-fastapi-backend && conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
+cd frontend && node tests/plugins/platformShellContract.test.js
+cd ../backend && conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
 ```
 
 预期：前端文件不存在，插件清单未声明用量页面。
@@ -502,9 +502,9 @@ const lastSuccessAt = ref(null)
 - [ ] **步骤 4：运行前后端清单和构建测试**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
-cd ../zhiheng-fastapi-frontend
+cd ../frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 ```
@@ -516,15 +516,15 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 先暂存不冲突文件：
 
 ```bash
-git add zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue \
-  zhiheng-fastapi-frontend/plugins/ai/views/usage/index.vue \
-  zhiheng-fastapi-frontend/src/layout/components/AppMain.vue \
-  zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue \
-  zhiheng-fastapi-frontend/plugins/ai/views/application/index.vue \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add frontend/src/layout/components/AiResourceShell.vue \
+  frontend/plugins/ai/views/usage/index.vue \
+  frontend/src/layout/components/AppMain.vue \
+  frontend/plugins/ai/views/model/index.vue \
+  frontend/plugins/ai/views/application/index.vue \
+  frontend/tests/plugins/platformShellContract.test.js
 ```
 
-使用 `git diff -U3 -- zhiheng-fastapi-backend/plugins/ai/plugin.yaml zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py` 检查 hunk，并分别通过只包含“用量菜单”和对应断言的补丁执行 `git apply --cached <patch-file>`。随后：
+使用 `git diff -U3 -- backend/plugins/ai/plugin.yaml backend/tests/plugins/sample_plugins/test_ai_plugin.py` 检查 hunk，并分别通过只包含“用量菜单”和对应断言的补丁执行 `git apply --cached <patch-file>`。随后：
 
 ```bash
 git diff --cached --name-status
@@ -536,10 +536,10 @@ git commit -m "feat: 归并模型与开发者资源入口"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-frontend/src/store/modules/settings.js`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`frontend/src/store/modules/settings.js`
+- 修改：`frontend/src/layout/components/Settings/index.vue`
+- 修改：`frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：编写失败的旧导航设置移除测试**
 
@@ -578,10 +578,10 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/store/modules/settings.js \
-  zhiheng-fastapi-frontend/src/layout/components/Settings/index.vue \
-  zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add frontend/src/store/modules/settings.js \
+  frontend/src/layout/components/Settings/index.vue \
+  frontend/src/layout/components/PlatformTopbar.vue \
+  frontend/tests/plugins/platformShellContract.test.js
 git commit -m "fix: 收敛旧版导航布局设置"
 ```
 
@@ -589,13 +589,13 @@ git commit -m "fix: 收敛旧版导航布局设置"
 
 **文件：**
 
-- 修改：`zhiheng-fastapi-frontend/src/assets/styles/workspace.scss`
-- 修改：`zhiheng-fastapi-frontend/src/layout/index.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`
+- 修改：`frontend/src/assets/styles/workspace.scss`
+- 修改：`frontend/src/layout/index.vue`
+- 修改：`frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`frontend/src/layout/components/AdminSidebar.vue`
+- 修改：`frontend/src/layout/components/PlatformTopbar.vue`
+- 修改：`frontend/src/layout/components/AiResourceShell.vue`
+- 修改：`frontend/tests/plugins/platformShellContract.test.js`
 
 - [ ] **步骤 1：扩展失败的尺寸和可访问性契约**
 
@@ -651,13 +651,13 @@ git diff --check
 - [ ] **步骤 5：提交**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/assets/styles/workspace.scss \
-  zhiheng-fastapi-frontend/src/layout/index.vue \
-  zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue \
-  zhiheng-fastapi-frontend/src/layout/components/AdminSidebar.vue \
-  zhiheng-fastapi-frontend/src/layout/components/PlatformTopbar.vue \
-  zhiheng-fastapi-frontend/src/layout/components/AiResourceShell.vue \
-  zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js
+git add frontend/src/assets/styles/workspace.scss \
+  frontend/src/layout/index.vue \
+  frontend/src/layout/components/PlatformSidebar.vue \
+  frontend/src/layout/components/AdminSidebar.vue \
+  frontend/src/layout/components/PlatformTopbar.vue \
+  frontend/src/layout/components/AiResourceShell.vue \
+  frontend/tests/plugins/platformShellContract.test.js
 git commit -m "style: 统一 AI 工作台全局布局"
 ```
 
@@ -665,7 +665,7 @@ git commit -m "style: 统一 AI 工作台全局布局"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py`
+- 创建：`frontend/tests/e2e/platform_shell_check.py`
 - 可能修改：仅前面任务已列出的文件，用于修复验收发现的问题。
 
 - [ ] **步骤 1：编写 Playwright 验收脚本**
@@ -695,7 +695,7 @@ assert page_errors == []
 - [ ] **步骤 2：运行 Playwright，确认若存在缺陷则先失败**
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 conda run -n dj python tests/e2e/platform_shell_check.py
 ```
 
@@ -708,10 +708,10 @@ conda run -n dj python tests/e2e/platform_shell_check.py
 - [ ] **步骤 4：运行完整前端与插件清单回归**
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 NODE_OPTIONS=--max-old-space-size=4096 npm run build:docker
-cd ../zhiheng-fastapi-backend
+cd ../backend
 conda run -n dj pytest tests/plugins/sample_plugins/test_ai_plugin.py -q
 cd ..
 git diff --check
@@ -722,7 +722,7 @@ git diff --check
 - [ ] **步骤 5：提交验收脚本和最终修复**
 
 ```bash
-git add zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py
+git add frontend/tests/e2e/platform_shell_check.py
 # 仅追加暂存验收实际修改过的本计划文件
 git diff --cached --name-status
 git commit -m "test: 验证 AI 工作台全局导航"

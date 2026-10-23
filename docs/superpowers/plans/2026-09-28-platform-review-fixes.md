@@ -10,7 +10,7 @@
 
 ## 任务 1：部署与已有数据兼容
 
-文件：`compose.yaml`、`deploy/platform.py`、`deploy/platform.env.example`、`deploy/legacy/manage.sh`、恢复的 `docker-compose.pg.yml`、`deploy/zhiheng/init-shared-postgres.sh`、`zhiheng-fastapi-backend/scripts/initialize_platform.py`、`zhiheng-fastapi-frontend/bin/nginx.dockerpg.conf`、后端 `tests/deploy/`。
+文件：`compose.yaml`、`deploy/platform.py`、`deploy/platform.env.example`、`deploy/legacy/manage.sh`、恢复的 `docker-compose.pg.yml`、`deploy/zhiheng/init-shared-postgres.sh`、`backend/scripts/initialize_platform.py`、`frontend/bin/nginx.dockerpg.conf`、后端 `tests/deploy/`。
 
 - [x] 在现有部署测试中覆盖 zhiheng 默认命名、旧容器迁移保护、旧密钥读取与冲突处理、显式选择旧数据库与历史标记、仅有旧库时拒绝创建空库。
 - [x] Compose / 部署 runner / nginx 使用 zhiheng-* 服务身份，Compose 用 `${PLATFORM_DB_USER:-zhiheng}` 和 `${PLATFORM_DB_NAME:-zhiheng-fastapi}` 选择数据库；同项目存在 ruoyi-* 容器时，在构建和变更容器前拒绝启动类操作。
@@ -30,7 +30,7 @@
 
 ## 任务 3：前端契约测试
 
-文件：`zhiheng-fastapi-frontend/tests/plugins/platformShellContract.test.js`、`yuxiVisualContract.test.js`。
+文件：`frontend/tests/plugins/platformShellContract.test.js`、`yuxiVisualContract.test.js`。
 
 - [x] 以已复现的 2 项失败为基线，同步品牌链接与图片标志的契约；保留导航目标、可访问名称和主题表面的检查。
 - [x] 运行 `npm run test:plugin`，期望 47 项全部通过。

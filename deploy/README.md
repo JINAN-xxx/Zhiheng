@@ -12,7 +12,7 @@
 构建机准备 Node.js 24、npm、Python 3.10+ 与 Docker，在源码根目录执行：
 
 ```bash
-npm install --prefix zhiheng-fastapi-frontend
+npm install --prefix frontend
 ./deploy.sh release build --version 2026.09.30-rc1 --output /path/new-bundle
 ./deploy.sh release verify --bundle /path/new-bundle
 ```
@@ -96,12 +96,12 @@ cp deploy/platform.env.example .env
 
 新库使用 `public.zhiheng_bootstrap_state` 完成标记，初始化兼容已有 `public.ruoyi_bootstrap_state`。仅存在旧默认库 `ruoyi-fastapi`、新默认库 `zhiheng-fastapi` 不存在时，脚本拒绝自动创建空库，要求显式选择已有数据库或先完成迁移。
 
-完整初始化文件为 [`zhiheng-fastapi-backend/sql/platform-pg.sql`](../zhiheng-fastapi-backend/sql/platform-pg.sql)。该文件按基础 SQL、AI 插件、智能体扩展的迁移和种子自动生成，包含成功迁移账本。
+完整初始化文件为 [`backend/sql/platform-pg.sql`](../backend/sql/platform-pg.sql)。该文件按基础 SQL、AI 插件、智能体扩展的迁移和种子自动生成，包含成功迁移账本。
 
 维护迁移后，在后端开发环境重新生成并提交：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 python scripts/build_platform_sql.py
 python scripts/build_platform_sql.py --check
 ```

@@ -23,7 +23,7 @@ jobs:
           pip install ruff==0.16.4
 
       - name: Run linting
-        run: ruff check zhiheng-fastapi-backend deploy/release deploy/release_cli.py
+        run: ruff check backend deploy/release deploy/release_cli.py
 
       - name: Run format check
-        run: ruff format zhiheng-fastapi-backend deploy/release deploy/release_cli.py --check
+        run: ruff format backend deploy/release deploy/release_cli.py --check

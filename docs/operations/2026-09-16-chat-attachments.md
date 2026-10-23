@@ -41,7 +41,7 @@
 复测桌面上传交互（fixture）及真实验证码：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 PLATFORM_SHELL_BASE_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/chat_attachments_check.py
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```

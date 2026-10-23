@@ -12,7 +12,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: zhiheng-fastapi-frontend
+        working-directory: frontend
     env:
       PLATFORM_SHELL_BASE_URL: http://127.0.0.1:15174
       PLATFORM_SHELL_SCREENSHOT_DIR: /tmp/platform-shell-screenshots
@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: zhiheng-fastapi-frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@v5

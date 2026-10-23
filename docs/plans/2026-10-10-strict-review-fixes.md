@@ -12,7 +12,7 @@
 
 ## 1. 公开 API 取消收尾
 
-- [x] 在 `zhiheng-fastapi-backend/tests/plugins/ai/test_public_invocation_coordinator.py` / 新的流式取消测试中加入实际 AnyIO 取消域、Starlette 断连和结算断点场景。验收断言：账本终态为 `cancelled`、并发计数回到 0、同一 Key 可以再次请求。
+- [x] 在 `backend/tests/plugins/ai/test_public_invocation_coordinator.py` / 新的流式取消测试中加入实际 AnyIO 取消域、Starlette 断连和结算断点场景。验收断言：账本终态为 `cancelled`、并发计数回到 0、同一 Key 可以再次请求。
 - [x] 修改 `plugins/ai/service/public_invocation_coordinator.py`：保护关闭、配额结算和账本写入；终止标记与清理状态保持一致，重复关闭不重复结算。核对流建立失败和未开始迭代时的资源所有权。
 - [x] 核对 `plugins/ai/public/api_transport.py` 的响应结束路径，保证请求取消时清理能够执行，读取异常不被清理异常覆盖。
 - [x] 运行相关回归：121 项通过；Ruff 通过；规格与质量独立审查通过。真实 PostgreSQL/Redis 的 12 个流式生命周期场景通过。独立审查发现的结算重试终态覆盖问题也已加入红绿回归并修复。
@@ -46,7 +46,7 @@
 
 ## 6. 登录路由失败传播
 
-- [x] 新增 `zhiheng-fastapi-frontend/tests/plugins/permissionRouteFailure.test.js`：菜单 HTTP 500、超时、路由转换异常均使 `generateRoutes()` reject；失败后可重试成功，成功路由内容和注册次数保持正确。
+- [x] 新增 `frontend/tests/plugins/permissionRouteFailure.test.js`：菜单 HTTP 500、超时、路由转换异常均使 `generateRoutes()` reject；失败后可重试成功，成功路由内容和注册次数保持正确。
 - [x] 修改 `src/store/modules/permission.js`，直接返回请求 Promise 链或使用 async/await，把错误交给已有导航守卫恢复逻辑；核对 `src/views/login.vue` 在守卫重定向回登录页时也能结束 loading 并再次提交。
 - [x] 运行 `npm run test:plugin`，进行受控浏览器菜单失败与恢复验收，检查导航/权限回归，并完成独立审查。
 

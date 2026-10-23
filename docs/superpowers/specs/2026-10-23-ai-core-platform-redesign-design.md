@@ -1,16 +1,18 @@
 # AI 核心平台整体重构设计
 
-日期：2026-10-23。分支：refactor/ai-core-modularization。状态：用户已确认并授权实施，当前进入阶段 A；本稿不表示全部业务重构已完成。
+日期：2026-10-23。分支：refactor/ai-core-modularization。状态：阶段 A 工程基础已验证；用户进一步明确按新平台、新项目建设。以下新建基线取代先前的旧平台原位升级要求，业务实现尚未全部完成。
 
 ## 1. 已确认的目标与本稿范围
 
 用户已确认：AI 是产品核心；核心业务内置；参考 Yuxi 的职责划分；重视代码规范；模型接入替换为 Python langchain==1.4.7。
 
-本稿覆盖产品能力、模块职责、运行进程、模型接入、Agent 执行、数据所有权、前端工程、交付规范及迁移顺序。实施按子项目分别落地，不能用一次大规模移动文件替代行为迁移。
+本稿覆盖产品能力、模块职责、运行进程、模型接入、Agent 执行、数据所有权、前端工程、交付规范及实现顺序。按新项目建立代码、数据和发布基线，现有代码作为复用来源，经过新边界与行为验收后纳入。不能用一次大规模移动文件替代新平台实现。
+
+原有未提交优化及源代码完整保留并已在仓库外备份。新平台首版不承担旧管理 API、插件生命周期、数据库原位升级和旧发布包更新/回滚兼容；未来若需要导入旧数据，另建有明确范围的导入工具，不让旧结构成为新核心的依赖。
 
 现状依据：[平台评估清单](../../architecture/2026-10-23-platform-assessment.md)。强制规范：[代码规范草案](../../architecture/2026-10-23-code-standards.md)。
 
-本稿建议以单实例、组织内多用户的私有部署产品作为首个交付范围。现有 tenant_id/project_id 预留字段不构成 SaaS 多租户能力；保留历史值，不在本轮赋予新的隔离语义。
+首个交付范围为单实例、组织内多用户的私有部署产品。新模型按实际隔离需求定义字段，不继承只有占位含义的 tenant_id/project_id，也不声明尚未实现的 SaaS 多租户能力。
 
 ## 2. 参考 Yuxi 的设计原则
 
@@ -40,11 +42,11 @@
 | 开发工具 | CLI、迁移诊断、开发脚手架；不作为普通产品业务模块 |
 | 退出线上运行 | CRUD generator、调度演示任务、核心 AI 插件启停管理 |
 
-generator 生成的是旧 controller/service/dao 模板，默认从线上产品移除。若团队确有持续使用需求，另行作为 tools/codegen 离线工具维护；保留旧生成配置的归档证据，目录迁移阶段不自动删除历史表。
+新平台不设置线上 generator 模块。若团队确有持续使用需求，另行作为 tools/codegen 离线工具维护；旧源代码和配置保留在原始记录中。
 
 module_task 不整体删除：scheduler_test 演示代码和种子任务退出生产；file_task 中到期提醒、回收站清理、存储对账迁入 files/jobs；通用调度、租约和执行移入 runtime 与 worker。
 
-第三方完整业务插件体系的产品需求尚未确定。本轮核心业务退出其生命周期；历史迁移、资源引用责任与审计记录仍需迁移保留。
+新平台首版不实现第三方业务插件安装、启停和卸载。扩展通过供应商 adapter、工具协议和 MCP 接入，核心模块由 bootstrap 显式装配。模块自身管理资源引用与审计。
 
 ## 4. 目标目录
 
@@ -83,7 +85,7 @@ zhiheng/
 │   │   ├── infrastructure/            # DB/Redis/字节存储等技术实现
 │   │   ├── shared/                    # 少量公共值类型与基础错误
 │   │   └── cli/                       # API/worker/migrate/诊断命令
-│   ├── migrations/                    # 单一版本图及历史导入适配
+│   ├── migrations/                    # 新平台独立的单一 schema 版本图
 │   ├── tests/
 │   │   ├── unit/
 │   │   ├── integration/
@@ -161,19 +163,19 @@ flowchart LR
 
 - API：HTTP、鉴权、接入事务、状态查询和 SSE 订阅。
 - worker：聊天/Agent/Work 长运行、知识处理、文件维护、投递与失联恢复。
-- migrator：业务 schema、框架持久化 schema、基础权限与历史数据升级。
+- migrator：新平台业务 schema、框架持久化 schema、基础权限和后续版本升级。
 - PostgreSQL：消息、运行、授权、账本、知识元数据和迁移版本的事实来源。
 - Redis：ARQ、短期流事件、快速取消通知、配额协调及缓存；不独占终态事实。
-- 文件：首个交付使用现有受管持久卷与 StoragePort；多节点前需落实共享对象存储与恢复验收。
-- Milvus：保留现有向量索引；图谱首期沿用已验证的 PostgreSQL/Milvus 路线。
+- 文件：首个交付使用独立的受管持久卷与 StoragePort；多节点前需落实共享对象存储与恢复验收。
+- Milvus：使用新平台独立的索引命名空间；图谱首期采用已验证的 PostgreSQL/Milvus 路线。
 
 API/worker 的副本数可分别调整，但必须通过租约与跨进程验收。初始默认一个 worker，不能把移出 Web 进程直接等同于已支持多节点。
 
-目标运行不部署 LiteLLM Proxy 或其专用 Redis。当前名为 litellm-db 的 PostgreSQL 同时存放平台业务库，切换服务命名时保留业务数据卷，先迁移凭据和绑定，再退役网关数据库。
+新平台使用独立数据库、Redis 命名空间、文件根目录和部署项目身份，不读取旧实例的环境文件或挂载旧业务数据卷。目标编排只包含新平台所需服务，不部署 LiteLLM Proxy 或其专用 Redis；旧实例不在本次建设中停服或删库。
 
 ## 7. LangChain 1.4.7 模型接入
 
-唯一主线是 langchain==1.4.7 的供应商直连。LiteLLM 只作为历史配置迁移来源，目标业务包、SDK 和运行编排不依赖它。
+唯一主线是 langchain==1.4.7 的供应商直连。目标业务包、SDK 和运行编排不依赖 LiteLLM，不设置双引擎兼容层。
 
 已核对 PyPI 元数据：langchain 1.4.7 要求 Python >=3.10,<4；依赖 langchain-core >=1.6.13,<2 和 langgraph >=1.2.12,<1.3。主包与供应商集成包版本号不是同一套，供应商包、checkpointer、ARQ 必须按解析出的兼容版本完整锁定。安装与解析只在隔离构建环境进行。
 
@@ -187,7 +189,7 @@ models 拥有：
 | ModelCapabilities | 对话、视觉、工具、结构化输出、Embedding、Rerank 支持矩阵 |
 | ModelInvoker | 平台规范化的请求、流事件、响应与用量接口 |
 
-供应商工厂使用专用 LangChain 集成包；OpenAI 协议兼容端点、Anthropic、Google 等按实际存量连接建立支持矩阵。未支持的供应商或能力在升级预检中列出资源 ID 并阻止切换，不能静默降级。
+供应商工厂使用专用 LangChain 集成包；OpenAI 协议兼容端点、Anthropic、Google 等逐个建立并验收支持矩阵。未支持的供应商或能力在连接配置和调用入口明确拒绝，不能静默降级。
 
 初始适配覆盖聊天、流式、图片、工具调用、结构化输出、Embedding 与 Rerank。Embedding 和 Rerank 分别适配；不能假定聊天模型对象实现全部能力。
 
@@ -195,7 +197,7 @@ models 拥有：
 
 客户端按连接版本与能力缓存；轮换密钥使缓存失效。原始密钥仅由连接所有者解密，不能进入队列 payload、LangGraph checkpoint 或普通日志。
 
-迁移使用平台模型稳定 ID 对齐旧别名与真实供应商型号，历史 Run 和旧绑定快照保留 engine_type=litellm 的事实；为后续调用创建 LangChain 绑定版本，不能覆盖历史快照。旧网关无法导出可用密钥时要求重新录入/轮换并完成连接验收，不能将掩码作为密钥导入。新连接密文有独立密钥版本与恢复材料，不能复用登录 JWT 或 API Key 摘要的秘密。
+模型使用新平台稳定 ID 与不可变绑定版本，不继承 LiteLLM 别名或 engine_type 作为核心字段。连接凭据由管理员配置并完成连接验收。连接密文有独立密钥版本与恢复材料，不能复用登录 JWT 或 API Key 摘要的秘密，也不能将掩码作为密钥保存。
 
 所有模型调用，包括普通聊天、Agent 内部多次调用、知识抽取与公开 API，都经 application/inference。ModelInvoker 协议和消息值类型由 models/public.py 定义；原始供应商工厂只允许 bootstrap 装配访问，application 接收原始协议实现，不导入供应商私有构造器。bootstrap 把受治理的协议实现注入 Agent、chat 和 knowledge，模块不反向导入 application。
 
@@ -215,7 +217,7 @@ Redis Lua 继续负责快速预留/结算协调，PostgreSQL 保留可追溯事�
 
 默认关闭不可观测的 SDK 自动重试，由受治理适配器执行有预算的重试并逐次记录 InvocationAttempt；不能关闭或不能观察重试的集成不进入首个支持矩阵。实际供应商成本与对用户计费策略分别版本化，未知上游结果下不承诺准确去重真实成本。
 
-外部 /v1 Chat Completions、Embedding、Rerank 等既有契约由兼容 adapter 提供。短期有界的公开 API 请求可在 API 进程执行统一 inference 用例，仍具有持久调用状态、取消与失联对账；长任务和 Agent 执行由 worker 持有。不存在跳过平台业务控制的第二条直连路线。
+外部 /v1 Chat Completions、Embedding、Rerank 按公开协议提供独立 API adapter。这里的兼容指外部模型协议，不是旧平台路由。短期有界的公开 API 请求可在 API 进程执行统一 inference 用例，仍具有持久调用状态、取消与失联对账；长任务和 Agent 执行由 worker 持有。
 
 ## 9. 请求、执行、事件与恢复
 
@@ -231,7 +233,7 @@ Redis Lua 继续负责快速预留/结算协调，PostgreSQL 保留可追溯事�
 
 普通 Run 状态为 pending → running → completed/failed/cancelled/interrupted；running 可先进入 cancel_requested。终态不可被晚到事件改写。
 
-取消先写 PostgreSQL；Redis 用作加速信号。执行器独立观察取消，网络流静默时也能关闭。新异步 Run API 的断线不自动取消；旧同步 SSE 兼容入口按原语义显式写取消，策略随请求冻结。
+取消先写 PostgreSQL；Redis 用作加速信号。执行器独立观察取消，网络流静默时也能关闭。异步 Run API 的订阅断线不自动取消运行；短期同步公开模型 API 按自身请求生命周期冻结取消策略。
 
 失联 attempt 不能重新取得原写权限。普通模型调用和非幂等工具不自动无限重放；失败原因与是否允许恢复由 handler 定义。租约保护数据库写入，不能保证已发送的外部副作用 exactly-once。
 
@@ -262,7 +264,7 @@ Chat/Agent 的模型与工具审计不混进普通展示历史。工作任务是
 
 ## 11. 知识库、文件与图谱
 
-知识元数据从 metadata.json 迁入 PostgreSQL，原文与解析产物进入 files 的受管字节存储。知识模块保存业务引用，files 保存对象生命周期；模型和引用检查可以使用同库事务及约束。
+知识元数据直接存入 PostgreSQL，原文与解析产物进入 files 的受管字节存储。知识模块保存业务引用，files 保存对象生命周期；模型和引用检查可以使用同库事务及约束。
 
 解析、分块、Embedding、图谱和评估是可恢复的阶段任务。每次构建尝试使用独立物理产物空间，身份包含 kb_id、index_revision、build_attempt_id；Milvus collection、图谱 workspace 与临时文件都按此身份隔离。已发布产物不可原地修改，失联 attempt 只能影响自己的未发布空间。
 
@@ -272,7 +274,7 @@ Chat/Agent 的模型与工具审计不混进普通展示历史。工作任务是
 
 LightRAG 的 PostgreSQL 图谱/KV/doc-status 和 Milvus 映射保持可追溯。第三方存储 setup 由 migrator 的专用适配执行；runtime 不自行建表。适配必须验证第三方初始化路径符合此约束，否则不得进入目标交付。
 
-已有本地路径和文件 ID 通过显式映射迁移；工具和 API 获取受管对象引用，不取得任意宿主 Path。语义搜索、受管附件与 Agent 产物有明确归属，不能共用无权限的目录遍历入口。
+工具和 API 通过 files 获取受管对象引用，不取得任意宿主 Path。语义搜索、受管附件与 Agent 产物有明确归属，不能共用无权限的目录遍历入口。
 
 ## 12. Agent、技能与扩展
 
@@ -286,62 +288,52 @@ LangChain 1.4.7 用于模型和标准 Agent 循环，LangGraph 用于需要确�
 
 ## 13. 身份、导航与前端
 
-身份和权限继续复用有效数据与规则，拆出 identity 所有权。既有权限码、资源 ID 和模型/应用状态先保持契约语义，不与目录改名同时重编号。
+identity 拥有新平台的用户、组织、角色和权限模型。复用经过验证的认证与授权规则，按新业务资源定义权限码和初始化种子，不以旧菜单、旧表名或插件状态作为核心授权来源。
 
 内置路由由 app 显式注册。前端模块 routes.ts 暴露页面路由与导航元数据；服务端提供用户权限和能力状态。菜单隐藏只控制体验，API 与资源服务始终验证授权。
 
-历史菜单/角色映射迁移成内置资源授权；不因移除插件安装就重新授予所有角色 AI 权限。普通用户工作台与管理后台分开呈现，代码生成和插件启停不进入核心导航。
+普通用户工作台与管理后台分开呈现，按角色授予 AI 资源权限；代码生成和插件启停不进入核心导航。
 
 前端目标为 Vue 3 + TypeScript + Ant Design Vue，按模块迁移；保留现有视觉 token 与许可。迁移模块的页面、API、store、流协议和测试一起迁移，禁止同时保留两个可写 store。
 
-app/runtime 的 RunStore 只拥有运行状态、订阅与游标；模块 store 拥有业务资源和消息，通过受控 reducer 应用投影，不复制第二份可写运行状态。页面切换关闭订阅与用户停止运行是不同操作；旧同步 SSE 的断线策略由兼容入口明确处理。
+app/runtime 的 RunStore 只拥有运行状态、订阅与游标；模块 store 拥有业务资源和消息，通过受控 reducer 应用投影，不复制第二份可写运行状态。页面切换关闭订阅与用户停止运行是不同操作。
 
 GET RunSnapshot 返回 run_id、current_attempt_id、单调递增 attempt_no、status、revision、持久 projection、projection_seq 和终态 result_ref。事件 seq 在 attempt 内递增，事件身份是 run_id + attempt_id + seq，不能跨 attempt 直接拼接。工作进程按有界间隔写持久投影检查点，不要求每个 Token 写 PostgreSQL；终态结果先提交，再通知。
 
 订阅从快照的同 attempt projection_seq 之后开始；已覆盖事件去重，发现序号缺口、事件窗口过期或不同 attempt 时服务端发送 reset_required，客户端重取快照，丢弃旧订阅投影后从新游标恢复。未被投影检查点或事件窗口覆盖的过程片段不承诺无损重放；终态消息以持久结果为准。临时 gap 时等待新快照，不能把缺口后的 delta 直接追加到旧文本。
 
-## 14. 数据升级与兼容
+## 14. 新平台数据与发布基线
 
-PostgreSQL 是主线交付数据库。MySQL 现有缺口纳入历史兼容评估；旧实例迁移支持单独声明，不能把预留代码当作全量兼容承诺。
+首版只支持 PostgreSQL，使用独立的空库初始化与 Alembic 版本图，不维护 MySQL 平行实现或旧插件数据库版本图。
 
-migrator 是唯一 schema 变更入口：先做维护/迁移锁与版本预检，再执行 Alembic 版本图、数据导入和框架存储 setup。API/worker 只检查版本兼容并装配运行资源，不执行 create_all。
+migrator 是唯一 schema 变更入口：先获取迁移锁并预检，再执行 Alembic 版本图、必要种子和框架存储 setup。API/worker 只检查新平台版本兼容并装配运行资源，不执行 create_all。
 
-每个域切换前建立写入屏障：阻止旧请求/调度投递，盘点并收敛排队、运行、取消和待结算事项，确认旧执行器及补偿器退出，再导入与核对，最后启用新写入者。同一资源在任一时刻只有一个可写实现；兼容路由只转入该实现，不同时维护新旧账本或 store。
+新平台拥有自己的发布记录、实例身份和兼容性指纹。旧平台发布包与新平台不属于同一快捷更新/回滚链；不通过还原旧目录名、归一化旧脚本或伪造旧指纹来制造兼容。
 
-LangChain 接入切换与网关退役分别验收。旧凭据/绑定已迁移、旧调用/补偿无在途写入且待结算或 outcome_unknown 已有可追溯处置后，才退役 LiteLLM。未满足条件时不得只依据阶段编号删除旧服务或数据库。
+新平台的后续版本升级仍需验证数据和运行契约；跨契约变更需要明确升级步骤及备份恢复验收。首版不要求旧实例升级、旧账本接管或 LiteLLM 网关退役作为发布前置条件。
 
-导入保留现有表、ID、业务版本、计费记录和迁移执行证据。插件 enabled 状态不再决定核心业务是否存在；维护模式由明确平台配置表达。旧模型/应用停用状态与权限仍按业务语义保留。
+已有业务优化作为实现素材保留；新核心不依赖旧插件表、enabled 状态、旧管理路由或旧 Python 导入路径。维护模式由新平台明确配置表达。
 
-sys_plugin_resource_ownership 等持久引用责任必须映射到新模块资源所有者，保留 retained/unknown 与历史回调证据；不能为了删除插件框架直接清成 none。新资源引用 registry 由 bootstrap 显式注册，长期不依赖历史 Python 导入路径。
-
-知识迁移按 dry-run → 停写/任务收敛 → 导入元数据/文件映射 → 核对数量/校验值/权限/索引 → 切换读写所有者执行。原始存储保留到验收完成，避免无期限双写。
-
-历史无时区时间通过显式 legacy_timezone 转换并记录；预检缺少该配置时拒绝有歧义的时间转换。
-
-公开 /v1 保持协议兼容；旧管理和工作台接口通过有期限的路由 adapter 迁移，不能依赖 SSE 重定向。generator 的退出作为明确产品变化记录。
-
-应用回退只用于已声明兼容的数据契约；不承诺逆转 schema、第三方图谱或文件格式变更。跨契约回退使用经演练的数据备份与恢复流程。
+未来的数据导入作为独立、离线、可重试的工具立项，明确权限、文件、模型和索引映射，不直接挂载或原地改写旧实例存储。当前不自动导入、清空或重编号旧数据。
 
 ## 15. 调度、文件维护与 generator 处理
 
 | 当前能力 | 目标处理 |
 | --- | --- |
-| module_generator 及 tool/gen 页面/API | 从线上产品下线，历史配置归档；有真实需求再做离线 tools/codegen |
+| module_generator 及 tool/gen 页面/API | 不纳入新平台；有真实需求再做离线 tools/codegen |
 | module_task.scheduler_test | 移除生产示例及对应种子 schedule |
 | 文件到期提醒 | files/jobs/retention，由 worker 注册执行 |
 | 回收站清理 | files/jobs/recycle，保留保留期与批量上限 |
 | 文件存储对账 | files/jobs/reconcile，保留校验和历史结果 |
 | 配额/账本对账 | developer/jobs/reconcile |
 | APScheduler 宿主装配 | 由统一 worker 调度和 PostgreSQL schedule occurrence 接管 |
-| 自定义 dotted invoke_target | 映射为受控 JobDefinition ID；未识别项阻止迁移并报告 |
+| 自定义 dotted invoke_target | 新平台只接收受控 JobDefinition ID，不执行用户输入的 Python 导入路径 |
 
-调度注册使用稳定任务 ID 和有版本的 payload；一次触发以 schedule_id + scheduled_at 唯一化。旧 Quartz 表达式做显式转换并验证时区、下次触发和暂停状态，不能静默改变执行频率。
+调度注册使用稳定任务 ID 和有版本的 payload；一次触发以 schedule_id + scheduled_at 唯一化。配置明确时区、下次触发、暂停状态、积压上限与并发上限，不继承旧 Quartz 数值标记。
 
-迁移逐项映射 misfire_policy：旧补跑全部映射 catch_up_all（有上限和积压告警）、合并映射 coalesce_once、跳过映射 skip；先按旧调度实际实现解释原值，不凭字段名猜测。concurrent 映射为 max_active_per_schedule；不允许并发的任务通过 schedule 级租约约束不同触发时间，手动触发也共享互斥策略。
+misfire_policy 使用明确枚举 catch_up_all、coalesce_once、skip；catch_up_all 必须有上限和积压告警。max_active_per_schedule 限制同一调度的并发执行，手动触发也共享相同互斥策略。
 
-当前实现需特别处理：misfire_policy 的 1/3 都是 coalesce=False，grace 分别为 None/极大值；2 是 coalesce=True。不能将旧标记 3 因 UI 文案而直接转成 skip。concurrent=0 的现有上限实际为 3，不能迁成无限并发。迁移报告保存标记与实际计算行为；默认保持已执行语义，改为新的跳过/积压政策属于显式策略变更并记录审计。
-
-切换时停止旧调度、交接未完成 occurrence 后再启用新调度。文件提醒按 file_id + policy_version + notice_window 幂等；回收清理和对账按任务策略禁止重叠。分别验收停机跨多个触发点、手动与定时竞争、暂停恢复，确保无双跑、漏跑或重复通知。
+文件提醒按 file_id + policy_version + notice_window 幂等；回收清理和对账按任务策略禁止重叠。分别验收停机跨多个触发点、手动与定时竞争、暂停恢复，确保无双跑、漏跑或重复通知。
 
 示例注册项：files.retention.scan.v1、files.recycle.purge.v1、files.storage.reconcile.v1、developer.usage.reconcile.v1。业务 handler 在所属模块，runtime 仅负责调度原语。
 
@@ -360,27 +352,27 @@ sys_plugin_resource_ownership 等持久引用责任必须映射到新模块资�
 
 | 阶段 | 交付范围 | 进入下一阶段前的证据 |
 | --- | --- | --- |
-| A：基线与工程骨架 | 锁文件、代码规范门禁、新核心包、旧接口兼容测试、现有恢复缺口测试 | 可重复安装/生产构建；基线清楚；不引入新增依赖违规 |
-| B：核心装配与迁移入口 | AI 内置、显式路由、迁移独立、身份/文件边界与对应前端导航/API/store 切片 | 核心不依赖插件状态；旧版升级、权限和身份/文件生产页面通过 |
-| C：LangChain 1.4.7 替换 | 连接/密钥/模型契约、授权/账本、公开 API；models/developer 前端同步迁移 | 模型中心与开发接入真实链路通过；满足网关退役屏障 |
-| D：统一执行与业务迁移 | ARQ/outbox、租约/取消/恢复；chat、agents、work 每域同步迁移 API、store、页面和流协议 | 每域重复投递/重启/取消及构建后浏览器验收通过 |
-| E：知识与调度迁移 | 知识元数据、隔离索引、文件维护、旧调度转换；knowledge 与任务运行视图同步迁移 | 旧知识/权限/向量兼容；任务无双跑漏跑；对应生产页面通过 |
-| F：兼容与交付收敛 | 剩余旧入口/store 退役、UI 兼容清单收敛、发布和数据恢复演练 | 核心域已在前序阶段闭环；发布/恢复与遗留清单验收完成 |
+| A：基线与工程骨架 | 锁文件、代码规范门禁、新核心包、原有优化备份与目录整理 | 可重复安装/生产构建；基线清楚；不引入新增依赖违规 |
+| B：新平台启动闭环 | 独立配置、显式 AI 装配、空库初始化、身份/文件边界及前端应用入口 | 不加载插件运行时即可启动；空库、权限和基础页面通过 |
+| C：LangChain 1.4.7 模型闭环 | 连接/密钥/模型契约、授权/账本、公开 API；models/developer 前端同步实现 | 模型配置、连接验证、受治理调用与开发接入真实链路通过 |
+| D：统一执行与业务闭环 | ARQ/outbox、租约/取消/恢复；chat、agents、work 的 API、store、页面和流协议 | 每域重复投递/重启/取消及构建后浏览器验收通过 |
+| E：知识与调度闭环 | 知识元数据、隔离索引、文件维护；knowledge 与任务运行视图 | 权限/索引版本清楚；任务无双跑漏跑；对应生产页面通过 |
+| F：新项目交付 | 新版默认入口、依赖与编排收敛、全量新代码门禁、发布和恢复演练 | 新平台可从干净源码和空库独立部署；不依赖旧代码目录和旧数据 |
 
-迁移按域完成行为、数据、前端、测试和观测的闭环后再扩大范围。每个阶段形成独立的详细实施计划和可评审提交；禁止以“新目录已建立”作为阶段完成标准。
+按域完成行为、数据、前端、测试和观测的闭环后再扩大范围。每个阶段形成独立的详细实施计划和可评审提交；禁止以“新目录已建立”作为阶段完成标准。
 
 ## 18. 关键验收场景
 
-1. 同版本重启、旧 worker 退出后，恢复扫描仍存在，遗留 Work/Chat 状态可收敛。
+1. 同版本重启、worker 异常退出后，恢复扫描仍存在，未完成 Work/Chat 状态可收敛。
 2. 模型静默超过取消通知 TTL、连接不断开时，持久取消仍生效。
 3. 两个 worker 重复收到同一任务，只允许当前 attempt 推进状态；旧 worker 晚到写入被拒绝。
 4. 入库成功、队列投递失败后，可从 outbox 补发；Redis 丢失事件可从数据库恢复终态。
 5. LangChain 的文本、图片、工具增量、结构化输出、Embedding/Rerank、异常和 usage 通过规范契约。
 6. Agent 循环每次模型调用都经过授权与用量治理；供应商重试和模型步骤不重复计费或隐匿成本。
-7. 密钥、模型绑定与历史账本迁移可追溯；未知供应商、引用责任和不兼容向量阻止切换。
+7. 密钥轮换、模型绑定版本与账本事实可追溯；未知供应商、资源引用和不兼容向量得到明确拒绝。
 8. 生成器下线后，文件保留、回收、对账与业务调度持续工作。
-9. 新旧关键接口及权限一致；页面切换、退出登录、SSE 重连不会串会话或错认运行。
-10. 空库和旧实例升级、生产产物浏览器链路、兼容回退与数据恢复有独立验收记录。
+9. 新平台接口与页面权限一致；页面切换、退出登录、SSE 重连不会串会话或错认运行。
+10. 干净源码安装、空库初始化、生产产物浏览器链路及新平台自身的数据恢复有独立验收记录。
 
 ## 19. 设计来源与当前状态
 
@@ -390,4 +382,4 @@ sys_plugin_resource_ownership 等持久引用责任必须映射到新模块资�
 - [LangGraph 持久化](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [ARQ 的重复执行语义](https://arq-docs.helpmanual.io/)
 
-整体设计和代码规范已作为实施基线；阶段 A 的工程基础与恢复修复以[验证记录](../verification/2026-10-23-ai-core-foundation.md)为准。业务域迁移、LangChain 接入替换与生产切换仍按后续阶段验收。
+整体设计和代码规范已作为实施基线；阶段 A 的工程基础与恢复修复以[验证记录](../verification/2026-10-23-ai-core-foundation.md)为准。顶层目录已实际整理为 backend/、frontend/，原有优化保留并单独备份。新平台启动、业务闭环、LangChain 接入与独立部署按后续阶段验收。

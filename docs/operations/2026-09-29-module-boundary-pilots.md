@@ -8,8 +8,8 @@
 
 | 试点 | 唯一实现入口 | 消费者与兼容方式 |
 | --- | --- | --- |
-| 前端聊天会话 API | [chatSessions.js](../../zhiheng-fastapi-frontend/plugins/ai/public/chatSessions.js) | 原 `plugins/ai/api/chat.js` 和 `src/api/platformWorkspace.js` 直接 re-export；旧函数名与调用位置兼容 |
-| 后端模型查询 | [model_queries.py](../../zhiheng-fastapi-backend/plugins/ai/public/model_queries.py) | Agent 配置校验、公开调用、工作任务执行、知识库模型选项通过公共函数查询 |
+| 前端聊天会话 API | [chatSessions.js](../../frontend/plugins/ai/public/chatSessions.js) | 原 `plugins/ai/api/chat.js` 和 `src/api/platformWorkspace.js` 直接 re-export；旧函数名与调用位置兼容 |
+| 后端模型查询 | [model_queries.py](../../backend/plugins/ai/public/model_queries.py) | Agent 配置校验、公开调用、工作任务执行、知识库模型选项通过公共函数查询 |
 
 前端入口统一列表、详情、重命名、归档/恢复和删除请求，使用同一个共享 request，保持原认证、加密、响应与异常行为。会话 ID 在入口统一编码，既有聊天文件接口和业务状态机继续使用原逻辑。
 
@@ -32,7 +32,7 @@
 
 新增契约测试曾先在缺少公共入口时失败，再验证实现通过。前端测试加载真实 ESM 导出，仅替换共享 HTTP 请求边界，检查兼容导出的函数身份、分页参数、路径编码、状态变更、Promise/响应/异常透传。
 
-后端回归命令（在 `zhiheng-fastapi-backend`、已安装测试依赖的环境中执行）：
+后端回归命令（在 `backend`、已安装测试依赖的环境中执行）：
 
 ```bash
 python3 -m pytest -q -p no:cacheprovider \

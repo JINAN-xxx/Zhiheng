@@ -17,13 +17,13 @@
 - 创建 `deploy/litellm/.env.example`：列出镜像、端口和 Secret 环境变量契约。
 - 创建 `deploy/litellm/init-env.sh`：生成权限为 `0600` 的本地 `.env`，且不覆盖已有文件。
 - 创建 `deploy/litellm/README.md`：记录启动、检查、日志、停止和数据清理命令。
-- 创建 `zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`：验证部署文件的安全和可重复性契约。
+- 创建 `backend/tests/deploy/test_litellm_runtime.py`：验证部署文件的安全和可重复性契约。
 - 修改 `.gitignore`：忽略 `deploy/litellm/.env`。
 
 ### 任务 1：建立 Compose 部署契约测试
 
 **文件：**
-- 创建：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 创建：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：编写缺失部署文件时失败的测试**
 
@@ -102,7 +102,7 @@ def test_litellm_local_environment_is_ignored() -> None:
 运行：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -111,7 +111,7 @@ pytest tests/deploy/test_litellm_runtime.py -v
 - [ ] **步骤 3：提交红灯测试**
 
 ```bash
-git add zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+git add backend/tests/deploy/test_litellm_runtime.py
 git commit -m "test: 定义 LiteLLM 部署契约"
 ```
 
@@ -122,7 +122,7 @@ git commit -m "test: 定义 LiteLLM 部署契约"
 - 创建：`deploy/litellm/config.yaml`
 - 创建：`deploy/litellm/.env.example`
 - 修改：`.gitignore`
-- 测试：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 测试：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：实现三服务 Compose**
 
@@ -262,7 +262,7 @@ LITELLM_SALT_KEY=sk-replace-once-and-never-rotate
 运行：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -290,7 +290,7 @@ git commit -m "feat: 添加 LiteLLM 数据库部署基线"
 
 **文件：**
 - 创建：`deploy/litellm/init-env.sh`
-- 修改：`zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py`
+- 修改：`backend/tests/deploy/test_litellm_runtime.py`
 
 - [ ] **步骤 1：编写环境初始化失败测试**
 
@@ -319,7 +319,7 @@ def test_init_env_generates_private_idempotent_secrets(tmp_path: Path) -> None:
 运行：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py::test_init_env_generates_private_idempotent_secrets -v
 ```
 
@@ -364,7 +364,7 @@ echo "已创建环境文件: $env_file"
 运行：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 ```
 
@@ -373,7 +373,7 @@ pytest tests/deploy/test_litellm_runtime.py -v
 - [ ] **步骤 5：提交初始化脚本**
 
 ```bash
-git add deploy/litellm/init-env.sh zhiheng-fastapi-backend/tests/deploy/test_litellm_runtime.py
+git add deploy/litellm/init-env.sh backend/tests/deploy/test_litellm_runtime.py
 git commit -m "feat: 添加 LiteLLM 本地密钥初始化"
 ```
 
@@ -457,7 +457,7 @@ docker compose --env-file .env -f compose.yaml down
 运行：
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 pytest tests/deploy/test_litellm_runtime.py -v
 cd ../deploy/litellm
 docker compose --env-file .env -f compose.yaml config --quiet

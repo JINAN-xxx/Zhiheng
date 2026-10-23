@@ -21,36 +21,36 @@
 
 ## 目标文件
 
-- 创建 `zhiheng-fastapi-backend/plugins/ai/migrations/mysql/002_model_service_foundation.sql`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/002_model_service_foundation.sql`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/domain/__init__.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/domain/resource_id.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/domain/model_service_errors.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/do/ai_model_catalog_do.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/do/ai_resource_binding_do.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_catalog_vo.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/dao/ai_model_catalog_dao.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/dao/ai_resource_binding_dao.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/service/model_service.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py`
-- 创建 `zhiheng-fastapi-backend/plugins/ai/controller/ai_model_catalog_controller.py`
-- 创建相应 `zhiheng-fastapi-backend/tests/plugins/ai/test_*.py`
-- 修改 `zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改 `zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建 `backend/plugins/ai/migrations/mysql/002_model_service_foundation.sql`
+- 创建 `backend/plugins/ai/migrations/postgresql/002_model_service_foundation.sql`
+- 创建 `backend/plugins/ai/domain/__init__.py`
+- 创建 `backend/plugins/ai/domain/resource_id.py`
+- 创建 `backend/plugins/ai/domain/model_runtime.py`
+- 创建 `backend/plugins/ai/domain/model_service_errors.py`
+- 创建 `backend/plugins/ai/entity/do/ai_model_catalog_do.py`
+- 创建 `backend/plugins/ai/entity/do/ai_resource_binding_do.py`
+- 创建 `backend/plugins/ai/entity/vo/ai_model_catalog_vo.py`
+- 创建 `backend/plugins/ai/dao/ai_model_catalog_dao.py`
+- 创建 `backend/plugins/ai/dao/ai_resource_binding_dao.py`
+- 创建 `backend/plugins/ai/service/model_catalog_service.py`
+- 创建 `backend/plugins/ai/service/model_service.py`
+- 创建 `backend/plugins/ai/infrastructure/litellm_runtime_adapter.py`
+- 创建 `backend/plugins/ai/controller/ai_model_catalog_controller.py`
+- 创建相应 `backend/tests/plugins/ai/test_*.py`
+- 修改 `backend/plugins/ai/plugin.yaml`
+- 修改 `backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 ### 任务 1：锁定数据库契约和插件迁移顺序
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_schema.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/migrations/mysql/002_model_service_foundation.sql`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/002_model_service_foundation.sql`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/do/ai_model_catalog_do.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/do/ai_resource_binding_do.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/tests/plugins/ai/test_model_service_schema.py`
+- 创建：`backend/plugins/ai/migrations/mysql/002_model_service_foundation.sql`
+- 创建：`backend/plugins/ai/migrations/postgresql/002_model_service_foundation.sql`
+- 创建：`backend/plugins/ai/entity/do/ai_model_catalog_do.py`
+- 创建：`backend/plugins/ai/entity/do/ai_resource_binding_do.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：先写 Schema 测试**
 
@@ -76,7 +76,7 @@ assert AiResourceBinding.__table__.c.version.nullable is False
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service_schema.py tests/plugins/sample_plugins/test_ai_plugin.py -v
 ```
 
@@ -130,15 +130,15 @@ ai_resource_binding
 - [ ] **步骤 6：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service_schema.py tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/migrations \
-  zhiheng-fastapi-backend/plugins/ai/entity/do/ai_model_catalog_do.py \
-  zhiheng-fastapi-backend/plugins/ai/entity/do/ai_resource_binding_do.py \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_schema.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/migrations \
+  backend/plugins/ai/entity/do/ai_model_catalog_do.py \
+  backend/plugins/ai/entity/do/ai_resource_binding_do.py \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_model_service_schema.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 建立平台模型目录数据结构"
 ```
 
@@ -146,11 +146,11 @@ git commit -m "feat: 建立平台模型目录数据结构"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/domain/__init__.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/domain/resource_id.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/domain/model_service_errors.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_catalog_vo.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_contract.py`
+- 创建：`backend/plugins/ai/domain/__init__.py`
+- 创建：`backend/plugins/ai/domain/resource_id.py`
+- 创建：`backend/plugins/ai/domain/model_service_errors.py`
+- 创建：`backend/plugins/ai/entity/vo/ai_model_catalog_vo.py`
+- 创建：`backend/tests/plugins/ai/test_model_service_contract.py`
 
 - [ ] **步骤 1：先写领域契约测试**
 
@@ -175,7 +175,7 @@ VO 测试覆盖 camelCase、严格枚举、正整数限制、`modelCode` 格式�
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service_contract.py -v
 ```
 
@@ -205,12 +205,12 @@ conda run -n dj pytest tests/plugins/ai/test_model_service_contract.py -v
 - [ ] **步骤 6：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service_contract.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/domain \
-  zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_model_catalog_vo.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_service_contract.py
+git add backend/plugins/ai/domain \
+  backend/plugins/ai/entity/vo/ai_model_catalog_vo.py \
+  backend/tests/plugins/ai/test_model_service_contract.py
 git commit -m "feat: 定义模型服务领域契约"
 ```
 
@@ -218,9 +218,9 @@ git commit -m "feat: 定义模型服务领域契约"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/dao/ai_model_catalog_dao.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/dao/ai_resource_binding_dao.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_dao.py`
+- 创建：`backend/plugins/ai/dao/ai_model_catalog_dao.py`
+- 创建：`backend/plugins/ai/dao/ai_resource_binding_dao.py`
+- 创建：`backend/tests/plugins/ai/test_model_catalog_dao.py`
 
 - [ ] **步骤 1：使用 SQLite 异步会话先写 DAO 测试**
 
@@ -242,7 +242,7 @@ update(AiResourceBinding)
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_catalog_dao.py -v
 ```
 
@@ -255,12 +255,12 @@ Binding 查询始终按 `(resource_type='model', resource_id=model_id)`，Servic
 - [ ] **步骤 4：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_catalog_dao.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/dao/ai_model_catalog_dao.py \
-  zhiheng-fastapi-backend/plugins/ai/dao/ai_resource_binding_dao.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_dao.py
+git add backend/plugins/ai/dao/ai_model_catalog_dao.py \
+  backend/plugins/ai/dao/ai_resource_binding_dao.py \
+  backend/tests/plugins/ai/test_model_catalog_dao.py
 git commit -m "feat: 实现模型目录持久化层"
 ```
 
@@ -268,9 +268,9 @@ git commit -m "feat: 实现模型目录持久化层"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py`
-- 创建：`zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_runtime_adapter.py`
+- 创建：`backend/plugins/ai/domain/model_runtime.py`
+- 创建：`backend/plugins/ai/infrastructure/litellm_runtime_adapter.py`
+- 创建：`backend/tests/plugins/ai/test_litellm_runtime_adapter.py`
 
 - [ ] **步骤 1：先写 Adapter 契约测试**
 
@@ -301,7 +301,7 @@ class ModelRuntimeEngine(Protocol):
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_litellm_runtime_adapter.py -v
 ```
 
@@ -315,24 +315,24 @@ conda run -n dj pytest tests/plugins/ai/test_litellm_runtime_adapter.py -v
 
 只修改：
 
-- `zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py`
-- `zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py`
+- `backend/plugins/ai/infrastructure/litellm_errors.py`
+- `backend/tests/plugins/ai/test_litellm_client.py`
 
 如果当前 Client 无法区分 Provider 认证、限流和一般故障，则根据 HTTP 状态与 LiteLLM 的稳定错误分类增加内部子类。解析内容只用于分类，异常对象和日志不得保存原始响应正文。
 
 - [ ] **步骤 5：运行回归测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_litellm_client.py \
   tests/plugins/ai/test_litellm_streaming.py \
   tests/plugins/ai/test_litellm_runtime_adapter.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_runtime_adapter.py \
-  zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_client.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_litellm_runtime_adapter.py
+git add backend/plugins/ai/domain/model_runtime.py \
+  backend/plugins/ai/infrastructure/litellm_runtime_adapter.py \
+  backend/plugins/ai/infrastructure/litellm_errors.py \
+  backend/tests/plugins/ai/test_litellm_client.py \
+  backend/tests/plugins/ai/test_litellm_runtime_adapter.py
 git commit -m "feat: 接入可替换模型运行时"
 ```
 
@@ -340,8 +340,8 @@ git commit -m "feat: 接入可替换模型运行时"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py`
+- 创建：`backend/plugins/ai/service/model_catalog_service.py`
+- 创建：`backend/tests/plugins/ai/test_model_catalog_service.py`
 
 - [ ] **步骤 1：用 Fake DAO 和 Fake Runtime 先写服务测试**
 
@@ -360,7 +360,7 @@ git commit -m "feat: 接入可替换模型运行时"
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_catalog_service.py -v
 ```
 
@@ -373,11 +373,11 @@ conda run -n dj pytest tests/plugins/ai/test_model_catalog_service.py -v
 - [ ] **步骤 4：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_catalog_service.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_catalog_service.py
+git add backend/plugins/ai/service/model_catalog_service.py \
+  backend/tests/plugins/ai/test_model_catalog_service.py
 git commit -m "feat: 实现平台模型生命周期"
 ```
 
@@ -385,8 +385,8 @@ git commit -m "feat: 实现平台模型生命周期"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/service/model_service.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_model_service.py`
+- 创建：`backend/plugins/ai/service/model_service.py`
+- 创建：`backend/tests/plugins/ai/test_model_service.py`
 
 - [ ] **步骤 1：先写解析和调用测试**
 
@@ -397,7 +397,7 @@ git commit -m "feat: 实现平台模型生命周期"
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service.py -v
 ```
 
@@ -408,11 +408,11 @@ Controller、后续 Chat Service 和未来 Public OpenAPI 只依赖此类。`res
 - [ ] **步骤 4：运行测试并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_model_service.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/service/model_service.py \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_model_service.py
+git add backend/plugins/ai/service/model_service.py \
+  backend/tests/plugins/ai/test_model_service.py
 git commit -m "feat: 建立平台 Model Service 入口"
 ```
 
@@ -420,10 +420,10 @@ git commit -m "feat: 建立平台 Model Service 入口"
 
 **文件：**
 
-- 创建：`zhiheng-fastapi-backend/plugins/ai/controller/ai_model_catalog_controller.py`
-- 创建：`zhiheng-fastapi-backend/tests/plugins/ai/test_ai_model_catalog_controller.py`
-- 修改：`zhiheng-fastapi-backend/plugins/ai/plugin.yaml`
-- 修改：`zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py`
+- 创建：`backend/plugins/ai/controller/ai_model_catalog_controller.py`
+- 创建：`backend/tests/plugins/ai/test_ai_model_catalog_controller.py`
+- 修改：`backend/plugins/ai/plugin.yaml`
+- 修改：`backend/tests/plugins/sample_plugins/test_ai_plugin.py`
 
 - [ ] **步骤 1：先写路由和权限测试**
 
@@ -445,7 +445,7 @@ DELETE /ai/models/{model_id}
 - [ ] **步骤 2：运行测试并确认红灯**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_ai_model_catalog_controller.py -v
 ```
 
@@ -460,15 +460,15 @@ conda run -n dj pytest tests/plugins/ai/test_ai_model_catalog_controller.py -v
 - [ ] **步骤 5：运行回归并提交**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai/test_ai_model_catalog_controller.py \
   tests/plugins/ai/test_model_catalog_service.py \
   tests/plugins/sample_plugins/test_ai_plugin.py -v
 cd ..
-git add zhiheng-fastapi-backend/plugins/ai/controller/ai_model_catalog_controller.py \
-  zhiheng-fastapi-backend/plugins/ai/plugin.yaml \
-  zhiheng-fastapi-backend/tests/plugins/ai/test_ai_model_catalog_controller.py \
-  zhiheng-fastapi-backend/tests/plugins/sample_plugins/test_ai_plugin.py
+git add backend/plugins/ai/controller/ai_model_catalog_controller.py \
+  backend/plugins/ai/plugin.yaml \
+  backend/tests/plugins/ai/test_ai_model_catalog_controller.py \
+  backend/tests/plugins/sample_plugins/test_ai_plugin.py
 git commit -m "feat: 发布平台模型目录接口"
 ```
 
@@ -481,7 +481,7 @@ git commit -m "feat: 发布平台模型目录接口"
 - [ ] **步骤 1：执行完整后端测试**
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 conda run -n dj pytest tests/plugins/ai tests/plugins/sample_plugins/test_ai_plugin.py -v
 ```
 

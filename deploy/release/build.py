@@ -19,8 +19,8 @@ from .manifest import (
     write_manifest,
 )
 
-BACKEND = "zhiheng-fastapi-backend"
-FRONTEND = "zhiheng-fastapi-frontend"
+BACKEND = "backend"
+FRONTEND = "frontend"
 INFRA_ROLES = ("postgres", "redis", "litellm", "milvus")
 IMAGE_VARIABLES = {
     "frontend": "PLATFORM_FRONTEND_IMAGE",

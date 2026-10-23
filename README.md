@@ -12,7 +12,7 @@
 - 认证方式：JWT、平台 API Key、Bearer Token
 - 默认平台端口：`12580`
 
-前端包版本见 `zhiheng-fastapi-frontend/package.json`，后端 CLI 包版本见 `zhiheng-fastapi-backend/pyproject.toml`，后端接口元信息版本由 `zhiheng-fastapi-backend/config/env.py` 的 `app_version` 配置。镜像交付版本以发布包 `release.json` 为准，这些版本号分别维护。
+前端包版本见 `frontend/package.json`，后端 CLI 包版本见 `backend/pyproject.toml`，后端接口元信息版本由 `backend/config/env.py` 的 `app_version` 配置。镜像交付版本以发布包 `release.json` 为准，这些版本号分别维护。
 
 ## 功能概览
 
@@ -60,11 +60,11 @@ flowchart LR
 
 ### 目录结构
 
-以下按当前 Git 维护的目录列出主要入口；后端完整目录见[后端目录说明](./zhiheng-fastapi-backend/docs/后端目录说明.md)，前后端调用关系见[代码结构说明](./代码结构说明.md)。
+以下按当前 Git 维护的目录列出主要入口；后端完整目录见[后端目录说明](./backend/docs/后端目录说明.md)，前后端调用关系见[代码结构说明](./代码结构说明.md)。
 
 ```text
 ./
-├── zhiheng-fastapi-backend/       # FastAPI 后端
+├── backend/       # FastAPI 后端
 │   ├── app.py                   # Uvicorn 启动入口
 │   ├── server.py                # 应用工厂与生命周期
 │   ├── cli/                     # zhiheng 命令行、向导与交互终端
@@ -81,7 +81,7 @@ flowchart LR
 │   ├── sql/                     # 数据库初始化与增量升级 SQL
 │   ├── tests/                   # 后端及部署工具测试
 │   └── docs/                    # 后端代码导航与使用说明
-├── zhiheng-fastapi-frontend/      # Web 前端
+├── frontend/      # Web 前端
 │   ├── src/                     # 宿主布局、路由、公共组件和管理页面
 │   ├── plugins/
 │   │   ├── ai/                  # AI 工作台业务页面、API 和公开接口
@@ -109,7 +109,7 @@ flowchart LR
 └── README.md
 ```
 
-后端 `plugins/core/` 是插件框架。前端宿主框架位于 `zhiheng-fastapi-frontend/src/`，其中 `src/plugins/` 放置通用功能适配；前端业务插件则位于 `zhiheng-fastapi-frontend/plugins/`，包含 `ai/` 和 `agent_extension/`。知识库业务在后端 `plugins/ai/knowledge/`，`module_Knowledge/` 保留文档解析与分块工具。
+后端 `plugins/core/` 是插件框架。前端宿主框架位于 `frontend/src/`，其中 `src/plugins/` 放置通用功能适配；前端业务插件则位于 `frontend/plugins/`，包含 `ai/` 和 `agent_extension/`。知识库业务在后端 `plugins/ai/knowledge/`，`module_Knowledge/` 保留文档解析与分块工具。
 
 ### 运行时目录与本地生成文件
 
@@ -140,7 +140,7 @@ data/
 向服务器交付完整的版本发布目录。在源码仓库根目录构建：
 
 ```bash
-npm install --prefix zhiheng-fastapi-frontend
+npm install --prefix frontend
 ./deploy.sh release build --version 2026.09.30-rc1 --output /path/new-bundle
 ./deploy.sh release verify --bundle /path/new-bundle
 ```
@@ -187,7 +187,7 @@ npm install --prefix zhiheng-fastapi-frontend
 
 拆分部署入口保留在 `deploy/legacy/manage.sh`，其中 `legacy` 表示独立 LiteLLM 与平台的拆分编排方式；它使用根目录 `docker-compose.pg.yml`，新默认项目名为 `zhiheng-vue3-fastapi`。原 `ruoyi` 实例先沿用原发布入口管理，完成迁移后再使用当前脚本；详见 [拆分部署说明](./deploy/README.md#拆分部署兼容入口)。
 
-完整数据库初始化文件为 [`zhiheng-fastapi-backend/sql/platform-pg.sql`](./zhiheng-fastapi-backend/sql/platform-pg.sql)，按现有增量迁移自动生成。新库导入合并文件，旧库按迁移账本升级。
+完整数据库初始化文件为 [`backend/sql/platform-pg.sql`](./backend/sql/platform-pg.sql)，按现有增量迁移自动生成。新库导入合并文件，旧库按迁移账本升级。
 
 ### 访问地址
 
@@ -240,7 +240,7 @@ Embedding 和 Ranker 模型使用对应的模型类型和接口参数，具体�
 ### 后端
 
 ```bash
-cd zhiheng-fastapi-backend
+cd backend
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-pg.txt
@@ -252,7 +252,7 @@ zhiheng app run --env=dev
 ### 前端
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm install
 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
@@ -263,19 +263,19 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 
 ```bash
 # 前端插件和契约测试
-cd zhiheng-fastapi-frontend
+cd frontend
 npm run test:plugin
 
 # 后端测试
-cd ../zhiheng-fastapi-backend
+cd ../backend
 python -m pip install -r requirements-test.txt
 pytest -q
 
 # Shell 脚本语法检查
 cd ..
 sh -n deploy.sh
-ruff check zhiheng-fastapi-backend deploy/release deploy/release_cli.py
-ruff format zhiheng-fastapi-backend deploy/release deploy/release_cli.py --check
+ruff check backend deploy/release deploy/release_cli.py
+ruff format backend deploy/release deploy/release_cli.py --check
 ```
 
 后端测试需要先安装对应运行依赖。真实 PostgreSQL 并发测试通过 `ZHIHENG_TEST_POSTGRES_DSN` 指向专用测试库；未配置时跳过这些用例，不要用业务库代替测试库。
@@ -283,7 +283,7 @@ ruff format zhiheng-fastapi-backend deploy/release deploy/release_cli.py --check
 浏览器检查使用 mock API，无需启动后端或数据库。先在一个终端启动前端：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 npm install
 npm run dev -- --host 127.0.0.1 --port 15174 --strictPort
 ```
@@ -291,7 +291,7 @@ npm run dev -- --host 127.0.0.1 --port 15174 --strictPort
 再从仓库根目录打开另一终端运行检查：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 python -m pip install playwright Pillow
 python -m playwright install --with-deps chromium
 python -m unittest discover -s tests/e2e -p 'test_*.py' -v
@@ -335,17 +335,17 @@ PostgreSQL 和 Redis 数据由 Docker 数据卷持久化；技能、知识库、
 - [LiteLLM 部署说明](./deploy/litellm/README.md)
 - [ZhiHeng PostgreSQL 部署说明](./deploy/zhiheng/README.md)
 - [代码结构与测试目录](./代码结构说明.md)
-- [后端目录说明](./zhiheng-fastapi-backend/docs/后端目录说明.md)
-- [后端运行与数据约束](./zhiheng-fastapi-backend/docs/后端运行与数据约束.md)
-- [前端测试](./zhiheng-fastapi-frontend/tests/)
-- [后端测试](./zhiheng-fastapi-backend/tests/)
+- [后端目录说明](./backend/docs/后端目录说明.md)
+- [后端运行与数据约束](./backend/docs/后端运行与数据约束.md)
+- [前端测试](./frontend/tests/)
+- [后端测试](./backend/tests/)
 - [当前模块边界与改造记录](./docs/architecture/2026-09-29-module-boundaries.md)
 - [模型图片理解配置](./docs/operations/2026-10-08-model-vision-settings.md)
 - [对话停止与断连恢复](./docs/operations/2026-10-10-chat-cancellation-recovery.md)
 - [严格审查六项修复、验收及旧库升级说明](./docs/operations/2026-10-10-strict-review-fixes.md)
 - [硅基流动重排序兼容与正式接入](./docs/operations/2026-10-10-siliconflow-rerank.md)
 - [桌面 Web 布局与审查修复发布记录](./docs/operations/2026-10-10-desktop-web-layout-release.md)
-- [CLI 使用说明](./zhiheng-fastapi-backend/docs/cli_usage.md)
+- [CLI 使用说明](./backend/docs/cli_usage.md)
 - [技术架构演进汇报](./AI%20Open%20Platform%20技术架构演进汇报.md)
 - [智能体扩展与技能管理设计](./docs/superpowers/specs/2026-09-07-agent-extension-skill-management-design.md)
 - [变更日志](./CHANGELOG.md)

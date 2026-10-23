@@ -19,13 +19,13 @@
 
 ## 文件及职责
 
-- `zhiheng-fastapi-backend/plugins/ai/knowledge/graph_config.py`：严格配置、模型策略与版本指纹。
-- `zhiheng-fastapi-backend/plugins/ai/knowledge/models.py`：构建和试构建请求。
-- `zhiheng-fastapi-backend/plugins/ai/knowledge/graph.py`：LightRAG 适配、模型参数、真实状态及试构建。
-- `zhiheng-fastapi-backend/plugins/ai/knowledge/runtime.py`：配置保存、任务调度、版本发布及恢复。
-- `zhiheng-fastapi-backend/plugins/ai/controller/ai_knowledge_controller.py`：按现有权限暴露配置和试构建接口。
-- `zhiheng-fastapi-backend/plugins/ai/service/model_service.py`、`infrastructure/litellm_runtime_adapter.py`：受限的低推理参数透传。
-- `zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue`、`views/knowledge/index.vue`、`api/knowledge.js`、`utils/knowledge.js`：图谱配置、试构建结果、阶段进度及重建操作。
+- `backend/plugins/ai/knowledge/graph_config.py`：严格配置、模型策略与版本指纹。
+- `backend/plugins/ai/knowledge/models.py`：构建和试构建请求。
+- `backend/plugins/ai/knowledge/graph.py`：LightRAG 适配、模型参数、真实状态及试构建。
+- `backend/plugins/ai/knowledge/runtime.py`：配置保存、任务调度、版本发布及恢复。
+- `backend/plugins/ai/controller/ai_knowledge_controller.py`：按现有权限暴露配置和试构建接口。
+- `backend/plugins/ai/service/model_service.py`、`infrastructure/litellm_runtime_adapter.py`：受限的低推理参数透传。
+- `frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue`、`views/knowledge/index.vue`、`api/knowledge.js`、`utils/knowledge.js`：图谱配置、试构建结果、阶段进度及重建操作。
 - 相应 `tests/plugins/ai/test_knowledge_*.py`、模型适配测试、前端行为测试及实际部署探针：验收证据。
 
 ## 任务 1：图谱模型参数和配置

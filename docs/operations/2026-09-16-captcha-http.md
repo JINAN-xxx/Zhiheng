@@ -29,7 +29,7 @@ Web Crypto 的安全上下文限制见 [MDN Crypto.subtle](https://developer.moz
 重复检查命令（需安装 Playwright Chromium，目标启用传输加密）：
 
 ```bash
-cd zhiheng-fastapi-frontend
+cd frontend
 CAPTCHA_CHECK_URL=http://115.190.121.37:8060 ../.venv/bin/python tests/e2e/captcha_transport_check.py
 ```
 

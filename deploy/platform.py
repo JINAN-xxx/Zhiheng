@@ -266,7 +266,7 @@ def _deploy(
                 "检测到同项目的旧命名容器，请先按 deploy/README.md 的旧命名迁移步骤处理，"
                 "保留数据卷并确认数据库配置后重试；不会自动删除旧容器"
             )
-        if not (ROOT / "zhiheng-fastapi-frontend/dist/index.html").is_file():
+        if not (ROOT / "frontend/dist/index.html").is_file():
             raise DeploymentError(
                 "缺少前端 dist/index.html，请拉取包含构建产物的完整仓库"
             )

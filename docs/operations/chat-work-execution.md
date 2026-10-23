@@ -60,7 +60,7 @@
 env NODE_OPTIONS=--max-old-space-size=4096 npm exec vite build -- --mode docker --outDir ../../../../../../../tmp/zhiheng-chat-work-build --emptyOutDir --logLevel warn
 ```
 
-后端 280 项回归的完整命令（在 `zhiheng-fastapi-backend` 执行）：
+后端 280 项回归的完整命令（在 `backend` 执行）：
 
 ```bash
 pytest -q --tb=short --show-capture=no tests/plugins/agent_extension tests/plugins/sample_plugins/test_agent_extension_plugin.py tests/plugins/ai/test_platform_chat_service.py tests/plugins/ai/test_platform_chat_controller.py tests/plugins/ai/test_platform_chat_dao.py tests/plugins/ai/test_platform_chat_schema.py tests/plugins/ai/test_platform_chat_provider.py tests/plugins/ai/test_skill_context_adapter.py

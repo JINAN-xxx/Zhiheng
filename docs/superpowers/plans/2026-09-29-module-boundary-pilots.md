@@ -10,7 +10,7 @@
 
 ## 1. 聊天会话公开客户端
 
-文件：新建 `zhiheng-fastapi-frontend/plugins/ai/public/chatSessions.js`；调整 `plugins/ai/api/chat.js`、`src/api/platformWorkspace.js` 及必要的消费者；测试位于 `tests/plugins/`。
+文件：新建 `frontend/plugins/ai/public/chatSessions.js`；调整 `plugins/ai/api/chat.js`、`src/api/platformWorkspace.js` 及必要的消费者；测试位于 `tests/plugins/`。
 
 - [x] 为列表分页、详情、重命名、归档/恢复、删除、路径编码、响应/异常透传添加行为测试，先看到缺失入口导致失败。
 - [x] 会话的 `/ai/chat/session/*` 请求统一归公开客户端；继续使用已有共享 request，保持认证、加密和响应结构。
@@ -19,7 +19,7 @@
 
 ## 2. 只读模型查询接口
 
-文件：新建 `zhiheng-fastapi-backend/plugins/ai/public/model_queries.py` 及包初始化文件；接入 `agent_service.py`、`agent_invocation_controller.py`、`work_task_run_service.py`、`ai_knowledge_controller.py`。
+文件：新建 `backend/plugins/ai/public/model_queries.py` 及包初始化文件；接入 `agent_service.py`、`agent_invocation_controller.py`、`work_task_run_service.py`、`ai_knowledge_controller.py`。
 
 公开契约：
 

@@ -12,20 +12,20 @@
 
 ## 文件与职责
 
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`，增加快速接入资源命名和步骤文案纯函数。
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`，锁定安全命名、默认值和步骤映射。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`，增加隐藏 Credential Name 与重复 Provider 字段的快速模式。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`，增加只展示模型、测试和折叠高级参数的快速模式。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`，重排三步流程并复用现有失败保留、精确对账和发布逻辑。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`，默认突出平台模型，将底层资源标签收进高级管理。
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`，静态锁定快速模式、用户文案和高级管理入口。
+- 修改：`frontend/plugins/ai/utils/modelEngine.js`，增加快速接入资源命名和步骤文案纯函数。
+- 修改：`frontend/tests/plugins/modelEngineTransforms.test.js`，锁定安全命名、默认值和步骤映射。
+- 修改：`frontend/plugins/ai/views/model/components/CredentialForm.vue`，增加隐藏 Credential Name 与重复 Provider 字段的快速模式。
+- 修改：`frontend/plugins/ai/views/model/components/DeploymentForm.vue`，增加只展示模型、测试和折叠高级参数的快速模式。
+- 修改：`frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`，重排三步流程并复用现有失败保留、精确对账和发布逻辑。
+- 修改：`frontend/plugins/ai/views/model/index.vue`，默认突出平台模型，将底层资源标签收进高级管理。
+- 创建：`frontend/tests/plugins/modelOnboardingContract.test.js`，静态锁定快速模式、用户文案和高级管理入口。
 - 创建：`docs/superpowers/verification/2026-08-19-model-onboarding-simplification.md`，记录构建、视口、网络调用和失败重试证据。
 
 ## 任务 1：建立快速接入纯函数契约
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/modelEngine.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelEngineTransforms.test.js`
+- 修改：`frontend/plugins/ai/utils/modelEngine.js`
+- 修改：`frontend/tests/plugins/modelEngineTransforms.test.js`
 
 - [ ] **步骤 1：编写失败测试**
 
@@ -51,7 +51,7 @@ assert.equal(getQuickOnboardingStep('published').title, '接入成功')
 
 - [ ] **步骤 2：运行测试验证失败**
 
-运行：`cd zhiheng-fastapi-frontend && node tests/plugins/modelEngineTransforms.test.js`
+运行：`cd frontend && node tests/plugins/modelEngineTransforms.test.js`
 
 预期：FAIL，提示 `buildQuickResourceIdentity` 或 `getQuickOnboardingStep` 未导出。
 
@@ -102,9 +102,9 @@ git commit -m "feat: 建立模型快速接入状态契约"
 ## 任务 2：为凭据与部署表单增加快速模式
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/CredentialForm.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/DeploymentForm.vue`
-- 创建：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`frontend/plugins/ai/views/model/components/CredentialForm.vue`
+- 修改：`frontend/plugins/ai/views/model/components/DeploymentForm.vue`
+- 创建：`frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：编写结构红灯**
 
@@ -167,8 +167,8 @@ git commit -m "feat: 简化模型接入表单"
 ## 任务 3：将接入抽屉重排为三步
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`frontend/plugins/ai/views/model/components/ModelOnboardingDrawer.vue`
+- 修改：`frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：扩展抽屉红灯**
 
@@ -213,8 +213,8 @@ git commit -m "feat: 发布三步模型快速接入"
 ## 任务 4：将底层资源标签收进高级管理
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/model/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/modelOnboardingContract.test.js`
+- 修改：`frontend/plugins/ai/views/model/index.vue`
+- 修改：`frontend/tests/plugins/modelOnboardingContract.test.js`
 
 - [ ] **步骤 1：编写高级管理红灯**
 

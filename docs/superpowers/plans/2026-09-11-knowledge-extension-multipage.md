@@ -12,27 +12,27 @@
 
 ## 文件结构
 
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js` — 将知识库加入智能体扩展资源组。
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue` — 删除知识库一级入口，保留智能体扩展分组入口。
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/agentNavigation.test.js` — 固化菜单归组和权限过滤行为。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/knowledge.js` — 提供子页面状态归一化和路由地址构造函数。
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/knowledgeTransforms.test.js` — 覆盖路由状态、图谱回退和地址构造。
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue` — 子页面权限感知导航。
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue` — 知识库筛选、卡片和直接入口。
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue` — 文档筛选、目录、表格和上传入口。
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue` — 查询表单、指标和结果。
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue` — 图谱筛选、状态和全宽画布。
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue` — 路由外壳、共享状态、数据请求和弹窗编排。
-- 修改：`zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py` — 验证多页面导航、创建后进入文档页、权限和移动端。
+- 修改：`frontend/src/components/Workspace/workspaceTransforms.js` — 将知识库加入智能体扩展资源组。
+- 修改：`frontend/src/layout/components/PlatformSidebar.vue` — 删除知识库一级入口，保留智能体扩展分组入口。
+- 修改：`frontend/tests/plugins/agentNavigation.test.js` — 固化菜单归组和权限过滤行为。
+- 修改：`frontend/plugins/ai/utils/knowledge.js` — 提供子页面状态归一化和路由地址构造函数。
+- 修改：`frontend/tests/plugins/knowledgeTransforms.test.js` — 覆盖路由状态、图谱回退和地址构造。
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue` — 子页面权限感知导航。
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue` — 知识库筛选、卡片和直接入口。
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue` — 文档筛选、目录、表格和上传入口。
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue` — 查询表单、指标和结果。
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue` — 图谱筛选、状态和全宽画布。
+- 修改：`frontend/plugins/ai/views/knowledge/index.vue` — 路由外壳、共享状态、数据请求和弹窗编排。
+- 修改：`frontend/tests/e2e/knowledge_check.py` — 验证多页面导航、创建后进入文档页、权限和移动端。
 
 ### 任务 1：菜单归组与子页面路由契约
 
 **文件：**
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/agentNavigation.test.js`
-- 修改：`zhiheng-fastapi-frontend/tests/plugins/knowledgeTransforms.test.js`
-- 修改：`zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js`
-- 修改：`zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/utils/knowledge.js`
+- 修改：`frontend/tests/plugins/agentNavigation.test.js`
+- 修改：`frontend/tests/plugins/knowledgeTransforms.test.js`
+- 修改：`frontend/src/components/Workspace/workspaceTransforms.js`
+- 修改：`frontend/src/layout/components/PlatformSidebar.vue`
+- 修改：`frontend/plugins/ai/utils/knowledge.js`
 
 - [ ] **步骤 1：补充失败的菜单与路由测试**
 
@@ -100,16 +100,16 @@ node tests/plugins/agentNavigation.test.js
 - [ ] **步骤 5：提交菜单与路由契约**
 
 ```bash
-git add zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue zhiheng-fastapi-frontend/plugins/ai/utils/knowledge.js zhiheng-fastapi-frontend/tests/plugins/agentNavigation.test.js zhiheng-fastapi-frontend/tests/plugins/knowledgeTransforms.test.js
+git add frontend/src/components/Workspace/workspaceTransforms.js frontend/src/layout/components/PlatformSidebar.vue frontend/plugins/ai/utils/knowledge.js frontend/tests/plugins/agentNavigation.test.js frontend/tests/plugins/knowledgeTransforms.test.js
 git commit -m "feat(knowledge): 将知识库归入智能体扩展"
 ```
 
 ### 任务 2：卡片总览与创建后进入文档页
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py`
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue`
+- 修改：`frontend/plugins/ai/views/knowledge/index.vue`
+- 修改：`frontend/tests/e2e/knowledge_check.py`
 
 - [ ] **步骤 1：把 E2E 改为新的总览与创建行为**
 
@@ -195,17 +195,17 @@ KNOWLEDGE_CHECK_BASE_URL=http://127.0.0.1:12582 python tests/e2e/knowledge_check
 - [ ] **步骤 6：提交总览页面**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py
+git add frontend/plugins/ai/views/knowledge/components/KnowledgeOverview.vue frontend/plugins/ai/views/knowledge/index.vue frontend/tests/e2e/knowledge_check.py
 git commit -m "feat(knowledge): 增加知识库卡片总览"
 ```
 
 ### 任务 3：独立文档管理页与子页面导航
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py`
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue`
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue`
+- 修改：`frontend/plugins/ai/views/knowledge/index.vue`
+- 修改：`frontend/tests/e2e/knowledge_check.py`
 
 - [ ] **步骤 1：把文档 E2E 从页签改为路由页面**
 
@@ -265,17 +265,17 @@ KNOWLEDGE_CHECK_BASE_URL=http://127.0.0.1:12582 python tests/e2e/knowledge_check
 - [ ] **步骤 6：提交文档页面**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py
+git add frontend/plugins/ai/views/knowledge/components/KnowledgeSectionNav.vue frontend/plugins/ai/views/knowledge/components/KnowledgeDocuments.vue frontend/plugins/ai/views/knowledge/index.vue frontend/tests/e2e/knowledge_check.py
 git commit -m "feat(knowledge): 拆分独立文档管理页"
 ```
 
 ### 任务 4：独立检索测试与知识图谱页
 
 **文件：**
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue`
-- 创建：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue`
-- 修改：`zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue`
-- 修改：`zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py`
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue`
+- 创建：`frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue`
+- 修改：`frontend/plugins/ai/views/knowledge/index.vue`
+- 修改：`frontend/tests/e2e/knowledge_check.py`
 
 - [ ] **步骤 1：改写检索和图谱 E2E 导航断言**
 
@@ -338,7 +338,7 @@ KNOWLEDGE_CHECK_BASE_URL=http://127.0.0.1:12582 python tests/e2e/knowledge_check
 - [ ] **步骤 6：提交检索与图谱页面**
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue zhiheng-fastapi-frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py
+git add frontend/plugins/ai/views/knowledge/components/KnowledgeQuery.vue frontend/plugins/ai/views/knowledge/components/KnowledgeGraphPage.vue frontend/plugins/ai/views/knowledge/index.vue frontend/tests/e2e/knowledge_check.py
 git commit -m "feat(knowledge): 拆分检索与知识图谱页面"
 ```
 
@@ -398,6 +398,6 @@ git status --short
 仅在步骤 1-4 产生额外修正时执行：
 
 ```bash
-git add zhiheng-fastapi-frontend/plugins/ai/views/knowledge zhiheng-fastapi-frontend/plugins/ai/utils/knowledge.js zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js zhiheng-fastapi-frontend/src/layout/components/PlatformSidebar.vue zhiheng-fastapi-frontend/tests/plugins/agentNavigation.test.js zhiheng-fastapi-frontend/tests/plugins/knowledgeTransforms.test.js zhiheng-fastapi-frontend/tests/e2e/knowledge_check.py
+git add frontend/plugins/ai/views/knowledge frontend/plugins/ai/utils/knowledge.js frontend/src/components/Workspace/workspaceTransforms.js frontend/src/layout/components/PlatformSidebar.vue frontend/tests/plugins/agentNavigation.test.js frontend/tests/plugins/knowledgeTransforms.test.js frontend/tests/e2e/knowledge_check.py
 git commit -m "fix(knowledge): 完成多页面响应式回归"
 ```

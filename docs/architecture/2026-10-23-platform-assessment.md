@@ -34,7 +34,7 @@
 
 已有 heartbeat、过期阈值和恢复时的条件更新；缺口在恢复执行器是否存在，而不是完全没有恢复算法。应将持续运行职责与一次性初始化职责分离，明确恢复执行器的生命周期和所有权。
 
-证据：[Agent hook](../../zhiheng-fastapi-backend/plugins/agent_extension/hooks.py) 第 59–62 行；[ready 复用与 reader 激活](../../zhiheng-fastapi-backend/plugins/core/runtime/application.py) 第 195–222、284–299 行；[ready 有效期](../../zhiheng-fastapi-backend/common/constant.py) 第 147 行；[运行占用检查](../../zhiheng-fastapi-backend/plugins/agent_extension/service/work_task_run_service.py) 第 191 行。
+证据：[Agent hook](../../backend/plugins/agent_extension/hooks.py) 第 59–62 行；[ready 复用与 reader 激活](../../backend/plugins/core/runtime/application.py) 第 195–222、284–299 行；[ready 有效期](../../backend/common/constant.py) 第 147 行；[运行占用检查](../../backend/plugins/agent_extension/service/work_task_run_service.py) 第 191 行。
 
 验证：已隔离执行实际 ready-success 分支、reader 激活方法和 Agent on_startup，确认未执行恢复、未创建周期任务。未执行真实容器重启。
 
@@ -46,7 +46,7 @@
 
 应统一定义运行所有权、续租、持久取消意图和异常运行收敛规则，分别验收正常停止、超租期、进程退出和存储中断。
 
-证据：[聊天协调器](../../zhiheng-fastapi-backend/plugins/ai/service/chat_runtime_coordinator.py) 第 9–10、168–180、221–238 行；[聊天服务](../../zhiheng-fastapi-backend/plugins/ai/service/platform_chat_service.py) 第 525、553、570–571、670–687、1006–1024 行；[普通聊天 DAO](../../zhiheng-fastapi-backend/plugins/ai/dao/platform_chat_dao.py) 第 234 行；[页面停止行为](../../zhiheng-fastapi-frontend/plugins/ai/views/chat/index.vue) 第 415–426 行。
+证据：[聊天协调器](../../backend/plugins/ai/service/chat_runtime_coordinator.py) 第 9–10、168–180、221–238 行；[聊天服务](../../backend/plugins/ai/service/platform_chat_service.py) 第 525、553、570–571、670–687、1006–1024 行；[普通聊天 DAO](../../backend/plugins/ai/dao/platform_chat_dao.py) 第 234 行；[页面停止行为](../../frontend/plugins/ai/views/chat/index.vue) 第 415–426 行。
 
 验证：实际协调器配合内存 Redis 和逻辑时钟，确认 901 秒后旧 owner 未退出时第二 owner 可取锁，且旧 owner 不会误删新锁；实际事件转发函数确认标记过期后 late event 仍会被转发。未进行真实模型长流、强杀或存储故障实验。
 
@@ -56,7 +56,7 @@
 
 应提交一种包管理器的锁文件，以冻结安装命令构建，并将依赖基线纳入发布记录。现有 revision、dirty、源码摘要和镜像 ID 记录仍然有价值，这不是“完全没有版本溯源”。
 
-证据：[前端忽略规则](../../zhiheng-fastapi-frontend/.gitignore) 第 24–25 行；[依赖范围](../../zhiheng-fastapi-frontend/package.json)；[CI 安装](../../.github/workflows/playwright.yml) 第 35 行；[发布快照与构建](../../deploy/release/build.py) 第 32–37、265–270 行。
+证据：[前端忽略规则](../../frontend/.gitignore) 第 24–25 行；[依赖范围](../../frontend/package.json)；[CI 安装](../../.github/workflows/playwright.yml) 第 35 行；[发布快照与构建](../../deploy/release/build.py) 第 32–37、265–270 行。
 
 ## 4. P1：开发态验证与源码部署实际交付物之间有断点
 
@@ -64,7 +64,7 @@
 
 应让生产构建和对构建产物的冒烟检查进入自动验收，并明确 dist 的生成与发布责任。镜像发布链路已有从源码快照重新构建的保护；本次没有判定当前 dist 已过期。
 
-证据：[前端工作流](../../.github/workflows/playwright.yml) 第 45–65 行；[源码部署](../../compose.yaml) 第 175 行；[前端镜像](../../zhiheng-fastapi-frontend/Dockerfile) 第 4 行；[镜像发布重建](../../deploy/release/build.py) 第 270 行。
+证据：[前端工作流](../../.github/workflows/playwright.yml) 第 45–65 行；[源码部署](../../compose.yaml) 第 175 行；[前端镜像](../../frontend/Dockerfile) 第 4 行；[镜像发布重建](../../deploy/release/build.py) 第 270 行。
 
 ## 5. P2：AI 的核心地位与可选插件生命周期不一致
 
@@ -72,7 +72,7 @@ AI 和 Agent 随平台默认启用，模型、对话、知识库和开发接入�
 
 应将核心 AI 的启动与升级纳入平台必需流程，保留业务模块边界。第三方业务插件框架是否保留仍待产品需求明确，不能据此直接删除全部插件基础设施。
 
-证据：[默认启用列表](../../zhiheng-fastapi-backend/config/env.py) 第 34 行；[AI 清单](../../zhiheng-fastapi-backend/plugins/ai/plugin.yaml) 第 15–66 行；[应用启动](../../zhiheng-fastapi-backend/server.py) 第 163–182 行。
+证据：[默认启用列表](../../backend/config/env.py) 第 34 行；[AI 清单](../../backend/plugins/ai/plugin.yaml) 第 15–66 行；[应用启动](../../backend/server.py) 第 163–182 行。
 
 ## 6. P2：目录边界与实际依赖不完全一致
 
@@ -80,7 +80,7 @@ Agent 已有公开接口可用，但控制器仍直接依赖 AI 内部配置、�
 
 知识解析与知识业务分别位于 module_Knowledge/src/knowledge 和 plugins/ai/knowledge，分工可以成立，但现有命名不容易表达。应按业务所有权明确入口和依赖方向；目录名称、多种分层方式并存本身不是 bug。
 
-证据：[Agent 控制器](../../zhiheng-fastapi-backend/plugins/agent_extension/controller/agent_invocation_controller.py) 第 26–37 行；[公共上下文](../../zhiheng-fastapi-backend/common/context.py) 第 6 行；[知识解析依赖](../../zhiheng-fastapi-backend/plugins/ai/knowledge/runtime.py) 第 18–19 行；[宿主 Work 路由](../../zhiheng-fastapi-frontend/src/router/index.js) 第 100–114 行；[导航规则](../../zhiheng-fastapi-frontend/src/components/Workspace/workspaceTransforms.js)。
+证据：[Agent 控制器](../../backend/plugins/agent_extension/controller/agent_invocation_controller.py) 第 26–37 行；[公共上下文](../../backend/common/context.py) 第 6 行；[知识解析依赖](../../backend/plugins/ai/knowledge/runtime.py) 第 18–19 行；[宿主 Work 路由](../../frontend/src/router/index.js) 第 100–114 行；[导航规则](../../frontend/src/components/Workspace/workspaceTransforms.js)。
 
 ## 7. P2：模型运行接口可替换，管理与持久化层却锁定 LiteLLM
 
@@ -88,7 +88,7 @@ ModelRuntimeEngine 已抽象聊天、流式、Embedding、Rerank；但资源绑�
 
 应明确平台模型、供应商连接和实际执行适配器各自的契约。LiteLLM 与 LangChain 都是可行路线；需要治理的是业务契约与具体引擎绑定过紧的问题，而不是仅因使用 LiteLLM 就要求替换。
 
-证据：[运行协议](../../zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py) 第 346–357 行；[数据库约束](../../zhiheng-fastapi-backend/plugins/ai/entity/do/ai_resource_binding_do.py) 第 20 行；[绑定创建](../../zhiheng-fastapi-backend/plugins/ai/service/model_catalog_service.py) 第 210 行；[运行时装配](../../zhiheng-fastapi-backend/plugins/ai/infrastructure/model_runtime_provider.py) 第 77–85 行；[引擎管理](../../zhiheng-fastapi-backend/plugins/ai/service/model_engine_service.py)。
+证据：[运行协议](../../backend/plugins/ai/domain/model_runtime.py) 第 346–357 行；[数据库约束](../../backend/plugins/ai/entity/do/ai_resource_binding_do.py) 第 20 行；[绑定创建](../../backend/plugins/ai/service/model_catalog_service.py) 第 210 行；[运行时装配](../../backend/plugins/ai/infrastructure/model_runtime_provider.py) 第 77–85 行；[引擎管理](../../backend/plugins/ai/service/model_engine_service.py)。
 
 ## 8. P2：Agent 产品能力边界需要明确
 
@@ -96,7 +96,7 @@ ModelRuntimeEngine 已抽象聊天、流式、Embedding、Rerank；但资源绑�
 
 这属于产品目标与基础协议之间的差距，不代表当前配置式助手实现错误。应先明确 Agent 目标范围，再建设执行协议与运行时，避免先引入框架却让新链路绕过授权、配额和用量记录。
 
-证据：[Agent 请求组装](../../zhiheng-fastapi-backend/plugins/agent_extension/service/agent_invocation_service.py) 第 18–75 行；[模型角色与响应事件](../../zhiheng-fastapi-backend/plugins/ai/domain/model_runtime.py) 第 9、119–133 行。
+证据：[Agent 请求组装](../../backend/plugins/agent_extension/service/agent_invocation_service.py) 第 18–75 行；[模型角色与响应事件](../../backend/plugins/ai/domain/model_runtime.py) 第 9、119–133 行。
 
 ## 9. P1（交付 MySQL 时）/P2：数据库升级责任分散，支持矩阵存在实际漂移
 
@@ -106,7 +106,7 @@ ModelRuntimeEngine 已抽象聊天、流式、Embedding、Rerank；但资源绑�
 
 应统一版本化升级责任，保留历史迁移执行证据，并明确 PostgreSQL 主线与 MySQL 的实际支持范围。
 
-证据：[启动建表](../../zhiheng-fastapi-backend/config/get_db.py) 第 20–36 行；[迁移与支持声明](../../zhiheng-fastapi-backend/plugins/ai/plugin.yaml) 第 24–43、206–209 行；[附件 ORM](../../zhiheng-fastapi-backend/plugins/ai/entity/do/ai_chat_platform_do.py) 第 88–93 行；[PostgreSQL 附件迁移](../../zhiheng-fastapi-backend/plugins/ai/migrations/postgresql/010_chat_attachments.sql)；[MySQL 聊天表](../../zhiheng-fastapi-backend/plugins/ai/migrations/mysql/003_platform_chat.sql)。本次为静态确认的迁移缺口，未运行 MySQL 升级实验。
+证据：[启动建表](../../backend/config/get_db.py) 第 20–36 行；[迁移与支持声明](../../backend/plugins/ai/plugin.yaml) 第 24–43、206–209 行；[附件 ORM](../../backend/plugins/ai/entity/do/ai_chat_platform_do.py) 第 88–93 行；[PostgreSQL 附件迁移](../../backend/plugins/ai/migrations/postgresql/010_chat_attachments.sql)；[MySQL 聊天表](../../backend/plugins/ai/migrations/mysql/003_platform_chat.sql)。本次为静态确认的迁移缺口，未运行 MySQL 升级实验。
 
 ## 10. P2（扩容或长任务隔离时）：后台任务所有权仍依赖 Web 进程
 
@@ -114,7 +114,7 @@ ModelRuntimeEngine 已抽象聊天、流式、Embedding、Rerank；但资源绑�
 
 应先定义任务提交、持久状态、执行所有权、续租和恢复规则，再按实际负载评估独立 worker。已有原子元数据提交、文件锁和 PostgreSQL/Milvus 图谱存储，不能误称为完全没有持久化或图谱主体仅存 JSON。
 
-证据：[图谱任务所有权与创建](../../zhiheng-fastapi-backend/plugins/ai/knowledge/runtime.py) 第 43–45、109、259–290、428–437 行；[源码 worker 配置](../../compose.yaml) 第 6 行；[发布 worker 配置](../../deploy/compose.release.yaml) 第 14 行。
+证据：[图谱任务所有权与创建](../../backend/plugins/ai/knowledge/runtime.py) 第 43–45、109、259–290、428–437 行；[源码 worker 配置](../../compose.yaml) 第 6 行；[发布 worker 配置](../../deploy/compose.release.yaml) 第 14 行。
 
 ## 11. P2：业务验收与持续 readiness 覆盖不完整
 
@@ -122,7 +122,7 @@ ModelRuntimeEngine 已抽象聊天、流式、Embedding、Rerank；但资源绑�
 
 后端容器探针只访问 /docs，不能识别依赖失效或 Work 恢复循环缺席。发布时另有版本、路由和插件检查，但不等于持续运行中的业务 readiness。应分别建立生产构建冒烟、关键真实服务链路和持续就绪/后台执行器状态检查。
 
-证据：[浏览器 CI](../../.github/workflows/playwright.yml) 第 43–65 行；[Mock 拦截](../../zhiheng-fastapi-frontend/tests/e2e/platform_shell_check.py) 第 559 行；[后端 CI](../../.github/workflows/backend.yml)；[源码探针](../../compose.yaml) 第 163 行；[发布探针](../../deploy/compose.release.yaml) 第 184 行。
+证据：[浏览器 CI](../../.github/workflows/playwright.yml) 第 43–65 行；[Mock 拦截](../../frontend/tests/e2e/platform_shell_check.py) 第 559 行；[后端 CI](../../.github/workflows/backend.yml)；[源码探针](../../compose.yaml) 第 163 行；[发布探针](../../deploy/compose.release.yaml) 第 184 行。
 
 ## 12. P2：依赖与局部文档仍保留历史技术路线
 
@@ -130,7 +130,7 @@ PostgreSQL 运行依赖和后端 CI 仍显式安装 Agno 及多种供应商 SDK�
 
 应依据实际运行和传递依赖生成安装基线，统一依赖声明来源并校准文档。生产代码静态扫描未见 Agno 的直接导入，不足以单独证明所有历史 SDK 都能卸载，精简前仍需核实传递依赖。
 
-证据：[PG 依赖](../../zhiheng-fastapi-backend/requirements-pg.txt) 第 1–25 行；[后端 CI 依赖](../../.github/workflows/backend.yml) 第 67 行起；[AI 当前清单](../../zhiheng-fastapi-backend/plugins/ai/plugin.yaml) 第 188–191 行；[AI README](../../zhiheng-fastapi-backend/plugins/ai/README.md) 第 84–99 行。
+证据：[PG 依赖](../../backend/requirements-pg.txt) 第 1–25 行；[后端 CI 依赖](../../.github/workflows/backend.yml) 第 67 行起；[AI 当前清单](../../backend/plugins/ai/plugin.yaml) 第 188–191 行；[AI README](../../backend/plugins/ai/README.md) 第 84–99 行。
 
 ## 13. P3：双 UI 与集中组件带来持续治理成本
 
@@ -138,7 +138,7 @@ PostgreSQL 运行依赖和后端 CI 仍显式安装 Agno 及多种供应商 SDK�
 
 已有 Element Plus 迁移基线约束（42 个文件），不宜无范围地重写所有管理页面。应按业务修改频率逐步收敛组件体系，并按上传、检索、图谱等职责拆分高负担页面。
 
-证据：[前端依赖](../../zhiheng-fastapi-frontend/package.json)；[主题桥接](../../zhiheng-fastapi-frontend/src/assets/styles/workspace.scss) 第 57 行起；[迁移基线测试](../../zhiheng-fastapi-frontend/tests/plugins/elementPlusRemovalContract.test.js) 第 38 行；[知识库页面](../../zhiheng-fastapi-frontend/plugins/ai/views/knowledge/index.vue)。
+证据：[前端依赖](../../frontend/package.json)；[主题桥接](../../frontend/src/assets/styles/workspace.scss) 第 57 行起；[迁移基线测试](../../frontend/tests/plugins/elementPlusRemovalContract.test.js) 第 38 行；[知识库页面](../../frontend/plugins/ai/views/knowledge/index.vue)。
 
 ## 验证范围与建议顺序
 

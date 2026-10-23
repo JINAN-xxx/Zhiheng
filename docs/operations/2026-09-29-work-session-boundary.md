@@ -4,11 +4,11 @@
 
 ## 已完成的边界
 
-Work 的实现迁至 [插件 store](../../zhiheng-fastapi-frontend/plugins/agent_extension/stores/workTask.js)，仍使用原 Pinia ID。原宿主 store 文件仅转发到 [Work 公共入口](../../zhiheng-fastapi-frontend/plugins/agent_extension/public/workTasks.js)，旧导入与新导入取得同一实例。
+Work 的实现迁至 [插件 store](../../frontend/plugins/agent_extension/stores/workTask.js)，仍使用原 Pinia ID。原宿主 store 文件仅转发到 [Work 公共入口](../../frontend/plugins/agent_extension/public/workTasks.js)，旧导入与新导入取得同一实例。
 
 侧栏使用 `useWorkTaskNavigation`，只读取任务摘要、分页、查询条件、加载与错误状态，并调用列表刷新、重命名和删除。Work 页面使用模块自己的 store，执行、成员、草稿、重试和轮询逻辑仍归模块管理。此次迁移没有改变任务接口地址、消息格式或权限能力规则。
 
-[会话生命周期插件](../../zhiheng-fastapi-frontend/src/store/sessionLifecycle.js) 由平台 Pinia 安装，各模块通过 `sessionCleanup` 指定同步清理动作。清理仅作用于调用者所在的 Pinia、只涉及已创建的 store；store dispose 时注销。单个清理动作失败不会阻止其他模块，也不会阻止用户令牌被清除。用户模块已不再直接导入 Work 的专用清理函数。
+[会话生命周期插件](../../frontend/src/store/sessionLifecycle.js) 由平台 Pinia 安装，各模块通过 `sessionCleanup` 指定同步清理动作。清理仅作用于调用者所在的 Pinia、只涉及已创建的 store；store dispose 时注销。单个清理动作失败不会阻止其他模块，也不会阻止用户令牌被清除。用户模块已不再直接导入 Work 的专用清理函数。
 
 Work 清理会使旧请求代次失效，停止本地流与轮询，清空任务、智能体目录和草稿。回归还发现原 reset 遗漏列表/详情的加载与错误标记及分页；已补齐，避免退出后仍显示旧的“加载中”状态。
 
@@ -18,13 +18,13 @@ Work 清理会使旧请求代次失效，停止本地流与轮询，清空任务
 
 独立审查使用真实 Axios 和 Pinia 复现：旧账号请求发出后登录新账号，旧请求随后返回 HTTP 401 或业务 `code=401`，原拦截器会清空新账号令牌和 Work 状态。它发生在 Work 的请求代次检查之前；本轮开始时已有该问题。
 
-[共享请求处理](../../zhiheng-fastapi-frontend/src/utils/request.js) 现在将响应关联的请求配置传入过期处理，仅当请求携带的 Authorization 与当前令牌匹配时才清理并跳转。旧身份或匿名请求仍然失败，但不会影响当前身份。当前身份两类 401 的清理、错误与跳转行为保留。
+[共享请求处理](../../frontend/src/utils/request.js) 现在将响应关联的请求配置传入过期处理，仅当请求携带的 Authorization 与当前令牌匹配时才清理并跳转。旧身份或匿名请求仍然失败，但不会影响当前身份。当前身份两类 401 的清理、错误与跳转行为保留。
 
 此修正限定于 401 的会话清理副作用，不代表全部异步认证操作均已有会话代次保护。新增测试使用真实 Axios、生产过期处理/响应拦截器和真实 Pinia user/Work；认证令牌、网络及外围 UI 依赖使用测试替身。
 
 ## 自动检查
 
-三个 GitHub Actions 工作流现在匹配 `master` 与 `release/**` 的推送、以这些分支为目标的 PR。后端安装及缓存接入 [requirements-test.txt](../../zhiheng-fastapi-backend/requirements-test.txt)，显式固定 pytest、pytest-asyncio、aiosqlite、httpx、fakeredis 的 Lua 支持和 PDF/DOCX 测试依赖。
+三个 GitHub Actions 工作流现在匹配 `master` 与 `release/**` 的推送、以这些分支为目标的 PR。后端安装及缓存接入 [requirements-test.txt](../../backend/requirements-test.txt)，显式固定 pytest、pytest-asyncio、aiosqlite、httpx、fakeredis 的 Lua 支持和 PDF/DOCX 测试依赖。
 
 前端原 `test:plugin` 会发现新增生命周期、边界和请求身份测试。现有 Work 桌面/移动浏览器脚本也已接入 Playwright 工作流，复用临时开发服务，并在成功或失败后上传截图。
 

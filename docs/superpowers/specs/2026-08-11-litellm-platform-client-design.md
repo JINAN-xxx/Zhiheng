@@ -181,18 +181,18 @@ LiteLLM 的 `401` 或 `403` 不直接返回为客户认证失败，因为它表�
 预计新增或修改：
 
 ```text
-zhiheng-fastapi-backend/plugins/ai/config.py
-zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_client.py
-zhiheng-fastapi-backend/plugins/ai/infrastructure/litellm_errors.py
-zhiheng-fastapi-backend/plugins/ai/hooks.py
-zhiheng-fastapi-backend/plugins/ai/controller/ai_runtime_controller.py
-zhiheng-fastapi-backend/plugins/ai/entity/vo/ai_runtime_vo.py
-zhiheng-fastapi-backend/plugins/ai/plugin.yaml
-zhiheng-fastapi-backend/.env.dev
-zhiheng-fastapi-backend/.env.prod
-zhiheng-fastapi-backend/.env.dockerpg
+backend/plugins/ai/config.py
+backend/plugins/ai/infrastructure/litellm_client.py
+backend/plugins/ai/infrastructure/litellm_errors.py
+backend/plugins/ai/hooks.py
+backend/plugins/ai/controller/ai_runtime_controller.py
+backend/plugins/ai/entity/vo/ai_runtime_vo.py
+backend/plugins/ai/plugin.yaml
+backend/.env.dev
+backend/.env.prod
+backend/.env.dockerpg
 docker-compose.pg.yml
-zhiheng-fastapi-backend/tests/plugins/ai/
+backend/tests/plugins/ai/
 ```
 
 本阶段不修改前端文件和数据库 Migration。

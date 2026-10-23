@@ -9,7 +9,7 @@ ZhiHeng 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Ow
 | LiteLLM | `litellm` | `litellm` |
 | 智衡平台 | `zhiheng-fastapi` | `zhiheng` |
 
-上表为新数据库的默认值。源码路径为 `zhiheng-fastapi-backend/`，平台服务和容器为 `zhiheng-backend-pg`、`zhiheng-frontend`、`zhiheng-redis`，平台网络为 `zhiheng-network`。拆分部署使用根目录 `docker-compose.pg.yml`、默认项目名 `zhiheng-vue3-fastapi` 和外部 `litellm-network`。
+上表为新数据库的默认值。源码路径为 `backend/`，平台服务和容器为 `zhiheng-backend-pg`、`zhiheng-frontend`、`zhiheng-redis`，平台网络为 `zhiheng-network`。拆分部署使用根目录 `docker-compose.pg.yml`、默认项目名 `zhiheng-vue3-fastapi` 和外部 `litellm-network`。
 
 使用 `ZHIHENG_COMPOSE_PROJECT`、`ZHIHENG_COMPOSE_FILE`、`ZHIHENG_ENV_FILE` 可指定项目、编排文件和环境文件；`ZHIHENG_SHARED_POSTGRES_CONTAINER` 可指定共享 PostgreSQL 容器，默认 `litellm-db`。对应 `RUOYI_*` 变量仅作只读回退兼容。已有数据库可通过 `.env` 中的 `PLATFORM_DB_NAME` / `PLATFORM_DB_USER` 显式选择；这些配置不会自动重命名数据库或迁移生产数据，详见 [数据库入口](../README.md#数据库入口)。
 
@@ -38,7 +38,7 @@ ZhiHeng 与 LiteLLM 共用 `litellm-db` PostgreSQL 16 实例，但数据库、Ow
 ./deploy/legacy/manage.sh update     # 重新构建并更新
 ```
 
-前端构建产物位于 `zhiheng-fastapi-frontend/dist`，已随仓库提交。ZhiHeng Compose 直接用 Nginx 挂载该目录，远端启动无需安装 Node.js 或重新构建前端。
+前端构建产物位于 `frontend/dist`，已随仓库提交。ZhiHeng Compose 直接用 Nginx 挂载该目录，远端启动无需安装 Node.js 或重新构建前端。
 
 如需单独初始化新数据库，可执行 `./deploy/zhiheng/init-shared-postgres.sh`。
 

@@ -5,8 +5,8 @@
 ## 发布定位
 
 - 源码：`/home/ja/project/RuoYi-Vue3-FastAPI`，分支 `release/platform-integration-merge`，发布时基线为 `c3e23e57` 加工作区改动；源码与构建产物随本轮 Git 提交归档。
-- 构建来源：当前仓库 `zhiheng-fastapi-frontend/dist`，与开发验收的 1459 个文件 SHA-256 清单完全一致。
-- 线上挂载：`/home/ja/project/zhiheng/zhiheng-fastapi-frontend/dist` → `zhiheng-zhiheng-frontend-1:/usr/share/nginx/html`。
+- 构建来源：当前仓库 `frontend/dist`，与开发验收的 1459 个文件 SHA-256 清单完全一致。
+- 线上挂载：`/home/ja/project/zhiheng/frontend/dist` → `zhiheng-zhiheng-frontend-1:/usr/share/nginx/html`。
 - 新首页 SHA-256：`2e8b9a6078d4ddfe90bfc08b1c586bd51cde79003742966e551a79fda05259f7`。
 - 发布记录与回退入口：`/home/ja/.local/state/zhiheng-frontend-releases/20261010T085054Z-desktop-web/`。
 

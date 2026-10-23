@@ -32,7 +32,7 @@
 旧数据库升级步骤：
 
 1. 先备份平台业务库和实例配置，并核对当前部署版本；本轮没有替运行实例执行备份或迁移。
-2. 对**平台业务库**执行对应的幂等增量建表 SQL：[PostgreSQL](../../zhiheng-fastapi-backend/sql/upgrades/postgresql/20261010_plugin_resource_ownership.sql)、[MySQL](../../zhiheng-fastapi-backend/sql/upgrades/mysql/20261010_plugin_resource_ownership.sql)。它们只新增归属表，不清空旧表；不要对已有库执行含 DROP 的完整初始化 SQL。
+2. 对**平台业务库**执行对应的幂等增量建表 SQL：[PostgreSQL](../../backend/sql/upgrades/postgresql/20261010_plugin_resource_ownership.sql)、[MySQL](../../backend/sql/upgrades/mysql/20261010_plugin_resource_ownership.sql)。它们只新增归属表，不清空旧表；不要对已有库执行含 DROP 的完整初始化 SQL。
 3. 新版 Web 服务正常启动时已有 `create_all` 流程也会创建该表。独立 CLI 不经过这段启动流程，应先执行增量 SQL，或先完成新版服务建表。
 4. 核对插件状态及引用检查。旧版已卸载记录与从未安装记录可能完全相同，不能凭迁移成功或可清理的审计日志猜测；unknown 导致删除被拒绝时，应恢复完整源码并通过完整重装等受控流程恢复可信状态。
 

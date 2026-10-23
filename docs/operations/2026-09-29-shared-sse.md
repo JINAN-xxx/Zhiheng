@@ -6,7 +6,7 @@
 
 用户同意逐步拆解后，前端公共边界分为五个小项，本轮完成共享 SSE 解析，后续依次处理技能选择、模型/知识库选择、应用管理及密钥操作。详见[实施计划](../superpowers/plans/2026-09-29-frontend-public-boundaries.md)。
 
-共享实现位于 [platformSse.js](../../zhiheng-fastapi-frontend/src/utils/platformSse.js)。Chat 与 Work 的流 API 均直接导入此入口，旧 AI parser 文件只 re-export 同一个函数，保留原调用方兼容性。
+共享实现位于 [platformSse.js](../../frontend/src/utils/platformSse.js)。Chat 与 Work 的流 API 均直接导入此入口，旧 AI parser 文件只 re-export 同一个函数，保留原调用方兼容性。
 
 两个业务 API 的其他代码保持原样。共享层只处理平台 JSON SSE 协议：默认事件、多行 data、JSON 对象/数组/原始值以及 `[DONE]` 的既有映射；不提供 EventSource 重连、id/retry 状态管理，也不处理 HTTP 认证或业务 error/done 状态。
 
