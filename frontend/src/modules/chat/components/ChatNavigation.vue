@@ -6,18 +6,82 @@ import {
   Spin as ASpin,
   Empty as AEmpty,
   RadioGroup as ARadioGroup,
-  RadioButton as ARadioButton
+  RadioButton as ARadioButton,
+  Modal as AModal,
+  Button as AButton
 } from 'ant-design-vue'
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import {
+  DeleteOutlined,
+  EditOutlined,
+  InboxOutlined,
+  ReloadOutlined,
+  SearchOutlined
+} from '@ant-design/icons-vue'
 import { useChatNavigation } from '../composables/workspace.ts'
 import type { Conversation } from '../api/index.ts'
+import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
+import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 const emit = defineEmits<{ navigate: [] }>()
-const { conversations, selected, loading, error, refresh, select } = useChatNavigation()
+const {
+  conversations,
+  selected,
+  loading,
+  error,
+  refresh,
+  select,
+  archivedFilter,
+  setArchivedFilter,
+  conversationLocked,
+  changeConversation
+} = useChatNavigation()
 function openConversation(conversation: Conversation): void {
   void select(conversation)
   emit('navigate')
 }
-const query = ref('')
+const query = ref(''),
+  renameTitle = ref(''),
+  renameTarget = ref<Conversation | null>(null),
+  renaming = ref(false),
+  renameError = ref('')
+const { confirm } = useConfirmation()
+function menuItems(conversation: Conversation): MenuAction[] {
+  return [
+    { command: 'rename', label: '重命名', icon: EditOutlined },
+    { command: 'archive', label: conversation.archived ? '取消归档' : '归档', icon: InboxOutlined },
+    { command: 'delete', label: '删除', icon: DeleteOutlined, danger: true, divided: true }
+  ]
+}
+async function command(command: string, conversation: Conversation): Promise<void> {
+  if (conversationLocked(conversation.id)) return
+  const target = { ...conversation }
+  if (command === 'rename') {
+    renameTarget.value = target
+    renameTitle.value = target.title
+    renameError.value = ''
+    return
+  }
+  if (command === 'delete') {
+    if (!(await confirm(`是否删除“${target.title}”？删除后会解除附件的会话引用。`))) return
+    await changeConversation(target, 'delete')
+  } else if (command === 'archive') await changeConversation(target, { archived: !target.archived })
+}
+async function rename(): Promise<void> {
+  const target = renameTarget.value,
+    title = renameTitle.value.trim()
+  if (!target || renaming.value) return
+  if (!title || [...title].length > 100) {
+    renameError.value = '标题需为1–100字'
+    return
+  }
+  renaming.value = true
+  try {
+    if ((await changeConversation(target, { title })) && renameTarget.value?.id === target.id)
+      renameTarget.value = null
+  } finally {
+    renaming.value = false
+  }
+}
 const filtered = computed(() =>
   conversations.value.filter((item) =>
     item.title.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())
@@ -27,11 +91,13 @@ const filtered = computed(() =>
 <template>
   <section class="recent-sessions" aria-label="对话列表">
     <div class="recent-sessions__heading">
-      <ARadioGroup value="active" size="small" aria-label="会话状态"
+      <ARadioGroup
+        :value="archivedFilter ? 'archived' : 'active'"
+        size="small"
+        aria-label="会话状态"
+        @update:value="(value) => setArchivedFilter(value === 'archived')"
         ><ARadioButton value="active">最近会话</ARadioButton
-        ><ARadioButton value="archived" disabled
-          ><span title="当前版本暂不支持归档">已归档</span></ARadioButton
-        ></ARadioGroup
+        ><ARadioButton value="archived">已归档</ARadioButton></ARadioGroup
       ><button
         type="button"
         class="recent-sessions__refresh"
@@ -71,6 +137,11 @@ const filtered = computed(() =>
               })
             }}</small>
           </button>
+          <WorkspaceMoreMenu
+            v-if="!conversationLocked(conversation.id)"
+            :items="menuItems(conversation)"
+            @command="(value) => command(value, conversation)"
+          />
         </div>
         <AEmpty
           v-if="!loading && !filtered.length"
@@ -79,6 +150,26 @@ const filtered = computed(() =>
         /></div
     ></ASpin>
   </section>
+  <AModal
+    :open="renameTarget !== null"
+    title="重命名会话"
+    :closable="!renaming"
+    :mask-closable="false"
+    @cancel="renameTarget = null"
+  >
+    <p v-if="renameError" role="alert">{{ renameError }}</p>
+    <AInput
+      v-model:value="renameTitle"
+      aria-label="会话标题"
+      :maxlength="200"
+      :disabled="renaming"
+      @press-enter="rename"
+    />
+    <template #footer
+      ><AButton :disabled="renaming" @click="renameTarget = null">取消</AButton
+      ><AButton type="primary" :loading="renaming" @click="rename">保存</AButton></template
+    >
+  </AModal>
 </template>
 <style scoped lang="scss">
 .recent-sessions {

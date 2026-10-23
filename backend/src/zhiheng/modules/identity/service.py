@@ -10,6 +10,7 @@ from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.modules.identity.contracts import IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -19,6 +20,27 @@ MAX_PASSWORD_LENGTH = 1024
 
 
 class IdentityService:
+    async def directory(self, session: AsyncSession, *, search: str = '') -> list[IdentityInfo]:
+        query = select(IdentityUser).where(IdentityUser.is_active.is_(True))
+        if search:
+            escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            query = query.where(IdentityUser.username.ilike(f'%{escaped}%', escape='\\'))
+        return [
+            IdentityInfo(id=row.id, username=row.username)
+            for row in await session.scalars(query.order_by(IdentityUser.username).limit(100))
+        ]
+
+    async def matching_user_ids(self, session: AsyncSession, *, search: str) -> tuple[UUID, ...]:
+        """Complete identity name matches for business filtering, including inactive historical owners."""
+        escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        return tuple(
+            await session.scalars(
+                select(IdentityUser.id)
+                .where(IdentityUser.username.ilike(f'%{escaped}%', escape='\\'))
+                .order_by(IdentityUser.id)
+            )
+        )
+
     async def principal_for_user(self, session: AsyncSession, user_id: UUID) -> Principal:
         user = await session.get(IdentityUser, user_id)
         if user is None or not user.is_active:

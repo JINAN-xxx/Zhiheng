@@ -42,6 +42,7 @@ class ModelDefinition(Base):
     max_output_tokens: Mapped[int] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     model_type: Mapped[str] = mapped_column(String(16), default='chat')
+    vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     published: Mapped[bool] = mapped_column(Boolean, default=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

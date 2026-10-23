@@ -149,7 +149,7 @@ def test_no_skill_fingerprint_remains_compatible_with_previous_runs() -> None:
     previous = hashlib.sha256(
         json.dumps(['chat', str(resource), str(model), 'hello'], ensure_ascii=False, separators=(',', ':')).encode()
     ).hexdigest()
-    assert ChatRunService._fingerprint('chat', resource, model, 'hello') == previous
+    assert ChatRunService.fingerprint('chat', resource, model, 'hello') == previous
 
 
 def test_tree_hash_distinguishes_file_boundaries() -> None:

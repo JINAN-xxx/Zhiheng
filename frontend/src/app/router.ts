@@ -7,6 +7,7 @@ import { usageRoutes } from '../modules/usage/routes.ts'
 import { developerRoutes } from '../modules/developer/public.ts'
 import { skillRoutes } from '../modules/skills/public.ts'
 import { agentRoutes } from '../modules/agents/public.ts'
+import { fileRoutes } from '../modules/files/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
@@ -28,6 +29,7 @@ export const router = createRouter({
     ...skillRoutes,
     ...agentRoutes,
     ...workRoutes,
+    ...fileRoutes,
     { path: '/', redirect: '/chat' },
     { path: '/:pathMatch(.*)*', redirect: '/chat' }
   ]

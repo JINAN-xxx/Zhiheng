@@ -36,3 +36,17 @@ void test('skill selection is frozen and ordered as part of the logical message'
     first.client_request_id
   )
 })
+void test('attachment IDs are frozen, ordered and included in retry identity', () => {
+  let ids = 0
+  const createId = () => `request-${++ids}`
+  const files = ['f1', 'f2']
+  const input = { conversationId: 'c1', model_id: 'm1', message: 'hello', file_ids: files }
+  const first = nextSendIntent(null, input, createId)
+  files.reverse()
+  assert.deepEqual(first.file_ids, ['f1', 'f2'])
+  assert.notEqual(nextSendIntent(first, input, createId).client_request_id, first.client_request_id)
+  assert.equal(
+    nextSendIntent(first, { ...input, file_ids: ['f1', 'f2'] }, createId).client_request_id,
+    first.client_request_id
+  )
+})

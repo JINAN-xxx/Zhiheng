@@ -64,7 +64,9 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
         for table in tables:
             assert (
                 await connection.execute(
-                    text(f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
+                    text(
+                        f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id'-CASE WHEN '{table}'='models' THEN 'vision_enabled' ELSE '_no_new_column_' END)::text FROM {table} t ORDER BY 1"
+                    )
                 )
             ).scalars().all() == snapshots[table]
         assert await connection.scalar(text('SELECT COUNT(*) FROM skills')) == 2

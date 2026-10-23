@@ -2,7 +2,7 @@ import { computed, inject, nextTick, onBeforeUnmount, provide, readonly, ref, wa
 import type { InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import { identity } from '../../identity/public.ts'
@@ -13,6 +13,9 @@ import {
   cancelRun,
   createConversation,
   getConversations,
+  getConversation,
+  updateConversation,
+  deleteConversation,
   getMessages,
   getRun,
   observeRun,
@@ -21,6 +24,9 @@ import {
 import type { ChatMessage, Conversation } from '../api/index.ts'
 import { nextSendIntent } from '../api/sendIntent.ts'
 import type { SendIntent } from '../api/sendIntent.ts'
+import { uploadFile } from '../../files/public.ts'
+import { createChatFileQueue } from '../attachments.ts'
+import type { QueuedFile } from '../attachments.ts'
 
 function createChatWorkspace() {
   const conversations = ref<Conversation[]>([])
@@ -29,6 +35,39 @@ function createChatWorkspace() {
   const modelId = ref<string>()
   const messages = ref<ChatMessage[]>([])
   const draft = ref('')
+  const queuedFiles = ref<QueuedFile[]>([])
+  const queue = createChatFileQueue({
+    upload: uploadFile,
+    onChange: (files) => (queuedFiles.value = files)
+  })
+  const archivedFilter = ref(false),
+    metadataBusy = ref<string[]>([]),
+    metadataUnknown = ref<string[]>([])
+  const metadataScope = new RequestScope()
+  const supportsVision = computed(
+    () => models.value.find((model) => model.id === modelId.value)?.vision_enabled === true
+  )
+  const fileQueueReady = computed(() =>
+    queuedFiles.value.every((file) => file.status === 'ready' && file.fileId)
+  )
+  const readOnly = computed(
+    () =>
+      selected.value?.archived === true ||
+      (selected.value !== null &&
+        [...metadataBusy.value, ...metadataUnknown.value].includes(selected.value.id))
+  )
+  function addFiles(files: Iterable<File>): void {
+    if (sending.value || running.value || readOnly.value) return
+    const result = queue.add(files, supportsVision.value)
+    if (result.rejected.length)
+      error.value = result.rejected.map((item) => `${item.fileName}：${item.error}`).join('；')
+  }
+  function removeFile(id: string): void {
+    if (!sending.value && !running.value) queue.remove(id)
+  }
+  function retryFile(id: string): void {
+    if (!sending.value && !running.value && !readOnly.value) void queue.retry(id)
+  }
   const selectedSkills = ref<Skill[]>([])
   const skillPickerOpen = ref(false)
   const error = ref('')
@@ -58,6 +97,8 @@ function createChatWorkspace() {
   let pendingSend: SendIntent | null = null
   const canRetry = ref(false)
   onBeforeUnmount(() => {
+    metadataScope.dispose()
+    queue.clear()
     pageScope.dispose()
     conversationScope.dispose()
     draft.value = ''
@@ -95,6 +136,7 @@ function createChatWorkspace() {
   async function selectConversation(conversation: Conversation | null): Promise<void> {
     const context = conversationScope.replace()
     selected.value = conversation
+    queue.clear()
     messages.value = []
     activeRun.value = null
     error.value = ''
@@ -142,11 +184,31 @@ function createChatWorkspace() {
     try {
       const [availableModels, items] = await Promise.all([
         getModels(context.signal),
-        getConversations(context.signal)
+        getConversations(context.signal, archivedFilter.value)
       ])
       if (!context.isCurrent()) return
       models.value = availableModels
       conversations.value = items
+      const current = selected.value
+      const listed = current ? items.find((item) => item.id === current.id) : undefined
+      if (listed && current && listed.version >= current.version) selected.value = listed
+      const detailIds = new Set(metadataUnknown.value)
+      if (current && !listed) detailIds.add(current.id)
+      for (const id of detailIds) {
+        try {
+          const value = await getConversation(id, context.signal)
+          if (!context.isCurrent()) return
+          if (selected.value?.id === id && value.version >= selected.value.version)
+            selected.value = value
+          metadataUnknown.value = metadataUnknown.value.filter((item) => item !== id)
+        } catch (reason) {
+          if (!context.isCurrent()) return
+          if (reason instanceof ApiError && reason.status === 404) {
+            if (selected.value?.id === id) await selectConversation(null)
+            metadataUnknown.value = metadataUnknown.value.filter((item) => item !== id)
+          } else throw reason
+        }
+      }
       if (!modelOptions.value.some((model) => model.value === modelId.value)) {
         modelId.value = modelOptions.value[0]?.value
       }
@@ -166,16 +228,25 @@ function createChatWorkspace() {
   )
   async function send(retry = false): Promise<void> {
     const model = modelId.value
-    const message = draft.value.trim()
+    const message = draft.value.trim() || (queuedFiles.value.length ? '请分析上传的文件。' : '')
     if (
       sending.value ||
+      readOnly.value ||
       running.value ||
       loading.value ||
       listLoading.value ||
       !historyReady.value ||
-      (!retry && (!message || !model))
+      (!retry && (!message || !model || !fileQueueReady.value))
     )
       return
+    if (
+      !retry &&
+      queuedFiles.value.some((file) => file.kind === 'image') &&
+      !supportsVision.value
+    ) {
+      error.value = '请选择已启用视觉能力的模型后发送图片'
+      return
+    }
     const ownerId = identity.value?.id
     if (!ownerId) return
     const context = conversationScope.replace()
@@ -189,7 +260,8 @@ function createChatWorkspace() {
               conversationId: selected.value?.id ?? null,
               model_id: model,
               message,
-              skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug)
+              skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug),
+              file_ids: queuedFiles.value.map((file) => file.fileId!)
             },
             () => crypto.randomUUID()
           )
@@ -218,13 +290,15 @@ function createChatWorkspace() {
           model_id: request.model_id,
           message: request.message,
           client_request_id: request.client_request_id,
-          skill_slugs: request.skill_slugs ?? []
+          skill_slugs: request.skill_slugs ?? [],
+          file_ids: request.file_ids ?? []
         },
         context.signal
       )
       if (!isCurrent()) return
       activeRun.value = run
       pendingSend = null
+      queue.clear()
       draft.value = ''
       selectedSkills.value = []
       messages.value = await getMessages(conversationId, context.signal)
@@ -273,6 +347,55 @@ function createChatWorkspace() {
       }
     }
   }
+  function setArchivedFilter(value: boolean): void {
+    archivedFilter.value = value
+    void load()
+  }
+  function conversationLocked(id: string): boolean {
+    return (
+      metadataBusy.value.length > 0 ||
+      metadataUnknown.value.includes(id) ||
+      (selected.value?.id === id && (sending.value || running.value || canRetry.value))
+    )
+  }
+  async function changeConversation(
+    conversation: Conversation,
+    change: { title?: string; archived?: boolean } | 'delete'
+  ): Promise<boolean> {
+    if (conversationLocked(conversation.id)) return false
+    const context = metadataScope.replace(),
+      target = { ...conversation },
+      owner = identity.value?.id
+    metadataBusy.value = [target.id]
+    listError.value = ''
+    try {
+      const result =
+        change === 'delete'
+          ? await deleteConversation(target, context.signal)
+          : await updateConversation(target, change, context.signal)
+      if (!context.isCurrent() || identity.value?.id !== owner) return false
+      pageScope.replace()
+      listLoading.value = false
+      if (result) {
+        conversations.value = conversations.value.filter((item) => item.id !== target.id)
+        if (result.archived === archivedFilter.value) conversations.value.unshift(result)
+        if (selected.value?.id === target.id) selected.value = result
+      } else {
+        conversations.value = conversations.value.filter((item) => item.id !== target.id)
+        if (selected.value?.id === target.id) await selectConversation(null)
+      }
+      return true
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) {
+        if (!(reason instanceof ApiError) || reason.status >= 500)
+          metadataUnknown.value = [...new Set([...metadataUnknown.value, target.id])]
+        listError.value = `${errorMessage(reason)}；请刷新会话核对状态。`
+      }
+      return false
+    } finally {
+      if (context.isCurrent()) metadataBusy.value = []
+    }
+  }
   function setModelId(value: unknown): void {
     modelId.value = typeof value === 'string' ? value : undefined
   }
@@ -296,6 +419,17 @@ function createChatWorkspace() {
 
   return {
     conversations,
+    queuedFiles,
+    addFiles,
+    removeFile,
+    retryFile,
+    supportsVision,
+    fileQueueReady,
+    readOnly,
+    archivedFilter,
+    setArchivedFilter,
+    conversationLocked,
+    changeConversation,
     selected,
     modelId,
     messages,
@@ -344,6 +478,10 @@ export function useChatNavigation() {
     selected: readonly(state.selected),
     loading: readonly(state.listLoading),
     error: readonly(state.listError),
+    archivedFilter: readonly(state.archivedFilter),
+    setArchivedFilter: state.setArchivedFilter,
+    conversationLocked: state.conversationLocked,
+    changeConversation: state.changeConversation,
     refresh: state.load,
     select: state.selectConversation
   }

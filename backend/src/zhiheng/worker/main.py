@@ -8,6 +8,8 @@ from arq.connections import ArqRedis, RedisSettings
 from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.bootstrap.container import Container
 from zhiheng.bootstrap.settings import Settings
+from zhiheng.shared.errors import AppError
+from zhiheng.shared.principal import Principal
 from zhiheng.worker.execution import execute_run
 
 if TYPE_CHECKING:
@@ -59,6 +61,17 @@ async def periodic(context: dict[str, object]) -> None:
     await container.redis.set(container.settings.worker_health_key, str(time()), ex=15)
 
 
+async def file_maintenance(context: dict[str, object]) -> None:
+    container = cast('Container', context['container'])
+    system = Principal(UUID(int=0), 'files-maintenance', True)
+    try:
+        for kind in ('reminders', 'expiry', 'purge', 'reconcile'):
+            await container.file_jobs.run(system, kind)
+    except AppError as error:
+        if error.code != 'file_job_busy':
+            raise
+
+
 async def worker_startup(context: dict[str, object]) -> None:
     container = cast('Container', context['container'])
     await container.database.require_schema()
@@ -72,8 +85,11 @@ def build_worker(container: Container, *, burst: bool = False) -> Worker:
         if burst
         else [
             cron(
+                cast('WorkerCoroutine', file_maintenance), minute={0, 15, 30, 45}, second=20, keep_result=0, timeout=180
+            ),
+            cron(
                 cast('WorkerCoroutine', periodic), second=set(range(60)), run_at_startup=True, keep_result=0, timeout=10
-            )
+            ),
         ],
         redis_settings=RedisSettings.from_dsn(container.settings.redis_url.get_secret_value()),
         queue_name=container.settings.worker_queue,

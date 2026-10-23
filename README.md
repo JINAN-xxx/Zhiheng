@@ -2,19 +2,20 @@
 
 智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体与 Work，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
+**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体、Work、受管文件与聊天附件，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
 
-前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入、技能、智能体、Work 和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
+前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入、技能、智能体、Work、文件和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
 
 ## 当前功能状态
 
 | 功能 | 当前状态 | 已实现的范围 |
 | --- | --- | --- |
 | 身份与会话 | 已实现并通过本地验收 | CLI 创建管理员、登录、注销、可撤销 Cookie 会话、资源归属校验 |
-| 模型管理 | 已实现并通过本地验收 | 连接/模型新增、编辑、启停、发布与引用保护删除；文本、Embedding、Rerank 的真实调用与分类测试 |
-| AI 对话 | 已实现并通过本地验收 | 流式回复、多轮上下文、历史记录、停止生成、断线后恢复查看 |
+| 模型管理 | 已实现并通过本地验收 | 连接/模型新增、编辑、启停、发布与引用保护删除；文本、图片（需启用视觉）、Embedding、Rerank 的真实调用与分类测试 |
+| AI 对话 | 已实现并通过本地验收 | 流式回复、多轮上下文、附件/图片、重命名/归档/删除、停止与断线恢复 |
 | 运行与用量 | 已实现并通过本地验收 | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录 |
-| 知识库与文件 | 待实现 | 文档管理、解析、分块、索引和检索；**MinerU 尚未接入** |
+| 受管文件 | 已实现并通过本地验收 | 原文件管理、权限/引用保护、回收/审计/策略/提醒/对账；真实原生解析与聊天附件 |
+| 知识库与图谱 | 待实现 | 库/文档管理、分块、Milvus索引/检索与LightRAG；**MinerU尚未接入** |
 | 技能 | 已实现并通过本地验收 | 原技能管理界面、ZIP/主文件预检和确认安装、内容/启停/删除、聊天选择及历史快照 |
 | 智能体 | 已实现并通过本地验收 | 原配置/发布/试聊/API界面、不可变发布与技能快照、推理和停止、应用Key公开JSON/SSE调用；知识检索待接入 |
 | Work | 已实现并通过本地验收 | 原工作模式与最近工作、任务/成员、冻结发布版本、人工单成员执行、署名共享历史、停止与失联收敛 |
@@ -22,9 +23,9 @@
 
 本地验收使用独立 PostgreSQL / Redis 和本地模型 HTTP 服务，覆盖构建后的真实浏览器链路。具体结果与未覆盖范围见[首条 AI 链路验收](docs/superpowers/verification/2026-10-23-first-ai-slice.md)。这不等同于所有供应商、全部目标功能或生产部署均已验收。
 
-2026-10-23 最新验收：后端完成本组全量 272 项回归，最后请求标识修复的 68 项相关回归及安装包 26 项通过；前端 21 项行为测试和 82 项页面回归、类型/格式/构建、独立规格与质量审查通过。真实容器验证开发接入、技能、智能体和 Work，带已有数据的迁移逐行核对。详见[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work 验收](docs/superpowers/verification/2026-10-23-work.md)。收费供应商和生产负载尚未验收。
+2026-10-23 最新验收：最终后端327项完整回归，前端24项行为和91项页面回归、类型/格式/构建及独立规格/质量审查通过。真实容器覆盖受管上传、原生解析、图片模型调用、文件回收、提醒和已有数据升级，原24张表的原列/原行核对一致。详见[文件与聊天附件验收](docs/superpowers/verification/2026-10-23-files.md)；此前[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work](docs/superpowers/verification/2026-10-23-work.md)记录保留。收费供应商和生产负载尚未验收。
 
-模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额用 Decimal 计算。供应商未报告有效整数用量时保留预留、标记未知、费用为空；人工对账界面仍待建设。图片、工具执行和结构化输出仍未接入。
+模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额用 Decimal 计算。供应商未报告有效整数用量时保留预留、标记未知、费用为空；人工对账界面仍待建设。图片已接到普通聊天，模型须启用视觉能力。工具执行和结构化输出仍未接入。
 
 ## 架构与目录
 
@@ -33,6 +34,8 @@
 ```mermaid
 flowchart LR
     Web[Vue 3 工作台] --> API[FastAPI 接口]
+    API --> Files[(受管文件卷)]
+    Worker --> Files
     API --> PG[(PostgreSQL)]
     Worker[后台 Worker] --> PG
     Worker <--> Redis[(Redis / ARQ)]
@@ -48,18 +51,18 @@ backend/
 ├── src/zhiheng/
 │   ├── api/             HTTP 入口
 │   ├── application/     跨模块用例与事务编排
-│   ├── modules/         identity、models、chat、developer、skills、agents、work
+│   ├── modules/         identity、models、chat、developer、skills、agents、work、files；knowledge原生解析
 │   ├── runtime/         运行、租约、outbox 与恢复原语
 │   ├── worker/          队列执行、取消观察与恢复
 │   ├── bootstrap/       配置和资源装配
-│   ├── infrastructure/  数据库连接与凭据加密
+│   ├── infrastructure/  数据库连接、凭据加密与受管存储
 │   ├── shared/          公共值与基础错误
 │   └── cli/             serve、worker、migrate、create-admin
 ├── migrations/          版本化数据库迁移
 └── tests/               单元、契约、集成与浏览器验收
 frontend/src/
 ├── app/                 应用、布局和显式路由
-├── modules/             identity、models、chat、developer、skills、agents、work、usage
+├── modules/             identity、models、chat、developer、skills、agents、work、files、usage
 └── shared/              HTTP、SSE、校验、原公共组件与视觉样式
 deploy/core/             Compose 和配置示例
 docs/README.md           文档索引
@@ -98,6 +101,8 @@ legacy/                  旧工程归档与原有未提交优化
 网页端登录后，展开“模型中心”，在“模型目录 → 凭据管理”添加 OpenAI 兼容服务连接，再在“平台模型”接入模型，进行连接测试或文字聊天。连接测试也经过持久运行与用量治理，会消耗实际供应商额度。
 
 “开发接入”中创建应用并为 Key 授权模型。Key 只在创建或轮换成功时显示一次；公开接口使用 `Authorization: Bearer <api_key>`，支持 `/v1/models`、`/v1/chat/completions`、`/v1/embeddings` 和 `/v1/rerank`。请求中的 `model` 使用模型目录复制的平台 UUID。接口定义位于 `/docs` 和 `/openapi.json`；手动费率不代表已对接供应商价格同步或支付结算。
+
+管理员侧栏“管理后台”进入原文件管理页面。聊天纸夹恢复图片/文档上传，每条消息最多10张图片、5个文档，单件最大20MiB；图片须选择已启用视觉能力的模型。文件的“公开”仅允许已登录平台成员读取。会话删除解除附件引用；文件仍被业务引用时不能删除或物理清理。
 
 “智能体扩展 → 技能管理”中，管理员可上传根目录包含 `SKILL.md` 的 ZIP 或单独主文件，预检后确认安装。普通账号可查看、选用启用技能；聊天输入末尾 `@` 或点击技能按钮，最多选择 5 项。技能主文件作为本次系统上下文并计入预留，历史记录保留内容版本摘要。包内附件只保存，不执行。
 
@@ -143,6 +148,7 @@ docker run --detach --name zhiheng-core-dev-redis \
 
 export ZHIHENG_DATABASE_URL="postgresql+asyncpg://zhiheng_core:${CORE_DEV_DB_PASSWORD}@127.0.0.1:15432/zhiheng_core"
 export ZHIHENG_REDIS_URL=redis://127.0.0.1:16379/0
+export ZHIHENG_FILES_ROOT="$PWD/.runtime/files"
 export ZHIHENG_CREDENTIAL_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export ZHIHENG_COOKIE_SECURE=false
 export ZHIHENG_ALLOWED_ORIGINS='["http://127.0.0.1:15190"]'

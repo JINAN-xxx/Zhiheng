@@ -158,16 +158,7 @@ class OpenAIChatProvider:
     async def _read(
         self, client: ChatOpenAI, messages: tuple[ModelMessage, ...], captured: UsageCapture
     ) -> AsyncIterator[ModelDelta]:
-        normalized: list[BaseMessage] = []
-        for message in messages:
-            if message.role == 'system':
-                normalized.append(SystemMessage(content=message.content))
-            elif message.role == 'developer':
-                normalized.append(ChatMessage(role='developer', content=message.content))
-            elif message.role == 'assistant':
-                normalized.append(AIMessage(content=message.content))
-            else:
-                normalized.append(HumanMessage(content=message.content))
+        normalized = normalize_messages(messages)
         completed = False
         try:
             with tracing_context(enabled=False):
@@ -198,3 +189,24 @@ class OpenAIChatProvider:
             raise ProviderError(definitive_rejection=exc.status_code in {400, 401, 403, 404, 422, 429}) from None
         except (APIError, TimeoutError, ValueError):
             raise ProviderError from None
+
+
+def normalize_messages(messages: tuple[ModelMessage, ...]) -> list[BaseMessage]:
+    normalized: list[BaseMessage] = []
+    for message in messages:
+        if message.role == 'system':
+            normalized.append(SystemMessage(content=message.content))
+        elif message.role == 'developer':
+            normalized.append(ChatMessage(role='developer', content=message.content))
+        elif message.role == 'assistant':
+            normalized.append(AIMessage(content=message.content))
+        elif message.images:
+            blocks: list[str | dict[str, Any]] = [{'type': 'text', 'text': message.content}]
+            blocks.extend(
+                {'type': 'image_url', 'image_url': {'url': image.data_url, 'detail': 'auto'}}
+                for image in message.images
+            )
+            normalized.append(HumanMessage(content=blocks))
+        else:
+            normalized.append(HumanMessage(content=message.content))
+    return normalized

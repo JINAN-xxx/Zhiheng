@@ -18,6 +18,7 @@
 | [智能体验收](superpowers/verification/2026-10-23-agents.md) | 版本快照、真实JSON/SSE、推理停止、原界面与数据升级 |
 | [Work计划](superpowers/plans/2026-10-23-work.md) | 已完成的持久任务、冻结成员、单成员执行、共享历史与取消 |
 | [Work验收](superpowers/verification/2026-10-23-work.md) | 原工作界面、真实接力/停止/失联收敛与数据升级 |
+| [受管文件与聊天附件验收](superpowers/verification/2026-10-23-files.md) | 原文件治理、真实解析/图片链路、安装包、迁移和正常实例验证 |
 | [文件、知识库、图谱与MinerU计划](superpowers/plans/2026-10-23-files-knowledge.md) | 受管字节、真实解析/索引/检索、版本化图谱与解析连接的后续分组 |
 | [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
 | [部署说明](../deploy/core/README.md) | 新实例启动、健康检查和数据备份要求 |

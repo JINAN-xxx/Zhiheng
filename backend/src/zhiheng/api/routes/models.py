@@ -43,6 +43,7 @@ class ModelRequest(BaseModel):
     upstream_model: str = Field(min_length=1, max_length=200)
     max_output_tokens: int = Field(default=512, strict=True, ge=1, le=131072)
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
+    vision_enabled: bool = Field(default=False, strict=True)
     published: bool = True
 
 
@@ -126,6 +127,7 @@ class ModelPatch(BaseModel):
     upstream_model: str | None = Field(default=None, min_length=1, max_length=200)
     max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
     enabled: bool | None = None
+    vision_enabled: bool | None = Field(default=None, strict=True)
     published: bool | None = None
 
 

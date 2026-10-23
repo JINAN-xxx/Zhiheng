@@ -1,5 +1,6 @@
 """Explicit instance settings; legacy environment files are never discovered."""
 
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
@@ -10,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix='ZHIHENG_', env_file=None, extra='forbid')
 
+    files_root: Path = Path('/var/lib/zhiheng/files')
     database_url: SecretStr
     redis_url: SecretStr
     credential_key: SecretStr

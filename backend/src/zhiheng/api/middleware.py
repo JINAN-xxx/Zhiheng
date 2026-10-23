@@ -27,7 +27,7 @@ class RequestOriginMiddleware:
                 )
                 await response(scope, receive, send)
                 return
-            upload = scope['path'] == '/api/skills/import/prepare' and scope['method'] == 'POST'
+            upload = scope['path'] in {'/api/skills/import/prepare', '/api/files'} and scope['method'] == 'POST'
             content_types = request.headers.getlist('content-type')
             content_type = content_types[0].split(';', 1)[0].strip().lower() if len(content_types) == 1 else ''
             expected = 'application/octet-stream' if upload else 'application/json'
@@ -43,7 +43,7 @@ class RequestOriginMiddleware:
         await self._app(scope, receive, send)
 
     async def _upload(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
-        limit = 10 * 1024 * 1024
+        limit = (20 if scope['path'] == '/api/files' else 10) * 1024 * 1024
         lengths = request.headers.getlist('content-length')
         if len(lengths) > 1 or (lengths and (not lengths[0].isascii() or not lengths[0].isdigit())):
             await JSONResponse(
@@ -51,9 +51,9 @@ class RequestOriginMiddleware:
             )(scope, receive, send)
             return
         if lengths and (len(lengths[0]) > MAX_LENGTH_HEADER_DIGITS or int(lengths[0]) > limit):
-            await JSONResponse({'error': {'code': 'request_too_large', 'message': '技能包超过10MiB'}}, status_code=413)(
-                scope, receive, send
-            )
+            await JSONResponse(
+                {'error': {'code': 'request_too_large', 'message': '上传内容超过大小限制'}}, status_code=413
+            )(scope, receive, send)
             return
         body = bytearray()
         while True:
@@ -63,7 +63,7 @@ class RequestOriginMiddleware:
             body.extend(message.get('body', b''))
             if len(body) > limit:
                 await JSONResponse(
-                    {'error': {'code': 'request_too_large', 'message': '技能包超过10MiB'}}, status_code=413
+                    {'error': {'code': 'request_too_large', 'message': '上传内容超过大小限制'}}, status_code=413
                 )(scope, receive, send)
                 return
             if not message.get('more_body', False):

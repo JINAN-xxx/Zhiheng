@@ -119,6 +119,7 @@ class ModelService:
         max_output_tokens: int,
         model_type: Literal['chat', 'embedding', 'rerank'] = 'chat',
         published: bool = True,
+        vision_enabled: bool = False,
     ) -> ModelInfo:
         principal.require_admin()
         connection = await session.scalar(
@@ -128,6 +129,8 @@ class ModelService:
         )
         if connection is None:
             raise AppError('connection_not_found', '模型连接不存在', 404)
+        if vision_enabled and model_type != 'chat':
+            raise AppError('unsupported_capability', '仅聊天模型支持vision能力', 422)
         model = ModelDefinition(
             name=name,
             connection_id=connection_id,
@@ -135,6 +138,7 @@ class ModelService:
             max_output_tokens=max_output_tokens,
             model_type=model_type,
             published=published,
+            vision_enabled=vision_enabled,
         )
         session.add(model)
         await session.flush()
@@ -171,6 +175,8 @@ class ModelService:
             )
             if connection is None:
                 raise AppError('connection_not_found', '模型连接不存在', 404)
+        if fields.get('vision_enabled') and row.model_type != 'chat':
+            raise AppError('unsupported_capability', '仅聊天模型支持vision能力', 422)
         for name, value in fields.items():
             setattr(row, name, value)
         return self._model_info(row)
@@ -237,6 +243,7 @@ class ModelService:
         if revision is None:
             raise AppError('connection_unavailable', '模型连接版本不可用', 503)
         return ModelBinding(
+            vision_enabled=model.vision_enabled,
             model_id=model.id,
             connection_id=model.connection_id,
             connection_revision_id=revision.id,
@@ -316,10 +323,13 @@ class ModelService:
     @staticmethod
     def _model_info(row: ModelDefinition) -> ModelInfo:
         kind = cast("Literal['chat', 'embedding', 'rerank']", row.model_type)
-        capabilities: tuple[Literal['chat', 'stream', 'embedding', 'rerank'], ...] = (
+        capabilities: tuple[Literal['chat', 'stream', 'embedding', 'rerank', 'vision'], ...] = (
             ('chat', 'stream') if kind == 'chat' else (kind,)
         )
+        if kind == 'chat' and row.vision_enabled:
+            capabilities = (*capabilities, 'vision')
         return ModelInfo(
+            vision_enabled=row.vision_enabled,
             id=row.id,
             name=row.name,
             connection_id=row.connection_id,

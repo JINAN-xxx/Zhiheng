@@ -23,6 +23,11 @@ REQUIRED_FILES = frozenset(
         'zhiheng/application/work_runs.py',
         'zhiheng/application/lifecycle.py',
         'zhiheng/api/routes/work.py',
+        'zhiheng/api/routes/files.py',
+        'zhiheng/modules/files/public.py',
+        'zhiheng/modules/files/jobs.py',
+        'zhiheng/infrastructure/file_storage.py',
+        'zhiheng/modules/knowledge/adapters/native_worker.py',
     }
 )
 
@@ -44,6 +49,7 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0003_skills.py',
         'versions/0004_agents.py',
         'versions/0005_work.py',
+        'versions/0006_files.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

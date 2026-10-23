@@ -4,10 +4,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zhiheng.modules.files.public import AttachmentSummary
+
 
 class ConversationInfo(BaseModel):
     id: UUID
     title: str
+    version: int = 1
+    archived: bool = False
     created_at: datetime
 
 
@@ -22,6 +26,7 @@ class SkillSnapshot(BaseModel):
 class MessageInfo(BaseModel):
     id: UUID
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
+    attachments: list[AttachmentSummary] = Field(default_factory=list)
     role: Literal['user', 'assistant']
     content: str
     reasoning: str = ''

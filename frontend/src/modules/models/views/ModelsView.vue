@@ -19,7 +19,8 @@ import {
   Dropdown as ADropdown,
   Menu as AMenu,
   MenuItem as AMenuItem,
-  Modal
+  Modal,
+  Switch as ASwitch
 } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, EllipsisOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { useWindowSize } from '@vueuse/core'
@@ -98,12 +99,14 @@ const modelForm = reactive<{
   upstream_model: string
   max_output_tokens: number | null
   model_type: ChatModel['model_type']
+  vision_enabled: boolean
 }>({
   name: '',
   connection_id: '',
   upstream_model: '',
   max_output_tokens: 512,
-  model_type: 'chat'
+  model_type: 'chat',
+  vision_enabled: false
 })
 const testRun = ref<RunSnapshot | null>(null)
 const testingModel = ref('')
@@ -182,7 +185,8 @@ function openModel(model: ChatModel | null = null): void {
         : ''),
     upstream_model: model?.upstream_model ?? '',
     max_output_tokens: model?.max_output_tokens ?? 512,
-    model_type: model?.model_type ?? 'chat'
+    model_type: model?.model_type ?? 'chat',
+    vision_enabled: model?.vision_enabled ?? false
   })
   modelOpen.value = true
   modalError.value = ''
@@ -338,6 +342,7 @@ async function saveModel(): Promise<void> {
   try {
     const body = {
       ...modelForm,
+      vision_enabled: modelForm.model_type === 'chat' && modelForm.vision_enabled,
       max_output_tokens: maxOutputTokens,
       name: modelForm.name.trim(),
       upstream_model: modelForm.upstream_model.trim()
@@ -349,7 +354,8 @@ async function saveModel(): Promise<void> {
             name: body.name,
             connection_id: body.connection_id,
             upstream_model: body.upstream_model,
-            max_output_tokens: body.max_output_tokens
+            max_output_tokens: body.max_output_tokens,
+            vision_enabled: body.model_type === 'chat' && body.vision_enabled
           },
           context.signal
         )
@@ -730,6 +736,14 @@ async function stopTest(): Promise<void> {
               ><ARadioButton value="embedding">向量</ARadioButton
               ><ARadioButton value="rerank">重排序</ARadioButton></ARadioGroup
             ></AFormItem
+          >
+          <AFormItem v-if="modelForm.model_type === 'chat'" label="视觉能力"
+            ><ASwitch
+              :checked="modelForm.vision_enabled"
+              aria-label="启用视觉能力"
+              @update:checked="(value) => (modelForm.vision_enabled = value === true)"
+            />
+            <p class="muted small">仅在上游模型支持图片输入时启用。</p></AFormItem
           >
           <div class="form-grid">
             <AFormItem label="上游模型标识" required

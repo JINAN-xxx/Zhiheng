@@ -1,6 +1,6 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
-import { onBeforeUnmount } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import {
   Alert as AAlert,
   Avatar as AAvatar,
@@ -12,6 +12,9 @@ import {
 } from 'ant-design-vue'
 import {
   PaperClipOutlined,
+  CloseOutlined,
+  FileTextOutlined,
+  PictureOutlined,
   PauseCircleOutlined,
   RobotOutlined,
   SendOutlined,
@@ -23,9 +26,18 @@ import { useChatWorkspace } from '../public.ts'
 import { SkillPicker } from '../../skills/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
+import ChatMessageFiles from '../components/ChatMessageFiles.vue'
+import { CHAT_FILE_ACCEPT } from '../attachments.ts'
 const {
   selectConversation,
   selected,
+  queuedFiles,
+  addFiles,
+  removeFile,
+  retryFile,
+  fileQueueReady,
+  supportsVision,
+  readOnly,
   modelId,
   messages,
   draft,
@@ -53,6 +65,12 @@ const {
   setModelId,
   keydown
 } = useChatWorkspace()
+const fileInput = ref<HTMLInputElement | null>(null)
+function chooseFiles(event: Event): void {
+  const input = event.target as HTMLInputElement
+  if (input.files) addFiles(Array.from(input.files))
+  input.value = ''
+}
 onBeforeUnmount(() => {
   void selectConversation(null)
 })
@@ -122,6 +140,7 @@ onBeforeUnmount(() => {
               :reasoning-content="message.reasoning"
             />
             <p v-else class="user-message">{{ message.content }}</p>
+            <ChatMessageFiles :files="message.attachments" />
             <div v-if="message.skill_snapshots.length" class="message-skills">
               <ATag v-for="skill in message.skill_snapshots" :key="skill.revision_id"
                 >技能：{{ skill.name }}</ATag
@@ -147,7 +166,7 @@ onBeforeUnmount(() => {
       </section>
       <footer class="composer">
         <div class="composer-context">
-          <span class="model-capability">文本对话</span
+          <span class="model-capability">{{ supportsVision ? '文本与图片' : '文本对话' }}</span
           ><span v-if="!modelOptions.length && !listLoading" class="muted small"
             >暂无可用模型，请联系管理员配置</span
           >
@@ -166,12 +185,70 @@ onBeforeUnmount(() => {
             >技能：{{ skill.skillName }}</ATag
           >
         </div>
+        <div v-if="readOnly" class="archived-actions">
+          <span class="archived-message">{{
+            selected?.archived
+              ? '会话已归档，取消归档后可继续对话。'
+              : '会话状态待核对，请刷新会话。'
+          }}</span>
+        </div>
+        <div v-if="queuedFiles.length" class="file-queue" aria-label="待发送附件">
+          <div
+            v-for="file in queuedFiles"
+            :key="file.id"
+            class="queued-file"
+            :class="{ 'has-error': file.status === 'failed' }"
+          >
+            <img
+              v-if="file.previewUrl"
+              :src="file.previewUrl"
+              :alt="file.fileName"
+              class="queued-file-preview"
+            /><PictureOutlined
+              v-else-if="file.kind === 'image'"
+              class="queued-file-icon"
+            /><FileTextOutlined v-else class="queued-file-icon" />
+            <div class="queued-file-details">
+              <span class="queued-file-name">{{ file.fileName }}</span
+              ><span class="queued-file-status">{{
+                file.status === 'ready'
+                  ? '上传完成'
+                  : file.status === 'uploading'
+                    ? '上传中'
+                    : '上传失败'
+              }}</span
+              ><span v-if="file.error" class="queued-file-error">{{ file.error }}</span>
+            </div>
+            <AButton
+              v-if="file.status === 'failed'"
+              size="small"
+              :disabled="sending || running || readOnly"
+              @click="retryFile(file.id)"
+              >重新上传</AButton
+            ><AButton
+              type="text"
+              :aria-label="`移除附件：${file.fileName}`"
+              :disabled="sending || running"
+              @click="removeFile(file.id)"
+              ><CloseOutlined
+            /></AButton>
+          </div>
+        </div>
+        <input
+          ref="fileInput"
+          class="chat-file-input"
+          type="file"
+          :accept="CHAT_FILE_ACCEPT"
+          multiple
+          aria-label="选择附件文件"
+          @change="chooseFiles"
+        />
         <div class="composer-surface">
           <ATextarea
             v-model:value="draft"
             :auto-size="{ minRows: 3, maxRows: 6 }"
             :maxlength="16000"
-            :disabled="sending"
+            :disabled="sending || readOnly"
             placeholder="输入消息，按回车发送，按住上档键回车换行"
             aria-label="消息内容"
             @keydown="keydown"
@@ -185,12 +262,13 @@ onBeforeUnmount(() => {
             />
             <AButton
               type="text"
-              disabled
+              :disabled="sending || running || loading || readOnly"
               aria-label="添加图片或附件"
-              title="当前版本支持文本对话，暂不支持附件"
+              title="每条消息最多10张图片、5个文档，单个文件最大20MiB"
+              @click="fileInput?.click()"
               ><PaperClipOutlined /></AButton
             ><span class="composer-hint">{{
-              draft.length ? `${draft.length} / 16000` : '当前支持文本对话'
+              draft.length ? `${draft.length} / 16000` : '单个文件最大20MiB'
             }}</span
             ><AButton
               v-if="running"
@@ -205,7 +283,15 @@ onBeforeUnmount(() => {
               class="composer-submit"
               type="primary"
               :loading="sending"
-              :disabled="!draft.trim() || !modelId || loading || listLoading || !historyReady"
+              :disabled="
+                (!draft.trim() && !queuedFiles.length) ||
+                !modelId ||
+                loading ||
+                listLoading ||
+                !historyReady ||
+                !fileQueueReady ||
+                readOnly
+              "
               aria-label="发送消息"
               @click="send()"
               ><SendOutlined />发送</AButton

@@ -173,3 +173,6 @@ cython_debug/
 /legacy/backend/data/knowledge/
 legacy/backend/tokenizer-cache/
 node_modules/
+
+# New core local file storage
+/.runtime/

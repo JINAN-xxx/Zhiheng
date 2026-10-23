@@ -22,6 +22,10 @@ defineProps<{ collapsed: boolean; showCollapseControl?: boolean }>()
 const emit = defineEmits<{ 'toggle-collapse': []; navigate: [] }>()
 const route = useRoute()
 const router = useRouter()
+async function openAdministration(): Promise<void> {
+  await router.push('/files')
+  emit('navigate')
+}
 const resourcesExpanded = ref(['models', 'usage', 'developer'].includes(String(route.name)))
 const extensionsExpanded = ref(['skills', 'agents'].includes(String(route.name)))
 const historyExpanded = ref(false)
@@ -234,9 +238,10 @@ async function openHistory(): Promise<void> {
     <button
       type="button"
       class="platform-admin-entry"
-      disabled
+      :disabled="!identity?.is_admin"
       aria-label="管理后台"
-      title="当前版本暂不支持管理后台"
+      :title="identity?.is_admin ? '文件管理' : '需要管理员权限'"
+      @click="openAdministration"
     >
       <SettingOutlined /><span v-if="!collapsed">管理后台</span>
     </button>

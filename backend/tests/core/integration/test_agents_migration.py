@@ -49,19 +49,25 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
             .all()
         )
         snapshots = {
-            table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
+            table: (
+                await connection.execute(
+                    text(
+                        f"SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1"
+                    )
+                )
+            )
             .scalars()
             .all()
             for table in tables
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0005_work'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0006_files'
         for table in tables:
             # Compare every original value; new projection and billing columns are verified below.
             assert (
                 await connection.execute(
-                    text(f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
+                    text(f"SELECT (to_jsonb(t) - CASE WHEN '{table}'='chat_conversations' THEN ARRAY['version','archived','deleted_at'] WHEN '{table}'='chat_messages' THEN ARRAY['attachments','attachment_inputs'] WHEN '{table}'='models' THEN ARRAY['vision_enabled'] ELSE ARRAY[]::text[] END-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
                 )
             ).scalars().all() == snapshots[table]
         assert (

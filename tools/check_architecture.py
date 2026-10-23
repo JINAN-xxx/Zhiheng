@@ -26,6 +26,9 @@ SUPPLIER_ROOTS = frozenset(
         'litellm',
         'langgraph',
         'lightrag',
+        'pypdf',
+        'PIL',
+        'openpyxl',
     }
 )
 INVERTED_LAYERS = frozenset({'api', 'worker', 'bootstrap', 'application', 'cli'})
@@ -57,7 +60,10 @@ def _rule(source: str, target: str) -> str | None:
     if root in LEGACY_ROOTS or root.startswith('module_'):
         return 'legacy-runtime-import'
     if origin[:2] == [PACKAGE, 'shared']:
-        business_dependency = destination[:1] == [PACKAGE] and destination[1:2] not in ([], ['shared'])
+        business_dependency = destination[:1] == [PACKAGE] and destination[1:2] not in (
+            [],
+            ['shared'],
+        )
         if business_dependency or root in FRAMEWORK_ROOTS or _supplier_import(target):
             return 'shared-dependency'
     if origin[:2] == [PACKAGE, 'runtime'] and destination[:2] == [PACKAGE, 'modules']:
@@ -74,6 +80,8 @@ def _rule(source: str, target: str) -> str | None:
         public_interface = len(destination) >= PUBLIC_PATH_DEPTH and destination[DOMAIN_PATH_DEPTH] == 'public'
         if not same_module and not public_interface:
             return 'module-private-import'
+    if root in {'pypdf', 'PIL', 'openpyxl'} and origin[:4] != [PACKAGE, 'modules', 'knowledge', 'adapters']:
+        return 'parser-sdk-outside-owning-adapter'
     if _supplier_import(target) and 'adapters' not in origin[DOMAIN_PATH_DEPTH:]:
         return 'sdk-outside-adapter'
     return None

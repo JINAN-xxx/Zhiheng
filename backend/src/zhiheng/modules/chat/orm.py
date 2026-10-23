@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,6 +14,9 @@ class Conversation(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     title: Mapped[str] = mapped_column(String(100), default='新对话')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -29,5 +32,7 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text)
     reasoning: Mapped[str] = mapped_column(Text, default='', server_default='')
     skill_snapshots: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list, server_default='[]')
+    attachments: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
+    attachment_inputs: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

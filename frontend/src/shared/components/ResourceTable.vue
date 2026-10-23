@@ -9,7 +9,10 @@ defineProps<{
   scrollX?: number | string
   rowKey?: string | ((record: T) => string)
 }>()
-defineSlots<{ bodyCell(props: { column: { key?: unknown }; record: T }): unknown }>()
+defineSlots<{
+  bodyCell(props: { column: { key?: unknown }; record: T; index: number }): unknown
+  headerCell(props: { column: { key?: unknown } }): unknown
+}>()
 </script>
 <template>
   <div class="antd-resource-table">
@@ -21,8 +24,14 @@ defineSlots<{ bodyCell(props: { column: { key?: unknown }; record: T }): unknown
       :row-key="rowKey ?? 'id'"
       :scroll="{ x: scrollX ?? 850 }"
       size="middle"
+      ><template v-if="$slots.headerCell" #headerCell="props"
+        ><slot name="headerCell" :column="props.column" /></template
       ><template #bodyCell="props"
-        ><slot name="bodyCell" :column="props.column" :record="props.record as T" /></template
+        ><slot
+          name="bodyCell"
+          :column="props.column"
+          :record="props.record as T"
+          :index="props.index" /></template
     ></ATable>
   </div>
 </template>

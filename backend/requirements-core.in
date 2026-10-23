@@ -1,6 +1,6 @@
 fastapi==0.141.1
 uvicorn[standard]==0.29.0
-SQLAlchemy==2.0.36
+SQLAlchemy[asyncio]==2.0.36
 asyncpg==0.31.0
 alembic==1.18.5
 pydantic==2.12.3
@@ -16,3 +16,6 @@ cryptography==44.0.1
 argon2-cffi==25.1.0
 httpx==0.28.1
 PyYAML==6.0.3
+pypdf==6.18.0
+Pillow==12.3.0
+openpyxl==3.1.5

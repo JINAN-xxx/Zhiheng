@@ -18,7 +18,8 @@ export interface ChatModel {
   enabled: boolean
   model_type: 'chat' | 'embedding' | 'rerank'
   published: boolean
-  capabilities: ('chat' | 'stream' | 'embedding' | 'rerank')[]
+  vision_enabled: boolean
+  capabilities: ('chat' | 'stream' | 'embedding' | 'rerank' | 'vision')[]
 }
 function parseConnection(value: unknown): ModelConnection {
   const data = object(value)
@@ -35,7 +36,13 @@ function parseConnection(value: unknown): ModelConnection {
 function parseModel(value: unknown): ChatModel {
   const data = object(value)
   const capabilities = list((value) => {
-    if (value !== 'chat' && value !== 'stream' && value !== 'embedding' && value !== 'rerank')
+    if (
+      value !== 'chat' &&
+      value !== 'stream' &&
+      value !== 'embedding' &&
+      value !== 'rerank' &&
+      value !== 'vision'
+    )
       throw new Error('不支持的模型能力')
     return value
   })(data.capabilities)
@@ -50,6 +57,7 @@ function parseModel(value: unknown): ChatModel {
     enabled: boolean(data.enabled),
     model_type: data.model_type,
     published: boolean(data.published),
+    vision_enabled: data.vision_enabled === undefined ? false : boolean(data.vision_enabled),
     capabilities
   }
 }
@@ -72,6 +80,7 @@ export const createModel = (
     max_output_tokens: number
     model_type?: 'chat' | 'embedding' | 'rerank'
     published?: boolean
+    vision_enabled?: boolean
   },
   signal: AbortSignal
 ) => http.request('/models', { method: 'POST', body, signal, decode: parseModel })
@@ -102,7 +111,13 @@ export const controlConnection = (
   )
 export const updateModel = (
   id: string,
-  body: { name: string; connection_id: string; upstream_model: string; max_output_tokens: number },
+  body: {
+    name: string
+    connection_id: string
+    upstream_model: string
+    max_output_tokens: number
+    vision_enabled?: boolean
+  },
   signal: AbortSignal
 ) =>
   http.request(`/models/${encodeURIComponent(id)}`, {

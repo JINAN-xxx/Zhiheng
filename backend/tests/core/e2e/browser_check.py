@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import httpx
@@ -162,10 +163,11 @@ def browser_flow(base_url: str, provider: ProviderServer, artifacts: Path) -> No
             browser.close()
 
 
-def child_environment(database_url: str, redis_url: str, base_url: str) -> dict[str, str]:
+def child_environment(database_url: str, redis_url: str, base_url: str, *, files_root: Path) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if not key.startswith(('ZHIHENG_', 'PYTHONPATH'))}
     env.update(
         {
+            'ZHIHENG_FILES_ROOT': str(files_root),
             'ZHIHENG_DATABASE_URL': database_url,
             'ZHIHENG_REDIS_URL': redis_url,
             'ZHIHENG_CREDENTIAL_KEY': Fernet.generate_key().decode(),
@@ -241,29 +243,35 @@ def main() -> int:
     database_name = f'core_browser_{uuid4().hex}'
     python = os.getenv('ZHIHENG_E2E_PYTHON', sys.executable)
     instance_url = make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
-    env = child_environment(instance_url, os.environ['ZHIHENG_TEST_REDIS_URL'], args.base_url)
-    artifacts = Path('/tmp/zhiheng-core-browser-artifacts')
-    artifacts.mkdir(exist_ok=True)
-    asyncio.run(create_database(database_url, database_name))
-    try:
-        subprocess.run([python, '-m', 'zhiheng', 'migrate'], env=env, cwd='/tmp', check=True)
-        subprocess.run(
-            [python, '-m', 'zhiheng', 'create-admin', '--username', 'admin', '--password-stdin'],
-            input='browser-test-password\n',
-            text=True,
-            env=env,
-            cwd='/tmp',
-            check=True,
+    with TemporaryDirectory(prefix='zhiheng-core-e2e-files-') as files_root:
+        env = child_environment(
+            instance_url, os.environ['ZHIHENG_TEST_REDIS_URL'], args.base_url, files_root=Path(files_root)
         )
-        with provider_service() as provider, application_processes(python, env, args.api_port, artifacts) as processes:
-            wait_ready(args.api_port, processes, artifacts)
-            browser_flow(args.base_url, provider, artifacts)
-        print(
-            f'Core browser flow passed: login, model setup/test, two chat turns, history, cancellation, usage, mobile, logout. Artifacts: {artifacts}'
-        )
-        return 0
-    finally:
-        asyncio.run(create_database(database_url, database_name, drop=True))
+        artifacts = Path('/tmp/zhiheng-core-browser-artifacts')
+        artifacts.mkdir(exist_ok=True)
+        asyncio.run(create_database(database_url, database_name))
+        try:
+            subprocess.run([python, '-m', 'zhiheng', 'migrate'], env=env, cwd='/tmp', check=True)
+            subprocess.run(
+                [python, '-m', 'zhiheng', 'create-admin', '--username', 'admin', '--password-stdin'],
+                input='browser-test-password\n',
+                text=True,
+                env=env,
+                cwd='/tmp',
+                check=True,
+            )
+            with (
+                provider_service() as provider,
+                application_processes(python, env, args.api_port, artifacts) as processes,
+            ):
+                wait_ready(args.api_port, processes, artifacts)
+                browser_flow(args.base_url, provider, artifacts)
+            print(
+                f'Core browser flow passed: login, model setup/test, two chat turns, history, cancellation, usage, mobile, logout. Artifacts: {artifacts}'
+            )
+            return 0
+        finally:
+            asyncio.run(create_database(database_url, database_name, drop=True))
 
 
 if __name__ == '__main__':

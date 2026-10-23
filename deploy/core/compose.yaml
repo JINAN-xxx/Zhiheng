@@ -8,6 +8,7 @@ x-core-environment: &core-environment
   ZHIHENG_ALLOWED_ORIGINS: ${CORE_ALLOWED_ORIGINS:-[]}
   ZHIHENG_TOKEN_LIMIT: ${CORE_TOKEN_LIMIT:-100000}
   ZHIHENG_PROVIDER_TIMEOUT_SECONDS: ${CORE_PROVIDER_TIMEOUT_SECONDS:-60}
+  ZHIHENG_FILES_ROOT: /var/lib/zhiheng/files
   ZHIHENG_WORKER_QUEUE: ${CORE_WORKER_QUEUE:-zhiheng:core:queue}
 
 x-core-backend: &core-backend
@@ -62,6 +63,8 @@ services:
 
   worker:
     <<: *core-backend
+    volumes:
+      - files-data:/var/lib/zhiheng/files
     command: [python, -m, zhiheng, worker]
     depends_on:
       migrator:
@@ -89,6 +92,8 @@ services:
 
   api:
     <<: *core-backend
+    volumes:
+      - files-data:/var/lib/zhiheng/files
     command: [python, -m, zhiheng, serve, --host, 0.0.0.0, --port, '19090']
     depends_on:
       migrator:
@@ -132,5 +137,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  files-data:
   postgres-data:
   redis-data:

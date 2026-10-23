@@ -53,7 +53,7 @@ async def model_id(admin: httpx.AsyncClient, provider: ProviderServer) -> str:
 
 
 @pytest_asyncio.fixture
-async def settings() -> AsyncIterator[object]:
+async def settings(tmp_path) -> AsyncIterator[object]:
     from zhiheng.bootstrap.settings import Settings
 
     database_url = os.getenv('ZHIHENG_TEST_DATABASE_URL')
@@ -67,6 +67,7 @@ async def settings() -> AsyncIterator[object]:
     url = make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
     try:
         yield Settings(
+            files_root=tmp_path / 'files',
             database_url=url,
             redis_url=redis_url,
             credential_key=Fernet.generate_key().decode(),

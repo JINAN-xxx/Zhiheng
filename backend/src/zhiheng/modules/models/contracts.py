@@ -5,15 +5,25 @@ from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zhiheng.shared.errors import AppError
+
+MAX_IMAGE_SNAPSHOT_BYTES = 2_000_000
+IMAGE_TOKEN_RESERVATION = 2048
+
+
+@dataclass(frozen=True)
+class ModelImage:
+    data_url: str
+    estimated_tokens: int = IMAGE_TOKEN_RESERVATION
 
 
 @dataclass(frozen=True)
 class ModelMessage:
     role: Literal['system', 'developer', 'user', 'assistant']
     content: str
+    images: tuple[ModelImage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,7 +74,14 @@ class ModelBinding(BaseModel):
     version: Literal[1] = 1
     connection_revision_id: UUID | None = None
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
+    vision_enabled: bool = Field(default=False, strict=True)
     options: ModelOptions = Field(default_factory=ModelOptions)
+
+    @model_validator(mode='after')
+    def supported_vision(self) -> 'ModelBinding':
+        if self.vision_enabled and self.model_type != 'chat':
+            raise ValueError('Vision requires chat model')
+        return self
 
 
 class ModelRequest(BaseModel):
@@ -72,6 +89,26 @@ class ModelRequest(BaseModel):
 
     binding: ModelBinding
     messages: tuple[ModelMessage, ...]
+
+    @field_validator('messages')
+    @classmethod
+    def validate_images(cls, messages: tuple[ModelMessage, ...]) -> tuple[ModelMessage, ...]:
+        for message in messages:
+            for image in message.images:
+                if (
+                    message.role != 'user'
+                    or not image.data_url.startswith('data:image/jpeg;base64,')
+                    or len(image.data_url) > MAX_IMAGE_SNAPSHOT_BYTES
+                    or image.estimated_tokens != IMAGE_TOKEN_RESERVATION
+                ):
+                    raise ValueError('Invalid managed image snapshot')
+        return messages
+
+    @model_validator(mode='after')
+    def require_vision_capability(self) -> 'ModelRequest':
+        if any(message.images for message in self.messages) and not self.binding.vision_enabled:
+            raise ValueError('Model does not support vision')
+        return self
 
 
 class ConnectionInfo(BaseModel):
@@ -91,8 +128,9 @@ class ModelInfo(BaseModel):
     max_output_tokens: int
     enabled: bool
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
+    vision_enabled: bool = Field(default=False, strict=True)
     published: bool = True
-    capabilities: tuple[Literal['chat', 'stream', 'embedding', 'rerank'], ...] = ('chat', 'stream')
+    capabilities: tuple[Literal['chat', 'stream', 'embedding', 'rerank', 'vision'], ...] = ('chat', 'stream')
 
 
 class RateCreate(BaseModel):
