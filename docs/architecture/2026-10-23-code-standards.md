@@ -1,6 +1,6 @@
 # 平台重构代码规范
 
-日期：2026-10-23。状态：已确认的重构规范，随平台重构分阶段执行；当前实际检查范围见阶段 A 验证记录，不代表旧站全量代码已通过新规范。
+日期：2026-10-23。状态：已确认的重构规范，随平台重构分阶段执行；当前实际检查范围见首条 AI 链路验收，归档旧代码不属于新交付范围。
 
 适用范围：新核心包、新增业务代码以及复用进入新包的代码。用户已明确按新平台、新项目建设，AI 核心内置。旧代码作为复用素材保留；进入新交付范围前必须符合新边界，不以旧 API、旧表或旧插件生命周期为兼容约束。
 
@@ -77,7 +77,7 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 - 每个持久任务有稳定业务 ID、attempt token、租约和终态所有者；所有终态写入验证当前 attempt。
 - 重复投递属于正常情况；注册 handler 必须说明幂等键、外部副作用及允许的重试范围。
 - 不为队列重试承诺外部副作用 exactly-once。对不可幂等操作记录执行意图和结果，禁止不加判断地重放。
-- 取消意图先写 PostgreSQL，再用 Redis 加速通知；执行端有独立取消观察，不等待下一段模型输出才检查。
+- 取消意图先写 PostgreSQL；执行端有独立取消观察，不等待下一段模型输出才检查。需要 Redis 加速通知时仍保留数据库恢复路径。
 - 不吞掉 CancelledError；关闭网络流、释放连接和写入终态使用有期限的收尾保护。
 - 禁止业务代码 fire-and-forget 创建持久任务。publisher、reconciler、心跳等进程期协调 task 必须生命周期明确、可取消且受监督；持久业务执行另有数据库事实与所有权。
 - API 与 worker 关闭时停止接收新工作，明确收敛或交出未完成任务；恢复职责不依赖一次性初始化 writer。
@@ -93,7 +93,7 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 - views 组合页面；components 用 props/events 协作；api 封装协议；composables 管理可复用行为；store 保存跨组件状态。
 - shared/http 的身份获取与失效处理由 app 注入，禁止 shared 反向依赖 identity store。
 - 普通 HTTP 只能从模块 api 调用；组件不拼装 URL、不直接操作 token、不自行实现错误转换。
-- SSE 解码在协议边界验证 schema_version、事件类型和必要字段；内部逻辑使用判别联合。
+- SSE 解码在协议边界验证事件类型、完整快照和必要字段；内部逻辑使用判别联合。后续版本化增量协议另行校验 schema_version，不能静默兼容未知事件。
 - 请求、轮询和 SSE 有明确的取消所有者。切换会话、任务、路由和退出登录时撤销旧请求，并拒绝过期响应更新新上下文。
 - 模块只通过 public.ts 和 routes.ts 向应用开放 API、状态选择器、路由元数据；根布局不导入模块私有视图。
 - 内置路由显式注册，前端导航由路由元数据、服务端权限与能力状态计算；后端始终执行最终授权。
@@ -133,10 +133,10 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 
 ## 10. 当前规范基线与缺口
 
-原工程已有后端 Ruff 规则及格式 CI，Python 最低运行基准为 3.10。阶段 A 已加入独立核心包、AST 依赖边界检查、核心 Mypy strict 检查和 wheel 验证；Ruff 版本对齐为 0.16.4。旧代码仍保留原有 ANN401 等兼容规则，新核心以类型和边界门禁约束。
+新后端仅检查和打包 `backend/src/zhiheng`，最低 Python 版本为 3.10；已纳入 Ruff 0.16.4、Mypy strict、AST 依赖边界和 wheel 内容检查。实际最低版本依赖安装与镜像导入已验证。`legacy/` 的旧插件、CLI、配置和环境文件不进入运行镜像，也不通过放宽新包依赖规则接回核心。
 
-前端阶段 A 已纳入 package-lock.json、npm ci、ESLint/Prettier、限定新核心目录的 TypeScript strict 检查，以及生产构建后 preview 浏览器验收。新模块尚未迁入时，这些门禁不代表旧站已接受全量类型/lint 检查。旧代码范围与退出条件见前端 QUALITY.md，验证证据见阶段 A 记录。
+新前端全部使用 TypeScript、Vue 3 与 Ant Design Vue，已纳入 package-lock.json、npm ci、ESLint 零 warning、Prettier、全新入口 TypeScript strict 和构建后 preview 浏览器验收。旧 JavaScript、Element Plus 和插件路由位于 `legacy/frontend/`，不属于新入口。首条链路支持矩阵为文本聊天与流式，未实现的供应商和能力在边界拒绝。
 
 用户已固定 langchain==1.4.7；langchain-core、langgraph、供应商包和 checkpointer 按兼容依赖完整锁定，不把所有包误写为同一个版本。SDK 的隐式重试必须关闭或逐尝试可观测，禁止以“框架内部行为”为由绕过平台调用治理。
 
-本文定义持续执行的规范，实际实施和验证范围见[阶段 A 验证记录](../superpowers/verification/2026-10-23-ai-core-foundation.md)。
+本文定义持续执行的规范，实际实施和验证范围见[首条 AI 链路验收](../superpowers/verification/2026-10-23-first-ai-slice.md)；早期工程基础记录保留在[阶段 A 验证记录](../superpowers/verification/2026-10-23-ai-core-foundation.md)。

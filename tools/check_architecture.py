@@ -10,7 +10,7 @@ from pathlib import Path
 PACKAGE = 'zhiheng'
 DOMAIN_PATH_DEPTH = 3
 PUBLIC_PATH_DEPTH = 4
-LEGACY_ROOTS = frozenset({'config', 'plugins', 'common', 'utils', 'exceptions', 'server'})
+LEGACY_ROOTS = frozenset({'config', 'plugins', 'common', 'utils', 'exceptions', 'server', 'legacy'})
 FRAMEWORK_ROOTS = frozenset({'fastapi', 'starlette', 'sqlalchemy', 'arq'})
 SUPPLIER_ROOTS = frozenset(
     {

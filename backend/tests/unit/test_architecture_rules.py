@@ -111,7 +111,12 @@ def test_runtime_cannot_depend_on_business_modules(checker: ModuleType, source: 
 
 
 @pytest.mark.parametrize(
-    'statement', ['from config.env import AppConfig', 'from plugins.ai.service import model_service']
+    'statement',
+    [
+        'from config.env import AppConfig',
+        'from plugins.ai.service import model_service',
+        'from legacy.backend import app',
+    ],
 )
 def test_new_core_cannot_import_legacy_runtime(checker: ModuleType, source: Callable, statement: str) -> None:
     root = source('bootstrap/dependencies.py', statement + '\n')

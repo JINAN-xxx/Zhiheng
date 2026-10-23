@@ -1,0 +1,12 @@
+**
+!Dockerfile.core
+!nginx.core.conf
+!package.json
+!package-lock.json
+!platform.html
+!vite.platform.config.ts
+!tsconfig.json
+!src/
+!src/**
+**/.env*
+**/tests/

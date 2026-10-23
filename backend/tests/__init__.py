@@ -1,0 +1,1 @@
+"""New platform tests."""

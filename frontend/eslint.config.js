@@ -35,5 +35,14 @@ export default tseslint.config(
     languageOptions: { parserOptions: { parser: tseslint.parser } },
     rules: { 'vue/block-lang': ['error', { script: { lang: 'ts' } }] }
   },
+  {
+    files: ['tests/core/**/*.ts', 'vite.platform.config.ts'],
+    extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      parserOptions: { project: './tsconfig.tests.json', tsconfigRootDir: import.meta.dirname }
+    },
+    rules: { '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }] }
+  },
   prettier
 )

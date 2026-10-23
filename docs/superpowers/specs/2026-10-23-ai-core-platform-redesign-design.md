@@ -1,6 +1,6 @@
 # AI 核心平台整体重构设计
 
-日期：2026-10-23。分支：refactor/ai-core-modularization。状态：阶段 A 工程基础已验证；用户进一步明确按新平台、新项目建设。以下新建基线取代先前的旧平台原位升级要求，业务实现尚未全部完成。
+日期：2026-10-23。分支：refactor/ai-core-modularization。状态：工程基础与首条 AI 链路已实现并通过本地验收；整体平台按下述目标分阶段建设。新建基线取代先前的旧平台原位升级要求。
 
 ## 1. 已确认的目标与本稿范围
 
@@ -50,6 +50,8 @@ module_task 不整体删除：scheduler_test 演示代码和种子任务退出�
 
 ## 4. 目标目录
 
+以下包含后续业务域，当前不为未实现的能力预建空模块。实际已交付目录见[代码结构说明](../../../代码结构说明.md)：旧工程归档在 `legacy/`，新后端仅使用 `backend/src/zhiheng`。
+
 ~~~text
 zhiheng/
 ├── backend/
@@ -58,8 +60,8 @@ zhiheng/
 │   │   ├── api/
 │   │   │   ├── main.py                # FastAPI 入口
 │   │   │   ├── routes/                # 显式注册，HTTP 请求/响应适配
-│   │   │   ├── dependencies/
-│   │   │   └── middleware/
+│   │   │   ├── dependencies.py
+│   │   │   └── middleware.py
 │   │   ├── worker/
 │   │   │   ├── main.py                # ARQ 入口
 │   │   │   ├── registry.py            # 受控 handler 注册
@@ -88,11 +90,9 @@ zhiheng/
 │   ├── migrations/                    # 新平台独立的单一 schema 版本图
 │   ├── tests/
 │   │   ├── unit/
-│   │   ├── integration/
-│   │   ├── contract/
-│   │   └── e2e/
+│   │   └── core/                       # unit、integration、contract、e2e
 │   ├── pyproject.toml
-│   └── requirements.lock              # 固定版本与哈希的部署依赖
+│   └── requirements-core.lock         # 固定版本与哈希的部署依赖
 ├── frontend/
 │   ├── src/
 │   │   ├── app/                       # 入口、显式路由和能力装配
@@ -165,8 +165,8 @@ flowchart LR
 - worker：聊天/Agent/Work 长运行、知识处理、文件维护、投递与失联恢复。
 - migrator：新平台业务 schema、框架持久化 schema、基础权限和后续版本升级。
 - PostgreSQL：消息、运行、授权、账本、知识元数据和迁移版本的事实来源。
-- Redis：ARQ、短期流事件、快速取消通知、配额协调及缓存；不独占终态事实。
-- 文件：首个交付使用独立的受管持久卷与 StoragePort；多节点前需落实共享对象存储与恢复验收。
+- Redis：首条链路用于 ARQ 和 worker 心跳；后续按实际需要增加短期事件、通知与缓存，不独占终态事实。
+- 文件：文件域交付时使用独立的受管持久卷与 StoragePort；多节点前需落实共享对象存储与恢复验收。
 - Milvus：使用新平台独立的索引命名空间；图谱首期采用已验证的 PostgreSQL/Milvus 路线。
 
 API/worker 的副本数可分别调整，但必须通过租约与跨进程验收。初始默认一个 worker，不能把移出 Web 进程直接等同于已支持多节点。
@@ -191,11 +191,11 @@ models 拥有：
 
 供应商工厂使用专用 LangChain 集成包；OpenAI 协议兼容端点、Anthropic、Google 等逐个建立并验收支持矩阵。未支持的供应商或能力在连接配置和调用入口明确拒绝，不能静默降级。
 
-初始适配覆盖聊天、流式、图片、工具调用、结构化输出、Embedding 与 Rerank。Embedding 和 Rerank 分别适配；不能假定聊天模型对象实现全部能力。
+首条链路仅支持 OpenAI 兼容端点的文本聊天与流式回复，其他供应商和能力明确拒绝。图片、工具调用、结构化输出、Embedding 与 Rerank 随所属业务域分别适配并验收，不能假定聊天模型对象实现全部能力。
 
 规范化消息支持 system/user/assistant/tool、内容块、tool_call_id 与工具参数；流支持文本、推理、工具调用增量、用量和结束原因。LangChain 消息不流出 adapter 成为全平台数据模型。
 
-客户端按连接版本与能力缓存；轮换密钥使缓存失效。原始密钥仅由连接所有者解密，不能进入队列 payload、LangGraph checkpoint 或普通日志。
+当前每次调用拥有独立客户端并在结束时关闭，避免框架共享缓存被关闭后影响后续请求。后续若引入缓存，按连接版本与能力区分并明确关闭所有者；轮换密钥使缓存失效。原始密钥仅由连接所有者解密，不能进入队列 payload、LangGraph checkpoint 或普通日志。
 
 模型使用新平台稳定 ID 与不可变绑定版本，不继承 LiteLLM 别名或 engine_type 作为核心字段。连接凭据由管理员配置并完成连接验收。连接密文有独立密钥版本与恢复材料，不能复用登录 JWT 或 API Key 摘要的秘密，也不能将掩码作为密钥保存。
 
@@ -213,7 +213,7 @@ Invocation 表示一次逻辑模型调用，身份由运行/工作流 lineage + 
 
 预留键固定为 invocation_id + reservation_version，供应商尝试以 invocation_attempt_id 唯一，账本分录按 invocation_attempt_id + charge_kind 唯一，逻辑调用的汇总结算按 invocation_id + settlement_version 唯一。冻结模型绑定、费率和配额政策版本；重复提交同键不同指纹拒绝，重复结算返回已提交结果。
 
-Redis Lua 继续负责快速预留/结算协调，PostgreSQL 保留可追溯事实；两者之间使用具备上述稳定键的补偿与对账。上游已执行但响应或落账不确定时进入 outcome_unknown，保留预留和关联证据，不按零费用失败处理，也不自动重放非幂等请求。供应商支持幂等时复用原供应商请求键；其余情况需对账或按明确的估算策略终结。
+首条链路使用 PostgreSQL 账户行锁预留 Token，接入、终态与用量事实在同一数据库事务中一致提交。当前不引入 Redis 配额双写或货币计费；未来确需 Redis 协调时，必须同时实现稳定键、补偿与对账。上游已执行但响应或落账不确定时，用量标记 unknown，保留预留和关联证据，不按零费用失败处理，也不自动重放非幂等请求。供应商支持幂等时复用原供应商请求键；其余情况需对账或按明确的估算策略终结。
 
 默认关闭不可观测的 SDK 自动重试，由受治理适配器执行有预算的重试并逐次记录 InvocationAttempt；不能关闭或不能观察重试的集成不进入首个支持矩阵。实际供应商成本与对用户计费策略分别版本化，未知上游结果下不承诺准确去重真实成本。
 
@@ -227,13 +227,13 @@ Redis Lua 继续负责快速预留/结算协调，PostgreSQL 保留可追溯事�
 2. 事务提交后投递 ARQ；投递失败由 publisher 从 PostgreSQL 补发。
 3. worker 以 Run 行版本和 attempt token 认领租约，重复投递无执行权即退出。
 4. 心跳续租、取消检查使用独立短事务，不持有模型调用的长数据库事务。
-5. 外部事件带 schema_version、run_id、attempt_id、event_id、seq；Redis Stream 是短期投影。
+5. 首条链路的 SSE 返回 PostgreSQL 中完整 RunSnapshot，以 id、attempt_id、revision、projection_seq 去重和恢复；订阅结束不取消运行。后续若引入增量事件协议与 Redis Stream，另定义 schema_version、event_id、seq 和持久快照回退契约。
 6. 写终态时再次验证 attempt，把最终消息、Run 结果引用和关联账本事实一致提交；跨存储结算由可重试补偿完成。
 7. reconciler 收敛过期执行和缺失投递；其启动与健康不依赖一次性迁移角色。
 
 普通 Run 状态为 pending → running → completed/failed/cancelled/interrupted；running 可先进入 cancel_requested。终态不可被晚到事件改写。
 
-取消先写 PostgreSQL；Redis 用作加速信号。执行器独立观察取消，网络流静默时也能关闭。异步 Run API 的订阅断线不自动取消运行；短期同步公开模型 API 按自身请求生命周期冻结取消策略。
+取消先写 PostgreSQL，执行器通过独立短事务观察，网络流静默时也能关闭；Redis 加速通知按后续容量需求引入。异步 Run API 的订阅断线不自动取消运行；短期同步公开模型 API 按自身请求生命周期冻结取消策略。
 
 失联 attempt 不能重新取得原写权限。普通模型调用和非幂等工具不自动无限重放；失败原因与是否允许恢复由 handler 定义。租约保护数据库写入，不能保证已发送的外部副作用 exactly-once。
 
@@ -339,7 +339,7 @@ misfire_policy 使用明确枚举 catch_up_all、coalesce_once、skip；catch_up
 
 ## 16. 可重复构建、质量与观测
 
-- 后端 pyproject 声明直接依赖，requirements.lock 锁定完整部署依赖和哈希；CI 在干净环境验证解析与安装。
+- 后端 pyproject 声明直接依赖，requirements-core.lock 锁定完整部署依赖和哈希；CI 在干净环境验证解析与安装。
 - 前端提交 package-lock.json，用 npm ci 构建；发布不借用构建机任意 node_modules。
 - API、worker、migrator 同一源码快照和镜像版本；前端源码、锁文件、工具链、静态产物及镜像摘要关联。
 - CI 对重构分支和目标 PR 都生效，覆盖代码规范、类型、模块边界、迁移、生产构建和关键真实链路。
@@ -382,4 +382,4 @@ misfire_policy 使用明确枚举 catch_up_all、coalesce_once、skip；catch_up
 - [LangGraph 持久化](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [ARQ 的重复执行语义](https://arq-docs.helpmanual.io/)
 
-整体设计和代码规范已作为实施基线；阶段 A 的工程基础与恢复修复以[验证记录](../verification/2026-10-23-ai-core-foundation.md)为准。顶层目录已实际整理为 backend/、frontend/，原有优化保留并单独备份。新平台启动、业务闭环、LangChain 接入与独立部署按后续阶段验收。
+整体设计和代码规范作为持续实施基线。首条链路已实现独立配置与迁移、身份、LangChain 1.4.7 模型接入、聊天、持久运行与 Token 配额，并提供新平台 Compose/CI；详见[首条 AI 链路验收](../verification/2026-10-23-first-ai-slice.md)。这覆盖 B/C/D/F 的部分内容，不代表文件、公开模型 API、知识库、Agent、Work、货币计费或完整部署恢复演练已完成。旧代码、原有 55 项未提交优化及未跟踪素材已保留到 `legacy/` 或其原位置，仓库外备份继续保留。

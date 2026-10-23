@@ -4,11 +4,11 @@ import argparse
 import zipfile
 from pathlib import Path
 
-REQUIRED_FILES = frozenset({'cli/main.py', 'zhiheng/__init__.py', 'zhiheng/py.typed'})
+REQUIRED_FILES = frozenset({'zhiheng/cli/main.py', 'zhiheng/__init__.py', 'zhiheng/py.typed'})
 
 
 def verify_core_wheel(directory: Path) -> Path:
-    wheels = sorted(directory.glob('zhiheng_fastapi_backend_cli-*.whl'))
+    wheels = sorted(directory.glob('zhiheng_platform-*.whl'))
     if len(wheels) != 1:
         raise ValueError(f'Expected one platform wheel in {directory}, found {len(wheels)}')
     wheel = wheels[0]
@@ -18,7 +18,8 @@ def verify_core_wheel(directory: Path) -> Path:
     if missing:
         raise ValueError(f'Core wheel is missing: {", ".join(sorted(missing))}')
     if any(
-        name.startswith(('plugins/', 'config/')) or any(part.startswith('.env') for part in Path(name).parts)
+        name.startswith(('plugins/', 'config/', 'legacy/', 'cli/'))
+        or any(part.startswith('.env') for part in Path(name).parts)
         for name in names
     ):
         raise ValueError('Core wheel includes legacy runtime or environment files')
