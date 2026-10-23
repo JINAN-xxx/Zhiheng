@@ -17,6 +17,11 @@ def verify_core_wheel(directory: Path) -> Path:
     missing = REQUIRED_FILES - names
     if missing:
         raise ValueError(f'Core wheel is missing: {", ".join(sorted(missing))}')
+    migrations = ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py')
+    if any(
+        not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations
+    ):
+        raise ValueError('Core wheel is missing required database migration resources')
     if any(
         name.startswith(('plugins/', 'config/', 'legacy/', 'cli/'))
         or any(part.startswith('.env') for part in Path(name).parts)

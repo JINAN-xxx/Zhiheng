@@ -1,31 +1,45 @@
-"""Preserve provider counter presence before LangChain can synthesize zero values."""
+"""Capture raw JSON counter types before SDK or LangChain can synthesize/coerce zero."""
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Mapping
 from types import TracebackType
-from typing import cast
 
-from openai import AsyncStream
-from openai.resources.chat.completions import AsyncCompletions
-from openai.types import CompletionUsage
-from openai.types.chat import ChatCompletionChunk
+from openai import AsyncOpenAI, AsyncStream
 
 from zhiheng.modules.models.contracts import ProviderError
+
+
+def normalize_counter(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
 
 
 class UsageCapture:
     def __init__(self) -> None:
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
+        self.cache_tokens: int | None = None
+        self.reasoning_tokens: int | None = None
 
-    def observe(self, usage: CompletionUsage) -> None:
-        prompt: object = usage.prompt_tokens if 'prompt_tokens' in usage.model_fields_set else None
-        completion: object = usage.completion_tokens if 'completion_tokens' in usage.model_fields_set else None
-        self.input_tokens = prompt if type(prompt) is int and prompt >= 0 else None
-        self.output_tokens = completion if type(completion) is int and completion >= 0 else None
+    def observe_raw(self, usage: Mapping[str, object]) -> None:
+        self.input_tokens = normalize_counter(usage.get('prompt_tokens'))
+        self.output_tokens = normalize_counter(usage.get('completion_tokens'))
+        cache_details = usage.get('prompt_tokens_details')
+        reasoning_details = usage.get('completion_tokens_details')
+        self.cache_tokens = (
+            normalize_counter(cache_details.get('cached_tokens')) if isinstance(cache_details, dict) else None
+        )
+        self.reasoning_tokens = (
+            normalize_counter(reasoning_details.get('reasoning_tokens'))
+            if isinstance(reasoning_details, dict)
+            else None
+        )
+        if isinstance(cache_details, dict) and 'cached_tokens' in cache_details and self.cache_tokens is None:
+            self.input_tokens = None
+        if self.cache_tokens is not None and self.input_tokens is not None and self.cache_tokens > self.input_tokens:
+            self.input_tokens = None
 
 
 class CapturingStream:
-    def __init__(self, source: AsyncStream[ChatCompletionChunk], usage: UsageCapture) -> None:
+    def __init__(self, source: AsyncStream[dict[str, object]], usage: UsageCapture) -> None:
         self._source, self._usage = source, usage
 
     async def __aenter__(self) -> 'CapturingStream':
@@ -40,20 +54,29 @@ class CapturingStream:
     ) -> None:
         await self._source.__aexit__(exception_type, exception, traceback)
 
-    async def __aiter__(self) -> AsyncIterator[ChatCompletionChunk]:
+    async def __aiter__(self) -> AsyncIterator[dict[str, object]]:
         async for chunk in self._source:
-            if chunk.usage is not None:
-                self._usage.observe(chunk.usage)
+            usage = chunk.get('usage')
+            if isinstance(usage, dict):
+                self._usage.observe_raw(usage)
             yield chunk
 
 
 class CapturingCompletions:
-    def __init__(self, source: AsyncCompletions, usage: UsageCapture) -> None:
-        # The streaming branch of the public SDK overload is fixed by create().
-        self._create = cast('Callable[..., Awaitable[AsyncStream[ChatCompletionChunk]]]', source.create)
-        self._usage = usage
+    def __init__(self, source: AsyncOpenAI, usage: UsageCapture) -> None:
+        self._source, self._usage = source, usage
 
     async def create(self, **kwargs: object) -> CapturingStream:
         if kwargs.get('stream') is not True:
             raise ProviderError
-        return CapturingStream(await self._create(**kwargs), self._usage)
+        # The public SDK ChatCompletionChunk.usage union can coerce bool/string/
+        # float into int before capture. Request raw JSON dictionaries through
+        # the same isolated SDK client; LangChain accepts these wire chunks.
+        stream = await self._source.post(
+            '/chat/completions',
+            cast_to=dict[str, object],
+            body=kwargs,
+            stream=True,
+            stream_cls=AsyncStream[dict[str, object]],
+        )
+        return CapturingStream(stream, self._usage)

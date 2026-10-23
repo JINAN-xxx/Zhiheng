@@ -4,6 +4,7 @@ import { identity, restoreIdentity } from '../modules/identity/public.ts'
 import { identityRoutes } from '../modules/identity/routes.ts'
 import { modelRoutes } from '../modules/models/routes.ts'
 import { usageRoutes } from '../modules/usage/routes.ts'
+import { developerRoutes } from '../modules/developer/public.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -20,6 +21,7 @@ export const router = createRouter({
     ...chatRoutes,
     ...modelRoutes,
     ...usageRoutes,
+    ...developerRoutes,
     { path: '/', redirect: '/chat' },
     { path: '/:pathMatch(.*)*', redirect: '/chat' }
   ]

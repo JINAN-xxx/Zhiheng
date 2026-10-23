@@ -5,6 +5,7 @@ Set PLATFORM_BROWSER_URL to target another already running instance.
 """
 
 import asyncio
+import contextlib
 import json
 import re
 import os
@@ -29,7 +30,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.model = {
             'id': 'm1', 'name': '测试模型', 'connection_id': 'connection-1',
             'upstream_model': 'test-model', 'max_output_tokens': 512,
-            'enabled': True, 'capabilities': ['chat', 'stream']
+            'enabled': True, 'model_type': 'chat', 'published': True, 'capabilities': ['chat', 'stream']
         }
         await self.page.route('**/api/**', self.respond)
         self.origin = os.environ.get('PLATFORM_BROWSER_URL', 'http://127.0.0.1:15191')
@@ -46,7 +47,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         if path == '/api/auth/me':
             body = {'id': 'user-1', 'username': 'admin', 'is_admin': True}
         elif path == '/api/models/connections':
-            body = [{'id': 'connection-1', 'name': '测试服务', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True}]
+            body = [{'id': 'connection-1', 'name': '测试服务', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True, 'enabled': True}]
         elif path == '/api/models':
             if method == 'POST':
                 submitted = route.request.post_data_json
@@ -101,6 +102,31 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.get_by_role('textbox', name='消息内容').fill('下一条问题')
         await expect(self.page.get_by_role('button', name='发送消息')).to_be_enabled()
         self.assertEqual(sum(count for (method, _path), count in self.counts.items() if method == 'POST'), 0)
+
+    async def test_next_send_shows_submission_instead_of_previous_completion(self):
+        self.completed = True
+        started, release = asyncio.Event(), asyncio.Event()
+        await self.page.route('**/api/chat/conversations/c1/messages', lambda route: route.fulfill(json=[{'id': 'message-1', 'role': 'user', 'content': '你好', 'run_id': 'r1', 'created_at': '2026-10-23T00:00:00Z'}]))
+        async def submit(route):
+            started.set()
+            await release.wait()
+            with contextlib.suppress(Exception):
+                await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '暂时不可用'}})
+        await self.page.route('**/api/chat/conversations/c1/runs', submit)
+        try:
+            await self.page.goto(self.origin + '/chat')
+            await self.page.get_by_role('button', name='恢复中会话').click()
+            await expect(self.page.locator('.run-state')).to_have_text('已完成')
+            await self.page.get_by_role('textbox', name='消息内容').fill('下一轮问题')
+            await self.page.get_by_role('button', name='发送消息').click()
+            await asyncio.wait_for(started.wait(), timeout=5)
+            await expect(self.page.locator('.run-state')).to_have_text('提交中')
+            await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
+            release.set()
+            await expect(self.page.get_by_text('暂时不可用', exact=True)).to_be_visible()
+            await expect(self.page.locator('.run-state')).to_have_text('已完成')
+        finally:
+            release.set()
 
     async def test_empty_output_limit_does_not_submit_previous_value(self):
         await self.page.goto(self.origin + '/models')
@@ -267,21 +293,21 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('帮我解释这段代码：')
         self.assertEqual(sum(count for (method, _path), count in self.counts.items() if method == 'POST'), 0)
 
-    async def test_model_code_copy_uses_real_upstream_value(self):
+    async def test_model_code_copy_uses_public_platform_id(self):
         await self.context.grant_permissions(['clipboard-read', 'clipboard-write'])
         await self.page.goto(self.origin + '/models')
         copy = self.page.get_by_role('button', name='复制模型代码', exact=True)
         await expect(copy).to_be_visible()
         await copy.click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), 'test-model')
+        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
         await self.page.set_viewport_size({'width': 375, 'height': 812})
         await expect(copy).to_be_visible()
         await copy.click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), 'test-model')
-        await self.page.route('**/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'upstream_model': ''}]))
+        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
+        await self.page.route(re.compile(r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(status=200, json=[{**self.model, 'id': ''}]))
         await self.page.get_by_role('button', name='刷新当前视图', exact=True).click()
         await expect(copy).to_be_disabled()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), 'test-model')
+        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
 
     async def test_mobile_model_and_usage_preserve_original_compact_views(self):
         await self.page.set_viewport_size({'width': 375, 'height': 812})

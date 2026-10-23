@@ -8,6 +8,7 @@ export interface ModelConnection {
   provider: 'openai_compatible'
   base_url: string
   has_api_key: boolean
+  enabled: boolean
 }
 export interface ChatModel {
   id: string
@@ -16,7 +17,9 @@ export interface ChatModel {
   upstream_model: string
   max_output_tokens: number
   enabled: boolean
-  capabilities: ('chat' | 'stream')[]
+  model_type: 'chat' | 'embedding' | 'rerank'
+  published: boolean
+  capabilities: ('chat' | 'stream' | 'embedding' | 'rerank')[]
 }
 function parseConnection(value: unknown): ModelConnection {
   const data = object(value)
@@ -26,15 +29,19 @@ function parseConnection(value: unknown): ModelConnection {
     name: string(data.name),
     provider: data.provider,
     base_url: string(data.base_url),
-    has_api_key: boolean(data.has_api_key)
+    has_api_key: boolean(data.has_api_key),
+    enabled: boolean(data.enabled)
   }
 }
 function parseModel(value: unknown): ChatModel {
   const data = object(value)
   const capabilities = list((value) => {
-    if (value !== 'chat' && value !== 'stream') throw new Error('不支持的模型能力')
+    if (value !== 'chat' && value !== 'stream' && value !== 'embedding' && value !== 'rerank')
+      throw new Error('不支持的模型能力')
     return value
   })(data.capabilities)
+  if (data.model_type !== 'chat' && data.model_type !== 'embedding' && data.model_type !== 'rerank')
+    throw new Error('不支持的模型类型')
   return {
     id: string(data.id),
     name: string(data.name),
@@ -42,11 +49,16 @@ function parseModel(value: unknown): ChatModel {
     upstream_model: string(data.upstream_model),
     max_output_tokens: number(data.max_output_tokens),
     enabled: boolean(data.enabled),
+    model_type: data.model_type,
+    published: boolean(data.published),
     capabilities
   }
 }
-export const getModels = (signal: AbortSignal) =>
-  http.request('/models', { signal, decode: list(parseModel) })
+export const getModels = (signal: AbortSignal, includeDisabled = false) =>
+  http.request(`/models${includeDisabled ? '?include_disabled=true' : ''}`, {
+    signal,
+    decode: list(parseModel)
+  })
 export const getConnections = (signal: AbortSignal) =>
   http.request('/models/connections', { signal, decode: list(parseConnection) })
 export const createConnection = (
@@ -54,9 +66,103 @@ export const createConnection = (
   signal: AbortSignal
 ) => http.request('/models/connections', { method: 'POST', body, signal, decode: parseConnection })
 export const createModel = (
-  body: { name: string; connection_id: string; upstream_model: string; max_output_tokens: number },
+  body: {
+    name: string
+    connection_id: string
+    upstream_model: string
+    max_output_tokens: number
+    model_type?: 'chat' | 'embedding' | 'rerank'
+    published?: boolean
+  },
   signal: AbortSignal
 ) => http.request('/models', { method: 'POST', body, signal, decode: parseModel })
+export const updateConnection = (
+  id: string,
+  body: { name?: string; base_url?: string; api_key?: string; enabled?: boolean },
+  signal: AbortSignal
+) =>
+  http.request(`/models/connections/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body,
+    signal,
+    decode: parseConnection
+  })
+export const controlConnection = (
+  id: string,
+  action: 'enable' | 'disable' | 'delete',
+  signal: AbortSignal
+) =>
+  http.request(
+    `/models/connections/${encodeURIComponent(id)}${action === 'delete' ? '' : `/${action}`}`,
+    {
+      method: action === 'delete' ? 'DELETE' : 'POST',
+      ...(action === 'delete' ? {} : { body: {} }),
+      signal,
+      decode: action === 'delete' ? () => undefined : parseConnection
+    }
+  )
+export const updateModel = (
+  id: string,
+  body: { name: string; connection_id: string; upstream_model: string; max_output_tokens: number },
+  signal: AbortSignal
+) =>
+  http.request(`/models/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body,
+    signal,
+    decode: parseModel
+  })
+export const controlModel = (
+  id: string,
+  action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete',
+  signal: AbortSignal
+) =>
+  http.request(`/models/${encodeURIComponent(id)}${action === 'delete' ? '' : `/${action}`}`, {
+    method: action === 'delete' ? 'DELETE' : 'POST',
+    ...(action === 'delete' ? {} : { body: {} }),
+    signal,
+    decode: action === 'delete' ? () => undefined : parseModel
+  })
+export interface RateInput {
+  billing_mode: 'token' | 'search_unit'
+  input_price: string
+  output_price: string
+  cache_price: string
+  search_price: string
+  currency: string
+}
+export interface RateCard extends RateInput {
+  id: string
+  model_id: string
+  version: number
+  created_at: string
+}
+function parseRate(value: unknown): RateCard {
+  const data = object(value)
+  if (data.billing_mode !== 'token' && data.billing_mode !== 'search_unit')
+    throw new Error('费率计费方式无效')
+  return {
+    id: string(data.id),
+    model_id: string(data.model_id),
+    version: number(data.version),
+    created_at: string(data.created_at),
+    billing_mode: data.billing_mode,
+    input_price: string(data.input_price),
+    output_price: string(data.output_price),
+    cache_price: string(data.cache_price),
+    search_price: string(data.search_price),
+    currency: string(data.currency)
+  }
+}
+export const getRateCards = (id: string, signal: AbortSignal) =>
+  http.request(`/models/${encodeURIComponent(id)}/rate-cards`, { signal, decode: list(parseRate) })
+export const createRateCard = (id: string, body: RateInput, signal: AbortSignal) =>
+  http.request(`/models/${encodeURIComponent(id)}/rate-cards`, {
+    method: 'POST',
+    body,
+    signal,
+    decode: parseRate
+  })
 export const startModelTest = (id: string, client_request_id: string, signal: AbortSignal) =>
   http.request(`/models/${encodeURIComponent(id)}/test`, {
     method: 'POST',

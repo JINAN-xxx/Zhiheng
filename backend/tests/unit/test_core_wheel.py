@@ -7,7 +7,15 @@ from typing import cast
 import pytest
 
 CHECKER_PATH = Path(__file__).resolve().parents[3] / 'tools/check_core_wheel.py'
-REQUIRED_MEMBERS = ('zhiheng/cli/main.py', 'zhiheng/__init__.py', 'zhiheng/py.typed')
+REQUIRED_MEMBERS = (
+    'zhiheng/cli/main.py',
+    'zhiheng/__init__.py',
+    'zhiheng/py.typed',
+    *(
+        f'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/{name}'
+        for name in ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py')
+    ),
+)
 
 
 @pytest.fixture
@@ -47,4 +55,10 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
     write_wheel(tmp_path, ('zhiheng/__init__.py', 'zhiheng/py.typed'))
 
     with pytest.raises(ValueError, match=r'zhiheng/cli/main\.py'):
+        verify_wheel(tmp_path)
+
+
+def test_requires_both_database_migration_revisions(verify_wheel: Callable[[Path], Path], tmp_path: Path) -> None:
+    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if not name.endswith('0002_developer.py')))
+    with pytest.raises(ValueError, match='migration'):
         verify_wheel(tmp_path)

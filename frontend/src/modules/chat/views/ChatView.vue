@@ -137,8 +137,8 @@ onBeforeUnmount(() => {
             >暂无可用模型，请联系管理员配置</span
           >
           <div class="composer-context-actions">
-            <span v-if="activeRun" class="run-state" role="status">{{
-              runStatusLabel[activeRun.status]
+            <span v-if="sending || activeRun" class="run-state" role="status">{{
+              sending ? '提交中' : activeRun ? runStatusLabel[activeRun.status] : ''
             }}</span>
           </div>
         </div>

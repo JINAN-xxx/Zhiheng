@@ -21,6 +21,7 @@ export interface RunSnapshot {
   text: string
   error: { code: string; message: string } | null
   created_at: string
+  result?: Record<string, unknown> | null
   usage: {
     input_tokens: number | null
     output_tokens: number | null
@@ -66,6 +67,9 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       text: string(run.text),
       error: error === null ? null : { code: string(error.code), message: string(error.message) },
       created_at: string(run.created_at),
+      ...(run.result === undefined
+        ? {}
+        : { result: run.result === null ? null : object(run.result) }),
       usage: {
         input_tokens: nullableNumber(usage.input_tokens),
         output_tokens: nullableNumber(usage.output_tokens),

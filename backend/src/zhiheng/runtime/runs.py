@@ -15,6 +15,24 @@ ACTIVE_STATUSES = ('running', 'cancel_requested')
 
 
 class RunStore:
+    async def references_connection(self, session: AsyncSession, connection_id: UUID) -> bool:
+        """Called with the admission connection row lock held by its owner."""
+        return (
+            await session.scalar(
+                select(Run.id).where(Run.payload['binding']['connection_id'].astext == str(connection_id)).limit(1)
+            )
+            is not None
+        )
+
+    async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
+        """Called with the admission model row lock held by its owner."""
+        return (
+            await session.scalar(
+                select(Run.id).where(Run.payload['binding']['model_id'].astext == str(model_id)).limit(1)
+            )
+            is not None
+        )
+
     async def lock_request(self, session: AsyncSession, owner_id: UUID, request_id: UUID) -> None:
         key = int.from_bytes(hashlib.sha256(owner_id.bytes + request_id.bytes).digest()[:8], 'big', signed=True)
         await session.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': key})
@@ -127,6 +145,8 @@ class RunStore:
         content: str,
         usage: RunUsage,
         error: RunError | None = None,
+        result: dict[str, object] | None = None,
+        finish_reason: str | None = None,
     ) -> RunSnapshot:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
@@ -135,6 +155,8 @@ class RunStore:
         if row.status == 'cancelled':
             error = None
         row.text = content
+        row.result = result
+        row.finish_reason = finish_reason
         row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
         row.error_code = error.code if error is not None else None
         row.error_message = error.message if error is not None else None
@@ -157,27 +179,25 @@ class RunStore:
             row.revision += 1
         return self._snapshot(row), release
 
-    async def recover(self, session: AsyncSession) -> list[tuple[UUID, bool]]:
-        rows = await session.scalars(
+    async def recover_one(self, session: AsyncSession) -> tuple[UUID, bool] | None:
+        """Fence one expired attempt; its caller settles usage in this same transaction."""
+        row = await session.scalar(
             select(Run)
-            .where(
-                Run.status.in_(ACTIVE_STATUSES),
-                Run.lease_until < utcnow(),
-            )
+            .where(Run.status.in_(ACTIVE_STATUSES), Run.lease_until < utcnow())
+            .order_by(Run.lease_until, Run.id)
             .with_for_update(skip_locked=True)
-            .limit(100)
+            .limit(1)
         )
-        recovered = []
-        for row in rows:
-            row.status = 'interrupted'
-            row.usage_status = 'unknown' if row.provider_started else 'known'
-            row.input_tokens = None if row.provider_started else 0
-            row.output_tokens = None if row.provider_started else 0
-            row.error_code, row.error_message = 'execution_interrupted', '执行进程失联，请核对本次运行'
-            row.revision += 1
-            row.lease_until = None
-            recovered.append((row.id, row.provider_started))
-        return recovered
+        if row is None:
+            return None
+        row.status = 'interrupted'
+        row.usage_status = 'unknown' if row.provider_started else 'known'
+        row.input_tokens = None if row.provider_started else 0
+        row.output_tokens = None if row.provider_started else 0
+        row.error_code, row.error_message = 'execution_interrupted', '执行进程失联，请核对本次运行'
+        row.revision += 1
+        row.lease_until = None
+        return row.id, row.provider_started
 
     @staticmethod
     def _owns(row: Run | None, attempt_id: UUID) -> bool:
@@ -193,7 +213,7 @@ class RunStore:
     def _snapshot(row: Run) -> RunSnapshot:
         return RunSnapshot(
             id=row.id,
-            resource_type=cast("Literal['chat', 'connection_test']", row.resource_type),
+            resource_type=cast("Literal['chat', 'connection_test', 'public']", row.resource_type),
             resource_id=row.resource_id,
             status=cast('RunStatus', row.status),
             attempt_id=row.attempt_id,
@@ -201,6 +221,8 @@ class RunStore:
             revision=row.revision,
             projection_seq=row.projection_seq,
             text=row.text,
+            result=row.result,
+            finish_reason=cast("Literal['stop','length'] | None", row.finish_reason),
             created_at=row.created_at,
             error=RunError(code=row.error_code, message=row.error_message or '运行失败') if row.error_code else None,
             usage=RunUsage(

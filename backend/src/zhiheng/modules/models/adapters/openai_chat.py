@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Literal
 
 from httpx2 import Request
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
 from openai import APIError, APIStatusError, AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, Omit, OpenAI
@@ -36,13 +36,21 @@ class _AsyncConnectionClient(AsyncOpenAI):
 
 class OpenAIChatProvider:
     def __init__(
-        self, *, base_url: str, api_key: str, model: str, max_output_tokens: int, timeout_seconds: float
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        max_output_tokens: int,
+        timeout_seconds: float,
+        options: dict[str, object] | None = None,
     ) -> None:
         self._base_url = base_url
         self._api_key = SecretStr(api_key)
         self._model = model
         self._max_output = max_output_tokens
         self._timeout = timeout_seconds
+        self._options = options or {}
 
     def _isolate_request(self, request: Request) -> None:
         # The SDK merges OPENAI_CUSTOM_HEADERS after computing authentication.
@@ -109,7 +117,7 @@ class OpenAIChatProvider:
                     api_key=self._api_key,
                     base_url=self._base_url,
                     client=sync_client.chat.completions,
-                    async_client=CapturingCompletions(async_client.chat.completions, usage_capture),
+                    async_client=CapturingCompletions(async_client, usage_capture),
                     root_client=sync_client,
                     root_async_client=async_client,
                     organization='',
@@ -132,6 +140,8 @@ class OpenAIChatProvider:
         for message in messages:
             if message.role == 'system':
                 normalized.append(SystemMessage(content=message.content))
+            elif message.role == 'developer':
+                normalized.append(ChatMessage(role='developer', content=message.content))
             elif message.role == 'assistant':
                 normalized.append(AIMessage(content=message.content))
             else:
@@ -139,7 +149,7 @@ class OpenAIChatProvider:
         completed = False
         try:
             with tracing_context(enabled=False):
-                async for chunk in client.astream(normalized):
+                async for chunk in client.bind(**self._options).astream(normalized):
                     if not isinstance(chunk.content, str):
                         raise ProviderError
                     usage = chunk.usage_metadata
@@ -148,7 +158,14 @@ class OpenAIChatProvider:
                     finish_reason = self._completion_reason(chunk.response_metadata.get('finish_reason'))
                     completed = completed or finish_reason is not None
                     if chunk.content or usage is not None or finish_reason is not None:
-                        yield ModelDelta(chunk.content, input_tokens, output_tokens, finish_reason)
+                        yield ModelDelta(
+                            chunk.content,
+                            input_tokens,
+                            output_tokens,
+                            finish_reason,
+                            cache_tokens=captured.cache_tokens,
+                            reasoning_tokens=captured.reasoning_tokens,
+                        )
             if not completed:
                 raise ProviderError
         except APIStatusError as exc:

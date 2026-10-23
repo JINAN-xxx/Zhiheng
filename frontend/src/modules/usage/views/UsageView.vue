@@ -37,7 +37,8 @@ const columns: TableColumnsType<UsageSummary['records'][number]> = [
 const sourceOptions = [
   { value: 'all', label: '全部类型' },
   { value: 'chat', label: '对话' },
-  { value: 'connection_test', label: '连接测试' }
+  { value: 'connection_test', label: '连接测试' },
+  { value: 'public', label: '开发接入' }
 ]
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -52,7 +53,7 @@ function setStatus(value: unknown): void {
   selectedStatus.value = typeof value === 'string' ? value : 'all'
 }
 const sourceLabel = (source: string): string =>
-  source === 'chat' ? '对话' : source === 'connection_test' ? '连接测试' : source
+  ({ chat: '对话', connection_test: '连接测试', public: '开发接入' })[source] ?? source
 const tokens = (value: number | null): string =>
   value === null ? '待核对' : value.toLocaleString()
 const recordStatus = (status: string): string =>

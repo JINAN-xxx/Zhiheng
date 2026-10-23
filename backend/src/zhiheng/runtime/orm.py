@@ -33,6 +33,8 @@ class Run(Base):
     provider_started: Mapped[bool] = mapped_column(Boolean, default=False)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     text: Mapped[str] = mapped_column(Text, default='')
+    result: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    finish_reason: Mapped[str | None] = mapped_column(String(16))
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(String(300))
     input_tokens: Mapped[int | None] = mapped_column(Integer)

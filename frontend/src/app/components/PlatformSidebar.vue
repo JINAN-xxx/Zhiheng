@@ -21,13 +21,14 @@ defineProps<{ collapsed: boolean; showCollapseControl?: boolean }>()
 const emit = defineEmits<{ 'toggle-collapse': []; navigate: [] }>()
 const route = useRoute()
 const router = useRouter()
-const resourcesExpanded = ref(route.name === 'models' || route.name === 'usage')
+const resourcesExpanded = ref(['models', 'usage', 'developer'].includes(String(route.name)))
 const historyExpanded = ref(false)
 watch(
   () => route.path,
   () => {
     historyExpanded.value = false
-    if (route.name === 'models' || route.name === 'usage') resourcesExpanded.value = true
+    if (['models', 'usage', 'developer'].includes(String(route.name)))
+      resourcesExpanded.value = true
   }
 )
 const { selectConversation } = useChatWorkspace()
@@ -106,14 +107,15 @@ async function openHistory(): Promise<void> {
             @click="emit('navigate')"
             ><span>模型目录</span></RouterLink
           >
-          <button
-            type="button"
+          <RouterLink
+            to="/developer"
             class="platform-nav-link platform-nav-child"
-            disabled
-            title="当前版本暂不支持开发接入"
+            :class="{ 'router-link-active': route.name === 'developer' }"
+            aria-label="开发接入"
+            @click="emit('navigate')"
           >
             开发接入
-          </button>
+          </RouterLink>
           <RouterLink
             to="/usage"
             class="platform-nav-link"
@@ -137,7 +139,8 @@ async function openHistory(): Promise<void> {
             ><AMenu
               ><AMenuItem v-if="identity?.is_admin"
                 ><RouterLink to="/models" aria-label="模型目录">模型目录</RouterLink></AMenuItem
-              ><AMenuItem disabled title="当前版本暂不支持开发接入">开发接入</AMenuItem
+              ><AMenuItem
+                ><RouterLink to="/developer" aria-label="开发接入">开发接入</RouterLink></AMenuItem
               ><AMenuItem
                 ><RouterLink to="/usage" aria-label="用量记录">用量记录</RouterLink></AMenuItem
               ></AMenu

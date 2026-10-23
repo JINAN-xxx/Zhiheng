@@ -18,7 +18,8 @@ import {
   Tag as ATag,
   Dropdown as ADropdown,
   Menu as AMenu,
-  MenuItem as AMenuItem
+  MenuItem as AMenuItem,
+  Modal
 } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, EllipsisOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { useWindowSize } from '@vueuse/core'
@@ -26,6 +27,7 @@ import type { TableColumnsType } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import ModelRatesDialog from '../components/ModelRatesDialog.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -36,7 +38,11 @@ import {
   getConnections,
   getModels,
   observeModelTest,
-  startModelTest
+  startModelTest,
+  updateConnection,
+  updateModel,
+  controlConnection,
+  controlModel
 } from '../api/index.ts'
 import type { ChatModel, ModelConnection } from '../api/index.ts'
 function setActiveTab(value: unknown): void {
@@ -52,13 +58,14 @@ const modelColumns = [
   { title: '连接状态', key: 'binding', width: 120 },
   { title: '状态', key: 'status', width: 100 },
   { title: '输出上限', dataIndex: 'max_output_tokens', width: 110 },
-  { title: '操作', key: 'actions', width: 120 }
+  { title: '操作', key: 'actions', width: 240 }
 ]
 const connectionColumns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 180 },
   { title: '服务商', key: 'provider', width: 150 },
   { title: 'API 地址', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
-  { title: '凭据状态', key: 'status', width: 130 }
+  { title: '凭据状态', key: 'status', width: 130 },
+  { title: '操作', key: 'actions', width: 160 }
 ]
 const visibleModelColumns = computed<TableColumnsType<ChatModel>>(() =>
   isMobile.value
@@ -70,7 +77,7 @@ const visibleModelColumns = computed<TableColumnsType<ChatModel>>(() =>
 )
 const visibleConnectionColumns = computed(() =>
   isMobile.value
-    ? connectionColumns.filter((column) => column.key === 'name' || column.key === 'status')
+    ? connectionColumns.filter((column) => column.key === 'name' || column.key === 'actions')
     : connectionColumns
 )
 const connections = ref<ModelConnection[]>([])
@@ -81,17 +88,22 @@ const error = ref('')
 const modalError = ref('')
 const connectionOpen = ref(false)
 const modelOpen = ref(false)
+const editingConnection = ref<ModelConnection | null>(null)
+const editingModel = ref<ChatModel | null>(null)
+const rateModel = ref<ChatModel | null>(null)
 const connectionForm = reactive({ name: '', base_url: '', api_key: '' })
 const modelForm = reactive<{
   name: string
   connection_id: string
   upstream_model: string
   max_output_tokens: number | null
+  model_type: ChatModel['model_type']
 }>({
   name: '',
   connection_id: '',
   upstream_model: '',
-  max_output_tokens: 512
+  max_output_tokens: 512,
+  model_type: 'chat'
 })
 const testRun = ref<RunSnapshot | null>(null)
 const testingModel = ref('')
@@ -104,7 +116,9 @@ const testBusy = computed(
   () => testingModel.value !== '' && (testRun.value === null || !isTerminal(testRun.value))
 )
 const connectionOptions = computed(() =>
-  connections.value.map((item) => ({ value: item.id, label: item.name }))
+  connections.value
+    .filter((item) => item.enabled)
+    .map((item) => ({ value: item.id, label: item.name }))
 )
 onBeforeUnmount(() => {
   scope.dispose()
@@ -119,7 +133,7 @@ async function load(): Promise<void> {
   try {
     const [items, availableModels] = await Promise.all([
       getConnections(context.signal),
-      getModels(context.signal)
+      getModels(context.signal, true)
     ])
     if (context.isCurrent()) {
       connections.value = items
@@ -143,11 +157,33 @@ async function copyModelCode(value: string): Promise<void> {
     error.value = '复制失败，请手动复制模型代码'
   }
 }
-function openConnection(): void {
+function openConnection(connection: ModelConnection | null = null): void {
+  mutationScope.replace()
+  saving.value = false
+  editingConnection.value = connection
+  Object.assign(connectionForm, {
+    name: connection?.name ?? '',
+    base_url: connection?.base_url ?? '',
+    api_key: ''
+  })
   connectionOpen.value = true
   modalError.value = ''
 }
-function openModel(): void {
+function openModel(model: ChatModel | null = null): void {
+  mutationScope.replace()
+  saving.value = false
+  editingModel.value = model
+  Object.assign(modelForm, {
+    name: model?.name ?? '',
+    connection_id:
+      model?.connection_id ??
+      (connections.value.filter((item) => item.enabled).length === 1
+        ? (connections.value.find((item) => item.enabled)?.id ?? '')
+        : ''),
+    upstream_model: model?.upstream_model ?? '',
+    max_output_tokens: model?.max_output_tokens ?? 512,
+    model_type: model?.model_type ?? 'chat'
+  })
   modelOpen.value = true
   modalError.value = ''
 }
@@ -160,7 +196,12 @@ function closeConnection(): void {
 }
 async function saveConnection(): Promise<void> {
   if (saving.value) return
-  if (!connectionForm.name.trim() || !connectionForm.base_url.trim() || !connectionForm.api_key) {
+  const editing = editingConnection.value
+  if (
+    !connectionForm.name.trim() ||
+    !connectionForm.base_url.trim() ||
+    (!editing && !connectionForm.api_key)
+  ) {
     modalError.value = '请填写连接名称、API 地址和密钥'
     return
   }
@@ -168,18 +209,24 @@ async function saveConnection(): Promise<void> {
   saving.value = true
   modalError.value = ''
   try {
-    const connection = await createConnection(
-      {
-        name: connectionForm.name.trim(),
-        base_url: connectionForm.base_url.trim(),
-        api_key: connectionForm.api_key
-      },
-      context.signal
-    )
+    const body = { name: connectionForm.name.trim(), base_url: connectionForm.base_url.trim() }
+    const connection = editing
+      ? await updateConnection(
+          editing.id,
+          { ...body, ...(connectionForm.api_key ? { api_key: connectionForm.api_key } : {}) },
+          context.signal
+        )
+      : await createConnection({ ...body, api_key: connectionForm.api_key }, context.signal)
     if (context.isCurrent()) {
-      connections.value.push(connection)
+      scope.replace()
+      loading.value = false
+      if (editing)
+        connections.value = connections.value.map((item) =>
+          item.id === connection.id ? connection : item
+        )
+      else connections.value.push(connection)
       connectionOpen.value = false
-      activeTab.value = 'platform'
+      if (!editing) activeTab.value = 'platform'
       connectionForm.name = ''
       connectionForm.base_url = ''
       modelForm.connection_id = connection.id
@@ -203,6 +250,73 @@ function setConnectionId(value: unknown): void {
 function setMaxOutputTokens(value: unknown): void {
   modelForm.max_output_tokens = typeof value === 'number' ? value : null
 }
+function setModelType(value: unknown): void {
+  if (value === 'chat' || value === 'embedding' || value === 'rerank') modelForm.model_type = value
+}
+const modelTypeLabel = (value: ChatModel['model_type']) =>
+  ({ chat: '对话', embedding: '向量', rerank: '重排序' })[value]
+async function changeModel(
+  model: ChatModel,
+  action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete'
+): Promise<void> {
+  if (saving.value) return
+  const context = mutationScope.replace()
+  const execute = async () => {
+    if (!context.isCurrent()) return
+    saving.value = true
+    error.value = ''
+    try {
+      await controlModel(model.id, action, context.signal)
+      if (context.isCurrent()) await load()
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    } finally {
+      if (context.isCurrent()) saving.value = false
+    }
+  }
+  if (action === 'delete' || action === 'disable' || action === 'unpublish')
+    Modal.confirm({
+      title:
+        action === 'delete'
+          ? '删除该模型？有历史或业务引用时将拒绝删除。'
+          : '调整后，新请求将不能使用该模型。是否继续？',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: execute
+    })
+  else await execute()
+}
+async function changeConnection(
+  connection: ModelConnection,
+  action: 'enable' | 'disable' | 'delete'
+): Promise<void> {
+  if (saving.value) return
+  const context = mutationScope.replace()
+  const execute = async () => {
+    if (!context.isCurrent()) return
+    saving.value = true
+    error.value = ''
+    try {
+      await controlConnection(connection.id, action, context.signal)
+      if (context.isCurrent()) await load()
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    } finally {
+      if (context.isCurrent()) saving.value = false
+    }
+  }
+  if (action === 'enable') await execute()
+  else
+    Modal.confirm({
+      title:
+        action === 'delete'
+          ? '删除该凭据？模型或历史引用存在时将拒绝删除。'
+          : '停用后，新请求将不能使用此连接。是否继续？',
+      okText: '确定',
+      cancelText: '取消',
+      onOk: execute
+    })
+}
 async function saveModel(): Promise<void> {
   if (saving.value) return
   const maxOutputTokens = modelForm.max_output_tokens
@@ -222,17 +336,30 @@ async function saveModel(): Promise<void> {
   saving.value = true
   modalError.value = ''
   try {
-    const model = await createModel(
-      {
-        ...modelForm,
-        max_output_tokens: maxOutputTokens,
-        name: modelForm.name.trim(),
-        upstream_model: modelForm.upstream_model.trim()
-      },
-      context.signal
-    )
+    const body = {
+      ...modelForm,
+      max_output_tokens: maxOutputTokens,
+      name: modelForm.name.trim(),
+      upstream_model: modelForm.upstream_model.trim()
+    }
+    const model = editingModel.value
+      ? await updateModel(
+          editingModel.value.id,
+          {
+            name: body.name,
+            connection_id: body.connection_id,
+            upstream_model: body.upstream_model,
+            max_output_tokens: body.max_output_tokens
+          },
+          context.signal
+        )
+      : await createModel(body, context.signal)
     if (context.isCurrent()) {
-      models.value.push(model)
+      scope.replace()
+      loading.value = false
+      if (editingModel.value)
+        models.value = models.value.map((item) => (item.id === model.id ? model : item))
+      else models.value.push(model)
       modelOpen.value = false
       modelForm.name = ''
       modelForm.upstream_model = ''
@@ -322,9 +449,9 @@ async function stopTest(): Promise<void> {
           type="primary"
           aria-label="接入模型"
           :disabled="!connections.length"
-          @click="openModel"
+          @click="openModel()"
           ><PlusOutlined />接入模型</AButton
-        ><AButton v-else type="primary" aria-label="新增凭据" @click="openConnection"
+        ><AButton v-else type="primary" aria-label="新增凭据" @click="openConnection()"
           ><PlusOutlined />新增凭据</AButton
         ></template
       ></WorkspaceToolbar
@@ -355,39 +482,54 @@ async function stopTest(): Promise<void> {
                   ><div class="mobile-model-cell">
                     <span v-if="!isMobile" class="model-display-name">{{ model.name }}</span>
                     <div class="resource-value resource-value--secondary">
-                      <span class="resource-text" :title="model.upstream_model">{{
-                        model.upstream_model
-                      }}</span>
+                      <span class="resource-text" :title="model.id">{{ model.id }}</span>
                       <button
                         type="button"
                         class="copy-button"
                         aria-label="复制模型代码"
                         title="复制模型代码"
-                        :disabled="!model.upstream_model.trim()"
-                        @click="copyModelCode(model.upstream_model)"
+                        :disabled="!model.id.trim()"
+                        @click="copyModelCode(model.id)"
                       >
                         <CopyOutlined />
                       </button>
                     </div>
                     <div v-if="isMobile" class="mobile-model-meta">
-                      <ATag color="blue">对话</ATag><ATag color="success">已配置</ATag
+                      <ATag color="blue">{{ modelTypeLabel(model.model_type) }}</ATag
+                      ><ATag color="success">已配置</ATag
                       ><ATag :color="model.enabled ? 'success' : 'default'">{{
-                        model.enabled ? '已启用' : '已停用'
+                        model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
                       }}</ATag>
                     </div>
                   </div></template
                 >
-                <template v-else-if="column.key === 'type'"><ATag>对话</ATag></template>
+                <template v-else-if="column.key === 'type'"
+                  ><ATag>{{ modelTypeLabel(model.model_type) }}</ATag></template
+                >
                 <template v-else-if="column.key === 'binding'"
                   ><ATag color="success">已配置</ATag></template
                 >
                 <template v-else-if="column.key === 'status'"
                   ><ATag :color="model.enabled ? 'success' : 'default'">{{
-                    model.enabled ? '已启用' : '已停用'
+                    model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
                   }}</ATag></template
                 >
                 <template v-else-if="column.key === 'actions'"
                   ><div class="row-actions desktop-actions">
+                    <AButton
+                      type="link"
+                      size="small"
+                      aria-label="编辑模型"
+                      @click="openModel(model)"
+                      >编辑</AButton
+                    >
+                    <AButton
+                      type="link"
+                      size="small"
+                      aria-label="费率配置"
+                      @click="rateModel = model"
+                      >费率</AButton
+                    >
                     <AButton
                       type="link"
                       size="small"
@@ -398,12 +540,26 @@ async function stopTest(): Promise<void> {
                       >测试</AButton
                     >
                   </div>
-                  <ADropdown class="mobile-actions" :trigger="['click']"
+                  <ADropdown :trigger="['click']"
                     ><AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton
                     ><template #overlay
                       ><AMenu
+                        ><AMenuItem @click="openModel(model)">编辑模型</AMenuItem
+                        ><AMenuItem @click="rateModel = model">费率配置</AMenuItem
                         ><AMenuItem :disabled="testBusy || !model.enabled" @click="testModel(model)"
                           >测试连接</AMenuItem
+                        ><AMenuItem
+                          @click="changeModel(model, model.enabled ? 'disable' : 'enable')"
+                          >{{ model.enabled ? '停用' : '启用' }}</AMenuItem
+                        ><AMenuItem
+                          v-if="model.enabled"
+                          @click="changeModel(model, model.published ? 'unpublish' : 'publish')"
+                          >{{ model.published ? '取消发布' : '发布' }}</AMenuItem
+                        ><AMenuItem
+                          v-if="!model.enabled"
+                          danger
+                          @click="changeModel(model, 'delete')"
+                          >删除模型</AMenuItem
                         ></AMenu
                       ></template
                     ></ADropdown
@@ -427,7 +583,7 @@ async function stopTest(): Promise<void> {
               <div class="panel-summary">
                 <span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
               </div>
-              <AButton type="primary" aria-label="新增凭据" @click="openConnection"
+              <AButton type="primary" aria-label="新增凭据" @click="openConnection()"
                 ><PlusOutlined />新建凭据</AButton
               >
             </div>
@@ -440,12 +596,40 @@ async function stopTest(): Promise<void> {
               :loading="loading"
               ><template #bodyCell="{ column, record: connection }"
                 ><template v-if="column.key === 'name'"
-                  ><code>{{ connection.name }}</code></template
+                  ><code>{{ connection.name }}</code
+                  ><ATag v-if="isMobile">{{
+                    connection.enabled ? '已启用' : '已停用'
+                  }}</ATag></template
                 ><template v-else-if="column.key === 'provider'">OpenAI 兼容</template
                 ><template v-else-if="column.key === 'status'"
                   ><ATag :color="connection.has_api_key ? 'success' : 'warning'">{{
                     connection.has_api_key ? '密钥已配置' : '未配置密钥'
                   }}</ATag></template
+                ><template v-else-if="column.key === 'actions'"
+                  ><AButton
+                    type="link"
+                    size="small"
+                    aria-label="编辑凭据"
+                    @click="openConnection(connection)"
+                    >编辑</AButton
+                  ><ADropdown :trigger="['click']"
+                    ><AButton type="text" aria-label="更多凭据操作"><EllipsisOutlined /></AButton
+                    ><template #overlay
+                      ><AMenu
+                        ><AMenuItem
+                          @click="
+                            changeConnection(connection, connection.enabled ? 'disable' : 'enable')
+                          "
+                          >{{ connection.enabled ? '停用' : '启用' }}</AMenuItem
+                        ><AMenuItem
+                          v-if="!connection.enabled"
+                          danger
+                          @click="changeConnection(connection, 'delete')"
+                          >删除凭据</AMenuItem
+                        ></AMenu
+                      ></template
+                    ></ADropdown
+                  ></template
                 ></template
               ></ResourceTable
             >
@@ -465,7 +649,14 @@ async function stopTest(): Promise<void> {
             ><AButton v-if="!isTerminal(testRun)" @click="stopTest">停止测试</AButton>
           </div>
         </div>
-        <pre>{{ testRun.text || '等待模型响应…' }}</pre>
+        <pre>{{
+          testRun.text ||
+          (testRun.result
+            ? JSON.stringify(testRun.result, null, 2)
+            : isTerminal(testRun)
+              ? '暂无返回内容'
+              : '等待模型响应…')
+        }}</pre>
         <p v-if="testRun.error" class="run-error">{{ testRun.error.message }}</p>
         <p class="muted small">
           连接测试会计入用量。{{
@@ -479,7 +670,7 @@ async function stopTest(): Promise<void> {
   </main>
   <ADrawer
     :open="connectionOpen"
-    title="新建服务商凭据"
+    :title="editingConnection ? '编辑服务商凭据' : '新建服务商凭据'"
     width="min(620px, 100vw)"
     root-class-name="model-form-drawer"
     destroy-on-close
@@ -497,11 +688,13 @@ async function stopTest(): Promise<void> {
           v-model:value="connectionForm.base_url"
           placeholder="https://api.example.com/v1"
           :maxlength="2048" /></AFormItem
-      ><AFormItem label="API Key" required
+      ><AFormItem label="API Key" :required="!editingConnection"
         ><AInputPassword
           v-model:value="connectionForm.api_key"
           autocomplete="off"
-          placeholder="密钥仅用于本次提交，保存后不会回显" /></AFormItem
+          :placeholder="
+            editingConnection ? '留空保留当前密钥' : '密钥仅用于本次提交，保存后不会回显'
+          " /></AFormItem
     ></AForm>
     <template #footer
       ><div class="footer-actions">
@@ -512,7 +705,7 @@ async function stopTest(): Promise<void> {
   </ADrawer>
   <ADrawer
     :open="modelOpen"
-    title="接入模型"
+    :title="editingModel ? '编辑模型' : '接入模型'"
     width="min(840px, 100vw)"
     root-class-name="model-onboarding-drawer"
     destroy-on-close
@@ -527,10 +720,15 @@ async function stopTest(): Promise<void> {
         </div>
         <AForm layout="vertical">
           <AFormItem label="模型类型"
-            ><ARadioGroup value="chat" class="model-type-options" button-style="solid"
+            ><ARadioGroup
+              :value="modelForm.model_type"
+              :disabled="editingModel !== null"
+              class="model-type-options"
+              button-style="solid"
+              @update:value="setModelType"
               ><ARadioButton value="chat">对话</ARadioButton
-              ><ARadioButton value="embedding" disabled>向量</ARadioButton
-              ><ARadioButton value="rerank" disabled>重排序</ARadioButton></ARadioGroup
+              ><ARadioButton value="embedding">向量</ARadioButton
+              ><ARadioButton value="rerank">重排序</ARadioButton></ARadioGroup
             ></AFormItem
           >
           <div class="form-grid">
@@ -578,6 +776,7 @@ async function stopTest(): Promise<void> {
       </div></template
     >
   </ADrawer>
+  <ModelRatesDialog :model="rateModel" @close="rateModel = null" />
 </template>
 <style scoped>
 .ai-model-center {

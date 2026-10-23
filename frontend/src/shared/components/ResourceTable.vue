@@ -7,6 +7,7 @@ defineProps<{
   rows: T[]
   loading?: boolean
   scrollX?: number | string
+  rowKey?: string | ((record: T) => string)
 }>()
 defineSlots<{ bodyCell(props: { column: { key?: unknown }; record: T }): unknown }>()
 </script>
@@ -17,7 +18,7 @@ defineSlots<{ bodyCell(props: { column: { key?: unknown }; record: T }): unknown
       :data-source="rows"
       :loading="loading ?? false"
       :pagination="false"
-      row-key="id"
+      :row-key="rowKey ?? 'id'"
       :scroll="{ x: scrollX ?? 850 }"
       size="middle"
       ><template #bodyCell="props"

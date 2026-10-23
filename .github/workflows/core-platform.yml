@@ -112,7 +112,10 @@ jobs:
         run: python tests/core/e2e/browser_check.py --base-url http://127.0.0.1:15191 --api-port 19090
       - name: Check controlled HTTP and SSE UI regressions
         working-directory: frontend
-        run: python tests/browser/ui_regressions.py
+        run: |
+          python tests/browser/ui_regressions.py
+          python tests/browser/developer_regressions.py
+          python tests/browser/model_management_regressions.py
       - name: Stop the preview
         if: always()
         run: |

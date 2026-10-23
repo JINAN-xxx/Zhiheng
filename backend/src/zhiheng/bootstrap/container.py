@@ -1,11 +1,13 @@
 from redis.asyncio import Redis
 
 from zhiheng.application.chat_runs import ChatRunService
+from zhiheng.application.model_management import ModelManagementService
+from zhiheng.application.public_runs import PublicRunService
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.developer.public import UsageService
+from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelService
 from zhiheng.runtime.outbox import OutboxStore
@@ -21,10 +23,14 @@ class Container:
         self.identity = IdentityService(settings.session_ttl_seconds)
         self.models = ModelService(self.cipher, settings.provider_timeout_seconds)
         self.usage = UsageService()
+        self.applications = ApplicationService()
+        self.keys = KeyService(self.applications, self.models, self.identity)
         self.runs = RunStore()
+        self.model_management = ModelManagementService(self.models, self.runs, self.keys)
         self.chat = ChatService()
         self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs)
         self.outbox = OutboxStore()
+        self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs)
 
     async def prepare_provider(self, binding: ModelBinding) -> ModelProvider:
         async with self.database.sessions() as session:

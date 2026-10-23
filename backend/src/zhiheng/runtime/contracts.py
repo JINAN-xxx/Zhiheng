@@ -22,7 +22,7 @@ class RunError(BaseModel):
 
 class RunSnapshot(BaseModel):
     id: UUID
-    resource_type: Literal['chat', 'connection_test']
+    resource_type: Literal['chat', 'connection_test', 'public']
     resource_id: UUID
     status: RunStatus
     attempt_id: UUID | None
@@ -33,6 +33,8 @@ class RunSnapshot(BaseModel):
     error: RunError | None
     created_at: datetime
     usage: RunUsage = Field(default_factory=RunUsage)
+    result: dict[str, object] | None = None
+    finish_reason: Literal['stop', 'length'] | None = None
 
 
 @dataclass(frozen=True)

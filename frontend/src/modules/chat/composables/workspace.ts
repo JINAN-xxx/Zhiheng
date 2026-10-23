@@ -44,7 +44,7 @@ function createChatWorkspace() {
   const canRecover = computed(() => disconnected.value && running.value)
   const modelOptions = computed(() =>
     models.value
-      .filter((model) => model.enabled && model.capabilities.includes('chat'))
+      .filter((model) => model.enabled && model.published && model.capabilities.includes('chat'))
       .map((model) => ({ value: model.id, label: model.name }))
   )
   const visibleMessages = computed(() =>

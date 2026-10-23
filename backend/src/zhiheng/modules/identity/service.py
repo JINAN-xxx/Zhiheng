@@ -3,6 +3,7 @@ import hashlib
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -18,6 +19,10 @@ MAX_PASSWORD_LENGTH = 1024
 
 
 class IdentityService:
+    async def is_active(self, session: AsyncSession, user_id: UUID) -> bool:
+        user = await session.get(IdentityUser, user_id)
+        return user is not None and user.is_active
+
     def __init__(self, session_ttl_seconds: int = 86400) -> None:
         self._hasher = PasswordHasher()
         self._session_ttl = session_ttl_seconds

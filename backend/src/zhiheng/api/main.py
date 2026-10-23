@@ -9,10 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from zhiheng.api.errors import install_error_handlers
-from zhiheng.api.middleware import RequestOriginMiddleware
+from zhiheng.api.middleware import PublicTransportMiddleware, RequestOriginMiddleware
 from zhiheng.api.routes.auth import router as auth_router
 from zhiheng.api.routes.chat import router as chat_router
+from zhiheng.api.routes.developer import router as developer_router
 from zhiheng.api.routes.models import router as models_router
+from zhiheng.api.routes.public import router as public_router
 from zhiheng.api.routes.runs import router as runs_router
 from zhiheng.api.routes.usage import router as usage_router
 from zhiheng.bootstrap.container import Container
@@ -37,9 +39,12 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(models_router)
     app.include_router(usage_router)
+    app.include_router(public_router)
     app.include_router(chat_router)
+    app.include_router(developer_router)
     app.include_router(runs_router)
 
+    app.add_middleware(PublicTransportMiddleware)
     app.add_middleware(RequestOriginMiddleware, allowed_origins=settings.allowed_origins)
 
     if settings.allowed_origins:
@@ -47,8 +52,8 @@ def create_app(settings: Settings) -> FastAPI:
             CORSMiddleware,
             allow_origins=list(settings.allowed_origins),
             allow_credentials=True,
-            allow_methods=['GET', 'POST'],
-            allow_headers=['Content-Type'],
+            allow_methods=['GET', 'POST', 'PATCH', 'DELETE'],
+            allow_headers=['Content-Type', 'Authorization'],
         )
 
     @app.get('/health/live')

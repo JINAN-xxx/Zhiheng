@@ -21,6 +21,9 @@ class ProviderHandler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         server.requests.append(body)
         server.request_headers.append({name.lower(): value for name, value in self.headers.items()})
+        if self.path.endswith(('/embeddings', '/rerank')):
+            self.structured(body)
+            return
         if body['model'] == 'rejected':
             self.send_response(401)
             self.send_header('Content-Type', 'application/json')
@@ -59,6 +62,12 @@ class ProviderHandler(BaseHTTPRequestHandler):
                         wire_usage = {'prompt_tokens': 8, 'total_tokens': 10}
                     elif body['model'] == 'missing-input':
                         wire_usage = {'completion_tokens': 2}
+                    if body['model'] == 'cached':
+                        wire_usage = {
+                            **wire_usage,
+                            'prompt_tokens_details': {'cached_tokens': 4},
+                            'completion_tokens_details': {'reasoning_tokens': 1},
+                        }
                     chunk['usage'] = wire_usage
                 self.wfile.write(('data: ' + json.dumps(chunk, ensure_ascii=False) + '\n\n').encode())
                 self.wfile.flush()
@@ -66,6 +75,28 @@ class ProviderHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def structured(self, body: dict[str, object]) -> None:
+        if self.path.endswith('/embeddings'):
+            response = {
+                'data': [
+                    {'index': index, 'embedding': [0.1, 0.2] if index == 0 else [0.3, 0.4]}
+                    for index, _ in enumerate(body['input'])
+                ],
+                'usage': {'prompt_tokens': 6, 'total_tokens': 6},
+            }
+        else:
+            response = {
+                'results': [{'index': 0, 'relevance_score': 0.9}],
+                'meta': {'billed_units': {'search_units': 2}},
+                'usage': {'prompt_tokens': 6, 'completion_tokens': 0},
+            }
+        if str(body['model']).endswith('-no-usage'):
+            response.pop('usage', None)
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode())
 
     def log_message(self, _format: str, *args: object) -> None:
         pass

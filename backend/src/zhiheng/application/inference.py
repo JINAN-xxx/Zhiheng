@@ -29,6 +29,11 @@ class InferenceProgress:
     output_tokens: int | None = None
     provider_started: bool = False
     completion_seen: bool = False
+    finish_reason: str | None = None
+    result: dict[str, object] | None = None
+    search_units: int | None = None
+    cache_tokens: int | None = None
+    reasoning_tokens: int | None = None
 
 
 class InferenceExecutor:
@@ -152,6 +157,15 @@ class InferenceExecutor:
                     progress.output_tokens = chunk.output_tokens
                 if chunk.finish_reason is not None:
                     progress.completion_seen = True
+                    progress.finish_reason = chunk.finish_reason
+                if chunk.result is not None:
+                    progress.result = chunk.result
+                if chunk.search_units is not None:
+                    progress.search_units = chunk.search_units
+                if chunk.cache_tokens is not None:
+                    progress.cache_tokens = chunk.cache_tokens
+                if chunk.reasoning_tokens is not None:
+                    progress.reasoning_tokens = chunk.reasoning_tokens
                 if chunk.text and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
                     async with self._sessions.begin() as session:
                         if not await self._runs.project(session, claim.id, claim.attempt_id, progress.text):
@@ -187,6 +201,9 @@ class InferenceExecutor:
                 input_tokens=progress.input_tokens,
                 output_tokens=progress.output_tokens,
                 rejected_before_execution=rejected or not progress.provider_started,
+                search_units=progress.search_units,
+                cache_tokens=progress.cache_tokens,
+                reasoning_tokens=progress.reasoning_tokens,
             )
             snapshot = await self._runs.finish(
                 session,
@@ -198,6 +215,8 @@ class InferenceExecutor:
                     input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, status=outcome.status
                 ),
                 error=error,
+                result=progress.result,
+                finish_reason=progress.finish_reason,
             )
             if snapshot.status == 'completed' and claim.resource_type == 'chat':
                 await self._chat.complete(

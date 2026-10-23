@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import UsageService
-from zhiheng.modules.models.public import ModelMessage, ModelRequest, ModelService
+from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -39,6 +39,8 @@ class ChatRunService:
         if await self._runs.has_active(session, conversation_id):
             raise AppError('conversation_busy', '当前对话仍有运行中的请求', 409)
         binding = await self._models.resolve(session, model_id)
+        if binding.model_type != 'chat':
+            raise AppError('model_unavailable', '当前入口仅支持聊天模型', 422)
         context = await self._chat.context(session, principal, conversation_id)
         request = ModelRequest(binding=binding, messages=(*context, ModelMessage('user', message)))
         run = await self._reserve(
@@ -63,9 +65,18 @@ class ChatRunService:
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)
         if existing is not None:
             return existing
-        request = ModelRequest(
-            binding=await self._models.resolve(session, model_id), messages=(ModelMessage('user', 'Reply with OK.'),)
-        )
+        binding = await self._models.resolve(session, model_id)
+        messages: tuple[ModelMessage, ...] = (ModelMessage('user', 'Reply with OK.'),)
+        if binding.model_type == 'embedding':
+            messages = (ModelMessage('user', 'Connection test document.'),)
+        elif binding.model_type == 'rerank':
+            messages = (
+                ModelMessage('user', 'Connection test'),
+                ModelMessage('user', 'Connection test document.'),
+                ModelMessage('user', 'Other document.'),
+            )
+            binding = binding.model_copy(update={'options': ModelOptions(top_n=1, return_documents=False)})
+        request = ModelRequest(binding=binding, messages=messages)
         return await self._reserve(
             session,
             principal,
@@ -107,14 +118,22 @@ class ChatRunService:
             fingerprint=fingerprint,
             payload=request.model_dump(mode='json'),
         )
+        rate = None
+        try:
+            rate = await self._models.latest_rate(session, request.binding.model_id)
+        except AppError as error:
+            if error.code != 'model_not_found':
+                raise
         await self._usage.reserve(
             session,
             user_id=principal.id,
             run_id=run.id,
             model_id=request.binding.model_id,
             source=resource_type,
-            tokens=prompt_bytes + request.binding.max_output_tokens,
+            tokens=prompt_bytes + (request.binding.max_output_tokens if request.binding.model_type == 'chat' else 0),
             token_limit=token_limit,
+            rate=rate,
+            operation=request.binding.model_type,
         )
         return run
 

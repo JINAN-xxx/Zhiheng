@@ -6,6 +6,7 @@ from alembic.config import Config
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.bootstrap.settings import Settings
 
 
@@ -20,6 +21,7 @@ def migration_directory() -> Path:
 
 async def migrate(settings: Settings) -> None:
     config = Config()
+    config.attributes['target_metadata'] = schema_metadata()
     config.set_main_option('script_location', str(migration_directory()))
 
     def upgrade(connection: Connection) -> None:

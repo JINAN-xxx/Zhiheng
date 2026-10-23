@@ -17,10 +17,18 @@ async def execute_chat(context: dict[str, object], run_id: str) -> None:
     await execute_run(cast('Container', context['container']), UUID(run_id))
 
 
+RECOVERY_LIMIT = 100
+
+
 async def recover_expired(container: Container) -> None:
-    async with container.database.sessions.begin() as session:
-        recovered = await container.runs.recover(session)
-        for run_id, provider_started in recovered:
+    # Release a run's Key/account locks before acquiring another run's Key.
+    # The interrupted state and its usage outcome still commit atomically.
+    for _ in range(RECOVERY_LIMIT):
+        async with container.database.sessions.begin() as session:
+            recovered = await container.runs.recover_one(session)
+            if recovered is None:
+                return
+            run_id, provider_started = recovered
             await container.usage.settle(session, run_id, rejected_before_execution=not provider_started)
 
 

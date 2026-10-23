@@ -45,7 +45,7 @@ interface HttpOptions {
   onUnauthorized?: () => void
 }
 interface OpenOptions {
-  method?: 'GET' | 'POST'
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
 }

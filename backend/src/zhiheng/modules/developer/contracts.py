@@ -1,8 +1,12 @@
+import unicodedata
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from zhiheng.shared.time import utcnow
 
 
 class UsageOutcome(BaseModel):
@@ -28,3 +32,125 @@ class UsageSummary(BaseModel):
     used_tokens: int
     reserved_tokens: int
     records: list[UsageRecord]
+
+
+class StrictRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+
+class ApplicationCreate(StrictRequest):
+    code: str = Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$')
+    name: str = Field(min_length=1, max_length=80)
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(unicodedata.category(c).startswith('C') for c in value):
+            raise ValueError('A printable name is required')
+        return value
+
+
+class ApplicationPatch(StrictRequest):
+    name: str = Field(min_length=1, max_length=80)
+    expected_version: int = Field(strict=True, ge=1)
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return ApplicationCreate.clean_name(value)
+
+
+class ApplicationInfo(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    status: str
+    version: int
+    owner_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None
+
+
+class KeyCreate(StrictRequest):
+    name: str = Field(min_length=1, max_length=80)
+    model_ids: list[UUID] = Field(min_length=1, max_length=256)
+    rpm_limit: int | None = Field(default=None, strict=True, gt=0)
+    tpm_limit: int | None = Field(default=None, strict=True, gt=0)
+    concurrency_limit: int | None = Field(default=None, strict=True, gt=0)
+    expires_at: datetime | None = None
+    monthly_budget: Decimal | None = Field(default=None, ge=0, max_digits=30, decimal_places=12)
+    currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
+
+    @field_validator('name')
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        return ApplicationCreate.clean_name(value)
+
+    @field_validator('model_ids')
+    @classmethod
+    def unique_models(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError('Duplicate models')
+        return value
+
+    @field_validator('monthly_budget', mode='before')
+    @classmethod
+    def exact_budget(cls, value: object) -> object:
+        if value is not None and not isinstance(value, str):
+            raise ValueError('Decimal strings are required')
+        return value
+
+    @field_validator('expires_at')
+    @classmethod
+    def future_expiry(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value <= utcnow()):
+            raise ValueError('Future aware timestamp is required')
+        return value
+
+
+class KeyRotate(StrictRequest):
+    grace_period_seconds: int = Field(default=86400, strict=True, ge=0, le=604800)
+
+
+class KeyInfo(BaseModel):
+    id: UUID
+    application_id: UUID
+    name: str
+    prefix: str
+    status: str
+    model_ids: list[UUID]
+    rpm_limit: int | None
+    tpm_limit: int | None
+    concurrency_limit: int | None
+    monthly_budget: Decimal | None
+    currency: str
+    created_at: datetime
+    expires_at: datetime | None
+    retire_at: datetime | None
+    last_used_at: datetime | None
+
+
+class IssuedKey(KeyInfo):
+    api_key: str = Field(repr=False)
+
+
+class ApplicationUsage(BaseModel):
+    id: UUID
+    run_id: UUID
+    application_id: UUID | None
+    key_id: UUID | None
+    model_id: UUID
+    operation: str
+    status: str
+    input_tokens: int | None
+    output_tokens: int | None
+    search_units: int | None
+    cache_tokens: int | None
+    reasoning_tokens: int | None
+    billable_cost: Decimal | None
+    currency: str | None
+    rate_card_id: UUID | None
+    rate_version: int | None
+    created_at: datetime
