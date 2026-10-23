@@ -1,6 +1,8 @@
-# 新平台首条 AI 链路验收
+# 新平台当前功能完整验收
 
 日期：2026-10-23。分支：`refactor/ai-core-modularization`。实现基准：`680c1d6d`。对应[实施计划](../plans/2026-10-23-first-ai-slice.md)。
+
+本次完整验收基于 `64ee98fa`，并包含取消终态错误投影的修复。范围是当前已经实现的身份、模型、聊天、运行和用量，不代表整体目标架构中的后续业务均已完成。
 
 ## 本次交付
 
@@ -16,23 +18,46 @@ PostgreSQL 保存消息、Run、outbox、配额和用量事实；账户行锁约
 
 | 验证 | 实际结果 |
 | --- | --- |
-| 后端 `pytest tests/unit tests/core -q --tb=line` | **83 passed**，最新复验 37.77 秒，无跳过；3 条第三方弃用警告来自 websockets/ARQ |
+| 后端 `pytest tests/unit tests/core -q --tb=line` | **85 passed**，45.53 秒，0 失败、0 跳过；3 条第三方弃用警告来自 websockets/ARQ |
 | Ruff check / format | 通过；65 个 Python 文件格式符合规则，包含源码、迁移、测试与边界工具 |
 | Mypy strict | 47 个源文件通过 |
 | AST 依赖边界 | 通过，包含禁止导入 legacy、旧插件/模块，以及模块私有接口和 SDK 边界 |
 | 前端 `npm run test:core` | **11 passed** |
+| 前端完整锁文件安装 | `npm ci` 通过，锁文件未改变 |
 | ESLint / Prettier / vue-tsc / 测试类型检查 | 全部通过 |
 | `npm run build:platform` | 默认 `dist` 生产构建通过；临时输出目录的生产产物也通过浏览器验收 |
 | 受控 HTTP/SSE Chromium 页面回归 | **8 passed**，覆盖登录按钮/Enter/失败重试及聊天竞态、恢复、校验 |
-| 构建后真实浏览器链路 | 登录 → 页面创建连接与两个模型 → 连接测试 → 同连接连续两轮聊天 → 刷新历史 → 静默生成取消 → 用量 → 390px 窄屏 → 注销，全链路通过，无页面异常 |
+| 补充受控页面场景 | **5 passed**，覆盖 1440/375/320 宽度、模型表单、SSE、用量失败重试及成员导航；共保存 16 张截图 |
+| 构建后真实浏览器链路 | 通过 Docker Nginx → API → worker → LangChain → HTTP 模型完成登录、模型配置/测试、两轮聊天、历史、取消、用量、窄屏和注销，无业务接口拦截或页面异常 |
 | 干净环境完整哈希依赖安装 | 通过，随后只安装新 wheel，API/worker 从安装包运行，不使用源码 PYTHONPATH |
 | wheel 内容检查 | 通过，独立 CLI 与迁移随包安装，排除旧 CLI、插件及环境文件 |
-| 后端 Docker 构建 | Python 3.10 构建通过；镜像验证 LangChain 1.4.7、兼容的 httpx2、迁移安装路径和导入隔离 |
+| 后端 Docker 构建 | 默认 Python 3.12-slim 构建和真实运行通过；安装完整哈希锁及独立 wheel。此前 Python 3.10 构建、导入与迁移资源检查也通过 |
+| 前端 Docker 构建 | 原 Dockerfile 的 Node 24 / npm 11.9.0 构建及 Nginx 1.28 运行通过 |
+| 完整 Compose | 独立空库迁移成功；PostgreSQL、Redis、worker、API、web 健康，migrator 退出码 0 |
 | Compose / 启动脚本 / CI | Compose 展开、`bash -n`、配置初始化及拒绝覆盖、actionlint 与工作流 shell 语法验证通过 |
 
 集成测试使用本轮创建的 PostgreSQL/Redis 容器和动态回环端口，每个测试另建 UUID 数据库；不使用旧业务数据库。供应商是本地真实 HTTP 协议服务，实际经过 LangChain/供应商 SDK，浏览器主链路没有拦截业务接口。
 
-真实浏览器工具为 `backend/tests/core/e2e/browser_check.py`，页面回归为 `frontend/tests/browser/ui_regressions.py`。运行条件和持续执行命令见根 README 与 `.github/workflows/core-platform.yml`。本机截图、API/worker 日志位于 `/tmp/zhiheng-core-browser-artifacts/`，不进入发布包。
+基础浏览器工具为 `backend/tests/core/e2e/browser_check.py`，页面回归为 `frontend/tests/browser/ui_regressions.py`。运行条件和持续执行命令见根 README 与 `.github/workflows/core-platform.yml`。本轮完整验收脚本、日志、镜像摘要、截图和测试数据库快照保存于 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-134853-full-platform-test/`，不进入发布包。
+
+## 真实容器链路与故障恢复
+
+`zhiheng-core-audit` 使用新环境文件、新 PostgreSQL/Redis 卷和回环端口 `19081`，模型服务仅监听其 Docker bridge 地址。以下 **10 项全部通过**：
+
+1. 浏览器通过真实 Nginx、API、worker、LangChain 和模型 HTTP 完成首条链路。
+2. 重复 HTTP 请求复用同一个 Run，只调用和结算一次；同键不同请求返回冲突。
+3. 上游暂停时 Nginx 已传出第一段；断开 SSE 后运行继续，重新订阅恢复完整终态快照。
+4. 网络暂停期间取消仍生效；公开终态无伪失败，未知用量保留预留。
+5. Redis 停止期间仍可持久接入；恢复后 outbox 补发，模型只执行一次。
+6. 真实 `SIGKILL` 后失联租约收敛为 interrupted/unknown，不自动重放，也不把失败轮次加入新上下文。
+7. 上游拒绝和提前 EOF 分别产生正确失败与用量事实，不泄露供应商私有错误。
+8. 经 Nginx 拒绝资源越权、跨来源修改和未知请求参数。
+9. 整套容器强制重建后，会话、消息、用量及加密模型凭据均有效，仍可继续调用模型。
+10. 重建后注销仍撤销数据库中的会话。
+
+另外以真实独立 PostgreSQL/Redis 补查并发接入、重复投递、Redis 清空重建、provider 准备期间取消及租约边界，**4 项通过**。这些补查脚本和原始结果保存在同一验收目录。
+
+前期基础镜像下载失败已定位为 Docker 守护进程未使用主机代理。本轮通过临时本地转发从官方仓库预取镜像，再以主机代理构建原 Dockerfile。基础镜像和最终镜像身份记录在 `image-identities.json`；未修改全局 Docker 配置。此环境步骤不等同于对其他机器网络条件的保证。
 
 ## 审查与回归修复
 
@@ -45,21 +70,22 @@ PostgreSQL 保存消息、Run、outbox、配额和用量事实；账户行锁约
 - SSE 在注销、会话过期和用户禁用后停止读取；真实 TCP 断开会释放订阅与轮询，后台 Run 不受影响。
 - 登录表单按钮/Enter 实际提交；聊天首次发送冻结输入，晚到列表不覆盖新会话，恢复入口不被刷新移除，历史未加载前禁止 Enter 发送。
 - 窄屏导航保留可访问名称，模型选择框具备标签；生产页面没有横向溢出。
+- 本轮发现 provider 准备期间取消会留下 `inference_failed` 公开错误。最终持久状态为 cancelled 时清空错误；真正 failed/interrupted 的错误保留，用量逻辑不变。新增两个竞争回归先红后绿，原始完整 worker 复现也确认零上游、零扣费；修复经独立规格与质量审查。
 
 ## 原有优化保留
 
 归档前的 55 个修改文件与当前 `legacy/backend`、`legacy/frontend` 中对应文件逐项 SHA-256 一致，继续保持未提交。归档的暂存版本来自基准提交，未将这些优化夹带进新平台提交。
 
-仓库外备份的 **42,466 个条目**全部核对保留，包括未跟踪源码、文档、设计素材及原有残留依赖；先前 3 个目录引用更新保持已记录的调整。备份目录为 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-110616-before-directory-migration/`，新增 `first-ai-slice-paths.json` 记录本轮最终路径与核对结果。备份、原始补丁和文件归档继续保留。本轮测试容器与前端 preview 已停止，原有运行服务未重启或停止。
+仓库外原始备份的 **42,466 个条目**在目录迁移时全部核对保留，包括未跟踪源码、文档、设计素材及原有残留依赖；先前 3 个目录引用更新保持已记录的调整。原始备份目录为 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-110616-before-directory-migration/`，后续旧材料清理的归档位置见[文档索引](../../README.md)。本轮再次核对原有 55 个修改文件，内容保持一致且继续未提交。
 
-## 验收边界
+## 实例收尾与验收边界
 
-2026-10-23 对 `24efdcf0` 基准再次验收：后端 83 项测试、前端 11 项行为测试和 8 项页面回归全部通过，类型检查和默认 `dist` 生产构建通过。重新构建并安装新 wheel 后，登录、模型配置/测试、两轮聊天、历史、取消、用量、窄屏和注销的真实浏览器链路通过。测试继续使用本地模型 HTTP 服务，未调用收费供应商。
+按用户要求，旧 Compose 项目 `zhiheng` 的 7 个运行容器已停止，保留原容器和数据；旧 `12580` 入口不再提供服务。旧容器身份、挂载和重启策略保存在 `old-containers.json`。
 
-本次尝试构建前端 Docker 镜像：默认 Docker Hub 的基础镜像元数据请求长时间无进展后终止；备用镜像源拉取 Node 24 基础镜像返回 `network is unreachable`，未完成前端镜像构建和完整 Compose 启动。后端镜像构建和独立安装包的真实链路已有各自验收，不将它们作为整套容器部署通过的证据。
+临时 `zhiheng-core-audit` 项目在导出测试数据库快照后清理，独立测试容器、页面 preview 和镜像转发停止。默认新项目 `zhiheng-core` 由另一套空库启动于 `http://127.0.0.1:19080`，管理员显式创建；验收模型和故障数据未带入新实例。
 
-本次只读核对到主机 `12580` 端口仍由旧 `zhiheng` 项目提供页面，其镜像和挂载目录属于旧实例；新源码不会自动替换该实例。本轮未更换旧实例镜像、服务或数据。
+干净新实例另验收真实 API/浏览器登录、退出、空模型列表、零用量和桌面/窄屏导航。登录凭据仅保存在本机私有验收目录的 `new-platform-login.json`，不写入仓库或日志。
 
-未运行远端 CI、完整 Compose up、压测或生产部署。Python 3.13 矩阵已配置，未在本机执行。
+未调用收费供应商，未运行远端 CI、生产压测、跨机器恢复、TLS 上线或多节点验收。Python 3.13 矩阵已配置，未在本机执行。当前验收覆盖单 worker 的本机部署，不能据此承诺所有浏览器、供应商或多节点行为。
 
 本轮仅交付文本对话首条链路。知识库、文件、Agent、Work、外部 API Key/模型 API、货币计费、未知用量人工对账界面，以及全平台备份恢复演练仍待后续实施；整体设计中的目标能力不能视为本轮已完成。

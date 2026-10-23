@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from tests.core.integration.test_chat_runs import admit
 from tests.core.provider import ProviderServer
+from zhiheng.runtime.contracts import RunError, RunStatus, RunUsage
 
 
 async def named_model(admin: httpx.AsyncClient, provider: ProviderServer, upstream: str) -> str:
@@ -80,6 +81,48 @@ async def test_silent_provider_can_be_cancelled_before_timeout(
         await asyncio.gather(execution, return_exceptions=True)
 
 
+@pytest.mark.parametrize(
+    'terminal_status,error_code,provider_started',
+    [('failed', 'inference_failed', False), ('interrupted', 'worker_stopped', True)],
+)
+async def test_cancellation_wins_over_terminal_error_without_changing_usage(
+    admin: httpx.AsyncClient,
+    model_id: str,
+    app: object,
+    terminal_status: RunStatus,
+    error_code: str,
+    provider_started: bool,
+) -> None:
+    container = app.state.container
+    _conversation, run = await admit(admin, model_id)
+    async with container.database.sessions.begin() as session:
+        claim = await container.runs.claim(session, UUID(run['id']), 3)
+        assert claim is not None
+        if provider_started:
+            assert await container.runs.start_provider(session, claim.id, claim.attempt_id)
+    cancelled = await admin.post(f'/api/runs/{run["id"]}/cancel', json={})
+    assert cancelled.json()['status'] == 'cancel_requested'
+    usage = RunUsage(
+        input_tokens=None if provider_started else 0,
+        output_tokens=None if provider_started else 0,
+        status='unknown' if provider_started else 'known',
+    )
+    async with container.database.sessions.begin() as session:
+        await container.runs.finish(
+            session,
+            claim.id,
+            claim.attempt_id,
+            status=terminal_status,
+            content='',
+            usage=usage,
+            error=RunError(code=error_code, message='模型调用未完成'),
+        )
+    result = (await admin.get(f'/api/runs/{run["id"]}')).json()
+    assert result['status'] == 'cancelled'
+    assert result['error'] is None
+    assert result['usage'] == usage.model_dump()
+
+
 async def test_expired_attempt_is_fenced_and_keeps_unknown_reservation(
     admin: httpx.AsyncClient,
     model_id: str,
@@ -102,6 +145,7 @@ async def test_expired_attempt_is_fenced_and_keeps_unknown_reservation(
             await container.runs.lock_execution(session, claim.id, claim.attempt_id)
     result = (await admin.get(f'/api/runs/{run["id"]}')).json()
     assert result['status'] == 'interrupted' and result['usage']['status'] == 'unknown'
+    assert result['error']['code'] == 'execution_interrupted'
     usage = (await admin.get('/api/usage')).json()
     assert usage['reserved_tokens'] > 0 and usage['records'][0]['charged_tokens'] is None
 
@@ -131,6 +175,7 @@ async def test_rejected_provider_is_not_retried_or_charged(
     await execute_run(app.state.container, UUID(run['id']))
     result = await admin.get(f'/api/runs/{run["id"]}')
     assert result.json()['status'] == 'failed'
+    assert result.json()['error']['code'] == 'provider_rejected'
     assert 'private-provider-details' not in result.text
     usage = (await admin.get('/api/usage')).json()
     assert usage['reserved_tokens'] == 0 and usage['used_tokens'] == 0
@@ -165,6 +210,7 @@ async def test_premature_eof_does_not_create_complete_message_or_pollute_context
     await execute_run(app.state.container, UUID(run['id']))
     result = (await admin.get(f'/api/runs/{run["id"]}')).json()
     assert result['status'] == 'failed'
+    assert result['error']['code'] == 'provider_unavailable'
     assert result['usage']['status'] == 'unknown'
     messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
     assert [message['role'] for message in messages] == ['user']

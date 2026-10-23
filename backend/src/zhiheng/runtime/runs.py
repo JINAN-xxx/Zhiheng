@@ -132,6 +132,8 @@ class RunStore:
         if not self._owns(row, attempt_id) or row is None:
             raise AppError('execution_lost', '执行权已失效', 409)
         row.status = 'cancelled' if row.status == 'cancel_requested' else status
+        if row.status == 'cancelled':
+            error = None
         row.text = content
         row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
         row.error_code = error.code if error is not None else None
