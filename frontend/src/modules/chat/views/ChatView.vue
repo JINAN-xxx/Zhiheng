@@ -116,7 +116,11 @@ onBeforeUnmount(() => {
           /></AAvatar>
           <div class="message-body">
             <div class="message-meta">{{ message.role === 'user' ? '我' : '智衡' }}</div>
-            <AiMessage v-if="message.role === 'assistant'" :content="message.content" />
+            <AiMessage
+              v-if="message.role === 'assistant'"
+              :content="message.content"
+              :reasoning-content="message.reasoning"
+            />
             <p v-else class="user-message">{{ message.content }}</p>
             <div v-if="message.skill_snapshots.length" class="message-skills">
               <ATag v-for="skill in message.skill_snapshots" :key="skill.revision_id"
@@ -133,6 +137,7 @@ onBeforeUnmount(() => {
             </div>
             <AiMessage
               :content="activeRun.text || (running ? '' : '本次运行未生成文本')"
+              :reasoning-content="activeRun.reasoning ?? ''"
               :loading="running"
             />
             <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>

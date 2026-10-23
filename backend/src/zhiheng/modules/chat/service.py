@@ -58,6 +58,7 @@ class ChatService:
                 id=row.id,
                 role=cast("Literal['user', 'assistant']", row.role),
                 content=row.content,
+                reasoning=row.reasoning,
                 run_id=row.run_id,
                 created_at=row.created_at,
                 skill_snapshots=[SkillSnapshot.model_validate(value) for value in row.skill_snapshots],
@@ -112,7 +113,9 @@ class ChatService:
             .values(title=content[:30])
         )
 
-    async def complete(self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str) -> None:
+    async def complete(
+        self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str, reasoning: str = ''
+    ) -> None:
         await session.execute(update(ChatMessage).where(ChatMessage.run_id == run_id).values(is_complete=True))
         session.add(
             ChatMessage(
@@ -120,6 +123,7 @@ class ChatService:
                 run_id=run_id,
                 role='assistant',
                 content=content,
+                reasoning=reasoning,
                 is_complete=True,
             )
         )

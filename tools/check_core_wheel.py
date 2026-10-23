@@ -13,6 +13,12 @@ REQUIRED_FILES = frozenset(
         'zhiheng/modules/skills/package.py',
         'zhiheng/modules/skills/validation.py',
         'zhiheng/api/routes/skills.py',
+        'zhiheng/modules/agents/public.py',
+        'zhiheng/modules/agents/LICENSE',
+        'zhiheng/modules/agents/context.py',
+        'zhiheng/application/agent_runs.py',
+        'zhiheng/api/routes/agents.py',
+        'zhiheng/api/routes/public_agents.py',
     }
 )
 
@@ -27,7 +33,13 @@ def verify_core_wheel(directory: Path) -> Path:
     missing = REQUIRED_FILES - names
     if missing:
         raise ValueError(f'Core wheel is missing: {", ".join(sorted(missing))}')
-    migrations = ('env.py', 'versions/0001_core.py', 'versions/0002_developer.py', 'versions/0003_skills.py')
+    migrations = (
+        'env.py',
+        'versions/0001_core.py',
+        'versions/0002_developer.py',
+        'versions/0003_skills.py',
+        'versions/0004_agents.py',
+    )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations
     ):

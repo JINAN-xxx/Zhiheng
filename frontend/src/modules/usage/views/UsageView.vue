@@ -38,7 +38,9 @@ const sourceOptions = [
   { value: 'all', label: '全部类型' },
   { value: 'chat', label: '对话' },
   { value: 'connection_test', label: '连接测试' },
-  { value: 'public', label: '开发接入' }
+  { value: 'public', label: '开发接入' },
+  { value: 'agent_preview', label: '智能体试聊' },
+  { value: 'agent_invocation', label: '智能体 API' }
 ]
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -53,7 +55,13 @@ function setStatus(value: unknown): void {
   selectedStatus.value = typeof value === 'string' ? value : 'all'
 }
 const sourceLabel = (source: string): string =>
-  ({ chat: '对话', connection_test: '连接测试', public: '开发接入' })[source] ?? source
+  ({
+    chat: '对话',
+    connection_test: '连接测试',
+    public: '开发接入',
+    agent_preview: '智能体试聊',
+    agent_invocation: '智能体 API'
+  })[source] ?? source
 const tokens = (value: number | null): string =>
   value === null ? '待核对' : value.toLocaleString()
 const recordStatus = (status: string): string =>

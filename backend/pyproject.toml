@@ -19,7 +19,7 @@ where = ["src"]
 dependencies = {file = ["requirements-core.in"]}
 
 [tool.setuptools.package-data]
-zhiheng = ["py.typed"]
+zhiheng = ["py.typed", "modules/agents/LICENSE"]
 
 [tool.setuptools.data-files]
 "share/zhiheng/migrations" = ["migrations/env.py"]

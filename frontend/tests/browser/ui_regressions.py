@@ -143,7 +143,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.wait_for_timeout(150)
         self.assertEqual(self.posts, [], 'An empty limit must not submit the previous 512 value')
         await expect(dialog).to_be_visible()
-        await expect(dialog.get_by_text('请填写模型信息，输出上限须为 1–8192 的整数', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('请填写模型信息，输出上限须为 1–131072 的整数', exact=True)).to_be_visible()
         await expect(output_limit).to_have_value('')
         await output_limit.fill('256')
         await dialog.get_by_role('button', name='保存模型', exact=True).click()

@@ -39,7 +39,17 @@ class ProviderHandler(BaseHTTPRequestHandler):
             )
             self.wfile.flush()
             return
-        if body['model'] == 'silent':
+        if str(body['model']).startswith('reasoning'):
+            reasoning_chunk = {
+                'id': 'reasoning',
+                'object': 'chat.completion.chunk',
+                'created': 1,
+                'model': body['model'],
+                'choices': [{'index': 0, 'delta': {'reasoning_content': '先思考'}, 'finish_reason': None}],
+            }
+            self.wfile.write(('data: ' + json.dumps(reasoning_chunk, ensure_ascii=False) + '\n\n').encode())
+            self.wfile.flush()
+        if body['model'] in ('silent', 'reasoning-silent'):
             server.release.wait(timeout=5)
         try:
             for content, finish, usage in [

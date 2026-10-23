@@ -114,4 +114,4 @@ async def remove(
     _body: EmptyRequest | None = None,
 ) -> SkillInfo:
     async with session.begin():
-        return await container.skills.remove(session, principal, skill_id)
+        return await container.skill_management.remove(session, principal, skill_id)

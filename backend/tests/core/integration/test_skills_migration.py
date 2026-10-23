@@ -50,7 +50,11 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
         await connection.run_sync(downgrade)
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0002_developer'
         snapshots = {
-            table: (await connection.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1')))
+            table: (
+                await connection.execute(
+                    text(f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
+                )
+            )
             .scalars()
             .all()
             for table in tables
@@ -59,7 +63,9 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
     async with container.database.engine.connect() as connection:
         for table in tables:
             assert (
-                await connection.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1'))
+                await connection.execute(
+                    text(f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
+                )
             ).scalars().all() == snapshots[table]
         assert await connection.scalar(text('SELECT COUNT(*) FROM skills')) == 2
         assert await connection.scalar(text('SELECT skill_snapshots FROM chat_messages LIMIT 1')) == []

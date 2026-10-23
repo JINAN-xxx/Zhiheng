@@ -57,9 +57,11 @@ class RunStore:
         request_id: UUID,
         fingerprint: str,
         payload: dict[str, object],
+        billing_owner_id: UUID | None = None,
     ) -> RunSnapshot:
         run = Run(
             owner_id=owner_id,
+            billing_owner_id=billing_owner_id or owner_id,
             resource_type=resource_type,
             resource_id=resource_id,
             client_request_id=request_id,
@@ -100,7 +102,9 @@ class RunStore:
         row.attempt_no += 1
         row.revision += 1
         row.lease_until = utcnow() + timedelta(seconds=lease_seconds)
-        return ClaimedRun(row.id, row.resource_type, row.resource_id, row.owner_id, row.attempt_id, row.payload)
+        return ClaimedRun(
+            row.id, row.resource_type, row.resource_id, row.owner_id, row.attempt_id, row.payload, row.billing_owner_id
+        )
 
     async def control(
         self, session: AsyncSession, run_id: UUID, attempt_id: UUID, lease_seconds: int
@@ -126,11 +130,14 @@ class RunStore:
         if not self._owns(row, attempt_id):
             raise AppError('execution_lost', '执行权已失效', 409)
 
-    async def project(self, session: AsyncSession, run_id: UUID, attempt_id: UUID, content: str) -> bool:
+    async def project(
+        self, session: AsyncSession, run_id: UUID, attempt_id: UUID, content: str, reasoning: str = ''
+    ) -> bool:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
             return False
         row.text = content
+        row.reasoning = reasoning
         row.projection_seq += 1
         row.revision += 1
         return True
@@ -147,6 +154,7 @@ class RunStore:
         error: RunError | None = None,
         result: dict[str, object] | None = None,
         finish_reason: str | None = None,
+        reasoning: str = '',
     ) -> RunSnapshot:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
@@ -155,6 +163,7 @@ class RunStore:
         if row.status == 'cancelled':
             error = None
         row.text = content
+        row.reasoning = reasoning
         row.result = result
         row.finish_reason = finish_reason
         row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
@@ -213,7 +222,9 @@ class RunStore:
     def _snapshot(row: Run) -> RunSnapshot:
         return RunSnapshot(
             id=row.id,
-            resource_type=cast("Literal['chat', 'connection_test', 'public']", row.resource_type),
+            resource_type=cast(
+                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation']", row.resource_type
+            ),
             resource_id=row.resource_id,
             status=cast('RunStatus', row.status),
             attempt_id=row.attempt_id,
@@ -221,6 +232,7 @@ class RunStore:
             revision=row.revision,
             projection_seq=row.projection_seq,
             text=row.text,
+            reasoning=row.reasoning,
             result=row.result,
             finish_reason=cast("Literal['stop','length'] | None", row.finish_reason),
             created_at=row.created_at,

@@ -24,5 +24,6 @@ class MessageInfo(BaseModel):
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
     role: Literal['user', 'assistant']
     content: str
+    reasoning: str = ''
     run_id: UUID
     created_at: datetime

@@ -3,6 +3,7 @@
 from sqlalchemy import MetaData
 
 from zhiheng.infrastructure.database import Base
+from zhiheng.modules.agents.public import schema_tables as agent_tables
 from zhiheng.modules.chat.public import schema_tables as chat_tables
 from zhiheng.modules.developer.public import schema_tables as developer_tables
 from zhiheng.modules.identity.public import schema_tables as identity_tables
@@ -19,6 +20,7 @@ def schema_metadata() -> MetaData:
         *developer_tables(),
         *chat_tables(),
         *skill_tables(),
+        *agent_tables(),
         Base.metadata.tables[Run.__tablename__],
         Base.metadata.tables[Outbox.__tablename__],
     )

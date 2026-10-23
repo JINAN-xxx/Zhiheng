@@ -41,7 +41,7 @@ class ModelRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     connection_id: UUID
     upstream_model: str = Field(min_length=1, max_length=200)
-    max_output_tokens: int = Field(default=512, ge=1, le=8192)
+    max_output_tokens: int = Field(default=512, strict=True, ge=1, le=131072)
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     published: bool = True
 
@@ -124,7 +124,7 @@ class ModelPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     connection_id: UUID | None = None
     upstream_model: str | None = Field(default=None, min_length=1, max_length=200)
-    max_output_tokens: int | None = Field(default=None, ge=1, le=8192)
+    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
     enabled: bool | None = None
     published: bool | None = None
 

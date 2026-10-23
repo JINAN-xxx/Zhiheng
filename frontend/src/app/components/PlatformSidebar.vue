@@ -22,7 +22,7 @@ const emit = defineEmits<{ 'toggle-collapse': []; navigate: [] }>()
 const route = useRoute()
 const router = useRouter()
 const resourcesExpanded = ref(['models', 'usage', 'developer'].includes(String(route.name)))
-const extensionsExpanded = ref(route.name === 'skills')
+const extensionsExpanded = ref(['skills', 'agents'].includes(String(route.name)))
 const historyExpanded = ref(false)
 watch(
   () => route.path,
@@ -30,7 +30,7 @@ watch(
     historyExpanded.value = false
     if (['models', 'usage', 'developer'].includes(String(route.name)))
       resourcesExpanded.value = true
-    if (route.name === 'skills') extensionsExpanded.value = true
+    if (['skills', 'agents'].includes(String(route.name))) extensionsExpanded.value = true
   }
 )
 const { selectConversation } = useChatWorkspace()
@@ -167,6 +167,13 @@ async function openHistory(): Promise<void> {
           </button>
           <div v-if="extensionsExpanded" class="platform-nav-group-children">
             <RouterLink
+              to="/agents"
+              class="platform-nav-link platform-nav-child"
+              aria-label="智能体"
+              @click="emit('navigate')"
+              >智能体</RouterLink
+            >
+            <RouterLink
               to="/skills"
               class="platform-nav-link platform-nav-child"
               aria-label="技能管理"
@@ -185,6 +192,8 @@ async function openHistory(): Promise<void> {
           </button>
           <template #overlay
             ><AMenu
+              ><AMenuItem
+                ><RouterLink to="/agents" aria-label="智能体">智能体</RouterLink></AMenuItem
               ><AMenuItem
                 ><RouterLink to="/skills" aria-label="技能管理">技能管理</RouterLink></AMenuItem
               ></AMenu

@@ -11,7 +11,7 @@ export type RunStatus =
   | 'interrupted'
 export interface RunSnapshot {
   id: string
-  resource_type: 'chat' | 'connection_test'
+  resource_type: 'chat' | 'connection_test' | 'public' | 'agent_preview' | 'agent_invocation'
   resource_id: string
   status: RunStatus
   attempt_id: string | null
@@ -19,6 +19,7 @@ export interface RunSnapshot {
   revision: number
   projection_seq: number
   text: string
+  reasoning?: string
   error: { code: string; message: string } | null
   created_at: string
   result?: Record<string, unknown> | null
@@ -40,7 +41,13 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
     const status = run.status
     const usageStatus = usage.status
     const resourceType = run.resource_type
-    if (resourceType !== 'chat' && resourceType !== 'connection_test')
+    if (
+      resourceType !== 'chat' &&
+      resourceType !== 'connection_test' &&
+      resourceType !== 'public' &&
+      resourceType !== 'agent_preview' &&
+      resourceType !== 'agent_invocation'
+    )
       throw new Error('resource_type')
     if (
       status !== 'pending' &&
@@ -65,6 +72,7 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       revision: integer(run.revision),
       projection_seq: integer(run.projection_seq),
       text: string(run.text),
+      ...(run.reasoning === undefined ? {} : { reasoning: string(run.reasoning) }),
       error: error === null ? null : { code: string(error.code), message: string(error.message) },
       created_at: string(run.created_at),
       ...(run.result === undefined
@@ -110,11 +118,14 @@ export async function consumeSnapshots(
   let buffer = ''
   let eventType = ''
   let data: string[] = []
+  let dataLength = 0
+  const maxEventLength = 16 * 1024 * 1024
   const abort = () => {
     void reader.cancel().catch(() => undefined)
   }
   signal.addEventListener('abort', abort, { once: true })
   function line(value: string): void {
+    if (value.length > maxEventLength) throw new Error('事件流超过允许长度')
     if (value === '') {
       if (data.length) {
         if (eventType !== 'snapshot') throw new Error('服务器返回了未知事件类型')
@@ -123,6 +134,7 @@ export async function consumeSnapshots(
       }
       eventType = ''
       data = []
+      dataLength = 0
       return
     }
     if (value.startsWith(':')) return
@@ -130,7 +142,11 @@ export async function consumeSnapshots(
     const field = colon === -1 ? value : value.slice(0, colon)
     const content = colon === -1 ? '' : value.slice(colon + 1).replace(/^ /, '')
     if (field === 'event') eventType = content
-    if (field === 'data') data.push(content)
+    if (field === 'data') {
+      dataLength += content.length
+      if (dataLength > maxEventLength) throw new Error('事件流超过允许长度')
+      data.push(content)
+    }
   }
   try {
     signal.throwIfAborted()
@@ -144,7 +160,7 @@ export async function consumeSnapshots(
         buffer = buffer.slice(newline + 1)
         newline = buffer.indexOf('\n')
       }
-      if (buffer.length > 2_000_000) throw new Error('事件流超过允许长度')
+      if (buffer.length > maxEventLength) throw new Error('事件流超过允许长度')
       if (chunk.done) break
     }
   } finally {

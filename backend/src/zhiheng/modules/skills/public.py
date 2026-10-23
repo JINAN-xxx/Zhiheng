@@ -11,9 +11,10 @@ from zhiheng.modules.skills.contracts import (
     SkillStatus,
 )
 from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillRevision
-from zhiheng.modules.skills.service import SkillService, resolve_selection
+from zhiheng.modules.skills.service import MAX_SELECTION_BYTES, SkillService, require_available, resolve_selection
 
 __all__ = [
+    'MAX_SELECTION_BYTES',
     'DraftInfo',
     'SkillInfo',
     'SkillPage',
@@ -22,6 +23,7 @@ __all__ = [
     'SkillService',
     'SkillSlug',
     'SkillStatus',
+    'require_available',
     'resolve_selection',
     'schema_tables',
 ]

@@ -6,6 +6,7 @@ import { modelRoutes } from '../modules/models/routes.ts'
 import { usageRoutes } from '../modules/usage/routes.ts'
 import { developerRoutes } from '../modules/developer/public.ts'
 import { skillRoutes } from '../modules/skills/public.ts'
+import { agentRoutes } from '../modules/agents/public.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -24,6 +25,7 @@ export const router = createRouter({
     ...usageRoutes,
     ...developerRoutes,
     ...skillRoutes,
+    ...agentRoutes,
     { path: '/', redirect: '/chat' },
     { path: '/:pathMatch(.*)*', redirect: '/chat' }
   ]

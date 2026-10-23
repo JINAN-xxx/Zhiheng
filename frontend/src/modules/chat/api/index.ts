@@ -1,6 +1,5 @@
 import { http } from '../../../shared/http.ts'
-import { followRun, parseRunSnapshot } from '../../../shared/stream.ts'
-import type { RunSnapshot } from '../../../shared/stream.ts'
+import { parseRunSnapshot } from '../../../shared/stream.ts'
 import { list, object, string } from '../../../shared/validation.ts'
 export interface Conversation {
   id: string
@@ -11,6 +10,7 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  reasoning: string
   run_id: string | null
   created_at: string
   skill_snapshots: { slug: string; name: string; revision_id: string; content_hash: string }[]
@@ -26,6 +26,7 @@ function parseMessage(value: unknown): ChatMessage {
     id: string(data.id),
     role: data.role,
     content: string(data.content),
+    reasoning: data.reasoning === undefined ? '' : string(data.reasoning),
     run_id: data.run_id === null ? null : string(data.run_id),
     created_at: string(data.created_at),
     skill_snapshots:
@@ -72,26 +73,4 @@ export const sendMessage = (
     signal,
     decode: parseRunSnapshot
   })
-export const getRun = (id: string, signal: AbortSignal) =>
-  http.request(`/runs/${encodeURIComponent(id)}`, { signal, decode: parseRunSnapshot })
-export const cancelRun = (id: string, signal: AbortSignal) =>
-  http.request(`/runs/${encodeURIComponent(id)}/cancel`, {
-    method: 'POST',
-    body: {},
-    signal,
-    decode: parseRunSnapshot
-  })
-export const observeRun = (
-  initial: RunSnapshot,
-  update: (run: RunSnapshot) => void,
-  signal: AbortSignal
-) =>
-  followRun(
-    {
-      get: (signal) => getRun(initial.id, signal),
-      open: (signal) => http.open(`/runs/${encodeURIComponent(initial.id)}/events`, { signal })
-    },
-    initial,
-    update,
-    signal
-  )
+export { getRun, cancelRun, observeRun } from '../../../shared/runs.ts'

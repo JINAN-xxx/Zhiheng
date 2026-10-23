@@ -11,6 +11,17 @@ from developer_regressions import DeveloperBoundary
 
 
 class ModelManagementRegressions(DeveloperBoundary):
+    async def test_chat_model_keeps_an_output_limit_above_8192(self):
+        await self.page.goto(self.origin + '/models')
+        await self.page.get_by_role('button', name='接入模型', exact=True).click()
+        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
+        await drawer.get_by_placeholder('例如：日常助手').fill('长输出模型')
+        await drawer.get_by_placeholder('填写服务商提供的模型 ID').fill('large-output')
+        await drawer.get_by_role('spinbutton').fill('65536')
+        await drawer.get_by_role('button', name='保存模型', exact=True).click()
+        await expect(drawer).not_to_be_visible()
+        self.assertEqual(self.posts[-1]['max_output_tokens'], 65536)
+
     async def test_late_price_history_cannot_remove_confirmed_version(self):
         requested, release = asyncio.Event(), asyncio.Event()
         reads = 0

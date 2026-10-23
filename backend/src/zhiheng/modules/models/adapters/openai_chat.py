@@ -1,8 +1,9 @@
 from collections.abc import AsyncIterator, Mapping
-from typing import Literal
+from typing import Any, Literal
 
 from httpx2 import Request
-from langchain_core.messages import AIMessage, BaseMessage, ChatMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, BaseMessageChunk, ChatMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
 from openai import APIError, APIStatusError, AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, Omit, OpenAI
@@ -32,6 +33,27 @@ class _AsyncConnectionClient(AsyncOpenAI):
     @property
     def default_headers(self) -> dict[str, str | Omit]:
         return _connection_headers(self.auth_headers)
+
+
+class _ReasoningChatOpenAI(ChatOpenAI):
+    """LC 1.4.7 drops provider reasoning_content in its chat delta conversion."""
+
+    def _convert_chunk_to_generation_chunk(
+        self,
+        chunk: dict[str, Any],
+        default_chunk_class: type[BaseMessageChunk],
+        base_generation_info: dict[str, Any] | None,
+    ) -> ChatGenerationChunk | None:
+        result = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
+        choices = chunk.get('choices')
+        if result is not None and choices:
+            delta = choices[0].get('delta') or {}
+            reasoning = delta.get('reasoning_content')
+            if reasoning is not None:
+                if not isinstance(reasoning, str):
+                    raise ProviderError
+                result.message.additional_kwargs['reasoning_content'] = reasoning
+        return result
 
 
 class OpenAIChatProvider:
@@ -112,7 +134,7 @@ class OpenAIChatProvider:
                     trust_env=False, follow_redirects=False, event_hooks={'request': [self._isolate_async_request]}
                 ),
             ) as async_client:
-                client = ChatOpenAI(
+                client = _ReasoningChatOpenAI(
                     model=self._model,
                     api_key=self._api_key,
                     base_url=self._base_url,
@@ -157,7 +179,10 @@ class OpenAIChatProvider:
                     output_tokens = captured.output_tokens if usage is not None else None
                     finish_reason = self._completion_reason(chunk.response_metadata.get('finish_reason'))
                     completed = completed or finish_reason is not None
-                    if chunk.content or usage is not None or finish_reason is not None:
+                    reasoning = chunk.additional_kwargs.get('reasoning_content', '')
+                    if not isinstance(reasoning, str):
+                        raise ProviderError
+                    if chunk.content or reasoning or usage is not None or finish_reason is not None:
                         yield ModelDelta(
                             chunk.content,
                             input_tokens,
@@ -165,6 +190,7 @@ class OpenAIChatProvider:
                             finish_reason,
                             cache_tokens=captured.cache_tokens,
                             reasoning_tokens=captured.reasoning_tokens,
+                            reasoning=reasoning,
                         )
             if not completed:
                 raise ProviderError

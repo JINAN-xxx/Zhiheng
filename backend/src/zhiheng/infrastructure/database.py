@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0003_skills'
+SCHEMA_REVISION = '0004_agents'
 
 
 class Base(DeclarativeBase):

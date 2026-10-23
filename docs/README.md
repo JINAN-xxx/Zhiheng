@@ -1,6 +1,6 @@
 # 新平台文档
 
-日常开发以实际代码、当前代码规范和首条 AI 链路验收为准。整体架构设计包含后续目标，不能把其中的知识库、Agent、Work 等规划视为已经实现。
+日常开发以实际代码、当前代码规范和首条 AI 链路验收为准。整体架构设计包含后续目标，不能把其中的知识库、Work 等规划视为已经实现。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -14,7 +14,9 @@
 | [开发接入与模型管理验收](superpowers/verification/2026-10-23-developer-models.md) | 本组 API、原页面、真实容器与数据升级的验证 |
 | [技能模块计划](superpowers/plans/2026-10-23-skills.md) | 已完成的两阶段安装、提示词包与聊天选择实现 |
 | [技能验收](superpowers/verification/2026-10-23-skills.md) | 安装、聊天冻结、原界面、迁移和真实容器验证 |
-| [智能体计划](superpowers/plans/2026-10-23-agents.md) | 草稿/发布、预览、公开调用及统一运行的下一域实现 |
+| [智能体计划](superpowers/plans/2026-10-23-agents.md) | 已完成的草稿/发布、预览、公开调用及统一运行实现 |
+| [智能体验收](superpowers/verification/2026-10-23-agents.md) | 版本快照、真实JSON/SSE、推理停止、原界面与数据升级 |
+| [Work计划](superpowers/plans/2026-10-23-work.md) | 持久任务、冻结成员、单成员执行、共享历史与取消的下一域实现 |
 | [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
 | [部署说明](../deploy/core/README.md) | 新实例启动、健康检查和数据备份要求 |
 

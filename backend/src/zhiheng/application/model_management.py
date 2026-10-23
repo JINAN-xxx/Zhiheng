@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.developer.public import KeyService
 from zhiheng.modules.models.public import ConnectionInfo, ModelInfo, ModelService
 from zhiheng.runtime.runs import RunStore
@@ -11,8 +12,8 @@ from zhiheng.shared.principal import Principal
 
 
 class ModelManagementService:
-    def __init__(self, models: ModelService, runs: RunStore, keys: KeyService) -> None:
-        self._models, self._runs, self._keys = models, runs, keys
+    def __init__(self, models: ModelService, runs: RunStore, keys: KeyService, agents: AgentService) -> None:
+        self._models, self._runs, self._keys, self._agents = models, runs, keys, agents
 
     async def delete_connection(
         self, session: AsyncSession, principal: Principal, connection_id: UUID
@@ -27,6 +28,8 @@ class ModelManagementService:
         return await self._models.delete_model(session, principal, model_id, reference_check=self._model_referenced)
 
     async def _model_referenced(self, session: AsyncSession, model_id: UUID) -> bool:
-        return await self._keys.references_model(session, model_id) or await self._runs.references_model(
-            session, model_id
+        return (
+            await self._agents.references_model(session, model_id)
+            or await self._keys.references_model(session, model_id)
+            or await self._runs.references_model(session, model_id)
         )

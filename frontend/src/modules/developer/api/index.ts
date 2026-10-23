@@ -2,6 +2,7 @@ import { http } from '../../../shared/http.ts'
 import { list, nullableNumber, number, object, string } from '../../../shared/validation.ts'
 
 export interface Application {
+  ownerId: string
   applicationId: string
   applicationCode: string
   applicationName: string
@@ -57,6 +58,7 @@ function parseApplication(value: unknown): Application {
   const data = object(value)
   if (data.status !== 'active' && data.status !== 'disabled') throw new Error('应用状态无效')
   return {
+    ownerId: string(data.owner_id),
     applicationId: string(data.id),
     applicationCode: string(data.code),
     applicationName: string(data.name),

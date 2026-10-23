@@ -20,6 +20,7 @@ class Run(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(Uuid, index=True)
+    billing_owner_id: Mapped[UUID] = mapped_column(Uuid)
     resource_type: Mapped[str] = mapped_column(String(24))
     resource_id: Mapped[UUID] = mapped_column(Uuid, index=True)
     client_request_id: Mapped[UUID] = mapped_column(Uuid)
@@ -33,6 +34,7 @@ class Run(Base):
     provider_started: Mapped[bool] = mapped_column(Boolean, default=False)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     text: Mapped[str] = mapped_column(Text, default='')
+    reasoning: Mapped[str] = mapped_column(Text, default='', server_default='')
     result: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     finish_reason: Mapped[str | None] = mapped_column(String(16))
     error_code: Mapped[str | None] = mapped_column(String(64))

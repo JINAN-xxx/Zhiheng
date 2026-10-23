@@ -48,7 +48,7 @@ class ChatBody(PublicBody):
     stream: bool = Field(default=False, strict=True)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
-    max_tokens: int | None = Field(default=None, strict=True, gt=0, le=8192)
+    max_tokens: int | None = Field(default=None, strict=True, gt=0, le=131072)
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
     stop: str | list[str] | None = None
@@ -244,8 +244,14 @@ async def chat_frames(
 
     yield frame(chunk({'role': 'assistant'}))
     sent = ''
+    sent_reasoning = ''
     try:
         async for snapshot in snapshots(container, request, run.id, owner_id, token):
+            if snapshot.reasoning != sent_reasoning:
+                if not snapshot.reasoning.startswith(sent_reasoning):
+                    raise AppError('provider_unavailable', 'Model request did not complete', 502)
+                yield frame(chunk({'reasoning_content': snapshot.reasoning[len(sent_reasoning) :]}))
+                sent_reasoning = snapshot.reasoning
             if snapshot.text != sent:
                 if not snapshot.text.startswith(sent):
                     raise AppError('provider_unavailable', 'Model request did not complete', 502)
@@ -265,9 +271,15 @@ async def chat(body: ChatBody, request: Request, container: ContainerDependency)
     messages = tuple(ModelMessage(message.role, message.content) for message in body.messages)
     options = body.model_dump(exclude={'model', 'messages', 'stream'}, exclude_none=True)
     run, owner_id, token = await admit(container, request, 'chat', messages, body, options)
-    if body.stream:
+    return await chat_response(container, request, run, owner_id, token, body.model, stream=body.stream)
+
+
+async def chat_response(
+    container: Container, request: Request, run: RunSnapshot, owner_id: UUID, token: str, model: UUID, *, stream: bool
+) -> JSONResponse | StreamingResponse:
+    if stream:
         return LifecycleStream(
-            chat_frames(container, request, run, owner_id, token, body.model),
+            chat_frames(container, request, run, owner_id, token, model),
             lambda: cancel(container, run.id, owner_id),
         )
     result = await wait_result(container, request, run, owner_id, token)
@@ -276,11 +288,15 @@ async def chat(body: ChatBody, request: Request, container: ContainerDependency)
             'id': 'chatcmpl-' + run.id.hex,
             'object': 'chat.completion',
             'created': int(run.created_at.timestamp()),
-            'model': str(body.model),
+            'model': str(model),
             'choices': [
                 {
                     'index': 0,
-                    'message': {'role': 'assistant', 'content': result.text},
+                    'message': {
+                        'role': 'assistant',
+                        'content': result.text,
+                        **({'reasoning_content': result.reasoning} if result.reasoning else {}),
+                    },
                     'finish_reason': result.finish_reason or 'stop',
                 }
             ],

@@ -22,7 +22,7 @@ class RunError(BaseModel):
 
 class RunSnapshot(BaseModel):
     id: UUID
-    resource_type: Literal['chat', 'connection_test', 'public']
+    resource_type: Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation']
     resource_id: UUID
     status: RunStatus
     attempt_id: UUID | None
@@ -30,6 +30,7 @@ class RunSnapshot(BaseModel):
     revision: int
     projection_seq: int
     text: str
+    reasoning: str = ''
     error: RunError | None
     created_at: datetime
     usage: RunUsage = Field(default_factory=RunUsage)
@@ -45,3 +46,4 @@ class ClaimedRun:
     owner_id: UUID
     attempt_id: UUID
     payload: dict[str, object]
+    billing_owner_id: UUID | None = None

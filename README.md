@@ -2,9 +2,9 @@
 
 智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入与技能，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
+**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能与智能体，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
 
-前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
+前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入、技能、智能体和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
 
 ## 当前功能状态
 
@@ -16,12 +16,13 @@
 | 运行与用量 | 已实现并通过本地验收 | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录 |
 | 知识库与文件 | 待实现 | 文档管理、解析、分块、索引和检索；**MinerU 尚未接入** |
 | 技能 | 已实现并通过本地验收 | 原技能管理界面、ZIP/主文件预检和确认安装、内容/启停/删除、聊天选择及历史快照 |
-| Agent 与 Work | 正在接入 | 智能体配置与发布、预览和公开调用、人工选择成员的持久 Work 任务 |
+| 智能体 | 已实现并通过本地验收 | 原配置/发布/试聊/API界面、不可变发布与技能快照、推理和停止、应用Key公开JSON/SSE调用；知识检索待接入 |
+| Work | 待实现 | 任务、成员发布版本、人工选择一个成员执行一轮、署名共享历史与取消 |
 | 开发接入与计费 | 已实现并通过本地验收 | 应用、一次回显 Key、授权、轮换/撤销、限额与预算；公开模型 API、手动费率版本和精确费用账本 |
 
 本地验收使用独立 PostgreSQL / Redis 和本地模型 HTTP 服务，覆盖构建后的真实浏览器链路。具体结果与未覆盖范围见[首条 AI 链路验收](docs/superpowers/verification/2026-10-23-first-ai-slice.md)。这不等同于所有供应商、全部目标功能或生产部署均已验收。
 
-2026-10-23 最新验收：后端 **210 项测试**、前端 **14 项行为测试与 51 项页面回归**、规则/格式/类型、模块边界与 wheel 检查均通过。真实容器已验证开发接入、模型调用及技能 ZIP 安装→聊天选择→历史保留→停用删除；带既有数据的迁移逐行核对通过。详见[开发接入与模型管理验收](docs/superpowers/verification/2026-10-23-developer-models.md)与[技能验收](docs/superpowers/verification/2026-10-23-skills.md)。收费供应商和生产负载尚未验收。
+2026-10-23 最新验收：后端 **249 项测试**、前端 **18 项行为测试与 64 项页面回归**、规则/格式/类型、模块边界与 wheel 检查均通过。真实容器已验证开发接入、模型调用、技能 ZIP 安装→聊天选择→历史保留→停用删除，以及智能体试聊→发布→Key调用→重新发布→取消发布；带既有数据的迁移逐行核对通过。详见[开发接入与模型管理验收](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能验收](docs/superpowers/verification/2026-10-23-skills.md)与[智能体验收](docs/superpowers/verification/2026-10-23-agents.md)。收费供应商和生产负载尚未验收。
 
 模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额用 Decimal 计算。供应商未报告有效整数用量时保留预留、标记未知、费用为空；人工对账界面仍待建设。图片、工具执行和结构化输出仍未接入。
 
@@ -47,7 +48,7 @@ backend/
 ├── src/zhiheng/
 │   ├── api/             HTTP 入口
 │   ├── application/     跨模块用例与事务编排
-│   ├── modules/         identity、models、chat、developer、skills
+│   ├── modules/         identity、models、chat、developer、skills、agents
 │   ├── runtime/         运行、租约、outbox 与恢复原语
 │   ├── worker/          队列执行、取消观察与恢复
 │   ├── bootstrap/       配置和资源装配
@@ -58,7 +59,7 @@ backend/
 └── tests/               单元、契约、集成与浏览器验收
 frontend/src/
 ├── app/                 应用、布局和显式路由
-├── modules/             identity、models、chat、developer、skills、usage
+├── modules/             identity、models、chat、developer、skills、agents、usage
 └── shared/              HTTP、SSE、校验、原公共组件与视觉样式
 deploy/core/             Compose 和配置示例
 docs/README.md           文档索引
@@ -99,6 +100,8 @@ legacy/                  旧工程归档与原有未提交优化
 “开发接入”中创建应用并为 Key 授权模型。Key 只在创建或轮换成功时显示一次；公开接口使用 `Authorization: Bearer <api_key>`，支持 `/v1/models`、`/v1/chat/completions`、`/v1/embeddings` 和 `/v1/rerank`。请求中的 `model` 使用模型目录复制的平台 UUID。接口定义位于 `/docs` 和 `/openapi.json`；手动费率不代表已对接供应商价格同步或支付结算。
 
 “智能体扩展 → 技能管理”中，管理员可上传根目录包含 `SKILL.md` 的 ZIP 或单独主文件，预检后确认安装。普通账号可查看、选用启用技能；聊天输入末尾 `@` 或点击技能按钮，最多选择 5 项。技能主文件作为本次系统上下文并计入预留，历史记录保留内容版本摘要。包内附件只保存，不执行。
+
+“智能体扩展 → 智能体”中，可保存草稿并试聊，绑定应用后发布。公开端点为 `/v1/agents/{id}/chat/completions`，API抽屉按发布快照创建模型授权Key；对外调用前需在模型目录配置费率。草稿修改不影响已发布版本，重新发布才生效。欢迎语仅展示，技能内容随发布冻结；非空知识绑定在检索接通前明确拒绝执行。
 
 Compose 启动顺序为 PostgreSQL / Redis 健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库和 Redis 不向宿主机发布端口，两个新数据卷由 `zhiheng-core` 项目管理。
 

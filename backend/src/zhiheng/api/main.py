@@ -10,11 +10,13 @@ from fastapi.responses import JSONResponse
 
 from zhiheng.api.errors import install_error_handlers
 from zhiheng.api.middleware import PublicTransportMiddleware, RequestOriginMiddleware
+from zhiheng.api.routes.agents import router as agents_router
 from zhiheng.api.routes.auth import router as auth_router
 from zhiheng.api.routes.chat import router as chat_router
 from zhiheng.api.routes.developer import router as developer_router
 from zhiheng.api.routes.models import router as models_router
 from zhiheng.api.routes.public import router as public_router
+from zhiheng.api.routes.public_agents import router as public_agents_router
 from zhiheng.api.routes.runs import router as runs_router
 from zhiheng.api.routes.skills import router as skills_router
 from zhiheng.api.routes.usage import router as usage_router
@@ -38,6 +40,8 @@ def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title='智衡 AI', version='0.1.0', lifespan=lifespan)
     install_error_handlers(app)
     app.include_router(auth_router)
+    app.include_router(agents_router)
+    app.include_router(public_agents_router)
     app.include_router(models_router)
     app.include_router(skills_router)
     app.include_router(usage_router)

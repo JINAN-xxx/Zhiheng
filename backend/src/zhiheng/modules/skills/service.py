@@ -1,5 +1,5 @@
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
@@ -181,11 +181,20 @@ class SkillService:
         await session.flush()
         return self._info(skill, revision)
 
-    async def remove(self, session: AsyncSession, principal: Principal, skill_id: UUID) -> SkillInfo:
+    async def remove(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        skill_id: UUID,
+        *,
+        reference_check: Callable[[AsyncSession, str], Awaitable[bool]],
+    ) -> SkillInfo:
         principal.require_admin()
         skill, revision = await self._row(session, skill_id, lock=True)
         if skill.source == 'builtin' or skill.status != 'disabled':
             raise AppError('skill_delete_forbidden', '仅可删除已停用的上传技能', 409)
+        if await reference_check(session, skill.slug):
+            raise AppError('skill_referenced', '技能仍被智能体引用', 409)
         skill.deleted_at = skill.updated_at = utcnow()
         skill.version += 1
         await session.flush()
@@ -225,11 +234,34 @@ class SkillService:
         )
 
 
-async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> SkillSelection:
+def _validate_slugs(slugs: Sequence[str]) -> None:
     if len(slugs) > MAX_SELECTION or len(set(slugs)) != len(slugs):
         raise AppError('invalid_skill_selection', '最多选择五个不重复技能', 422)
     if any(not is_valid_slug(slug) for slug in slugs):
         raise AppError('invalid_skill_selection', '技能标识格式无效', 422)
+
+
+async def require_available(session: AsyncSession, slugs: Sequence[str]) -> None:
+    """Check current availability under the same locks as status/deletion writers.
+
+    A publication owns its frozen content, so a current revision's text or size
+    must not affect the published selection's context or reservation.
+    """
+    _validate_slugs(slugs)
+    if not slugs:
+        return
+    ids = await session.scalars(
+        select(Skill.id)
+        .where(Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled')
+        .order_by(Skill.slug)
+        .with_for_update(read=True)
+    )
+    if len(ids.all()) != len(slugs):
+        raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
+
+
+async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> SkillSelection:
+    _validate_slugs(slugs)
     if not slugs:
         return SkillSelection()
     rows = (
@@ -237,6 +269,7 @@ async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> Skil
             select(Skill, SkillRevision)
             .join(SkillRevision, Skill.revision_id == SkillRevision.id)
             .where(Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled')
+            .order_by(Skill.slug)
             .with_for_update(read=True, of=Skill)
         )
     ).all()

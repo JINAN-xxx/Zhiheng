@@ -327,9 +327,9 @@ async function saveModel(): Promise<void> {
     maxOutputTokens === null ||
     !Number.isInteger(maxOutputTokens) ||
     maxOutputTokens < 1 ||
-    maxOutputTokens > 8192
+    maxOutputTokens > 131072
   ) {
-    modalError.value = '请填写模型信息，输出上限须为 1–8192 的整数'
+    modalError.value = '请填写模型信息，输出上限须为 1–131072 的整数'
     return
   }
   const context = mutationScope.replace()
@@ -759,7 +759,7 @@ async function stopTest(): Promise<void> {
             ><AInputNumber
               :value="modelForm.max_output_tokens ?? ''"
               :min="1"
-              :max="8192"
+              :max="131072"
               :precision="0"
               class="full-width"
               @update:value="setMaxOutputTokens" /></AFormItem

@@ -27,6 +27,20 @@ class ApplicationService:
             raise AppError('application_not_found', '应用不存在', 404)
         return row
 
+    async def require_owned(
+        self, session: AsyncSession, owner_id: UUID, application_id: UUID, *, lock: bool = True
+    ) -> ApplicationInfo:
+        row = await self.require(session, Principal(owner_id, '', False), application_id, lock=lock)
+        return self.info(row)
+
+    async def require_active_owned(
+        self, session: AsyncSession, owner_id: UUID, application_id: UUID, *, lock: bool = True
+    ) -> ApplicationInfo:
+        row = await self.require(session, Principal(owner_id, '', False), application_id, lock=lock)
+        if row.status != 'active':
+            raise AppError('application_conflict', '应用已停用', 409)
+        return self.info(row)
+
     async def create(self, session: AsyncSession, principal: Principal, body: ApplicationCreate) -> ApplicationInfo:
         row = DeveloperApplication(code=body.code, name=body.name, owner_id=principal.id)
         session.add(row)

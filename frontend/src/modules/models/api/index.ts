@@ -1,6 +1,5 @@
 import { http } from '../../../shared/http.ts'
-import { followRun, parseRunSnapshot } from '../../../shared/stream.ts'
-import type { RunSnapshot } from '../../../shared/stream.ts'
+import { parseRunSnapshot } from '../../../shared/stream.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
 export interface ModelConnection {
   id: string
@@ -170,28 +169,7 @@ export const startModelTest = (id: string, client_request_id: string, signal: Ab
     signal,
     decode: parseRunSnapshot
   })
-export const cancelModelTest = (id: string, signal: AbortSignal) =>
-  http.request(`/runs/${encodeURIComponent(id)}/cancel`, {
-    method: 'POST',
-    body: {},
-    signal,
-    decode: parseRunSnapshot
-  })
-export const observeModelTest = (
-  initial: RunSnapshot,
-  update: (run: RunSnapshot) => void,
-  signal: AbortSignal
-) =>
-  followRun(
-    {
-      get: (signal) =>
-        http.request(`/runs/${encodeURIComponent(initial.id)}`, {
-          signal,
-          decode: parseRunSnapshot
-        }),
-      open: (signal) => http.open(`/runs/${encodeURIComponent(initial.id)}/events`, { signal })
-    },
-    initial,
-    update,
-    signal
-  )
+export {
+  cancelRun as cancelModelTest,
+  observeRun as observeModelTest
+} from '../../../shared/runs.ts'

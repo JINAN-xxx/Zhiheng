@@ -1,11 +1,15 @@
 from redis.asyncio import Redis
 
+from zhiheng.application.agent_management import AgentManagementService
+from zhiheng.application.agent_runs import AgentRunService
 from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.application.model_management import ModelManagementService
 from zhiheng.application.public_runs import PublicRunService
+from zhiheng.application.skill_management import SkillManagementService
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
+from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
 from zhiheng.modules.identity.public import IdentityService
@@ -27,8 +31,14 @@ class Container:
         self.applications = ApplicationService()
         self.keys = KeyService(self.applications, self.models, self.identity)
         self.runs = RunStore()
-        self.model_management = ModelManagementService(self.models, self.runs, self.keys)
+        self.agents = AgentService()
+        self.model_management = ModelManagementService(self.models, self.runs, self.keys, self.agents)
         self.skills = SkillService()
+        self.skill_management = SkillManagementService(self.skills, self.agents)
+        self.agent_management = AgentManagementService(self.agents, self.applications, self.models)
+        self.agent_runs = AgentRunService(
+            self.agents, self.agent_management, self.keys, self.models, self.usage, self.runs
+        )
         self.chat = ChatService()
         self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs)
         self.outbox = OutboxStore()

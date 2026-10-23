@@ -26,6 +26,7 @@ class ModelDelta:
     search_units: int | None = None
     cache_tokens: int | None = None
     reasoning_tokens: int | None = None
+    reasoning: str = ''
 
 
 class ModelProvider(Protocol):
@@ -59,7 +60,7 @@ class ModelBinding(BaseModel):
     model_id: UUID
     connection_id: UUID
     upstream_model: str
-    max_output_tokens: int = Field(ge=1, le=8192)
+    max_output_tokens: int = Field(strict=True, ge=1, le=131072)
     version: Literal[1] = 1
     connection_revision_id: UUID | None = None
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'

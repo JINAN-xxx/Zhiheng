@@ -40,6 +40,8 @@ class PublicRunService:
         rate = await self._models.latest_rate(session, model_id)
         max_tokens = options.pop('max_tokens', binding.max_output_tokens)
         assert isinstance(max_tokens, int)
+        if max_tokens > binding.max_output_tokens:
+            raise AppError('invalid_request', 'max_tokens exceeds the selected model limit', 400)
         binding = binding.model_copy(
             update={'options': ModelOptions.model_validate(options), 'max_output_tokens': max_tokens}
         )

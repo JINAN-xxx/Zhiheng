@@ -16,6 +16,51 @@ const snapshot = (overrides: Record<string, unknown> = {}) => ({
   usage: { input_tokens: null, output_tokens: null, status: 'pending' },
   ...overrides
 })
+void test('agent snapshots preserve reasoning and accept a split full output at the 2 MiB limit', async () => {
+  const reasoning = 'a'.repeat(1024 * 1024)
+  const run = snapshot({
+    resource_type: 'agent_preview',
+    reasoning,
+    text: 'b'.repeat(1024 * 1024)
+  })
+  const bytes = new TextEncoder().encode(`event: snapshot\ndata: ${JSON.stringify(run)}\n\n`)
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let index = 0; index < bytes.length; index += 65536)
+        controller.enqueue(bytes.slice(index, index + 65536))
+      controller.close()
+    }
+  })
+  let received = 0
+  await consumeSnapshots(
+    new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } }),
+    (value) => {
+      assert.equal(value.resource_type, 'agent_preview')
+      assert.equal(value.reasoning, reasoning)
+      assert.equal(value.text, run.text)
+      received += 1
+    },
+    new AbortController().signal
+  )
+  assert.equal(received, 1)
+})
+void test('oversized complete SSE data line is rejected before delivering a snapshot', async () => {
+  let delivered = false
+  const run = snapshot({ text: 'x'.repeat(16 * 1024 * 1024) })
+  await assert.rejects(
+    consumeSnapshots(
+      new Response(`event: snapshot\ndata: ${JSON.stringify(run)}\n\n`, {
+        headers: { 'Content-Type': 'text/event-stream' }
+      }),
+      () => {
+        delivered = true
+      },
+      new AbortController().signal
+    ),
+    /允许长度/
+  )
+  assert.equal(delivered, false)
+})
 void test('SSE handles split UTF8, CRLF, comments and replaces full snapshots', async () => {
   const bytes = new TextEncoder().encode(
     ':keepalive\r\nevent: snapshot\r\ndata: ' +

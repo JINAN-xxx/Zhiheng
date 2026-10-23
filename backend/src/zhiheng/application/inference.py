@@ -17,7 +17,7 @@ from zhiheng.runtime.contracts import ClaimedRun, RunError, RunStatus, RunUsage
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
 
-MAX_PROJECTION_CHARACTERS = 262144
+MAX_PROJECTION_BYTES = 2 * 1024 * 1024
 PROJECTION_INTERVAL_SECONDS = 0.05
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class InferenceProgress:
     text: str = ''
+    reasoning: str = ''
+    projection_bytes: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
     provider_started: bool = False
@@ -136,7 +138,9 @@ class InferenceExecutor:
     async def _consume(self, claim: ClaimedRun, progress: InferenceProgress) -> None:
         request = ModelRequest.model_validate(claim.payload)
         async with self._sessions() as session:
-            await self._usage.require_reservation(session, claim.id, claim.owner_id, request.binding.model_id)
+            await self._usage.require_reservation(
+                session, claim.id, claim.billing_owner_id or claim.owner_id, request.binding.model_id
+            )
         provider = await self._provider_factory(request.binding)
         async with self._sessions.begin() as session:
             started = await self._runs.start_provider(session, claim.id, claim.attempt_id)
@@ -148,9 +152,13 @@ class InferenceExecutor:
         async def read_stream() -> None:
             nonlocal last_projection
             async for chunk in provider.stream(request.messages):
-                progress.text += chunk.text
-                if len(progress.text) > MAX_PROJECTION_CHARACTERS:
+                # Preserve the last bounded projection on overflow, including reasoning-only streams.
+                chunk_bytes = len(chunk.text.encode('utf-8')) + len(chunk.reasoning.encode('utf-8'))
+                if progress.projection_bytes + chunk_bytes > MAX_PROJECTION_BYTES:
                     raise ProviderError
+                progress.projection_bytes += chunk_bytes
+                progress.text += chunk.text
+                progress.reasoning += chunk.reasoning
                 if chunk.input_tokens is not None:
                     progress.input_tokens = chunk.input_tokens
                 if chunk.output_tokens is not None:
@@ -166,9 +174,11 @@ class InferenceExecutor:
                     progress.cache_tokens = chunk.cache_tokens
                 if chunk.reasoning_tokens is not None:
                     progress.reasoning_tokens = chunk.reasoning_tokens
-                if chunk.text and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
+                if (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
                     async with self._sessions.begin() as session:
-                        if not await self._runs.project(session, claim.id, claim.attempt_id, progress.text):
+                        if not await self._runs.project(
+                            session, claim.id, claim.attempt_id, progress.text, progress.reasoning
+                        ):
                             raise AppError('execution_lost', '执行权已失效', 409)
                     last_projection = monotonic()
             if not progress.completion_seen:
@@ -211,6 +221,7 @@ class InferenceExecutor:
                 claim.attempt_id,
                 status=status,
                 content=progress.text,
+                reasoning=progress.reasoning,
                 usage=RunUsage(
                     input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, status=outcome.status
                 ),
@@ -220,5 +231,9 @@ class InferenceExecutor:
             )
             if snapshot.status == 'completed' and claim.resource_type == 'chat':
                 await self._chat.complete(
-                    session, conversation_id=claim.resource_id, run_id=claim.id, content=progress.text
+                    session,
+                    conversation_id=claim.resource_id,
+                    run_id=claim.id,
+                    content=progress.text,
+                    reasoning=progress.reasoning,
                 )
