@@ -10,7 +10,7 @@
 
 原有未提交优化及源代码完整保留并已在仓库外备份。新平台首版不承担旧管理 API、插件生命周期、数据库原位升级和旧发布包更新/回滚兼容；未来若需要导入旧数据，另建有明确范围的导入工具，不让旧结构成为新核心的依赖。
 
-现状依据：[平台评估清单](../../architecture/2026-10-23-platform-assessment.md)。强制规范：[代码规范草案](../../architecture/2026-10-23-code-standards.md)。
+当前交付依据：[首条 AI 链路验收](../verification/2026-10-23-first-ai-slice.md)。强制规范：[代码规范](../../architecture/2026-10-23-code-standards.md)。
 
 首个交付范围为单实例、组织内多用户的私有部署产品。新模型按实际隔离需求定义字段，不继承只有占位含义的 tenant_id/project_id，也不声明尚未实现的 SaaS 多租户能力。
 
@@ -382,4 +382,4 @@ misfire_policy 使用明确枚举 catch_up_all、coalesce_once、skip；catch_up
 - [LangGraph 持久化](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [ARQ 的重复执行语义](https://arq-docs.helpmanual.io/)
 
-整体设计和代码规范作为持续实施基线。首条链路已实现独立配置与迁移、身份、LangChain 1.4.7 模型接入、聊天、持久运行与 Token 配额，并提供新平台 Compose/CI；详见[首条 AI 链路验收](../verification/2026-10-23-first-ai-slice.md)。这覆盖 B/C/D/F 的部分内容，不代表文件、公开模型 API、知识库、Agent、Work、货币计费或完整部署恢复演练已完成。旧代码、原有 55 项未提交优化及未跟踪素材已保留到 `legacy/` 或其原位置，仓库外备份继续保留。
+整体设计和代码规范作为持续实施基线。首条链路已实现独立配置与迁移、身份、LangChain 1.4.7 模型接入、聊天、持久运行与 Token 配额，并提供新平台 Compose/CI；详见[首条 AI 链路验收](../verification/2026-10-23-first-ai-slice.md)。这覆盖 B/C/D/F 的部分内容，不代表文件、公开模型 API、知识库、Agent、Work、货币计费或完整部署恢复演练已完成。旧代码与原有 55 项未提交优化保留在 `legacy/`；旧文档、设计素材和重复前端目录已移至仓库外归档，位置见[文档索引](../../README.md)。

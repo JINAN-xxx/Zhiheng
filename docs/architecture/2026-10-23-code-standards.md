@@ -139,4 +139,4 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 
 用户已固定 langchain==1.4.7；langchain-core、langgraph、供应商包和 checkpointer 按兼容依赖完整锁定，不把所有包误写为同一个版本。SDK 的隐式重试必须关闭或逐尝试可观测，禁止以“框架内部行为”为由绕过平台调用治理。
 
-本文定义持续执行的规范，实际实施和验证范围见[首条 AI 链路验收](../superpowers/verification/2026-10-23-first-ai-slice.md)；早期工程基础记录保留在[阶段 A 验证记录](../superpowers/verification/2026-10-23-ai-core-foundation.md)。
+本文定义持续执行的规范，实际实施和验证范围见[首条 AI 链路验收](../superpowers/verification/2026-10-23-first-ai-slice.md)。文档用途与历史资料位置见[文档索引](../README.md)。
