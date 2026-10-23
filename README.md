@@ -4,6 +4,8 @@
 
 **当前版本为 0.1.0，已完成首条 AI 对话链路，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码；当前可用范围、实际验证和后续规划分别说明如下。
 
+前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面随对应后端能力逐域接入。适配范围与步骤见[原界面复用计划](docs/superpowers/plans/2026-10-23-preserve-frontend-ui.md)。
+
 ## 当前功能状态
 
 | 功能 | 当前状态 | 已实现的范围 |
@@ -18,7 +20,7 @@
 
 本地验收使用独立 PostgreSQL / Redis 和本地模型 HTTP 服务，覆盖构建后的真实浏览器链路。具体结果与未覆盖范围见[首条 AI 链路验收](docs/superpowers/verification/2026-10-23-first-ai-slice.md)。这不等同于所有供应商、全部目标功能或生产部署均已验收。
 
-2026-10-23 完整验收：后端 **85 项测试**、前端 **11 项行为测试和 8 项页面回归**、规则与类型检查、前后端 Docker 构建均通过。完整 Compose 已从空库启动，并通过 **10 项真实容器链路与故障恢复检查**，覆盖 Nginx 流式传输、Redis 中断、worker 强制退出及整套容器重建。测试使用本地模型 HTTP 服务，收费供应商和生产负载尚未验收。
+2026-10-23 完整验收：后端 **85 项测试**、规则与类型检查、前后端 Docker 构建均通过。完整 Compose 已从空库启动，并通过 **10 项真实容器链路与故障恢复检查**，覆盖 Nginx 流式传输、Redis 中断、worker 强制退出及整套容器重建。随后原界面适配通过 **11 项前端行为测试、22 项页面回归和 8 项独立补充检查**，重新通过构建后的完整浏览器与后端链路。测试使用本地模型 HTTP 服务，收费供应商和生产负载尚未验收。
 
 当前模型管理只提供新增与测试，尚未提供连接编辑、删除和密钥轮换界面。模型能力只开放文本聊天与流式；图片、工具调用、结构化输出、Embedding 和 Rerank 尚未接入。供应商没有返回完整用量时，保留预留额度并显示待核对，人工对账界面仍待建设。
 
@@ -56,7 +58,7 @@ backend/
 frontend/src/
 ├── app/                 应用、布局和显式路由
 ├── modules/             identity、models、chat、usage
-└── shared/              HTTP、SSE、校验与样式
+└── shared/              HTTP、SSE、校验、原公共组件与视觉样式
 deploy/core/             Compose 和配置示例
 docs/README.md           文档索引
 tools/                   架构边界与 wheel 检查
@@ -69,7 +71,7 @@ legacy/                  旧工程归档与原有未提交优化
 
 更新此分支的源码和 README 不会自动替换已运行的旧实例。访问旧部署地址时，页面和功能由旧部署版本决定。启动本 README 的新实例后，才会使用这里的新前端和后端。
 
-本机当前状态：旧 `zhiheng` 实例已按要求停止，旧数据保留；新 `zhiheng-core` 实例运行于 `http://127.0.0.1:19080`。新实例采用独立数据卷，验收模型和故障测试数据位于已清理的临时项目中；登录后需配置自己的模型服务连接。
+本机当前状态：旧 `zhiheng` 实例已按要求停止，旧数据保留；新 `zhiheng-core` 实例运行于 `http://127.0.0.1:19080`，已部署复用原界面的前端。本次只替换 web 容器，API、worker、PostgreSQL 和 Redis 容器及数据保持原样。新实例采用独立数据卷，验收模型和故障测试数据位于已清理的临时项目中；登录后需配置自己的模型服务连接。
 
 | 使用方式 | 访问入口 |
 | --- | --- |
@@ -91,7 +93,7 @@ legacy/                  旧工程归档与原有未提交优化
 
 使用自定义新配置文件时，在每条命令上加 `--env-file /absolute/path/to/new-core.env`。参考 [配置示例](deploy/core/.env.core.example)。不要复用旧数据库密码或凭据密钥；当前 Compose 的 `CORE_DB_PASSWORD` 只支持字母、数字、下划线和连字符组成的 URL-safe 原始口令，请勿预先 URL 编码。`init` 生成的随机口令符合此约束。变更数据库密码不会修改已经初始化的 PostgreSQL 用户密码。Fernet 密钥用于解密已保存的供应商凭据，应与数据库一起备份并在升级中保留。
 
-网页端登录后，在“模型”页面添加 OpenAI 兼容服务连接和模型，再进行连接测试或文字聊天。连接测试也经过持久运行与用量治理，会消耗实际供应商额度。
+网页端登录后，展开“模型中心”，在“模型目录 → 凭据管理”添加 OpenAI 兼容服务连接，再在“平台模型”接入模型，进行连接测试或文字聊天。连接测试也经过持久运行与用量治理，会消耗实际供应商额度。
 
 Compose 启动顺序为 PostgreSQL / Redis 健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库和 Redis 不向宿主机发布端口，两个新数据卷由 `zhiheng-core` 项目管理。
 
@@ -165,7 +167,7 @@ npm run dev:platform
 
 ## 验证
 
-基础 CI 在 Python 3.10 / 3.13 上安装同一份完整哈希锁，检查 Ruff、Mypy、AST 依赖边界、独立单元测试及 `zhiheng_platform` wheel。平台 CI 使用真实 PostgreSQL / Redis、固定本地模型 HTTP 服务及 Chromium，检查业务集成、构建后真实页面链路和八项受控 HTTP / SSE 页面回归；普通 CI 不调用收费模型。
+基础 CI 在 Python 3.10 / 3.13 上安装同一份完整哈希锁，检查 Ruff、Mypy、AST 依赖边界、独立单元测试及 `zhiheng_platform` wheel。平台 CI 使用真实 PostgreSQL / Redis、固定本地模型 HTTP 服务及 Chromium，检查业务集成、构建后真实页面链路和 22 项受控 HTTP / SSE 页面回归；普通 CI 不调用收费模型。
 
 ```bash
 cd backend

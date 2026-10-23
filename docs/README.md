@@ -10,6 +10,7 @@
 | [代码规范](architecture/2026-10-23-code-standards.md) | Python、TypeScript、事务、异步与模块边界要求 |
 | [首条 AI 链路计划](superpowers/plans/2026-10-23-first-ai-slice.md) | 本轮实现范围、接口契约和任务清单 |
 | [首条 AI 链路验收](superpowers/verification/2026-10-23-first-ai-slice.md) | 已运行的验证、交付范围及未覆盖项 |
+| [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
 | [部署说明](../deploy/core/README.md) | 新实例启动、健康检查和数据备份要求 |
 
 旧项目的插件、LiteLLM、旧页面和旧实例发布文档已移出当前文档树，历史版本可从 Git 查询。未提交文档、旧设计预览和重复前端目录已在仓库外保存归档，位置见[旧源码归档说明](../legacy/README.md)。早期验收记录中的路径描述反映当时状态，当前归档位置以清单为准。

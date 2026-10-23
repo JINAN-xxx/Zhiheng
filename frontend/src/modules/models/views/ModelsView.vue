@@ -1,25 +1,31 @@
+<!-- Adapted from original model center, MIT licensed. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
-  Empty as AEmpty,
   Form as AForm,
   FormItem as AFormItem,
   Input as AInput,
   InputNumber as AInputNumber,
   InputPassword as AInputPassword,
-  Modal as AModal,
+  Drawer as ADrawer,
+  Tabs as ATabs,
+  TabPane as ATabPane,
+  RadioGroup as ARadioGroup,
+  RadioButton as ARadioButton,
   Select as ASelect,
-  Spin as ASpin,
-  Tag as ATag
+  Tag as ATag,
+  Dropdown as ADropdown,
+  Menu as AMenu,
+  MenuItem as AMenuItem
 } from 'ant-design-vue'
-import {
-  ApiOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  ThunderboltOutlined
-} from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined, EllipsisOutlined, CopyOutlined } from '@ant-design/icons-vue'
+import { useWindowSize } from '@vueuse/core'
+import type { TableColumnsType } from 'ant-design-vue'
+import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -33,6 +39,40 @@ import {
   startModelTest
 } from '../api/index.ts'
 import type { ChatModel, ModelConnection } from '../api/index.ts'
+function setActiveTab(value: unknown): void {
+  activeTab.value = typeof value === 'string' ? value : 'platform'
+}
+const activeTab = ref('platform')
+const { width } = useWindowSize()
+const isMobile = computed(() => width.value <= 760)
+const lastSuccessAt = ref('')
+const modelColumns = [
+  { title: '模型', key: 'model', width: 240 },
+  { title: '类型', key: 'type', width: 100 },
+  { title: '连接状态', key: 'binding', width: 120 },
+  { title: '状态', key: 'status', width: 100 },
+  { title: '输出上限', dataIndex: 'max_output_tokens', width: 110 },
+  { title: '操作', key: 'actions', width: 120 }
+]
+const connectionColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name', width: 180 },
+  { title: '服务商', key: 'provider', width: 150 },
+  { title: 'API 地址', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
+  { title: '凭据状态', key: 'status', width: 130 }
+]
+const visibleModelColumns = computed<TableColumnsType<ChatModel>>(() =>
+  isMobile.value
+    ? [
+        { title: '模型代码', key: 'model' },
+        { title: '操作', key: 'actions', width: 64, align: 'right' }
+      ]
+    : modelColumns
+)
+const visibleConnectionColumns = computed(() =>
+  isMobile.value
+    ? connectionColumns.filter((column) => column.key === 'name' || column.key === 'status')
+    : connectionColumns
+)
 const connections = ref<ModelConnection[]>([])
 const models = ref<ChatModel[]>([])
 const loading = ref(false)
@@ -84,6 +124,7 @@ async function load(): Promise<void> {
     if (context.isCurrent()) {
       connections.value = items
       models.value = availableModels
+      lastSuccessAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
     }
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
@@ -94,6 +135,14 @@ async function load(): Promise<void> {
 onMounted(() => {
   void load()
 })
+async function copyModelCode(value: string): Promise<void> {
+  if (!value.trim()) return
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    error.value = '复制失败，请手动复制模型代码'
+  }
+}
 function openConnection(): void {
   connectionOpen.value = true
   modalError.value = ''
@@ -130,6 +179,7 @@ async function saveConnection(): Promise<void> {
     if (context.isCurrent()) {
       connections.value.push(connection)
       connectionOpen.value = false
+      activeTab.value = 'platform'
       connectionForm.name = ''
       connectionForm.base_url = ''
       modelForm.connection_id = connection.id
@@ -254,92 +304,159 @@ async function stopTest(): Promise<void> {
 }
 </script>
 <template>
-  <section class="content-page">
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">MODEL WORKSPACE</p>
-        <h1>模型管理</h1>
-        <p class="muted">连接你的模型服务，让每次对话都有合适的选择。</p>
-      </div>
-      <AButton @click="load"><ReloadOutlined /> 刷新</AButton>
-    </div>
-    <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" /><ASpin
-      :spinning="loading"
+  <main class="app-container ai-model-center">
+    <WorkspaceToolbar
+      title="模型目录"
+      :subtitle="
+        isMobile
+          ? ''
+          : activeTab === 'platform'
+            ? `${models.length} 个平台模型`
+            : `${connections.length} 个服务商凭据`
+      "
+      ><template #actions
+        ><AButton shape="circle" aria-label="刷新当前视图" :loading="loading" @click="load"
+          ><ReloadOutlined /></AButton
+        ><AButton
+          v-if="activeTab === 'platform' || isMobile"
+          type="primary"
+          aria-label="接入模型"
+          :disabled="!connections.length"
+          @click="openModel"
+          ><PlusOutlined />接入模型</AButton
+        ><AButton v-else type="primary" aria-label="新增凭据" @click="openConnection"
+          ><PlusOutlined />新增凭据</AButton
+        ></template
+      ></WorkspaceToolbar
     >
-      <section class="settings-section">
-        <div class="section-title">
-          <div>
-            <h2>
-              模型连接 <span class="count">{{ connections.length }}</span>
-            </h2>
-            <p class="muted small">OpenAI 兼容的 API 服务</p>
-          </div>
-          <AButton @click="openConnection"><PlusOutlined /> 添加连接</AButton>
-        </div>
-        <div v-if="connections.length" class="connection-grid">
-          <article v-for="connection in connections" :key="connection.id" class="connection-card">
-            <div class="connection-icon"><ApiOutlined /></div>
-            <div>
-              <h3>{{ connection.name }}</h3>
-              <p class="muted small break-word">{{ connection.base_url }}</p>
-              <ATag :color="connection.has_api_key ? 'success' : 'warning'">{{
-                connection.has_api_key ? '密钥已配置' : '未配置密钥'
-              }}</ATag>
+    <section class="model-workspace">
+      <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
+      <ATabs :active-key="activeTab" class="workspace-tabs" @update:active-key="setActiveTab">
+        <ATabPane key="platform" tab="平台模型"
+          ><section class="workspace-panel">
+            <div v-if="isMobile" class="panel-toolbar">
+              <div class="panel-summary">
+                <span>{{ models.length }} 个平台模型</span
+                ><span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
+              </div>
+              <AButton shape="circle" :loading="loading" aria-label="刷新平台模型" @click="load"
+                ><ReloadOutlined
+              /></AButton>
             </div>
-          </article>
-        </div>
-        <AEmpty v-else description="先添加一个模型连接" :image="AEmpty.PRESENTED_IMAGE_SIMPLE" />
-      </section>
-      <section class="settings-section">
-        <div class="section-title">
-          <div>
-            <h2>
-              可用模型 <span class="count">{{ models.length }}</span>
-            </h2>
-            <p class="muted small">当前支持文本对话与流式输出</p>
-          </div>
-          <AButton type="primary" :disabled="!connections.length" @click="openModel"
-            ><PlusOutlined /> 添加模型</AButton
-          >
-        </div>
-        <div v-if="models.length" class="model-grid">
-          <article v-for="model in models" :key="model.id" class="model-card">
-            <div class="model-card-heading">
-              <div class="model-icon"><ThunderboltOutlined /></div>
-              <ATag :color="model.enabled ? 'success' : 'default'">{{
-                model.enabled ? '已启用' : '已停用'
-              }}</ATag>
-            </div>
-            <h3>{{ model.name }}</h3>
-            <p class="muted small break-word">{{ model.upstream_model }}</p>
-            <div class="model-details">
-              <span>连接</span
-              ><strong>{{
-                connections.find((item) => item.id === model.connection_id)?.name || '—'
-              }}</strong
-              ><span>输出上限</span
-              ><strong>{{ model.max_output_tokens.toLocaleString() }} tokens</strong>
-            </div>
-            <div class="model-card-footer">
-              <span class="capability-chip">文本 · 流式</span
-              ><AButton
-                size="small"
-                :loading="testingModel === model.id && testBusy"
-                :disabled="testBusy || !model.enabled"
-                @click="testModel(model)"
-                >测试连接</AButton
+            <ResourceTable
+              v-if="models.length || loading"
+              class="model-table"
+              :columns="visibleModelColumns"
+              :scroll-x="isMobile ? '100%' : 850"
+              :rows="models"
+              :loading="loading"
+              ><template #bodyCell="{ column, record: model }">
+                <template v-if="column.key === 'model'"
+                  ><div class="mobile-model-cell">
+                    <span v-if="!isMobile" class="model-display-name">{{ model.name }}</span>
+                    <div class="resource-value resource-value--secondary">
+                      <span class="resource-text" :title="model.upstream_model">{{
+                        model.upstream_model
+                      }}</span>
+                      <button
+                        type="button"
+                        class="copy-button"
+                        aria-label="复制模型代码"
+                        title="复制模型代码"
+                        :disabled="!model.upstream_model.trim()"
+                        @click="copyModelCode(model.upstream_model)"
+                      >
+                        <CopyOutlined />
+                      </button>
+                    </div>
+                    <div v-if="isMobile" class="mobile-model-meta">
+                      <ATag color="blue">对话</ATag><ATag color="success">已配置</ATag
+                      ><ATag :color="model.enabled ? 'success' : 'default'">{{
+                        model.enabled ? '已启用' : '已停用'
+                      }}</ATag>
+                    </div>
+                  </div></template
+                >
+                <template v-else-if="column.key === 'type'"><ATag>对话</ATag></template>
+                <template v-else-if="column.key === 'binding'"
+                  ><ATag color="success">已配置</ATag></template
+                >
+                <template v-else-if="column.key === 'status'"
+                  ><ATag :color="model.enabled ? 'success' : 'default'">{{
+                    model.enabled ? '已启用' : '已停用'
+                  }}</ATag></template
+                >
+                <template v-else-if="column.key === 'actions'"
+                  ><div class="row-actions desktop-actions">
+                    <AButton
+                      type="link"
+                      size="small"
+                      aria-label="测试连接"
+                      :loading="testingModel === model.id && testBusy"
+                      :disabled="testBusy || !model.enabled"
+                      @click="testModel(model)"
+                      >测试</AButton
+                    >
+                  </div>
+                  <ADropdown class="mobile-actions" :trigger="['click']"
+                    ><AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton
+                    ><template #overlay
+                      ><AMenu
+                        ><AMenuItem :disabled="testBusy || !model.enabled" @click="testModel(model)"
+                          >测试连接</AMenuItem
+                        ></AMenu
+                      ></template
+                    ></ADropdown
+                  ></template
+                >
+              </template></ResourceTable
+            >
+            <WorkspaceState
+              v-else
+              title="暂无平台模型"
+              :message="
+                connections.length
+                  ? '点击接入模型，选择已保存的连接。'
+                  : '请先在凭据管理中添加模型连接。'
+              "
+            /></section
+        ></ATabPane>
+        <ATabPane key="credentials" tab="凭据管理"
+          ><section class="workspace-panel">
+            <div v-if="isMobile" class="panel-toolbar">
+              <div class="panel-summary">
+                <span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
+              </div>
+              <AButton type="primary" aria-label="新增凭据" @click="openConnection"
+                ><PlusOutlined />新建凭据</AButton
               >
             </div>
-          </article>
-        </div>
-        <AEmpty
-          v-else
-          description="添加模型后，即可开始对话"
-          :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
-        />
-      </section>
+            <ResourceTable
+              v-if="connections.length || loading"
+              class="model-table"
+              :columns="visibleConnectionColumns"
+              :scroll-x="isMobile ? '100%' : 850"
+              :rows="connections"
+              :loading="loading"
+              ><template #bodyCell="{ column, record: connection }"
+                ><template v-if="column.key === 'name'"
+                  ><code>{{ connection.name }}</code></template
+                ><template v-else-if="column.key === 'provider'">OpenAI 兼容</template
+                ><template v-else-if="column.key === 'status'"
+                  ><ATag :color="connection.has_api_key ? 'success' : 'warning'">{{
+                    connection.has_api_key ? '密钥已配置' : '未配置密钥'
+                  }}</ATag></template
+                ></template
+              ></ResourceTable
+            >
+            <WorkspaceState
+              v-else
+              title="暂无服务商凭据"
+              message="添加 OpenAI 兼容的模型服务连接。"
+            /></section></ATabPane
+      ></ATabs>
       <section v-if="testRun" class="test-result">
-        <div class="section-title">
+        <div class="test-result__heading">
           <h2>
             连接测试 <ATag>{{ runStatusLabel[testRun.status] }}</ATag>
           </h2>
@@ -358,23 +475,18 @@ async function stopTest(): Promise<void> {
           }}
         </p>
       </section>
-    </ASpin>
-  </section>
-  <AModal
-    v-model:open="connectionOpen"
-    title="添加模型连接"
-    ok-text="保存连接"
-    cancel-text="取消"
-    :confirm-loading="saving"
-    :destroy-on-close="true"
-    @ok="saveConnection"
-    @cancel="closeConnection"
-    ><AAlert
-      v-if="modalError"
-      :message="modalError"
-      type="error"
-      show-icon
-      class="space-bottom" /><AForm layout="vertical"
+    </section>
+  </main>
+  <ADrawer
+    :open="connectionOpen"
+    title="新建服务商凭据"
+    width="min(620px, 100vw)"
+    root-class-name="model-form-drawer"
+    destroy-on-close
+    @close="closeConnection"
+  >
+    <AAlert v-if="modalError" :message="modalError" type="error" show-icon class="space-bottom" />
+    <AForm layout="vertical"
       ><AFormItem label="连接名称" required
         ><AInput
           v-model:value="connectionForm.name"
@@ -389,46 +501,490 @@ async function stopTest(): Promise<void> {
         ><AInputPassword
           v-model:value="connectionForm.api_key"
           autocomplete="off"
-          placeholder="密钥仅用于本次提交，保存后不会回显" /></AFormItem></AForm
-  ></AModal>
-  <AModal
-    v-model:open="modelOpen"
-    title="添加模型"
-    ok-text="保存模型"
-    cancel-text="取消"
-    :confirm-loading="saving"
-    :destroy-on-close="true"
-    @ok="saveModel"
-    @cancel="closeModel"
-    ><AAlert
-      v-if="modalError"
-      :message="modalError"
-      type="error"
-      show-icon
-      class="space-bottom" /><AForm layout="vertical"
-      ><AFormItem label="显示名称" required
-        ><AInput
-          v-model:value="modelForm.name"
-          placeholder="例如：日常助手"
-          :maxlength="80" /></AFormItem
-      ><AFormItem label="模型连接" required
-        ><ASelect
-          :value="modelForm.connection_id"
-          :options="connectionOptions"
-          placeholder="选择模型连接"
-          @update:value="setConnectionId" /></AFormItem
-      ><AFormItem label="上游模型标识" required
-        ><AInput
-          v-model:value="modelForm.upstream_model"
-          placeholder="填写服务商提供的模型 ID"
-          :maxlength="200" /></AFormItem
-      ><AFormItem label="最大输出 tokens" required
-        ><AInputNumber
-          :value="modelForm.max_output_tokens ?? ''"
-          :min="1"
-          :max="8192"
-          :precision="0"
-          class="full-width"
-          @update:value="setMaxOutputTokens" /></AFormItem></AForm
-  ></AModal>
+          placeholder="密钥仅用于本次提交，保存后不会回显" /></AFormItem
+    ></AForm>
+    <template #footer
+      ><div class="footer-actions">
+        <AButton @click="closeConnection">取消</AButton
+        ><AButton type="primary" :loading="saving" @click="saveConnection">保存连接</AButton>
+      </div></template
+    >
+  </ADrawer>
+  <ADrawer
+    :open="modelOpen"
+    title="接入模型"
+    width="min(840px, 100vw)"
+    root-class-name="model-onboarding-drawer"
+    destroy-on-close
+    @close="closeModel"
+  >
+    <AAlert v-if="modalError" :message="modalError" type="error" show-icon class="space-bottom" />
+    <div class="onboarding-form">
+      <section class="form-section">
+        <div class="section-heading">
+          <h3>模型信息</h3>
+          <p>先确定模型用途，再填写服务商提供的模型名称。</p>
+        </div>
+        <AForm layout="vertical">
+          <AFormItem label="模型类型"
+            ><ARadioGroup value="chat" class="model-type-options" button-style="solid"
+              ><ARadioButton value="chat">对话</ARadioButton
+              ><ARadioButton value="embedding" disabled>向量</ARadioButton
+              ><ARadioButton value="rerank" disabled>重排序</ARadioButton></ARadioGroup
+            ></AFormItem
+          >
+          <div class="form-grid">
+            <AFormItem label="上游模型标识" required
+              ><AInput
+                v-model:value="modelForm.upstream_model"
+                placeholder="填写服务商提供的模型 ID"
+                :maxlength="200" /></AFormItem
+            ><AFormItem label="显示名称" required
+              ><AInput v-model:value="modelForm.name" placeholder="例如：日常助手" :maxlength="80"
+            /></AFormItem>
+          </div>
+        </AForm>
+      </section>
+      <section class="form-section">
+        <div class="section-heading">
+          <h3>连接配置</h3>
+          <p>复用已保存的连接。</p>
+        </div>
+        <AForm layout="vertical"
+          ><AFormItem label="模型连接" required
+            ><ASelect
+              :value="modelForm.connection_id || undefined"
+              :options="connectionOptions"
+              placeholder="选择模型连接"
+              @update:value="setConnectionId" /></AFormItem
+          ><AFormItem label="最大输出 tokens" required
+            ><AInputNumber
+              :value="modelForm.max_output_tokens ?? ''"
+              :min="1"
+              :max="8192"
+              :precision="0"
+              class="full-width"
+              @update:value="setMaxOutputTokens" /></AFormItem
+        ></AForm>
+      </section>
+    </div>
+    <template #footer
+      ><div class="onboarding-footer">
+        <span class="footer-status">保存后可在模型目录中测试连接。</span>
+        <div class="footer-actions">
+          <AButton @click="closeModel">取消</AButton
+          ><AButton type="primary" :loading="saving" @click="saveModel">保存模型</AButton>
+        </div>
+      </div></template
+    >
+  </ADrawer>
 </template>
+<style scoped>
+.ai-model-center {
+  --ai-font-mono: var(--workspace-font-mono);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text);
+  background: var(--bg-container);
+  font-family: var(--workspace-font-family);
+}
+.model-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+}
+.workspace-tabs {
+  min-height: 0;
+  flex: 1;
+}
+.workspace-tabs :deep(.ant-tabs-nav) {
+  margin: 0 0 20px;
+  border-bottom: 1px solid var(--gray-150);
+}
+.workspace-tabs :deep(.ant-tabs-nav::before) {
+  border-bottom: 0;
+}
+.workspace-tabs :deep(.ant-tabs-tab) {
+  height: 40px;
+  margin: 0;
+  padding: 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+.workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+  color: var(--main-700);
+}
+.workspace-tabs :deep(.ant-tabs-ink-bar) {
+  background: var(--main-700);
+}
+.workspace-tabs :deep(.ant-tabs-content-holder),
+.workspace-tabs :deep(.ant-tabs-content),
+.workspace-tabs :deep(.ant-tabs-tabpane) {
+  min-height: 0;
+}
+:global(.model-onboarding-drawer .ant-alert) {
+  border-radius: 6px;
+}
+:global(.model-onboarding-drawer) {
+  --ai-font-mono: var(--workspace-font-mono);
+  font-family: var(--workspace-font-family);
+  font-size: 14px;
+}
+:global(.model-onboarding-drawer .ant-drawer-content) {
+  background: var(--bg-elevated);
+  color: var(--color-text);
+}
+:global(.model-onboarding-drawer .ant-drawer-header) {
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--bg-elevated);
+  padding-bottom: 16px;
+}
+:global(.model-onboarding-drawer .ant-drawer-title) {
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+:global(.model-onboarding-drawer .ant-segmented),
+:global(.model-onboarding-drawer .ant-btn) {
+  border-radius: 6px;
+}
+@media (max-width: 760px) {
+  :global(.model-onboarding-drawer) {
+    width: 100% !important;
+  }
+  :global(.model-onboarding-drawer .ant-drawer-body) {
+    padding: 16px;
+  }
+}
+@media (max-width: 640px) {
+  .model-workspace {
+    padding: 16px;
+  }
+}
+@media (min-width: 761px) {
+  .model-workspace {
+    padding: 12px var(--workspace-space-6) 24px;
+  }
+  .workspace-tabs :deep(.ant-tabs-nav) {
+    margin-bottom: 12px;
+  }
+  .ai-model-center :deep(.workspace-toolbar__subtitle) {
+    margin-top: 2px;
+    font-size: var(--workspace-font-size-helper);
+  }
+}
+</style>
+
+<style scoped>
+.workspace-panel {
+  min-width: 0;
+  min-height: 360px;
+  color: var(--color-text);
+}
+.panel-toolbar {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.panel-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.panel-toolbar > :deep(.ant-btn) {
+  flex-shrink: 0;
+}
+.workspace-panel > :deep(.ant-alert) {
+  margin-bottom: 14px;
+}
+.model-table :deep(.ant-table) {
+  font-family: var(--workspace-font-family);
+  font-size: 14px;
+}
+.model-table :deep(.ant-table-container) {
+  overflow: hidden;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+}
+.model-table :deep(.ant-table-thead > tr > th) {
+  border-bottom-color: var(--gray-150);
+  background: var(--gray-10);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+.model-table :deep(.ant-table-tbody > tr > td) {
+  border-bottom-color: var(--gray-150);
+  background: var(--bg-container);
+  color: var(--color-text);
+}
+.model-table :deep(.ant-table-cell) {
+  vertical-align: middle;
+}
+.model-table :deep(.ant-table-tbody > tr:hover > td) {
+  background: var(--gray-50) !important;
+}
+.model-table :deep(.ant-tag) {
+  margin: 0;
+}
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.resource-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+.mobile-model-cell {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+.mobile-model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.resource-text {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--workspace-font-mono);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-display-name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-value--secondary {
+  color: var(--color-text-secondary);
+}
+.copy-button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--workspace-radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.copy-button:hover {
+  background: var(--gray-10);
+  color: var(--main-700);
+}
+.copy-button:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 2px;
+}
+.copy-button svg {
+  width: 14px;
+  height: 14px;
+}
+.muted {
+  color: var(--color-text-tertiary);
+}
+.rate-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mobile-actions {
+  display: none;
+}
+:deep(.ant-pagination) {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+@media (min-width: 761px) {
+  .mobile-model-cell {
+    gap: 2px;
+  }
+  .model-table :deep(.ant-table-cell) {
+    padding: 12px;
+  }
+  .model-table :deep(.ant-table-tbody > tr > td) {
+    font-size: var(--workspace-font-size-body);
+  }
+  .model-display-name {
+    font-size: 14px;
+  }
+  .desktop-actions {
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .desktop-actions :deep(.ant-btn) {
+    height: 28px;
+    padding-inline: 2px;
+    font-size: 13px;
+  }
+}
+@media (max-width: 760px) {
+  .desktop-actions {
+    display: none;
+  }
+  .mobile-actions {
+    display: inline-flex;
+  }
+  :deep(.ant-pagination) {
+    justify-content: center;
+  }
+  .rate-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+</style>
+
+<style scoped>
+.onboarding-form {
+  color: var(--color-text);
+  font-size: 14px;
+}
+.form-section + .form-section {
+  border-top: 1px solid var(--gray-150);
+  margin-top: 8px;
+  padding-top: 24px;
+}
+.section-heading {
+  margin-bottom: 20px;
+}
+.section-heading h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.section-heading p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+}
+.model-type-options {
+  display: flex;
+}
+.model-type-options :deep(.ant-radio-button-wrapper) {
+  flex: 1;
+  text-align: center;
+}
+.field-description {
+  margin-top: 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.connection-endpoint {
+  overflow-wrap: anywhere;
+}
+.onboarding-form :deep(.ant-input-number) {
+  width: 100%;
+}
+.onboarding-form :deep(.engine-form) {
+  padding: 0;
+}
+.onboarding-form :deep(.ant-form-item-label > label) {
+  color: var(--color-text);
+}
+.advanced-settings {
+  margin: 8px 0 16px;
+  border: 1px solid var(--gray-150);
+  background: transparent;
+  border-radius: 6px;
+}
+.advanced-settings :deep(.ant-collapse-header) {
+  color: var(--color-text) !important;
+}
+.advanced-settings :deep(.ant-collapse-content-box) {
+  padding: 16px 20px 0;
+  background: var(--bg-container);
+}
+.status-message {
+  margin-top: 16px;
+}
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.footer-status {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.footer-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+</style>
+
+<style scoped>
+.footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.test-result {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+}
+.test-result__heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.test-result h2 {
+  font-size: 16px;
+}
+.test-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+</style>

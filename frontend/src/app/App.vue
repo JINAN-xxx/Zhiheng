@@ -1,42 +1,50 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
-  Button as AButton,
   ConfigProvider as AConfigProvider,
+  Drawer as ADrawer,
   Spin as ASpin
 } from 'ant-design-vue'
-import {
-  AppstoreOutlined,
-  BarChartOutlined,
-  LogoutOutlined,
-  MessageOutlined
-} from '@ant-design/icons-vue'
+import { onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { identity, logout } from '../modules/identity/public.ts'
+import { ChatWorkspaceProvider } from '../modules/chat/public.ts'
+import { isDark, darkTheme, lightTheme } from '../shared/theme.ts'
 import { errorMessage } from '../shared/http.ts'
+import PlatformSidebar from './components/PlatformSidebar.vue'
+import AiResourceShell from './components/AiResourceShell.vue'
+import PlatformTopbar from './components/PlatformTopbar.vue'
+import PlatformAccountMenu from './components/PlatformAccountMenu.vue'
 const route = useRoute()
 const router = useRouter()
 const leaving = ref(false)
 const error = ref('')
-const navigation = computed(() =>
-  router
-    .getRoutes()
-    .filter((item) => item.meta.navigation && (!item.meta.admin || identity.value?.is_admin))
+const collapsed = ref(false)
+const mobileOpen = ref(false)
+const viewportWidth = ref(window.innerWidth)
+const isMobile = computed(() => viewportWidth.value < 992)
+const topbar = ref<InstanceType<typeof PlatformTopbar> | null>(null)
+const drawerWidth = computed(() => Math.min(viewportWidth.value * 0.86, 300))
+function resize(): void {
+  viewportWidth.value = window.innerWidth
+  if (!isMobile.value) mobileOpen.value = false
+}
+onMounted(() => window.addEventListener('resize', resize))
+onBeforeUnmount(() => window.removeEventListener('resize', resize))
+watch(
+  () => route.fullPath,
+  () => {
+    mobileOpen.value = false
+  }
 )
-const theme = {
-  token: {
-    colorPrimary: '#046A82',
-    colorBgLayout: '#F5F7F7',
-    colorText: '#151616',
-    colorTextSecondary: '#697070',
-    colorBorder: '#E4EAEA',
-    borderRadius: 8,
-    controlHeight: 36,
-    fontFamily:
-      'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+async function afterDrawerChange(open: boolean): Promise<void> {
+  if (!open) {
+    await nextTick()
+    topbar.value?.focusMenu()
   }
 }
+const theme = computed(() => (isDark.value ? darkTheme : lightTheme))
 async function signOut(): Promise<void> {
   leaving.value = true
   try {
@@ -53,43 +61,143 @@ async function signOut(): Promise<void> {
   <AConfigProvider :theme="theme">
     <AAlert v-if="error" :message="error" type="error" closable @close="error = ''" />
     <RouterView v-if="route.meta.public" />
-    <div v-else-if="identity" class="app-layout">
-      <aside class="app-sidebar">
-        <RouterLink to="/chat" class="app-brand"
-          ><span class="brand-mark small-brand">衡</span
-          ><span>智衡<span class="brand-subtitle">AI WORKSPACE</span></span></RouterLink
-        >
-        <div class="nav-label">工作空间</div>
-        <nav class="app-navigation" aria-label="主导航">
-          <RouterLink
-            v-for="item in navigation"
-            :key="item.path"
-            :to="item.path"
-            :aria-label="item.meta.title ?? item.path"
-            active-class="active"
-            ><MessageOutlined v-if="item.name === 'chat'" /><AppstoreOutlined
-              v-else-if="item.name === 'models'"
-            /><BarChartOutlined v-else /><span>{{ item.meta.title }}</span></RouterLink
-          >
-        </nav>
-        <div class="sidebar-bottom">
-          <div class="workspace-status"><span /> AI 工作空间</div>
-          <div class="identity-card">
-            <div class="user-avatar">{{ identity?.username.slice(0, 1).toUpperCase() }}</div>
-            <div class="identity-text">
-              <strong>{{ identity?.username }}</strong
-              ><small>{{ identity?.is_admin ? '管理员' : '成员' }}</small>
-            </div>
-            <AButton type="text" :loading="leaving" aria-label="退出登录" @click="signOut"
-              ><LogoutOutlined
-            /></AButton>
-          </div>
+    <ChatWorkspaceProvider v-else-if="identity">
+      <div class="platform-shell" :class="{ 'is-collapsed': collapsed }">
+        <div v-show="!isMobile" class="platform-shell__sidebar">
+          <PlatformSidebar
+            :collapsed="collapsed"
+            show-collapse-control
+            @toggle-collapse="collapsed = !collapsed"
+          />
         </div>
-      </aside>
-      <main class="app-content">
-        <RouterView :key="route.path" />
-      </main>
-    </div>
+        <div class="platform-shell__main">
+          <PlatformTopbar
+            v-if="isMobile"
+            ref="topbar"
+            :title="route.meta.title || '智能工作台'"
+            :leaving="leaving"
+            @toggle-sidebar="mobileOpen = true"
+            @logout="signOut"
+          />
+          <header v-else class="platform-shell__desktop-topbar">
+            <PlatformAccountMenu :leaving="leaving" @logout="signOut" />
+          </header>
+          <main class="platform-page" :class="{ 'is-conversation': route.name === 'chat' }">
+            <AiResourceShell v-if="route.name === 'models' || route.name === 'usage'" inset>
+              <RouterView :key="route.path" />
+            </AiResourceShell>
+            <RouterView v-else :key="route.path" />
+          </main>
+        </div>
+        <ADrawer
+          :open="isMobile && mobileOpen"
+          placement="left"
+          :width="drawerWidth"
+          :closable="false"
+          root-class-name="platform-mobile-drawer"
+          aria-label="主导航"
+          @close="mobileOpen = false"
+          @after-open-change="afterDrawerChange"
+          ><PlatformSidebar :collapsed="false" @navigate="mobileOpen = false"
+        /></ADrawer>
+      </div>
+    </ChatWorkspaceProvider>
     <ASpin v-else class="page-spinner" tip="正在连接工作空间" />
   </AConfigProvider>
 </template>
+<style scoped lang="scss">
+.platform-shell {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+  background: var(--workspace-bg);
+}
+.platform-shell__sidebar {
+  width: var(--platform-sidebar-width);
+  min-width: var(--platform-sidebar-width);
+  flex: 0 0 var(--platform-sidebar-width);
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: normal;
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease,
+    flex-basis 0.2s ease;
+}
+.platform-shell.is-collapsed .platform-shell__sidebar {
+  width: var(--platform-sidebar-collapsed-width);
+  min-width: var(--platform-sidebar-collapsed-width);
+  flex-basis: var(--platform-sidebar-collapsed-width);
+}
+.platform-shell__main {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.platform-shell__desktop-topbar {
+  height: var(--platform-topbar-height);
+  min-height: var(--platform-topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gray-150);
+  background: var(--bg-container);
+}
+.platform-shell__desktop-account {
+  width: max-content;
+}
+.platform-shell__workspace-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-right: auto;
+  padding: 0 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: var(--workspace-radius-sm);
+  background: var(--bg-container);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+.platform-shell__workspace-back:hover {
+  border-color: var(--main-500);
+  background: var(--main-30);
+  color: var(--main-700);
+}
+.platform-page {
+  background: var(--workspace-bg);
+}
+@media screen and (max-width: 991px) {
+  .platform-page {
+    padding-bottom: max(60px, calc(env(safe-area-inset-bottom) + 40px));
+    overscroll-behavior-y: none;
+  }
+}
+@supports (-webkit-touch-callout: none) {
+  @media screen and (max-width: 991px) {
+    .platform-page {
+      padding-bottom: max(17px, calc(env(safe-area-inset-bottom) + 10px));
+    }
+  }
+}
+.platform-page.is-conversation {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+</style>
+
+<style lang="scss">
+.platform-mobile-drawer .ant-drawer-body {
+  padding: 0;
+  overflow: hidden;
+}
+</style>

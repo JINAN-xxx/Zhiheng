@@ -52,8 +52,8 @@ def provider_service() -> Iterator[ProviderServer]:
 
 
 def add_model(page: Page, name: str, upstream: str) -> None:
-    page.get_by_role('button', name='添加模型').click()
-    dialog = page.get_by_role('dialog')
+    page.get_by_role('button', name='接入模型').click()
+    dialog = page.locator('.ant-drawer-open .ant-drawer-content')
     dialog.get_by_placeholder('例如：日常助手').fill(name)
     dialog.get_by_placeholder('填写服务商提供的模型 ID').fill(upstream)
     dialog.locator('.ant-input-number-input').fill('64')
@@ -65,12 +65,18 @@ def add_model(page: Page, name: str, upstream: str) -> None:
     expect(dialog).not_to_be_visible()
 
 
-def configure_models(page: Page, provider: ProviderServer, artifacts: Path) -> None:
-    page.get_by_role('link', name='模型管理').click()
-    page.get_by_role('button', name='添加连接').click()
-    dialog = page.get_by_role('dialog')
+def configure_models(
+    page: Page, provider: ProviderServer, artifacts: Path, provider_base_url: str | None = None
+) -> None:
+    page.get_by_role('button', name='模型中心', exact=True).click()
+    page.get_by_role('link', name='模型目录', exact=True).click()
+    page.get_by_role('tab', name='凭据管理').click()
+    page.get_by_role('button', name='新增凭据').click()
+    dialog = page.locator('.ant-drawer-open .ant-drawer-content')
     dialog.get_by_placeholder('例如：团队模型服务').fill('本地协议服务')
-    dialog.get_by_placeholder('https://api.example.com/v1').fill(f'http://127.0.0.1:{provider.server_port}/v1')
+    dialog.get_by_placeholder('https://api.example.com/v1').fill(
+        provider_base_url or f'http://127.0.0.1:{provider.server_port}/v1'
+    )
     dialog.get_by_placeholder('密钥仅用于本次提交，保存后不会回显').fill('local-test-key')
     with page.expect_response(
         lambda result: result.url.endswith('/api/models/connections') and result.request.method == 'POST'
@@ -87,12 +93,12 @@ def configure_models(page: Page, provider: ProviderServer, artifacts: Path) -> N
 
 
 def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None:
-    page.get_by_role('link', name='AI 对话').click()
+    page.get_by_role('link', name='智能对话').click()
     composer = page.get_by_role('textbox', name='消息内容')
     for question, expected_replies in [('第一轮真实聊天', 1), ('第二轮沿用同一连接', 2)]:
         composer.fill(question)
         page.get_by_role('button', name='发送消息', exact=True).click()
-        expect(page.get_by_text('已完成', exact=True)).to_be_visible(timeout=15000)
+        expect(page.locator('.run-state')).to_have_text('已完成', timeout=15000)
         expect(page.locator('.message-content').filter(has_text='你好')).to_have_count(expected_replies)
     page.screenshot(path=str(artifacts / 'chat-desktop.png'), full_page=True)
     page.reload()
@@ -108,20 +114,25 @@ def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None
         assert time.monotonic() < deadline, 'Worker did not reach the local provider'
         page.wait_for_timeout(50)
     page.get_by_role('button', name='停止生成').click()
-    expect(page.get_by_text('已停止', exact=True)).to_be_visible(timeout=5000)
+    expect(page.locator('.run-state')).to_have_text('已停止', timeout=5000)
 
 
 def usage_and_logout(page: Page, base_url: str, artifacts: Path) -> None:
+    model_center = page.get_by_role('button', name='模型中心', exact=True)
+    if model_center.get_attribute('aria-expanded') != 'true':
+        model_center.click()
     page.get_by_role('link', name='用量记录').click()
-    expect(page.locator('.usage-table tbody tr')).to_have_count(4)
+    expect(page.locator('.usage-table tbody tr.ant-table-row')).to_have_count(4)
     expect(page.locator('.usage-table').get_by_text('待核对')).not_to_have_count(0)
     page.screenshot(path=str(artifacts / 'usage.png'), full_page=True)
     page.set_viewport_size({'width': 390, 'height': 844})
-    page.get_by_role('link', name='AI 对话').click()
+    page.get_by_role('button', name='打开主菜单').click()
+    page.locator('.ant-drawer-open .ant-drawer-content').get_by_role('link', name='智能对话').click()
     expect(page.get_by_role('textbox', name='消息内容')).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     page.screenshot(path=str(artifacts / 'chat-mobile.png'), full_page=True)
-    page.get_by_role('button', name='退出登录', exact=True).click()
+    page.get_by_role('button', name='用户菜单', exact=True).click()
+    page.get_by_role('menuitem', name='退出登录', exact=True).click()
     expect(page).to_have_url(f'{base_url}/login')
     assert page.context.request.get(f'{base_url}/api/auth/me').status == 401
 
@@ -135,9 +146,13 @@ def browser_flow(base_url: str, provider: ProviderServer, artifacts: Path) -> No
             errors: list[str] = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(f'{base_url}/login')
-            page.get_by_placeholder('输入用户名').fill('admin')
-            page.get_by_placeholder('输入密码').fill('browser-test-password')
-            page.get_by_role('button', name='登录工作空间').click()
+            page.get_by_placeholder('账号', exact=True).fill('admin')
+            page.get_by_placeholder('密码', exact=True).fill('browser-test-password')
+            with page.expect_response(
+                lambda result: result.url.endswith('/api/auth/login') and result.request.method == 'POST'
+            ) as login_request:
+                page.get_by_role('button', name='登录', exact=True).click()
+            assert login_request.value.status == 200, login_request.value.text()
             expect(page).to_have_url(f'{base_url}/chat')
             configure_models(page, provider, artifacts)
             exercise_chat(page, provider, artifacts)

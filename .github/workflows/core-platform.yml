@@ -110,7 +110,7 @@ jobs:
       - name: Exercise the real platform in Chromium
         working-directory: backend
         run: python tests/core/e2e/browser_check.py --base-url http://127.0.0.1:15191 --api-port 19090
-      - name: Check eight controlled HTTP and SSE UI regressions
+      - name: Check controlled HTTP and SSE UI regressions
         working-directory: frontend
         run: python tests/browser/ui_regressions.py
       - name: Stop the preview

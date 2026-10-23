@@ -38,7 +38,27 @@ PostgreSQL 保存消息、Run、outbox、配额和用量事实；账户行锁约
 
 集成测试使用本轮创建的 PostgreSQL/Redis 容器和动态回环端口，每个测试另建 UUID 数据库；不使用旧业务数据库。供应商是本地真实 HTTP 协议服务，实际经过 LangChain/供应商 SDK，浏览器主链路没有拦截业务接口。
 
-基础浏览器工具为 `backend/tests/core/e2e/browser_check.py`，页面回归为 `frontend/tests/browser/ui_regressions.py`。运行条件和持续执行命令见根 README 与 `.github/workflows/core-platform.yml`。本轮完整验收脚本、日志、镜像摘要、截图和测试数据库快照保存于 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-134853-full-platform-test/`，不进入发布包。
+基础浏览器工具为 `backend/tests/core/e2e/browser_check.py`，页面回归为 `frontend/tests/browser/ui_regressions.py`。运行条件和持续执行命令见根 README 与 `.github/workflows/core-platform.yml`。本轮完整验收脚本、日志、镜像摘要、截图和测试数据库快照保存于 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-134853-full-platform-test/`，不进入发布包。上表记录原界面适配前的完整基线；后续前端验证见下节。
+
+## 原前端界面适配复验
+
+用户明确保留原界面，允许整理内部实现。以 `3f493a9a` 为后端基准，复用原品牌、视觉 token、布局和消息渲染，接通新身份、模型、聊天与用量接口。后端运行源码和迁移未改动，未重复此前的 85 项后端与 10 项故障测试。
+
+| 验证 | 本轮实际结果 |
+| --- | --- |
+| 锁文件与基础检查 | `npm ci`、11 项核心行为、ESLint、Prettier（含 SCSS）、TypeScript、生产构建全部通过；E2E Python 的 Ruff/format 通过 |
+| 受控 Chromium 页面回归 | **22 passed**，25.354 秒；保留原 8 项业务回归，并覆盖原布局、手机表格/卡片、主题、表单、菜单、代码高亮与真实复制 |
+| 原界面参照与截图 | 隔离构建原前端保存 28 张参照图，新前端保存 28 张对应图；新图无页面异常或横向溢出 |
+| 独立规格审查 | 122 项核心检查及 38 项复制专项通过；四份视觉样式独立 Sass 编译结果与原文件一致 |
+| 独立质量审查 | 再跑核心 11 项和页面 22 项均通过；另 **8 项**竞态、身份隔离、密钥清理及富文本安全检查通过，未发现未解决问题 |
+| 真实容器浏览器链路 | 从独立空库启动，实际经过 Nginx → API → worker → LangChain → 本地 HTTP；登录、配置连接/模型、连接测试、两轮聊天、历史刷新、静默取消、4 条用量、手机导航与注销均通过，无接口拦截或页面异常 |
+| 前端 Docker 镜像 | 原 Node 24 / npm 11 / Nginx Dockerfile 构建通过；生产源码 53 份文件散列冻结，镜像为 `sha256:abb1238ce65d16489befe708536c65f500e60706690002fee000af71152900ae` |
+
+测试中修复纯代码回复内容收缩导致复制按钮被遮挡的问题；恢复模型代码复制、原智能体扩展及技能入口的位置，后两者在后端能力接通前禁用。真实 E2E 首次运行发现脚本在刷新后未展开“模型中心”就寻找用量子菜单；补齐真实点击展开后，从空测试库完整重跑通过，台账、取消和注销断言均保留。
+
+本轮日志、审查、参照与实现截图、真实浏览器截图及测试数据库快照保存在 `/home/ja/project/_local_backups/RuoYi-Vue3-FastAPI/20261023-142845-preserve-frontend-ui/verification/`。实际模型调用 4 次，均为本地协议服务；收费供应商和 Safari/iOS 实机仍未验收。独立测试项目 `zhiheng-core-ui-audit` 已清理，正常实例模型与用量数据不来自测试库。
+
+仅替换 `zhiheng-core` 的 web 镜像后，`http://127.0.0.1:19080` 的真实登录、原聊天空态、模型页面、手机导航及退出再次通过。正常实例仍为零模型、零用量；API、worker、PostgreSQL、Redis 及 migrator 的容器身份、镜像和启动时间与更新前一致。旧 `zhiheng` 容器仍全部停止，原 55 项优化逐项 SHA-256 保持一致且未纳入本轮提交。
 
 ## 真实容器链路与故障恢复
 

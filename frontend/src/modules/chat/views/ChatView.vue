@@ -1,432 +1,605 @@
+<!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount } from 'vue'
 import {
   Alert as AAlert,
+  Avatar as AAvatar,
   Button as AButton,
-  Empty as AEmpty,
   Select as ASelect,
   Spin as ASpin,
   Tag as ATag,
   Textarea as ATextarea
 } from 'ant-design-vue'
 import {
-  ArrowUpOutlined,
-  MessageOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  StopOutlined
+  PaperClipOutlined,
+  PauseCircleOutlined,
+  RobotOutlined,
+  SendOutlined,
+  SettingOutlined,
+  UserOutlined
 } from '@ant-design/icons-vue'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
-import type { RunSnapshot } from '../../../shared/stream.ts'
-import { identity } from '../../identity/public.ts'
-import { getModels } from '../../models/public.ts'
-import type { ChatModel } from '../../models/public.ts'
-import {
-  cancelRun,
-  createConversation,
-  getConversations,
-  getMessages,
-  getRun,
-  observeRun,
-  sendMessage
-} from '../api/index.ts'
-import type { ChatMessage, Conversation } from '../api/index.ts'
-import { nextSendIntent } from '../api/sendIntent.ts'
-import type { SendIntent } from '../api/sendIntent.ts'
-const conversations = ref<Conversation[]>([])
-const models = ref<ChatModel[]>([])
-const selected = ref<Conversation | null>(null)
-const modelId = ref<string>()
-const messages = ref<ChatMessage[]>([])
-const draft = ref('')
-const error = ref('')
-const listError = ref('')
-const loading = ref(false)
-const listLoading = ref(false)
-const historyReady = ref(true)
-const sending = ref(false)
-const stopping = ref(false)
-const disconnected = ref(false)
-const activeRun = ref<RunSnapshot | null>(null)
-const messagesElement = ref<HTMLElement | null>(null)
-const pageScope = new RequestScope()
-const conversationScope = new RequestScope()
-const running = computed(() => activeRun.value !== null && !isTerminal(activeRun.value))
-const canRecover = computed(() => disconnected.value && running.value)
-const modelOptions = computed(() =>
-  models.value
-    .filter((model) => model.enabled && model.capabilities.includes('chat'))
-    .map((model) => ({ value: model.id, label: model.name }))
-)
-const visibleMessages = computed(() =>
-  messages.value.filter(
-    (message) => !(message.role === 'assistant' && message.run_id === activeRun.value?.id)
-  )
-)
-let pendingSend: SendIntent | null = null
-const canRetry = ref(false)
+import { runStatusLabel } from '../../../shared/stream.ts'
+import { useChatWorkspace } from '../public.ts'
+import AiMessage from '../components/AiMessage.vue'
+import ChatEmptyState from '../components/ChatEmptyState.vue'
+const {
+  selectConversation,
+  selected,
+  modelId,
+  messages,
+  draft,
+  error,
+  listError,
+  loading,
+  listLoading,
+  historyReady,
+  sending,
+  stopping,
+  activeRun,
+  messagesElement,
+  running,
+  canRecover,
+  modelOptions,
+  visibleMessages,
+  canRetry,
+  send,
+  stop,
+  reconnect,
+  setModelId,
+  keydown
+} = useChatWorkspace()
 onBeforeUnmount(() => {
-  pageScope.dispose()
-  conversationScope.dispose()
-  draft.value = ''
-  pendingSend = null
+  void selectConversation(null)
 })
-async function scroll(): Promise<void> {
-  await nextTick()
-  messagesElement.value?.scrollTo({ top: messagesElement.value.scrollHeight, behavior: 'smooth' })
-}
-function updateRun(run: RunSnapshot): void {
-  if (acceptSnapshot(activeRun.value, run)) {
-    activeRun.value = run
-    void scroll()
-  }
-}
-async function follow(
-  run: RunSnapshot,
-  context: ReturnType<RequestScope['current']>
-): Promise<void> {
-  disconnected.value = false
-  await observeRun(
-    run,
-    (snapshot) => {
-      if (context.isCurrent()) updateRun(snapshot)
-    },
-    context.signal
-  )
-  if (context.isCurrent() && selected.value) {
-    messages.value = await getMessages(selected.value.id, context.signal)
-    if (context.isCurrent()) await scroll()
-  }
-}
-async function selectConversation(conversation: Conversation | null): Promise<void> {
-  const context = conversationScope.replace()
-  selected.value = conversation
-  messages.value = []
-  activeRun.value = null
-  error.value = ''
-  draft.value = ''
-  canRetry.value = false
-  pendingSend = null
-  disconnected.value = false
-  sending.value = false
-  stopping.value = false
-  loading.value = false
-  historyReady.value = conversation === null
-  if (!conversation) return
-  loading.value = true
-  try {
-    const history = await getMessages(conversation.id, context.signal)
-    if (!context.isCurrent()) return
-    messages.value = history
-    const last = history.at(-1)
-    if (last?.role === 'user' && last.run_id) {
-      const run = await getRun(last.run_id, context.signal)
-      if (!context.isCurrent()) return
-      activeRun.value = run
-      historyReady.value = true
-      loading.value = false
-      await follow(run, context)
-    } else {
-      historyReady.value = true
-    }
-    if (context.isCurrent()) await scroll()
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      disconnected.value = running.value
-    }
-  } finally {
-    if (context.isCurrent()) loading.value = false
-  }
-}
-async function load(): Promise<void> {
-  const context = pageScope.replace()
-  listLoading.value = true
-  listError.value = ''
-  try {
-    const [availableModels, items] = await Promise.all([
-      getModels(context.signal),
-      getConversations(context.signal)
-    ])
-    if (!context.isCurrent()) return
-    models.value = availableModels
-    conversations.value = items
-    if (!modelOptions.value.some((model) => model.value === modelId.value)) {
-      modelId.value = modelOptions.value[0]?.value
-    }
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) listError.value = errorMessage(reason)
-  } finally {
-    if (context.isCurrent()) listLoading.value = false
-  }
-}
-onMounted(() => {
-  void load()
-})
-async function send(retry = false): Promise<void> {
-  const model = modelId.value
-  const message = draft.value.trim()
-  if (
-    sending.value ||
-    running.value ||
-    loading.value ||
-    listLoading.value ||
-    !historyReady.value ||
-    (!retry && (!message || !model))
-  )
-    return
-  const ownerId = identity.value?.id
-  if (!ownerId) return
-  const context = conversationScope.replace()
-  const isCurrent = () => context.isCurrent() && identity.value?.id === ownerId
-  const request = retry
-    ? pendingSend
-    : model
-      ? nextSendIntent(
-          pendingSend,
-          {
-            conversationId: selected.value?.id ?? null,
-            model_id: model,
-            message
-          },
-          () => crypto.randomUUID()
-        )
-      : null
-  if (!request) return
-  pendingSend = request
-  sending.value = true
-  error.value = ''
-  canRetry.value = false
-  try {
-    let conversationId = request.conversationId
-    if (conversationId === null) {
-      const conversation = await createConversation(context.signal)
-      if (!isCurrent()) return
-      pageScope.replace()
-      listLoading.value = false
-      selected.value = conversation
-      conversations.value.unshift(conversation)
-      conversationId = conversation.id
-      pendingSend = { ...request, conversationId }
-    }
-    const run = await sendMessage(
-      conversationId,
-      {
-        model_id: request.model_id,
-        message: request.message,
-        client_request_id: request.client_request_id
-      },
-      context.signal
-    )
-    if (!isCurrent()) return
-    activeRun.value = run
-    pendingSend = null
-    draft.value = ''
-    messages.value = await getMessages(conversationId, context.signal)
-    if (!isCurrent()) return
-    sending.value = false
-    await scroll()
-    await follow(run, context)
-  } catch (reason) {
-    if (isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      canRetry.value = pendingSend !== null
-      disconnected.value = running.value
-    }
-  } finally {
-    if (isCurrent()) sending.value = false
-  }
-}
-async function stop(): Promise<void> {
-  const run = activeRun.value
-  if (!run || stopping.value) return
-  const context = conversationScope.current()
-  stopping.value = true
-  try {
-    const result = await cancelRun(run.id, context.signal)
-    if (context.isCurrent()) updateRun(result)
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
-  } finally {
-    if (context.isCurrent()) stopping.value = false
-  }
-}
-async function reconnect(): Promise<void> {
-  const run = activeRun.value
-  if (!run) return
-  const context = conversationScope.replace()
-  error.value = ''
-  try {
-    const latest = await getRun(run.id, context.signal)
-    if (!context.isCurrent()) return
-    updateRun(latest)
-    await follow(latest, context)
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      disconnected.value = true
-    }
-  }
-}
-function setModelId(value: unknown): void {
-  modelId.value = typeof value === 'string' ? value : undefined
-}
-function keydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault()
-    void send()
-  }
-}
 </script>
 <template>
-  <div class="chat-workspace">
-    <aside class="conversation-panel">
-      <div class="panel-heading">
-        <span>对话记录</span
-        ><AButton
-          type="text"
-          size="small"
-          aria-label="刷新会话"
-          :loading="listLoading"
-          @click="load"
-          ><ReloadOutlined
-        /></AButton>
-      </div>
-      <AButton class="new-conversation" block @click="selectConversation(null)"
-        ><PlusOutlined /> 新建对话</AButton
-      >
-      <div class="conversation-list">
-        <button
-          v-for="conversation in conversations"
-          :key="conversation.id"
-          :class="['conversation-item', { selected: selected?.id === conversation.id }]"
-          @click="selectConversation(conversation)"
-        >
-          <MessageOutlined /><span>{{ conversation.title }}</span>
-        </button>
-        <p v-if="!conversations.length" class="muted small conversation-hint">
-          你的对话将在这里留存
-        </p>
-      </div>
-      <p class="sidebar-note">一次对话，一点新想法。</p>
-    </aside>
-    <section class="chat-main">
-      <header class="chat-header">
-        <div>
-          <h1>{{ selected?.title || '新的对话' }}</h1>
-          <span class="muted small">文本对话 · 流式输出</span>
-        </div>
-        <label class="sr-only" for="chat-model-select">选择模型</label>
+  <div
+    class="platform-chat workspace-chat-page"
+    :class="{ 'is-empty': !messages.length && !activeRun && !selected }"
+  >
+    <main class="chat-workspace">
+      <header class="chat-toolbar">
         <ASelect
-          id="chat-model-select"
           :value="modelId"
           class="model-select"
           :options="modelOptions"
-          placeholder="选择模型"
-          :disabled="running || sending"
+          show-search
+          option-filter-prop="label"
           aria-label="选择模型"
+          placeholder="选择平台模型"
+          :disabled="running || sending || loading"
           @update:value="setModelId"
         />
+        <AButton
+          class="toolbar-icon-button"
+          type="text"
+          disabled
+          aria-label="对话偏好"
+          title="当前版本暂不支持修改对话偏好"
+          ><SettingOutlined
+        /></AButton>
       </header>
       <div v-if="error || listError || canRetry || canRecover" class="chat-alert">
-        <AAlert v-if="error" :message="error" type="error" show-icon />
-        <AAlert v-if="listError" :message="listError" type="error" show-icon />
-        <div class="alert-actions">
-          <AButton v-if="canRetry" size="small" @click="send(true)">使用原请求重试</AButton
-          ><AButton v-if="canRecover" size="small" @click="reconnect">恢复查看</AButton>
-        </div>
+        <AAlert v-if="error" :message="error" type="error" show-icon /><AAlert
+          v-if="listError"
+          :message="listError"
+          type="error"
+          show-icon
+        />
+        <AButton v-if="canRetry" size="small" @click="send(true)">使用原请求重试</AButton
+        ><AButton v-if="canRecover" size="small" @click="reconnect">恢复查看</AButton>
       </div>
-      <div ref="messagesElement" class="message-scroll" aria-live="polite" aria-label="聊天消息">
+      <section
+        ref="messagesElement"
+        class="message-history"
+        aria-live="polite"
+        aria-label="聊天消息"
+      >
         <ASpin v-if="loading" class="page-spinner" />
-        <div v-else-if="!messages.length && !activeRun" class="chat-welcome">
-          <div class="welcome-orbit">衡</div>
-          <p class="eyebrow">一点好奇，无限可能</p>
-          <h2>今天，一起想点什么？</h2>
-          <p class="muted">从一个问题开始，让想法慢慢展开。</p>
-          <div class="welcome-prompts">
-            <button @click="draft = '帮我把一个复杂的想法整理成清晰的行动计划。'">
-              整理一个想法 <span>↗</span></button
-            ><button @click="draft = '请用通俗的语言解释一个有趣的科学概念。'">
-              学习新的知识 <span>↗</span>
-            </button>
-          </div>
-          <AEmpty
-            v-if="!modelOptions.length"
-            description="暂无可用模型，请联系管理员配置"
-            :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
-          />
-        </div>
-        <template v-else
-          ><article
-            v-for="message in visibleMessages"
-            :key="message.id"
-            :class="['message', message.role]"
-          >
-            <div class="message-avatar">{{ message.role === 'user' ? '你' : '衡' }}</div>
-            <div class="message-body">
-              <div class="message-author">{{ message.role === 'user' ? '你' : '智衡 AI' }}</div>
-              <div class="message-content">{{ message.content }}</div>
-            </div>
-          </article>
-          <article v-if="activeRun" class="message assistant">
-            <div class="message-avatar">衡</div>
-            <div class="message-body">
-              <div class="message-author">
-                智衡 AI
-                <ATag
-                  :color="
-                    running
-                      ? 'processing'
-                      : activeRun.status === 'completed'
-                        ? 'success'
-                        : 'default'
-                  "
-                  >{{ runStatusLabel[activeRun.status] }}</ATag
-                >
-              </div>
-              <div class="message-content">
-                {{ activeRun.text || (running ? '正在思考…' : '本次运行未生成文本') }}
-              </div>
-              <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
-              <span v-if="activeRun.usage.status === 'unknown'" class="muted small"
-                >用量待核对</span
-              >
-            </div>
-          </article></template
+        <ChatEmptyState
+          v-else-if="!messages.length && !activeRun && !selected"
+          @prompt="draft = $event"
+        />
+        <article
+          v-for="message in visibleMessages"
+          :key="message.id"
+          class="message-row"
+          :class="message.role"
         >
-      </div>
-      <footer class="composer-area">
-        <div class="composer">
+          <AAvatar class="message-avatar" :size="30"
+            ><UserOutlined v-if="message.role === 'user'" /><RobotOutlined v-else
+          /></AAvatar>
+          <div class="message-body">
+            <div class="message-meta">{{ message.role === 'user' ? '我' : '智衡' }}</div>
+            <AiMessage v-if="message.role === 'assistant'" :content="message.content" />
+            <p v-else class="user-message">{{ message.content }}</p>
+          </div>
+        </article>
+        <article v-if="activeRun" class="message-row assistant">
+          <AAvatar class="message-avatar" :size="30"><RobotOutlined /></AAvatar>
+          <div class="message-body">
+            <div class="message-meta">
+              智衡 <ATag>{{ runStatusLabel[activeRun.status] }}</ATag>
+            </div>
+            <AiMessage
+              :content="activeRun.text || (running ? '' : '本次运行未生成文本')"
+              :loading="running"
+            />
+            <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
+            <span v-if="activeRun.usage.status === 'unknown'" class="muted small">用量待核对</span>
+          </div>
+        </article>
+      </section>
+      <footer class="composer">
+        <div class="composer-context">
+          <span class="model-capability">文本对话</span
+          ><span v-if="!modelOptions.length && !listLoading" class="muted small"
+            >暂无可用模型，请联系管理员配置</span
+          >
+          <div class="composer-context-actions">
+            <span v-if="activeRun" class="run-state" role="status">{{
+              runStatusLabel[activeRun.status]
+            }}</span>
+          </div>
+        </div>
+        <div class="composer-surface">
           <ATextarea
             v-model:value="draft"
-            placeholder="输入你的问题，Enter 发送，Shift + Enter 换行"
-            :auto-size="{ minRows: 2, maxRows: 7 }"
+            :auto-size="{ minRows: 3, maxRows: 6 }"
             :maxlength="16000"
             :disabled="sending"
+            placeholder="输入消息，按回车发送，按住上档键回车换行"
             aria-label="消息内容"
             @keydown="keydown"
           />
-          <div class="composer-toolbar">
-            <span class="muted small">{{
-              draft.length ? `${draft.length} / 16000` : '给思考一点空间'
+          <div class="composer-actions">
+            <AButton type="text" disabled aria-label="选择技能" title="当前版本暂不支持选择技能"
+              >@</AButton
+            >
+            <AButton
+              type="text"
+              disabled
+              aria-label="添加图片或附件"
+              title="当前版本支持文本对话，暂不支持附件"
+              ><PaperClipOutlined /></AButton
+            ><span class="composer-hint">{{
+              draft.length ? `${draft.length} / 16000` : '当前支持文本对话'
             }}</span
-            ><AButton v-if="running" :loading="stopping" @click="stop"
-              ><StopOutlined /> 停止生成</AButton
+            ><AButton
+              v-if="running"
+              class="composer-submit"
+              danger
+              :loading="stopping"
+              aria-label="停止生成"
+              @click="stop"
+              ><PauseCircleOutlined />停止</AButton
             ><AButton
               v-else
+              class="composer-submit"
               type="primary"
-              shape="circle"
               :loading="sending"
               :disabled="!draft.trim() || !modelId || loading || listLoading || !historyReady"
               aria-label="发送消息"
               @click="send()"
-              ><ArrowUpOutlined
-            /></AButton>
+              ><SendOutlined />发送</AButton
+            >
           </div>
         </div>
-        <p class="composer-note">AI 生成内容仅供参考，请核实重要信息。</p>
       </footer>
-    </section>
+    </main>
   </div>
 </template>
+<style scoped lang="scss">
+.archived-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.archived-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.platform-chat {
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--gray-10);
+  font-family: var(--workspace-font-family);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.run-state,
+.message-meta,
+.message-metrics,
+.composer-hint {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.chat-workspace {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--gray-10);
+}
+
+.toolbar-icon-button {
+  flex-shrink: 0;
+  width: var(--workspace-control-height);
+  height: var(--workspace-control-height);
+}
+
+.model-select {
+  width: min(320px, 100%);
+  min-width: 0;
+}
+
+.chat-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 52px;
+  padding: 8px 24px;
+}
+
+.composer-context {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.composer-context-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.model-capability {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--gray-150);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.model-capability:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 2px;
+}
+
+.model-capability-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.message-history {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 28px clamp(16px, 6vw, 96px);
+  background: transparent;
+}
+
+.message-row {
+  display: flex;
+  gap: 12px;
+  max-width: 960px;
+  margin: 0 auto 22px;
+}
+
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  color: var(--main-color);
+  background: var(--gray-150);
+}
+
+.message-body {
+  min-width: 0;
+  max-width: min(760px, 90%);
+}
+
+.message-row.assistant .message-body {
+  flex: 1;
+}
+
+.message-row.user .message-body {
+  text-align: right;
+}
+
+.user-message {
+  margin: 5px 0 0;
+  padding: 10px 13px;
+  border: 1px solid var(--main-100);
+  border-radius: 16px 4px 16px 16px;
+  background: var(--main-50);
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--workspace-font-size-chat);
+  line-height: var(--workspace-line-height-chat);
+}
+
+.message-skills,
+.selected-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.message-row.user .message-skills {
+  justify-content: flex-end;
+}
+
+.selected-skills {
+  flex-shrink: 0;
+  margin: 0 0 8px;
+}
+
+.chat-file-input {
+  display: none;
+}
+.file-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 60px;
+  margin-bottom: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.queued-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: min(100%, 380px);
+  padding: 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  background: var(--bg-container);
+}
+.queued-file.has-error {
+  border-color: var(--ant-color-error, #ff4d4f);
+}
+.queued-file-preview {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: 0 0 40px;
+}
+.queued-file-icon {
+  font-size: 24px;
+  color: var(--color-text-secondary);
+}
+.queued-file-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.queued-file-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queued-file-status,
+.queued-file-error {
+  font-size: var(--workspace-font-size-caption);
+  overflow-wrap: anywhere;
+}
+.queued-file-status {
+  color: var(--color-text-secondary);
+}
+.queued-file-error,
+.file-guidance--error {
+  color: var(--ant-color-error, #ff4d4f);
+}
+.file-guidance {
+  margin: 8px 4px 0;
+  color: var(--color-text-secondary);
+  font-size: var(--workspace-font-size-helper);
+  line-height: 1.5;
+}
+.file-guidance--error {
+  color: var(--ant-color-error, #ff4d4f);
+}
+.message-row.user :deep(.message-files) {
+  justify-content: flex-end;
+}
+
+.message-metrics {
+  margin-top: 6px;
+}
+
+.composer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  // Reserve the 52px toolbar and 80px for the message history.
+  max-height: calc(100% - 132px);
+  overflow-y: auto;
+  width: min(880px, 100%);
+  align-self: center;
+  padding: 12px 24px 24px;
+  background: transparent;
+}
+
+.composer-surface {
+  flex-shrink: 0;
+  padding: 16px 18px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 20px;
+  background: var(--bg-container);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+
+.composer-surface:focus-within {
+  border-color: var(--main-400);
+  box-shadow:
+    0 0 0 3px var(--main-50),
+    0 6px 24px rgb(0 0 0 / 4%);
+}
+
+.composer-surface :deep(.ant-input) {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.composer :deep(textarea) {
+  font-size: var(--workspace-font-size-chat);
+  line-height: var(--workspace-line-height-chat);
+}
+
+.composer-actions {
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.composer-actions :deep(.ant-upload-wrapper),
+.composer-actions :deep(.ant-upload) {
+  display: inline-flex;
+}
+
+.composer-submit {
+  margin-left: auto;
+  width: 84px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.model-select :deep(.ant-select-selector) {
+  border-color: transparent;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+}
+.composer-actions :deep(.ant-btn-text) {
+  border-radius: 9px;
+  color: var(--color-text-secondary);
+}
+.is-empty .chat-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(min-content, 1fr) auto minmax(24px, 1fr);
+  overflow-y: auto;
+}
+.is-empty .message-history {
+  align-self: end;
+  overflow: visible;
+  padding: 28px 16px 0;
+}
+.is-empty .composer {
+  width: min(800px, calc(100% - 48px));
+  max-height: none;
+  justify-self: center;
+  align-self: start;
+  padding: 24px 0 8px;
+}
+
+:deep(.ant-form-item .ant-input-number) {
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .chat-workspace {
+    padding: 0;
+  }
+  .chat-toolbar,
+  .composer {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .message-history {
+    padding: 16px 12px;
+  }
+  .model-select {
+    width: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .model-select {
+    width: 150px;
+    min-width: 0;
+  }
+  .composer-surface {
+    padding: 12px;
+    border-radius: 16px;
+  }
+  .composer-actions {
+    gap: 5px;
+  }
+  .composer-submit {
+    width: 76px;
+  }
+  .is-empty .composer {
+    width: calc(100% - 28px);
+    padding-top: 22px;
+  }
+}
+</style>
+
+<style scoped>
+.chat-alert {
+  padding: 0 24px;
+}
+.chat-alert :deep(.ant-alert) {
+  margin-bottom: 8px;
+}
+.chat-alert :deep(.ant-btn) {
+  margin: 0 8px 8px 0;
+}
+.platform-chat:has(.chat-alert).is-empty .chat-workspace {
+  display: flex;
+}
+.platform-chat:has(.chat-alert).is-empty .message-history {
+  align-self: stretch;
+  flex: 1;
+}
+</style>

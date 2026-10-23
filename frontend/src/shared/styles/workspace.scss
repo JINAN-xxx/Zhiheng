@@ -1,0 +1,316 @@
+:root {
+  --workspace-main: var(--main-color);
+  --workspace-main-deep: var(--main-800);
+  --workspace-main-soft: var(--main-50);
+  --workspace-bg: var(--bg-page);
+  --workspace-surface: var(--bg-container);
+  --workspace-surface-elevated: var(--bg-elevated);
+  --workspace-surface-muted: var(--gray-10);
+  --workspace-border: var(--gray-150);
+  --workspace-border-strong: var(--gray-200);
+  --workspace-text: var(--color-text);
+  --workspace-text-secondary: var(--color-text-secondary);
+  --workspace-text-muted: var(--color-text-tertiary);
+  --workspace-success: var(--color-success-700);
+  --workspace-success-soft: var(--color-success-50);
+  --workspace-warning: var(--color-warning-700);
+  --workspace-warning-soft: var(--color-warning-50);
+  --workspace-danger: var(--color-error-700);
+  --workspace-danger-soft: var(--color-error-50);
+  --workspace-info: var(--color-info-700);
+  --workspace-info-soft: var(--color-info-50);
+  --workspace-radius-sm: 4px;
+  --workspace-radius-md: 8px;
+  --workspace-space-1: 4px;
+  --workspace-space-2: 8px;
+  --workspace-space-3: 12px;
+  --workspace-space-4: 16px;
+  --workspace-space-5: 20px;
+  --workspace-space-6: 24px;
+  --workspace-sidebar-bg: var(--bg-sider);
+  --workspace-sidebar-surface: var(--gray-50);
+  --workspace-sidebar-border: var(--gray-150);
+  --workspace-sidebar-text: var(--color-text);
+  --workspace-sidebar-muted: var(--color-text-secondary);
+  --platform-topbar-height: 54px;
+  --workspace-sidebar-width: var(--platform-sidebar-width);
+  --workspace-sidebar-collapsed-width: var(--platform-sidebar-collapsed-width);
+  --workspace-content-max-width: 1440px;
+  --workspace-control-height: 36px;
+  --workspace-shadow-soft: none;
+  --workspace-shadow-float: 0 12px 32px rgba(21, 22, 22, 0.12);
+  --workspace-font-family:
+    system-ui, 'Noto Sans SC', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --workspace-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --workspace-mono: var(--workspace-font-mono);
+  --workspace-font-size-caption: 12px;
+  --workspace-font-size-helper: 13px;
+  --workspace-font-size-body: 14px;
+  --workspace-font-size-section: 16px;
+  --workspace-font-size-title: 20px;
+  --workspace-font-size-chat: 16px;
+  --workspace-font-weight-regular: 400;
+  --workspace-font-weight-medium: 500;
+  --workspace-font-weight-semibold: 600;
+  --workspace-line-height: 1.6;
+  --workspace-line-height-chat: 1.75;
+
+  --el-color-primary: var(--main-color);
+  --el-color-primary-light-3: var(--main-400);
+  --el-color-primary-light-5: var(--main-300);
+  --el-color-primary-light-7: var(--main-200);
+  --el-color-primary-light-8: var(--main-100);
+  --el-color-primary-light-9: var(--main-50);
+  --el-color-primary-dark-2: var(--main-800);
+  --el-color-success: var(--color-success-500);
+  --el-color-success-light-9: var(--color-success-50);
+  --el-color-warning: var(--color-warning-500);
+  --el-color-warning-light-9: var(--color-warning-50);
+  --el-color-danger: var(--color-error-500);
+  --el-color-danger-light-9: var(--color-error-50);
+  --el-color-info: var(--color-info-500);
+  --el-color-info-light-9: var(--color-info-50);
+  --el-border-radius-base: var(--workspace-radius-sm);
+  --el-border-radius-small: var(--workspace-radius-sm);
+  --el-border-radius-round: 999px;
+  --el-border-color: var(--gray-150);
+  --el-border-color-light: var(--gray-150);
+  --el-border-color-lighter: var(--gray-10);
+  --el-bg-color: var(--bg-container);
+  --el-bg-color-page: var(--bg-page);
+  --el-fill-color-light: var(--gray-10);
+  --el-text-color-primary: var(--color-text);
+  --el-text-color-regular: var(--gray-800);
+  --el-text-color-secondary: var(--color-text-secondary);
+  --el-text-color-placeholder: var(--color-text-tertiary);
+}
+
+body {
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font-family: var(--workspace-font-family);
+  font-size: var(--workspace-font-size-body);
+  font-weight: var(--workspace-font-weight-regular);
+  line-height: var(--workspace-line-height);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+code,
+.workspace-mono {
+  font-family: var(--workspace-font-mono);
+}
+
+.ant-table,
+.el-table,
+.ant-statistic,
+.workspace-mono,
+.message-metrics,
+.preview-usage {
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-surface {
+  background: var(--workspace-surface);
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
+}
+
+.workspace-focus-ring:focus-visible,
+.workspace-icon-button:focus-visible {
+  outline: 2px solid var(--workspace-main);
+  outline-offset: 2px;
+}
+
+.el-button,
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-input-number,
+.el-date-editor.el-input,
+.el-date-editor.el-input__wrapper {
+  min-height: var(--workspace-control-height);
+  border-radius: var(--workspace-radius-sm);
+}
+
+.el-button--primary {
+  color: var(--gray-0);
+}
+
+.el-card,
+.el-dialog,
+.el-drawer,
+.el-popover {
+  border-radius: var(--workspace-radius-md);
+  border-color: var(--workspace-border);
+}
+
+.el-dialog,
+.el-drawer,
+.el-popover {
+  box-shadow: var(--workspace-shadow-float);
+}
+
+.el-card {
+  box-shadow: none;
+}
+
+.el-table {
+  --el-table-border-color: var(--workspace-border);
+  --el-table-header-bg-color: var(--workspace-surface-muted);
+  --el-table-row-hover-bg-color: var(--workspace-main-soft);
+  color: var(--workspace-text);
+}
+
+.el-table th.el-table__cell {
+  color: var(--workspace-text-secondary);
+  font-weight: 600;
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover,
+.el-link.el-link--primary {
+  color: var(--workspace-main-deep);
+}
+
+.platform-shell {
+  background: var(--workspace-bg);
+
+  .tags-view-container {
+    background: var(--workspace-surface);
+    border-bottom: 1px solid var(--workspace-border);
+  }
+
+  .app-main {
+    background: var(--workspace-bg);
+  }
+}
+
+.platform-shell button:focus-visible,
+.platform-shell a:focus-visible {
+  outline: 2px solid var(--workspace-main);
+  outline-offset: 2px;
+}
+
+@media (max-width: 991px) {
+  .platform-shell__main {
+    width: 100%;
+  }
+
+  .platform-mobile-drawer {
+    max-width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-shell *,
+  .platform-mobile-drawer * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+.workspace-admin-page {
+  min-width: 0;
+  color: var(--workspace-text);
+  background: var(--workspace-bg);
+  font-family: var(--workspace-font-family);
+
+  > .el-form,
+  .content-inner > .el-form {
+    margin-bottom: var(--workspace-space-4);
+    padding: 14px 16px 2px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--workspace-radius-md);
+    background: var(--workspace-surface);
+  }
+
+  > .el-row.mb8,
+  .content-inner > .el-row.mb8 {
+    min-height: 42px;
+    align-items: center;
+    margin: 0 0 var(--workspace-space-3) !important;
+    padding: 5px 8px;
+    border: 1px solid var(--workspace-border);
+    border-radius: var(--workspace-radius-sm);
+    background: var(--workspace-surface);
+  }
+
+  .el-table {
+    --el-table-border-color: var(--workspace-border);
+    --el-table-header-bg-color: var(--workspace-surface-muted);
+    border: 1px solid var(--workspace-border);
+    border-radius: 0;
+    background: var(--workspace-surface);
+  }
+
+  .el-table th.el-table__cell {
+    height: 42px;
+    color: var(--workspace-text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .el-table td.el-table__cell {
+    height: 45px;
+  }
+
+  .el-card {
+    border-color: var(--workspace-border);
+    border-radius: var(--workspace-radius-md);
+    box-shadow: none;
+  }
+
+  .el-card__header {
+    min-height: 48px;
+    padding: 13px 16px;
+    border-color: var(--workspace-border);
+    font-size: 14px;
+    font-weight: 600;
+  }
+}
+
+.workspace-monitor-page {
+  .card-box {
+    margin-bottom: var(--workspace-space-4);
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --workspace-space-4: 14px;
+    --workspace-space-5: 16px;
+    --workspace-space-6: 18px;
+  }
+
+  .el-dialog,
+  .el-drawer {
+    max-width: 100vw;
+  }
+
+  .workspace-admin-page {
+    padding: 12px;
+
+    > .el-form,
+    .content-inner > .el-form {
+      padding: 12px 12px 0;
+    }
+
+    > .el-row.mb8,
+    .content-inner > .el-row.mb8 {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+    }
+
+    .el-card__body {
+      padding: 14px;
+    }
+  }
+}

@@ -1,33 +1,58 @@
+<!-- Adapted from original usage ledger, MIT licensed. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import {
-  Alert as AAlert,
-  Button as AButton,
-  Empty as AEmpty,
-  Progress as AProgress,
-  Spin as ASpin,
-  Tag as ATag
-} from 'ant-design-vue'
+import { Alert as AAlert, Button as AButton, Select as ASelect, Tag as ATag } from 'ant-design-vue'
+import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import type { TableColumnsType } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
+import { useWindowSize } from '@vueuse/core'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getUsage } from '../api/index.ts'
 import type { UsageSummary } from '../api/index.ts'
 const summary = ref<UsageSummary | null>(null)
+const { width } = useWindowSize()
+const isMobile = computed(() => width.value < 768)
 const error = ref('')
 const loading = ref(false)
 const scope = new RequestScope()
-const percent = computed(() =>
-  summary.value && summary.value.limit_tokens > 0
-    ? Math.min(
-        100,
-        Math.round(
-          ((summary.value.used_tokens + summary.value.reserved_tokens) /
-            summary.value.limit_tokens) *
-            100
-        )
-      )
-    : 0
+const selectedSource = ref<string>('all')
+const selectedStatus = ref<string>('all')
+const rows = computed(() =>
+  (summary.value?.records ?? []).filter(
+    (record) =>
+      (selectedSource.value === 'all' || record.source === selectedSource.value) &&
+      (selectedStatus.value === 'all' || record.status === selectedStatus.value)
+  )
 )
+const columns: TableColumnsType<UsageSummary['records'][number]> = [
+  { title: '开始时间', key: 'created_at', width: 180 },
+  { title: '类型', key: 'source', width: 120 },
+  { title: '运行', dataIndex: 'run_id', key: 'run_id', width: 180, ellipsis: true },
+  { title: '令牌（输入 / 输出）', key: 'tokens', width: 170 },
+  { title: '计入用量', key: 'charged', width: 120 },
+  { title: '状态', key: 'status', width: 110 }
+]
+const sourceOptions = [
+  { value: 'all', label: '全部类型' },
+  { value: 'chat', label: '对话' },
+  { value: 'connection_test', label: '连接测试' }
+]
+const statusOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'known', label: '已核算' },
+  { value: 'pending', label: '待核算' },
+  { value: 'unknown', label: '待核对' }
+]
+function setSource(value: unknown): void {
+  selectedSource.value = typeof value === 'string' ? value : 'all'
+}
+function setStatus(value: unknown): void {
+  selectedStatus.value = typeof value === 'string' ? value : 'all'
+}
+const sourceLabel = (source: string): string =>
+  source === 'chat' ? '对话' : source === 'connection_test' ? '连接测试' : source
 const tokens = (value: number | null): string =>
   value === null ? '待核对' : value.toLocaleString()
 const recordStatus = (status: string): string =>
@@ -53,88 +78,257 @@ async function load(): Promise<void> {
 }
 </script>
 <template>
-  <section class="content-page">
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">USAGE OVERVIEW</p>
-        <h1>用量记录</h1>
-        <p class="muted">了解每一次调用，掌握你的资源使用。</p>
-      </div>
-      <AButton :loading="loading" @click="load"><ReloadOutlined /> 刷新</AButton>
-    </div>
-    <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" /><ASpin
-      :spinning="loading"
-      ><template v-if="summary"
-        ><div class="usage-stats">
-          <article>
-            <span>已使用</span
-            ><strong>{{ tokens(summary.used_tokens) }}<small>tokens</small></strong>
-          </article>
-          <article>
-            <span>预留中</span
-            ><strong>{{ tokens(summary.reserved_tokens) }}<small>tokens</small></strong>
-          </article>
-          <article>
-            <span>配额上限</span
-            ><strong>{{ tokens(summary.limit_tokens) }}<small>tokens</small></strong>
+  <main class="usage-ledger-page" aria-label="用量记录">
+    <WorkspaceToolbar title="用量记录"
+      ><template #actions
+        ><AButton shape="circle" :loading="loading" aria-label="刷新用量记录" @click="load"
+          ><ReloadOutlined /></AButton></template
+    ></WorkspaceToolbar>
+    <section class="usage-content">
+      <section class="usage-controls" aria-label="用量筛选">
+        <ASelect
+          :value="selectedSource"
+          :options="sourceOptions"
+          aria-label="调用类型"
+          @update:value="setSource"
+        /><ASelect
+          :value="selectedStatus"
+          :options="statusOptions"
+          aria-label="调用状态"
+          @update:value="setStatus"
+        /><span class="usage-total">共 {{ rows.length }} 条</span>
+      </section>
+      <p v-if="summary" class="usage-quota" aria-label="Token 额度">
+        已使用 <strong>{{ tokens(summary.used_tokens) }}</strong> · 预留中
+        <strong>{{ tokens(summary.reserved_tokens) }}</strong> · 配额上限
+        <strong>{{ tokens(summary.limit_tokens) }}</strong> tokens
+      </p>
+      <AAlert
+        v-if="error && summary"
+        :message="error"
+        type="warning"
+        show-icon
+        class="space-bottom"
+      />
+      <WorkspaceState v-if="loading && !summary" kind="loading" />
+      <WorkspaceState v-else-if="error && !summary" kind="error" :message="error" @retry="load" />
+      <WorkspaceState
+        v-else-if="!rows.length"
+        title="暂无用量记录"
+        message="对话与连接测试调用后会在这里形成台账。"
+      />
+      <section v-else class="usage-table-wrap">
+        <div v-if="isMobile" class="usage-mobile-list">
+          <article v-for="row in rows" :key="row.id" class="usage-mobile-item">
+            <div class="usage-mobile-item__header">
+              <strong>{{ new Date(row.created_at).toLocaleString() }}</strong
+              ><ATag>{{ recordStatus(row.status) }}</ATag>
+            </div>
+            <div class="usage-mobile-item__model" :title="row.run_id">{{ row.run_id }}</div>
+            <div class="usage-mobile-item__meta">
+              <ATag>{{ sourceLabel(row.source) }}</ATag
+              ><span>令牌 {{ tokens(row.input_tokens) }} / {{ tokens(row.output_tokens) }}</span
+              ><span
+                >计入用量
+                {{ row.status === 'unknown' ? '待核对' : tokens(row.charged_tokens) }}</span
+              >
+            </div>
           </article>
         </div>
-        <div class="quota-bar">
-          <span class="muted small">已用与预留占比</span
-          ><AProgress :percent="percent" :stroke-color="'var(--color-primary)'" />
-        </div>
-        <section class="settings-section">
-          <div class="section-title">
-            <h2>调用明细</h2>
-            <span class="muted small">{{ summary.records.length }} 条记录</span>
-          </div>
-          <div v-if="summary.records.length" class="table-scroll">
-            <table class="usage-table">
-              <thead>
-                <tr>
-                  <th>时间 / 运行</th>
-                  <th>来源</th>
-                  <th>状态</th>
-                  <th>输入 tokens</th>
-                  <th>输出 tokens</th>
-                  <th>计入用量</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="record in summary.records" :key="record.id">
-                  <td>
-                    <time>{{ new Date(record.created_at).toLocaleString() }}</time
-                    ><small class="record-id" :title="record.run_id">{{
-                      record.run_id.slice(0, 8)
-                    }}</small>
-                  </td>
-                  <td>
-                    {{
-                      record.source === 'connection_test'
-                        ? '连接测试'
-                        : record.source === 'chat'
-                          ? 'AI 对话'
-                          : record.source
-                    }}
-                  </td>
-                  <td>
-                    <ATag :color="record.status === 'known' ? 'success' : 'warning'">{{
-                      recordStatus(record.status)
-                    }}</ATag>
-                  </td>
-                  <td>{{ tokens(record.input_tokens) }}</td>
-                  <td>{{ tokens(record.output_tokens) }}</td>
-                  <td>
-                    {{ record.status === 'unknown' ? '待核对' : tokens(record.charged_tokens) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <AEmpty v-else description="还没有调用记录" :image="AEmpty.PRESENTED_IMAGE_SIMPLE" />
-          <p class="muted small">预留用量会在运行完成后结算；未知用量将显示为待核对。</p>
-        </section></template
-      ></ASpin
-    >
-  </section>
+        <ResourceTable v-else class="usage-table" :columns="columns" :rows="rows" :loading="loading"
+          ><template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'created_at'">{{
+              new Date(record.created_at).toLocaleString()
+            }}</template>
+            <template v-else-if="column.key === 'source'"
+              ><ATag>{{ sourceLabel(record.source) }}</ATag></template
+            >
+            <template v-else-if="column.key === 'tokens'"
+              >{{ tokens(record.input_tokens) }} / {{ tokens(record.output_tokens) }}</template
+            >
+            <template v-else-if="column.key === 'charged'">{{
+              record.status === 'unknown' ? '待核对' : tokens(record.charged_tokens)
+            }}</template>
+            <template v-else-if="column.key === 'status'"
+              ><ATag :color="record.status === 'known' ? 'success' : 'warning'">{{
+                recordStatus(record.status)
+              }}</ATag></template
+            >
+          </template></ResourceTable
+        >
+      </section>
+      <p v-if="summary" class="muted small">预留用量会在运行完成后结算；未知用量将显示为待核对。</p>
+    </section>
+  </main>
 </template>
+<style scoped lang="scss">
+.usage-ledger-page {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  color: var(--color-text);
+  background: var(--bg-container);
+  font-family: var(--workspace-font-family);
+}
+.usage-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+  padding: 20px 24px 28px;
+}
+.usage-controls {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  min-height: 54px;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.usage-controls :deep(.ant-select) {
+  width: 132px;
+  min-width: 0;
+}
+.usage-controls :deep(.ant-select:first-child) {
+  width: min(360px, 42%);
+}
+.usage-total {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.usage-controls :deep(.ant-select-selector),
+.usage-controls :deep(.ant-select-selection-item) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-stale {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--color-warning-900);
+  background: var(--color-warning-50);
+  font-size: 12px;
+}
+.usage-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.usage-table-wrap :deep(.ant-table-thead > tr > th) {
+  border-bottom-color: var(--gray-150);
+  background: var(--gray-10);
+  color: var(--color-text-secondary);
+}
+.usage-table-wrap :deep(.ant-table-tbody > tr > td) {
+  border-bottom-color: var(--gray-150);
+  background: var(--bg-container);
+  color: var(--color-text);
+}
+.usage-mobile-list {
+  display: grid;
+  gap: 14px;
+}
+.usage-mobile-item {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.usage-mobile-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.usage-mobile-item__header strong {
+  font-size: 13px;
+}
+.usage-mobile-item__model {
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--workspace-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-mobile-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.usage-table-wrap :deep(.ant-pagination) {
+  display: flex;
+  justify-content: flex-end;
+  margin: 18px 16px;
+}
+@media (min-width: 992px) {
+  .usage-content {
+    padding: var(--workspace-space-4) var(--workspace-space-6) var(--workspace-space-6);
+  }
+}
+
+@media (max-width: 760px) {
+  .usage-controls :deep(.ant-select:first-child) {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+  .usage-controls :deep(.ant-select) {
+    flex: 1;
+  }
+  .usage-total {
+    flex: 1 1 100%;
+    text-align: right;
+  }
+  .usage-table-wrap {
+    border: 0;
+    border-radius: 0;
+  }
+  .usage-table-wrap :deep(.ant-pagination) {
+    justify-content: center;
+  }
+  .usage-table-wrap :deep(.ant-pagination-options) {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .usage-content {
+    padding: 16px;
+  }
+}
+</style>
+
+<style scoped>
+.usage-quota {
+  margin: 0 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.usage-controls :deep(.ant-select:first-child) {
+  width: 132px;
+}
+.usage-table-wrap {
+  flex: 0 0 auto;
+}
+</style>
