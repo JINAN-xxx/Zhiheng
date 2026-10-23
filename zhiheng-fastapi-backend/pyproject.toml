@@ -12,7 +12,19 @@ requires-python = ">=3.10"
 zhiheng = "cli.main:main"
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "src"]
+
+[tool.setuptools.package-dir]
+zhiheng = "src/zhiheng"
 
 [tool.setuptools.packages.find]
-include = ["cli*"]
+where = [".", "src"]
+include = ["cli*", "zhiheng*"]
+
+[tool.setuptools.package-data]
+zhiheng = ["py.typed"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/zhiheng", "../tools/check_architecture.py", "../tools/check_core_wheel.py"]

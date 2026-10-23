@@ -58,6 +58,10 @@ async def on_startup(context: PluginHookContext) -> None:
     await asyncio.to_thread(storage.cleanup_stale, limit=settings.cleanup_limit)
     if context.startup_write_enabled:
         await _sync_builtin_skills(storage, settings)
+    # Recovery belongs to each process lifecycle, including ready-state readers.
+    # Conditional database updates make overlapping scans safe across workers.
+    recovery_task = getattr(context.app.state, 'agent_work_recovery_task', None)
+    if recovery_task is None or recovery_task.done():
         await _recover_work_runs()
         context.app.state.agent_work_recovery_task = asyncio.create_task(_work_recovery_loop())
     context.app.state.agent_work_session_factory = AsyncSessionLocal

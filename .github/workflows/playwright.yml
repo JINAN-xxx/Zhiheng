@@ -2,9 +2,9 @@ name: Playwright Tests
 
 on:
   push:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'refactor/**']
   pull_request:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'refactor/**']
 
 jobs:
   platform-shell:
@@ -24,6 +24,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: zhiheng-fastapi-frontend/package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,19 +34,30 @@ jobs:
 
       - name: Install frontend and browser dependencies
         run: |
-          npm install --no-package-lock
+          npm ci
           python -m pip install playwright Pillow
           python -m playwright install --with-deps chromium
 
       - name: Run frontend plugin and contract tests
         run: npm run test:plugin
 
+      - name: Check frontend core quality
+        run: |
+          npm run lint:core
+          npm run format:check
+          npm run typecheck
+
       - name: Test browser check helpers
         run: python -m unittest discover -s tests/e2e -p 'test_*.py' -v
 
+      - name: Build production frontend for mocked browser checks
+        env:
+          VITE_APP_BASE_API: /dev-api
+        run: npm run build:prod
+
       - name: Run platform browser checks with mocked APIs
         run: |
-          npm run dev -- --host 127.0.0.1 --port 15174 --strictPort > /tmp/platform-shell-vite.log 2>&1 &
+          npm run preview -- --host 127.0.0.1 --port 15174 --strictPort > /tmp/platform-shell-vite.log 2>&1 &
           vite_pid=$!
           trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 60); do

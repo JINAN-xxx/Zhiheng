@@ -2,9 +2,9 @@ name: Ruff Check
 
 on:
   push:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'refactor/**']
   pull_request:
-    branches: [master, 'release/**']
+    branches: [master, 'release/**', 'refactor/**']
 
 jobs:
   lint-format:
