@@ -1,19 +1,78 @@
-# 智衡 AI 平台
+# 智衡 AI 平台 · 重构开发中
 
-新平台以独立的 Python 分发 `zhiheng-platform` 和 Vue 3 / TypeScript / Ant Design Vue 前端交付。首版提供管理员建号、模型连接与测试、文字聊天和流式回复、持久任务、取消恢复及 Token 配额记录。供应商未返回用量时保留预留额度并标记待核对；当前尚未完成知识库、Agent 或货币计费。
+智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-`legacy/` 是旧工程的归档来源。新平台使用自己的源码、依赖、数据库、Redis 和持久卷；启动入口不会载入归档源码或旧环境文件。原有运行实例的操作应使用其独立流程。
+**当前版本为 0.1.0，已完成首条 AI 对话链路，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码；当前可用范围、实际验证和后续规划分别说明如下。
+
+## 当前功能状态
+
+| 功能 | 当前状态 | 已实现的范围 |
+| --- | --- | --- |
+| 身份与会话 | 已实现并通过本地验收 | CLI 创建管理员、登录、注销、可撤销 Cookie 会话、资源归属校验 |
+| 模型管理 | 已实现并通过本地验收 | 添加服务连接与模型、加密保存凭据、连接测试；支持 OpenAI 兼容协议的文本模型 |
+| AI 对话 | 已实现并通过本地验收 | 流式回复、多轮上下文、历史记录、停止生成、断线后恢复查看 |
+| 运行与用量 | 已实现并通过本地验收 | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录 |
+| 知识库与文件 | 待实现 | 文档管理、解析、分块、索引和检索；**MinerU 尚未接入** |
+| Agent、技能与 Work | 待实现 | 智能体定义、工具执行、任务协作和审批 |
+| 开放接入与计费 | 待实现 | 外部 API Key、公开模型 API、货币定价和计费 |
+
+本地验收使用独立 PostgreSQL / Redis 和本地模型 HTTP 服务，覆盖构建后的真实浏览器链路。具体结果与未覆盖范围见[首条 AI 链路验收](docs/superpowers/verification/2026-10-23-first-ai-slice.md)。这不等同于所有供应商、全部目标功能或生产部署均已验收。
+
+2026-10-23 复验：后端 **83 项测试**、前端 **11 项行为测试和 8 项页面回归**、TypeScript 类型检查、生产构建及真实浏览器链路通过。前端 Docker 构建因基础镜像拉取网络不可达未完成，**完整 Compose 启动与生产部署仍待验收**。
+
+当前模型管理只提供新增与测试，尚未提供连接编辑、删除和密钥轮换界面。模型能力只开放文本聊天与流式；图片、工具调用、结构化输出、Embedding 和 Rerank 尚未接入。供应商没有返回完整用量时，保留预留额度并显示待核对，人工对账界面仍待建设。
+
+## 架构与目录
+
+后端分发名为 `zhiheng-platform`，导入包为 `zhiheng`。同一份后端代码分别运行 API、worker 和 migrator，业务数据统一保存在 PostgreSQL，Redis 用于 ARQ 队列和 worker 心跳。
+
+```mermaid
+flowchart LR
+    Web[Vue 3 工作台] --> API[FastAPI 接口]
+    API --> PG[(PostgreSQL)]
+    Worker[后台 Worker] --> PG
+    Worker <--> Redis[(Redis / ARQ)]
+    Worker --> Models[LangChain 1.4.7 模型适配]
+    Models --> Provider[模型供应商]
+    Migrator[数据库迁移进程] --> PG
+```
+
+API 将消息、运行、配额预留和 outbox 一起提交；worker 投递并执行运行，通过 attempt 与租约控制写入。最终消息、终态和用量一致落库；前端通过 SSE 读取持久快照。停止生成保存取消意图，关闭订阅只结束当前查看。
 
 ```text
-backend/             新核心包、版本化迁移与测试
-frontend/            新 platform.html 入口与业务模块
-deploy/core/         新平台 Compose 与配置示例
-compose.yaml         新平台 Compose 入口
-deploy.sh            新平台独立部署命令
-tools/               架构边界与 wheel 检查
-.github/workflows/   新核心及平台 CI
-legacy/              旧后端、前端、部署和 CI 归档
+backend/
+├── src/zhiheng/
+│   ├── api/             HTTP 入口
+│   ├── application/     跨模块用例与事务编排
+│   ├── modules/         identity、models、chat、developer
+│   ├── runtime/         运行、租约、outbox 与恢复原语
+│   ├── worker/          队列执行、取消观察与恢复
+│   ├── bootstrap/       配置和资源装配
+│   ├── infrastructure/  数据库连接与凭据加密
+│   ├── shared/          公共值与基础错误
+│   └── cli/             serve、worker、migrate、create-admin
+├── migrations/          版本化数据库迁移
+└── tests/               单元、契约、集成与浏览器验收
+frontend/src/
+├── app/                 应用、布局和显式路由
+├── modules/             identity、models、chat、usage
+└── shared/              HTTP、SSE、校验与样式
+deploy/core/             Compose 和配置示例
+docs/README.md           文档索引
+tools/                   架构边界与 wheel 检查
+legacy/                  旧工程归档与原有未提交优化
 ```
+
+新平台使用独立配置、数据库、Redis 和持久卷。`legacy/` 供提取旧业务能力时参考，不进入新平台运行包。整体目标架构见[架构设计](docs/superpowers/specs/2026-10-23-ai-core-platform-redesign-design.md)，当前实际目录以[代码结构说明](代码结构说明.md)为准。
+
+## 运行版本与访问入口
+
+更新此分支的源码和 README 不会自动替换已运行的旧实例。访问旧部署地址时，页面和功能由旧部署版本决定。启动本 README 的新实例后，才会使用这里的新前端和后端。
+
+| 使用方式 | 访问入口 |
+| --- | --- |
+| 本机前端开发 | `http://127.0.0.1:15190`，代理新 API 的 `19090` 端口 |
+| Docker 新实例 | 默认 `http://127.0.0.1:19080`，项目名 `zhiheng-core` |
 
 ## Docker 启动
 
