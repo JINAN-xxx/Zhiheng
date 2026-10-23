@@ -21,6 +21,10 @@ REQUIRED_MEMBERS = (
     'zhiheng/application/agent_runs.py',
     'zhiheng/api/routes/agents.py',
     'zhiheng/api/routes/public_agents.py',
+    'zhiheng/modules/work/public.py',
+    'zhiheng/application/work_runs.py',
+    'zhiheng/application/lifecycle.py',
+    'zhiheng/api/routes/work.py',
     *(
         f'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/{name}'
         for name in (
@@ -29,6 +33,7 @@ REQUIRED_MEMBERS = (
             'versions/0002_developer.py',
             'versions/0003_skills.py',
             'versions/0004_agents.py',
+            'versions/0005_work.py',
         )
     ),
 )
@@ -74,7 +79,9 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         verify_wheel(tmp_path)
 
 
-@pytest.mark.parametrize('revision', ['0001_core.py', '0002_developer.py', '0003_skills.py', '0004_agents.py'])
+@pytest.mark.parametrize(
+    'revision', ['0001_core.py', '0002_developer.py', '0003_skills.py', '0004_agents.py', '0005_work.py']
+)
 def test_requires_all_database_migration_revisions(
     verify_wheel: Callable[[Path], Path], tmp_path: Path, revision: str
 ) -> None:

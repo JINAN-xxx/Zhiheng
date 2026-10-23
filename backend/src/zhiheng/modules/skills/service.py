@@ -248,15 +248,27 @@ async def require_available(session: AsyncSession, slugs: Sequence[str]) -> None
     must not affect the published selection's context or reservation.
     """
     _validate_slugs(slugs)
-    if not slugs:
+    await require_available_set(session, slugs)
+
+
+async def require_available_set(session: AsyncSession, slugs: Sequence[str]) -> None:
+    """Lock a union of independently validated selections in global slug order.
+
+    This checks availability only; count/content limits belong to each Agent's
+    selection and must not apply to a union of multiple frozen/current configs.
+    """
+    unique = sorted(set(slugs))
+    if any(not is_valid_slug(slug) for slug in unique):
+        raise AppError('invalid_skill_selection', '技能标识格式无效', 422)
+    if not unique:
         return
     ids = await session.scalars(
         select(Skill.id)
-        .where(Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled')
+        .where(Skill.slug.in_(unique), Skill.deleted_at.is_(None), Skill.status == 'enabled')
         .order_by(Skill.slug)
         .with_for_update(read=True)
     )
-    if len(ids.all()) != len(slugs):
+    if len(ids.all()) != len(unique):
         raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
 
 

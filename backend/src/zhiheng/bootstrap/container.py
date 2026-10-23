@@ -6,6 +6,7 @@ from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.application.model_management import ModelManagementService
 from zhiheng.application.public_runs import PublicRunService
 from zhiheng.application.skill_management import SkillManagementService
+from zhiheng.application.work_runs import WorkRunService
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
@@ -15,6 +16,7 @@ from zhiheng.modules.developer.public import ApplicationService, KeyService, Usa
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelService
 from zhiheng.modules.skills.public import SkillService
+from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.outbox import OutboxStore
 from zhiheng.runtime.runs import RunStore
 
@@ -31,6 +33,8 @@ class Container:
         self.applications = ApplicationService()
         self.keys = KeyService(self.applications, self.models, self.identity)
         self.runs = RunStore()
+        self.work = WorkService()
+        self.work_runs = WorkRunService(self.work, AgentService(), self.models, self.identity, self.usage, self.runs)
         self.agents = AgentService()
         self.model_management = ModelManagementService(self.models, self.runs, self.keys, self.agents)
         self.skills = SkillService()

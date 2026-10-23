@@ -198,6 +198,28 @@ class ModelService:
         row.deleted_at, row.enabled, row.published = utcnow(), False, False
         return self._model_info(row)
 
+    async def resolve_many(self, session: AsyncSession, model_ids: list[UUID]) -> dict[UUID, ModelBinding]:
+        """Batch admission locks every model before any shared connection."""
+        models = list(
+            await session.scalars(
+                select(ModelDefinition)
+                .where(ModelDefinition.id.in_(model_ids))
+                .order_by(ModelDefinition.id)
+                .with_for_update()
+            )
+        )
+        if len(models) != len(set(model_ids)) or any(
+            not item.enabled or not item.published or item.deleted_at is not None for item in models
+        ):
+            raise AppError('model_unavailable', '模型不存在或不可用', 404)
+        await session.execute(
+            select(ModelConnection)
+            .where(ModelConnection.id.in_({item.connection_id for item in models}))
+            .order_by(ModelConnection.id)
+            .with_for_update()
+        )
+        return {item.id: await self.resolve(session, item.id) for item in models}
+
     async def resolve(self, session: AsyncSession, model_id: UUID) -> ModelBinding:
         model = await session.scalar(select(ModelDefinition).where(ModelDefinition.id == model_id).with_for_update())
         if model is None or not model.enabled or not model.published or model.deleted_at is not None:

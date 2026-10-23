@@ -5,6 +5,7 @@ from uuid import UUID
 from arq import Worker, cron
 from arq.connections import ArqRedis, RedisSettings
 
+from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.bootstrap.container import Container
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.worker.execution import execute_run
@@ -30,6 +31,9 @@ async def recover_expired(container: Container) -> None:
                 return
             run_id, provider_started = recovered
             await container.usage.settle(session, run_id, rejected_before_execution=not provider_started)
+            await RunLifecycle(container.chat, container.work).project(
+                session, await container.runs.projection(session, run_id)
+            )
 
 
 async def publish_outbox(container: Container, queue: ArqRedis) -> None:

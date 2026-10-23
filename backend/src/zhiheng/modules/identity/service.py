@@ -19,6 +19,12 @@ MAX_PASSWORD_LENGTH = 1024
 
 
 class IdentityService:
+    async def principal_for_user(self, session: AsyncSession, user_id: UUID) -> Principal:
+        user = await session.get(IdentityUser, user_id)
+        if user is None or not user.is_active:
+            raise AppError('work_owner_unavailable', '任务所有者不可用', 404)
+        return Principal(user.id, user.username, user.is_admin)
+
     async def is_active(self, session: AsyncSession, user_id: UUID) -> bool:
         user = await session.get(IdentityUser, user_id)
         return user is not None and user.is_active

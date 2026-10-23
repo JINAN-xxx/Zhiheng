@@ -19,6 +19,10 @@ REQUIRED_FILES = frozenset(
         'zhiheng/application/agent_runs.py',
         'zhiheng/api/routes/agents.py',
         'zhiheng/api/routes/public_agents.py',
+        'zhiheng/modules/work/public.py',
+        'zhiheng/application/work_runs.py',
+        'zhiheng/application/lifecycle.py',
+        'zhiheng/api/routes/work.py',
     }
 )
 
@@ -39,6 +43,7 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0002_developer.py',
         'versions/0003_skills.py',
         'versions/0004_agents.py',
+        'versions/0005_work.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

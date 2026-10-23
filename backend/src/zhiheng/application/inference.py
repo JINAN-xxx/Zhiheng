@@ -10,6 +10,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequest, ProviderError
@@ -51,11 +52,14 @@ class InferenceExecutor:
         timeout_seconds: float,
     ) -> None:
         self._sessions, self._runs, self._usage, self._chat = sessions, runs, usage, chat
+        self._lifecycle = RunLifecycle(chat)
         self._provider_factory, self._lease_seconds, self._timeout = provider_factory, lease_seconds, timeout_seconds
 
     async def execute(self, run_id: UUID) -> None:
         async with self._sessions.begin() as session:
             claim = await self._runs.claim(session, run_id, self._lease_seconds)
+            if claim is not None:
+                await self._lifecycle.project(session, await self._runs.projection(session, run_id))
         if claim is None:
             return
         progress = InferenceProgress()
@@ -180,6 +184,7 @@ class InferenceExecutor:
                             session, claim.id, claim.attempt_id, progress.text, progress.reasoning
                         ):
                             raise AppError('execution_lost', '执行权已失效', 409)
+                        await self._lifecycle.project(session, await self._runs.projection(session, claim.id))
                     last_projection = monotonic()
             if not progress.completion_seen:
                 raise ProviderError
@@ -229,11 +234,4 @@ class InferenceExecutor:
                 result=progress.result,
                 finish_reason=progress.finish_reason,
             )
-            if snapshot.status == 'completed' and claim.resource_type == 'chat':
-                await self._chat.complete(
-                    session,
-                    conversation_id=claim.resource_id,
-                    run_id=claim.id,
-                    content=progress.text,
-                    reasoning=progress.reasoning,
-                )
+            await self._lifecycle.project(session, snapshot)

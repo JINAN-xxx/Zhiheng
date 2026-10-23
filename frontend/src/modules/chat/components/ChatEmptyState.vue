@@ -4,6 +4,7 @@
     <span class="chat-empty-state__symbol" aria-hidden="true"><CommentOutlined /></span>
     <h2>有什么可以帮你？</h2>
     <p>从一个想法开始，把思路聊清楚。</p>
+    <WorkspaceModeSwitch model-value="chat" @update:model-value="switchMode" />
     <div class="chat-starters">
       <a-button aria-label="总结内容" @click="emit('prompt', '帮我梳理这段内容的关键观点：')"
         ><FileTextOutlined />总结内容</a-button
@@ -26,7 +27,13 @@ import {
   FileTextOutlined
 } from '@ant-design/icons-vue'
 import { Button as AButton } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
+import WorkspaceModeSwitch from '../../../shared/components/WorkspaceModeSwitch.vue'
 const emit = defineEmits<{ prompt: [value: string] }>()
+const router = useRouter()
+function switchMode(mode: 'chat' | 'work'): void {
+  if (mode === 'work') void router.push('/work')
+}
 </script>
 
 <style scoped>

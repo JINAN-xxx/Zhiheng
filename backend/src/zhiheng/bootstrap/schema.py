@@ -9,6 +9,7 @@ from zhiheng.modules.developer.public import schema_tables as developer_tables
 from zhiheng.modules.identity.public import schema_tables as identity_tables
 from zhiheng.modules.models.public import schema_tables as model_tables
 from zhiheng.modules.skills.public import schema_tables as skill_tables
+from zhiheng.modules.work.public import schema_tables as work_tables
 from zhiheng.runtime.orm import Outbox, Run
 
 
@@ -21,6 +22,7 @@ def schema_metadata() -> MetaData:
         *chat_tables(),
         *skill_tables(),
         *agent_tables(),
+        *work_tables(),
         Base.metadata.tables[Run.__tablename__],
         Base.metadata.tables[Outbox.__tablename__],
     )

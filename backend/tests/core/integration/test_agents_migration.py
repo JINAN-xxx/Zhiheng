@@ -56,7 +56,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0004_agents'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0005_work'
         for table in tables:
             # Compare every original value; new projection and billing columns are verified below.
             assert (

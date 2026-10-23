@@ -93,6 +93,36 @@ class RunStore:
             raise AppError('run_not_found', '运行不存在', 404)
         return self._snapshot(row)
 
+    async def resource_snapshot(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> RunSnapshot:
+        """Trusted application binding after the owning domain authorizes its resource."""
+        row = await session.scalar(
+            select(Run).where(Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id)
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
+    async def resource_cancel(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> tuple[RunSnapshot, bool]:
+        row = await session.scalar(
+            select(Run)
+            .where(Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return await self.cancel(session, run_id, row.owner_id)
+
+    async def projection(self, session: AsyncSession, run_id: UUID) -> RunSnapshot:
+        """Application lifecycle only; never an authorization substitute for HTTP reads."""
+        row = await session.get(Run, run_id)
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
     async def claim(self, session: AsyncSession, run_id: UUID, lease_seconds: int) -> ClaimedRun | None:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if row is None or row.status != 'pending':
@@ -223,7 +253,8 @@ class RunStore:
         return RunSnapshot(
             id=row.id,
             resource_type=cast(
-                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation']", row.resource_type
+                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn']",
+                row.resource_type,
             ),
             resource_id=row.resource_id,
             status=cast('RunStatus', row.status),

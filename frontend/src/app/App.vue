@@ -10,6 +10,7 @@ import {
 import { onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { identity, logout } from '../modules/identity/public.ts'
 import { ChatWorkspaceProvider } from '../modules/chat/public.ts'
+import { WorkWorkspaceProvider } from '../modules/work/public.ts'
 import { isDark, darkTheme, lightTheme } from '../shared/theme.ts'
 import { errorMessage } from '../shared/http.ts'
 import PlatformSidebar from './components/PlatformSidebar.vue'
@@ -62,50 +63,55 @@ async function signOut(): Promise<void> {
     <AAlert v-if="error" :message="error" type="error" closable @close="error = ''" />
     <RouterView v-if="route.meta.public" />
     <ChatWorkspaceProvider v-else-if="identity">
-      <div class="platform-shell" :class="{ 'is-collapsed': collapsed }">
-        <div v-show="!isMobile" class="platform-shell__sidebar">
-          <PlatformSidebar
-            :collapsed="collapsed"
-            show-collapse-control
-            @toggle-collapse="collapsed = !collapsed"
-          />
-        </div>
-        <div class="platform-shell__main">
-          <PlatformTopbar
-            v-if="isMobile"
-            ref="topbar"
-            :title="route.meta.title || '智能工作台'"
-            :leaving="leaving"
-            @toggle-sidebar="mobileOpen = true"
-            @logout="signOut"
-          />
-          <header v-else class="platform-shell__desktop-topbar">
-            <PlatformAccountMenu :leaving="leaving" @logout="signOut" />
-          </header>
-          <main class="platform-page" :class="{ 'is-conversation': route.name === 'chat' }">
-            <AiResourceShell
-              v-if="
-                ['models', 'usage', 'developer', 'skills', 'agents'].includes(String(route.name))
-              "
-              inset
+      <WorkWorkspaceProvider>
+        <div class="platform-shell" :class="{ 'is-collapsed': collapsed }">
+          <div v-show="!isMobile" class="platform-shell__sidebar">
+            <PlatformSidebar
+              :collapsed="collapsed"
+              show-collapse-control
+              @toggle-collapse="collapsed = !collapsed"
+            />
+          </div>
+          <div class="platform-shell__main">
+            <PlatformTopbar
+              v-if="isMobile"
+              ref="topbar"
+              :title="route.meta.title || '智能工作台'"
+              :leaving="leaving"
+              @toggle-sidebar="mobileOpen = true"
+              @logout="signOut"
+            />
+            <header v-else class="platform-shell__desktop-topbar">
+              <PlatformAccountMenu :leaving="leaving" @logout="signOut" />
+            </header>
+            <main
+              class="platform-page"
+              :class="{ 'is-conversation': ['chat', 'work'].includes(String(route.name)) }"
             >
-              <RouterView :key="route.path" />
-            </AiResourceShell>
-            <RouterView v-else :key="route.path" />
-          </main>
+              <AiResourceShell
+                v-if="
+                  ['models', 'usage', 'developer', 'skills', 'agents'].includes(String(route.name))
+                "
+                inset
+              >
+                <RouterView :key="route.path" />
+              </AiResourceShell>
+              <RouterView v-else :key="route.path" />
+            </main>
+          </div>
+          <ADrawer
+            :open="isMobile && mobileOpen"
+            placement="left"
+            :width="drawerWidth"
+            :closable="false"
+            root-class-name="platform-mobile-drawer"
+            aria-label="主导航"
+            @close="mobileOpen = false"
+            @after-open-change="afterDrawerChange"
+            ><PlatformSidebar :collapsed="false" @navigate="mobileOpen = false"
+          /></ADrawer>
         </div>
-        <ADrawer
-          :open="isMobile && mobileOpen"
-          placement="left"
-          :width="drawerWidth"
-          :closable="false"
-          root-class-name="platform-mobile-drawer"
-          aria-label="主导航"
-          @close="mobileOpen = false"
-          @after-open-change="afterDrawerChange"
-          ><PlatformSidebar :collapsed="false" @navigate="mobileOpen = false"
-        /></ADrawer>
-      </div>
+      </WorkWorkspaceProvider>
     </ChatWorkspaceProvider>
     <ASpin v-else class="page-spinner" tip="正在连接工作空间" />
   </AConfigProvider>

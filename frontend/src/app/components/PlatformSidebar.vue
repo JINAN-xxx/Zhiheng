@@ -15,6 +15,7 @@ import {
   ThunderboltOutlined
 } from '@ant-design/icons-vue'
 import { ChatNavigation, useChatWorkspace } from '../../modules/chat/public.ts'
+import { WorkNavigation, useWorkWorkspace } from '../../modules/work/public.ts'
 import { identity } from '../../modules/identity/public.ts'
 import logo from '../../shared/assets/logo.png'
 defineProps<{ collapsed: boolean; showCollapseControl?: boolean }>()
@@ -34,7 +35,14 @@ watch(
   }
 )
 const { selectConversation } = useChatWorkspace()
+const work = useWorkWorkspace()
 async function newConversation(): Promise<void> {
+  if (route.name === 'work') {
+    work.clearCurrentTask()
+    await router.push('/work')
+    emit('navigate')
+    return
+  }
   await selectConversation(null)
   await router.push('/chat')
   emit('navigate')
@@ -68,10 +76,12 @@ async function openHistory(): Promise<void> {
       <button
         type="button"
         class="platform-new-chat"
-        aria-label="新建对话"
+        :aria-label="route.name === 'work' ? '新建工作' : '新建对话'"
         @click="newConversation"
       >
-        <PlusOutlined /><span v-if="!collapsed">新建对话</span>
+        <PlusOutlined /><span v-if="!collapsed">{{
+          route.name === 'work' ? '新建工作' : '新建对话'
+        }}</span>
       </button>
       <RouterLink
         to="/chat"
@@ -203,7 +213,7 @@ async function openHistory(): Promise<void> {
       </div>
     </nav>
     <button
-      v-if="!collapsed && route.name !== 'chat'"
+      v-if="!collapsed && route.name !== 'chat' && route.name !== 'work'"
       type="button"
       class="platform-history-toggle"
       :aria-label="historyExpanded ? '收起最近会话' : '展开最近会话'"
@@ -217,9 +227,10 @@ async function openHistory(): Promise<void> {
       />
     </button>
     <ChatNavigation
-      v-if="!collapsed && (route.name === 'chat' || historyExpanded)"
+      v-if="!collapsed && route.name !== 'work' && (route.name === 'chat' || historyExpanded)"
       @navigate="openHistory"
     />
+    <WorkNavigation v-if="!collapsed && route.name === 'work'" @navigate="emit('navigate')" />
     <button
       type="button"
       class="platform-admin-entry"

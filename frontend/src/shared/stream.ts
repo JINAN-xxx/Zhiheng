@@ -11,7 +11,13 @@ export type RunStatus =
   | 'interrupted'
 export interface RunSnapshot {
   id: string
-  resource_type: 'chat' | 'connection_test' | 'public' | 'agent_preview' | 'agent_invocation'
+  resource_type:
+    | 'chat'
+    | 'connection_test'
+    | 'public'
+    | 'agent_preview'
+    | 'agent_invocation'
+    | 'work_turn'
   resource_id: string
   status: RunStatus
   attempt_id: string | null
@@ -46,7 +52,8 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       resourceType !== 'connection_test' &&
       resourceType !== 'public' &&
       resourceType !== 'agent_preview' &&
-      resourceType !== 'agent_invocation'
+      resourceType !== 'agent_invocation' &&
+      resourceType !== 'work_turn'
     )
       throw new Error('resource_type')
     if (

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.modules.chat.public import ChatService, SkillSnapshot
 from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
@@ -105,6 +106,7 @@ class ChatRunService:
         snapshot, release = await self._runs.cancel(session, run_id, principal.id)
         if release:
             await self._usage.settle(session, run_id, rejected_before_execution=True)
+        await RunLifecycle(self._chat).project(session, snapshot)
         return snapshot
 
     async def _reserve(

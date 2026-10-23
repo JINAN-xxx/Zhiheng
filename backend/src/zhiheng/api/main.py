@@ -20,6 +20,7 @@ from zhiheng.api.routes.public_agents import router as public_agents_router
 from zhiheng.api.routes.runs import router as runs_router
 from zhiheng.api.routes.skills import router as skills_router
 from zhiheng.api.routes.usage import router as usage_router
+from zhiheng.api.routes.work import router as work_router
 from zhiheng.bootstrap.container import Container
 from zhiheng.bootstrap.settings import Settings
 
@@ -49,6 +50,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(chat_router)
     app.include_router(developer_router)
     app.include_router(runs_router)
+    app.include_router(work_router)
 
     app.add_middleware(PublicTransportMiddleware)
     app.add_middleware(RequestOriginMiddleware, allowed_origins=settings.allowed_origins)

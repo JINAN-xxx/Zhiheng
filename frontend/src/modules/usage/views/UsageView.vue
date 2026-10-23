@@ -40,7 +40,8 @@ const sourceOptions = [
   { value: 'connection_test', label: '连接测试' },
   { value: 'public', label: '开发接入' },
   { value: 'agent_preview', label: '智能体试聊' },
-  { value: 'agent_invocation', label: '智能体 API' }
+  { value: 'agent_invocation', label: '智能体 API' },
+  { value: 'work_turn', label: 'Work 工作' }
 ]
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -60,7 +61,8 @@ const sourceLabel = (source: string): string =>
     connection_test: '连接测试',
     public: '开发接入',
     agent_preview: '智能体试聊',
-    agent_invocation: '智能体 API'
+    agent_invocation: '智能体 API',
+    work_turn: 'Work 工作'
   })[source] ?? source
 const tokens = (value: number | null): string =>
   value === null ? '待核对' : value.toLocaleString()

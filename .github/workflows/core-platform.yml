@@ -118,6 +118,7 @@ jobs:
           python tests/browser/model_management_regressions.py
           python tests/browser/skills_regressions.py
           python tests/browser/agents_regressions.py
+          python tests/browser/work_regressions.py
       - name: Stop the preview
         if: always()
         run: |
