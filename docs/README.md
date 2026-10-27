@@ -1,6 +1,6 @@
 # 新平台文档
 
-日常开发以实际代码、当前代码规范和各域验收为准。知识库向量索引与检索已交付；整体架构设计中的 LightRAG 和 MinerU 仍属于后续目标。
+日常开发以实际代码、当前代码规范和各域验收为准。知识库向量索引与检索已交付；LightRAG 候选正在验收，尚未部署。MinerU 保留本机部署准备，按当前安排暂缓接入。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -20,6 +20,7 @@
 | [Work验收](superpowers/verification/2026-10-23-work.md) | 原工作界面、真实接力/停止/失联收敛与数据升级 |
 | [受管文件与聊天附件验收](superpowers/verification/2026-10-23-files.md) | 原文件治理、真实解析/图片链路、安装包、迁移和正常实例验证 |
 | [知识库索引与检索验收](superpowers/verification/2026-10-27-knowledge.md) | Milvus、来源权限、四种 AI 组合、消息角色修复及正常实例升级 |
+| [正式模型服务恢复](superpowers/verification/2026-10-27-model-service-restoration.md) | 旧服务连接与四个模型恢复、真实供应商调用和原页面复查 |
 | [LightRAG 接入设计](superpowers/specs/2026-10-27-lightrag-design.md) | 图存储、受治理回调、版本、聚合来源权限与原图谱页面的实施边界 |
 | [LightRAG 可行性实验](superpowers/plans/2026-10-27-lightrag-feasibility.md) | 正式接入前验证真实 SDK、无 DDL 角色、单槽回调与取消收尾 |
 | [服务恢复与健康检查验收](superpowers/verification/2026-10-26-service-recovery.md) | Redis 原数据恢复、真实就绪状态、配置增量审查与正常实例复测 |

@@ -2,7 +2,9 @@
 
 智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体、Work、受管文件、聊天附件和知识库向量检索，图谱与 MinerU 仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
+**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体、Work、受管文件、聊天附件和知识库向量检索。图谱正在验收；MinerU 已完成本机部署准备，暂缓接入。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
+
+本机正式入口为 <http://127.0.0.1:19080>。2026-10-27 已恢复旧项目的一份硅基流动连接及四个模型，文本、Embedding、Rerank 的四次真实调用全部完成，原模型管理页和聊天模型选择器已复查。当前正式实例运行 `0007_knowledge`，图谱新代码尚未部署，详见[模型服务恢复记录](docs/superpowers/verification/2026-10-27-model-service-restoration.md)。
 
 前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入、技能、智能体、Work、文件和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
 
@@ -15,7 +17,7 @@
 | AI 对话 | 已实现并通过本地验收 | 流式回复、多轮上下文、附件/图片、重命名/归档/删除、停止与断线恢复 |
 | 运行与用量 | 已实现并通过本地验收 | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录 |
 | 受管文件 | 已实现并通过本地验收 | 原文件管理、权限/引用保护、回收/审计/策略/提醒/对账；真实原生解析与聊天附件 |
-| 知识库与图谱 | 向量功能已验收并部署 | 库/文件夹/文档管理、原生解析分块、版本化 Milvus 索引/检索、原文权限交集与 Chat/Agent/Work/API 组合；**LightRAG 与 MinerU 尚未接入** |
+| 知识库与图谱 | 向量功能已验收并部署 | 库/文件夹/文档管理、原生解析分块、版本化 Milvus 索引/检索、原文权限交集与 Chat/Agent/Work/API 组合；**LightRAG 候选正在验证，尚未部署；MinerU 仅完成部署准备** |
 | 技能 | 已实现并通过本地验收 | 原技能管理界面、ZIP/主文件预检和确认安装、内容/启停/删除、聊天选择及历史快照 |
 | 智能体 | 已实现并通过本地验收 | 原配置/发布/试聊/API界面、不可变发布与技能快照、推理和停止、应用Key公开JSON/SSE调用；知识检索、来源与原 Key 恢复 |
 | Work | 已实现并通过本地验收 | 原工作模式与最近工作、任务/成员、冻结发布版本、人工单成员执行、署名共享历史、停止与失联收敛 |
@@ -26,6 +28,8 @@
 2026-10-26 运行恢复：Redis AOF 无效零尾在完整备份和副本校验后修复，正常实例 33 张业务表指纹一致；原界面、管理员登录、11 个接口和六个页面复测通过。健康检查地址已代理到实际 API，避免网页 HTML 200 掩盖后台故障，详见[服务恢复验收](docs/superpowers/verification/2026-10-26-service-recovery.md)。该记录对应升级前的 `0006_files`；2026-10-27 已按下述验收升级到知识库版本。
 
 2026-10-27 知识库验收：最终后端 386 项完整回归、Python 3.10/3.13 各 79 项安装后测试、四条真实 API/worker 进程链和独立复审通过。真实浏览器覆盖上传、解析、Milvus、来源权限及四种 AI 调用；资料只进入 user 数据消息。正常实例已备份并升级至 `0007_knowledge`，33 张原表的原列/原行一致，原管理员、12 个接口和七个页面验证通过。详见[知识库验收](docs/superpowers/verification/2026-10-27-knowledge.md)。
+
+MinerU 按当前安排保留本机自托管路线：已核对硬件与临时容器 GPU 可用性，后续采用独立服务环境。模型尚未下载，服务尚未部署，实际 OCR 尚未验收；本轮暂时跳过，不阻塞图谱交付。准备范围与后续待办见[文件与知识库计划](docs/superpowers/plans/2026-10-23-files-knowledge.md)。
 
 2026-10-23 文件版本验收：最终后端327项完整回归，前端24项行为和91项页面回归、类型/格式/构建及独立规格/质量审查通过。真实容器覆盖受管上传、原生解析、图片模型调用、文件回收、提醒和已有数据升级，原24张表的原列/原行核对一致。详见[文件与聊天附件验收](docs/superpowers/verification/2026-10-23-files.md)；此前[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work](docs/superpowers/verification/2026-10-23-work.md)记录保留。收费供应商和生产负载尚未验收。
 
@@ -43,10 +47,15 @@ flowchart LR
     API --> PG[(PostgreSQL)]
     Worker[后台 Worker] --> PG
     Worker <--> Redis[(Redis / ARQ)]
-    Worker --> Models[LangChain 1.4.7 模型适配]
+    Worker --> Inference[统一 Run 执行器与用量治理]
+    Inference --> Models[LangChain 1.4.7 模型适配]
     Models --> Provider[模型供应商]
     API --> Vector[(Milvus)]
     Worker --> Vector
+    Worker --> Graph[LightRAG 适配与独立 SDK loop]
+    Graph --> PG
+    Graph --> Vector
+    Graph --> Inference
     Migrator[数据库迁移进程] --> PG
 ```
 
@@ -118,7 +127,9 @@ legacy/                  旧工程归档与原有未提交优化
 
 侧栏“知识库”可创建向量库、管理文件夹与文档、上传原文、重新切片、重建索引和测试检索。库与原文件权限分别生效；共享库不会公开私有原文。聊天可选择知识库，智能体发布和 Work 成员快照保留知识绑定。公开智能体调用须为 Key 授权主模型及全部向量模型，并提供稳定 `client_request_id` 或 `Idempotency-Key`；202 响应使用同 Key 轮询 `polling_url`，再按原请求重放结果。图谱与 OCR 暂未接入。
 
-Compose 启动顺序为 PostgreSQL / Redis 及 Milvus 依赖健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库、Redis 和向量服务不向宿主机发布端口，六个持久卷由 `zhiheng-core` 项目管理；备份同时保存数据库、Redis、文件、三份向量数据、配置密钥及对应镜像。
+页面跳转或刷新后可恢复未完成的上传批次，已确认未导入的暂存可在弹窗取消时清理。完全退出浏览器后，界面还不能恢复未导入批次，原文及其暂存引用仍会保留。退出前请完成导入或确认取消上传，服务端暂存发现与恢复列为后续改进。
+
+Compose 启动顺序为 PostgreSQL / Redis 及 Milvus 依赖健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库、Redis 和向量服务不向宿主机发布端口，Compose 声明的六个持久卷由 `zhiheng-core` 项目管理；备份同时保存数据库、Redis、文件、三份向量数据、配置密钥及对应镜像。MinIO 镜像还会为 `/data` 创建匿名卷，备份时须按实际容器挂载清单额外保存，并核对升级前后的卷身份；API 与 worker 必须使用同一文件卷。
 
 ```bash
 ./deploy.sh ps
