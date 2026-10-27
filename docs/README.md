@@ -20,6 +20,8 @@
 | [Work验收](superpowers/verification/2026-10-23-work.md) | 原工作界面、真实接力/停止/失联收敛与数据升级 |
 | [受管文件与聊天附件验收](superpowers/verification/2026-10-23-files.md) | 原文件治理、真实解析/图片链路、安装包、迁移和正常实例验证 |
 | [知识库索引与检索验收](superpowers/verification/2026-10-27-knowledge.md) | Milvus、来源权限、四种 AI 组合、消息角色修复及正常实例升级 |
+| [LightRAG 接入设计](superpowers/specs/2026-10-27-lightrag-design.md) | 图存储、受治理回调、版本、聚合来源权限与原图谱页面的实施边界 |
+| [LightRAG 可行性实验](superpowers/plans/2026-10-27-lightrag-feasibility.md) | 正式接入前验证真实 SDK、无 DDL 角色、单槽回调与取消收尾 |
 | [服务恢复与健康检查验收](superpowers/verification/2026-10-26-service-recovery.md) | Redis 原数据恢复、真实就绪状态、配置增量审查与正常实例复测 |
 | [文件、知识库、图谱与MinerU计划](superpowers/plans/2026-10-23-files-knowledge.md) | 受管字节、真实解析/索引/检索、版本化图谱与解析连接的后续分组 |
 | [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
