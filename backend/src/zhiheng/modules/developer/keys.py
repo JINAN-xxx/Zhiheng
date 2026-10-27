@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
@@ -123,6 +124,32 @@ class KeyService:
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         return DeveloperIdentity(app.id, key.id, app.owner_id)
+
+    async def authorize_identity(
+        self, session: AsyncSession, identity: DeveloperIdentity, model_ids: Sequence[UUID], *, lock: bool = False
+    ) -> None:
+        """Revalidate a persisted authenticated identity without retaining its bearer secret."""
+        query = select(DeveloperKey).where(DeveloperKey.id == identity.key_id)
+        if lock:
+            query = query.with_for_update()
+        key = await session.scalar(query)
+        app_query = select(DeveloperApplication).where(DeveloperApplication.id == identity.application_id)
+        if lock:
+            app_query = app_query.with_for_update()
+        app = await session.scalar(app_query)
+        if (
+            key is None
+            or not self.usable(key)
+            or key.application_id != identity.application_id
+            or app is None
+            or app.owner_id != identity.owner_id
+            or app.status != 'active'
+            or app.deleted_at is not None
+            or not await self._identity.is_active(session, identity.owner_id)
+        ):
+            raise AppError('invalid_api_key', 'Invalid API key', 401)
+        if not {str(value) for value in model_ids} <= set(key.model_ids):
+            raise AppError('model_not_found', 'Model is unavailable', 404)
 
     async def info_for_identity(self, session: AsyncSession, identity: DeveloperIdentity) -> KeyInfo:
         row = await session.get(DeveloperKey, identity.key_id)

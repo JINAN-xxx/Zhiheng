@@ -115,3 +115,4 @@ class PreviewRequest(AgentInput):
 
 class AgentPublicRequest(AgentInput):
     stream: bool = Field(default=False, strict=True)
+    client_request_id: UUID | None = None

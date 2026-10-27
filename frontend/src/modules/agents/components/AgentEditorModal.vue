@@ -94,7 +94,11 @@
             placeholder="选择回答时引用的知识库"
             @update:value="setKnowledgeIds"
           />
-          <template #extra><span>暂无可选知识库</span></template>
+          <template #extra
+            ><span>{{
+              knowledgeBases.length ? '检索同时校验知识库及原文权限。' : '暂无可选知识库'
+            }}</span></template
+          >
         </a-form-item>
         <a-form-item class="editor-full-width" label="API 应用" name="applicationId">
           <div class="application-field">
@@ -269,6 +273,8 @@ import {
   updateAgent
 } from '../api/index.ts'
 import type { Agent } from '../api/index.ts'
+import { availableBases } from '../../knowledge/public.ts'
+import type { KnowledgeBase } from '../../knowledge/public.ts'
 import {
   agentStatusLabel,
   buildAgentPayload,
@@ -296,6 +302,7 @@ const loading = ref(false),
 const models = ref<ChatModel[]>([]),
   skills = ref<Skill[]>([]),
   applications = ref<Application[]>([])
+const knowledgeBases = ref<KnowledgeBase[]>([])
 const applicationOpen = ref(false),
   applicationSaving = ref(false),
   applicationError = ref(''),
@@ -333,7 +340,12 @@ const skillOptions = computed(() =>
     form.skillSlugs
   )
 )
-const knowledgeOptions = computed(() => withCurrent([], form.knowledgeBaseIds))
+const knowledgeOptions = computed(() =>
+  withCurrent(
+    knowledgeBases.value.map((base) => ({ value: base.id, label: base.name })),
+    form.knowledgeBaseIds
+  )
+)
 const applicationOptions = computed(() =>
   withCurrent(
     applications.value
@@ -384,10 +396,11 @@ async function load(): Promise<void> {
     props.agentId ? getAgent(props.agentId, context.signal) : Promise.resolve(null),
     getModels(context.signal),
     listAvailableSkills(context.signal),
-    allApplications(context.signal)
+    allApplications(context.signal),
+    availableBases(context.signal, props.agentId || undefined)
   ])
   if (!context.isCurrent()) return
-  const [detail, modelList, skillList, applicationList] = results
+  const [detail, modelList, skillList, applicationList, knowledgeList] = results
   if (detail.status === 'fulfilled') {
     saved.value = detail.value
     Object.assign(form, createAgentForm(detail.value ?? undefined))
@@ -402,6 +415,9 @@ async function load(): Promise<void> {
   if (applicationList.status === 'fulfilled') applications.value = applicationList.value
   else if (!isAborted(applicationList.reason))
     failures.push('应用加载失败：' + errorMessage(applicationList.reason))
+  if (knowledgeList.status === 'fulfilled') knowledgeBases.value = knowledgeList.value
+  else if (!isAborted(knowledgeList.reason))
+    failures.push('知识库加载失败：' + errorMessage(knowledgeList.reason))
   optionsError.value = failures.join('；')
   optionsLoading.value = false
   loading.value = false

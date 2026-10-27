@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from zhiheng.api.dependencies import COOKIE_NAME, ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.agents.public import AgentSummary
+from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.work.public import AddMember, CreateTask, TaskDetail, TaskPage, UpdateTask, UpgradeMember, WorkTurn
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 from zhiheng.shared.errors import AppError
@@ -39,9 +40,12 @@ async def tasks(
     search: str = '',
     status: Literal['active', 'completed', 'archived'] | None = None,
 ) -> TaskPage:
-    return await container.work.list_tasks(
+    value = await container.work.list_tasks(
         session, principal, page=int(page), page_size=int(page_size), search=search, status=status
     )
+    for item in value.items:
+        item.preparation_id = await container.knowledge_preparation.store.current(session, 'work_turn', item.id)
+    return value
 
 
 @router.post('/tasks', status_code=201)
@@ -68,6 +72,8 @@ async def update(
     session: SessionDependency,
 ) -> TaskDetail:
     async with session.begin():
+        await container.work.require(session, principal, task_id, lock=True)
+        await container.work_runs.ensure_preparation_idle(session, task_id)
         await container.work.update(session, principal, task_id, body)
         return await container.work_runs.detail(session, principal, task_id)
 
@@ -81,7 +87,7 @@ async def remove(
     session: SessionDependency,
 ) -> Response:
     async with session.begin():
-        await container.work.remove(session, principal, task_id, int(expected_version))
+        await container.work_runs.remove(session, principal, task_id, int(expected_version))
     return Response(status_code=204)
 
 
@@ -124,6 +130,8 @@ async def remove_member(
     session: SessionDependency,
 ) -> TaskDetail:
     async with session.begin():
+        await container.work.require(session, principal, task_id, lock=True)
+        await container.work_runs.ensure_preparation_idle(session, task_id)
         await container.work.change_member(session, principal, task_id, int(expected_version), agent_id, None)
         return await container.work_runs.detail(session, principal, task_id)
 
@@ -135,7 +143,14 @@ async def admit(
     container: ContainerDependency,
     principal: PrincipalDependency,
     session: SessionDependency,
-) -> RunSnapshot:
+) -> RunSnapshot | PreparationInfo:
+    async with session.begin():
+        existing = await container.work_runs.replay(session, principal, task_id, body)
+        if existing:
+            return existing
+        knowledge = await container.work_runs.requires_knowledge(session, principal, task_id, body.agent_id)
+    if knowledge:
+        return await container.work_runs.prepare_knowledge_work(principal, task_id, body)
     async with session.begin():
         return await container.work_runs.admit(session, principal, task_id, body, container.settings.token_limit)
 

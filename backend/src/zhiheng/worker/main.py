@@ -18,6 +18,43 @@ if TYPE_CHECKING:
 
 async def execute_chat(context: dict[str, object], run_id: str) -> None:
     await execute_run(cast('Container', context['container']), UUID(run_id))
+    await publish_knowledge(cast('Container', context['container']), cast('ArqRedis', context['redis']))
+
+
+async def execute_knowledge(context: dict[str, object], job_id: str, kind: str) -> None:
+    container = cast('Container', context['container'])
+    if kind == 'build':
+        await container.knowledge_jobs.tick(UUID(job_id))
+    elif kind == 'gc':
+        await container.knowledge_jobs.gc(UUID(job_id))
+    else:
+        await container.knowledge_preparation.tick(UUID(job_id))
+    await publish_outbox(container, cast('ArqRedis', context['redis']))
+    await publish_knowledge(container, cast('ArqRedis', context['redis']))
+
+
+async def publish_knowledge(container: Container, queue: ArqRedis) -> None:
+    async with container.database.sessions() as session:
+        builds = await container.knowledge_jobs.store.pending(session)
+        preparations = await container.knowledge_preparation.store.pending(session)
+        generations = await container.knowledge_jobs.generations.pending(session)
+    for kind, jobs in [('build', builds), ('retrieval', preparations)]:
+        for job_id, version in jobs:
+            await queue.enqueue_job(
+                'execute_knowledge',
+                str(job_id),
+                kind,
+                _job_id=f'knowledge:{kind}:{job_id}:{version}',
+                _queue_name=container.settings.worker_queue,
+            )
+    for generation_id in generations:
+        await queue.enqueue_job(
+            'execute_knowledge',
+            str(generation_id),
+            'gc',
+            _job_id=f'knowledge:gc:{generation_id}',
+            _queue_name=container.settings.worker_queue,
+        )
 
 
 RECOVERY_LIMIT = 100
@@ -58,6 +95,7 @@ async def periodic(context: dict[str, object]) -> None:
         await container.skills.cleanup_expired(session)
     await recover_expired(container)
     await publish_outbox(container, queue)
+    await publish_knowledge(container, queue)
     await container.redis.set(container.settings.worker_health_key, str(time()), ex=15)
 
 
@@ -78,9 +116,9 @@ async def worker_startup(context: dict[str, object]) -> None:
     await periodic(context)
 
 
-def build_worker(container: Container, *, burst: bool = False) -> Worker:
+def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 10) -> Worker:
     return Worker(
-        functions=[cast('WorkerCoroutine', execute_chat)],
+        functions=[cast('WorkerCoroutine', execute_chat), cast('WorkerCoroutine', execute_knowledge)],
         cron_jobs=[]
         if burst
         else [
@@ -96,6 +134,7 @@ def build_worker(container: Container, *, burst: bool = False) -> Worker:
         ctx={'container': container},
         on_startup=cast('StartupShutdown', worker_startup),
         keep_result=0,
+        max_jobs=max_jobs,
         max_tries=1,
         retry_jobs=False,
         job_timeout=container.settings.provider_timeout_seconds + 10,

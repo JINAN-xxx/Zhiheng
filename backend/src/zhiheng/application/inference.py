@@ -17,6 +17,7 @@ from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequ
 from zhiheng.runtime.contracts import ClaimedRun, RunError, RunStatus, RunUsage
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.time import utcnow
 
 MAX_PROJECTION_BYTES = 2 * 1024 * 1024
 PROJECTION_INTERVAL_SECONDS = 0.05
@@ -50,10 +51,12 @@ class InferenceExecutor:
         provider_factory: Callable[[ModelBinding], Awaitable[ModelProvider]],
         lease_seconds: int,
         timeout_seconds: float,
+        before_provider: Callable[[ClaimedRun], Awaitable[None]] | None = None,
     ) -> None:
         self._sessions, self._runs, self._usage, self._chat = sessions, runs, usage, chat
         self._lifecycle = RunLifecycle(chat)
         self._provider_factory, self._lease_seconds, self._timeout = provider_factory, lease_seconds, timeout_seconds
+        self._before_provider = before_provider
 
     async def execute(self, run_id: UUID) -> None:
         async with self._sessions.begin() as session:
@@ -145,8 +148,12 @@ class InferenceExecutor:
             await self._usage.require_reservation(
                 session, claim.id, claim.billing_owner_id or claim.owner_id, request.binding.model_id
             )
+        if self._before_provider is not None:
+            await self._before_provider(claim)
         provider = await self._provider_factory(request.binding)
         async with self._sessions.begin() as session:
+            if request.execution_deadline is not None and request.execution_deadline <= utcnow():
+                raise AppError('execution_deadline_exceeded', '模型执行期限已过', 409)
             started = await self._runs.start_provider(session, claim.id, claim.attempt_id)
         if not started:
             raise AppError('execution_lost', '执行权已失效', 409)
@@ -189,7 +196,15 @@ class InferenceExecutor:
             if not progress.completion_seen:
                 raise ProviderError
 
-        await asyncio.wait_for(read_stream(), timeout=self._timeout)
+        deadline_remaining = (
+            (request.execution_deadline - utcnow()).total_seconds() if request.execution_deadline else self._timeout
+        )
+        await asyncio.wait_for(
+            read_stream(),
+            timeout=min(
+                self._timeout, request.execution_timeout_seconds or self._timeout, max(0.001, deadline_remaining)
+            ),
+        )
 
     async def _observe(self, claim: ClaimedRun) -> str:
         while True:

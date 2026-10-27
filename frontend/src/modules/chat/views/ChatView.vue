@@ -24,6 +24,7 @@ import {
 import { runStatusLabel } from '../../../shared/stream.ts'
 import { useChatWorkspace } from '../public.ts'
 import { SkillPicker } from '../../skills/public.ts'
+import { KnowledgePicker, KnowledgeSources } from '../../knowledge/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
 import ChatMessageFiles from '../components/ChatMessageFiles.vue'
@@ -42,6 +43,9 @@ const {
   messages,
   draft,
   selectedSkills,
+  selectedKnowledgeBases,
+  activeRunSources,
+  preparing,
   skillPickerOpen,
   removeSkill,
   handleSkillSelected,
@@ -52,6 +56,7 @@ const {
   historyReady,
   sending,
   stopping,
+  stopAcknowledged,
   activeRun,
   messagesElement,
   running,
@@ -141,6 +146,7 @@ onBeforeUnmount(() => {
             />
             <p v-else class="user-message">{{ message.content }}</p>
             <ChatMessageFiles :files="message.attachments" />
+            <KnowledgeSources :sources="message.knowledge_sources" />
             <div v-if="message.skill_snapshots.length" class="message-skills">
               <ATag v-for="skill in message.skill_snapshots" :key="skill.revision_id"
                 >技能：{{ skill.name }}</ATag
@@ -160,6 +166,7 @@ onBeforeUnmount(() => {
               :loading="running"
             />
             <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
+            <KnowledgeSources :sources="activeRunSources" />
             <span v-if="activeRun.usage.status === 'unknown'" class="muted small">用量待核对</span>
           </div>
         </article>
@@ -171,8 +178,14 @@ onBeforeUnmount(() => {
             >暂无可用模型，请联系管理员配置</span
           >
           <div class="composer-context-actions">
-            <span v-if="sending || activeRun" class="run-state" role="status">{{
-              sending ? '提交中' : activeRun ? runStatusLabel[activeRun.status] : ''
+            <span v-if="sending || activeRun || preparing" class="run-state" role="status">{{
+              preparing
+                ? '正在检索知识库'
+                : sending
+                  ? '提交中'
+                  : activeRun
+                    ? runStatusLabel[activeRun.status]
+                    : ''
             }}</span>
           </div>
         </div>
@@ -183,6 +196,17 @@ onBeforeUnmount(() => {
             :closable="!running && !sending"
             @close="removeSkill(skill.skillSlug)"
             >技能：{{ skill.skillName }}</ATag
+          >
+        </div>
+        <div v-if="selectedKnowledgeBases.length" class="selected-skills">
+          <ATag
+            v-for="base in selectedKnowledgeBases"
+            :key="base.id"
+            :closable="!running && !sending"
+            @close="
+              selectedKnowledgeBases = selectedKnowledgeBases.filter((item) => item.id !== base.id)
+            "
+            >知识库：{{ base.name }}</ATag
           >
         </div>
         <div v-if="readOnly" class="archived-actions">
@@ -248,7 +272,7 @@ onBeforeUnmount(() => {
             v-model:value="draft"
             :auto-size="{ minRows: 3, maxRows: 6 }"
             :maxlength="16000"
-            :disabled="sending || readOnly"
+            :disabled="sending || preparing || readOnly"
             placeholder="输入消息，按回车发送，按住上档键回车换行"
             aria-label="消息内容"
             @keydown="keydown"
@@ -259,6 +283,10 @@ onBeforeUnmount(() => {
               v-model:open="skillPickerOpen"
               :disabled="running || sending || loading"
               @selected="handleSkillSelected"
+            />
+            <KnowledgePicker
+              v-model="selectedKnowledgeBases"
+              :disabled="running || sending || loading || readOnly"
             />
             <AButton
               type="text"
@@ -275,6 +303,7 @@ onBeforeUnmount(() => {
               class="composer-submit"
               danger
               :loading="stopping"
+              :disabled="stopAcknowledged"
               aria-label="停止生成"
               @click="stop"
               ><PauseCircleOutlined />停止</AButton

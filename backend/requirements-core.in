@@ -19,3 +19,9 @@ PyYAML==6.0.3
 pypdf==6.18.0
 Pillow==12.3.0
 openpyxl==3.1.5
+pymilvus==2.6.17
+grpcio==1.84.1
+# Compatible wheels and stubs across Python 3.10 and 3.13.
+numpy==2.2.6
+pandas==2.3.3
+protobuf==5.29.5

@@ -31,13 +31,13 @@
 
 **主要文件：** `modules/knowledge/{contracts,orm,service,parsing,chunking,retrieval,public}.py`、`modules/knowledge/adapters/milvus.py`、`application/knowledge_jobs.py`、专用job worker调度与原Overview/Documents/Query视图。
 
-- [ ] 红用例：库/文档/文件夹归属与ACL、上传引用、混合批次、预览解析/分块、模型类型与维度、重复提交、取消/失联、重切片/删除、无效或越权来源。
-- [ ] 元数据显式迁移；库配置含真实Embedding模型、chunk参数、图谱开关及图谱chat模型。文件与文档ID不能混用，文档只能在正确库/文件夹作用域下操作。
-- [ ] 可恢复阶段任务拥有稳定逻辑步骤ID；父流水线不计作模型调用。每次Embedding/LLM回调创建持久子Run、预留/outbox/统一executor，记录parent与步骤；SDK内部不可观测重试关闭。不在占满ARQ父槽位后等待无人执行的子任务。
-- [ ] 每次构建独立物理空间`kb/index_revision/attempt`，租约与attempt检查写入/发布。Milvus使用新项目命名空间，collection描述/维度/字段/index与兼容指纹验证；读取不隐式创建/覆盖索引。阻塞SDK在线程内，取消后先drain再close。
-- [ ] 全部文档/向量/产物成功后短事务切换不可变manifest，失败保留原活动索引可读；过期attempt不能切指针或覆盖新产物。GC先标deleting，再精确清理无引用generation，不能按库ID粗粒度drop。
-- [ ] 检索使用真实受治理Embedding和当前活动manifest，校验原模型/参数/维度及chunk provenance，按文件/库授权过滤，返回可追溯来源；8条/24KiB/10秒边界和失败行为真实。
-- [ ] 将知识选择与引用接到普通聊天、Agent预览/公开调用和Work成员快照。按原资源owner校验，公开Key先鉴权/授权再准备检索；检索在SQL锁事务外完成，接纳时复核引用/manifest有效性并冻结来源。非空失败不得退成普通聊天。
+- [x] 红用例：库/文档/文件夹归属与ACL、上传引用、混合批次、预览解析/分块、模型类型与维度、重复提交、取消/失联、重切片/删除、无效或越权来源。
+- [x] 元数据显式迁移；库配置含真实Embedding模型、chunk参数、图谱开关及图谱chat模型。文件与文档ID不能混用，文档只能在正确库/文件夹作用域下操作。
+- [x] 可恢复阶段任务拥有稳定逻辑步骤ID；父流水线不计作模型调用。每次Embedding/LLM回调创建持久子Run、预留/outbox/统一executor，记录parent与步骤；SDK内部不可观测重试关闭。不在占满ARQ父槽位后等待无人执行的子任务。
+- [x] 每次构建独立物理空间`kb/index_revision/attempt`，租约与attempt检查写入/发布。Milvus使用新项目命名空间，collection描述/维度/字段/index与兼容指纹验证；读取不隐式创建/覆盖索引。阻塞SDK在线程内，取消后先drain再close。
+- [x] 全部文档/向量/产物成功后短事务切换不可变manifest，失败保留原活动索引可读；过期attempt不能切指针或覆盖新产物。GC先标deleting，再精确清理无引用generation，不能按库ID粗粒度drop。
+- [x] 检索使用真实受治理Embedding和当前活动manifest，校验原模型/参数/维度及chunk provenance，按文件/库授权过滤，返回可追溯来源；8条/24KiB/10秒边界和失败行为真实。
+- [x] 将知识选择与引用接到普通聊天、Agent预览/公开调用和Work成员快照。按原资源owner校验，公开Key先鉴权/授权再准备检索；检索在SQL锁事务外完成，接纳时复核引用/manifest有效性并冻结来源。非空失败不得退成普通聊天。
 
 ## 第三组：LightRAG 图谱
 
@@ -59,3 +59,5 @@
 - [ ] 正常实例先备份配置/数据库/字节存储/索引版本与镜像，升级后核对已有数据、账号、真实入口与旧实例仍停止；保护原55修改/2未跟踪文件；清理临时验收环境并更新实际状态。
 
 第一组受管文件与原生解析已完成并升级正常实例，包含会话引用释放闭环。真实结果见[文件验收](../verification/2026-10-23-files.md)。其余分组按上文继续，未将原生解析误记为已完成知识索引/图谱/OCR。
+
+第二组知识库主向量索引与检索已完成正常实例升级，见[2026-10-27 验收](../verification/2026-10-27-knowledge.md)。现已接通 Milvus 及四种 AI 入口，来源只进入 user 数据消息，正常 33 张原表在迁移前后指纹一致。第三组 LightRAG 和第四组 MinerU 未标完成。

@@ -28,6 +28,14 @@ REQUIRED_FILES = frozenset(
         'zhiheng/modules/files/jobs.py',
         'zhiheng/infrastructure/file_storage.py',
         'zhiheng/modules/knowledge/adapters/native_worker.py',
+        'zhiheng/modules/knowledge/adapters/milvus.py',
+        'zhiheng/modules/knowledge/adapters/milvus_rpc.py',
+        'zhiheng/modules/knowledge/build.py',
+        'zhiheng/modules/knowledge/retrieval.py',
+        'zhiheng/modules/knowledge/generations.py',
+        'zhiheng/application/knowledge_preparation.py',
+        'zhiheng/application/knowledge_jobs.py',
+        'zhiheng/api/routes/knowledge.py',
     }
 )
 
@@ -50,6 +58,7 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0004_agents.py',
         'versions/0005_work.py',
         'versions/0006_files.py',
+        'versions/0007_knowledge.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

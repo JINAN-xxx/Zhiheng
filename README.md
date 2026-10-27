@@ -2,7 +2,7 @@
 
 智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体、Work、受管文件与聊天附件，整体目标平台仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
+**当前版本为 0.1.0，已接通 AI 对话、完整模型管理、开发接入、技能、智能体、Work、受管文件、聊天附件和知识库向量检索，图谱与 MinerU 仍在建设中。** 本 README 对应 `refactor/ai-core-modularization` 分支的新源码。
 
 前端按用户确定的方向**保留原界面，允许整理内部目录和代码**。登录、侧栏、聊天、模型目录/凭据、开发接入、技能、智能体、Work、文件和用量页面已复用原布局、品牌、主题与交互，并接通新后端。原页面及已完成优化完整保存在 `legacy/frontend/`；其余页面按[功能对齐计划](docs/superpowers/plans/2026-10-23-feature-parity.md)逐域接入。
 
@@ -15,15 +15,19 @@
 | AI 对话 | 已实现并通过本地验收 | 流式回复、多轮上下文、附件/图片、重命名/归档/删除、停止与断线恢复 |
 | 运行与用量 | 已实现并通过本地验收 | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录 |
 | 受管文件 | 已实现并通过本地验收 | 原文件管理、权限/引用保护、回收/审计/策略/提醒/对账；真实原生解析与聊天附件 |
-| 知识库与图谱 | 待实现 | 库/文档管理、分块、Milvus索引/检索与LightRAG；**MinerU尚未接入** |
+| 知识库与图谱 | 向量功能已验收并部署 | 库/文件夹/文档管理、原生解析分块、版本化 Milvus 索引/检索、原文权限交集与 Chat/Agent/Work/API 组合；**LightRAG 与 MinerU 尚未接入** |
 | 技能 | 已实现并通过本地验收 | 原技能管理界面、ZIP/主文件预检和确认安装、内容/启停/删除、聊天选择及历史快照 |
-| 智能体 | 已实现并通过本地验收 | 原配置/发布/试聊/API界面、不可变发布与技能快照、推理和停止、应用Key公开JSON/SSE调用；知识检索待接入 |
+| 智能体 | 已实现并通过本地验收 | 原配置/发布/试聊/API界面、不可变发布与技能快照、推理和停止、应用Key公开JSON/SSE调用；知识检索、来源与原 Key 恢复 |
 | Work | 已实现并通过本地验收 | 原工作模式与最近工作、任务/成员、冻结发布版本、人工单成员执行、署名共享历史、停止与失联收敛 |
 | 开发接入与计费 | 已实现并通过本地验收 | 应用、一次回显 Key、授权、轮换/撤销、限额与预算；公开模型 API、手动费率版本和精确费用账本 |
 
 本地验收使用独立 PostgreSQL / Redis 和本地模型 HTTP 服务，覆盖构建后的真实浏览器链路。具体结果与未覆盖范围见[首条 AI 链路验收](docs/superpowers/verification/2026-10-23-first-ai-slice.md)。这不等同于所有供应商、全部目标功能或生产部署均已验收。
 
-2026-10-23 最新验收：最终后端327项完整回归，前端24项行为和91项页面回归、类型/格式/构建及独立规格/质量审查通过。真实容器覆盖受管上传、原生解析、图片模型调用、文件回收、提醒和已有数据升级，原24张表的原列/原行核对一致。详见[文件与聊天附件验收](docs/superpowers/verification/2026-10-23-files.md)；此前[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work](docs/superpowers/verification/2026-10-23-work.md)记录保留。收费供应商和生产负载尚未验收。
+2026-10-26 运行恢复：Redis AOF 无效零尾在完整备份和副本校验后修复，正常实例 33 张业务表指纹一致；原界面、管理员登录、11 个接口和六个页面复测通过。健康检查地址已代理到实际 API，避免网页 HTML 200 掩盖后台故障，详见[服务恢复验收](docs/superpowers/verification/2026-10-26-service-recovery.md)。该记录对应升级前的 `0006_files`；2026-10-27 已按下述验收升级到知识库版本。
+
+2026-10-27 知识库验收：最终后端 386 项完整回归、Python 3.10/3.13 各 79 项安装后测试、四条真实 API/worker 进程链和独立复审通过。真实浏览器覆盖上传、解析、Milvus、来源权限及四种 AI 调用；资料只进入 user 数据消息。正常实例已备份并升级至 `0007_knowledge`，33 张原表的原列/原行一致，原管理员、12 个接口和七个页面验证通过。详见[知识库验收](docs/superpowers/verification/2026-10-27-knowledge.md)。
+
+2026-10-23 文件版本验收：最终后端327项完整回归，前端24项行为和91项页面回归、类型/格式/构建及独立规格/质量审查通过。真实容器覆盖受管上传、原生解析、图片模型调用、文件回收、提醒和已有数据升级，原24张表的原列/原行核对一致。详见[文件与聊天附件验收](docs/superpowers/verification/2026-10-23-files.md)；此前[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work](docs/superpowers/verification/2026-10-23-work.md)记录保留。收费供应商和生产负载尚未验收。
 
 模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额用 Decimal 计算。供应商未报告有效整数用量时保留预留、标记未知、费用为空；人工对账界面仍待建设。图片已接到普通聊天，模型须启用视觉能力。工具执行和结构化输出仍未接入。
 
@@ -41,6 +45,8 @@ flowchart LR
     Worker <--> Redis[(Redis / ARQ)]
     Worker --> Models[LangChain 1.4.7 模型适配]
     Models --> Provider[模型供应商]
+    API --> Vector[(Milvus)]
+    Worker --> Vector
     Migrator[数据库迁移进程] --> PG
 ```
 
@@ -51,7 +57,7 @@ backend/
 ├── src/zhiheng/
 │   ├── api/             HTTP 入口
 │   ├── application/     跨模块用例与事务编排
-│   ├── modules/         identity、models、chat、developer、skills、agents、work、files；knowledge原生解析
+│   ├── modules/         identity、models、chat、developer、skills、agents、work、files、knowledge
 │   ├── runtime/         运行、租约、outbox 与恢复原语
 │   ├── worker/          队列执行、取消观察与恢复
 │   ├── bootstrap/       配置和资源装配
@@ -62,7 +68,7 @@ backend/
 └── tests/               单元、契约、集成与浏览器验收
 frontend/src/
 ├── app/                 应用、布局和显式路由
-├── modules/             identity、models、chat、developer、skills、agents、work、files、usage
+├── modules/             identity、models、chat、developer、skills、agents、work、files、knowledge、usage
 └── shared/              HTTP、SSE、校验、原公共组件与视觉样式
 deploy/core/             Compose 和配置示例
 docs/README.md           文档索引
@@ -106,11 +112,13 @@ legacy/                  旧工程归档与原有未提交优化
 
 “智能体扩展 → 技能管理”中，管理员可上传根目录包含 `SKILL.md` 的 ZIP 或单独主文件，预检后确认安装。普通账号可查看、选用启用技能；聊天输入末尾 `@` 或点击技能按钮，最多选择 5 项。技能主文件作为本次系统上下文并计入预留，历史记录保留内容版本摘要。包内附件只保存，不执行。
 
-“智能体扩展 → 智能体”中，可保存草稿并试聊，绑定应用后发布。公开端点为 `/v1/agents/{id}/chat/completions`，API抽屉按发布快照创建模型授权Key；对外调用前需在模型目录配置费率。草稿修改不影响已发布版本，重新发布才生效。欢迎语仅展示，技能内容随发布冻结；非空知识绑定在检索接通前明确拒绝执行。
+“智能体扩展 → 智能体”中，可保存草稿并试聊，绑定应用后发布。公开端点为 `/v1/agents/{id}/chat/completions`，API抽屉按发布快照创建模型授权Key；对外调用前需在模型目录配置费率。草稿修改不影响已发布版本，重新发布才生效。欢迎语仅展示，技能和知识库绑定随发布冻结。知识准备使用原智能体所有者的权限，检索失败不退回无知识调用。
 
 在新建对话空态切换到“工作”，填写目标并选择已发布成员，即可每轮人工指定一个成员接力。成员加入时冻结发布版本，更新须显式确认；重新进入可查看持久历史和运行状态。停止会等待后台关闭供应商并释放任务，失联运行收敛为中断，明确重试才发起新调用。
 
-Compose 启动顺序为 PostgreSQL / Redis 健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库和 Redis 不向宿主机发布端口，两个新数据卷由 `zhiheng-core` 项目管理。
+侧栏“知识库”可创建向量库、管理文件夹与文档、上传原文、重新切片、重建索引和测试检索。库与原文件权限分别生效；共享库不会公开私有原文。聊天可选择知识库，智能体发布和 Work 成员快照保留知识绑定。公开智能体调用须为 Key 授权主模型及全部向量模型，并提供稳定 `client_request_id` 或 `Idempotency-Key`；202 响应使用同 Key 轮询 `polling_url`，再按原请求重放结果。图谱与 OCR 暂未接入。
+
+Compose 启动顺序为 PostgreSQL / Redis 及 Milvus 依赖健康 → 迁移成功 → worker 健康 → API 就绪 → 网页。`/health/live` 检查 API 进程，`/health/ready` 检查迁移版本、Redis 和 worker 持久心跳。数据库、Redis 和向量服务不向宿主机发布端口，六个持久卷由 `zhiheng-core` 项目管理；备份同时保存数据库、Redis、文件、三份向量数据、配置密钥及对应镜像。
 
 ```bash
 ./deploy.sh ps

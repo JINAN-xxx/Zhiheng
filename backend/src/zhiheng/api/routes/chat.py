@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.application.chat_runs import PreparedChatInputs
 from zhiheng.modules.chat.public import ConversationInfo, MessageInfo
+from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
 
@@ -23,12 +24,28 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=16000)
     client_request_id: UUID
     file_ids: list[UUID] = Field(default_factory=list, max_length=15)
+    knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
+
+    @field_validator('message')
+    @classmethod
+    def encodable_message(cls, value: str) -> str:
+        value.encode('utf-8')
+        if '\x00' in value:
+            raise ValueError('Invalid message')
+        return value
 
     @field_validator('file_ids')
     @classmethod
     def unique_files(cls, value: list[UUID]) -> list[UUID]:
         if len(set(value)) != len(value):
             raise ValueError('Duplicate attachment')
+        return value
+
+    @field_validator('knowledge_base_ids')
+    @classmethod
+    def unique_knowledge(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError('Duplicate knowledge bases')
         return value
 
     skill_slugs: list[SkillSlug] = Field(default_factory=list, max_length=5)
@@ -38,7 +55,10 @@ class ChatRequest(BaseModel):
 async def conversations(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency, archived: bool = False
 ) -> list[ConversationInfo]:
-    return await container.chat.list_conversations(session, principal, archived=archived)
+    values = await container.chat.list_conversations(session, principal, archived=archived)
+    for value in values:
+        value.preparation_id = await container.knowledge_preparation.store.current(session, 'chat', value.id)
+    return values
 
 
 @router.post('', status_code=201)
@@ -56,7 +76,12 @@ async def create_conversation(
 async def messages(
     conversation_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[MessageInfo]:
-    return await container.chat.messages(session, principal, conversation_id)
+    values = await container.chat.messages(session, principal, conversation_id)
+    for value in values:
+        value.knowledge_sources = await container.knowledge_preparation.visible_hits(
+            session, principal, value.knowledge_sources
+        )
+    return values
 
 
 @router.post('/{conversation_id}/runs', status_code=202)
@@ -66,7 +91,9 @@ async def create_run(
     container: ContainerDependency,
     principal: PrincipalDependency,
     session: SessionDependency,
-) -> RunSnapshot:
+) -> RunSnapshot | PreparationInfo:
+    if body.knowledge_base_ids:
+        return await container.admission.prepare_knowledge_chat(principal, conversation_id, **body.model_dump())
     async with session.begin():
         await container.chat.require_conversation(session, principal, conversation_id)
         fingerprint = container.admission.fingerprint(
@@ -112,7 +139,9 @@ class ConversationPatch(ConversationVersion):
 async def conversation_detail(
     conversation_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> ConversationInfo:
-    return await container.chat.require_conversation(session, principal, conversation_id)
+    value = await container.chat.require_conversation(session, principal, conversation_id)
+    preparation_id = await container.knowledge_preparation.store.current(session, 'chat', conversation_id)
+    return value.model_copy(update={'preparation_id': preparation_id})
 
 
 @router.patch('/{conversation_id}')

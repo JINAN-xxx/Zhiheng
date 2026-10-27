@@ -89,6 +89,8 @@ class ModelRequest(BaseModel):
 
     binding: ModelBinding
     messages: tuple[ModelMessage, ...]
+    execution_timeout_seconds: float | None = Field(default=None, ge=0.1, le=600)
+    execution_deadline: datetime | None = None
 
     @field_validator('messages')
     @classmethod

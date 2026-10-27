@@ -1,6 +1,6 @@
 import { http } from '../../../shared/http.ts'
 import { list, number, object, string } from '../../../shared/validation.ts'
-import { parseRunSnapshot } from '../../../shared/stream.ts'
+import { parseRunAdmission } from '../../knowledge/public.ts'
 export interface AgentConfig {
   name: string
   description: string
@@ -109,7 +109,8 @@ export const admitPreview = (
   id: string,
   body: { messages: PreviewMessage[]; client_request_id: string },
   signal: AbortSignal
-) => http.request(`${path(id)}/preview`, { method: 'POST', body, signal, decode: parseRunSnapshot })
+) =>
+  http.request(`${path(id)}/preview`, { method: 'POST', body, signal, decode: parseRunAdmission })
 
 export interface PreviewIntent {
   agentId: string

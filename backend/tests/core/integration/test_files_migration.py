@@ -39,7 +39,7 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0006_files'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_knowledge'
         for name in tables:
             old = [r[1] for r in columns if r[0] == name]
             assert (

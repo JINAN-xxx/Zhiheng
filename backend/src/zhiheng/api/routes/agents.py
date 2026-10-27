@@ -14,6 +14,7 @@ from zhiheng.modules.agents.public import (
     PreviewRequest,
     VersionRequest,
 )
+from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.runtime.contracts import RunSnapshot
 
 router = APIRouter(prefix='/api/agents', tags=['agents'])
@@ -111,6 +112,10 @@ async def preview(
     container: ContainerDependency,
     principal: PrincipalDependency,
     session: SessionDependency,
-) -> RunSnapshot:
+) -> RunSnapshot | PreparationInfo:
+    async with session.begin():
+        agent = await container.agents.get(session, principal, agent_id)
+    if agent.knowledge_base_ids:
+        return await container.agent_runs.prepare_knowledge_agent(principal, agent_id, body)
     async with session.begin():
         return await container.agent_runs.preview(session, principal, agent_id, body, container.settings.token_limit)

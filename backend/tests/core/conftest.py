@@ -1,6 +1,7 @@
 import os
 import threading
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 from uuid import uuid4
 
 import httpx
@@ -53,7 +54,7 @@ async def model_id(admin: httpx.AsyncClient, provider: ProviderServer) -> str:
 
 
 @pytest_asyncio.fixture
-async def settings(tmp_path) -> AsyncIterator[object]:
+async def settings(tmp_path: Path) -> AsyncIterator[object]:
     from zhiheng.bootstrap.settings import Settings
 
     database_url = os.getenv('ZHIHENG_TEST_DATABASE_URL')

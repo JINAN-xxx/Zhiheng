@@ -2,9 +2,9 @@
 <template>
   <a-drawer
     :open="modelValue"
-    :closable="!sending || !!currentRun"
-    :mask-closable="!sending || !!currentRun"
-    :keyboard="!sending || !!currentRun"
+    :closable="!sending || !!currentRun || !!currentPreparation"
+    :mask-closable="!sending || !!currentRun || !!currentPreparation"
+    :keyboard="!sending || !!currentRun || !!currentPreparation"
     width="min(680px, 100vw)"
     :body-style="{ display: 'flex', flexDirection: 'column', padding: '0', minHeight: '0' }"
     @close="close"
@@ -17,7 +17,9 @@
         ><a-button
           type="text"
           aria-label="清空对话"
-          :disabled="(!messages.length && !error) || (sending && !currentRun)"
+          :disabled="
+            (!messages.length && !error) || (sending && !currentRun && !currentPreparation)
+          "
           @click="clearConversation"
           ><template #icon><ClearOutlined /></template></a-button></a-tooltip
     ></template>
@@ -54,6 +56,7 @@
         </details>
         <div v-if="item.content" class="preview-message__content">{{ item.content }}</div>
         <div v-if="item.status === 'cancelled'" class="preview-message__status">已停止</div>
+        <KnowledgeSources v-if="item.sources" :sources="item.sources" />
       </article>
       <div v-if="sending" class="preview-pending">
         <a-spin size="small" /><span>{{ phase }}</span>
@@ -78,7 +81,11 @@
       />
       <div class="preview-composer__actions">
         <a-tooltip v-if="sending" title="停止生成"
-          ><a-button aria-label="停止生成" :loading="stopping" @click="cancel"
+          ><a-button
+            aria-label="停止生成"
+            :loading="stopping"
+            :disabled="stopAcknowledged"
+            @click="cancel"
             ><template #icon><StopOutlined /></template></a-button
         ></a-tooltip>
         <a-button
@@ -119,11 +126,22 @@ import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import { admitPreview, cancelRun, getRun, nextPreviewIntent, observeRun } from '../api/index.ts'
 import type { Agent, PreviewIntent, PreviewMessage } from '../api/index.ts'
+import {
+  KnowledgeSources,
+  cancelPreparation,
+  getPreparation,
+  isPreparation,
+  observePreparation,
+  projectPreparation as mergePreparation,
+  preparationFinished
+} from '../../knowledge/public.ts'
+import type { KnowledgeHit, KnowledgePreparation } from '../../knowledge/public.ts'
 const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 interface Message extends PreviewMessage {
   reasoning?: string
   status?: string
+  sources?: KnowledgeHit[]
 }
 const welcomeMessage = computed(() => props.agent?.welcomeMessage.trim() ?? '')
 const messages = ref<Message[]>([]),
@@ -134,6 +152,7 @@ const messages = ref<Message[]>([]),
   phase = ref('正在准备对话'),
   historyRef = ref<HTMLElement>(),
   currentRun = ref<RunSnapshot | null>(null),
+  currentPreparation = ref<KnowledgePreparation | null>(null),
   recoverable = ref(false),
   stopping = ref(false)
 const scope = new RequestScope()
@@ -141,6 +160,9 @@ let pending: PreviewIntent | null = null
 let assistant: Message | null = null
 let stopRequested = false
 let cancelPending: Promise<void> | null = null
+const stopAcknowledged = computed(
+  () => (currentRun.value ?? currentPreparation.value)?.status === 'cancel_requested'
+)
 async function scroll(): Promise<void> {
   await nextTick()
   historyRef.value?.scrollTo({ top: historyRef.value.scrollHeight, behavior: 'smooth' })
@@ -152,6 +174,7 @@ function project(run: RunSnapshot): void {
   )
     return
   currentRun.value = run
+  if (run.status === 'cancel_requested' || isTerminal(run)) stopRequested = false
   if (assistant) {
     assistant.content = run.text
     assistant.reasoning = run.reasoning ?? ''
@@ -177,6 +200,7 @@ async function follow(
   context: ReturnType<RequestScope['current']>
 ): Promise<void> {
   project(run)
+  run = currentRun.value ?? run
   if (stopRequested && !isTerminal(run)) {
     await cancel()
     if (!context.isCurrent()) return
@@ -189,6 +213,46 @@ async function follow(
     },
     context.signal
   )
+}
+function projectPreparation(value: KnowledgePreparation): KnowledgePreparation {
+  if (value.resource_type !== 'agent_preview' || value.resource_id !== props.agent?.agentId)
+    throw new Error('知识检索准备与当前智能体不匹配')
+  value = mergePreparation(currentPreparation.value, value)
+  currentPreparation.value = value
+  if (
+    value.status === 'cancel_requested' ||
+    (preparationFinished(value) && value.status !== 'admitted')
+  )
+    stopRequested = false
+  phase.value = '正在检索知识库'
+  if (assistant) {
+    assistant.sources = value.hits
+    if (value.status === 'cancelled') assistant.status = 'cancelled'
+    else if (['failed', 'interrupted'].includes(value.status)) assistant.status = 'failed'
+  }
+  return value
+}
+async function followKnowledge(
+  initial: KnowledgePreparation,
+  context: ReturnType<RequestScope['current']>
+): Promise<void> {
+  initial = projectPreparation(initial)
+  if (stopRequested && !preparationFinished(initial)) {
+    await cancel()
+    if (!context.isCurrent()) return
+    initial = currentPreparation.value ?? initial
+  }
+  const final = await observePreparation(
+    initial,
+    (value) => {
+      if (context.isCurrent()) return projectPreparation(value)
+    },
+    context.signal
+  )
+  if (!context.isCurrent()) return
+  if (final.run) await follow(final.run, context)
+  else if (final.status !== 'cancelled') error.value = final.error?.message ?? '知识检索未完成'
+  recoverable.value = false
 }
 async function send(event?: Event): Promise<void> {
   if (event instanceof KeyboardEvent && event.isComposing) return
@@ -210,6 +274,7 @@ async function send(event?: Event): Promise<void> {
   ]
   assistant = messages.value.at(-1) ?? null
   currentRun.value = null
+  currentPreparation.value = null
   completion.value = null
   error.value = ''
   recoverable.value = false
@@ -221,7 +286,7 @@ async function send(event?: Event): Promise<void> {
   void scroll()
   let admitted = false
   try {
-    const run = await admitPreview(
+    const admission = await admitPreview(
       agent.agentId,
       { messages: intent.messages, client_request_id: intent.clientRequestId },
       context.signal
@@ -229,7 +294,8 @@ async function send(event?: Event): Promise<void> {
     if (!context.isCurrent()) return
     admitted = true
     pending = null
-    await follow(run, context)
+    if (isPreparation(admission)) await followKnowledge(admission, context)
+    else await follow(admission, context)
   } catch (reason) {
     if (!context.isCurrent() || isAborted(reason)) return
     error.value = errorMessage(reason)
@@ -237,7 +303,10 @@ async function send(event?: Event): Promise<void> {
       messages.value = priorMessages
       draft.value = content
       assistant = null
-    } else recoverable.value = currentRun.value !== null && !isTerminal(currentRun.value)
+    } else
+      recoverable.value =
+        (currentRun.value !== null && !isTerminal(currentRun.value)) ||
+        (currentPreparation.value !== null && !preparationFinished(currentPreparation.value))
   } finally {
     if (context.isCurrent()) {
       sending.value = false
@@ -247,19 +316,35 @@ async function send(event?: Event): Promise<void> {
   }
 }
 function cancel(): Promise<void> {
-  stopRequested = true
   if (cancelPending) return cancelPending
+  if (stopAcknowledged.value) return Promise.resolve()
+  stopRequested = true
   const run = currentRun.value
-  if (!run || isTerminal(run)) return Promise.resolve()
+  const preparation = currentPreparation.value
+  if ((!preparation || preparationFinished(preparation)) && (!run || isTerminal(run)))
+    return Promise.resolve()
   const context = scope.current()
   stopping.value = true
   const operation = (async () => {
     try {
-      const next = await cancelRun(run.id, context.signal)
+      if (preparation && !preparationFinished(preparation)) {
+        const next = await cancelPreparation(preparation.id, context.signal)
+        if (!context.isCurrent()) return
+        projectPreparation(next)
+        if (next.run) {
+          project(next.run)
+          if (!isTerminal(next.run) && next.run.status !== 'cancel_requested') {
+            const stopped = await cancelRun(next.run.id, context.signal)
+            if (context.isCurrent()) project(stopped)
+          }
+        }
+      } else if (run) {
+        const next = await cancelRun(run.id, context.signal)
+        if (context.isCurrent()) project(next)
+      }
       if (context.isCurrent()) {
         error.value = ''
         recoverable.value = false
-        project(next)
       }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) {
@@ -281,14 +366,20 @@ async function recover(): Promise<void> {
   if (cancelPending) await cancelPending
   if (!owner.isCurrent()) return
   const run = currentRun.value
-  if (!run || sending.value) return
+  const preparation = currentPreparation.value
+  if ((!run && !preparation) || sending.value) return
   const context = scope.replace()
   sending.value = true
   error.value = ''
   recoverable.value = false
   try {
-    const next = await getRun(run.id, context.signal)
-    if (context.isCurrent()) await follow(next, context)
+    if (preparation && !preparationFinished(preparation)) {
+      const next = await getPreparation(preparation.id, context.signal)
+      if (context.isCurrent()) await followKnowledge(next, context)
+    } else if (run) {
+      const next = await getRun(run.id, context.signal)
+      if (context.isCurrent()) await follow(next, context)
+    }
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) {
       error.value = errorMessage(reason)
@@ -305,6 +396,7 @@ function reset(): void {
   error.value = ''
   completion.value = null
   currentRun.value = null
+  currentPreparation.value = null
   pending = null
   assistant = null
   sending.value = false
@@ -315,7 +407,11 @@ function reset(): void {
 }
 async function clearConversation(): Promise<void> {
   const context = scope.current()
-  if (cancelPending || (currentRun.value && !isTerminal(currentRun.value))) {
+  if (
+    cancelPending ||
+    (currentRun.value && !isTerminal(currentRun.value)) ||
+    (currentPreparation.value && !preparationFinished(currentPreparation.value))
+  ) {
     await cancel()
     if (error.value && recoverable.value) return
   }
@@ -323,7 +419,11 @@ async function clearConversation(): Promise<void> {
 }
 async function close(): Promise<void> {
   const context = scope.current()
-  if (cancelPending || (currentRun.value && !isTerminal(currentRun.value))) {
+  if (
+    cancelPending ||
+    (currentRun.value && !isTerminal(currentRun.value)) ||
+    (currentPreparation.value && !preparationFinished(currentPreparation.value))
+  ) {
     await cancel()
     if (error.value && recoverable.value) return
   }

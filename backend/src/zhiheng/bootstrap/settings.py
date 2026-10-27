@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix='ZHIHENG_', env_file=None, extra='forbid')
 
     files_root: Path = Path('/var/lib/zhiheng/files')
+    milvus_uri: str | None = None
+    milvus_token: SecretStr = SecretStr('')
+    milvus_database: str = 'default'
     database_url: SecretStr
     redis_url: SecretStr
     credential_key: SecretStr

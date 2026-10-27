@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
+from zhiheng.modules.knowledge.public import Hit
+
 MAX_TEXT_BYTES = 65536
 
 Version = Annotated[StrictInt, Field(ge=1)]
@@ -99,6 +101,7 @@ class TaskSummary(Input):
     status: TaskStatus
     version: int
     current_run_id: UUID | None
+    preparation_id: UUID | None = None
     active_agent_id: UUID | None
     create_client_request_id: UUID
     created_at: datetime
@@ -119,6 +122,7 @@ class MessageInfo(Input):
     client_request_id: UUID
     role: Literal['user', 'assistant']
     content: str
+    knowledge_sources: list[Hit] = Field(default_factory=list)
     reasoning: str
     run_id: UUID | None
     status: str

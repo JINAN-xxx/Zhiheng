@@ -1,13 +1,15 @@
 <!-- Adapted from original ResourceTable.vue, MIT licensed. -->
 <script setup lang="ts" generic="T extends object">
 import { Table as ATable } from 'ant-design-vue'
-import type { TableColumnsType } from 'ant-design-vue'
+import type { TableColumnsType, TablePaginationConfig } from 'ant-design-vue'
 defineProps<{
   columns: TableColumnsType<T>
   rows: T[]
   loading?: boolean
   scrollX?: number | string
   rowKey?: string | ((record: T) => string)
+  pagination?: false | TablePaginationConfig
+  emptyText?: string
 }>()
 defineSlots<{
   bodyCell(props: { column: { key?: unknown }; record: T; index: number }): unknown
@@ -20,7 +22,8 @@ defineSlots<{
       :columns="columns"
       :data-source="rows"
       :loading="loading ?? false"
-      :pagination="false"
+      :pagination="pagination ?? false"
+      v-bind="emptyText ? { locale: { emptyText } } : {}"
       :row-key="rowKey ?? 'id'"
       :scroll="{ x: scrollX ?? 850 }"
       size="middle"

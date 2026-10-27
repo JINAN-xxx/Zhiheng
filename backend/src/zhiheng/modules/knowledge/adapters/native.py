@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 from pydantic import BaseModel, ConfigDict
@@ -41,6 +42,13 @@ class NativeParser:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
                 limit=MAX_REPLY_BYTES,
+                env={
+                    **os.environ,
+                    'OPENBLAS_NUM_THREADS': '1',
+                    'OMP_NUM_THREADS': '1',
+                    'MKL_NUM_THREADS': '1',
+                    'NUMEXPR_NUM_THREADS': '1',
+                },
             )
             try:
                 output, _ = await asyncio.wait_for(

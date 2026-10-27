@@ -27,6 +27,8 @@ SUPPLIER_ROOTS = frozenset(
         'langgraph',
         'lightrag',
         'pypdf',
+        'pymilvus',
+        'grpc',
         'PIL',
         'openpyxl',
     }

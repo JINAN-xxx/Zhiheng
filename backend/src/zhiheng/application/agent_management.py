@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,9 @@ from zhiheng.modules.skills.public import SkillSelection, SkillService, resolve_
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
+if TYPE_CHECKING:
+    from zhiheng.application.knowledge_preparation import KnowledgePreparation
+
 
 def owner(agent: AgentInfo) -> Principal:
     return Principal(agent.owner_id, '', False)
@@ -17,6 +21,7 @@ def owner(agent: AgentInfo) -> Principal:
 class AgentManagementService:
     def __init__(self, agents: AgentService, applications: ApplicationService, models: ModelService) -> None:
         self._agents, self._applications, self._models = agents, applications, models
+        self.knowledge: KnowledgePreparation | None = None
 
     async def validate(
         self, session: AsyncSession, principal: Principal, config: AgentConfig, *, publish: bool = False
@@ -29,7 +34,11 @@ class AgentManagementService:
                 await self._applications.require_owned(session, principal.id, config.application_id)
         elif publish:
             raise AppError('agent_application_required', '发布智能体前请绑定应用', 422)
-        binding = await self._models.resolve(session, config.model_id)
+        binding = (
+            await self.knowledge.binding_for(session, principal, config.model_id, config.knowledge_base_ids)
+            if config.knowledge_base_ids and self.knowledge
+            else await self._models.resolve(session, config.model_id)
+        )
         if binding.model_type != 'chat':
             raise AppError('model_unavailable', '智能体仅支持聊天模型', 422)
         if config.max_tokens > binding.max_output_tokens:
@@ -73,10 +82,15 @@ class AgentManagementService:
                 or config.max_tokens > models[config.model_id].max_output_tokens
                 or not set(config.skill_slugs) <= skills
                 or config.application_id is None
-                or config.knowledge_base_ids
             ):
                 continue
             try:
+                if (
+                    config.knowledge_base_ids
+                    and self.knowledge
+                    and not await self.knowledge.can_use(session, agent.owner_id, config.knowledge_base_ids)
+                ):
+                    continue
                 await self._applications.require_active_owned(
                     session, agent.owner_id, config.application_id, lock=False
                 )

@@ -25,7 +25,7 @@
       :task="workStore.currentTask"
       :locked="workStore.submissionBlocked"
       :stoppable="workStore.canStop"
-      :stop-disabled="workStore.stopping || workStore.admitting"
+      :stop-disabled="workStore.stopping || workStore.admitting || workStore.stopAcknowledged"
       :can-recover="workStore.disconnected"
       :run-error="workStore.runError"
       :retry-kind="workStore.retryKind"

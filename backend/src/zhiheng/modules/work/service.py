@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.modules.knowledge.public import Hit
 from zhiheng.modules.work.contracts import (
     CreateTask,
     MemberInfo,
@@ -34,6 +35,16 @@ class MemberSnapshot:
 
 
 class WorkService:
+    async def reference_run_ids(self, session: AsyncSession, principal: Principal, task_id: UUID) -> tuple[UUID, ...]:
+        await self.require(session, principal, task_id)
+        return tuple(
+            await session.scalars(
+                select(WorkMessage.run_id)
+                .where(WorkMessage.task_id == task_id, WorkMessage.run_id.is_not(None))
+                .distinct()
+            )
+        )
+
     async def require(
         self, session: AsyncSession, principal: Principal, task_id: UUID, *, lock: bool = False
     ) -> TaskSummary:
@@ -53,7 +64,9 @@ class WorkService:
 
     @staticmethod
     def summary(row: WorkTask) -> TaskSummary:
-        return TaskSummary.model_validate({key: getattr(row, key) for key in TaskSummary.model_fields})
+        return TaskSummary.model_validate(
+            {key: getattr(row, key) for key in TaskSummary.model_fields if key != 'preparation_id'}
+        )
 
     async def detail(self, session: AsyncSession, principal: Principal, task_id: UUID) -> TaskDetail:
         summary = await self.require(session, principal, task_id)
@@ -187,6 +200,20 @@ class WorkService:
         row.version += 1
         row.updated_at = utcnow()
 
+    async def reserve_preparation(
+        self, session: AsyncSession, principal: Principal, task_id: UUID, expected_version: int
+    ) -> int:
+        row = await self.editable(session, principal, task_id, expected_version)
+        self.touch(row)
+        return row.version
+
+    async def release_preparation(
+        self, session: AsyncSession, principal: Principal, task_id: UUID, expected_version: int
+    ) -> None:
+        row = await self._row(session, principal, task_id, lock=True)
+        if row.version == expected_version and row.current_run_id is None:
+            self.touch(row)
+
     async def update(self, session: AsyncSession, principal: Principal, task_id: UUID, body: UpdateTask) -> None:
         row = await self.editable(session, principal, task_id, body.expected_version, allow_completed=True)
         fields = body.model_fields_set - {'expected_version'}
@@ -314,6 +341,7 @@ class WorkService:
         fingerprint: str,
         content: str,
         member: MemberSnapshot,
+        knowledge_sources: list[Hit] | None = None,
     ) -> None:
         row = await self.editable(session, principal, task_id, version)
         await self.require_initial_intent(session, principal, task_id, request_id, member.agent_id, content)
@@ -328,6 +356,7 @@ class WorkService:
             if last != 1 or initial.content != content:
                 raise AppError('idempotency_conflict', '首轮目标已过期或内容不同', 409)
             initial.run_id = run_id
+            initial.knowledge_sources = [hit.model_dump(mode='json') for hit in knowledge_sources or []]
         else:
             last += 1
             session.add(
@@ -337,6 +366,7 @@ class WorkService:
                     sequence=last,
                     role='user',
                     content=content,
+                    knowledge_sources=[hit.model_dump(mode='json') for hit in knowledge_sources or []],
                     run_id=run_id,
                 )
             )
@@ -347,6 +377,7 @@ class WorkService:
                 sequence=last + 1,
                 role='assistant',
                 content='',
+                knowledge_sources=[hit.model_dump(mode='json') for hit in knowledge_sources or []],
                 status='pending',
                 run_id=run_id,
                 fingerprint=fingerprint,

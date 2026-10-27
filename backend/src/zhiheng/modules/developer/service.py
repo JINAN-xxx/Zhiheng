@@ -37,6 +37,7 @@ class UsageService:
                 or app is None
                 or app.status != 'active'
                 or app.deleted_at is not None
+                or str(invocation.model_id) not in key.model_ids
                 or not await IdentityService().is_active(session, app.owner_id)
             ):
                 raise AppError('invocation_unavailable', '调用授权已失效', 401)

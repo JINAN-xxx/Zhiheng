@@ -86,6 +86,7 @@
     </a-alert>
 
     <WorkMessageTimeline :messages="task.messages" />
+    <a-alert v-if="task.preparationId" type="info" show-icon message="正在检索知识库" />
 
     <footer v-if="task.status === 'active' && canRun" class="work-composer">
       <div class="work-composer__controls">

@@ -22,7 +22,9 @@ class RunError(BaseModel):
 
 class RunSnapshot(BaseModel):
     id: UUID
-    resource_type: Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn']
+    resource_type: Literal[
+        'chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn', 'knowledge_embedding'
+    ]
     resource_id: UUID
     status: RunStatus
     attempt_id: UUID | None

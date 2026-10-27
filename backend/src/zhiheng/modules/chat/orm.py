@@ -33,6 +33,7 @@ class ChatMessage(Base):
     reasoning: Mapped[str] = mapped_column(Text, default='', server_default='')
     skill_snapshots: Mapped[list[dict[str, str]]] = mapped_column(JSONB, default=list, server_default='[]')
     attachments: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
+    knowledge_sources: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     attachment_inputs: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     is_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

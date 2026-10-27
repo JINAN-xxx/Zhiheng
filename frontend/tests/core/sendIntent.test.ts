@@ -50,3 +50,23 @@ void test('attachment IDs are frozen, ordered and included in retry identity', (
     first.client_request_id
   )
 })
+void test('knowledge selection is frozen and ordered across retries', () => {
+  let ids = 0
+  const createId = () => `request-${++ids}`
+  const bases = ['kb-a', 'kb-b']
+  const input = {
+    conversationId: 'c1',
+    model_id: 'm1',
+    message: 'question',
+    knowledge_base_ids: bases
+  }
+  const first = nextSendIntent(null, input, createId)
+  bases.reverse()
+  assert.deepEqual(first.knowledge_base_ids, ['kb-a', 'kb-b'])
+  assert.notEqual(nextSendIntent(first, input, createId).client_request_id, first.client_request_id)
+  assert.equal(
+    nextSendIntent(first, { ...input, knowledge_base_ids: ['kb-a', 'kb-b'] }, createId)
+      .client_request_id,
+    first.client_request_id
+  )
+})

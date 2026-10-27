@@ -33,6 +33,7 @@ from zhiheng.modules.files.contracts import (
     ReminderInfo,
     RetentionPolicyInfo,
     RetentionPolicyRequest,
+    SourceSnapshot,
     TransferRequest,
 )
 from zhiheng.modules.files.orm import (
@@ -108,6 +109,83 @@ def sniff_mime(content: bytes, filename: str) -> str:
 class FileService:
     def __init__(self, storage: StoragePort, identity: IdentityService) -> None:
         self.storage, self._identity = storage, identity
+
+    async def create_owned(
+        self,
+        session: AsyncSession,
+        actor: Principal,
+        *,
+        owner_id: UUID,
+        filename: str,
+        content: bytes,
+        storage_key: str,
+    ) -> FileInfo:
+        if owner_id != actor.id:
+            actor.require_admin()
+        await self._identity.principal_for_user(session, owner_id)
+        info = await self.create(session, actor, filename=filename, content=content, storage_key=storage_key)
+        row = await session.get(FileRecord, info.id)
+        assert row is not None
+        row.owner_id = owner_id
+        row.uploader_access_enabled = actor.id == owner_id
+        return await self.info(session, row)
+
+    async def source_snapshot(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        file_id: UUID,
+        *,
+        lock: bool = False,
+        artifact_file_id: UUID | None = None,
+    ) -> SourceSnapshot:
+        row = await self._require(session, principal, file_id, active=True, lock=lock)
+        if row.source_file_id is not None:
+            raise AppError('invalid_source', '请使用原始受管文件', 422)
+        if artifact_file_id is not None:
+            artifact = await self._require(session, principal, artifact_file_id, active=True)
+            if artifact.source_file_id != file_id:
+                raise AppError('invalid_source', '派生产物不属于来源文件', 422)
+        return SourceSnapshot(
+            file_id=row.id,
+            version=row.version,
+            acl_version=row.acl_version,
+            sha256=row.sha256,
+            artifact_file_id=artifact_file_id,
+        )
+
+    async def bind_sources(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        sources: tuple[SourceSnapshot, ...],
+        *,
+        resource_type: str,
+        resource_id: UUID,
+    ) -> None:
+        for source in sorted(sources, key=lambda item: item.file_id):
+            current = await self.source_snapshot(
+                session, principal, source.file_id, lock=True, artifact_file_id=source.artifact_file_id
+            )
+            if current != source:
+                raise AppError('source_snapshot_changed', '知识来源已变化', 409)
+            for file_id in (source.file_id, source.artifact_file_id):
+                if file_id is None:
+                    continue
+                found = await session.scalar(
+                    select(FileReference.id).where(
+                        FileReference.file_id == file_id,
+                        FileReference.resource_type == resource_type,
+                        FileReference.resource_id == resource_id,
+                    )
+                )
+                if found is None:
+                    session.add(
+                        FileReference(
+                            file_id=file_id, resource_type=resource_type, resource_id=resource_id, retain_until=None
+                        )
+                    )
+        await session.flush()
 
     async def create(
         self,

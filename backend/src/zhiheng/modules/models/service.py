@@ -226,13 +226,17 @@ class ModelService:
         )
         return {item.id: await self.resolve(session, item.id) for item in models}
 
-    async def resolve(self, session: AsyncSession, model_id: UUID) -> ModelBinding:
-        model = await session.scalar(select(ModelDefinition).where(ModelDefinition.id == model_id).with_for_update())
+    async def resolve(self, session: AsyncSession, model_id: UUID, *, lock: bool = True) -> ModelBinding:
+        model_query = select(ModelDefinition).where(ModelDefinition.id == model_id)
+        if lock:
+            model_query = model_query.with_for_update()
+        model = await session.scalar(model_query)
         if model is None or not model.enabled or not model.published or model.deleted_at is not None:
             raise AppError('model_unavailable', '模型不存在或不可用', 404)
-        connection = await session.scalar(
-            select(ModelConnection).where(ModelConnection.id == model.connection_id).with_for_update()
-        )
+        connection_query = select(ModelConnection).where(ModelConnection.id == model.connection_id)
+        if lock:
+            connection_query = connection_query.with_for_update()
+        connection = await session.scalar(connection_query)
         if connection is None or not connection.enabled or connection.deleted_at is not None:
             raise AppError('model_unavailable', '模型不存在或不可用', 404)
         revision = await session.scalar(
@@ -282,6 +286,33 @@ class ModelService:
             timeout_seconds=self._timeout,
             max_output_tokens=binding.max_output_tokens,
             options=binding.options.model_dump(mode='json', exclude_none=True),
+        )
+
+    async def retained_binding(self, session: AsyncSession, model_id: UUID) -> ModelBinding:
+        """Metadata for owned resource cleanup; it does not authorize a model invocation."""
+        model = await session.scalar(select(ModelDefinition).where(ModelDefinition.id == model_id).with_for_update())
+        if model is None:
+            raise AppError('model_not_found', '模型元数据不存在', 404)
+        connection = await session.scalar(
+            select(ModelConnection).where(ModelConnection.id == model.connection_id).with_for_update()
+        )
+        if connection is None:
+            raise AppError('connection_unavailable', '模型连接元数据不存在', 503)
+        revision = await session.scalar(
+            select(ConnectionRevision).where(
+                ConnectionRevision.connection_id == connection.id, ConnectionRevision.version == connection.revision
+            )
+        )
+        if revision is None:
+            raise AppError('connection_unavailable', '模型连接版本不存在', 503)
+        return ModelBinding(
+            model_id=model.id,
+            connection_id=connection.id,
+            connection_revision_id=revision.id,
+            upstream_model=model.upstream_model,
+            max_output_tokens=model.max_output_tokens,
+            model_type=cast("Literal['chat', 'embedding', 'rerank']", model.model_type),
+            vision_enabled=model.vision_enabled,
         )
 
     async def add_rate(self, session: AsyncSession, principal: Principal, model_id: UUID, body: RateCreate) -> RateInfo:

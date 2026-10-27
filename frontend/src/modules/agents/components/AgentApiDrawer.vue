@@ -37,9 +37,22 @@
         </div>
         <pre class="api-code">{{ requestExample }}</pre>
         <p class="api-contract">
-          使用此应用的 Bearer 密钥，需授权模型 {{ access.modelId }}。多轮对话通过 messages
-          传入，stream 为 true 时返回 SSE。
+          使用此应用的 Bearer 密钥，需授权模型
+          {{ requiredModelIds.join('、') || access.modelId }}。多轮对话通过 messages 传入，stream 为
+          true 时返回 SSE。
         </p>
+        <template v-if="publishedKnowledgeIds.length">
+          <p class="api-contract">
+            知识检索需要同时授权向量模型，并计入此密钥的配额与用量。每次请求提供稳定的
+            client_request_id；重试使用相同标识。
+          </p>
+          <p class="api-contract">
+            有知识库时，首次调用可能返回 HTTP 202。请使用同一 Bearer 密钥轮询
+            polling_url；不要重复创建请求。状态为 admitted 时，可用同一 client_request_id 重发原
+            POST，获取原 JSON/SSE 结果。关闭连接只停止查看，明确取消使用返回状态地址的 /cancel。
+          </p>
+          <pre class="api-code">{{ preparationExample }}</pre>
+        </template>
       </section>
       <section class="api-section">
         <div class="api-section__heading">
@@ -62,7 +75,7 @@
             html-type="submit"
             aria-label="创建密钥"
             :loading="creating"
-            :disabled="!!issuedKey || !!revokingId"
+            :disabled="!!issuedKey || !!revokingId || loading || !requirementsReady"
             ><template #icon><KeyOutlined /></template>创建密钥</a-button
           >
         </a-form>
@@ -88,7 +101,12 @@
               ><code>{{ item.maskedKey }}</code
               ><span
                 >{{ developerKeyStatusLabel(item.status)
-                }}<template v-if="hasModelGrant(item)"> · 已授权此模型</template></span
+                }}<template v-if="hasModelGrant(item)">
+                  ·
+                  {{
+                    publishedKnowledgeIds.length ? '已授权全部所需模型' : '已授权此模型'
+                  }}</template
+                ></span
               >
             </div>
             <a-popconfirm
@@ -144,9 +162,13 @@ import {
 import type { DeveloperKey, IssuedKey } from '../../developer/public.ts'
 import type { Agent } from '../api/index.ts'
 import { getPublishedAgentAccess } from '../presentation.ts'
+import { availableBases } from '../../knowledge/public.ts'
 const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const access = computed(() => getPublishedAgentAccess(props.agent))
+const publishedKnowledgeIds = computed(() => props.agent?.publishedConfig?.knowledgeBaseIds ?? [])
+const requiredModelIds = ref<string[]>([]),
+  requirementsReady = ref(false)
 const endpoint = computed(() =>
   props.agent
     ? `${window.location.origin}/v1/agents/${encodeURIComponent(props.agent.agentId)}/chat/completions`
@@ -156,7 +178,11 @@ const requestExample = computed(
   () => `curl '${endpoint.value}' \
   -H 'Authorization: Bearer <DEVELOPER_API_KEY>' \
   -H 'Content-Type: application/json' \
-  -d '${JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: false }, null, 2)}'`
+  -d '${JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: false, ...(publishedKnowledgeIds.value.length ? { client_request_id: '<STABLE_REQUEST_UUID>' } : {}) }, null, 2)}'`
+)
+const preparationExample = computed(
+  () =>
+    `HTTP 202\n{\n  "kind": "knowledge_preparation",\n  "id": "<PREPARATION_ID>",\n  "status": "waiting_models",\n  "polling_url": "/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>"\n}\n\ncurl '<ORIGIN>/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>' \\\n  -H 'Authorization: Bearer <DEVELOPER_API_KEY>'`
 )
 const keyForm = reactive({ keyName: '' }),
   keys = ref<DeveloperKey[]>([]),
@@ -168,16 +194,33 @@ const keyForm = reactive({ keyName: '' }),
 const readScope = new RequestScope(),
   mutationScope = new RequestScope()
 const hasModelGrant = (key: DeveloperKey): boolean =>
-  key.grants.some((grant) => grant.modelId === access.value?.modelId)
+  requirementsReady.value &&
+  requiredModelIds.value.every((id) => key.grants.some((grant) => grant.modelId === id))
 async function loadKeys(): Promise<void> {
   const binding = access.value
   if (!props.modelValue || !binding) return
   const context = readScope.replace()
   loading.value = true
+  requirementsReady.value = false
   error.value = ''
   try {
-    const result = await listDeveloperKeys(binding.applicationId, context.signal)
-    if (context.isCurrent()) keys.value = result
+    const [result, bases] = await Promise.all([
+      listDeveloperKeys(binding.applicationId, context.signal),
+      publishedKnowledgeIds.value.length
+        ? availableBases(context.signal, props.agent?.agentId)
+        : Promise.resolve([])
+    ])
+    const required = [binding.modelId]
+    for (const id of publishedKnowledgeIds.value) {
+      const base = bases.find((base) => base.id === id)
+      if (!base) throw new Error('已发布知识库不可用，请检查配置后再创建密钥')
+      required.push(base.embed_model_id)
+    }
+    if (context.isCurrent()) {
+      keys.value = result
+      requiredModelIds.value = [...new Set(required)]
+      requirementsReady.value = true
+    }
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -186,7 +229,15 @@ async function loadKeys(): Promise<void> {
 }
 async function createKey(): Promise<void> {
   const binding = access.value
-  if (!binding || creating.value || revokingId.value || issuedKey.value || !keyForm.keyName.trim())
+  if (
+    !binding ||
+    creating.value ||
+    revokingId.value ||
+    issuedKey.value ||
+    loading.value ||
+    !requirementsReady.value ||
+    !keyForm.keyName.trim()
+  )
     return
   const context = mutationScope.replace()
   creating.value = true
@@ -196,7 +247,7 @@ async function createKey(): Promise<void> {
       binding.applicationId,
       {
         name: keyForm.keyName.trim(),
-        model_ids: [binding.modelId],
+        model_ids: [...requiredModelIds.value],
         rpm_limit: 60,
         tpm_limit: null,
         concurrency_limit: 2,
@@ -249,6 +300,8 @@ function reset(): void {
   mutationScope.replace()
   issuedKey.value = null
   keys.value = []
+  requiredModelIds.value = []
+  requirementsReady.value = false
   keyForm.keyName = ''
   error.value = ''
   loading.value = false

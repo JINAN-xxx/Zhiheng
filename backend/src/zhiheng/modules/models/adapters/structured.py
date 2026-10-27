@@ -14,13 +14,13 @@ from zhiheng.modules.models.contracts import ModelDelta, ModelMessage, ProviderE
 
 
 class EmbeddingRow(BaseModel):
-    model_config = ConfigDict(allow_inf_nan=False)
+    model_config = ConfigDict(strict=True, allow_inf_nan=False)
     index: int = Field(ge=0)
-    embedding: list[float] = Field(min_length=1)
+    embedding: list[float] = Field(min_length=1, max_length=65536)
 
 
 class EmbeddingResponse(BaseModel):
-    data: list[EmbeddingRow]
+    data: list[EmbeddingRow] = Field(max_length=256)
     usage: dict[str, object] | None = None
 
 

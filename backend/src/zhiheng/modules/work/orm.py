@@ -57,6 +57,7 @@ class WorkMessage(Base):
     sequence: Mapped[int] = mapped_column(Integer)
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text, default='')
+    knowledge_sources: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     reasoning: Mapped[str] = mapped_column(Text, default='')
     status: Mapped[str] = mapped_column(String(20), default='completed')
     run_id: Mapped[UUID | None] = mapped_column(ForeignKey('runtime_runs.id'), index=True)

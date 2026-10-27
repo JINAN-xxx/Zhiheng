@@ -29,6 +29,7 @@ from zhiheng.modules.files.contracts import (
     RetentionPolicyInfo,
     RetentionPolicyPatch,
     RetentionPolicyRequest,
+    SourceSnapshot,
     TransferRequest,
     VersionRequest,
 )
@@ -76,6 +77,7 @@ __all__ = [
     'RetentionPolicyInfo',
     'RetentionPolicyPatch',
     'RetentionPolicyRequest',
+    'SourceSnapshot',
     'TransferRequest',
     'VersionRequest',
     'schema_tables',

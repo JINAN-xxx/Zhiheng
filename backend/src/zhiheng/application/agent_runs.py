@@ -1,10 +1,13 @@
 import hashlib
 import json
-from uuid import UUID, uuid4
+from dataclasses import asdict
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.agent_management import AgentManagementService, owner
+from zhiheng.application.knowledge_preparation import PreparationStart
 from zhiheng.modules.agents.public import (
     AgentConfig,
     AgentInfo,
@@ -12,12 +15,17 @@ from zhiheng.modules.agents.public import (
     PreviewRequest,
 )
 from zhiheng.modules.developer.public import DeveloperIdentity, KeyService, UsageService
+from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
+from zhiheng.modules.knowledge.public import fingerprint as dependency_fingerprint
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
 from zhiheng.modules.skills.public import require_available, resolve_selection
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+
+if TYPE_CHECKING:
+    from zhiheng.application.knowledge_preparation import KnowledgePreparation
 
 
 class AgentRunService:
@@ -38,9 +46,16 @@ class AgentRunService:
             usage,
             runs,
         )
+        self.knowledge: KnowledgePreparation | None = None
 
     async def preview(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, body: PreviewRequest, token_limit: int
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        body: PreviewRequest,
+        token_limit: int,
+        prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
         fingerprint = hashlib.sha256(
             json.dumps(
@@ -63,6 +78,7 @@ class AgentRunService:
             caller_id=principal.id,
             request_id=body.client_request_id,
             fingerprint=fingerprint,
+            prepared=prepared,
         )
 
     async def public(
@@ -112,6 +128,7 @@ class AgentRunService:
         request_id: UUID,
         fingerprint: str,
         identity: DeveloperIdentity | None = None,
+        prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
         config = (
             agent.published_config
@@ -140,8 +157,12 @@ class AgentRunService:
         # Retrieval is not wired in this slice. Never await external retrieval while
         # holding application/model/agent or budget SQL locks. The knowledge owner
         # will prepare bounded context outside this admission transaction.
-        if config.knowledge_base_ids:
+        if config.knowledge_base_ids and prepared is None:
             raise AppError('knowledge_unavailable', '知识检索服务暂不可用', 503)
+        if prepared and self.knowledge:
+            knowledge_owner = await self.knowledge.knowledge.identity.principal_for_user(session, agent.owner_id)
+            await self.knowledge.check(session, prepared, knowledge_owner)
+            messages = prepared.apply_context(messages)
         resource_type = 'agent_invocation' if identity else 'agent_preview'
         request = ModelRequest(binding=binding, messages=messages)
         run = await self._runs.create(
@@ -174,6 +195,169 @@ class AgentRunService:
             config=config,
             skills=selection,
             published=identity is not None,
-            knowledge=[],
+            knowledge=[hit.model_dump(mode='json') for hit in prepared.hits] if prepared else [],
         )
+        if prepared and self.knowledge:
+            knowledge_owner = await self.knowledge.knowledge.identity.principal_for_user(session, agent.owner_id)
+            await self.knowledge.bind(session, prepared, knowledge_owner, run.id)
         return run
+
+    async def prepare_knowledge_agent(
+        self,
+        principal: Principal,
+        agent_id: UUID,
+        body: PreviewRequest,
+        identity: DeveloperIdentity | None = None,
+        *,
+        response_stream: bool = False,
+    ) -> RunSnapshot | PreparationInfo:
+        assert self.knowledge is not None
+        prep = self.knowledge
+        kind = 'agent_invocation' if identity else 'agent_preview'
+        # Keep the private preview's existing fingerprint and caller namespace.
+        value = hashlib.sha256(
+            json.dumps(
+                [kind, str(agent_id), [message.model_dump() for message in body.messages]]
+                + ([response_stream] if identity else []),
+                ensure_ascii=False,
+                separators=(',', ':'),
+            ).encode()
+        ).hexdigest()
+        request_id = uuid5(identity.key_id, str(body.client_request_id)) if identity else body.client_request_id
+        namespace = identity.key_id if identity else principal.id
+        async with prep.database.sessions.begin() as session:
+            if identity:
+                await self._keys.authorize_identity(session, identity, [], lock=True)
+            agent = await self._agents.get(session, principal, agent_id)
+            config = (
+                agent.published_config
+                if identity
+                else AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
+            )
+            if config is None:
+                raise AppError('agent_not_found', 'Agent is unavailable', 404)
+            if identity and config.application_id != identity.application_id:
+                raise AppError('agent_not_found', 'Agent is unavailable', 404)
+            await self._runs.lock_request(session, principal.id, request_id)
+            existing = await self._runs.existing_request(session, principal.id, request_id, value)
+            if existing:
+                if identity:
+                    await prep.authorize_public_run(session, identity, agent_id, existing.id)
+                return existing
+            intent = await prep.store.existing(session, namespace, request_id, value)
+            if intent:
+                if identity:
+                    original = ModelRequest.model_validate(intent.dependencies['main_request']).binding.model_id
+                    await self._keys.authorize_identity(session, identity, [original], lock=True)
+                return prep.store.info(intent)
+            if identity:
+                await self._keys.authorize_identity(session, identity, [config.model_id], lock=True)
+            binding = await self._management.validate(session, owner(agent), config, publish=identity is not None)
+            selection = (
+                await self._agents.published_selection(session, owner(agent), agent_id, agent.published_version)
+                if identity and agent.published_version
+                else await resolve_selection(session, config.skill_slugs)
+            )
+            dependencies = {
+                'agent_version': agent.version,
+                'config': config.model_dump(mode='json'),
+                'skills_hash': dependency_fingerprint([asdict(item) for item in selection.revisions]),
+                'main_request': ModelRequest(binding=binding, messages=()).model_dump(mode='json'),
+            }
+            if not config.knowledge_base_ids:
+                return await self._admit(
+                    session,
+                    agent,
+                    body,
+                    prep.token_limit,
+                    caller_id=principal.id,
+                    request_id=request_id,
+                    fingerprint=value,
+                    identity=identity,
+                )
+            request: dict[str, object] = {
+                'query': body.messages[-1].content,
+                'body': body.model_dump(mode='json'),
+                'runtime_request_id': str(request_id),
+                'runtime_fingerprint': value,
+            }
+            return await prep.start(
+                session,
+                principal=principal,
+                identity=identity,
+                body=PreparationStart(
+                    owner_id=agent.owner_id,
+                    resource_type=kind,
+                    resource_id=agent_id,
+                    request_id=request_id,
+                    value=value,
+                    request=request,
+                    base_ids=config.knowledge_base_ids,
+                    dependencies=dependencies,
+                    namespace_id=namespace,
+                ),
+            )
+
+    async def finalize_knowledge(
+        self, session: AsyncSession, state: RetrievalState, prepared: PreparedKnowledge
+    ) -> RunSnapshot:
+        assert self.knowledge is not None
+        principal = await self.knowledge.knowledge.identity.principal_for_user(session, state.actor_id)
+        agent = await self._agents.get(session, principal, state.resource_id)
+        identity = (
+            DeveloperIdentity(state.application_id, state.key_id, state.owner_id)
+            if state.key_id is not None and state.application_id is not None
+            else None
+        )
+        config = (
+            agent.published_config
+            if identity
+            else AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
+        )
+        if (
+            config is None
+            or agent.version != state.dependencies['agent_version']
+            or config.model_dump(mode='json') != state.dependencies['config']
+        ):
+            raise AppError('knowledge_preparation_stale', '智能体配置已变化', 409)
+        selection = (
+            await self._agents.published_selection(session, owner(agent), agent.id, agent.published_version)
+            if identity and agent.published_version
+            else await resolve_selection(session, config.skill_slugs)
+        )
+        if dependency_fingerprint([asdict(item) for item in selection.revisions]) != state.dependencies['skills_hash']:
+            raise AppError('knowledge_preparation_stale', '技能依赖已变化', 409)
+        return await self._admit(
+            session,
+            agent,
+            PreviewRequest.model_validate(state.request['body']),
+            self.knowledge.token_limit,
+            caller_id=state.actor_id,
+            request_id=UUID(state.request['runtime_request_id']),
+            fingerprint=state.request['runtime_fingerprint'],
+            identity=identity,
+            prepared=prepared,
+        )
+
+    async def check_knowledge_dependencies(self, session: AsyncSession, state: RetrievalState) -> None:
+        assert self.knowledge is not None
+        principal = await self.knowledge.knowledge.identity.principal_for_user(session, state.owner_id)
+        agent = await self._agents.get(session, principal, state.resource_id)
+        config = (
+            agent.published_config
+            if state.key_id
+            else AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
+        )
+        if (
+            config is None
+            or agent.version != state.dependencies['agent_version']
+            or config.model_dump(mode='json') != state.dependencies['config']
+        ):
+            raise AppError('knowledge_preparation_stale', '智能体配置已变化', 409)
+        selection = (
+            await self._agents.published_selection(session, principal, agent.id, agent.published_version)
+            if state.key_id and agent.published_version
+            else await resolve_selection(session, config.skill_slugs)
+        )
+        if dependency_fingerprint([asdict(item) for item in selection.revisions]) != state.dependencies['skills_hash']:
+            raise AppError('knowledge_preparation_stale', '技能依赖已变化', 409)

@@ -1,6 +1,6 @@
 # 新平台文档
 
-日常开发以实际代码、当前代码规范和首条 AI 链路验收为准。整体架构设计包含后续目标，不能把其中的知识库等规划视为已经实现。
+日常开发以实际代码、当前代码规范和各域验收为准。知识库向量索引与检索已交付；整体架构设计中的 LightRAG 和 MinerU 仍属于后续目标。
 
 | 文档 | 用途 |
 | --- | --- |
@@ -19,6 +19,8 @@
 | [Work计划](superpowers/plans/2026-10-23-work.md) | 已完成的持久任务、冻结成员、单成员执行、共享历史与取消 |
 | [Work验收](superpowers/verification/2026-10-23-work.md) | 原工作界面、真实接力/停止/失联收敛与数据升级 |
 | [受管文件与聊天附件验收](superpowers/verification/2026-10-23-files.md) | 原文件治理、真实解析/图片链路、安装包、迁移和正常实例验证 |
+| [知识库索引与检索验收](superpowers/verification/2026-10-27-knowledge.md) | Milvus、来源权限、四种 AI 组合、消息角色修复及正常实例升级 |
+| [服务恢复与健康检查验收](superpowers/verification/2026-10-26-service-recovery.md) | Redis 原数据恢复、真实就绪状态、配置增量审查与正常实例复测 |
 | [文件、知识库、图谱与MinerU计划](superpowers/plans/2026-10-23-files-knowledge.md) | 受管字节、真实解析/索引/检索、版本化图谱与解析连接的后续分组 |
 | [原前端界面复用计划](superpowers/plans/2026-10-23-preserve-frontend-ui.md) | 已完成登录、工作台、聊天、模型和用量界面适配及部署；验证见 AI 链路验收中的复验记录 |
 | [部署说明](../deploy/core/README.md) | 新实例启动、健康检查和数据备份要求 |

@@ -47,6 +47,8 @@ class DeveloperBoundary(unittest.IsolatedAsyncioTestCase):
             body = [{'id': 'model-1', 'name': '日常助手', 'connection_id': 'connection-1', 'upstream_model': 'upstream-private', 'max_output_tokens': 512, 'model_type': 'chat', 'published': True, 'enabled': True, 'capabilities': ['chat', 'stream']}]
         elif path == '/api/chat/conversations':
             body = []
+        elif path == '/api/knowledge/available':
+            body = []
         elif path == '/api/developer/applications':
             if method == 'POST':
                 payload = route.request.post_data_json

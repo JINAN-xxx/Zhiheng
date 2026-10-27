@@ -1,3 +1,5 @@
+import re
+
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -27,7 +29,10 @@ class RequestOriginMiddleware:
                 )
                 await response(scope, receive, send)
                 return
-            upload = scope['path'] in {'/api/skills/import/prepare', '/api/files'} and scope['method'] == 'POST'
+            upload = scope['method'] == 'POST' and (
+                scope['path'] in {'/api/skills/import/prepare', '/api/files'}
+                or re.fullmatch(r'/api/knowledge/bases/[0-9a-fA-F-]{36}/uploads', scope['path']) is not None
+            )
             content_types = request.headers.getlist('content-type')
             content_type = content_types[0].split(';', 1)[0].strip().lower() if len(content_types) == 1 else ''
             expected = 'application/octet-stream' if upload else 'application/json'
@@ -43,7 +48,7 @@ class RequestOriginMiddleware:
         await self._app(scope, receive, send)
 
     async def _upload(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
-        limit = (20 if scope['path'] == '/api/files' else 10) * 1024 * 1024
+        limit = (10 if scope['path'] == '/api/skills/import/prepare' else 20) * 1024 * 1024
         lengths = request.headers.getlist('content-length')
         if len(lengths) > 1 or (lengths and (not lengths[0].isascii() or not lengths[0].isdigit())):
             await JSONResponse(

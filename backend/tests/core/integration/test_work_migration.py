@@ -35,15 +35,7 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
             .all()
         )
         snapshots = {
-            name: (
-                await connection.execute(
-                    text(
-                        f"SELECT to_jsonb(t)::text FROM {name} t ORDER BY 1"
-                    )
-                )
-            )
-            .scalars()
-            .all()
+            name: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {name} t ORDER BY 1'))).scalars().all()
             for name in names
         }
     await migrate(container.settings)
@@ -52,7 +44,7 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
         return compare_metadata(MigrationContext.configure(connection), schema_metadata())
 
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0006_files'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_knowledge'
         for name in names:
             assert (
                 await connection.execute(

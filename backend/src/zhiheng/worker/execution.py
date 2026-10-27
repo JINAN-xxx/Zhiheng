@@ -13,5 +13,6 @@ async def execute_run(container: Container, run_id: UUID) -> None:
         provider_factory=container.prepare_provider,
         lease_seconds=container.settings.lease_seconds,
         timeout_seconds=container.settings.provider_timeout_seconds,
+        before_provider=container.require_model_execution,
     )
     await executor.execute(run_id)

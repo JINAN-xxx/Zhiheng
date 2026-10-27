@@ -104,6 +104,21 @@ class RunStore:
             raise AppError('run_not_found', '运行不存在', 404)
         return self._snapshot(row)
 
+    async def resource_payload(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> dict[str, object]:
+        """Frozen input after application authorization of the owning resource."""
+        row = await session.scalar(
+            select(Run).where(
+                Run.id == run_id,
+                Run.resource_type == resource_type,
+                Run.resource_id == resource_id,
+            )
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return dict(row.payload)
+
     async def resource_cancel(
         self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
     ) -> tuple[RunSnapshot, bool]:
@@ -253,7 +268,7 @@ class RunStore:
         return RunSnapshot(
             id=row.id,
             resource_type=cast(
-                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn']",
+                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn', 'knowledge_embedding']",
                 row.resource_type,
             ),
             resource_id=row.resource_id,

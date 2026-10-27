@@ -74,9 +74,12 @@ class CapturingCompletions:
         # the same isolated SDK client; LangChain accepts these wire chunks.
         stream = await self._source.post(
             '/chat/completions',
-            cast_to=dict[str, object],
+            # A runtime class avoids GenericAlias/issubclass incompatibility in
+            # the SDK's protocol check on Python 3.10.
+            cast_to=dict,
             body=kwargs,
             stream=True,
-            stream_cls=AsyncStream[dict[str, object]],
+            # The SDK derives its cast from this runtime parameter as well.
+            stream_cls=AsyncStream[dict],  # type: ignore[type-arg]
         )
         return CapturingStream(stream, self._usage)

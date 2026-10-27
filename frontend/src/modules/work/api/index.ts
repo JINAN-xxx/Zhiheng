@@ -1,6 +1,8 @@
 import { decodeVoid, http } from '../../../shared/http.ts'
 import { followRun, parseRunSnapshot } from '../../../shared/stream.ts'
 import type { RunSnapshot, RunStatus } from '../../../shared/stream.ts'
+import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
+import type { KnowledgeHit } from '../../knowledge/public.ts'
 import {
   boolean,
   list,
@@ -26,6 +28,7 @@ export interface WorkMember {
   removedAt: string | null
 }
 export interface WorkMessage {
+  knowledgeSources: KnowledgeHit[]
   messageId: string
   clientRequestId: string
   role: 'user' | 'assistant'
@@ -42,6 +45,7 @@ export interface WorkMessage {
   createdAt: string
 }
 export interface WorkSummary {
+  preparationId: string | null
   taskId: string
   ownerId: string
   title: string
@@ -88,6 +92,7 @@ function parseRunStatus(value: unknown): RunStatus {
 function parseSummary(value: unknown): WorkSummary {
   const data = object(value)
   return {
+    preparationId: data.preparation_id == null ? null : string(data.preparation_id),
     taskId: string(data.id),
     ownerId: string(data.owner_id),
     title: string(data.title),
@@ -109,6 +114,8 @@ function parseMessage(value: unknown): WorkMessage {
   if (usage && usage.status !== 'pending' && usage.status !== 'known' && usage.status !== 'unknown')
     throw new Error('工作用量无效')
   return {
+    knowledgeSources:
+      data.knowledge_sources === undefined ? [] : list(parseKnowledgeHit)(data.knowledge_sources),
     messageId: string(data.id),
     clientRequestId: string(data.client_request_id),
     role: data.role,
@@ -225,7 +232,7 @@ export const admitTurn = (
   body: { agent_id: string; client_request_id: string; message: string; expected_version: number },
   signal: AbortSignal
 ) =>
-  http.request(`${taskPath(id)}/runs`, { method: 'POST', body, signal, decode: parseRunSnapshot })
+  http.request(`${taskPath(id)}/runs`, { method: 'POST', body, signal, decode: parseRunAdmission })
 export const getWorkRun = (taskId: string, runId: string, signal: AbortSignal) =>
   http.request(runPath(taskId, runId), { signal, decode: parseRunSnapshot })
 export const cancelWorkRun = (taskId: string, runId: string, signal: AbortSignal) =>

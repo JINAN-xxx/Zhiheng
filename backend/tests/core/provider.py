@@ -12,6 +12,7 @@ class ProviderServer(ThreadingHTTPServer):
         self.requests: list[dict[str, object]] = []
         self.request_headers: list[dict[str, str]] = []
         self.release = threading.Event()
+        self.embedding_zero = False
         super().__init__(('127.0.0.1', 0), ProviderHandler)
 
 
@@ -95,6 +96,9 @@ class ProviderHandler(BaseHTTPRequestHandler):
                 ],
                 'usage': {'prompt_tokens': 6, 'total_tokens': 6},
             }
+            if self.server.embedding_zero:
+                for row in response['data']:
+                    row['embedding'] = [0.0, 0.0]
         else:
             response = {
                 'results': [{'index': 0, 'relevance_score': 0.9}],

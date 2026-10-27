@@ -5,6 +5,15 @@ import type { ContextTicket } from '../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../shared/stream.ts'
 import type { RunSnapshot } from '../../shared/stream.ts'
 import { identity } from '../identity/public.ts'
+import {
+  cancelPreparation,
+  getPreparation,
+  isPreparation,
+  observePreparation,
+  projectPreparation,
+  preparationFinished
+} from '../knowledge/public.ts'
+import type { KnowledgePreparation } from '../knowledge/public.ts'
 import * as api from './api/index.ts'
 import type {
   WorkAgent,
@@ -36,6 +45,13 @@ function createWorkWorkspace() {
   const runError = ref(''),
     disconnected = ref(false),
     activeRun = ref<RunSnapshot | null>(null)
+  const activePreparation = ref<KnowledgePreparation | null>(null)
+  const stopAcknowledged = computed(() => {
+    const preparation = activePreparation.value
+    return preparation && !preparationFinished(preparation)
+      ? preparation.status === 'cancel_requested'
+      : activeRun.value?.status === 'cancel_requested'
+  })
   const retryKind = ref<'' | 'unstarted' | 'uncertain' | 'failed'>('')
   const listScope = new RequestScope(),
     taskScope = new RequestScope(),
@@ -44,6 +60,8 @@ function createWorkWorkspace() {
     createScope = new RequestScope(),
     observeScope = new RequestScope()
   const intents = new Map<string, WorkIntent>()
+  const pendingStops = reactive(new Set<string>())
+  const stopOperations = new Map<string, Promise<void>>()
   // Preserve busy and uncertain admissions across navigation; only newer server facts release them.
   const taskLocks = reactive(new Map<string, number>())
   let pendingCreate: CreateIntent | null = null
@@ -53,12 +71,17 @@ function createWorkWorkspace() {
       admitting.value ||
       mutating.value ||
       stopping.value ||
+      Boolean(currentTask.value && pendingStops.has(currentTask.value.taskId)) ||
       Boolean(currentTask.value?.currentRunId) ||
+      Boolean(currentTask.value?.preparationId) ||
+      Boolean(activePreparation.value && !preparationFinished(activePreparation.value)) ||
       Boolean(activeRun.value && !isTerminal(activeRun.value))
   )
   const canStop = computed(
     () =>
       Boolean(currentTask.value?.currentRunId) ||
+      Boolean(currentTask.value?.preparationId) ||
+      Boolean(activePreparation.value && !preparationFinished(activePreparation.value)) ||
       Boolean(activeRun.value && !isTerminal(activeRun.value))
   )
   const submissionBlocked = computed(
@@ -74,8 +97,11 @@ function createWorkWorkspace() {
   function recordTask(task: WorkSummary): void {
     const lock = taskLocks.get(task.taskId)
     if (lock !== undefined && task.version < lock) return
-    if (task.currentRunId) taskLocks.set(task.taskId, task.version)
-    else if (!intents.has(task.taskId)) taskLocks.delete(task.taskId)
+    if (task.currentRunId || task.preparationId) taskLocks.set(task.taskId, task.version)
+    else if (!intents.has(task.taskId)) {
+      taskLocks.delete(task.taskId)
+      pendingStops.delete(task.taskId)
+    }
   }
   function isTaskBusy(taskId: string): boolean {
     return (
@@ -127,6 +153,7 @@ function createWorkWorkspace() {
     )
       return
     activeRun.value = run
+    if (isTerminal(run) || run.status === 'cancel_requested') pendingStops.delete(taskId)
     const reply = task.messages.find(
       (message) => message.role === 'assistant' && message.runId === run.id
     )
@@ -155,6 +182,12 @@ function createWorkWorkspace() {
     }
     disconnected.value = false
     try {
+      if (pendingStops.has(taskId) && !isTerminal(run)) {
+        await cancelRun(false)
+        if (!context.isCurrent()) return
+        if (activeRun.value?.id === run.id) run = activeRun.value
+        if (pendingStops.has(taskId)) throw new Error('停止结果待确认，请恢复查看')
+      }
       const terminal = await api.observeWorkRun(
         taskId,
         run,
@@ -180,6 +213,80 @@ function createWorkWorkspace() {
       }
     }
   }
+  function updatePreparation(value: KnowledgePreparation, taskId: string): KnowledgePreparation {
+    if (value.resource_type !== 'work_turn' || value.resource_id !== taskId)
+      throw new Error('知识检索准备与当前工作不匹配')
+    value = projectPreparation(activePreparation.value, value)
+    activePreparation.value = value
+    if (
+      value.status === 'cancel_requested' ||
+      (preparationFinished(value) && value.status !== 'admitted')
+    )
+      pendingStops.delete(taskId)
+    return value
+  }
+  async function followKnowledge(
+    initial: KnowledgePreparation,
+    taskId: string,
+    parent: ContextTicket
+  ): Promise<boolean> {
+    if (initial.resource_type !== 'work_turn' || initial.resource_id !== taskId)
+      throw new Error('知识检索准备与当前工作不匹配')
+    const observation = observeScope.replace()
+    const context: ContextTicket = {
+      signal: AbortSignal.any([parent.signal, observation.signal]),
+      isCurrent: () =>
+        parent.isCurrent() && observation.isCurrent() && currentTask.value?.taskId === taskId
+    }
+    initial = updatePreparation(initial, taskId)
+    if (currentTask.value) currentTask.value.preparationId = initial.id
+    runError.value = ''
+    disconnected.value = false
+    try {
+      if (pendingStops.has(taskId) && !preparationFinished(initial)) {
+        await cancelRun(false)
+        if (!context.isCurrent()) return false
+        if (pendingStops.has(taskId))
+          throw new Error(runError.value || '停止结果待确认，请恢复查看')
+        initial = activePreparation.value ?? initial
+      }
+      const final = await observePreparation(
+        initial,
+        (value) => {
+          if (!context.isCurrent()) return
+          return updatePreparation(value, taskId)
+        },
+        context.signal
+      )
+      if (!context.isCurrent()) return false
+      const priorIntent = intents.get(taskId)
+      intents.delete(taskId)
+      const task = await refreshTask(taskId, context)
+      if (!task) return false
+      if (final.run) {
+        if (activeRun.value?.id !== final.run.id) activeRun.value = null
+        applyRun(final.run, taskId)
+        void follow(activeRun.value ?? final.run, taskId, parent)
+        return true
+      }
+      if (task.preparationId || task.currentRunId)
+        throw new Error('知识检索已结束，工作状态尚未确认，请恢复查看')
+      retryKind.value = priorIntent ? 'failed' : ''
+      if (priorIntent) intents.set(taskId, priorIntent)
+      runError.value =
+        final.error?.message ??
+        (final.status === 'cancelled'
+          ? '知识检索已取消，可重新发送'
+          : '知识检索未完成，请检查知识库后重新发送')
+      void loadTasks()
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) {
+        runError.value = report(reason)
+        disconnected.value = true
+      }
+    }
+    return false
+  }
   function stopLocalActivity(): void {
     taskScope.replace()
     observeScope.replace()
@@ -197,6 +304,7 @@ function createWorkWorkspace() {
     stopLocalActivity()
     currentTask.value = null
     activeRun.value = null
+    activePreparation.value = null
     runError.value = ''
     detailError.value = ''
     retryKind.value = ''
@@ -207,6 +315,7 @@ function createWorkWorkspace() {
     const context = taskScope.current()
     currentTask.value = null
     activeRun.value = null
+    activePreparation.value = null
     detailLoading.value = true
     detailError.value = ''
     runError.value = ''
@@ -226,7 +335,11 @@ function createWorkWorkspace() {
       }
       detailLoading.value = false
       void loadAvailableAgents(taskId)
-      if (task.currentRunId) {
+      if (task.preparationId) {
+        const preparation = await getPreparation(task.preparationId, context.signal)
+        if (!context.isCurrent()) return
+        void followKnowledge(preparation, taskId, context)
+      } else if (task.currentRunId) {
         const run = await api.getWorkRun(taskId, task.currentRunId, context.signal)
         if (!context.isCurrent()) return
         intents.delete(taskId)
@@ -267,7 +380,10 @@ function createWorkWorkspace() {
       }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) {
-        if (currentTask.value?.taskId === taskId && currentTask.value.currentRunId) {
+        if (
+          currentTask.value?.taskId === taskId &&
+          (currentTask.value.currentRunId || currentTask.value.preparationId)
+        ) {
           runError.value = report(reason)
           disconnected.value = true
         } else detailError.value = report(reason)
@@ -355,7 +471,7 @@ function createWorkWorkspace() {
     runError.value = ''
     retryKind.value = ''
     try {
-      const run = await api.admitTurn(
+      const admission = await api.admitTurn(
         task.taskId,
         {
           agent_id: intent.agentId,
@@ -366,6 +482,14 @@ function createWorkWorkspace() {
         context.signal
       )
       if (!context.isCurrent() || currentTask.value?.taskId !== task.taskId) return false
+      if (isPreparation(admission)) {
+        if (activeRun.value?.id !== admission.run?.id) activeRun.value = null
+        currentTask.value.preparationId = admission.id
+        activePreparation.value = admission
+        admitting.value = false
+        return await followKnowledge(admission, task.taskId, context)
+      }
+      const run = admission
       intents.delete(task.taskId)
       taskLocks.set(task.taskId, Math.max(task.version + 1, taskLocks.get(task.taskId) ?? 0))
       activeRun.value = null
@@ -403,7 +527,10 @@ function createWorkWorkspace() {
     }
     const pending = intents.get(task.taskId)
     if (pending) {
-      await runMessage({ agentId: pending.agentId, message: pending.message }, true)
+      if (retryKind.value === 'failed') {
+        intents.delete(task.taskId)
+        await runMessage({ agentId: pending.agentId, message: pending.message })
+      } else await runMessage({ agentId: pending.agentId, message: pending.message }, true)
       return
     }
     const latest = [...task.messages].reverse().find((message) => message.role === 'assistant')
@@ -421,9 +548,17 @@ function createWorkWorkspace() {
     const task = currentTask.value
     if (!task) return
     const context = taskScope.current()
+    const operation = stopOperations.get(task.taskId)
+    if (operation) await operation
+    if (!context.isCurrent()) return
     try {
       const refreshed = await refreshTask(task.taskId, context)
       if (!refreshed) return
+      if (refreshed.preparationId) {
+        const preparation = await getPreparation(refreshed.preparationId, context.signal)
+        if (context.isCurrent()) void followKnowledge(preparation, task.taskId, context)
+        return
+      }
       const runId = refreshed.currentRunId ?? activeRun.value?.id
       if (!runId) {
         disconnected.value = false
@@ -438,28 +573,60 @@ function createWorkWorkspace() {
       if (context.isCurrent() && !isAborted(reason)) runError.value = report(reason)
     }
   }
-  async function cancelRun(): Promise<void> {
+  function cancelRun(observe = true): Promise<void> {
     const task = currentTask.value,
       runId = task?.currentRunId ?? activeRun.value?.id
-    if (!task || !runId || stopping.value || admitting.value) return
+    const preparationId =
+      task?.preparationId ??
+      (!runId && activePreparation.value && !preparationFinished(activePreparation.value)
+        ? activePreparation.value.id
+        : null)
+    if (!task || (!runId && !preparationId) || admitting.value) return Promise.resolve()
+    if (stopAcknowledged.value) return Promise.resolve()
+    pendingStops.add(task.taskId)
+    const existing = stopOperations.get(task.taskId)
+    if (existing) return existing
     const context = taskScope.current()
     stopping.value = true
-    try {
-      const run = await api.cancelWorkRun(task.taskId, runId, context.signal)
-      if (!context.isCurrent()) return
-      applyRun(run, task.taskId)
-      runError.value = ''
-      disconnected.value = false
-      if (isTerminal(run)) await refreshTask(task.taskId, context)
-      else void follow(run, task.taskId, context)
-    } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) {
-        runError.value = report(reason)
-        disconnected.value = true
+    const operation = (async () => {
+      try {
+        if (preparationId) {
+          const value = await cancelPreparation(preparationId, context.signal)
+          if (!context.isCurrent()) return
+          updatePreparation(value, task.taskId)
+          if (value.run) {
+            const stopped =
+              isTerminal(value.run) || value.run.status === 'cancel_requested'
+                ? value.run
+                : await api.cancelWorkRun(task.taskId, value.run.id, context.signal)
+            if (!context.isCurrent()) return
+            applyRun(stopped, task.taskId)
+            if (observe) void follow(stopped, task.taskId, context)
+          } else if (observe) void followKnowledge(value, task.taskId, context)
+          return
+        }
+        if (!runId) return
+        const run = await api.cancelWorkRun(task.taskId, runId, context.signal)
+        if (!context.isCurrent()) return
+        applyRun(run, task.taskId)
+        runError.value = ''
+        disconnected.value = false
+        if (isTerminal(run)) await refreshTask(task.taskId, context)
+        else if (observe) void follow(run, task.taskId, context)
+      } catch (reason) {
+        if (context.isCurrent() && !isAborted(reason)) {
+          runError.value = report(reason)
+          disconnected.value = true
+        }
+      } finally {
+        if (context.isCurrent()) stopping.value = false
       }
-    } finally {
-      if (context.isCurrent()) stopping.value = false
-    }
+    })()
+    stopOperations.set(task.taskId, operation)
+    void operation.then(() => {
+      if (stopOperations.get(task.taskId) === operation) stopOperations.delete(task.taskId)
+    })
+    return operation
   }
   async function mutate(
     operation: (task: WorkTask, signal: AbortSignal) => Promise<WorkTask>
@@ -516,6 +683,8 @@ function createWorkWorkspace() {
     ])
       scope.dispose()
     intents.clear()
+    pendingStops.clear()
+    stopOperations.clear()
     taskLocks.clear()
     pendingCreate = null
     tasks.value = []
@@ -539,6 +708,7 @@ function createWorkWorkspace() {
     admitting,
     mutating,
     stopping,
+    stopAcknowledged,
     runLocked,
     canStop,
     isTaskBusy,

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.developer.public import KeyService
+from zhiheng.modules.knowledge.public import KnowledgeService
 from zhiheng.modules.models.public import ConnectionInfo, ModelInfo, ModelService
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
@@ -20,9 +21,11 @@ class ModelManagementService:
         keys: KeyService,
         agents: AgentService,
         work: WorkService | None = None,
+        knowledge: KnowledgeService | None = None,
     ) -> None:
         self._work = work or WorkService()
         self._models, self._runs, self._keys, self._agents = models, runs, keys, agents
+        self._knowledge = knowledge
 
     async def delete_connection(
         self, session: AsyncSession, principal: Principal, connection_id: UUID
@@ -38,7 +41,8 @@ class ModelManagementService:
 
     async def _model_referenced(self, session: AsyncSession, model_id: UUID) -> bool:
         return (
-            await self._work.references_model(session, model_id)
+            bool(self._knowledge and await self._knowledge.references_model(session, model_id))
+            or await self._work.references_model(session, model_id)
             or await self._agents.references_model(session, model_id)
             or await self._keys.references_model(session, model_id)
             or await self._runs.references_model(session, model_id)

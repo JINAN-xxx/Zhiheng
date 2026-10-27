@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.modules.chat.contracts import ConversationInfo, MessageInfo, SkillSnapshot
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.files.public import AttachmentSummary, PreparedAttachment
+from zhiheng.modules.knowledge.public import Hit
 from zhiheng.modules.models.public import ModelImage, ModelMessage
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -64,6 +65,7 @@ class ChatService:
         return [
             MessageInfo(
                 attachments=[AttachmentSummary.model_validate(value) for value in row.attachments],
+                knowledge_sources=[Hit.model_validate(value) for value in row.knowledge_sources],
                 id=row.id,
                 role=cast("Literal['user', 'assistant']", row.role),
                 content=row.content,
@@ -102,6 +104,7 @@ class ChatService:
         content: str,
         skill_snapshots: Sequence[SkillSnapshot] = (),
         attachments: Sequence[PreparedAttachment] = (),
+        knowledge_sources: Sequence[Hit] = (),
     ) -> None:
         session.add(
             ChatMessage(
@@ -110,6 +113,7 @@ class ChatService:
                 role='user',
                 content=content,
                 attachments=[value.summary.model_dump(mode='json') for value in attachments],
+                knowledge_sources=[value.model_dump(mode='json') for value in knowledge_sources],
                 attachment_inputs=[value.model_dump(mode='json') for value in attachments],
                 skill_snapshots=[value.model_dump(mode='json') for value in skill_snapshots],
             )
@@ -126,6 +130,9 @@ class ChatService:
     async def complete(
         self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str, reasoning: str = ''
     ) -> None:
+        sources = await session.scalar(
+            select(ChatMessage.knowledge_sources).where(ChatMessage.run_id == run_id, ChatMessage.role == 'user')
+        )
         await session.execute(update(ChatMessage).where(ChatMessage.run_id == run_id).values(is_complete=True))
         session.add(
             ChatMessage(
@@ -134,6 +141,7 @@ class ChatService:
                 role='assistant',
                 content=content,
                 reasoning=reasoning,
+                knowledge_sources=sources or [],
                 is_complete=True,
             )
         )

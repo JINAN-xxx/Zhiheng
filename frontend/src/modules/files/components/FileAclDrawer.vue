@@ -1,6 +1,6 @@
 <!-- Adapted from original FileAclDrawer, MIT licensed. -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -19,8 +19,12 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { findFileUsers, getFileAcl, saveFileAcl } from '../api/index.ts'
 import type { FileAcl, FileAclEntry, FileUser, ManagedFile } from '../api/index.ts'
 import { isoDateTime, localDateTime } from '../presentation.ts'
-const props = defineProps<{ users: FileUser[] }>()
-const emit = defineEmits<{ refresh: [] }>()
+const props = defineProps<{
+  users: FileUser[]
+  file?: ManagedFile | null
+  userLookup?: (search: string, signal: AbortSignal) => Promise<FileUser[]>
+}>()
+const emit = defineEmits<{ refresh: []; close: [] }>()
 interface Entry {
   key: string
   userId: string | undefined
@@ -64,7 +68,7 @@ const effectOptions = [
   { label: '拒绝下载', value: 'deny' }
 ]
 const builtinLabels = { admin: '平台管理员', owner: '文件所有者', uploader: '文件上传人' }
-function close(): void {
+function reset(): void {
   scope.replace()
   writeScope.replace()
   for (const search of searches.values()) search.dispose()
@@ -75,8 +79,12 @@ function close(): void {
   entries.value = []
   acls.value = []
 }
+function close(): void {
+  reset()
+  emit('close')
+}
 async function open(files: ManagedFile[]): Promise<void> {
-  close()
+  reset()
   if (!files.length) return
   const context = scope.replace()
   visible.value = true
@@ -137,7 +145,7 @@ async function searchUsers(row: Entry, keyword: string): Promise<void> {
   const context = search.replace()
   row.loading = true
   try {
-    const users = await findFileUsers(keyword, context.signal)
+    const users = await (props.userLookup ?? findFileUsers)(keyword, context.signal)
     if (context.isCurrent() && visible.value && entries.value.some((item) => item.key === row.key))
       row.users = users
   } catch (reason) {
@@ -201,12 +209,20 @@ async function submit(): Promise<void> {
     if (context.isCurrent()) saving.value = false
   }
 }
+watch(
+  () => props.file,
+  (file) => {
+    if (file) void open([file])
+    else if (file === null) reset()
+  },
+  { immediate: true }
+)
 onBeforeUnmount(() => {
   scope.dispose()
   writeScope.dispose()
   for (const search of searches.values()) search.dispose()
 })
-defineExpose({ open })
+defineExpose({ open, close })
 </script>
 <template>
   <ResourceDrawer :open="visible" :title="title" width="70%" @close="close">

@@ -30,6 +30,14 @@ REQUIRED_MEMBERS = (
     'zhiheng/modules/files/jobs.py',
     'zhiheng/infrastructure/file_storage.py',
     'zhiheng/modules/knowledge/adapters/native_worker.py',
+    'zhiheng/modules/knowledge/adapters/milvus.py',
+        'zhiheng/modules/knowledge/adapters/milvus_rpc.py',
+    'zhiheng/modules/knowledge/build.py',
+    'zhiheng/modules/knowledge/retrieval.py',
+    'zhiheng/modules/knowledge/generations.py',
+    'zhiheng/application/knowledge_preparation.py',
+    'zhiheng/application/knowledge_jobs.py',
+    'zhiheng/api/routes/knowledge.py',
     *(
         f'zhiheng_platform-0.1.0.data/data/share/zhiheng/migrations/{name}'
         for name in (
@@ -40,6 +48,7 @@ REQUIRED_MEMBERS = (
             'versions/0004_agents.py',
             'versions/0005_work.py',
             'versions/0006_files.py',
+            'versions/0007_knowledge.py',
         )
     ),
 )
@@ -87,7 +96,15 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
 
 @pytest.mark.parametrize(
     'revision',
-    ['0001_core.py', '0002_developer.py', '0003_skills.py', '0004_agents.py', '0005_work.py', '0006_files.py'],
+    [
+        '0001_core.py',
+        '0002_developer.py',
+        '0003_skills.py',
+        '0004_agents.py',
+        '0005_work.py',
+        '0006_files.py',
+        '0007_knowledge.py',
+    ],
 )
 def test_requires_all_database_migration_revisions(
     verify_wheel: Callable[[Path], Path], tmp_path: Path, revision: str

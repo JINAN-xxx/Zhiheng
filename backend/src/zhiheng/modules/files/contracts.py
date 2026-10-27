@@ -163,6 +163,17 @@ class PreparedAttachment(BaseModel):
     image_data: str | None = None
 
 
+class SourceSnapshot(BaseModel):
+    """A business source reference, independent of user message attachments."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+    file_id: UUID
+    version: int
+    acl_version: int
+    sha256: str
+    artifact_file_id: UUID | None = None
+
+
 class AclEntry(BaseModel):
     model_config = ConfigDict(extra='forbid')
     user_id: UUID

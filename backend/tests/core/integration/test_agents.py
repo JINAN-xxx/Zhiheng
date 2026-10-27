@@ -141,12 +141,9 @@ async def test_agent_strict_validation(admin: httpx.AsyncClient, model_id: str, 
 
 @pytest.mark.asyncio
 async def test_knowledge_fails_explicitly_and_owner_is_hidden(admin: httpx.AsyncClient, model_id: str) -> None:
-    agent = (await admin.post('/api/agents', json=config(model_id, knowledge_base_ids=[str(uuid4())]))).json()
-    response = await admin.post(
-        f'/api/agents/{agent["id"]}/preview',
-        json={'client_request_id': str(uuid4()), 'messages': [{'role': 'user', 'content': 'q'}]},
-    )
-    assert response.status_code == 503 and response.json()['error']['code'] == 'knowledge_unavailable'
+    response = await admin.post('/api/agents', json=config(model_id, knowledge_base_ids=[str(uuid4())]))
+    assert response.status_code == 404 and response.json()['error']['code'] == 'knowledge_not_found'
+    agent = (await admin.post('/api/agents', json=config(model_id))).json()
     await admin.post('/api/auth/logout')
     await admin.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
     assert (await admin.get(f'/api/agents/{agent["id"]}')).status_code == 404
@@ -413,9 +410,13 @@ async def test_public_governance_precedes_knowledge_context(
     admin: httpx.AsyncClient, model_id: str, app: object, provider: object
 ) -> None:
     application, key = await provision(admin, model_id)
+    from tests.core.integration.test_knowledge_failures import ready_base
+
+    base = await ready_base(admin, app, provider)
+    provider.requests.clear()
     agent = (
         await admin.post(
-            '/api/agents', json=config(model_id, application_id=application, knowledge_base_ids=[str(uuid4())])
+            '/api/agents', json=config(model_id, application_id=application, knowledge_base_ids=[base['id']])
         )
     ).json()
     await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
@@ -440,7 +441,13 @@ async def test_public_governance_precedes_knowledge_context(
     )
     assert quota.status_code == 429 and quota.json()['error']['code'] == 'rate_limit_exceeded'
     unavailable = await admin.post(endpoint, headers={'Authorization': 'Bearer ' + key['api_key']}, json=body)
-    assert unavailable.status_code == 503 and unavailable.json()['error']['code'] == 'knowledge_unavailable'
+    assert unavailable.status_code == 422 and unavailable.json()['error']['code'] == 'stable_request_id_required'
+    missing_grant = await admin.post(
+        endpoint,
+        headers={'Authorization': 'Bearer ' + key['api_key']},
+        json={**body, 'client_request_id': str(uuid4())},
+    )
+    assert missing_grant.status_code == 404 and missing_grant.json()['error']['code'] == 'model_not_found'
     assert provider.requests == []
     async with app.state.container.database.sessions() as session:
         assert (await session.scalars(select(Run).where(Run.resource_type == 'agent_invocation'))).all() == []

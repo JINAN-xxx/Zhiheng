@@ -369,6 +369,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(round(desktop['x']), 230)
         self.assertEqual(round((await self.page.locator('.model-workspace').bounding_box())['x']), 230)
         await self.page.set_viewport_size({'width': 375, 'height': 812})
+        await expect(self.page.locator('.platform-shell__sidebar')).to_be_hidden()
         await expect(self.page.locator('.ai-model-center')).to_have_css('padding', '0px')
         mobile = await self.page.locator('.ai-model-center').bounding_box()
         self.assertEqual(round(mobile['x']), 20)

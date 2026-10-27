@@ -22,6 +22,7 @@
         <time>{{ formatTime(message.createdAt) }}</time>
       </div>
       <p>{{ message.content }}</p>
+      <KnowledgeSources :sources="message.knowledgeSources" />
       <details v-if="message.reasoningContent" class="work-message__reasoning">
         <summary>查看推理过程</summary>
         <p>{{ message.reasoningContent }}</p>
@@ -37,6 +38,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { Empty as AEmpty, Tag as ATag } from 'ant-design-vue'
+import { KnowledgeSources } from '../../knowledge/public.ts'
 import type { WorkMessage } from '../api/index.ts'
 import type { RunSnapshot, RunStatus } from '../../../shared/stream.ts'
 import { runStatusLabel } from '../../../shared/stream.ts'

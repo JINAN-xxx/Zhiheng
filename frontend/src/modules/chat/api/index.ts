@@ -1,7 +1,9 @@
 import { decodeVoid, http } from '../../../shared/http.ts'
-import { parseRunSnapshot } from '../../../shared/stream.ts'
+import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
+import type { KnowledgeHit } from '../../knowledge/public.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
 export interface Conversation {
+  preparation_id: string | null
   version: number
   archived: boolean
   id: string
@@ -18,6 +20,7 @@ export interface ChatAttachment {
   parser_version: string | null
 }
 export interface ChatMessage {
+  knowledge_sources: KnowledgeHit[]
   attachments: ChatAttachment[]
   id: string
   role: 'user' | 'assistant'
@@ -30,6 +33,7 @@ export interface ChatMessage {
 function parseConversation(value: unknown): Conversation {
   const data = object(value)
   return {
+    preparation_id: data.preparation_id == null ? null : string(data.preparation_id),
     id: string(data.id),
     title: string(data.title),
     created_at: string(data.created_at),
@@ -41,6 +45,8 @@ function parseMessage(value: unknown): ChatMessage {
   const data = object(value)
   if (data.role !== 'user' && data.role !== 'assistant') throw new Error('不支持的消息角色')
   return {
+    knowledge_sources:
+      data.knowledge_sources === undefined ? [] : list(parseKnowledgeHit)(data.knowledge_sources),
     attachments:
       data.attachments === undefined
         ? []
@@ -102,6 +108,7 @@ export const sendMessage = (
     client_request_id: string
     skill_slugs?: readonly string[]
     file_ids?: readonly string[]
+    knowledge_base_ids?: readonly string[]
   },
   signal: AbortSignal
 ) =>
@@ -109,7 +116,7 @@ export const sendMessage = (
     method: 'POST',
     body,
     signal,
-    decode: parseRunSnapshot
+    decode: parseRunAdmission
   })
 export { getRun, cancelRun, observeRun } from '../../../shared/runs.ts'
 

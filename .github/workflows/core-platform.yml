@@ -71,6 +71,18 @@ jobs:
         run: |
           python -m ruff check --config ruff.toml src tests/core
           python -m ruff format --check --config ruff.toml src tests/core
+      - name: Start an independent vector service for integration tests
+        run: |
+          ./deploy.sh --env-file "$RUNNER_TEMP/core-vector.env" init
+          cat > "$RUNNER_TEMP/core-vector-ports.yml" <<'YAML'
+          services:
+            milvus:
+              ports:
+                - '127.0.0.1::19530'
+          YAML
+          docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors up --detach --wait milvus
+          vector_address="$(docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors port milvus 19530)"
+          echo "ZHIHENG_TEST_MILVUS_URI=http://$vector_address" >> "$GITHUB_ENV"
       - name: Run PostgreSQL, Redis and local model integration tests
         working-directory: backend
         run: python -m pytest tests/core -q
@@ -121,6 +133,10 @@ jobs:
           python tests/browser/work_regressions.py
           python tests/browser/files_regressions.py
           python tests/browser/chat_files_regressions.py
+          python tests/browser/knowledge_regressions.py
+          python tests/browser/knowledge_preparation_regressions.py
+          python tests/browser/knowledge_lifecycle_regressions.py
+          python tests/browser/knowledge_upload_regressions.py
       - name: Stop the preview
         if: always()
         run: |
@@ -129,6 +145,12 @@ jobs:
             if kill -0 "$preview_pid" 2>/dev/null; then
               kill "$preview_pid"
             fi
+          fi
+      - name: Remove the independent CI vector service
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/core-vector.env" && -f "$RUNNER_TEMP/core-vector-ports.yml" ]]; then
+            docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors down --volumes
           fi
       - name: Preserve preview diagnostics on failure
         if: failure()
