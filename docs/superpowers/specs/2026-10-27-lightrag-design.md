@@ -29,6 +29,10 @@
 
 取消与关闭顺序：持久 cancel/draining → 阻止新 callback/写入 → 取消或等待已提交子 Run → 终止并等待 SDK chunk/role/embedding 队列及实际传输 → finalize storage → 释放 runner 和连接。`finalize_storages()` 本身不等于所有 SDK 队列已退出。停止和失联不得发布候选，GC 必须证明原 writer 已停止，并尊重活动指针与读 pin。
 
+首轮独立实验进一步采用 worker 持有的专用 SDK 线程及独立 event loop：同步 Milvus 调用仍会阻塞 SDK 自己的 loop，不能因包了一层线程池就宣称主循环不阻塞。SDK 回调通过显式 attempt 上下文桥接到主 loop 建立和等待受治理 Run，数据库与 ARQ 连接只在各自所属 loop 使用；关闭时必须等待 SDK 队列、任务、传输和线程退出。最小单槽样本中，共享 loop 的运行阶段心跳最大延迟约 974 ms，独立 SDK loop 约 44 ms；这不是生产延迟保证。更完整的取消、失联、多 workspace 与查询实验仍须执行。
+
+独立质量探针已证实实验中固定 `future.result(10)` 的 drain 仍不充分：两次等待超时后，即使 SDK 外层线程已退出，RPC executor 仍可能运行。正式 adapter 必须使用实际传输的绝对期限和取消控制，在 finally 确认 executor/future 全部终结后才能报告 writer 已停止；不能仅 join SDK 外层线程。该故障边界须先红后绿，未通过时不得把旧候选标记为可安全 GC。
+
 ## 版本与权限
 
 图版本冻结完整活动向量 revision、所有文档/chunk/source SHA、解析版本、模型 binding、配置/prompt/SDK 版本。读取先比较当前指纹；删除、重新切片、模型 binding 或配置变化后明确要求构建新版本，禁止拼接新旧空间。构建完整成功、所有期望文档 PROCESSED、无截断且存储 flush/验证成功后，短事务切换活动指针；失败保留旧指针，但旧版本仍须满足当前指纹和权限才能读取。
@@ -36,6 +40,8 @@
 图实体/关系描述可能合并多份文档。没有来源子集重算算法时，**读者必须对该版本全部来源具有当前读权**，包括标签、子图、查询与试构建结果；只过滤返回的 references 不足以授权聚合内容。按库与原文件权限交集、原 owner 身份验证，管理员代操作不扩大来源。构建前、模型调用前、发布和读取时复核；撤权后的持久结果也不能经 poll/cancel 旁路返回。
 
 本组图谱查询使用 `aquery_data` / context-only，返回结构化实体、关系、chunk 和可追溯来源，不额外生成答案。它仍可能调用关键词 LLM 和 query Embedding，必须治理和计费；不以“context-only”宣称无模型调用。活动图 namespace 禁止写入，查询 cache 使用独立短生命周期空间或关闭，不能把 SDK 查询 cache/flush 写回活动版本。
+
+首轮查询实验确认 SDK 构造时会将 global_config 复制到存储，运行后只设实例 `enable_llm_cache=False` 不足以关闭存储缓存。只读 query builder 必须在实例与相应存储配置上冻结一致的禁缓存策略，并保留存储拒写保护；真实关键词/Embedding 仍走治理。实验用只读 client 验证活动缓存前后相同、没有写入尝试，禁止用无声丢弃写入的 no-op 冒充只读成功。
 
 ## HTTP 与原界面
 
