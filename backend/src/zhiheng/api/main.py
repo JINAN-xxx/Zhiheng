@@ -16,6 +16,7 @@ from zhiheng.api.routes.chat import router as chat_router
 from zhiheng.api.routes.developer import router as developer_router
 from zhiheng.api.routes.files import router as files_router
 from zhiheng.api.routes.knowledge import router as knowledge_router
+from zhiheng.api.routes.knowledge_graph import router as knowledge_graph_router
 from zhiheng.api.routes.models import router as models_router
 from zhiheng.api.routes.public import router as public_router
 from zhiheng.api.routes.public_agents import router as public_agents_router
@@ -45,6 +46,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(files_router)
     app.include_router(knowledge_router)
+    app.include_router(knowledge_graph_router)
     app.include_router(agents_router)
     app.include_router(public_agents_router)
     app.include_router(models_router)

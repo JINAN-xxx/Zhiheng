@@ -44,7 +44,7 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
         return compare_metadata(MigrationContext.configure(connection), schema_metadata())
 
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_knowledge'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
         for name in names:
             assert (
                 await connection.execute(

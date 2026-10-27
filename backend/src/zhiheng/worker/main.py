@@ -1,3 +1,5 @@
+import asyncio
+import signal
 from time import time
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
@@ -11,6 +13,7 @@ from zhiheng.bootstrap.settings import Settings
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.worker.execution import execute_run
+from zhiheng.worker.graph_runner import GraphRunner
 
 if TYPE_CHECKING:
     from arq.typing import StartupShutdown, WorkerCoroutine
@@ -96,6 +99,9 @@ async def periodic(context: dict[str, object]) -> None:
     await recover_expired(container)
     await publish_outbox(container, queue)
     await publish_knowledge(container, queue)
+    runner = context.get('graph_runner')
+    if isinstance(runner, GraphRunner):
+        runner.require_running()
     await container.redis.set(container.settings.worker_health_key, str(time()), ex=15)
 
 
@@ -113,11 +119,33 @@ async def file_maintenance(context: dict[str, object]) -> None:
 async def worker_startup(context: dict[str, object]) -> None:
     container = cast('Container', context['container'])
     await container.database.require_schema()
+
+    async def publish_graph_children() -> None:
+        await publish_outbox(container, cast('ArqRedis', context['redis']))
+
+    runner = GraphRunner(container.graph_jobs, container.settings.graph_runner_limit, publish_graph_children)
+    context['graph_runner'] = runner
+    await runner.start()
+
+    def supervise_graph(task: asyncio.Task[None]) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            worker = context.get('worker')
+            if isinstance(worker, Worker):
+                worker.handle_sig(signal.SIGTERM)
+
+    if runner.poller is not None:
+        runner.poller.add_done_callback(supervise_graph)
     await periodic(context)
 
 
+async def worker_shutdown(context: dict[str, object]) -> None:
+    runner = context.get('graph_runner')
+    if isinstance(runner, GraphRunner):
+        await runner.close()
+
+
 def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 10) -> Worker:
-    return Worker(
+    worker = Worker(
         functions=[cast('WorkerCoroutine', execute_chat), cast('WorkerCoroutine', execute_knowledge)],
         cron_jobs=[]
         if burst
@@ -133,6 +161,7 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
         queue_name=container.settings.worker_queue,
         ctx={'container': container},
         on_startup=cast('StartupShutdown', worker_startup),
+        on_shutdown=cast('StartupShutdown', worker_shutdown),
         keep_result=0,
         max_jobs=max_jobs,
         max_tries=1,
@@ -143,6 +172,8 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
         handle_signals=not burst,
         burst=burst,
     )
+    worker.ctx['worker'] = worker
+    return worker
 
 
 async def run_worker(settings: Settings) -> None:

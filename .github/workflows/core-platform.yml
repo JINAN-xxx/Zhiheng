@@ -16,7 +16,7 @@ concurrency:
 jobs:
   platform:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16-alpine
@@ -137,6 +137,7 @@ jobs:
           python tests/browser/knowledge_preparation_regressions.py
           python tests/browser/knowledge_lifecycle_regressions.py
           python tests/browser/knowledge_upload_regressions.py
+          python tests/browser/graph_regressions.py
       - name: Stop the preview
         if: always()
         run: |

@@ -1,6 +1,7 @@
 """A local HTTP provider: tests exercise LangChain rather than mock its methods."""
 
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -13,6 +14,8 @@ class ProviderServer(ThreadingHTTPServer):
         self.request_headers: list[dict[str, str]] = []
         self.release = threading.Event()
         self.embedding_zero = False
+        self.graph_block = False
+        self.graph_parallel = False
         super().__init__(('127.0.0.1', 0), ProviderHandler)
 
 
@@ -50,12 +53,39 @@ class ProviderHandler(BaseHTTPRequestHandler):
             }
             self.wfile.write(('data: ' + json.dumps(reasoning_chunk, ensure_ascii=False) + '\n\n').encode())
             self.wfile.flush()
-        if body['model'] in ('silent', 'reasoning-silent'):
+        if body['model'] in ('silent', 'reasoning-silent') or (body['model'] == 'graph' and server.graph_block):
             server.release.wait(timeout=5)
         try:
+            output = '你好'
+            if body['model'] == 'graph':
+                prompt = '\n'.join(message['content'] for message in body['messages'])
+                if body.get('response_format') == {'type': 'json_object'}:
+                    output = json.dumps(
+                        {'high_level_keywords': ['合作'], 'low_level_keywords': ['甲机构']}, ensure_ascii=False
+                    )
+                elif 'synthesize a list of descriptions' in prompt:
+                    output = '双方持续合作研究。'
+                elif server.graph_parallel and len(body['messages']) > 2:
+                    output = '<|COMPLETE|>'
+                elif server.graph_parallel and 'Knowledge Graph Specialist' in prompt:
+                    samples = re.findall(r'审查样本(\d+)', prompt)
+                    sample = samples[-1] if samples else str(len(server.requests))
+                    output = (
+                        f'entity<|#|>甲机构<|#|>Organization<|#|>甲机构参与审查样本{sample}研究。\n'
+                        f'entity<|#|>乙公司<|#|>Organization<|#|>乙公司参与审查样本{sample}研究。\n'
+                        f'relation<|#|>甲机构<|#|>乙公司<|#|>合作<|#|>双方审查样本{sample}合作。\n<|COMPLETE|>'
+                    )
+                elif 'Knowledge Graph Specialist' in prompt:
+                    output = 'entity<|#|>甲机构<|#|>Organization<|#|>甲机构参与研究。\nentity<|#|>乙公司<|#|>Organization<|#|>乙公司参与研究。\nrelation<|#|>甲机构<|#|>乙公司<|#|>合作<|#|>双方合作。\n<|COMPLETE|>'
+                elif 'summar' in prompt.lower():
+                    output = '双方持续合作研究。'
+                else:
+                    output = '<|COMPLETE|>'
+            pieces = (
+                [(output, 'stop', None)] if body['model'] == 'graph' else [('你', None, None), ('好', 'stop', None)]
+            )
             for content, finish, usage in [
-                ('你', None, None),
-                ('好', 'stop', None),
+                *pieces,
                 ('', None, {'prompt_tokens': 8, 'completion_tokens': 2, 'total_tokens': 10}),
             ]:
                 if usage and body['model'] == 'no-usage':

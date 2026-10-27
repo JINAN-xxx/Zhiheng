@@ -21,11 +21,18 @@ import { FileAclDrawer } from '../../files/public.ts'
 import KnowledgeOverview from '../components/KnowledgeOverview.vue'
 import KnowledgeDocuments from '../components/KnowledgeDocuments.vue'
 import KnowledgeQuery from '../components/KnowledgeQuery.vue'
+import KnowledgeGraphPage from '../components/KnowledgeGraphPage.vue'
+import { chartGraph } from '../graphPresentation.ts'
 import KnowledgeAclDrawer from '../components/KnowledgeAclDrawer.vue'
 import ChunkFields from '../components/ChunkFields.vue'
 import { useKnowledgeWorkspace } from '../composables/workspace.ts'
 import { jobStatus } from '../presentation.ts'
 const {
+  graphWorkspace,
+  graphQuery,
+  graphTarget,
+  submitSelectedQuery,
+  models,
   baseId,
   view,
   bases,
@@ -79,11 +86,22 @@ const {
   closeUpload,
   queueFile,
   submitUpload,
-  submitQuery,
   recoverQuery,
   stopQuery,
   clearQuery
 } = useKnowledgeWorkspace()
+const queryLoading = computed(() => (graphTarget.value ? graphQuery.busy.value : queryBusy.value))
+const queryFailure = computed(() => (graphTarget.value ? graphQuery.error.value : queryError.value))
+const queryRecovery = computed(() =>
+  graphTarget.value ? graphQuery.recoverable.value : queryRecoverable.value
+)
+const graphState = graphWorkspace.state
+const chart = computed(() => chartGraph(graphWorkspace.graph.value))
+const chatOptions = computed(() =>
+  models.value
+    .filter((model) => model.enabled && model.published && model.model_type === 'chat')
+    .map((model) => ({ value: model.id, label: model.name }))
+)
 const acl = ref<InstanceType<typeof KnowledgeAclDrawer> | null>(null)
 const editorTitle = computed(
   () =>
@@ -145,6 +163,7 @@ const uploadLabels = {
       <KnowledgeDocuments
         v-if="view === 'documents'"
         :database="selected"
+        :graph-available="capabilities?.graph_available === true"
         :folders="folders"
         :documents="documents"
         :folder-id="folderId"
@@ -204,22 +223,69 @@ const uploadLabels = {
           </section>
         </template>
       </KnowledgeDocuments>
+      <KnowledgeGraphPage
+        v-else-if="view === 'graph'"
+        :database="selected"
+        :labels="graphWorkspace.labels.value"
+        :graph="chart"
+        :loading="graphWorkspace.loading.value"
+        :error="graphWorkspace.error.value"
+        :job="graphWorkspace.build.value"
+        :available="capabilities?.graph_available === true && graphState?.available === true"
+        :build-loading="graphWorkspace.loading.value"
+        :starting="graphWorkspace.starting.value"
+        :can-edit="selected.can_manage && graphState?.can_manage === true"
+        :chat-options="chatOptions"
+        :config-state="graphState"
+        :config-ready="!!graphState"
+        :config-saving="graphWorkspace.saving.value"
+        :documents="documents"
+        :preview="graphWorkspace.preview.value"
+        :readable="!!graphState?.active_revision && !graphState.requires_rebuild"
+        :uncertain="graphWorkspace.uncertain.value || graphWorkspace.configUncertain.value"
+        :recoverable="graphWorkspace.recoverable.value"
+        :stopping="graphWorkspace.stopping.value"
+        @back="back"
+        @navigate="navigate(selected, $event)"
+        @load="graphWorkspace.loadGraph"
+        @refresh="graphWorkspace.load"
+        @save-config="graphWorkspace.save"
+        @start="graphWorkspace.start($event.config, 'build', { rebuild: $event.rebuild })"
+        @preview="
+          graphWorkspace.start($event.config, 'preview', { document_id: $event.document_id })
+        "
+        @cancel="graphWorkspace.cancel"
+        @recover="graphWorkspace.recover"
+      />
       <KnowledgeQuery
         v-else
         :database="selected"
-        :result="queryResult"
+        :result="graphTarget ? null : queryResult"
+        :graph-result="graphTarget ? graphQuery.result.value : null"
+        :restored-graph="graphTarget"
+        :restored-mode="graphQuery.selectedMode.value"
         :graph-available="capabilities?.graph_available === true"
-        :loading="queryBusy"
-        :error="queryError"
+        :loading="queryLoading"
+        :error="queryFailure"
         :elapsed="elapsed"
-        :recoverable="queryRecoverable"
+        :recoverable="queryRecovery"
         @back="back"
-        @refresh="clearQuery"
+        @refresh="graphTarget ? graphQuery.clear() : clearQuery()"
         @navigate="navigate(selected, $event)"
-        @query="submitQuery"
-        @cancel="stopQuery"
-        @recover="recoverQuery"
+        @query="submitSelectedQuery"
+        @cancel="graphTarget ? graphQuery.stop() : stopQuery()"
+        @recover="graphTarget ? graphQuery.recover() : recoverQuery()"
         @source="showPreview"
+        @graph-source="
+          showPreview({
+            ...$event,
+            title: '图谱来源',
+            knowledge_base_id: baseId,
+            index_revision: selected.active_revision ?? '',
+            source_id: $event.document_id,
+            score: 0
+          })
+        "
       />
     </template>
     <a-modal
@@ -284,7 +350,11 @@ const uploadLabels = {
           <a-alert
             class="section-alert"
             type="info"
-            message="新知识库及上传原文默认私有。图谱和 OCR 解析尚未接通。"
+            :message="
+              capabilities?.graph_available
+                ? '新知识库及上传原文默认私有。图谱可在图谱页面配置；OCR 解析尚未接通。'
+                : '新知识库及上传原文默认私有。图谱和 OCR 解析尚未接通。'
+            "
             show-icon
           />
         </template>

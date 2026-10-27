@@ -205,13 +205,13 @@ class ModelService:
         return self._model_info(row)
 
     async def resolve_many(self, session: AsyncSession, model_ids: list[UUID]) -> dict[UUID, ModelBinding]:
-        """Batch admission locks every model before any shared connection."""
+        """Freeze binding metadata while allowing invocation foreign-key checks."""
         models = list(
             await session.scalars(
                 select(ModelDefinition)
                 .where(ModelDefinition.id.in_(model_ids))
                 .order_by(ModelDefinition.id)
-                .with_for_update()
+                .with_for_update(key_share=True)
             )
         )
         if len(models) != len(set(model_ids)) or any(
@@ -229,7 +229,10 @@ class ModelService:
     async def resolve(self, session: AsyncSession, model_id: UUID, *, lock: bool = True) -> ModelBinding:
         model_query = select(ModelDefinition).where(ModelDefinition.id == model_id)
         if lock:
-            model_query = model_query.with_for_update()
+            # NO KEY UPDATE still excludes configuration changes and deletion.
+            # FOR UPDATE would block settlement's FK key-share while admission
+            # waits for the same usage account that settlement already owns.
+            model_query = model_query.with_for_update(key_share=True)
         model = await session.scalar(model_query)
         if model is None or not model.enabled or not model.published or model.deleted_at is not None:
             raise AppError('model_unavailable', '模型不存在或不可用', 404)

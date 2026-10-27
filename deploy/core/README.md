@@ -24,3 +24,9 @@
 备份应同时保存 PostgreSQL、Redis、`files-data`、三个向量服务卷、受保护的 `.env.core` 和对应应用镜像。先停止网页、API 与 worker，再依次停止 Milvus、etcd 和对象存储；确认服务正常退出后复制其卷，并导出数据库和 Redis。数据库中的活动索引版本必须与向量备份对应，不能仅备份 SQL 元数据或单个向量卷。Fernet 密钥和向量存储凭据必须与对应数据一起保留，否则无法读取已存储的凭据或对象。
 
 升级前完成备份；更改配置文件中的数据库密码不会自动修改已初始化 PostgreSQL 用户的密码。恢复时使用匹配的应用版本、完整数据和密钥，在独立实例上验证迁移与健康状态后再开放访问。
+
+## 图谱运行连接
+
+LightRAG 使用独立 `CORE_GRAPH_DATABASE_URL`，原生 `postgresql://` 格式；不复用迁移所有者连接，也不读取 SDK 的 PostgreSQL 环境变量。`init` 默认留空，管理员完成独立角色配置后再填写；为空时保持图谱不可用，向量知识库仍可使用。升级前备份原配置，保留数据库与 Fernet 密钥，再添加独立图谱连接。
+
+由管理员在显式迁移完成后配置该登录角色：只授予数据库 CONNECT、`knowledge_graph_sdk` schema 的 USAGE 与其中十张表的 SELECT/INSERT/UPDATE/DELETE，不授予任何 schema CREATE、数据库 CREATE/TEMPORARY、对象所有权、superuser、CREATEDB 或 CREATEROLE。PostgreSQL 默认向 PUBLIC 授予 TEMPORARY，因此独立平台数据库须由管理员显式撤销 PUBLIC 的数据库 CREATE/TEMPORARY 与 public schema CREATE，再授予运行角色所需的窄权限；迁移/API 的数据库所有者权限保持有效。API/worker 初始化只核对实际权限、catalog 和现有索引，缺失时明确拒绝，不自行创建角色、表或索引。图谱角色凭据与数据库、文件、向量卷及应用镜像一起私密备份。

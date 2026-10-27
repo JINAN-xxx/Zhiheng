@@ -16,6 +16,7 @@ import type {
 import { validChunks } from '../presentation.ts'
 import { useKnowledgeQuery } from './useKnowledgeQuery.ts'
 import { useKnowledgeUpload } from './useKnowledgeUpload.ts'
+import { useKnowledgeGraph } from './useKnowledgeGraph.ts'
 
 type EditorKind = 'create' | 'base' | 'createFolder' | 'folder' | 'rechunk'
 
@@ -25,7 +26,9 @@ export function useKnowledgeWorkspace() {
   const baseId = computed(() =>
     typeof route.params.baseId === 'string' ? route.params.baseId : ''
   )
-  const view = computed(() => (route.params.view === 'query' ? 'query' : 'documents'))
+  const view = computed(() =>
+    route.params.view === 'graph' ? 'graph' : route.params.view === 'query' ? 'query' : 'documents'
+  )
   const bases = ref<KnowledgeBase[]>([]),
     selected = ref<KnowledgeBase | null>(null)
   const folders = ref<KnowledgeFolder[]>([]),
@@ -39,6 +42,10 @@ export function useKnowledgeWorkspace() {
     detailError = ref(''),
     actionError = ref('')
   const capabilities = ref<Awaited<ReturnType<typeof api.getCapabilities>> | null>(null)
+  const graphEnabled = computed(
+    () => capabilities.value?.graph_available === true && view.value === 'graph'
+  )
+  const graphWorkspace = useKnowledgeGraph(baseId, graphEnabled)
   const actionBusy = ref(false),
     uncertain = ref(false)
   const query = useKnowledgeQuery(baseId, selected)
@@ -150,8 +157,9 @@ export function useKnowledgeWorkspace() {
     void pollJobs()
   }
   async function navigate(base: KnowledgeBase, destination: string): Promise<void> {
+    if (baseId.value === base.id) await loadDetail()
     await router.push(
-      `/knowledge/${encodeURIComponent(base.id)}/${destination === 'query' ? 'query' : 'documents'}`
+      `/knowledge/${encodeURIComponent(base.id)}/${destination === 'graph' ? 'graph' : destination === 'query' ? 'query' : 'documents'}`
     )
   }
   async function back(): Promise<void> {
@@ -333,7 +341,17 @@ export function useKnowledgeWorkspace() {
       )
       if (ticket.isCurrent() && preview.open) preview.text = result.text
     } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) preview.error = errorMessage(error)
+      if (ticket.isCurrent() && !isAborted(error)) {
+        preview.error = errorMessage(error)
+        if (
+          query.graphTarget.value &&
+          error instanceof ApiError &&
+          [401, 403, 404].includes(error.status)
+        )
+          query.graphQuery.denyProtectedResults(
+            '来源权限已变化，图谱结果已清除，请恢复查看后再使用'
+          )
+      }
     } finally {
       if (ticket.isCurrent()) preview.loading = false
     }
@@ -378,7 +396,7 @@ export function useKnowledgeWorkspace() {
         await loadDetail()
         if (id !== baseId.value || !selected.value) return
         void pollJobs()
-        void query.restoreQuery(id)
+        void query.restoreSelectedQuery(id)
       }
     },
     { immediate: true }
@@ -412,6 +430,7 @@ export function useKnowledgeWorkspace() {
   })
   return {
     ...query,
+    graphWorkspace,
     baseId,
     view,
     bases,

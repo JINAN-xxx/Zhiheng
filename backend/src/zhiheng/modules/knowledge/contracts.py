@@ -111,7 +111,7 @@ class BaseInfo(BaseCreate):
     index_status: str
     document_count: int
     last_error: RunError | None
-    graph_status: Literal['disabled', 'pending']
+    graph_status: Literal['disabled', 'pending', 'ready', 'building', 'stale', 'failed']
     created_at: datetime
     updated_at: datetime
     can_manage: bool
@@ -195,7 +195,7 @@ class DocumentInfo(BaseModel):
     chunk_size: int
     chunk_overlap: int
     error: RunError | None
-    graph_status: Literal['disabled', 'pending'] = 'disabled'
+    graph_status: Literal['disabled', 'pending', 'ready', 'building', 'stale', 'failed'] = 'disabled'
     graph_error: None = None
     created_at: datetime
     updated_at: datetime

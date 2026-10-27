@@ -58,7 +58,7 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_knowledge'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
         for table in tables:
             names = [column[1] for column in columns if column[0] == table]
             current = (

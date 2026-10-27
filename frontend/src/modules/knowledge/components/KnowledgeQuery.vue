@@ -16,7 +16,11 @@
     </WorkspaceToolbar>
 
     <div class="knowledge-query__content">
-      <KnowledgeSectionNav active-view="query" @navigate="emit('navigate', $event)" />
+      <KnowledgeSectionNav
+        active-view="query"
+        :graph-available="graphAvailable"
+        @navigate="emit('navigate', $event)"
+      />
 
       <div class="query-controls">
         <a-input
@@ -29,7 +33,7 @@
         />
         <a-select
           :value="queryTarget"
-          :disabled="loading"
+          :disabled="loading || recoverable"
           aria-label="检索目标"
           :options="targetOptions"
           @update:value="queryTarget = typeof $event === 'string' ? $event : 'kb'"
@@ -37,9 +41,10 @@
         <a-select
           v-if="queryTarget === 'graph'"
           :value="queryMode"
+          :disabled="loading || recoverable"
           aria-label="检索模式"
           :options="modeOptions"
-          @update:value="queryMode = typeof $event === 'string' ? $event : 'mix'"
+          @update:value="setMode"
         />
         <a-button
           type="primary"
@@ -60,7 +65,19 @@
       >
       <a-button v-if="recoverable" class="query-alert" @click="emit('recover')">恢复查看</a-button>
       <a-alert v-if="error" class="query-alert" type="error" :message="error" show-icon />
-      <template v-if="result">
+      <template v-if="graphResult">
+        <pre class="query-answer">{{ graphResult.context }}</pre>
+        <article v-for="source in graphResult.sources" :key="source.chunk_id" class="query-passage">
+          <a-button
+            type="link"
+            :aria-label="'查看图谱来源：' + source.document_id"
+            @click="emit('graph-source', source)"
+            >查看来源</a-button
+          >
+          <p>{{ source.content }}</p>
+        </article>
+      </template>
+      <template v-else-if="result">
         <div class="query-metrics">
           <span>{{ result.items.length + ' 条结果' }}</span>
           <span>{{ queryChars }} 字符</span>
@@ -116,8 +133,13 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import KnowledgeSectionNav from './KnowledgeSectionNav.vue'
 import type { KnowledgeBase, KnowledgeHit } from '../api/index.ts'
+import type { GraphQueryResult, GraphSource } from '../api/graph.ts'
+import type { GraphQueryMode } from '../composables/useGraphQuery.ts'
 const props = defineProps<{
   database: KnowledgeBase
+  graphResult?: GraphQueryResult | null
+  restoredGraph?: boolean
+  restoredMode?: GraphQueryMode
   graphAvailable: boolean
   result: { items: KnowledgeHit[] } | null
   loading: boolean
@@ -129,14 +151,25 @@ const emit = defineEmits<{
   back: []
   refresh: []
   navigate: [view: string]
-  query: [text: string]
+  query: [text: string, target: 'kb' | 'graph', mode: GraphQueryMode]
+  'graph-source': [source: GraphSource]
   cancel: []
   recover: []
   source: [hit: KnowledgeHit]
 }>()
 const queryText = ref(''),
   queryTarget = ref('kb'),
-  queryMode = ref('mix')
+  queryMode = ref<GraphQueryMode>('mix')
+watch(
+  () => [props.restoredGraph, props.restoredMode],
+  () => {
+    if (props.restoredGraph) {
+      queryTarget.value = 'graph'
+      queryMode.value = props.restoredMode ?? 'mix'
+    }
+  },
+  { immediate: true }
+)
 const modeOptions = [
   { value: 'mix', label: '混合检索' },
   { value: 'local', label: '段落检索' },
@@ -159,8 +192,24 @@ const queryAverage = computed(() => {
   const scores = (props.result?.items ?? []).map((item) => item.score)
   return scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null
 })
+function setMode(value: unknown): void {
+  if (
+    value === 'mix' ||
+    value === 'local' ||
+    value === 'global' ||
+    value === 'hybrid' ||
+    value === 'naive'
+  )
+    queryMode.value = value
+}
 function submit(): void {
-  if (queryText.value.trim() && !props.loading) emit('query', queryText.value.trim())
+  if (queryText.value.trim() && !props.loading)
+    emit(
+      'query',
+      queryText.value.trim(),
+      queryTarget.value === 'graph' ? 'graph' : 'kb',
+      queryMode.value
+    )
 }
 watch(
   () => props.database.id,

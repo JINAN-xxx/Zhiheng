@@ -4,6 +4,8 @@ from zhiheng.application.agent_management import AgentManagementService
 from zhiheng.application.agent_runs import AgentRunService
 from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.application.file_inputs import FileInputService
+from zhiheng.application.graph_jobs import GraphJobs
+from zhiheng.application.graph_runs import GraphRuns
 from zhiheng.application.knowledge_jobs import KnowledgeJobs
 from zhiheng.application.knowledge_preparation import KnowledgePreparation
 from zhiheng.application.model_management import ModelManagementService
@@ -21,6 +23,9 @@ from zhiheng.modules.files.public import FileJobs, FileService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import (
     PREPARATION_TERMINAL,
+    GraphSDK,
+    GraphService,
+    GraphStore,
     KnowledgeService,
     MilvusStore,
     NativeParser,
@@ -107,6 +112,19 @@ class Container:
                 'work_turn': self.work_runs.check_knowledge_dependencies,
             }
         )
+        self.graph = GraphService(self.knowledge)
+        self.graph_store = GraphStore(self.graph)
+        self.graph_runs = GraphRuns(
+            self.database, self.graph_store, self.models, self.runs, self.usage, settings.token_limit
+        )
+        self.graph_sdk = GraphSDK(
+            database_url=settings.graph_database_url.get_secret_value() if settings.graph_database_url else None,
+            milvus_uri=settings.milvus_uri,
+            milvus_token=settings.milvus_token.get_secret_value(),
+            milvus_database=settings.milvus_database,
+            working_root=settings.graph_working_root,
+        )
+        self.graph_jobs = GraphJobs(self.database, self.graph_store, self.graph_runs, self.graph_sdk)
         self.outbox = OutboxStore()
         self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs)
 
@@ -115,6 +133,9 @@ class Container:
             return await self.models.prepare_provider(session, binding)
 
     async def require_model_execution(self, claim: ClaimedRun) -> None:
+        if claim.resource_type == 'knowledge_graph':
+            await self.graph_runs.guard(claim)
+            return
         if claim.resource_type != 'knowledge_embedding':
             return
         async with self.database.sessions.begin() as session:
@@ -143,6 +164,7 @@ class Container:
 
     async def close(self) -> None:
         try:
+            await self.graph_sdk.close()
             await self.redis.aclose()
         finally:
             await self.database.close()

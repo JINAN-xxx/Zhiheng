@@ -2,6 +2,7 @@ name: zhiheng-core
 
 x-core-environment: &core-environment
   ZHIHENG_DATABASE_URL: postgresql+asyncpg://${CORE_DB_USER:-zhiheng_core}:${CORE_DB_PASSWORD:?Set CORE_DB_PASSWORD in the new core env file}@postgres:5432/${CORE_DB_NAME:-zhiheng_core}
+  ZHIHENG_GRAPH_DATABASE_URL: ${CORE_GRAPH_DATABASE_URL:-}
   ZHIHENG_REDIS_URL: redis://redis:6379/0
   ZHIHENG_CREDENTIAL_KEY: ${CORE_CREDENTIAL_KEY:?Set a new Fernet CORE_CREDENTIAL_KEY}
   ZHIHENG_COOKIE_SECURE: ${CORE_COOKIE_SECURE:-true}

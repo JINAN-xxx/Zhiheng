@@ -57,6 +57,12 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         elif path == "/api/knowledge/bases/base-1/uploads/staged-acceptance":
             self.discard_calls.append(route.request.url)
             self.assertEqual(method, "DELETE")
+            if route.request.post_data != "{}":
+                await route.fulfill(
+                    status=422,
+                    json={"error": {"code": "invalid_request", "message": "需要空 JSON 请求体"}},
+                )
+                return
             if self.cleanup_unauthorized:
                 await route.fulfill(
                     status=401,

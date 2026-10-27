@@ -1,0 +1,793 @@
+{
+  "columns": [
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "full_doc_id",
+      "type": "character varying(256)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "chunk_order_index",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "tokens",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "content",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "file_path",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "llm_cache_list",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'[]'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "heading",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "sidecar",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_doc_chunks",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "doc_name",
+      "type": "character varying(1024)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "content",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "meta",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "sidecar_location",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "parse_format",
+      "type": "character varying(32)",
+      "attnotnull": false,
+      "default_value": "'raw'::character varying"
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "content_hash",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "process_options",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "chunk_options",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "parse_engine",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_doc_full",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "content_summary",
+      "type": "character varying(255)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "content_length",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "chunks_count",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "status",
+      "type": "character varying(64)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "file_path",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "chunks_list",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'[]'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "track_id",
+      "type": "character varying(255)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "metadata",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "error_msg",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "content_hash",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "created_at",
+      "type": "timestamp without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_doc_status",
+      "attname": "updated_at",
+      "type": "timestamp without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "id",
+      "type": "character varying(512)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "chunk_ids",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "count",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_entity_chunks",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "entity_names",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "count",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_full_entities",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "relation_pairs",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "count",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_full_relations",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "workspace",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "namespace",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": "'chunk_entity_relation'::text"
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "src_id",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "tgt_id",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "properties",
+      "type": "jsonb",
+      "attnotnull": true,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_graph_edges",
+      "attname": "updated_at",
+      "type": "timestamp with time zone",
+      "attnotnull": true,
+      "default_value": "now()"
+    },
+    {
+      "relname": "lightrag_graph_nodes",
+      "attname": "workspace",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_graph_nodes",
+      "attname": "namespace",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": "'chunk_entity_relation'::text"
+    },
+    {
+      "relname": "lightrag_graph_nodes",
+      "attname": "id",
+      "type": "text",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_graph_nodes",
+      "attname": "properties",
+      "type": "jsonb",
+      "attnotnull": true,
+      "default_value": "'{}'::jsonb"
+    },
+    {
+      "relname": "lightrag_graph_nodes",
+      "attname": "updated_at",
+      "type": "timestamp with time zone",
+      "attnotnull": true,
+      "default_value": "now()"
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "id",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "original_prompt",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "return_value",
+      "type": "text",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "chunk_id",
+      "type": "character varying(255)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "cache_type",
+      "type": "character varying(32)",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "queryparam",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "create_time",
+      "type": "timestamp without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_llm_cache",
+      "attname": "update_time",
+      "type": "timestamp without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "id",
+      "type": "character varying(512)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "workspace",
+      "type": "character varying(255)",
+      "attnotnull": true,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "chunk_ids",
+      "type": "jsonb",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "count",
+      "type": "integer",
+      "attnotnull": false,
+      "default_value": null
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "create_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    },
+    {
+      "relname": "lightrag_relation_chunks",
+      "attname": "update_time",
+      "type": "timestamp(0) without time zone",
+      "attnotnull": false,
+      "default_value": "CURRENT_TIMESTAMP"
+    }
+  ],
+  "indexes": [
+    {
+      "indexname": "idx_lightrag_doc_chunks_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_chunks_id ON knowledge_graph_sdk.lightrag_doc_chunks USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_chunks_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_chunks_workspace_id ON knowledge_graph_sdk.lightrag_doc_chunks USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_full_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_full_id ON knowledge_graph_sdk.lightrag_doc_full USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_full_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_full_workspace_id ON knowledge_graph_sdk.lightrag_doc_full USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_id ON knowledge_graph_sdk.lightrag_doc_status USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_track_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_track_id ON knowledge_graph_sdk.lightrag_doc_status USING btree (track_id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_content_hash",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_content_hash ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, content_hash) WHERE ((content_hash IS NOT NULL) AND (content_hash <> ''::text))"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_created_at",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_created_at ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, created_at DESC)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_file_path",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_file_path ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, file_path)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_id ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_status_created_at",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_status_created_at ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, status, created_at DESC)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_status_updated_at",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_status_updated_at ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, status, updated_at DESC)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_workspace_updated_at",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_workspace_updated_at ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, updated_at DESC)"
+    },
+    {
+      "indexname": "idx_lightrag_doc_status_ws_status_created_nf_id",
+      "indexdef": "CREATE INDEX idx_lightrag_doc_status_ws_status_created_nf_id ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, status, created_at NULLS FIRST, id)"
+    },
+    {
+      "indexname": "idx_lightrag_entity_chunks_id",
+      "indexdef": "CREATE INDEX idx_lightrag_entity_chunks_id ON knowledge_graph_sdk.lightrag_entity_chunks USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_entity_chunks_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_entity_chunks_workspace_id ON knowledge_graph_sdk.lightrag_entity_chunks USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_full_entities_id",
+      "indexdef": "CREATE INDEX idx_lightrag_full_entities_id ON knowledge_graph_sdk.lightrag_full_entities USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_full_entities_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_full_entities_workspace_id ON knowledge_graph_sdk.lightrag_full_entities USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_full_relations_id",
+      "indexdef": "CREATE INDEX idx_lightrag_full_relations_id ON knowledge_graph_sdk.lightrag_full_relations USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_full_relations_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_full_relations_workspace_id ON knowledge_graph_sdk.lightrag_full_relations USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_graph_edges_namespace_tgt",
+      "indexdef": "CREATE INDEX idx_lightrag_graph_edges_namespace_tgt ON knowledge_graph_sdk.lightrag_graph_edges USING btree (workspace, namespace, tgt_id)"
+    },
+    {
+      "indexname": "idx_lightrag_graph_edges_noncanonical",
+      "indexdef": "CREATE INDEX idx_lightrag_graph_edges_noncanonical ON knowledge_graph_sdk.lightrag_graph_edges USING btree (workspace, namespace) WHERE ((src_id COLLATE \"C\") > (tgt_id COLLATE \"C\"))"
+    },
+    {
+      "indexname": "idx_lightrag_llm_cache_id",
+      "indexdef": "CREATE INDEX idx_lightrag_llm_cache_id ON knowledge_graph_sdk.lightrag_llm_cache USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_llm_cache_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_llm_cache_workspace_id ON knowledge_graph_sdk.lightrag_llm_cache USING btree (workspace, id)"
+    },
+    {
+      "indexname": "idx_lightrag_relation_chunks_id",
+      "indexdef": "CREATE INDEX idx_lightrag_relation_chunks_id ON knowledge_graph_sdk.lightrag_relation_chunks USING btree (id)"
+    },
+    {
+      "indexname": "idx_lightrag_relation_chunks_workspace_id",
+      "indexdef": "CREATE INDEX idx_lightrag_relation_chunks_workspace_id ON knowledge_graph_sdk.lightrag_relation_chunks USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_doc_chunks_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_doc_chunks_pk ON knowledge_graph_sdk.lightrag_doc_chunks USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_doc_full_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_doc_full_pk ON knowledge_graph_sdk.lightrag_doc_full USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_doc_status_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_doc_status_pk ON knowledge_graph_sdk.lightrag_doc_status USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_entity_chunks_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_entity_chunks_pk ON knowledge_graph_sdk.lightrag_entity_chunks USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_full_entities_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_full_entities_pk ON knowledge_graph_sdk.lightrag_full_entities USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_full_relations_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_full_relations_pk ON knowledge_graph_sdk.lightrag_full_relations USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_graph_edges_pkey",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_graph_edges_pkey ON knowledge_graph_sdk.lightrag_graph_edges USING btree (workspace, namespace, src_id, tgt_id)"
+    },
+    {
+      "indexname": "lightrag_graph_nodes_pkey",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_graph_nodes_pkey ON knowledge_graph_sdk.lightrag_graph_nodes USING btree (workspace, namespace, id)"
+    },
+    {
+      "indexname": "lightrag_llm_cache_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_llm_cache_pk ON knowledge_graph_sdk.lightrag_llm_cache USING btree (workspace, id)"
+    },
+    {
+      "indexname": "lightrag_relation_chunks_pk",
+      "indexdef": "CREATE UNIQUE INDEX lightrag_relation_chunks_pk ON knowledge_graph_sdk.lightrag_relation_chunks USING btree (workspace, id)"
+    }
+  ],
+  "constraints": [
+    {
+      "conname": "fk_lightrag_graph_edges_src",
+      "contype": "f",
+      "definition": "FOREIGN KEY (workspace, namespace, src_id) REFERENCES knowledge_graph_sdk.lightrag_graph_nodes(workspace, namespace, id) ON DELETE CASCADE"
+    },
+    {
+      "conname": "fk_lightrag_graph_edges_tgt",
+      "contype": "f",
+      "definition": "FOREIGN KEY (workspace, namespace, tgt_id) REFERENCES knowledge_graph_sdk.lightrag_graph_nodes(workspace, namespace, id) ON DELETE CASCADE"
+    },
+    {
+      "conname": "lightrag_doc_chunks_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_doc_full_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_doc_status_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_entity_chunks_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_full_entities_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_full_relations_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_graph_edges_pkey",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, namespace, src_id, tgt_id)"
+    },
+    {
+      "conname": "lightrag_graph_nodes_pkey",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, namespace, id)"
+    },
+    {
+      "conname": "lightrag_llm_cache_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    },
+    {
+      "conname": "lightrag_relation_chunks_pk",
+      "contype": "p",
+      "definition": "PRIMARY KEY (workspace, id)"
+    }
+  ]
+}

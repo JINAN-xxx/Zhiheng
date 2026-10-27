@@ -6,6 +6,8 @@ import { identity } from '../../identity/public.ts'
 import * as api from '../api/index.ts'
 import { projectPreparation } from '../preparation.ts'
 import type { KnowledgeBase, KnowledgeHit, KnowledgePreparation } from '../api/index.ts'
+import { useGraphQuery } from './useGraphQuery.ts'
+import type { GraphQueryMode } from './useGraphQuery.ts'
 
 interface QueryIntent {
   baseId: string
@@ -17,6 +19,29 @@ export function useKnowledgeQuery(
   baseId: Readonly<Ref<string>>,
   selected: Readonly<Ref<KnowledgeBase | null>>
 ) {
+  const graphQuery = useGraphQuery(baseId)
+  const graphTarget = ref(false)
+  async function submitSelectedQuery(
+    text: string,
+    target: 'kb' | 'graph' = 'kb',
+    mode: GraphQueryMode = 'mix'
+  ): Promise<void> {
+    if (target === 'graph') {
+      if (queryBusy.value || queryRecoverable.value) return
+      graphTarget.value = true
+      await graphQuery.submit(text, mode)
+    } else {
+      if (graphQuery.busy.value || graphQuery.recoverable.value) return
+      graphTarget.value = false
+      graphQuery.clear()
+      await submitQuery(text)
+    }
+  }
+  async function restoreSelectedQuery(id: string): Promise<void> {
+    graphTarget.value = graphQuery.hasSaved()
+    graphTarget.value = await graphQuery.restore()
+    if (!graphTarget.value) await restoreQuery(id)
+  }
   const queryBusy = ref(false),
     queryRecoverable = ref(false),
     queryError = ref('')
@@ -176,6 +201,8 @@ export function useKnowledgeQuery(
     }
   }
   function resetQuery(): void {
+    graphQuery.reset()
+    graphTarget.value = false
     queryScope.replace()
     queryBusy.value = false
     queryRecoverable.value = false
@@ -233,6 +260,10 @@ export function useKnowledgeQuery(
   }
   onBeforeUnmount(() => queryScope.dispose())
   return {
+    graphQuery,
+    graphTarget,
+    submitSelectedQuery,
+    restoreSelectedQuery,
     queryBusy,
     queryRecoverable,
     queryError,

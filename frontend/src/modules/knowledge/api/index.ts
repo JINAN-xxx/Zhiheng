@@ -32,7 +32,7 @@ export interface KnowledgeBase {
   last_error: Failure
   enable_knowledge_graph: boolean
   llm_model_id: string | null
-  graph_status: 'disabled' | 'pending'
+  graph_status: 'disabled' | 'pending' | 'ready' | 'building' | 'stale' | 'failed'
   created_at: string
   updated_at: string
   can_manage: boolean
@@ -62,7 +62,7 @@ export interface KnowledgeDocument {
   chunk_size: number
   chunk_overlap: number
   error: Failure
-  graph_status: 'disabled' | 'pending'
+  graph_status: 'disabled' | 'pending' | 'ready' | 'building' | 'stale' | 'failed'
   graph_error: Failure
   created_at: string
   updated_at: string
@@ -195,7 +195,14 @@ export function parseBase(value: unknown): KnowledgeBase {
     last_error: failure(d.last_error),
     enable_knowledge_graph: boolean(d.enable_knowledge_graph),
     llm_model_id: nullableString(d.llm_model_id),
-    graph_status: choice(d.graph_status, ['disabled', 'pending']),
+    graph_status: choice(d.graph_status, [
+      'disabled',
+      'pending',
+      'ready',
+      'building',
+      'stale',
+      'failed'
+    ]),
     created_at: string(d.created_at),
     updated_at: string(d.updated_at),
     can_manage: boolean(d.can_manage)
@@ -231,7 +238,14 @@ function parseDocument(value: unknown): KnowledgeDocument {
     chunk_size: number(d.chunk_size),
     chunk_overlap: number(d.chunk_overlap),
     error: failure(d.error),
-    graph_status: choice(d.graph_status, ['disabled', 'pending']),
+    graph_status: choice(d.graph_status, [
+      'disabled',
+      'pending',
+      'ready',
+      'building',
+      'stale',
+      'failed'
+    ]),
     graph_error: failure(d.graph_error),
     created_at: string(d.created_at),
     updated_at: string(d.updated_at)
@@ -478,6 +492,7 @@ export const uploadDocument = (
 export const discardUpload = (id: string, uploadId: string, signal: AbortSignal) =>
   http.request(`${basePath(id)}/uploads/${encodeURIComponent(uploadId)}`, {
     method: 'DELETE',
+    body: {},
     signal,
     decode: decodeVoid
   })

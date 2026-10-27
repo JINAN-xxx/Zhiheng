@@ -27,6 +27,8 @@ from zhiheng.modules.knowledge.contracts import (
     FolderPatch,
     JobInfo,
 )
+from zhiheng.modules.knowledge.graph.lifecycle import retire_base_graph
+from zhiheng.modules.knowledge.graph.orm import GraphConfiguration, GraphGeneration, GraphJob
 from zhiheng.modules.knowledge.orm import (
     IndexGeneration,
     KnowledgeBase,
@@ -69,6 +71,10 @@ class KnowledgeService:
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return (
             await session.scalar(select(KnowledgeBase.id).where(KnowledgeBase.embed_model_id == model_id).limit(1))
+            is not None
+            or await session.scalar(
+                select(GraphConfiguration.base_id).where(GraphConfiguration.llm_model_id == model_id).limit(1)
+            )
             is not None
         )
 
@@ -151,6 +157,37 @@ class KnowledgeService:
                     status = 'reindex_required'
             except AppError:
                 status = 'reindex_required'
+        graph_config = await session.get(GraphConfiguration, base.id)
+        graph_status = 'disabled'
+        if graph_config is not None:
+            running = await session.scalar(
+                select(GraphJob.id)
+                .where(
+                    GraphJob.base_id == base.id,
+                    GraphJob.operation.in_(('build', 'preview')),
+                    GraphJob.status.in_(('pending', 'running', 'waiting_model', 'draining')),
+                )
+                .limit(1)
+            )
+            graph_status = 'building' if running else 'pending'
+            if graph_config.active_revision is not None:
+                graph_generation = await session.get(GraphGeneration, graph_config.active_revision)
+                graph_status = 'ready' if graph_generation and graph_generation.status == 'active' else 'stale'
+                if graph_generation:
+                    frozen = graph_generation.frozen
+                    configured = frozen.get('config')
+                    if (
+                        frozen.get('index_revision') != str(base.active_revision)
+                        or not isinstance(configured, dict)
+                        or configured.get('version') != graph_config.version
+                    ):
+                        graph_status = 'stale'
+            elif await session.scalar(
+                select(GraphJob.id).where(GraphJob.base_id == base.id, GraphJob.status == 'failed').limit(1)
+            ):
+                graph_status = 'failed'
+            if running:
+                graph_status = 'building'
         return BaseInfo(
             id=base.id,
             name=base.name,
@@ -167,9 +204,9 @@ class KnowledgeService:
             index_status=status,
             document_count=count or 0,
             last_error=RunError.model_validate(base.last_error) if base.last_error else None,
-            enable_knowledge_graph=False,
-            llm_model_id=None,
-            graph_status='disabled',
+            enable_knowledge_graph=graph_config is not None,
+            llm_model_id=graph_config.llm_model_id if graph_config else None,
+            graph_status=cast("Literal['disabled','pending','ready','building','stale','failed']", graph_status),
             created_at=base.created_at,
             updated_at=base.updated_at,
             can_manage=self.manages(principal, base),
@@ -196,13 +233,22 @@ class KnowledgeService:
     ) -> BaseInfo:
         if binding.model_type != 'embedding':
             raise AppError('embedding_model_required', '请选择Embedding模型', 422)
-        if body.enable_knowledge_graph or body.llm_model_id:
-            raise AppError('graph_pending', '图谱功能将在后续阶段提供', 422)
+        if body.llm_model_id is not None and not body.enable_knowledge_graph:
+            raise AppError('graph_model_without_graph', '请先启用图谱功能', 422)
+        if body.enable_knowledge_graph and body.llm_model_id is None:
+            raise AppError('graph_model_required', '请选择图谱抽取模型', 422)
+        if body.llm_model_id:
+            graph_binding = await self.models.resolve(session, body.llm_model_id)
+            if graph_binding.model_type != 'chat':
+                raise AppError('graph_chat_required', '图谱需要聊天模型', 422)
         row = KnowledgeBase(
             owner_id=principal.id, **body.model_dump(exclude={'enable_knowledge_graph', 'llm_model_id'})
         )
         session.add(row)
         await session.flush()
+        if body.enable_knowledge_graph and body.llm_model_id:
+            session.add(GraphConfiguration(base_id=row.id, llm_model_id=body.llm_model_id))
+            await session.flush()
         return await self.info(session, principal, row)
 
     @staticmethod
@@ -500,6 +546,7 @@ class KnowledgeService:
             row.deleted_at = utcnow()
         if job.operation == 'delete_base':
             base.deleted_at = utcnow()
+            await retire_base_graph(session, base.id)
             for folder in await session.scalars(select(KnowledgeFolder).where(KnowledgeFolder.base_id == base_id)):
                 folder.deleted_at = utcnow()
             await self.release_uploads(session, principal, base_id)

@@ -83,7 +83,7 @@
               <a-button
                 type="link"
                 size="small"
-                :disabled="!graphAvailable || !database.enable_knowledge_graph"
+                :disabled="!graphAvailable"
                 aria-label="查看图谱"
                 @click="open(database, 'graph')"
               >

@@ -37,7 +37,7 @@ async def capabilities(container: ContainerDependency, principal: PrincipalDepen
         'milvus_configured': bool(container.settings.milvus_uri),
         'milvus_available': await container.vectors.available(),
         'native_formats': NATIVE_FORMATS,
-        'graph_available': False,
+        'graph_available': await container.graph_sdk.available(),
         'mineru_available': False,
     }
 

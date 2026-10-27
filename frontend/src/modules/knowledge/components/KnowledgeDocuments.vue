@@ -40,7 +40,11 @@
     </WorkspaceToolbar>
 
     <div class="knowledge-documents__content">
-      <KnowledgeSectionNav active-view="documents" @navigate="emit('navigate', $event)" />
+      <KnowledgeSectionNav
+        active-view="documents"
+        :graph-available="graphAvailable === true"
+        @navigate="emit('navigate', $event)"
+      />
 
       <a-alert
         class="document-alert"
@@ -216,6 +220,7 @@ import type { KnowledgeBase, KnowledgeDocument, KnowledgeFolder } from '../api/i
 import { folderTrail as getTrail, formatTime, formatSize, documentStatus } from '../presentation.ts'
 const props = defineProps<{
   database: KnowledgeBase
+  graphAvailable?: boolean
   folders: KnowledgeFolder[]
   documents: KnowledgeDocument[]
   folderId: string | null

@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     milvus_uri: str | None = None
     milvus_token: SecretStr = SecretStr('')
     milvus_database: str = 'default'
+    graph_working_root: Path = Path('/tmp/zhiheng-graph')
+    graph_database_url: SecretStr | None = None
+    graph_runner_limit: int = Field(default=2, ge=1, le=4)
     database_url: SecretStr
     redis_url: SecretStr
     credential_key: SecretStr
@@ -25,6 +28,18 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
+
+    @field_validator('graph_database_url', mode='before')
+    @classmethod
+    def empty_graph_database_url(cls, value: object) -> object:
+        return None if value == '' else value
+
+    @field_validator('graph_database_url')
+    @classmethod
+    def validate_graph_database_url(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and urlsplit(value.get_secret_value()).scheme != 'postgresql':
+            raise ValueError('graph_database_url must use postgresql')
+        return value
 
     @field_validator('database_url')
     @classmethod

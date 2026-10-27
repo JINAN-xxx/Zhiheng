@@ -10,6 +10,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 from tests.core.provider import ProviderServer
+from tests.core.resources import resource
 from zhiheng.modules.knowledge.public import MilvusStore, VectorSpec
 from zhiheng.shared.errors import AppError
 
@@ -24,7 +25,12 @@ async def real_vectors(app: FastAPI) -> AsyncIterator[MilvusStore]:
     if not uri:
         pytest.skip('Separate Milvus URI required')
     container = app.state.container
-    store = MilvusStore(uri)
+    class RegisteredStore(MilvusStore):
+        async def build(self,spec: VectorSpec,rows: list[dict[str,object]],**kwargs: Any) -> None:
+            resource('intent','milvus_collection',spec.collection_name,description=spec.description(),database='default')
+            await super().build(spec,rows,**kwargs)
+            resource('created','milvus_collection',spec.collection_name)
+    store = RegisteredStore(uri)
     container.knowledge_jobs.vectors = container.knowledge_preparation.vectors = store
     try:
         yield store
@@ -43,6 +49,7 @@ async def real_vectors(app: FastAPI) -> AsyncIterator[MilvusStore]:
                         generation.dimension,
                     )
                 )
+                resource('deleted','milvus_collection',generation.collection_name)
 
 
 @pytest_asyncio.fixture
@@ -550,7 +557,12 @@ async def test_real_milvus_explicit_generation_schema_and_precise_cleanup() -> N
     uri = os.getenv('ZHIHENG_TEST_MILVUS_URI')
     if not uri:
         pytest.skip('Separate Milvus URI required')
-    store = MilvusStore(uri)
+    class RegisteredStore(MilvusStore):
+        async def build(self,spec: VectorSpec,rows: list[dict[str,object]],**kwargs: Any) -> None:
+            resource('intent','milvus_collection',spec.collection_name,description=spec.description(),database='default')
+            await super().build(spec,rows,**kwargs)
+            resource('created','milvus_collection',spec.collection_name)
+    store = RegisteredStore(uri)
     base, revision, attempt = uuid4(), uuid4(), uuid4()
     spec = VectorSpec(base, revision, attempt, f'zh_k_{base.hex}_{revision.hex}_{attempt.hex}', 'a' * 64, 2)
     document, chunk = uuid4(), uuid4()

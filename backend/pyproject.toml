@@ -19,7 +19,7 @@ where = ["src"]
 dependencies = {file = ["requirements-core.in"]}
 
 [tool.setuptools.package-data]
-zhiheng = ["py.typed", "modules/agents/LICENSE"]
+zhiheng = ["py.typed", "modules/agents/LICENSE", "modules/knowledge/adapters/lightrag/catalog.json", "modules/knowledge/adapters/lightrag/sdk_hashes.json", "modules/knowledge/adapters/lightrag/LICENSE", "modules/knowledge/adapters/lightrag/TIKTOKEN_LICENSE", "modules/knowledge/adapters/lightrag/tokenizer_spec.json", "modules/knowledge/adapters/lightrag/o200k_base.tiktoken"]
 
 [tool.setuptools.data-files]
 "share/zhiheng/migrations" = ["migrations/env.py"]

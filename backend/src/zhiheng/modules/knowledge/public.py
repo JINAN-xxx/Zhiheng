@@ -1,6 +1,8 @@
 from sqlalchemy import Table
 
 from zhiheng.infrastructure.database import Base
+from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK, SDKCall, SDKOutcome
+from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
 from zhiheng.modules.knowledge.adapters.milvus import MilvusStore, VectorSpec
 from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
 from zhiheng.modules.knowledge.adapters.native import NativeParser
@@ -37,6 +39,36 @@ from zhiheng.modules.knowledge.contracts import (
     Version,
 )
 from zhiheng.modules.knowledge.generations import GenerationStore
+from zhiheng.modules.knowledge.graph.contracts import (
+    GraphBuildRequest,
+    GraphConfigInfo,
+    GraphConfigPatch,
+    GraphEdge,
+    GraphFrozen,
+    GraphJobInfo,
+    GraphLabels,
+    GraphModelOperation,
+    GraphModelRole,
+    GraphNode,
+    GraphOperation,
+    GraphPreviewRequest,
+    GraphProgress,
+    GraphQueryRequest,
+    GraphQueryResult,
+    GraphSource,
+    GraphSubgraph,
+    GraphSubgraphRequest,
+)
+from zhiheng.modules.knowledge.graph.orm import (
+    GraphAttempt,
+    GraphConfiguration,
+    GraphGeneration,
+    GraphJob,
+    GraphPin,
+    GraphStep,
+)
+from zhiheng.modules.knowledge.graph.service import GraphService
+from zhiheng.modules.knowledge.graph.store import GraphClaim, GraphStore
 from zhiheng.modules.knowledge.orm import (
     GenerationPin,
     IndexGeneration,
@@ -82,6 +114,29 @@ __all__ = [
     'FolderInfo',
     'FolderPatch',
     'GenerationStore',
+    'GraphBuildRequest',
+    'GraphClaim',
+    'GraphConfigInfo',
+    'GraphConfigPatch',
+    'GraphEdge',
+    'GraphFrozen',
+    'GraphJobInfo',
+    'GraphLabels',
+    'GraphModelOperation',
+    'GraphModelRole',
+    'GraphNode',
+    'GraphOperation',
+    'GraphPreviewRequest',
+    'GraphProgress',
+    'GraphQueryRequest',
+    'GraphQueryResult',
+    'GraphSDK',
+    'GraphService',
+    'GraphSource',
+    'GraphStore',
+    'GraphSubgraph',
+    'GraphSubgraphRequest',
+    'GraphVectorManifest',
     'Hit',
     'Input',
     'JobInfo',
@@ -99,6 +154,8 @@ __all__ = [
     'RetrievalBase',
     'RetrievalState',
     'RetrievalStore',
+    'SDKCall',
+    'SDKOutcome',
     'VectorIOControl',
     'VectorSpec',
     'Version',
@@ -114,6 +171,12 @@ def schema_tables() -> tuple[Table, ...]:
     return tuple(
         Base.metadata.tables[model.__tablename__]
         for model in (
+            GraphConfiguration,
+            GraphJob,
+            GraphAttempt,
+            GraphGeneration,
+            GraphStep,
+            GraphPin,
             KnowledgeBase,
             KnowledgeGrant,
             KnowledgeFolder,

@@ -2,7 +2,16 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Any, Literal
 
 from httpx2 import Request
-from langchain_core.messages import AIMessage, BaseMessage, BaseMessageChunk, ChatMessage, HumanMessage, SystemMessage
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    BaseMessageChunk,
+    ChatMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from langchain_core.outputs import ChatGenerationChunk
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
@@ -38,6 +47,37 @@ class _AsyncConnectionClient(AsyncOpenAI):
 class _ReasoningChatOpenAI(ChatOpenAI):
     """LC 1.4.7 drops provider reasoning_content in its chat delta conversion."""
 
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        *,
+        stream_usage: bool | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        if kwargs.get('response_format') != {'type': 'json_object'}:
+            async for chunk in super()._astream(
+                messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs
+            ):
+                yield chunk
+            return
+        # LC sends response_format through root.beta.stream, bypassing the raw
+        # usage client and parsing JSON even when the platform needs plain text.
+        # Keep LC's payload/conversion while using the same captured SSE path.
+        payload = self._get_request_payload(messages, stop=stop, **kwargs)
+        payload.update(stream=True, stream_options={'include_usage': True})
+        response = await self.async_client.create(**payload)
+        default_chunk: type[BaseMessageChunk] = AIMessageChunk
+        async with response:
+            async for raw in response:
+                converted = self._convert_chunk_to_generation_chunk(raw, default_chunk, {})
+                if converted is not None:
+                    default_chunk = converted.message.__class__
+                    if run_manager is not None:
+                        await run_manager.on_llm_new_token(converted.text, chunk=converted)
+                    yield converted
+
     def _convert_chunk_to_generation_chunk(
         self,
         chunk: dict[str, Any],
@@ -72,7 +112,12 @@ class OpenAIChatProvider:
         self._model = model
         self._max_output = max_output_tokens
         self._timeout = timeout_seconds
-        self._options = options or {}
+        self._options = dict(options or {})
+        response_format = self._options.get('response_format')
+        if response_format is not None:
+            if response_format != 'json_object':
+                raise ProviderError(definitive_rejection=True)
+            self._options['response_format'] = {'type': 'json_object'}
 
     def _isolate_request(self, request: Request) -> None:
         # The SDK merges OPENAI_CUSTOM_HEADERS after computing authentication.

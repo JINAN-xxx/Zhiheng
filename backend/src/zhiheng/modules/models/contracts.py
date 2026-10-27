@@ -5,7 +5,15 @@ from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from zhiheng.shared.errors import AppError
 
@@ -62,6 +70,22 @@ class ModelOptions(BaseModel):
     dimensions: int | None = None
     top_n: int | None = None
     return_documents: bool | None = None
+    response_format: Literal['json_object'] | None = None
+    reasoning_effort: Literal['none', 'minimal', 'low', 'medium', 'high'] | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize_existing_options(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        raw = handler(self)
+        if not isinstance(raw, dict) or any(not isinstance(key, str) for key in raw):
+            raise ValueError('Invalid options serialization')
+        result: dict[str, object] = dict(raw)
+        # Optional additions must not invalidate already published vector
+        # generations whose schema-7 binding contains the original fields.
+        if self.response_format is None:
+            result.pop('response_format', None)
+        if self.reasoning_effort is None:
+            result.pop('reasoning_effort', None)
+        return result
 
 
 class ModelBinding(BaseModel):
@@ -110,6 +134,10 @@ class ModelRequest(BaseModel):
     def require_vision_capability(self) -> 'ModelRequest':
         if any(message.images for message in self.messages) and not self.binding.vision_enabled:
             raise ValueError('Model does not support vision')
+        if self.binding.model_type != 'chat' and (
+            self.binding.options.response_format is not None or self.binding.options.reasoning_effort is not None
+        ):
+            raise ValueError('Chat generation controls require chat model')
         return self
 
 
