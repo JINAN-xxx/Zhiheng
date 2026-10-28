@@ -28,13 +28,13 @@ defineProps({
   width: min(100%, var(--workspace-content-max-width));
   min-width: 0;
   margin: 0 auto;
-  padding: 24px;
+  padding: 28px 32px;
 }
 
 .antd-workspace-page__header {
   display: flex;
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 20px;
@@ -47,7 +47,7 @@ defineProps({
     margin: 0;
     color: var(--workspace-text);
     font-size: var(--workspace-font-size-title);
-    font-weight: var(--workspace-font-weight-semibold);
+    font-weight: var(--workspace-font-weight-medium);
     line-height: 1.35;
   }
 

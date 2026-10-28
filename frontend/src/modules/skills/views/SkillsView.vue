@@ -1,10 +1,10 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar title="技能管理">
+    <WorkspaceToolbar title="技能">
       <template #actions>
         <a-tooltip title="刷新技能" placement="bottom">
-          <a-button shape="circle" :loading="loading" aria-label="刷新技能" @click="load">
+          <a-button :loading="loading" aria-label="刷新技能" @click="load">
             <template #icon><ReloadOutlined /></template>
           </a-button>
         </a-tooltip>
@@ -52,7 +52,6 @@
           message="刷新失败，当前技能可能已过期"
           show-icon
         />
-        <div class="section-title">平台技能</div>
         <div class="skill-grid">
           <article v-for="skill in skills" :key="skill.skillId" class="skill-card">
             <div class="skill-card__header">
@@ -64,8 +63,13 @@
               />
             </div>
             <p>{{ skill.description || '暂无说明' }}</p>
+            <div class="skill-card__tags">
+              <span>{{ skill.sourceType === 'builtin' ? '平台内置' : '上传技能' }}</span
+              ><span>v{{ skill.version }}</span>
+            </div>
             <div class="skill-card__footer">
-              <a-button type="link" size="small" @click="openDetail(skill)">查看</a-button>
+              <span>{{ skill.fileCount }} 个文件 · {{ formatSkillBytes(skill.totalBytes) }}</span>
+              <a-button type="link" size="small" @click="openDetail(skill)">查看详情</a-button>
             </div>
           </article>
         </div>
@@ -93,7 +97,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -115,9 +120,11 @@ import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import { listSkills } from '../api/index.ts'
 import type { Skill } from '../api/index.ts'
-import { skillStatusLabel } from '../presentation.ts'
+import { formatSkillBytes, skillStatusLabel } from '../presentation.ts'
 import SkillDetailDrawer from '../components/SkillDetailDrawer.vue'
 import SkillUploadModal from '../components/SkillUploadModal.vue'
+const route = useRoute(),
+  router = useRouter()
 const canManage = computed(() => identity.value?.is_admin ?? false)
 const skills = ref<Skill[]>([]),
   total = ref(0),
@@ -174,6 +181,17 @@ function handleChanged(changed: Skill): void {
 function handleDeleted(): void {
   void load()
 }
+watch(
+  [() => route.query.action, canManage],
+  ([action, allowed]) => {
+    if (action !== 'upload' || !allowed) return
+    uploadOpen.value = true
+    const query = { ...route.query }
+    delete query.action
+    void router.replace({ query })
+  },
+  { immediate: true }
+)
 onMounted(load)
 onBeforeUnmount(() => scope.dispose())
 </script>
@@ -186,24 +204,21 @@ onBeforeUnmount(() => scope.dispose())
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-container);
+  background: var(--bg-page);
   font-family: var(--workspace-font-family);
 }
 .skill-content {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 20px 24px 28px;
+  padding: 24px 28px 32px;
 }
 .skill-controls {
   display: flex;
-  min-height: 54px;
+  min-height: 40px;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  margin-bottom: 22px;
 }
 .skill-controls :deep(.ant-input-affix-wrapper) {
   width: min(360px, 42%);
@@ -216,22 +231,16 @@ onBeforeUnmount(() => scope.dispose())
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.section-title {
-  margin: 22px 1px 12px;
-  color: var(--color-text);
-  font-size: 15px;
-  font-weight: 600;
-}
 .skill-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(230px, 1fr));
-  gap: 14px;
+  gap: 20px;
 }
 .skill-card {
   display: flex;
-  min-height: 154px;
+  min-height: 225px;
   flex-direction: column;
-  padding: 17px;
+  padding: 22px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
@@ -250,7 +259,8 @@ onBeforeUnmount(() => scope.dispose())
   flex: 1;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -271,16 +281,39 @@ onBeforeUnmount(() => scope.dispose())
   margin: 14px 0 10px;
   overflow: hidden;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.7;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 .skill-card__footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--gray-100);
+}
+.skill-card__tags {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+.skill-card__tags span {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--gray-50);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.skill-card__tags span:first-child {
+  background: var(--main-50);
+  color: var(--main-700);
+}
+.skill-card__footer > span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
 .stale-notice {
   margin-top: 12px;
@@ -307,5 +340,8 @@ onBeforeUnmount(() => scope.dispose())
   .skill-controls :deep(.ant-input-affix-wrapper) {
     width: 100%;
   }
+}
+:deep(.ant-btn-link) {
+  color: var(--main-700);
 }
 </style>

@@ -29,13 +29,25 @@
             >{{ row.modelCode }} · {{ operationTypeLabel(row.operationType) }} ·
             {{ statusLabel(row.status) }}</span
           >
+          <span
+            >输入 / 输出 Token：{{ row.inputTokens ?? '待核对' }} /
+            {{ row.outputTokens ?? '待核对' }}</span
+          >
+          <span>检索单元：{{ row.searchUnits ?? '待核对' }}</span>
+          <span>
+            费用：{{ row.usageStatus === 'unknown' ? '待核对' : formatCost(row.billableCost) }}
+            <template v-if="row.usageStatus !== 'unknown' && row.billableCost !== null">{{
+              row.currency
+            }}</template>
+            · {{ usageStatusLabel(row.usageStatus) }}
+          </span>
         </article>
       </div>
       <ResourceTable
         class="usage-table"
         :columns="columns"
         :rows="rows"
-        :scroll-x="860"
+        :scroll-x="1030"
         :row-key="usageRowKey"
       >
         <template #bodyCell="{ column, record: row }">
@@ -46,10 +58,19 @@
           <template v-else-if="column.key === 'tokens'"
             >{{ row.inputTokens ?? '待核对' }} / {{ row.outputTokens ?? '待核对' }}</template
           >
-          <template v-else-if="column.key === 'searchUnits'">{{ row.searchUnits ?? '-' }}</template>
+          <template v-else-if="column.key === 'searchUnits'">{{
+            row.searchUnits ?? '待核对'
+          }}</template>
           <template v-else-if="column.key === 'billableCost'"
-            >{{ formatCost(row.billableCost)
-            }}<a-tag v-if="row.usageStatus === 'unknown'" color="orange">待核对</a-tag></template
+            >{{ row.usageStatus === 'unknown' ? '待核对' : formatCost(row.billableCost) }}
+            <template v-if="row.usageStatus !== 'unknown' && row.billableCost !== null">{{
+              row.currency
+            }}</template></template
+          >
+          <template v-else-if="column.key === 'usageStatus'"
+            ><a-tag :color="row.usageStatus === 'known' ? 'success' : 'warning'">{{
+              usageStatusLabel(row.usageStatus)
+            }}</a-tag></template
           >
           <template v-else-if="column.key === 'status'"
             ><a-tag>{{ statusLabel(row.status) }}</a-tag></template
@@ -92,10 +113,11 @@ const columns = [
   { title: '开始时间', dataIndex: 'startedAt', key: 'startedAt', width: 150 },
   { title: '类型', key: 'operationType', width: 100 },
   { title: '模型', dataIndex: 'modelCode', key: 'modelCode', width: 150, ellipsis: true },
-  { title: '令牌', key: 'tokens', width: 130 },
+  { title: '输入 / 输出 Token', key: 'tokens', width: 160 },
   { title: '检索单元', key: 'searchUnits', width: 110 },
   { title: '结算成本', key: 'billableCost', width: 130 },
-  { title: '状态', key: 'status', width: 90 }
+  { title: '运行状态', key: 'status', width: 90 },
+  { title: '核算状态', key: 'usageStatus', width: 100 }
 ]
 const operationTypeLabel = (value: string) =>
   ({ chat: '对话', embedding: '向量', rerank: '排序' })[value] ?? value
@@ -109,6 +131,8 @@ const statusLabel = (value: string) =>
     pending: '待执行',
     cancel_requested: '正在停止'
   })[value] ?? value
+const usageStatusLabel = (value: string) =>
+  ({ known: '已核算', unknown: '待核对', pending: '待核算' })[value] ?? value
 const usageRowKey = (row: ApplicationUsage) => row.id
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN')
 const formatCost = (value: string | null) => (value === null ? '待核对' : value)
@@ -155,6 +179,13 @@ const formatCost = (value: string | null) => (value === null ? '待核对' : val
     display: grid;
     gap: 8px;
     padding: 14px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .usage-mobile-item strong {
+    color: var(--color-text);
+    font-weight: 500;
   }
   .usage-table {
     display: none;

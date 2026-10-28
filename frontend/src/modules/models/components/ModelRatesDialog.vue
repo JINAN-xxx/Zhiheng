@@ -125,17 +125,25 @@ async function save(): Promise<void> {
     <AAlert v-if="error" :message="error" type="error" show-icon />
     <div class="rate-context">
       <strong>{{ model?.name }}</strong
-      ><ATag>{{ model?.model_type }}</ATag
+      ><ATag>{{
+        model?.model_type === 'rerank'
+          ? '重排序'
+          : model?.model_type === 'embedding'
+            ? '向量'
+            : '对话'
+      }}</ATag
       ><span class="muted">{{
         form.billing_mode === 'search_unit' ? '按检索单元计费' : '按令牌计费'
       }}</span>
     </div>
+    <h3 class="rate-history-title">历史费率版本</h3>
     <ResourceTable :columns="columns" :rows="cards" :loading="loading" :scroll-x="'100%'">
       <template #bodyCell="{ column, record }"
         ><template v-if="column.key === 'price'"
           ><span v-if="record.billing_mode === 'search_unit'">{{ record.search_price }} / 单元</span
           ><span v-else
-            >输入 {{ record.input_price }} / 输出 {{ record.output_price }}</span
+            >输入 {{ record.input_price }} / 输出 {{ record.output_price }} / 缓存
+            {{ record.cache_price }} · 每 Token</span
           ></template
         ><template v-else-if="column.key === 'version'">{{ record.version }}</template
         ><template v-else-if="column.key === 'currency'">{{ record.currency }}</template></template
@@ -179,6 +187,15 @@ async function save(): Promise<void> {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+.rate-context strong {
+  font-size: 16px;
+  font-weight: 500;
+}
+.rate-history-title {
+  margin: 20px 0 12px;
+  font-size: 14px;
+  font-weight: 500;
 }
 @media (max-width: 640px) {
   .rate-grid {

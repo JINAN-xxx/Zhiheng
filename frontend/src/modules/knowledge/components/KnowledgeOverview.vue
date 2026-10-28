@@ -1,7 +1,7 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <template>
   <section class="knowledge-overview">
-    <WorkspaceToolbar title="知识库">
+    <WorkspaceToolbar title="知识库" subtitle="管理文档、验证检索、构建知识图谱">
       <template #actions>
         <a-tooltip title="刷新知识库">
           <a-button
@@ -52,16 +52,22 @@
           <article v-for="database in filteredDatabases" :key="database.id" class="knowledge-card">
             <div class="knowledge-card__header">
               <span class="knowledge-card__icon"><DatabaseOutlined /></span>
-              <strong :title="database.name">{{ database.name }}</strong>
-              <a-tag>Milvus</a-tag>
+              <h2 :title="database.name">{{ database.name }}</h2>
+              <a-tag>{{ database.access === 'private' ? '私有' : '已登录用户可读' }}</a-tag>
             </div>
             <p>{{ database.description || '暂无描述' }}</p>
             <div class="knowledge-card__metadata">
+              <span>{{ database.document_count }} 个文档</span>
+              <a-tag :color="database.index_status === 'failed' ? 'error' : 'default'">{{
+                indexLabels[database.index_status]
+              }}</a-tag>
               <span v-if="graphAvailable && database.enable_knowledge_graph"
                 ><ApartmentOutlined /> 已启用知识图谱</span
               >
               <span v-else><FileTextOutlined /> 向量知识库</span>
-              <span>{{ formatTime(database.created_at) }}</span>
+            </div>
+            <div class="knowledge-card__created">
+              <span>{{ formatTime(database.created_at) }} · 所有者 {{ database.owner_id }}</span>
             </div>
             <div class="knowledge-card__footer">
               <a-button
@@ -161,6 +167,13 @@ const emit = defineEmits<{
   remove: [base: KnowledgeBase]
   open: [base: KnowledgeBase, view: string]
 }>()
+const indexLabels = {
+  empty: '尚无索引',
+  building: '建立索引中',
+  ready: '索引可用',
+  failed: '索引失败',
+  reindex_required: '需要重建'
+}
 const search = ref('')
 const filteredDatabases = computed(() =>
   props.databases.filter((base) =>
@@ -189,13 +202,12 @@ function open(base: KnowledgeBase, view: string): void {
 
 .knowledge-controls {
   display: flex;
-  min-height: 54px;
+  min-height: 40px;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .knowledge-controls :deep(.ant-input-affix-wrapper) {
@@ -216,18 +228,18 @@ function open(base: KnowledgeBase, view: string): void {
 .knowledge-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(230px, 1fr));
-  gap: 14px;
-  margin-top: 18px;
+  gap: 18px;
+  margin-top: 20px;
 }
 
 .knowledge-card {
   display: flex;
   min-width: 0;
-  min-height: 190px;
+  min-height: 240px;
   flex-direction: column;
-  padding: 17px;
+  padding: 22px;
   border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--bg-container);
 }
 
@@ -242,12 +254,14 @@ function open(base: KnowledgeBase, view: string): void {
   gap: 10px;
 }
 
-.knowledge-card__header strong {
+.knowledge-card__header h2 {
+  margin: 0;
   min-width: 0;
   flex: 1;
   overflow: hidden;
   color: var(--color-text);
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -258,9 +272,9 @@ function open(base: KnowledgeBase, view: string): void {
 
 .knowledge-card__icon {
   display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   place-items: center;
   border-radius: 7px;
   color: var(--main-700);
@@ -271,11 +285,12 @@ function open(base: KnowledgeBase, view: string): void {
 .knowledge-card > p {
   display: -webkit-box;
   min-height: 42px;
-  margin: 14px 0 10px;
+  margin: 20px 0 14px;
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.65;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -289,13 +304,20 @@ function open(base: KnowledgeBase, view: string): void {
   font-size: 12px;
 }
 
+.knowledge-card__created {
+  margin-bottom: 14px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .knowledge-card__footer {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 4px;
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--gray-100);
 }
 

@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import 'ant-design-vue/dist/reset.css'
-import '../shared/styles/yuxi-tokens.css'
-import '../shared/styles/yuxi-tokens.dark.css'
+import '../shared/styles/console-tokens.css'
+import '../shared/styles/console-tokens.dark.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
@@ -15,4 +15,10 @@ http.setUnauthorizedHandler(() => {
 })
 const app = createApp(App)
 app.use(router)
-app.mount('#app')
+void router.isReady().then(
+  () => app.mount('#app'),
+  () => {
+    const loading = document.querySelector('.startup-loading')
+    if (loading) loading.textContent = '页面加载失败，请刷新重试'
+  }
+)

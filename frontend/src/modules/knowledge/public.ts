@@ -23,3 +23,5 @@ export type {
   KnowledgePreparation,
   RunAdmission
 } from './api/index.ts'
+
+export { listBases } from './api/index.ts'

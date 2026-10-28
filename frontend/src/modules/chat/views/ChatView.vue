@@ -1,6 +1,7 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import {
   Alert as AAlert,
   Avatar as AAvatar,
@@ -11,6 +12,7 @@ import {
   Textarea as ATextarea
 } from 'ant-design-vue'
 import {
+  MenuOutlined,
   PaperClipOutlined,
   CloseOutlined,
   FileTextOutlined,
@@ -22,7 +24,8 @@ import {
   UserOutlined
 } from '@ant-design/icons-vue'
 import { runStatusLabel } from '../../../shared/stream.ts'
-import { useChatWorkspace } from '../public.ts'
+import { ChatNavigation, useChatWorkspace } from '../public.ts'
+import MessageActions from '../../../shared/components/MessageActions.vue'
 import { SkillPicker } from '../../skills/public.ts'
 import { KnowledgePicker, KnowledgeSources } from '../../knowledge/public.ts'
 import AiMessage from '../components/AiMessage.vue'
@@ -70,6 +73,15 @@ const {
   setModelId,
   keydown
 } = useChatWorkspace()
+const compactHistory = useMediaQuery('(max-width: 760px)')
+const historyVisible = ref(!compactHistory.value)
+async function newConversation(): Promise<void> {
+  await selectConversation(null)
+  closeHistory()
+}
+function closeHistory(): void {
+  if (compactHistory.value) historyVisible.value = false
+}
 const fileInput = ref<HTMLInputElement | null>(null)
 function chooseFiles(event: Event): void {
   const input = event.target as HTMLInputElement
@@ -85,8 +97,36 @@ onBeforeUnmount(() => {
     class="platform-chat workspace-chat-page"
     :class="{ 'is-empty': !messages.length && !activeRun && !selected }"
   >
+    <aside v-show="historyVisible" class="conversation-panel" aria-label="对话历史">
+      <header class="conversation-panel__heading">
+        <h2>对话历史</h2>
+        <AButton
+          v-if="compactHistory"
+          type="text"
+          aria-label="收起对话历史"
+          @click="historyVisible = false"
+          ><CloseOutlined
+        /></AButton>
+      </header>
+      <AButton class="conversation-panel__new" @click="newConversation">新建对话</AButton>
+      <ChatNavigation @navigate="closeHistory" />
+    </aside>
+    <button
+      v-if="compactHistory && historyVisible"
+      type="button"
+      class="conversation-scrim"
+      aria-label="关闭对话历史"
+      @click="historyVisible = false"
+    />
     <main class="chat-workspace">
       <header class="chat-toolbar">
+        <AButton
+          type="text"
+          :aria-label="historyVisible ? '收起对话历史' : '展开对话历史'"
+          :aria-expanded="historyVisible"
+          @click="historyVisible = !historyVisible"
+          ><MenuOutlined
+        /></AButton>
         <ASelect
           :value="modelId"
           class="model-select"
@@ -107,6 +147,7 @@ onBeforeUnmount(() => {
           ><SettingOutlined
         /></AButton>
       </header>
+      <div v-if="selected" class="chat-session-heading">{{ selected.title }}</div>
       <div v-if="error || listError || canRetry || canRecover" class="chat-alert">
         <AAlert v-if="error" :message="error" type="error" show-icon /><AAlert
           v-if="listError"
@@ -152,6 +193,7 @@ onBeforeUnmount(() => {
                 >技能：{{ skill.name }}</ATag
               >
             </div>
+            <MessageActions :content="message.content" :role="message.role" />
           </div>
         </article>
         <article v-if="activeRun" class="message-row assistant">
@@ -168,6 +210,7 @@ onBeforeUnmount(() => {
             <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
             <KnowledgeSources :sources="activeRunSources" />
             <span v-if="activeRun.usage.status === 'unknown'" class="muted small">用量待核对</span>
+            <MessageActions :content="activeRun.text" />
           </div>
         </article>
       </section>
@@ -331,6 +374,7 @@ onBeforeUnmount(() => {
     </main>
   </div>
 </template>
+
 <style scoped lang="scss">
 .archived-actions {
   display: flex;
@@ -347,11 +391,12 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .platform-chat {
+  position: relative;
   height: 100%;
   display: flex;
   overflow: hidden;
   color: var(--color-text);
-  background: var(--gray-10);
+  background: var(--bg-container);
   font-family: var(--workspace-font-family);
 }
 
@@ -375,10 +420,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   padding: 0;
-  background: var(--gray-10);
+  background: var(--bg-container);
 }
 
 .toolbar-icon-button {
+  margin-left: auto;
   flex-shrink: 0;
   width: var(--workspace-control-height);
   height: var(--workspace-control-height);
@@ -393,10 +439,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
-  min-height: 52px;
-  padding: 8px 24px;
+  min-height: 70px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--gray-150);
 }
 
 .composer-context {
@@ -444,14 +491,15 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 28px clamp(16px, 6vw, 96px);
+  padding: 24px max(24px, calc((100% - 800px) / 2));
   background: transparent;
 }
 
 .message-row {
+  align-items: flex-start;
   display: flex;
   gap: 12px;
-  max-width: 960px;
+  max-width: 800px;
   margin: 0 auto 22px;
 }
 
@@ -465,7 +513,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   flex: 0 0 30px;
-  border-radius: 50%;
+  border-radius: 8px;
   color: var(--main-color);
   background: var(--gray-150);
 }
@@ -480,15 +528,19 @@ onBeforeUnmount(() => {
 }
 
 .message-row.user .message-body {
-  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: left;
 }
 
 .user-message {
   margin: 5px 0 0;
   padding: 10px 13px;
-  border: 1px solid var(--main-100);
-  border-radius: 16px 4px 16px 16px;
-  background: var(--main-50);
+  max-width: 100%;
+  border: 0;
+  border-radius: 10px 0 10px 10px;
+  background: var(--gray-50);
   color: var(--color-text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -602,17 +654,17 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   width: min(880px, 100%);
   align-self: center;
-  padding: 12px 24px 24px;
+  padding: 10px 24px 8px;
   background: transparent;
 }
 
 .composer-surface {
   flex-shrink: 0;
-  padding: 16px 18px 12px;
+  padding: 12px 13px 10px;
   border: 1px solid var(--gray-200);
-  border-radius: 20px;
+  border-radius: 13px;
   background: var(--bg-container);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  box-shadow: none;
   transition:
     border-color 0.18s,
     box-shadow 0.18s;
@@ -665,23 +717,6 @@ onBeforeUnmount(() => {
   border-radius: 9px;
   color: var(--color-text-secondary);
 }
-.is-empty .chat-workspace {
-  display: grid;
-  grid-template-rows: auto minmax(min-content, 1fr) auto minmax(24px, 1fr);
-  overflow-y: auto;
-}
-.is-empty .message-history {
-  align-self: end;
-  overflow: visible;
-  padding: 28px 16px 0;
-}
-.is-empty .composer {
-  width: min(800px, calc(100% - 48px));
-  max-height: none;
-  justify-self: center;
-  align-self: start;
-  padding: 24px 0 8px;
-}
 
 :deep(.ant-form-item .ant-input-number) {
   width: 100%;
@@ -720,14 +755,7 @@ onBeforeUnmount(() => {
   .composer-submit {
     width: 76px;
   }
-  .is-empty .composer {
-    width: calc(100% - 28px);
-    padding-top: 22px;
-  }
 }
-</style>
-
-<style scoped>
 .chat-alert {
   padding: 0 24px;
 }
@@ -737,11 +765,62 @@ onBeforeUnmount(() => {
 .chat-alert :deep(.ant-btn) {
   margin: 0 8px 8px 0;
 }
-.platform-chat:has(.chat-alert).is-empty .chat-workspace {
+.conversation-panel {
   display: flex;
+  flex-direction: column;
+  flex: 0 0 220px;
+  width: 220px;
+  min-height: 0;
+  border-right: 1px solid var(--gray-150);
+  background: var(--gray-25);
 }
-.platform-chat:has(.chat-alert).is-empty .message-history {
-  align-self: stretch;
-  flex: 1;
+.conversation-panel__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 50px;
+  padding: 10px 14px 2px;
+}
+.conversation-panel__heading h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.conversation-panel__new {
+  margin: 5px 12px 0;
+  color: var(--main-color);
+  border-color: var(--main-200);
+}
+.chat-session-heading {
+  padding: 10px 28px 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+.conversation-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  padding: 0;
+  border: 0;
+  background: rgb(25 26 40 / 12%);
+}
+@media (max-width: 760px) {
+  .conversation-panel {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: 11;
+    width: 240px;
+  }
+  .message-history {
+    padding: 18px;
+  }
+  .message-actions {
+    gap: 6px;
+  }
+}
+.is-empty .message-history {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>

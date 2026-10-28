@@ -37,12 +37,12 @@ const emit = defineEmits<{ 'update:modelValue': [mode: 'chat' | 'work'] }>()
 <style scoped>
 .workspace-mode-switch {
   display: flex;
-  width: min(248px, 100%);
+  width: min(210px, 100%);
   gap: 4px;
   padding: 4px;
   background: var(--gray-100);
   border: 1px solid var(--gray-150);
-  border-radius: 16px;
+  border-radius: 9px;
 }
 .workspace-mode-switch button {
   display: flex;
@@ -51,9 +51,9 @@ const emit = defineEmits<{ 'update:modelValue': [mode: 'chat' | 'work'] }>()
   gap: 8px;
   flex: 1;
   min-width: 0;
-  height: 40px;
+  height: 34px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-text-secondary);
   font: inherit;

@@ -1,202 +1,300 @@
 <!-- Adapted from original agent UI, MIT licensed. -->
 <template>
-  <a-modal
-    :open="modelValue"
-    class="agent-editor-modal"
-    centered
-    width="min(880px, calc(100vw - 32px))"
-    :body-style="{ maxHeight: 'calc(100dvh - 240px)', overflowY: 'auto', paddingRight: '6px' }"
-    :closable="!busy"
-    :mask-closable="false"
-    :keyboard="!busy"
+  <component
+    :is="page ? 'main' : AModal"
+    :class="['agent-editor', { 'agent-editor--page': page }]"
+    v-bind="
+      page
+        ? {}
+        : {
+            open: modelValue,
+            width: 'min(1060px, calc(100vw - 32px))',
+            footer: null,
+            closable: !busy,
+            maskClosable: false,
+            keyboard: !busy
+          }
+    "
     @cancel="close"
   >
-    <template #title
-      ><span class="agent-editor-title">{{ saved ? saved.name : '新建智能体' }}</span></template
-    >
+    <header class="editor-heading">
+      <div class="editor-heading__title">
+        <a-button
+          v-if="page"
+          type="text"
+          class="editor-back"
+          :disabled="busy"
+          aria-label="返回智能体列表"
+          @click="close"
+          ><ArrowLeftOutlined />返回智能体</a-button
+        >
+        <h1>{{ saved?.name || '新建智能体' }}</h1>
+        <div class="editor-status">
+          <a-tag v-if="saved" :color="saved.status === 'published' ? 'green' : 'default'">{{
+            agentStatusLabel(saved)
+          }}</a-tag>
+          <span>{{ saved ? `草稿 v${saved.version}` : '配置你的智能体' }}</span>
+          <span v-if="saved?.publishedVersion">已发布 v{{ saved.publishedVersion }}</span>
+          <span class="editor-save-state">{{
+            dirty ? '有未保存更改' : saved ? '所有更改已保存' : ''
+          }}</span>
+        </div>
+      </div>
+      <div class="editor-actions">
+        <a-tooltip
+          v-if="saved && canEdit"
+          :title="saved.status === 'published' ? '取消发布后可删除' : '删除智能体'"
+        >
+          <a-button
+            danger
+            type="text"
+            :disabled="busy || saved.status === 'published'"
+            aria-label="删除智能体"
+            @click="remove"
+            ><DeleteOutlined
+          /></a-button>
+        </a-tooltip>
+        <a-button
+          v-if="saved?.status === 'published'"
+          :disabled="busy"
+          aria-label="API 说明"
+          @click="apiOpen = true"
+          ><ApiOutlined />API 说明</a-button
+        >
+        <a-button
+          v-if="saved?.status === 'published' && canEdit"
+          :disabled="busy"
+          aria-label="取消发布"
+          @click="unpublish"
+          ><StopOutlined />取消发布</a-button
+        >
+        <a-button
+          v-if="!page && saved && canEdit"
+          :disabled="busy || dirty"
+          aria-label="试聊"
+          @click="$emit('preview', saved)"
+          ><MessageOutlined />试聊</a-button
+        >
+        <a-button
+          v-if="canEdit"
+          :loading="saving"
+          :disabled="(busy && !saving) || loading || !!loadError"
+          aria-label="保存"
+          @click="save"
+          ><SaveOutlined />保存</a-button
+        >
+        <a-tooltip
+          v-if="saved && canEdit"
+          :title="
+            dirty ? '保存后发布' : !saved.applicationId ? '绑定 API 应用后发布' : '发布当前草稿'
+          "
+        >
+          <a-button
+            type="primary"
+            :disabled="
+              busy ||
+              dirty ||
+              !saved.applicationId ||
+              (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
+            "
+            aria-label="发布"
+            @click="publish"
+            ><CloudUploadOutlined />发布</a-button
+          >
+        </a-tooltip>
+      </div>
+    </header>
     <WorkspaceState v-if="loading" kind="loading" />
     <WorkspaceState v-else-if="loadError" kind="error" :message="loadError" @retry="load" />
-    <template v-else>
-      <div v-if="saved" class="editor-status">
-        <a-tag :color="saved.status === 'published' ? 'green' : 'default'">{{
-          agentStatusLabel(saved)
-        }}</a-tag
-        ><span>草稿 v{{ saved.version }}</span
-        ><span v-if="dirty">未保存</span>
-      </div>
-      <a-alert v-if="error" class="editor-alert" type="error" :message="error" show-icon />
-      <a-alert
-        v-if="optionsError"
-        class="editor-alert"
-        type="warning"
-        :message="optionsError"
-        show-icon
-      />
-      <a-form
-        ref="formRef"
-        class="editor-form"
-        :model="form"
-        :rules="rules"
-        layout="vertical"
-        :disabled="!canEdit || busy"
-      >
-        <a-form-item label="名称" name="name"
-          ><a-input v-model:value="form.name" :maxlength="100"
-        /></a-form-item>
-        <a-form-item label="模型" name="modelId"
-          ><a-select
-            :value="form.modelId || undefined"
-            show-search
-            option-filter-prop="label"
-            :options="modelOptions"
-            :loading="optionsLoading"
-            :disabled="!canEdit || busy"
-            placeholder="选择模型"
-            @update:value="modelChanged"
-        /></a-form-item>
-        <a-form-item class="editor-full-width" label="描述" name="description"
-          ><a-textarea v-model:value="form.description" :rows="2" :maxlength="500"
-        /></a-form-item>
-        <a-form-item
-          class="editor-full-width"
-          label="欢迎语"
-          name="welcomeMessage"
-          extra="开启对话时展示的开场白，可留空。"
-          ><a-textarea
-            v-model:value="form.welcomeMessage"
-            :rows="2"
-            :maxlength="2000"
-            placeholder="你好，我可以帮你解答什么问题？"
-        /></a-form-item>
-        <a-form-item class="editor-full-width" label="系统提示词" name="systemPrompt"
-          ><a-textarea v-model:value="form.systemPrompt" :rows="5" :maxlength="32000"
-        /></a-form-item>
-        <a-form-item label="技能" name="skillSlugs"
-          ><a-select
-            :value="form.skillSlugs"
-            mode="multiple"
-            option-filter-prop="label"
-            :options="skillOptions"
-            :loading="optionsLoading"
-            :disabled="!canEdit || busy"
-            allow-clear
-            @update:value="setSkillSlugs"
-        /></a-form-item>
-        <a-form-item label="知识库" name="knowledgeBaseIds">
-          <a-select
-            :value="form.knowledgeBaseIds"
-            mode="multiple"
-            option-filter-prop="label"
-            :options="knowledgeOptions"
-            :loading="optionsLoading"
-            :disabled="!canEdit || busy"
-            allow-clear
-            placeholder="选择回答时引用的知识库"
-            @update:value="setKnowledgeIds"
-          />
-          <template #extra
-            ><span>{{
-              knowledgeBases.length ? '检索同时校验知识库及原文权限。' : '暂无可选知识库'
-            }}</span></template
+    <div v-else class="editor-layout" :class="{ 'editor-layout--page': page }">
+      <div class="editor-config">
+        <nav class="editor-section-nav" aria-label="配置分区">
+          <button
+            v-for="section in sections"
+            :key="section.id"
+            type="button"
+            :class="{ active: activeSection === section.id }"
+            @click="scrollToSection(section.id)"
           >
-        </a-form-item>
-        <a-form-item class="editor-full-width" label="API 应用" name="applicationId">
-          <div class="application-field">
-            <a-select
-              :value="form.applicationId ?? undefined"
-              show-search
-              allow-clear
-              option-filter-prop="label"
-              :options="applicationOptions"
-              :loading="optionsLoading"
-              :disabled="!canEdit || busy"
-              placeholder="选择应用"
-              @update:value="setApplicationId"
-            />
-            <a-tooltip v-if="canEdit && canCreateApplication" title="新建 API 应用"
-              ><a-button :disabled="busy" aria-label="新建 API 应用" @click="openApplication"
-                ><template #icon><PlusOutlined /></template></a-button
-            ></a-tooltip>
+            {{ section.label }}
+          </button>
+        </nav>
+        <a-alert v-if="error" class="editor-alert" type="error" :message="error" show-icon />
+        <a-alert
+          v-if="optionsError"
+          class="editor-alert"
+          type="warning"
+          :message="optionsError"
+          show-icon
+        />
+        <a-form
+          ref="formRef"
+          class="editor-form"
+          :model="form"
+          :rules="rules"
+          layout="vertical"
+          :disabled="!canEdit || busy"
+        >
+          <section id="agent-config-basic" class="config-section">
+            <div class="config-heading">
+              <span><RobotOutlined /></span>
+              <h2>基本信息</h2>
+            </div>
+            <div class="config-fields">
+              <a-form-item label="智能体名称" name="name"
+                ><a-input v-model:value="form.name" :maxlength="100" placeholder="为智能体命名"
+              /></a-form-item>
+              <a-form-item label="描述" name="description"
+                ><a-textarea
+                  v-model:value="form.description"
+                  :rows="2"
+                  :maxlength="500"
+                  placeholder="介绍智能体的用途"
+              /></a-form-item>
+              <a-form-item label="欢迎语" name="welcomeMessage" extra="开启对话时展示，可留空。"
+                ><a-textarea
+                  v-model:value="form.welcomeMessage"
+                  :rows="2"
+                  :maxlength="2000"
+                  placeholder="你好，我可以帮你解答什么问题？"
+              /></a-form-item>
+            </div>
+          </section>
+          <section id="agent-config-prompt" class="config-section">
+            <div class="config-heading">
+              <span><MessageOutlined /></span>
+              <h2>系统提示词</h2>
+            </div>
+            <div class="config-fields">
+              <a-form-item label="系统提示词" name="systemPrompt"
+                ><a-textarea
+                  v-model:value="form.systemPrompt"
+                  :rows="7"
+                  :maxlength="32000"
+                  placeholder="描述智能体的角色、任务和回答要求"
+              /></a-form-item>
+            </div>
+          </section>
+          <section id="agent-config-resources" class="config-section">
+            <div class="config-heading">
+              <span><BookOutlined /></span>
+              <h2>技能与知识</h2>
+            </div>
+            <div class="config-fields">
+              <a-form-item label="技能" name="skillSlugs" extra="最多选择 5 个技能。"
+                ><a-select
+                  :value="form.skillSlugs"
+                  mode="multiple"
+                  option-filter-prop="label"
+                  :options="skillOptions"
+                  :loading="optionsLoading"
+                  :disabled="!canEdit || busy"
+                  allow-clear
+                  placeholder="选择技能"
+                  @update:value="setSkillSlugs"
+              /></a-form-item>
+              <a-form-item label="知识库" name="knowledgeBaseIds"
+                ><a-select
+                  :value="form.knowledgeBaseIds"
+                  mode="multiple"
+                  option-filter-prop="label"
+                  :options="knowledgeOptions"
+                  :loading="optionsLoading"
+                  :disabled="!canEdit || busy"
+                  allow-clear
+                  placeholder="选择回答时引用的知识库"
+                  @update:value="setKnowledgeIds"
+                /><template #extra>{{
+                  knowledgeBases.length ? '检索同时校验知识库及原文权限。' : '暂无可选知识库'
+                }}</template></a-form-item
+              >
+            </div>
+          </section>
+          <section id="agent-config-runtime" class="config-section">
+            <div class="config-heading">
+              <span><SettingOutlined /></span>
+              <h2>模型与发布</h2>
+            </div>
+            <div class="config-fields">
+              <a-form-item label="模型" name="modelId"
+                ><a-select
+                  :value="form.modelId || undefined"
+                  show-search
+                  option-filter-prop="label"
+                  :options="modelOptions"
+                  :loading="optionsLoading"
+                  :disabled="!canEdit || busy"
+                  placeholder="选择模型"
+                  @update:value="modelChanged"
+              /></a-form-item>
+              <div class="sampling-fields">
+                <a-form-item label="温度" name="temperature"
+                  ><a-input-number
+                    :value="form.temperature ?? ''"
+                    :min="0"
+                    :max="2"
+                    :step="0.1"
+                    @update:value="setTemperature"
+                /></a-form-item>
+                <a-form-item label="最大输出 Token" name="maxTokens"
+                  ><a-input-number
+                    :value="form.maxTokens ?? ''"
+                    :min="1"
+                    :max="131072"
+                    :precision="0"
+                    placeholder="2048"
+                    @update:value="setMaxTokens"
+                /></a-form-item>
+              </div>
+              <a-form-item label="API 应用" name="applicationId"
+                ><div class="application-field">
+                  <a-select
+                    :value="form.applicationId ?? undefined"
+                    show-search
+                    allow-clear
+                    option-filter-prop="label"
+                    :options="applicationOptions"
+                    :loading="optionsLoading"
+                    :disabled="!canEdit || busy"
+                    placeholder="选择应用"
+                    @update:value="setApplicationId"
+                  /><a-tooltip v-if="canEdit && canCreateApplication" title="新建 API 应用"
+                    ><a-button :disabled="busy" aria-label="新建 API 应用" @click="openApplication"
+                      ><PlusOutlined /></a-button
+                  ></a-tooltip></div
+              ></a-form-item>
+            </div>
+          </section>
+        </a-form>
+      </div>
+      <aside v-if="page" class="editor-preview-column">
+        <AgentPreviewDrawer
+          :model-value="true"
+          :agent="saved"
+          embedded
+          :disabled="dirty || !saved || loading || !!loadError || !canEdit"
+          @busy-change="previewBusy = $event"
+        />
+        <section class="publication-note">
+          <ThunderboltOutlined />
+          <div>
+            <h3>发布状态</h3>
+            <p>
+              {{
+                saved?.publishedVersion
+                  ? `API 使用已发布的 v${saved.publishedVersion} 配置。`
+                  : '发布后可通过 API 调用。'
+              }}
+            </p>
+            <p>
+              {{ dirty ? '保存更改后可试聊与发布。' : '保存草稿后，需发布才会更新 API 配置。' }}
+            </p>
           </div>
-        </a-form-item>
-        <div class="sampling-fields editor-full-width">
-          <a-form-item label="温度" name="temperature"
-            ><a-input-number
-              :value="form.temperature ?? ''"
-              :min="0"
-              :max="2"
-              :step="0.1"
-              @update:value="setTemperature"
-          /></a-form-item>
-          <a-form-item label="最大输出 Token" name="maxTokens"
-            ><a-input-number
-              :value="form.maxTokens ?? ''"
-              :min="1"
-              :max="131072"
-              :precision="0"
-              placeholder="2048"
-              @update:value="setMaxTokens"
-          /></a-form-item>
-        </div>
-      </a-form>
-    </template>
-    <template #footer>
-      <div class="editor-footer">
-        <div class="editor-footer__secondary">
-          <a-tooltip
-            v-if="saved && canEdit"
-            :title="saved.status === 'published' ? '取消发布后可删除' : '删除智能体'"
-            ><a-button
-              danger
-              :disabled="busy || saved.status === 'published'"
-              aria-label="删除智能体"
-              @click="remove"
-              ><template #icon><DeleteOutlined /></template></a-button
-          ></a-tooltip>
-          <a-button
-            v-if="saved?.status === 'published' && canEdit"
-            :disabled="busy"
-            aria-label="取消发布"
-            @click="unpublish"
-            ><StopOutlined />取消发布</a-button
-          >
-        </div>
-        <div class="editor-footer__primary">
-          <a-tooltip v-if="saved && canEdit" :title="dirty ? '保存后试聊' : '试聊已保存草稿'"
-            ><a-button :disabled="busy || dirty" aria-label="试聊" @click="$emit('preview', saved)"
-              ><MessageOutlined />试聊</a-button
-            ></a-tooltip
-          >
-          <a-button
-            v-if="canEdit"
-            :loading="saving"
-            :disabled="(busy && !saving) || loading || !!loadError"
-            aria-label="保存"
-            @click="save"
-            ><SaveOutlined />保存</a-button
-          >
-          <a-tooltip
-            v-if="saved && canEdit"
-            :title="
-              dirty ? '保存后发布' : !saved.applicationId ? '绑定 API 应用后发布' : '发布当前草稿'
-            "
-            ><a-button
-              type="primary"
-              :disabled="
-                busy ||
-                dirty ||
-                !saved.applicationId ||
-                (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
-              "
-              aria-label="发布"
-              @click="publish"
-              ><CloudUploadOutlined />发布</a-button
-            ></a-tooltip
-          >
-        </div>
-      </div>
-    </template>
-  </a-modal>
+        </section>
+      </aside>
+    </div>
+  </component>
+  <AgentApiDrawer v-model="apiOpen" :agent="saved" />
   <a-modal
     v-model:open="applicationOpen"
     title="新建 API 应用"
@@ -231,7 +329,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -247,7 +346,13 @@ import {
 } from 'ant-design-vue'
 import type { FormInstance } from 'ant-design-vue'
 import {
+  ApiOutlined,
+  ArrowLeftOutlined,
+  BookOutlined,
   CloudUploadOutlined,
+  RobotOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
   DeleteOutlined,
   MessageOutlined,
   PlusOutlined,
@@ -282,13 +387,33 @@ import {
   hasUnpublishedAgentChanges,
   withCurrent
 } from '../presentation.ts'
-const props = defineProps<{ modelValue: boolean; agentId: string }>()
+import AgentPreviewDrawer from './AgentPreviewDrawer.vue'
+import AgentApiDrawer from './AgentApiDrawer.vue'
+const props = withDefaults(
+  defineProps<{ modelValue: boolean; agentId: string; page?: boolean }>(),
+  { page: false }
+)
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   changed: [agent: Agent]
   deleted: [id: string]
   preview: [agent: Agent]
 }>()
+const apiOpen = ref(false),
+  previewBusy = ref(false)
+const sections = [
+  { id: 'basic', label: '基本信息' },
+  { id: 'prompt', label: '提示词' },
+  { id: 'resources', label: '技能与知识' },
+  { id: 'runtime', label: '模型与发布' }
+]
+const activeSection = ref('basic')
+function scrollToSection(id: string): void {
+  activeSection.value = id
+  document
+    .getElementById(`agent-config-${id}`)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const saved = ref<Agent | null>(null),
   form = reactive(createAgentForm()),
   formRef = ref<FormInstance>()
@@ -313,7 +438,12 @@ const readScope = new RequestScope(),
   applicationScope = new RequestScope(),
   confirmation = useConfirmation()
 const busy = computed(
-  () => loading.value || saving.value || actionBusy.value || applicationSaving.value
+  () =>
+    loading.value ||
+    saving.value ||
+    actionBusy.value ||
+    applicationSaving.value ||
+    previewBusy.value
 )
 const canEdit = computed(
   () => !saved.value || identity.value?.is_admin || identity.value?.id === saved.value.ownerId
@@ -533,11 +663,30 @@ async function remove(): Promise<void> {
     if (context.isCurrent()) actionBusy.value = false
   }
 }
+let navigationConfirmed = false
+async function canLeave(): Promise<boolean> {
+  if (!props.page) return true
+  if (busy.value) return false
+  if (navigationConfirmed || !dirty.value) return true
+  return confirmation.confirm('尚有未保存更改，确定离开？')
+}
+onBeforeRouteLeave(canLeave)
+onBeforeRouteUpdate(canLeave)
+function beforeUnload(event: BeforeUnloadEvent): void {
+  if (props.page && dirty.value) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
 async function close(): Promise<void> {
   if (busy.value) return
   const context = mutationScope.current()
   if (dirty.value && !(await confirmation.confirm('尚有未保存更改，确定关闭？'))) return
-  if (context.isCurrent()) emit('update:modelValue', false)
+  if (context.isCurrent()) {
+    navigationConfirmed = true
+    emit('update:modelValue', false)
+  }
 }
 function openApplication(): void {
   if (!canCreateApplication.value) return
@@ -608,6 +757,8 @@ function modelChanged(value: unknown): void {
 watch(
   () => [props.modelValue, props.agentId],
   () => {
+    navigationConfirmed = false
+    apiOpen.value = false
     confirmation.cancel()
     readScope.replace()
     mutationScope.replace()
@@ -636,6 +787,7 @@ watch(applicationOpen, (open) => {
   }
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforeUnload)
   readScope.dispose()
   mutationScope.dispose()
   applicationScope.dispose()
@@ -643,37 +795,155 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.agent-editor-title {
-  display: block;
-  padding-right: 24px;
-  overflow-wrap: anywhere;
+.agent-editor {
+  color: var(--color-text);
+  font-size: 14px;
 }
-.editor-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 20px;
+.agent-editor--page {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px 36px;
+  background: var(--bg-page);
 }
-.editor-form > * {
+.editor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.agent-editor--page .editor-heading {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding-bottom: 18px;
+  margin-bottom: 4px;
+  background: var(--bg-page);
+  box-shadow: 0 -24px 0 var(--bg-page);
+}
+.editor-heading__title {
   min-width: 0;
+  flex: 1;
 }
-.editor-full-width {
-  grid-column: 1 / -1;
+.editor-heading h1 {
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+  font-weight: 500;
 }
+.editor-back {
+  height: auto;
+  margin: 0 0 14px -8px;
+  padding-block: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.editor-actions,
 .editor-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 20px;
+}
+.editor-status {
   color: var(--color-text-secondary);
   font-size: 12px;
 }
 .editor-status :deep(.ant-tag) {
   margin: 0;
-  white-space: normal;
 }
-.editor-alert {
+.editor-save-state {
+  color: var(--main-700);
+}
+.editor-layout {
+  min-width: 0;
+}
+.editor-layout--page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 350px;
+  align-items: start;
+  gap: 22px;
+}
+.editor-config {
+  min-width: 0;
+}
+.editor-section-nav {
+  display: flex;
+  gap: 8px;
   margin-bottom: 16px;
+  overflow-x: auto;
+}
+.editor-section-nav button {
+  padding: 8px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.editor-section-nav button.active {
+  color: var(--main-700);
+  background: var(--main-50);
+  border-color: var(--main-100);
+  font-weight: 600;
+}
+.config-section {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: #fff;
+  scroll-margin-top: 140px;
+}
+.config-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.config-heading > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--main-700);
+  background: var(--main-50);
+}
+.config-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.config-fields {
+  padding: 22px 22px 2px;
+}
+.config-fields :deep(.ant-form-item) {
+  margin-bottom: 22px;
+}
+.config-fields :deep(.ant-form-item-label > label) {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--color-text);
+}
+.config-fields :deep(.ant-form-item-extra) {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.sampling-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.sampling-fields :deep(.ant-input-number) {
+  width: 100%;
 }
 .application-field {
   display: flex;
@@ -684,36 +954,84 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex: 1;
 }
-.sampling-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+.editor-alert {
+  margin-bottom: 16px;
 }
-.sampling-fields :deep(.ant-input-number) {
-  width: 100%;
+.editor-preview-column {
+  position: sticky;
+  top: 130px;
+  min-width: 0;
 }
-.editor-footer,
-.editor-footer__secondary,
-.editor-footer__primary {
+.publication-note {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--main-700);
 }
-.editor-footer {
-  justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px solid var(--gray-150);
+.publication-note h3 {
+  margin: 0 0 10px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
 }
-@media (max-width: 520px) {
-  .editor-form {
+.publication-note p {
+  margin: 0 0 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+@media (max-width: 1200px) {
+  .editor-layout--page {
+    grid-template-columns: minmax(0, 1fr) 310px;
+    gap: 16px;
+  }
+  .agent-editor--page {
+    padding: 20px;
+  }
+  .editor-actions {
+    width: 100%;
+  }
+  .editor-preview-column {
+    top: 160px;
+  }
+  .config-section {
+    scroll-margin-top: 180px;
+  }
+}
+@media (max-width: 950px) {
+  .editor-layout--page {
     grid-template-columns: minmax(0, 1fr);
   }
-  .editor-footer__primary {
-    margin-left: auto;
+  .editor-preview-column {
+    position: static;
+  }
+}
+@media (max-width: 600px) {
+  .agent-editor--page .editor-heading {
+    position: static;
+  }
+  .config-section {
+    scroll-margin-top: 16px;
+  }
+  .agent-editor--page {
+    padding: 16px;
+  }
+  .config-heading {
+    padding: 16px;
+  }
+  .config-fields {
+    padding: 16px 16px 0;
+  }
+  .editor-heading h1 {
+    font-size: 20px;
   }
   .sampling-fields {
-    gap: 10px;
+    gap: 12px;
   }
 }
 </style>

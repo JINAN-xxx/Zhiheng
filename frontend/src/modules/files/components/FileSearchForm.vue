@@ -1,12 +1,11 @@
 <!-- Adapted from original FileSearchForm, MIT licensed. -->
 <template>
-  <a-form v-show="show" :model="queryParams" layout="inline" class="file-search-form">
+  <a-form v-show="show" :model="queryParams" layout="vertical" class="file-search-form">
     <a-form-item label="文件名称" name="originalName">
       <a-input
         v-model:value="queryParams.originalName"
         placeholder="请输入原始文件名"
         allow-clear
-        style="width: 200px"
         @press-enter="emit('query')"
       />
     </a-form-item>
@@ -15,7 +14,6 @@
         :value="queryParams.accessType || undefined"
         placeholder="请选择访问类型"
         allow-clear
-        style="width: 200px"
         :options="accessTypeOptions"
         @update:value="setAccess"
       />
@@ -25,7 +23,6 @@
         :value="queryParams.status || undefined"
         placeholder="请选择文件状态"
         allow-clear
-        style="width: 200px"
         :options="statusOptions"
         @update:value="setStatus"
       />
@@ -35,7 +32,6 @@
         v-model:value="queryParams.uploaderSearch"
         placeholder="请输入上传用户"
         allow-clear
-        style="width: 200px"
         @press-enter="emit('query')"
       />
     </a-form-item>
@@ -44,7 +40,6 @@
         v-model:value="queryParams.ownerSearch"
         placeholder="请输入所有者"
         allow-clear
-        style="width: 200px"
         @press-enter="emit('query')"
       />
     </a-form-item>
@@ -53,17 +48,23 @@
         :value="queryParams.expirationStatus || undefined"
         placeholder="请选择过期状态"
         allow-clear
-        style="width: 200px"
         :options="expirationOptions"
         @update:value="setExpiration"
       />
     </a-form-item>
+    <a-form-item label="文件类型" name="mime"
+      ><a-input
+        v-model:value="queryParams.mime"
+        aria-label="筛选 MIME 类型"
+        placeholder="例如 text/plain"
+        allow-clear
+        @press-enter="emit('query')"
+    /></a-form-item>
     <a-form-item label="上传时间">
       <a-range-picker
         v-bind="dateRange ? { value: dateRange } : {}"
         value-format="YYYY-MM-DD HH:mm:ss"
         show-time
-        style="width: 200px"
         :placeholder="['开始时间', '结束时间']"
         @update:value="setDates"
       />
@@ -143,18 +144,47 @@ function handleReset(): void {
 
 <style scoped>
 .file-search-form {
-  margin-bottom: 16px;
-  row-gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--gray-150);
 }
-@media (max-width: 767px) {
+.file-search-form :deep(.ant-form-item) {
+  min-width: 0;
+  margin: 0;
+}
+.file-search-form :deep(.ant-form-item-label) {
+  padding-bottom: 6px;
+}
+.file-search-form :deep(.ant-form-item-label > label) {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.file-search-form :deep(.ant-select),
+.file-search-form :deep(.ant-picker) {
+  width: 100%;
+}
+.file-search-form :deep(.ant-form-item:last-child) {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+@media (max-width: 1120px) {
   .file-search-form {
-    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .file-search-form :deep(.ant-form-item),
-  .file-search-form :deep(.ant-input),
-  .file-search-form :deep(.ant-select),
-  .file-search-form :deep(.ant-picker) {
-    width: 100% !important;
+}
+@media (max-width: 760px) {
+  .file-search-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .file-search-form {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

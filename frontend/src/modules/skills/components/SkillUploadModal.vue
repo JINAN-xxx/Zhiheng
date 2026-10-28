@@ -3,7 +3,7 @@
   <a-modal
     :open="modelValue"
     title="上传技能"
-    :width="560"
+    :width="640"
     :mask-closable="!submitting"
     :closable="!submitting"
     destroy-on-close
@@ -26,22 +26,40 @@
         @remove="removeFile"
       >
         <p class="upload-icon"><InboxOutlined /></p>
-        <p>选择 SKILL.md 或技能压缩包</p>
-        <small>单个文件最大 10 MB，压缩包根目录必须包含 SKILL.md</small>
+        <h3>拖拽技能包到此处，或点击选择</h3>
+        <p>支持 SKILL.md 与 ZIP 技能包</p>
+        <small>单个文件最大 10 MB</small>
       </a-upload-dragger>
+      <div class="upload-guide">
+        <FileTextOutlined />
+        <div>
+          <strong>技能包要求</strong>
+          <p>SKILL.md 需包含技能名称与描述；ZIP 包根目录必须包含 SKILL.md。</p>
+          <p>解析后核对技能信息，再确认安装。</p>
+        </div>
+      </div>
     </div>
 
-    <a-descriptions v-else class="upload-preview" :column="1" bordered size="small">
-      <a-descriptions-item label="技能名称">{{ prepared.skillName }}</a-descriptions-item>
-      <a-descriptions-item label="技能标识"
-        ><code>{{ prepared.skillSlug }}</code></a-descriptions-item
-      >
-      <a-descriptions-item label="版本">{{ prepared.version }}</a-descriptions-item>
-      <a-descriptions-item label="说明">{{ prepared.description }}</a-descriptions-item>
-      <a-descriptions-item label="文件规模">
-        {{ prepared.fileCount }} 个文件，共 {{ formatSkillBytes(prepared.totalBytes) }}
-      </a-descriptions-item>
-    </a-descriptions>
+    <div v-else class="upload-preview">
+      <div class="prepared-heading">
+        <CheckCircleOutlined />
+        <div>
+          <h3>技能解析完成</h3>
+          <p>{{ selectedFile?.name }}</p>
+        </div>
+      </div>
+      <a-descriptions :column="1" bordered size="small">
+        <a-descriptions-item label="技能名称">{{ prepared.skillName }}</a-descriptions-item>
+        <a-descriptions-item label="技能标识"
+          ><code>{{ prepared.skillSlug }}</code></a-descriptions-item
+        >
+        <a-descriptions-item label="版本">{{ prepared.version }}</a-descriptions-item>
+        <a-descriptions-item label="说明">{{ prepared.description }}</a-descriptions-item>
+        <a-descriptions-item label="文件规模">
+          {{ prepared.fileCount }} 个文件，共 {{ formatSkillBytes(prepared.totalBytes) }}
+        </a-descriptions-item>
+      </a-descriptions>
+    </div>
 
     <AAlert v-if="error" :message="error" type="error" show-icon style="margin-top: 16px" />
     <template #footer>
@@ -74,7 +92,7 @@ import {
   UploadDragger as AUploadDragger
 } from 'ant-design-vue'
 import type { UploadProps } from 'ant-design-vue'
-import { InboxOutlined } from '@ant-design/icons-vue'
+import { CheckCircleOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { confirmSkillImport, prepareSkillImport } from '../api/index.ts'
 import type { PreparedSkill, Skill } from '../api/index.ts'
@@ -187,12 +205,64 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .upload-stage {
-  margin-top: 24px;
+  margin-top: 26px;
+}
+.upload-stage h3 {
+  margin: 12px 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+.upload-guide {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 7px;
+  background: var(--gray-25);
+  color: var(--main-700);
+}
+.upload-guide strong {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.upload-guide p {
+  margin-top: 7px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.prepared-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border-radius: 7px;
+  background: var(--main-50);
+  color: var(--main-700);
+}
+.prepared-heading > span {
+  font-size: 25px;
+}
+.prepared-heading h3 {
+  margin: 0 0 5px;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 500;
+}
+.prepared-heading p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .upload-icon {
   margin-bottom: 8px;
   color: var(--main-color);
-  font-size: 28px;
+  font-size: 38px;
 }
 .upload-stage p {
   margin: 0 0 4px;
@@ -210,7 +280,9 @@ onBeforeUnmount(() => {
 }
 :deep(.ant-upload-drag) {
   border-color: var(--gray-150);
-  background: var(--bg-container);
+  background: var(--gray-25);
+  padding: 16px;
+  border-radius: 8px;
 }
 :deep(.ant-upload-drag:hover) {
   border-color: var(--main-color);

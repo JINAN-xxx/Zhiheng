@@ -22,7 +22,7 @@
         @navigate="emit('navigate', $event)"
       />
 
-      <div class="query-controls">
+      <div class="query-controls" :class="{ 'query-controls--graph': queryTarget === 'graph' }">
         <a-input
           v-model:value="queryText"
           :disabled="loading"
@@ -75,6 +75,21 @@
             >查看来源</a-button
           >
           <p>{{ source.content }}</p>
+          <details class="query-source-details">
+            <summary>完整来源标识</summary>
+            <dl>
+              <dt>文档</dt>
+              <dd>{{ source.document_id }}</dd>
+              <dt>原文文件</dt>
+              <dd>{{ source.file_id }}</dd>
+              <dt>切片</dt>
+              <dd>{{ source.chunk_id }}</dd>
+              <dt>顺序</dt>
+              <dd>{{ source.ordinal }}</dd>
+              <dt>内容校验</dt>
+              <dd>{{ source.content_hash }}</dd>
+            </dl>
+          </details>
         </article>
       </template>
       <template v-else-if="result">
@@ -100,6 +115,21 @@
             <span v-if="item.score != null">相似度 {{ (item.score * 100).toFixed(1) }}%</span>
           </div>
           <p>{{ item.content }}</p>
+          <details class="query-source-details">
+            <summary>完整来源标识</summary>
+            <dl>
+              <dt>知识库</dt>
+              <dd>{{ item.knowledge_base_id }}</dd>
+              <dt>文档</dt>
+              <dd>{{ item.document_id }}</dd>
+              <dt>原文文件</dt>
+              <dd>{{ item.file_id }}</dd>
+              <dt>切片</dt>
+              <dd>{{ item.chunk_id }}</dd>
+              <dt>索引版本</dt>
+              <dd>{{ item.index_revision }}</dd>
+            </dl>
+          </details>
         </article>
         <WorkspaceState v-if="!result.items.length" kind="empty" title="没有检索到相关内容" />
       </template>
@@ -239,14 +269,17 @@ watch(
 
 .query-controls {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 150px 150px auto;
+  grid-template-columns: minmax(240px, 1fr) 150px auto;
   gap: 10px;
-  padding: 12px;
+  padding: 18px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
 }
 
+.query-controls--graph {
+  grid-template-columns: minmax(240px, 1fr) 150px 150px auto;
+}
 .query-controls > :deep(.ant-btn) {
   align-self: stretch;
 }
@@ -265,8 +298,11 @@ watch(
 }
 
 .query-passage {
-  padding: 16px 2px;
-  border-bottom: 1px solid var(--gray-150);
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .query-source {
@@ -289,13 +325,33 @@ watch(
   white-space: pre-wrap;
 }
 
+.query-source-details {
+  margin-top: 14px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.query-source-details summary {
+  cursor: pointer;
+}
+.query-source-details dl {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+}
+.query-source-details dt,
+.query-source-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .query-answer {
   min-height: 100px;
   padding: 14px 0;
 }
 
 @media (max-width: 860px) {
-  .query-controls {
+  .query-controls,
+  .query-controls--graph {
     grid-template-columns: minmax(0, 1fr) 150px;
   }
 }
@@ -305,7 +361,8 @@ watch(
     padding: 16px;
   }
 
-  .query-controls {
+  .query-controls,
+  .query-controls--graph {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -28,10 +28,17 @@
         <a-descriptions-item label="来源">{{
           detail.sourceType === 'builtin' ? '平台内置' : '管理员上传'
         }}</a-descriptions-item>
+        <a-descriptions-item label="文件规模"
+          >{{ detail.fileCount }} 个文件，共
+          {{ formatSkillBytes(detail.totalBytes) }}</a-descriptions-item
+        >
       </a-descriptions>
 
       <section class="content-section">
-        <h3>技能内容</h3>
+        <div class="content-heading">
+          <h3>技能内容</h3>
+          <span>SKILL.md</span>
+        </div>
         <pre>{{ content || '暂无内容' }}</pre>
       </section>
 
@@ -79,7 +86,7 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import { deleteSkill, getSkill, getSkillContent, updateSkillStatus } from '../api/index.ts'
 import type { Skill } from '../api/index.ts'
-import { skillStatusLabel } from '../presentation.ts'
+import { formatSkillBytes, skillStatusLabel } from '../presentation.ts'
 const props = defineProps<{ modelValue: boolean; skillId: string; canManage: boolean }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -228,9 +235,22 @@ onBeforeUnmount(() => {
 .detail-heading h2 {
   margin: 0 0 4px;
   color: var(--color-text);
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 500;
 }
 .detail-heading code {
+  color: var(--color-text-secondary);
+  font-family: var(--workspace-font-mono);
+  font-size: 12px;
+}
+.content-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.content-heading span {
   color: var(--color-text-secondary);
   font-family: var(--workspace-font-mono);
   font-size: 12px;
@@ -239,7 +259,8 @@ onBeforeUnmount(() => {
   margin-top: 22px;
 }
 .content-section h3 {
-  margin: 0 0 10px;
+  margin: 0;
+  font-weight: 500;
   color: var(--color-text);
   font-size: 14px;
 }

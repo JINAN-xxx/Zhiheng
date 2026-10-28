@@ -5,6 +5,6 @@ export const usageRoutes: RouteRecordRaw[] = [
     alias: '/ai/usage',
     name: 'usage',
     component: () => import('./views/UsageView.vue'),
-    meta: { title: '用量记录', navigation: true }
+    meta: { title: '用量与调用', navigation: true }
   }
 ]

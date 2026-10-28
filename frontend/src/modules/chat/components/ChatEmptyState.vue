@@ -3,7 +3,6 @@
   <section class="chat-empty-state">
     <span class="chat-empty-state__symbol" aria-hidden="true"><CommentOutlined /></span>
     <h2>有什么可以帮你？</h2>
-    <p>从一个想法开始，把思路聊清楚。</p>
     <WorkspaceModeSwitch model-value="chat" @update:model-value="switchMode" />
     <div class="chat-starters">
       <a-button aria-label="总结内容" @click="emit('prompt', '帮我梳理这段内容的关键观点：')"
@@ -61,10 +60,10 @@ function switchMode(mode: 'chat' | 'work'): void {
 .chat-empty-state h2 {
   margin: 0;
   color: var(--color-text);
-  font-size: clamp(26px, 3vw, 36px);
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 500;
   line-height: 1.4;
-  letter-spacing: -0.5px;
+  letter-spacing: normal;
 }
 .chat-empty-state p {
   margin: -4px 0 6px;

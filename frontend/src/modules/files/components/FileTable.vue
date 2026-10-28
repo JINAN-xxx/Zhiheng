@@ -31,7 +31,12 @@
         :color="row.accessType === 'public' ? 'green' : 'orange'"
         >{{ row.accessType === 'public' ? '公开' : '受保护' }}</a-tag
       >
-      <template v-else-if="column.key === 'originalName'">{{ row.displayName }}</template
+      <template v-else-if="column.key === 'originalName'"
+        ><span class="file-name"
+          ><FileTextOutlined /><span>{{ row.displayName }}</span></span
+        ><small v-if="row.displayName !== row.originalName" class="file-original-name">{{
+          row.originalName
+        }}</small></template
       ><template v-else-if="column.key === 'extension'">{{
         row.originalName.includes('.') ? row.originalName.split('.').pop()?.toLowerCase() : '—'
       }}</template
@@ -166,6 +171,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
+  FileTextOutlined,
   LockOutlined,
   RollbackOutlined,
   SwapOutlined
@@ -263,6 +269,32 @@ watch(
 </script>
 
 <style scoped>
+.file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+}
+.file-name > :deep(.anticon) {
+  color: var(--main-700);
+}
+.file-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-original-name {
+  display: block;
+  margin-top: 3px;
+  padding-left: 22px;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-action-disabled-wrapper {
   display: inline-flex;
   align-items: center;

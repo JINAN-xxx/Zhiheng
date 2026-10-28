@@ -16,7 +16,6 @@ import { errorMessage } from '../shared/http.ts'
 import PlatformSidebar from './components/PlatformSidebar.vue'
 import AiResourceShell from './components/AiResourceShell.vue'
 import PlatformTopbar from './components/PlatformTopbar.vue'
-import PlatformAccountMenu from './components/PlatformAccountMenu.vue'
 const route = useRoute()
 const router = useRouter()
 const leaving = ref(false)
@@ -69,28 +68,35 @@ async function signOut(): Promise<void> {
             <PlatformSidebar
               :collapsed="collapsed"
               show-collapse-control
+              :leaving="leaving"
+              @logout="signOut"
               @toggle-collapse="collapsed = !collapsed"
             />
           </div>
           <div class="platform-shell__main">
             <PlatformTopbar
-              v-if="isMobile"
               ref="topbar"
-              :title="route.meta.title || '智能工作台'"
+              :title="route.meta.title || '工作台'"
+              :mobile="isMobile"
               :leaving="leaving"
               @toggle-sidebar="mobileOpen = true"
               @logout="signOut"
             />
-            <header v-else class="platform-shell__desktop-topbar">
-              <PlatformAccountMenu :leaving="leaving" @logout="signOut" />
-            </header>
             <main
               class="platform-page"
               :class="{ 'is-conversation': ['chat', 'work'].includes(String(route.name)) }"
             >
               <AiResourceShell
                 v-if="
-                  ['models', 'usage', 'developer', 'skills', 'agents'].includes(String(route.name))
+                  [
+                    'models',
+                    'usage',
+                    'developer',
+                    'skills',
+                    'agents',
+                    'agent-create',
+                    'agent-editor'
+                  ].includes(String(route.name))
                 "
                 inset
               >
@@ -108,7 +114,11 @@ async function signOut(): Promise<void> {
             aria-label="主导航"
             @close="mobileOpen = false"
             @after-open-change="afterDrawerChange"
-            ><PlatformSidebar :collapsed="false" @navigate="mobileOpen = false"
+            ><PlatformSidebar
+              :collapsed="false"
+              :leaving="leaving"
+              @logout="signOut"
+              @navigate="mobileOpen = false"
           /></ADrawer>
         </div>
       </WorkWorkspaceProvider>
@@ -186,6 +196,7 @@ async function signOut(): Promise<void> {
   color: var(--main-700);
 }
 .platform-page {
+  overflow: auto;
   background: var(--workspace-bg);
 }
 @media screen and (max-width: 991px) {

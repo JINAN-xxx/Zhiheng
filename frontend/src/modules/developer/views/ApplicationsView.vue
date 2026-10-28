@@ -27,11 +27,13 @@
           <a-input
             v-model:value="query.applicationName"
             allow-clear
-            placeholder="搜索应用"
+            aria-label="搜索应用"
+            placeholder="搜索应用名称或编码"
             @press-enter="loadApplications()"
           >
             <template #prefix><SearchOutlined /></template>
           </a-input>
+          <a-button @click="loadApplications()">搜索</a-button>
           <span class="application-total">共 {{ total }} 个</span>
         </div>
         <WorkspacePanel v-if="showApplicationList" class="application-list-view" flush>
@@ -48,6 +50,7 @@
             <ResourceTable
               :columns="applicationColumns"
               :rows="applications"
+              :scroll-x="760"
               row-key="applicationId"
             >
               <template #bodyCell="{ column, record: application }">
@@ -60,15 +63,29 @@
                   }"
                   @click="selectApplication(application)"
                 >
+                  <span class="application-icon"><CodeOutlined /></span>
                   <span class="application-row__main"
                     ><strong>{{ application.applicationName }}</strong
                     ><small>{{ application.applicationCode }}</small></span
                   >
-                  <WorkspaceStatus
-                    :status="application.status"
-                    :label="applicationStatusLabel(application.status)"
-                  />
                 </button>
+                <WorkspaceStatus
+                  v-else-if="column.key === 'status'"
+                  :status="application.status"
+                  :label="applicationStatusLabel(application.status)"
+                />
+                <template v-else-if="column.key === 'createdAt'">{{
+                  formatTime(application.createdAt)
+                }}</template>
+                <template v-else-if="column.key === 'updatedAt'">{{
+                  formatTime(application.updatedAt)
+                }}</template>
+                <a-button
+                  v-else-if="column.key === 'actions'"
+                  type="link"
+                  @click="selectApplication(application)"
+                  >管理</a-button
+                >
               </template>
             </ResourceTable>
             <a-pagination
@@ -158,6 +175,7 @@
             <ApplicationKeysPanel
               v-else-if="activeTab === 'keys'"
               :keys="keys"
+              :models="models"
               :loading="keyLoading"
               :error="keyError"
               :can-list="canListKeys"
@@ -338,6 +356,7 @@ import {
 } from 'ant-design-vue'
 import {
   CopyOutlined,
+  CodeOutlined,
   DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
@@ -399,7 +418,6 @@ const {
   canQueryUsage,
   keyActions,
   modelOptions,
-  applicationColumns,
   applicationRules,
   keyRules,
   loadApplications,
@@ -430,6 +448,16 @@ const {
   setExpiry,
   closeDocs: closeApiDocs
 } = useApplications()
+const applicationColumns = [
+  { title: '应用名称', key: 'application', width: 260 },
+  { title: '状态', key: 'status', width: 110 },
+  { title: '创建时间', key: 'createdAt', width: 180 },
+  { title: '更新时间', key: 'updatedAt', width: 180 },
+  { title: '操作', key: 'actions', width: 90 }
+]
+function formatTime(value: string): string {
+  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '暂无记录'
+}
 </script>
 
 <style scoped lang="scss">
@@ -440,7 +468,7 @@ const {
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-container);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 
@@ -479,13 +507,10 @@ const {
 .application-tools {
   display: flex;
   flex: 0 0 auto;
-  min-height: 54px;
+  min-height: 34px;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 0;
 }
 
 .application-tools :deep(.ant-input-affix-wrapper) {
@@ -508,9 +533,9 @@ const {
   width: 100%;
   min-height: 48px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
-  padding: 10px 16px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--color-text);
@@ -559,14 +584,12 @@ const {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  background: transparent;
 }
 
 .application-context-bar {
   flex-wrap: wrap;
-  background: var(--bg-container);
+  background: transparent;
 }
 
 .application-back {
@@ -585,8 +608,11 @@ const {
 .application-detail > :deep(.models-panel),
 .application-detail > :deep(.usage-panel) {
   min-height: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: auto;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .application-context-bar,
@@ -597,11 +623,12 @@ const {
 }
 
 .application-context-bar {
+  flex: 0 0 auto;
   min-height: 76px;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--gray-150);
+  padding: 0 0 18px;
+  border-bottom: 0;
 }
 
 .detail-identity,
@@ -611,8 +638,8 @@ const {
 
 .detail-identity h2 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 500;
 }
 
 .detail-identity code,
@@ -621,7 +648,8 @@ const {
 }
 
 .detail-tabs {
-  padding: 0 18px;
+  flex: 0 0 auto;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -672,7 +700,7 @@ const {
 
 @media (min-width: 992px) {
   .developer-grid {
-    padding: var(--workspace-space-4) var(--workspace-space-6) var(--workspace-space-6);
+    padding: 0 var(--workspace-space-6) var(--workspace-space-6);
   }
 }
 
@@ -682,7 +710,7 @@ const {
   }
   .application-context-bar {
     gap: 12px;
-    padding: 14px 16px;
+    padding: 0 0 14px;
   }
   .detail-identity {
     min-width: 0;
@@ -702,5 +730,29 @@ const {
     grid-template-columns: 1fr;
     gap: 0;
   }
+}
+.application-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--main-50);
+  color: var(--main-700);
+  font-size: 18px;
+}
+.application-row__main strong {
+  font-weight: 500;
+}
+.application-row:focus-visible {
+  outline: 2px solid var(--main-700);
+  outline-offset: 4px;
+}
+.application-back {
+  padding-left: 0;
+}
+.detail-identity {
+  margin-right: auto;
 }
 </style>

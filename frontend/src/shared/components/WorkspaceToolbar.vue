@@ -74,7 +74,7 @@ const emit = defineEmits(['open-sidebar'])
     overflow: hidden;
     color: var(--color-text);
     font-size: var(--workspace-font-size-title);
-    font-weight: var(--workspace-font-weight-semibold);
+    font-weight: var(--workspace-font-weight-medium);
     line-height: 1.35;
     overflow-wrap: anywhere;
     -webkit-box-orient: vertical;

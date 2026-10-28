@@ -2,11 +2,11 @@
 <template>
   <main class="auth-shell" :class="{ 'auth-shell--wide': wide, 'auth-shell--split': split }">
     <div v-if="split" class="auth-shell__left">
-      <img :src="logo" alt="智衡平台" class="auth-shell__left-logo" />
+      <BrandMark class="auth-shell__left-logo" />
     </div>
 
-    <header v-if="!split" class="auth-shell__brand" aria-label="智衡 AI">
-      <img :src="logo" alt="智衡平台" class="auth-shell__logo" />
+    <header v-if="!split" class="auth-shell__brand" aria-label="智衡">
+      <BrandMark class="auth-shell__logo" />
     </header>
 
     <section class="auth-shell__panel">
@@ -25,12 +25,12 @@
 </template>
 
 <script setup lang="ts">
-import logo from '../assets/logo.png'
+import BrandMark from './BrandMark.vue'
 
 defineProps({
   brand: {
     type: String,
-    default: '智衡 AI'
+    default: '智衡'
   },
   eyebrow: {
     type: String,

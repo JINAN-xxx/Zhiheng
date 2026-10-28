@@ -1,6 +1,7 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeftOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import {
   Alert as AAlert,
@@ -9,6 +10,8 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   Modal as AModal,
+  Checkbox as ACheckbox,
+  Pagination as APagination,
   Select as ASelect,
   Spin as ASpin,
   Tag as ATag,
@@ -17,7 +20,13 @@ import {
 } from 'ant-design-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
-import { FileAclDrawer } from '../../files/public.ts'
+import { FileAclDrawer, downloadFile, emptyQuery, listFiles, saveBlob } from '../../files/public.ts'
+import type { ManagedFile } from '../../files/public.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { importDocuments } from '../api/index.ts'
+import type { KnowledgeDocument, KnowledgeHit } from '../api/index.ts'
+import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import KnowledgeJobs from '../components/KnowledgeJobs.vue'
 import KnowledgeOverview from '../components/KnowledgeOverview.vue'
 import KnowledgeDocuments from '../components/KnowledgeDocuments.vue'
 import KnowledgeQuery from '../components/KnowledgeQuery.vue'
@@ -26,7 +35,10 @@ import { chartGraph } from '../graphPresentation.ts'
 import KnowledgeAclDrawer from '../components/KnowledgeAclDrawer.vue'
 import ChunkFields from '../components/ChunkFields.vue'
 import { useKnowledgeWorkspace } from '../composables/workspace.ts'
-import { jobStatus } from '../presentation.ts'
+import { formatSize, validChunks } from '../presentation.ts'
+import { identity } from '../../identity/public.ts'
+import { managedImportStorageKey, parseManagedImportDraft } from '../managedImportDraft.ts'
+import type { ManagedImportDraft } from '../managedImportDraft.ts'
 const {
   graphWorkspace,
   graphQuery,
@@ -79,7 +91,7 @@ const {
   askDelete,
   confirmDelete,
   cancelJob,
-  showPreview,
+  showPreview: workspacePreview,
   showSourceAcl,
   findUsers,
   openUpload,
@@ -117,6 +129,291 @@ const deletionName = computed(
   () =>
     deletion.item && ('file_name' in deletion.item ? deletion.item.file_name : deletion.item.name)
 )
+const route = useRoute(),
+  router = useRouter()
+watch(
+  () => [route.query.action, baseId.value],
+  () => {
+    if (route.query.action !== 'create' || baseId.value) return
+    openEditor('create')
+    const query = { ...route.query }
+    delete query.action
+    void router.replace({ path: route.path, query, hash: route.hash })
+  },
+  { immediate: true }
+)
+const previewFile = ref<{ id: string; name: string } | null>(null)
+const downloading = ref(false)
+const downloadScope = new RequestScope()
+async function showPreview(doc: KnowledgeDocument | KnowledgeHit): Promise<void> {
+  previewFile.value = { id: doc.file_id, name: 'file_name' in doc ? doc.file_name : doc.title }
+  await workspacePreview(doc)
+}
+async function downloadOriginal(file = previewFile.value): Promise<void> {
+  if (!file || downloading.value) return
+  const ticket = downloadScope.replace()
+  downloading.value = true
+  try {
+    const blob = await downloadFile(file.id, ticket.signal)
+    if (ticket.isCurrent()) saveBlob(blob, file.name)
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) {
+      actionError.value = errorMessage(reason)
+      if (preview.open) preview.error = errorMessage(reason)
+      if (
+        graphTarget.value &&
+        reason instanceof ApiError &&
+        [401, 403, 404].includes(reason.status)
+      )
+        graphQuery.denyProtectedResults('来源权限已变化，图谱结果已清除，请恢复查看后再使用')
+    }
+  } finally {
+    if (ticket.isCurrent()) downloading.value = false
+  }
+}
+const importScope = new RequestScope()
+const managedImport = reactive({
+  open: false,
+  loading: false,
+  saving: false,
+  uncertain: false,
+  recoveryBlocked: false,
+  names: [] as { id: string; name: string }[],
+  error: '',
+  search: '',
+  files: [] as ManagedFile[],
+  ids: [] as string[],
+  size: 1000 as number | null,
+  overlap: 200 as number | null,
+  key: '',
+  page: 1,
+  total: 0,
+  folder: null as string | null
+})
+let pendingImport: ManagedImportDraft | null = null
+const importDraftVersion = ref(0)
+const importRecoverable = computed(() => {
+  void importDraftVersion.value
+  if (!identity.value?.id || !baseId.value || actionBusy.value || uploading.value) return false
+  try {
+    return sessionStorage.getItem(managedImportStorageKey(identity.value.id, baseId.value)) !== null
+  } catch {
+    return false
+  }
+})
+function clearManagedImportDraft(draft: ManagedImportDraft): void {
+  try {
+    const key = managedImportStorageKey(draft.userId, draft.baseId)
+    const raw = sessionStorage.getItem(key)
+    if (
+      raw &&
+      parseManagedImportDraft(JSON.parse(raw), draft.userId, draft.baseId).request
+        .client_request_id === draft.request.client_request_id
+    )
+      sessionStorage.removeItem(key)
+  } catch {
+    /* Retaining the original identity is safe if optional storage cannot be cleared. */
+  }
+  if (
+    pendingImport?.request.client_request_id === draft.request.client_request_id &&
+    pendingImport.userId === draft.userId &&
+    pendingImport.baseId === draft.baseId
+  )
+    pendingImport = null
+  importDraftVersion.value += 1
+}
+const importColumns = [
+  { title: '文件名称', key: 'name' },
+  { title: '大小', key: 'size', width: 100 }
+]
+function searchImportFiles(): void {
+  managedImport.page = 1
+  void loadImportFiles()
+}
+async function loadImportFiles(): Promise<void> {
+  if (managedImport.saving || managedImport.uncertain) return
+  const ticket = importScope.replace()
+  managedImport.loading = true
+  managedImport.error = ''
+  try {
+    const page = await listFiles(
+      { ...emptyQuery(), originalName: managedImport.search, pageNum: managedImport.page },
+      ticket.signal
+    )
+    if (ticket.isCurrent()) {
+      managedImport.files = page.rows
+      managedImport.total = page.total
+    }
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) managedImport.error = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) managedImport.loading = false
+  }
+}
+function openManagedImport(): void {
+  const userId = identity.value?.id,
+    id = baseId.value
+  if (
+    !userId ||
+    !selected.value?.can_manage ||
+    actionBusy.value ||
+    uploading.value ||
+    (busy.value && !importRecoverable.value)
+  )
+    return
+  pendingImport = null
+  Object.assign(managedImport, {
+    open: true,
+    loading: false,
+    saving: false,
+    uncertain: false,
+    recoveryBlocked: false,
+    error: '',
+    search: '',
+    files: [],
+    ids: [],
+    names: [],
+    size: selected.value.chunk_size,
+    overlap: selected.value.chunk_overlap,
+    key: '',
+    page: 1,
+    total: 0,
+    folder: folderId.value
+  })
+  try {
+    const raw = sessionStorage.getItem(managedImportStorageKey(userId, id))
+    if (raw !== null) {
+      const draft = parseManagedImportDraft(JSON.parse(raw), userId, id)
+      pendingImport = draft
+      Object.assign(managedImport, {
+        uncertain: true,
+        ids: [...draft.request.file_ids],
+        names: draft.files,
+        size: draft.request.chunk_size,
+        overlap: draft.request.chunk_overlap,
+        key: draft.request.client_request_id,
+        folder: draft.request.folder_id
+      })
+      return
+    }
+  } catch {
+    managedImport.recoveryBlocked = true
+    managedImport.error = '无法读取导入恢复信息，请刷新核对已有索引任务后再操作。'
+    return
+  }
+  managedImport.key = crypto.randomUUID()
+  void loadImportFiles()
+}
+
+function canImport(file: ManagedFile): boolean {
+  return (
+    !file.sourceFileId &&
+    file.status === 'active' &&
+    file.storageStatus === 'normal' &&
+    (!file.expireTime || Date.parse(file.expireTime) > Date.now()) &&
+    !documents.value.some((doc) => doc.file_id === file.fileId)
+  )
+}
+function toggleImport(id: string, checked: boolean): void {
+  if (managedImport.saving || managedImport.uncertain || managedImport.recoveryBlocked) return
+  if (checked && managedImport.ids.length >= 20) {
+    managedImport.error = '每批最多导入 20 个文档'
+    return
+  }
+  managedImport.ids = checked
+    ? [...new Set([...managedImport.ids, id])]
+    : managedImport.ids.filter((value) => value !== id)
+  managedImport.names = managedImport.ids.map((fileId) => ({
+    id: fileId,
+    name:
+      managedImport.names.find((file) => file.id === fileId)?.name ??
+      managedImport.files.find((file) => file.fileId === fileId)?.displayName ??
+      fileId
+  }))
+}
+async function submitManagedImport(): Promise<void> {
+  const userId = identity.value?.id,
+    id = baseId.value
+  if (
+    managedImport.saving ||
+    managedImport.recoveryBlocked ||
+    !selected.value?.can_manage ||
+    !userId
+  )
+    return
+  if (!managedImport.ids.length || !validChunks(managedImport.size, managedImport.overlap)) {
+    managedImport.error = '请选择文件并填写有效的切片大小与重叠大小'
+    return
+  }
+  const draft: ManagedImportDraft = pendingImport ?? {
+    version: 1,
+    userId,
+    baseId: id,
+    request: {
+      file_ids: [...managedImport.ids],
+      folder_id: managedImport.folder,
+      chunk_size: managedImport.size!,
+      chunk_overlap: managedImport.overlap!,
+      client_request_id: managedImport.key
+    },
+    files: managedImport.names.map((file) => ({ ...file }))
+  }
+  if (draft.userId !== userId || draft.baseId !== id) {
+    managedImport.error = '当前用户或知识库已变化，请重新打开导入。'
+    return
+  }
+  try {
+    sessionStorage.setItem(managedImportStorageKey(userId, id), JSON.stringify(draft))
+  } catch {
+    managedImport.error = '无法保留导入请求，请恢复浏览器会话存储后重试；本次尚未提交。'
+    return
+  }
+  pendingImport = draft
+  importDraftVersion.value += 1
+  const ticket = importScope.replace()
+  managedImport.saving = true
+  managedImport.uncertain = true
+  managedImport.error = ''
+  try {
+    await importDocuments(
+      id,
+      { ...draft.request, file_ids: [...draft.request.file_ids] },
+      ticket.signal
+    )
+    clearManagedImportDraft(draft)
+    if (ticket.isCurrent()) {
+      managedImport.open = false
+      managedImport.uncertain = false
+      await refresh()
+    }
+  } catch (reason) {
+    if (reason instanceof ApiError && reason.status < 500) {
+      clearManagedImportDraft(draft)
+      if (ticket.isCurrent()) {
+        managedImport.uncertain = false
+        managedImport.key = crypto.randomUUID()
+      }
+    }
+    if (ticket.isCurrent() && !isAborted(reason)) managedImport.error = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) managedImport.saving = false
+  }
+}
+
+watch(baseId, () => {
+  importScope.replace()
+  pendingImport = null
+  managedImport.open = false
+  managedImport.saving = false
+  downloadScope.replace()
+  downloading.value = false
+  previewFile.value = null
+})
+onBeforeUnmount(() => {
+  importScope.dispose()
+  downloadScope.dispose()
+})
+
 const uploadLabels = {
   queued: '等待上传',
   uploading: '上传中',
@@ -170,12 +467,15 @@ const uploadLabels = {
         :loading="detailLoading"
         :error="detailError"
         :busy="busy"
+        :import-recoverable="importRecoverable"
         @back="back"
         @refresh="refresh"
         @navigate="navigate(selected, $event)"
         @select-folder="folderId = $event"
         @create-folder="openEditor('createFolder')"
         @upload="openUpload"
+        @import="openManagedImport"
+        @download="downloadOriginal({ id: $event.file_id, name: $event.file_name })"
         @preview="showPreview"
         @rename-folder="openEditor('folder', $event)"
         @rechunk="openEditor('rechunk', $event)"
@@ -189,38 +489,12 @@ const uploadLabels = {
               >重建全部索引</a-button
             ><a-button @click="acl?.open(selected)">知识库权限</a-button>
           </div>
-          <section v-if="jobs.length" class="knowledge-jobs" aria-label="索引任务">
-            <div v-for="job in jobs" :key="job.id" class="knowledge-job">
-              <div>
-                <a-tag
-                  :color="
-                    job.status === 'failed'
-                      ? 'error'
-                      : job.status === 'completed'
-                        ? 'success'
-                        : 'processing'
-                  "
-                  >{{ jobStatus(job.status) }}</a-tag
-                ><span>{{ job.completed_documents }}/{{ job.total_documents }} 个文档</span
-                ><span v-if="job.failed_documents"> · {{ job.failed_documents }} 个失败</span
-                ><span v-if="job.chunk_count !== null"> · {{ job.chunk_count }} 个切片</span>
-              </div>
-              <a-button
-                v-if="job.cancel_allowed"
-                size="small"
-                :disabled="actionBusy"
-                @click="cancelJob(job)"
-                >取消任务</a-button
-              >
-              <p v-if="job.error">{{ job.error.message }}</p>
-              <p
-                v-for="result in job.document_results.filter((item) => item.error)"
-                :key="result.document_id"
-              >
-                {{ result.error?.message }}
-              </p>
-            </div>
-          </section>
+          <KnowledgeJobs
+            :jobs="jobs"
+            :documents="documents"
+            :busy="actionBusy"
+            @cancel="cancelJob"
+          />
         </template>
       </KnowledgeDocuments>
       <KnowledgeGraphPage
@@ -231,6 +505,7 @@ const uploadLabels = {
         :loading="graphWorkspace.loading.value"
         :error="graphWorkspace.error.value"
         :job="graphWorkspace.build.value"
+        :jobs="graphWorkspace.jobs.value"
         :available="capabilities?.graph_available === true && graphState?.available === true"
         :build-loading="graphWorkspace.loading.value"
         :starting="graphWorkspace.starting.value"
@@ -290,6 +565,7 @@ const uploadLabels = {
     </template>
     <a-modal
       :open="editor.open"
+      cancel-text="取消"
       :title="editorTitle"
       centered
       width="min(600px, calc(100vw - 32px))"
@@ -367,6 +643,7 @@ const uploadLabels = {
     </a-modal>
     <a-modal
       :open="deletion.open"
+      cancel-text="取消"
       :title="deletion.kind === 'rebuild' ? '重建全部索引' : '确认删除'"
       centered
       :confirm-loading="actionBusy"
@@ -405,6 +682,7 @@ const uploadLabels = {
     </a-modal>
     <a-modal
       :open="uploadOpen"
+      cancel-text="取消"
       title="上传文档"
       centered
       width="min(640px, calc(100vw - 32px))"
@@ -420,7 +698,7 @@ const uploadLabels = {
     >
       <p class="form-hint">
         {{ selected?.name }} · 支持 PDF、DOCX、XLSX、TXT、Markdown、CSV、JSON 和 HTML；扫描件需
-        OCR。
+        OCR，MinerU 继续暂缓。每批最多 20 个文件，单文件最大 20MiB。
       </p>
       <a-alert
         v-if="uploadNotice"
@@ -471,18 +749,111 @@ const uploadLabels = {
       </p>
     </a-modal>
     <a-modal
+      :open="managedImport.open"
+      cancel-text="取消"
+      title="导入受管文件"
+      centered
+      width="min(720px, calc(100vw - 32px))"
+      :mask-closable="false"
+      :closable="!managedImport.saving && !managedImport.uncertain"
+      :keyboard="!managedImport.saving && !managedImport.uncertain"
+      :confirm-loading="managedImport.saving"
+      :ok-button-props="{ disabled: managedImport.recoveryBlocked }"
+      :ok-text="managedImport.uncertain ? '确认原提交' : '导入并建立索引'"
+      :cancel-button-props="{ disabled: managedImport.saving || managedImport.uncertain }"
+      @cancel="managedImport.open = false"
+      @ok="submitManagedImport"
+    >
+      <p class="form-hint">
+        选择有权读取的原始文件，每批最多 20
+        个。文件原文权限继续独立生效，建立索引会产生向量模型用量。
+      </p>
+      <a-alert
+        v-if="managedImport.error"
+        class="section-alert"
+        type="error"
+        :message="managedImport.error"
+        show-icon
+      />
+      <a-alert
+        v-if="managedImport.uncertain"
+        class="section-alert"
+        type="warning"
+        message="提交结果尚未确认，请确认原提交；本次文件和请求标识已保留。"
+        show-icon
+      />
+      <ul v-if="managedImport.uncertain" class="import-recovery-files">
+        <li v-for="file in managedImport.names" :key="file.id">{{ file.name }}</li>
+      </ul>
+      <a-form
+        layout="vertical"
+        :disabled="managedImport.saving || managedImport.uncertain || managedImport.recoveryBlocked"
+        ><ChunkFields v-model:size="managedImport.size" v-model:overlap="managedImport.overlap"
+      /></a-form>
+      <a-input
+        v-model:value="managedImport.search"
+        class="import-search"
+        aria-label="搜索受管文件"
+        placeholder="搜索文件名称，按回车查询"
+        :disabled="managedImport.saving || managedImport.uncertain || managedImport.recoveryBlocked"
+        @press-enter="searchImportFiles"
+      />
+      <ResourceTable
+        v-if="!managedImport.uncertain && !managedImport.recoveryBlocked"
+        :columns="importColumns"
+        :rows="managedImport.files"
+        :loading="managedImport.loading"
+        row-key="fileId"
+        :scroll-x="400"
+        empty-text="没有可导入的文件"
+      >
+        <template #bodyCell="{ column, record }"
+          ><a-checkbox
+            v-if="column.key === 'name'"
+            :checked="managedImport.ids.includes(record.fileId)"
+            :disabled="managedImport.saving || managedImport.uncertain || !canImport(record)"
+            :aria-label="'选择受管文件：' + record.displayName"
+            @change="toggleImport(record.fileId, $event.target.checked ?? false)"
+            >{{ record.displayName
+            }}<span v-if="!canImport(record)" class="form-hint"
+              >（已导入或不可索引）</span
+            ></a-checkbox
+          ><span v-else>{{ formatSize(record.fileSize) }}</span></template
+        >
+      </ResourceTable>
+      <div class="import-pagination">
+        <span>已选 {{ managedImport.ids.length }} 个</span
+        ><a-pagination
+          v-model:current="managedImport.page"
+          :total="managedImport.total"
+          :page-size="20"
+          size="small"
+          :show-size-changer="false"
+          :disabled="managedImport.saving || managedImport.uncertain"
+          @change="loadImportFiles"
+        />
+      </div>
+    </a-modal>
+    <a-modal
       :open="preview.open"
       :title="preview.name"
       centered
       width="min(900px, calc(100vw - 32px))"
-      :footer="null"
       @cancel="preview.open = false"
       ><a-spin :spinning="preview.loading"
         ><a-alert v-if="preview.error" type="error" :message="preview.error" show-icon />
         <pre v-else class="document-preview">{{
           preview.text || (preview.loading ? '正在读取文档…' : '文档暂无可预览内容')
-        }}</pre>
-      </a-spin></a-modal
+        }}</pre></a-spin
+      ><template #footer
+        ><a-button @click="preview.open = false">关闭</a-button
+        ><a-button
+          :disabled="preview.loading || !!preview.error"
+          :loading="downloading"
+          @click="downloadOriginal()"
+          >下载原文</a-button
+        ></template
+      ></a-modal
     >
     <FileAclDrawer
       :file="sourceAclFile"
@@ -545,27 +916,23 @@ const uploadLabels = {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-top: 18px;
 }
-.knowledge-jobs {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 16px;
-  max-height: 240px;
-  overflow: auto;
+.import-recovery-files {
+  margin: 12px 0;
+  padding-left: 22px;
+  overflow-wrap: anywhere;
 }
-.knowledge-job {
+.import-search {
+  margin-bottom: 14px;
+}
+.import-pagination {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--gray-150);
-  border-radius: 6px;
-}
-.knowledge-job p {
-  width: 100%;
-  margin: 0;
-  color: var(--color-error);
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 </style>

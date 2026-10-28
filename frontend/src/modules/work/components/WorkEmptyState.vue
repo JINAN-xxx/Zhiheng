@@ -4,7 +4,6 @@
     <div class="work-empty-state__heading">
       <span class="work-empty-state__symbol" aria-hidden="true"><ThunderboltOutlined /></span>
       <h1>今天要完成什么工作？</h1>
-      <p>让合适的智能体，接力完成你的目标。</p>
       <WorkspaceModeSwitch
         model-value="work"
         :can-chat="canChat"
@@ -187,7 +186,7 @@ function start(): void {
   margin-bottom: 4px;
   place-items: center;
   border: 1px solid var(--main-100);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--main-50);
   color: var(--main-color);
   font-size: 24px;
@@ -195,10 +194,10 @@ function start(): void {
 .work-empty-state h1 {
   margin: 0;
   color: var(--color-text);
-  font-size: clamp(26px, 3vw, 36px);
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 500;
   line-height: 1.4;
-  letter-spacing: -0.5px;
+  letter-spacing: normal;
 }
 .work-empty-state__heading p {
   margin: -4px 0 6px;
@@ -211,14 +210,14 @@ function start(): void {
   gap: 12px;
   padding: 20px;
   border: 1px solid var(--gray-200);
-  border-radius: 20px;
+  border-radius: 12px;
   background: var(--bg-container);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  box-shadow: none;
 }
 .work-empty-state__label {
   color: var(--color-text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .work-empty-state__form:focus-within {
   border-color: var(--main-400);
@@ -329,7 +328,7 @@ function start(): void {
   }
   .work-empty-state__form {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: 12px;
   }
   .work-empty-state__members {
     align-items: flex-start;

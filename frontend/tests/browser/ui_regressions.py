@@ -255,19 +255,19 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(posts, [])
 
 
-    async def test_original_sidebar_collapses_without_losing_history(self):
+    async def test_sidebar_collapses_without_losing_chat_history(self):
         await self.page.goto(self.origin + '/chat')
         sidebar = self.page.locator('.platform-shell__sidebar')
         await expect(sidebar).to_be_visible()
-        self.assertEqual(round((await sidebar.bounding_box())['width']), 230)
+        self.assertEqual(round((await sidebar.bounding_box())['width']), 224)
         await self.page.get_by_role('button', name='收起侧栏', exact=True).click()
         await expect(sidebar).to_have_css('width', '56px')
         await expect(self.page.get_by_role('textbox', name='消息内容')).to_be_visible()
-        await expect(self.page.get_by_role('button', name='智能体扩展', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='智能体', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='选择技能', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='展开侧栏', exact=True).click()
-        await expect(sidebar.get_by_role('button', name='恢复中会话')).to_be_visible()
-        await expect(self.page.locator('.conversation-panel')).to_have_count(0)
+        await expect(self.page.get_by_role('complementary', name='对话历史', exact=True).get_by_role('button', name='恢复中会话')).to_be_visible()
+        await expect(self.page.locator('.conversation-panel')).to_have_count(1)
 
     async def test_mobile_navigation_drawer_closes_after_navigation_and_escape(self):
         await self.page.set_viewport_size({'width': 390, 'height': 844})
@@ -275,8 +275,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator('.platform-shell__sidebar')).to_be_hidden()
         await self.page.get_by_role('button', name='打开主菜单', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
-        await expect(drawer.get_by_role('button', name='恢复中会话')).to_be_visible()
-        await drawer.get_by_role('button', name='模型中心', exact=True).click()
+        await expect(drawer.get_by_role('link', name='对话体验', exact=True)).to_be_visible()
         await drawer.get_by_role('link', name='模型目录', exact=True).click()
         await expect(drawer).to_be_hidden()
         await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
@@ -362,19 +361,21 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.page.evaluate('window.markdownInjected'))
         self.assertEqual(await self.page.locator('.ai-message-content script, .ai-message-content a[href^="javascript:"]').count(), 0)
 
-    async def test_model_resource_shell_preserves_original_insets(self):
+    async def test_model_resource_shell_uses_console_insets(self):
         await self.page.goto(self.origin + '/models')
         await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
         desktop = await self.page.locator('.ai-model-center').bounding_box()
-        self.assertEqual(round(desktop['x']), 230)
-        self.assertEqual(round((await self.page.locator('.model-workspace').bounding_box())['x']), 230)
+        self.assertEqual(round(desktop['x']), 224)
+        self.assertEqual(round((await self.page.locator('.model-workspace').bounding_box())['x']), 224)
         await self.page.set_viewport_size({'width': 375, 'height': 812})
         await expect(self.page.locator('.platform-shell__sidebar')).to_be_hidden()
         await expect(self.page.locator('.ai-model-center')).to_have_css('padding', '0px')
         mobile = await self.page.locator('.ai-model-center').bounding_box()
-        self.assertEqual(round(mobile['x']), 20)
-        self.assertEqual(round(mobile['width']), 335)
-        self.assertEqual(round(mobile['y'] + mobile['height']), 732)
+        page_box = await self.page.locator('.platform-page').bounding_box()
+        self.assertEqual(round(mobile['x']), round(page_box['x']))
+        self.assertEqual(round(mobile['width']), round(page_box['width']))
+        self.assertLessEqual(round(mobile['y'] + mobile['height']), round(page_box['y'] + page_box['height']))
+        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
     async def test_chat_initial_navigation_loads_lists_once(self):
         await self.page.goto(self.origin + '/chat')
@@ -387,16 +388,15 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.origin + '/models')
         await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
         await self.page.route('**/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'首次进入聊天前接入的模型'}]))
-        await self.page.get_by_role('link', name='智能对话', exact=True).click()
+        await self.page.get_by_role('link', name='对话体验', exact=True).click()
         await expect(self.page.locator('.model-select')).to_contain_text('首次进入聊天前接入的模型')
 
     async def test_chat_reloads_models_after_returning_from_model_center(self):
         await self.page.goto(self.origin + '/chat')
         await expect(self.page.locator('.model-select')).to_contain_text('测试模型')
-        await self.page.get_by_role('button', name='模型中心', exact=True).click()
         await self.page.get_by_role('link', name='模型目录', exact=True).click()
         await self.page.route('**/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'刚接入的模型'}]))
-        await self.page.get_by_role('link', name='智能对话', exact=True).click()
+        await self.page.get_by_role('link', name='对话体验', exact=True).click()
         await expect(self.page.locator('.model-select')).to_contain_text('刚接入的模型', timeout=2000)
 
     async def test_original_login_validates_empty_fields_without_storing_passwords(self):
@@ -415,7 +415,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.origin + '/chat')
         await self.page.get_by_role('button', name='切换主题', exact=True).click()
         await expect(self.page.locator('html')).to_have_class(re.compile('dark'), timeout=2000)
-        await expect(self.page.locator('.platform-chat')).to_have_css('background-color', 'rgb(8, 8, 8)')
+        await expect(self.page.locator('.platform-chat')).to_have_css('background-color', 'rgb(27, 32, 48)')
         await self.page.reload()
         await expect(self.page.locator('html')).to_have_class(re.compile('dark'))
         await self.page.get_by_role('button', name='切换主题', exact=True).click()

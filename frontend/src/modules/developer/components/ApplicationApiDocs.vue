@@ -1,7 +1,7 @@
 <!-- Adapted from original ApplicationApiDocs.vue, MIT licensed. -->
 <template>
   <section class="api-docs-page">
-    <WorkspaceToolbar title="API 说明" subtitle="使用访问密钥调用平台模型">
+    <WorkspaceToolbar title="API 说明">
       <template #actions>
         <a-button aria-label="返回开发接入" @click="$emit('close')"
           ><LeftOutlined />返回开发接入</a-button
@@ -327,12 +327,14 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
   min-height: 0;
   flex: 1;
   grid-template-columns: 220px minmax(0, 1fr);
-  border-top: 1px solid var(--gray-150);
+  gap: 20px;
+  margin: 0 var(--workspace-space-6) var(--workspace-space-6);
 }
 .api-docs-nav {
   overflow-y: auto;
   padding: 16px 0;
-  border-right: 1px solid var(--gray-150);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
   background: var(--bg-container);
 }
 .api-docs-nav__title {
@@ -359,6 +361,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
   min-width: 0;
   overflow: auto;
   padding: 22px 32px 48px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
   background: var(--bg-container);
 }
 .api-docs-intro {
@@ -371,8 +375,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
 .api-docs-intro h2 {
   margin: 0 0 8px;
   color: var(--color-text);
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 .api-doc-anchor {
   scroll-margin-top: 16px;
@@ -408,8 +412,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
 }
 .api-doc-section h2 {
   margin: 12px 0 4px;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 .api-doc-description {
   margin: 0 0 14px;
@@ -483,6 +487,9 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
 @media (max-width: 760px) {
   .api-docs-layout {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 12px;
+    margin: 0 16px 16px;
   }
   .api-docs-nav {
     display: flex;

@@ -19,7 +19,7 @@
   --workspace-danger-soft: var(--color-error-50);
   --workspace-info: var(--color-info-700);
   --workspace-info-soft: var(--color-info-50);
-  --workspace-radius-sm: 4px;
+  --workspace-radius-sm: 6px;
   --workspace-radius-md: 8px;
   --workspace-space-1: 4px;
   --workspace-space-2: 8px;
@@ -32,7 +32,7 @@
   --workspace-sidebar-border: var(--gray-150);
   --workspace-sidebar-text: var(--color-text);
   --workspace-sidebar-muted: var(--color-text-secondary);
-  --platform-topbar-height: 54px;
+  --platform-topbar-height: 61px;
   --workspace-sidebar-width: var(--platform-sidebar-width);
   --workspace-sidebar-collapsed-width: var(--platform-sidebar-collapsed-width);
   --workspace-content-max-width: 1440px;
@@ -40,20 +40,21 @@
   --workspace-shadow-soft: none;
   --workspace-shadow-float: 0 12px 32px rgba(21, 22, 22, 0.12);
   --workspace-font-family:
-    system-ui, 'Noto Sans SC', 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   --workspace-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --workspace-mono: var(--workspace-font-mono);
   --workspace-font-size-caption: 12px;
   --workspace-font-size-helper: 13px;
   --workspace-font-size-body: 14px;
   --workspace-font-size-section: 16px;
-  --workspace-font-size-title: 20px;
-  --workspace-font-size-chat: 16px;
+  --workspace-font-size-title: 22px;
+  --workspace-font-size-chat: 14px;
   --workspace-font-weight-regular: 400;
   --workspace-font-weight-medium: 500;
   --workspace-font-weight-semibold: 600;
-  --workspace-line-height: 1.6;
-  --workspace-line-height-chat: 1.75;
+  --workspace-line-height: 1.5;
+  --workspace-line-height-chat: 1.85;
 
   --el-color-primary: var(--main-color);
   --el-color-primary-light-3: var(--main-400);

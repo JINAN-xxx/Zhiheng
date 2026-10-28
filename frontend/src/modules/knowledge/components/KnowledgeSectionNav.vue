@@ -33,27 +33,27 @@ const items = [
   min-width: 0;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
+  margin: 0 0 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gray-150);
 }
-
 .knowledge-section-nav :deep(.ant-btn) {
+  border-color: transparent;
   border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text-secondary);
 }
-
 .knowledge-section-nav :deep(.ant-btn.is-active) {
-  border-color: var(--main-300);
   color: var(--main-700);
   background: var(--main-50);
   font-weight: 600;
 }
-
 @media (max-width: 560px) {
   .knowledge-section-nav {
     flex-wrap: nowrap;
     overflow-x: auto;
-    padding-bottom: 2px;
   }
-
   .knowledge-section-nav :deep(.ant-btn) {
     flex: 0 0 auto;
   }

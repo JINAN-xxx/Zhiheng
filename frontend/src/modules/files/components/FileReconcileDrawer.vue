@@ -370,16 +370,6 @@ defineExpose({ open })
   background: var(--workspace-surface);
 }
 
-.summary-card::before {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  content: '';
-  background: var(--card-color);
-}
-
 .summary-card--danger {
   --card-color: #cf1322;
 }
@@ -408,8 +398,8 @@ defineExpose({ open })
 .summary-card__value {
   margin-top: 7px;
   color: var(--workspace-text);
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 23px;
+  font-weight: 500;
   line-height: 34px;
 }
 

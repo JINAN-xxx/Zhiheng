@@ -22,13 +22,23 @@ import {
   Modal,
   Switch as ASwitch
 } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined, EllipsisOutlined, CopyOutlined } from '@ant-design/icons-vue'
+import {
+  PlusOutlined,
+  ReloadOutlined,
+  EllipsisOutlined,
+  CopyOutlined,
+  SearchOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+  ApiOutlined
+} from '@ant-design/icons-vue'
 import { useWindowSize } from '@vueuse/core'
 import type { TableColumnsType } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import ModelRatesDialog from '../components/ModelRatesDialog.vue'
+import ModelActions from '../components/ModelActions.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -50,6 +60,15 @@ function setActiveTab(value: unknown): void {
   activeTab.value = typeof value === 'string' ? value : 'platform'
 }
 const activeTab = ref('platform')
+const modelSearch = ref('')
+const modelType = ref('all')
+const modelView = ref<'cards' | 'list'>('cards')
+const modelFilters = [
+  { value: 'all', label: '全部模型' },
+  { value: 'chat', label: '对话模型' },
+  { value: 'embedding', label: '向量模型' },
+  { value: 'rerank', label: '重排序模型' }
+]
 const { width } = useWindowSize()
 const isMobile = computed(() => width.value <= 760)
 const lastSuccessAt = ref('')
@@ -66,6 +85,8 @@ const connectionColumns = [
   { title: '服务商', key: 'provider', width: 150 },
   { title: 'API 地址', dataIndex: 'base_url', key: 'base_url', ellipsis: true },
   { title: '凭据状态', key: 'status', width: 130 },
+  { title: '连接状态', key: 'enabled', width: 110 },
+  { title: '关联模型', key: 'models', width: 100 },
   { title: '操作', key: 'actions', width: 160 }
 ]
 const visibleModelColumns = computed<TableColumnsType<ChatModel>>(() =>
@@ -83,6 +104,23 @@ const visibleConnectionColumns = computed(() =>
 )
 const connections = ref<ModelConnection[]>([])
 const models = ref<ChatModel[]>([])
+const filteredModels = computed(() => {
+  const search = modelSearch.value.trim().toLowerCase()
+  return models.value.filter(
+    (model) =>
+      (modelType.value === 'all' || model.model_type === modelType.value) &&
+      [model.name, model.id, model.upstream_model, connectionName(model.connection_id)]
+        .join(' ')
+        .toLowerCase()
+        .includes(search)
+  )
+})
+function connectionName(id: string): string {
+  return connections.value.find((connection) => connection.id === id)?.name ?? '连接不可用'
+}
+function connectionEnabled(id: string): boolean {
+  return connections.value.some((connection) => connection.id === id && connection.enabled)
+}
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -438,15 +476,7 @@ async function stopTest(): Promise<void> {
 </script>
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar
-      title="模型目录"
-      :subtitle="
-        isMobile
-          ? ''
-          : activeTab === 'platform'
-            ? `${models.length} 个平台模型`
-            : `${connections.length} 个服务商凭据`
-      "
+    <WorkspaceToolbar title="模型目录"
       ><template #actions
         ><AButton shape="circle" aria-label="刷新当前视图" :loading="loading" @click="load"
           ><ReloadOutlined /></AButton
@@ -467,6 +497,49 @@ async function stopTest(): Promise<void> {
       <ATabs :active-key="activeTab" class="workspace-tabs" @update:active-key="setActiveTab">
         <ATabPane key="platform" tab="平台模型"
           ><section class="workspace-panel">
+            <div class="model-catalog-toolbar">
+              <div class="model-filters" aria-label="模型类型筛选">
+                <button
+                  v-for="filter in modelFilters"
+                  :key="filter.value"
+                  type="button"
+                  :class="{ active: modelType === filter.value }"
+                  :aria-pressed="modelType === filter.value"
+                  @click="modelType = filter.value"
+                >
+                  {{ filter.label }}
+                </button>
+              </div>
+              <div class="catalog-tools">
+                <span v-if="!isMobile" class="catalog-total"
+                  >{{ filteredModels.length }} 个模型</span
+                >
+                <AInput
+                  v-model:value="modelSearch"
+                  allow-clear
+                  aria-label="搜索模型"
+                  placeholder="搜索模型名称、代码或连接"
+                >
+                  <template #prefix><SearchOutlined /></template>
+                </AInput>
+                <div class="view-switch" aria-label="模型展示方式">
+                  <AButton
+                    :type="modelView === 'cards' ? 'primary' : 'default'"
+                    aria-label="卡片视图"
+                    :aria-pressed="modelView === 'cards'"
+                    @click="modelView = 'cards'"
+                    ><AppstoreOutlined
+                  /></AButton>
+                  <AButton
+                    :type="modelView === 'list' ? 'primary' : 'default'"
+                    aria-label="列表视图"
+                    :aria-pressed="modelView === 'list'"
+                    @click="modelView = 'list'"
+                    ><UnorderedListOutlined
+                  /></AButton>
+                </div>
+              </div>
+            </div>
             <div v-if="isMobile" class="panel-toolbar">
               <div class="panel-summary">
                 <span>{{ models.length }} 个平台模型</span
@@ -476,17 +549,81 @@ async function stopTest(): Promise<void> {
                 ><ReloadOutlined
               /></AButton>
             </div>
+            <section
+              v-if="!isMobile && modelView === 'cards' && filteredModels.length"
+              class="model-grid"
+              aria-label="平台模型"
+            >
+              <article v-for="model in filteredModels" :key="model.id" class="model-card">
+                <div class="model-card__header">
+                  <span class="model-card__icon" :class="`model-card__icon--${model.model_type}`"
+                    ><ApiOutlined
+                  /></span>
+                  <div class="model-card__identity">
+                    <h2>{{ model.name }}</h2>
+                    <span>{{ modelTypeLabel(model.model_type) }}模型</span>
+                  </div>
+                  <ATag :color="model.enabled && model.published ? 'success' : 'default'">{{
+                    model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
+                  }}</ATag>
+                </div>
+                <div class="model-card__code resource-value resource-value--secondary">
+                  <code class="resource-text" :title="model.id">{{ model.id }}</code>
+                  <button
+                    type="button"
+                    class="copy-button"
+                    aria-label="复制模型代码"
+                    title="复制模型代码"
+                    :disabled="!model.id.trim()"
+                    @click="copyModelCode(model.id)"
+                  >
+                    <CopyOutlined />
+                  </button>
+                </div>
+                <dl class="model-card__details">
+                  <div>
+                    <dt>上游模型</dt>
+                    <dd :title="model.upstream_model">{{ model.upstream_model }}</dd>
+                  </div>
+                  <div>
+                    <dt>最大输出</dt>
+                    <dd>{{ model.max_output_tokens.toLocaleString() }} Token</dd>
+                  </div>
+                </dl>
+                <div class="model-card__footer">
+                  <span class="model-card__connection" :title="connectionName(model.connection_id)"
+                    ><span
+                      class="connection-dot"
+                      :class="{ 'is-enabled': connectionEnabled(model.connection_id) }"
+                    ></span
+                    >{{ connectionName(model.connection_id)
+                    }}<small>{{
+                      connectionEnabled(model.connection_id) ? '已启用' : '已停用或不可用'
+                    }}</small></span
+                  >
+                  <ModelActions
+                    :model="model"
+                    :busy="testBusy"
+                    :testing="testingModel === model.id"
+                    @edit="openModel(model)"
+                    @rates="rateModel = model"
+                    @test="testModel(model)"
+                    @control="changeModel(model, $event)"
+                  />
+                </div>
+              </article>
+            </section>
             <ResourceTable
-              v-if="models.length || loading"
+              v-else-if="filteredModels.length || loading"
               class="model-table"
               :columns="visibleModelColumns"
               :scroll-x="isMobile ? '100%' : 850"
-              :rows="models"
+              :rows="filteredModels"
               :loading="loading"
               ><template #bodyCell="{ column, record: model }">
                 <template v-if="column.key === 'model'"
                   ><div class="mobile-model-cell">
-                    <span v-if="!isMobile" class="model-display-name">{{ model.name }}</span>
+                    <span class="model-display-name">{{ model.name }}</span>
                     <div class="resource-value resource-value--secondary">
                       <span class="resource-text" :title="model.id">{{ model.id }}</span>
                       <button
@@ -502,7 +639,11 @@ async function stopTest(): Promise<void> {
                     </div>
                     <div v-if="isMobile" class="mobile-model-meta">
                       <ATag color="blue">{{ modelTypeLabel(model.model_type) }}</ATag
-                      ><ATag color="success">已配置</ATag
+                      ><ATag
+                        :color="connectionEnabled(model.connection_id) ? 'success' : 'default'"
+                        >{{
+                          connectionEnabled(model.connection_id) ? '连接已启用' : '连接不可用'
+                        }}</ATag
                       ><ATag :color="model.enabled ? 'success' : 'default'">{{
                         model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
                       }}</ATag>
@@ -513,73 +654,36 @@ async function stopTest(): Promise<void> {
                   ><ATag>{{ modelTypeLabel(model.model_type) }}</ATag></template
                 >
                 <template v-else-if="column.key === 'binding'"
-                  ><ATag color="success">已配置</ATag></template
+                  ><ATag :color="connectionEnabled(model.connection_id) ? 'success' : 'default'">{{
+                    connectionEnabled(model.connection_id) ? '已启用' : '不可用'
+                  }}</ATag></template
                 >
                 <template v-else-if="column.key === 'status'"
                   ><ATag :color="model.enabled ? 'success' : 'default'">{{
                     model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
                   }}</ATag></template
                 >
-                <template v-else-if="column.key === 'actions'"
-                  ><div class="row-actions desktop-actions">
-                    <AButton
-                      type="link"
-                      size="small"
-                      aria-label="编辑模型"
-                      @click="openModel(model)"
-                      >编辑</AButton
-                    >
-                    <AButton
-                      type="link"
-                      size="small"
-                      aria-label="费率配置"
-                      @click="rateModel = model"
-                      >费率</AButton
-                    >
-                    <AButton
-                      type="link"
-                      size="small"
-                      aria-label="测试连接"
-                      :loading="testingModel === model.id && testBusy"
-                      :disabled="testBusy || !model.enabled"
-                      @click="testModel(model)"
-                      >测试</AButton
-                    >
-                  </div>
-                  <ADropdown :trigger="['click']"
-                    ><AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton
-                    ><template #overlay
-                      ><AMenu
-                        ><AMenuItem @click="openModel(model)">编辑模型</AMenuItem
-                        ><AMenuItem @click="rateModel = model">费率配置</AMenuItem
-                        ><AMenuItem :disabled="testBusy || !model.enabled" @click="testModel(model)"
-                          >测试连接</AMenuItem
-                        ><AMenuItem
-                          @click="changeModel(model, model.enabled ? 'disable' : 'enable')"
-                          >{{ model.enabled ? '停用' : '启用' }}</AMenuItem
-                        ><AMenuItem
-                          v-if="model.enabled"
-                          @click="changeModel(model, model.published ? 'unpublish' : 'publish')"
-                          >{{ model.published ? '取消发布' : '发布' }}</AMenuItem
-                        ><AMenuItem
-                          v-if="!model.enabled"
-                          danger
-                          @click="changeModel(model, 'delete')"
-                          >删除模型</AMenuItem
-                        ></AMenu
-                      ></template
-                    ></ADropdown
-                  ></template
-                >
-              </template></ResourceTable
-            >
+                <template v-else-if="column.key === 'actions'">
+                  <ModelActions
+                    :model="model"
+                    :busy="testBusy"
+                    :testing="testingModel === model.id"
+                    @edit="openModel(model)"
+                    @rates="rateModel = model"
+                    @test="testModel(model)"
+                    @control="changeModel(model, $event)"
+                  />
+                </template> </template
+            ></ResourceTable>
             <WorkspaceState
               v-else
-              title="暂无平台模型"
+              :title="models.length ? '没有匹配的模型' : '暂无平台模型'"
               :message="
-                connections.length
-                  ? '点击接入模型，选择已保存的连接。'
-                  : '请先在凭据管理中添加模型连接。'
+                models.length
+                  ? '试试其他模型类型或关键词。'
+                  : connections.length
+                    ? '点击接入模型，选择已保存的连接。'
+                    : '请先在凭据管理中添加模型连接。'
               "
             /></section
         ></ATabPane>
@@ -611,7 +715,18 @@ async function stopTest(): Promise<void> {
                   ><ATag :color="connection.has_api_key ? 'success' : 'warning'">{{
                     connection.has_api_key ? '密钥已配置' : '未配置密钥'
                   }}</ATag></template
-                ><template v-else-if="column.key === 'actions'"
+                ><template v-else-if="column.key === 'enabled'"
+                  ><ATag :color="connection.enabled ? 'success' : 'default'">{{
+                    connection.enabled ? '已启用' : '已停用'
+                  }}</ATag></template
+                >
+                <template v-else-if="column.key === 'models'"
+                  >{{
+                    models.filter((model) => model.connection_id === connection.id).length
+                  }}
+                  个</template
+                >
+                <template v-else-if="column.key === 'actions'"
                   ><AButton
                     type="link"
                     size="small"
@@ -801,7 +916,7 @@ async function stopTest(): Promise<void> {
   display: flex;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-container);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 .model-workspace {
@@ -830,10 +945,11 @@ async function stopTest(): Promise<void> {
   padding: 0 16px;
   color: var(--color-text-secondary);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
 }
 .workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
   color: var(--main-700);
+  font-weight: 600;
 }
 .workspace-tabs :deep(.ant-tabs-ink-bar) {
   background: var(--main-700);
@@ -871,9 +987,6 @@ async function stopTest(): Promise<void> {
   border-radius: 6px;
 }
 @media (max-width: 760px) {
-  :global(.model-onboarding-drawer) {
-    width: 100% !important;
-  }
   :global(.model-onboarding-drawer .ant-drawer-body) {
     padding: 16px;
   }
@@ -885,7 +998,7 @@ async function stopTest(): Promise<void> {
 }
 @media (min-width: 761px) {
   .model-workspace {
-    padding: 12px var(--workspace-space-6) 24px;
+    padding: 0 var(--workspace-space-6) 28px;
   }
   .workspace-tabs :deep(.ant-tabs-nav) {
     margin-bottom: 12px;
@@ -893,6 +1006,220 @@ async function stopTest(): Promise<void> {
   .ai-model-center :deep(.workspace-toolbar__subtitle) {
     margin-top: 2px;
     font-size: var(--workspace-font-size-helper);
+  }
+}
+
+.model-catalog-toolbar,
+.catalog-tools,
+.model-filters,
+.view-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-catalog-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 4px 0 20px;
+}
+.model-filters {
+  flex-wrap: wrap;
+}
+.model-filters button {
+  padding: 6px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 5px;
+  background: var(--bg-container);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.model-filters button.active {
+  border-color: var(--main-200);
+  background: var(--main-50);
+  color: var(--main-700);
+  font-weight: 600;
+}
+.model-filters button:focus-visible {
+  outline: 2px solid var(--main-700);
+  outline-offset: 2px;
+}
+.catalog-tools :deep(.ant-input-affix-wrapper) {
+  width: 256px;
+}
+.catalog-total {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.view-switch {
+  gap: 0;
+}
+.view-switch :deep(.ant-btn) {
+  border-radius: 0;
+}
+.view-switch :deep(.ant-btn:first-child) {
+  border-radius: 5px 0 0 5px;
+}
+.view-switch :deep(.ant-btn:last-child) {
+  border-radius: 0 5px 5px 0;
+}
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.model-card {
+  min-width: 0;
+  padding: 22px 22px 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.model-card:hover {
+  border-color: var(--main-200);
+}
+.model-card__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.model-card__icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--main-50);
+  color: var(--main-700);
+  font-size: 21px;
+}
+.model-card__icon--embedding {
+  background: var(--color-success-50);
+  color: var(--color-success-700);
+}
+.model-card__icon--rerank {
+  background: var(--color-warning-50);
+  color: var(--color-warning-900);
+}
+.model-card__identity {
+  flex: 1;
+  min-width: 0;
+}
+.model-card__identity h2 {
+  overflow: hidden;
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-card__identity > span,
+.model-card__connection small {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.model-card__header :deep(.ant-tag) {
+  margin: 0;
+}
+.model-card__code {
+  margin-top: 18px;
+}
+.model-card__details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  margin: 18px 0 20px;
+}
+.model-card__details > div {
+  min-width: 0;
+}
+.model-card__details dt {
+  margin-bottom: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.model-card__details dd {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.model-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-150);
+}
+.model-card__connection {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.model-card__connection small {
+  flex-basis: 100%;
+  padding-left: 12px;
+}
+.connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+}
+.connection-dot.is-enabled {
+  background: var(--color-success-700);
+}
+.test-result {
+  background: var(--bg-container);
+}
+.test-result h2 {
+  margin: 0;
+  font-weight: 500;
+}
+.test-result pre {
+  max-height: 300px;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 5px;
+  background: var(--gray-25);
+  line-height: 1.7;
+}
+@media (max-width: 760px) {
+  .model-catalog-toolbar {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .model-filters {
+    gap: 6px;
+  }
+  .model-filters button {
+    padding: 5px 9px;
+    font-size: 12px;
+  }
+  .catalog-tools {
+    width: 100%;
+  }
+  .catalog-tools :deep(.ant-input-affix-wrapper) {
+    width: 100%;
+  }
+  .view-switch {
+    display: none;
+  }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .model-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
@@ -955,7 +1282,7 @@ async function stopTest(): Promise<void> {
   vertical-align: middle;
 }
 .model-table :deep(.ant-table-tbody > tr:hover > td) {
-  background: var(--gray-50) !important;
+  background: var(--gray-50);
 }
 .model-table :deep(.ant-tag) {
   margin: 0;
@@ -1102,8 +1429,8 @@ async function stopTest(): Promise<void> {
 .section-heading h3 {
   margin: 0;
   color: var(--color-text);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 .section-heading p {
   margin: 6px 0 0;
@@ -1148,7 +1475,7 @@ async function stopTest(): Promise<void> {
   border-radius: 6px;
 }
 .advanced-settings :deep(.ant-collapse-header) {
-  color: var(--color-text) !important;
+  color: var(--color-text);
 }
 .advanced-settings :deep(.ant-collapse-content-box) {
   padding: 16px 20px 0;

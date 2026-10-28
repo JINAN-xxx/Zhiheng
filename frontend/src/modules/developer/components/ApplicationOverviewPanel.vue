@@ -44,26 +44,22 @@ function formatTime(value: string): string {
 <style scoped lang="scss">
 .overview-panel {
   display: grid;
-  gap: 20px;
-  padding: 20px;
+  gap: 24px;
+  padding: 24px;
 }
 
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--gray-150);
-  border-left: 1px solid var(--gray-150);
+  gap: 24px 28px;
 }
 
 .overview-field {
   display: grid;
-  min-height: 76px;
+  min-height: 44px;
   align-content: center;
   gap: 6px;
-  padding: 14px 16px;
-  border-right: 1px solid var(--gray-150);
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--bg-container);
+  min-width: 0;
 }
 
 .overview-field span,
@@ -81,13 +77,31 @@ function formatTime(value: string): string {
 
 .access-guide {
   padding: 16px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  border-top: 1px solid var(--gray-150);
   background: var(--gray-25);
+  border-radius: 5px;
 }
 
 .access-guide p {
   margin: 6px 0 0;
   line-height: 1.7;
+}
+.overview-field strong {
+  font-size: 14px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.access-guide > strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+@media (max-width: 640px) {
+  .overview-panel {
+    padding: 18px;
+  }
+  .overview-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
 }
 </style>

@@ -17,11 +17,18 @@ declare module 'vue-router' {
     public?: boolean
     admin?: boolean
     navigation?: boolean
+    activeMenu?: string
   }
 }
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/overview',
+      name: 'overview',
+      component: () => import('./views/OverviewView.vue'),
+      meta: { title: '工作台' }
+    },
     ...identityRoutes,
     ...chatRoutes,
     ...modelRoutes,
@@ -32,7 +39,7 @@ export const router = createRouter({
     ...workRoutes,
     ...fileRoutes,
     ...knowledgeRoutes,
-    { path: '/', redirect: '/chat' },
+    { path: '/', redirect: '/overview' },
     { path: '/:pathMatch(.*)*', redirect: '/chat' }
   ]
 })

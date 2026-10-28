@@ -4,3 +4,4 @@ export { downloadFile, uploadFile, getFile, parseFile as parseManagedFile } from
 export type { ManagedFile, FileUser } from './api/index.ts'
 export const FileAclDrawer = defineAsyncComponent(() => import('./components/FileAclDrawer.vue'))
 export { formatFileSize, saveBlob } from './presentation.ts'
+export { listFiles, emptyQuery } from './api/index.ts'

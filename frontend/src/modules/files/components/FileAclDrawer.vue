@@ -343,7 +343,7 @@ defineExpose({ open, close })
 }
 .permission-section__title {
   color: var(--workspace-text);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 </style>

@@ -3,7 +3,7 @@
   <section class="file-statistics">
     <div class="file-statistics-header">
       <div>
-        <div class="file-statistics-title">文件概览</div>
+        <h2 class="file-statistics-title">文件概览</h2>
         <div class="file-statistics-tip">统计数据随当前查询条件实时更新</div>
       </div>
     </div>
@@ -102,14 +102,13 @@ function formatPercentage(size: number): string {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
-  padding-left: 10px;
-  border-left: 3px solid var(--workspace-main);
 }
 
 .file-statistics-title {
+  margin: 0;
   color: var(--workspace-text);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 22px;
 }
 
@@ -123,27 +122,18 @@ function formatPercentage(size: number): string {
 .file-statistics-content {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .file-stat-item {
   --stat-color: var(--workspace-main);
   position: relative;
   min-width: 0;
-  min-height: 118px;
+  min-height: 124px;
   padding: 16px;
   background: var(--workspace-surface);
   border: 1px solid var(--workspace-border);
   border-radius: 8px;
-  box-shadow: 0 4px 14px rgb(31 45 61 / 5%);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.file-stat-item:hover {
-  box-shadow: 0 8px 22px rgb(31 45 61 / 9%);
-  transform: translateY(-2px);
 }
 
 .file-stat-main {
@@ -164,31 +154,31 @@ function formatPercentage(size: number): string {
 }
 .file-stat-item :deep(.ant-statistic-content) {
   color: var(--workspace-text);
-  font-size: 25px;
-  font-weight: var(--workspace-font-weight-semibold);
+  font-size: 23px;
+  font-weight: 500;
 }
 
 .file-stat-value {
   margin-top: 5px;
   color: var(--workspace-text);
-  font-size: 25px;
-  font-weight: var(--workspace-font-weight-semibold);
+  font-size: 23px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   line-height: 32px;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .file-stat-icon {
   display: flex;
-  flex: 0 0 38px;
+  flex: 0 0 30px;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   color: var(--stat-color);
-  font-size: 20px;
+  font-size: 16px;
   background-color: color-mix(in srgb, var(--stat-color) 12%, transparent);
-  border-radius: 10px;
+  border-radius: 7px;
 }
 
 .file-stat-extra {

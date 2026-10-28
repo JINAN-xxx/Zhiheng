@@ -55,7 +55,12 @@
       <a-spin :spinning="buildLoading">
         <div class="graph-setup-grid">
           <section class="graph-panel" aria-label="图谱配置">
-            <h2>图谱配置</h2>
+            <div class="graph-panel__heading">
+              <h2>图谱配置</h2>
+              <span v-if="configState?.config" class="graph-version"
+                >v{{ configState.config.version }}</span
+              >
+            </div>
             <p>选择对话模型，从文档中提取实体与关系。试构建和正式构建均会调用所选模型。</p>
             <p v-if="!canEdit">当前为只读模式。如需调整配置或构建图谱，请联系有编辑权限的成员。</p>
             <a-form layout="vertical" :disabled="controlsDisabled">
@@ -157,9 +162,7 @@
 
           <section class="graph-panel" aria-label="图谱试构建" aria-live="polite">
             <h2>{{ previewTitle }}</h2>
-            <p>
-              先抽取所选文档的一小段内容，验证当前配置并查看实体和关系的提取结果。试构建不改变正式图谱。
-            </p>
+            <p>抽取所选文档的一段内容验证配置，试构建不改变正式图谱。</p>
             <a-select
               v-if="canEdit"
               :value="previewDocumentId"
@@ -213,6 +216,61 @@
           </section>
         </div>
 
+        <details v-if="jobs?.length" class="graph-panel graph-history" open>
+          <summary>图谱任务历史 · {{ jobs.length }}</summary>
+          <article v-for="history in jobs" :key="history.id" class="graph-history__item">
+            <div class="graph-actions">
+              <h3>
+                {{
+                  history.operation === 'preview'
+                    ? '试构建'
+                    : history.operation === 'build'
+                      ? '正式构建'
+                      : history.operation === 'query'
+                        ? '图谱检索'
+                        : '清理图谱'
+                }}
+              </h3>
+              <a-tag :color="history.status === 'failed' ? 'error' : 'default'">{{
+                history.status === 'completed'
+                  ? '已完成'
+                  : history.status === 'failed'
+                    ? '失败'
+                    : history.status === 'cancelled'
+                      ? '已取消'
+                      : history.status === 'interrupted'
+                        ? '已中断'
+                        : '处理中'
+              }}</a-tag
+              ><a-button
+                v-if="canEdit && history.cancel_allowed"
+                size="small"
+                :loading="stopping"
+                @click="emit('cancel', history)"
+                >取消任务</a-button
+              >
+            </div>
+            <p>
+              {{ history.processed_documents ?? '—' }}/{{ history.total_documents ?? '—' }} 个文档 ·
+              {{ history.progress.extracted_chunks ?? '—' }}/{{
+                history.progress.total_chunks ?? '—'
+              }}
+              个切片 · {{ history.progress.entities ?? '—' }} 个实体 ·
+              {{ history.progress.relations ?? '—' }} 个关系
+            </p>
+            <p v-if="history.error" class="graph-history__error">
+              {{ history.error.code }} · {{ history.error.message }}
+            </p>
+            <details>
+              <summary>任务标识与版本</summary>
+              <p>{{ history.id }} · {{ history.phase }}</p>
+              <p>
+                图谱版本：{{ history.graph_revision ?? '尚未发布' }} ·
+                {{ formatTime(history.created_at) }}
+              </p>
+            </details>
+          </article>
+        </details>
         <section class="graph-panel graph-build-panel" aria-label="图谱构建" aria-live="polite">
           <h2>{{ buildTitle }}</h2>
           <p v-if="job?.total_documents">
@@ -280,7 +338,9 @@
         </section>
       </a-spin>
 
-      <template v-if="readable && available">
+      <section v-if="readable && available" class="graph-panel graph-browser" aria-label="图谱浏览">
+        <h2>图谱浏览</h2>
+        <p>当前图谱版本：{{ configState?.active_revision }}</p>
         <div class="graph-controls">
           <a-select
             :value="form.node_label"
@@ -332,7 +392,7 @@
           :kind="loading ? 'loading' : 'empty'"
           :title="loading ? '正在加载图谱' : '暂无图谱节点'"
         />
-      </template>
+      </section>
     </div>
   </section>
 </template>
@@ -351,10 +411,12 @@ import {
   Progress as AProgress,
   Select as ASelect,
   Spin as ASpin,
-  Tooltip as ATooltip
+  Tooltip as ATooltip,
+  Tag as ATag
 } from 'ant-design-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import { formatTime } from '../presentation.ts'
 import KnowledgeGraph from './KnowledgeGraph.vue'
 import KnowledgeSectionNav from './KnowledgeSectionNav.vue'
 import { graphIsActive, graphProgress, graphStatusLabel } from '../graphPresentation.ts'
@@ -372,6 +434,7 @@ const props = defineProps<{
   graph: ChartGraph
   loading: boolean
   error: string
+  jobs?: GraphJob[]
   job: GraphJob | null
   available: boolean
   buildLoading: boolean
@@ -549,6 +612,51 @@ watch(
   padding: 20px 24px 28px;
 }
 
+.graph-history {
+  margin-bottom: 18px;
+}
+.graph-history > summary {
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+}
+.graph-history__item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-150);
+}
+.graph-history__item:last-child {
+  border: 0;
+  padding-bottom: 0;
+}
+.graph-history__item h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.graph-history__item details {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.graph-history__item details summary {
+  cursor: pointer;
+}
+.graph-history__item p {
+  overflow-wrap: anywhere;
+}
+.graph-history__item .graph-history__error {
+  color: var(--color-error);
+}
+.graph-panel__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.graph-version {
+  margin-left: 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
 .graph-setup-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -565,6 +673,7 @@ watch(
 .graph-panel h2 {
   margin: 0 0 10px;
   font-size: 16px;
+  font-weight: 500;
 }
 .graph-panel p {
   margin: 8px 0;

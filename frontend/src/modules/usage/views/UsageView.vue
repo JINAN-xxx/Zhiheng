@@ -41,7 +41,7 @@ const sourceOptions = [
   { value: 'public', label: '开发接入' },
   { value: 'agent_preview', label: '智能体试聊' },
   { value: 'agent_invocation', label: '智能体 API' },
-  { value: 'work_turn', label: 'Work 工作' }
+  { value: 'work_turn', label: '工作执行' }
 ]
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -62,7 +62,7 @@ const sourceLabel = (source: string): string =>
     public: '开发接入',
     agent_preview: '智能体试聊',
     agent_invocation: '智能体 API',
-    work_turn: 'Work 工作'
+    work_turn: '工作执行'
   })[source] ?? source
 const tokens = (value: number | null): string =>
   value === null ? '待核对' : value.toLocaleString()
@@ -92,28 +92,43 @@ async function load(): Promise<void> {
   <main class="usage-ledger-page" aria-label="用量记录">
     <WorkspaceToolbar title="用量记录"
       ><template #actions
-        ><AButton shape="circle" :loading="loading" aria-label="刷新用量记录" @click="load"
-          ><ReloadOutlined /></AButton></template
-    ></WorkspaceToolbar>
+        ><AButton :loading="loading" aria-label="刷新用量记录" @click="load"
+          ><ReloadOutlined />刷新</AButton
+        ></template
+      ></WorkspaceToolbar
+    >
     <section class="usage-content">
-      <section class="usage-controls" aria-label="用量筛选">
-        <ASelect
-          :value="selectedSource"
-          :options="sourceOptions"
-          aria-label="调用类型"
-          @update:value="setSource"
-        /><ASelect
-          :value="selectedStatus"
-          :options="statusOptions"
-          aria-label="调用状态"
-          @update:value="setStatus"
-        /><span class="usage-total">共 {{ rows.length }} 条</span>
+      <section v-if="summary" class="usage-quota" aria-label="Token 额度">
+        <div>
+          <span>已使用</span><strong>{{ tokens(summary.used_tokens) }}</strong
+          ><small>Token</small>
+        </div>
+        <div>
+          <span>预留中</span><strong>{{ tokens(summary.reserved_tokens) }}</strong
+          ><small>Token</small>
+        </div>
+        <div>
+          <span>配额上限</span><strong>{{ tokens(summary.limit_tokens) }}</strong
+          ><small>Token</small>
+        </div>
       </section>
-      <p v-if="summary" class="usage-quota" aria-label="Token 额度">
-        已使用 <strong>{{ tokens(summary.used_tokens) }}</strong> · 预留中
-        <strong>{{ tokens(summary.reserved_tokens) }}</strong> · 配额上限
-        <strong>{{ tokens(summary.limit_tokens) }}</strong> tokens
-      </p>
+      <section class="usage-controls" aria-label="用量筛选">
+        <label class="usage-filter"
+          ><span>调用类型</span
+          ><ASelect
+            :value="selectedSource"
+            :options="sourceOptions"
+            aria-label="调用类型"
+            @update:value="setSource" /></label
+        ><label class="usage-filter"
+          ><span>调用状态</span
+          ><ASelect
+            :value="selectedStatus"
+            :options="statusOptions"
+            aria-label="调用状态"
+            @update:value="setStatus" /></label
+        ><span class="usage-total">共 {{ rows.length }} 条</span>
+      </section>
       <AAlert
         v-if="error && summary"
         :message="error"
@@ -132,7 +147,9 @@ async function load(): Promise<void> {
         <div v-if="isMobile" class="usage-mobile-list">
           <article v-for="row in rows" :key="row.id" class="usage-mobile-item">
             <div class="usage-mobile-item__header">
-              <strong>{{ new Date(row.created_at).toLocaleString() }}</strong
+              <strong>{{
+                new Date(row.created_at).toLocaleString('zh-CN', { hour12: false })
+              }}</strong
               ><ATag>{{ recordStatus(row.status) }}</ATag>
             </div>
             <div class="usage-mobile-item__model" :title="row.run_id">{{ row.run_id }}</div>
@@ -149,7 +166,7 @@ async function load(): Promise<void> {
         <ResourceTable v-else class="usage-table" :columns="columns" :rows="rows" :loading="loading"
           ><template #bodyCell="{ column, record }">
             <template v-if="column.key === 'created_at'">{{
-              new Date(record.created_at).toLocaleString()
+              new Date(record.created_at).toLocaleString('zh-CN', { hour12: false })
             }}</template>
             <template v-else-if="column.key === 'source'"
               ><ATag>{{ sourceLabel(record.source) }}</ATag></template
@@ -180,7 +197,7 @@ async function load(): Promise<void> {
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-container);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 .usage-content {
@@ -196,15 +213,12 @@ async function load(): Promise<void> {
   display: flex;
   flex-wrap: wrap;
   flex: 0 0 auto;
-  min-height: 54px;
+  min-height: 34px;
   min-width: 0;
   align-items: center;
   gap: 10px;
   margin: 0 0 20px;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 0;
 }
 .usage-controls :deep(.ant-select) {
   width: 132px;
@@ -296,7 +310,7 @@ async function load(): Promise<void> {
 }
 @media (min-width: 992px) {
   .usage-content {
-    padding: var(--workspace-space-4) var(--workspace-space-6) var(--workspace-space-6);
+    padding: 0 var(--workspace-space-6) var(--workspace-space-6);
   }
 }
 
@@ -332,14 +346,68 @@ async function load(): Promise<void> {
 
 <style scoped>
 .usage-quota {
-  margin: 0 0 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.usage-quota > div {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.usage-quota span {
+  display: block;
+  margin-bottom: 12px;
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.usage-controls :deep(.ant-select:first-child) {
+.usage-quota strong {
+  font-size: 25px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.usage-quota small {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.usage-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.usage-filter :deep(.ant-select) {
   width: 132px;
 }
 .usage-table-wrap {
   flex: 0 0 auto;
+}
+@media (max-width: 760px) {
+  .usage-quota {
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .usage-quota > div {
+    padding: 14px 10px;
+  }
+  .usage-quota strong {
+    font-size: 19px;
+  }
+  .usage-filter {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .usage-filter :deep(.ant-select) {
+    width: 100%;
+    flex: 1 1 100%;
+  }
 }
 </style>

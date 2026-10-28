@@ -30,6 +30,7 @@
       <p v-if="message.errorSnapshot" class="work-message__error">
         {{ errorText(message.errorSnapshot) }}
       </p>
+      <MessageActions :content="message.content" :role="message.role" />
     </article>
     <a-empty v-if="!messages.length" description="暂无工作消息" />
   </section>
@@ -37,6 +38,7 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import MessageActions from '../../../shared/components/MessageActions.vue'
 import { Empty as AEmpty, Tag as ATag } from 'ant-design-vue'
 import { KnowledgeSources } from '../../knowledge/public.ts'
 import type { WorkMessage } from '../api/index.ts'
@@ -80,7 +82,7 @@ watch(
 <style scoped>
 .work-timeline {
   min-height: 0;
-  width: min(920px, 100%);
+  width: min(860px, 100%);
   flex: 1;
   align-self: center;
   overflow-y: auto;
@@ -116,9 +118,9 @@ watch(
 }
 .work-message > p {
   margin: 0;
-  padding: 16px 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 4px 16px 16px 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   background: var(--bg-container);
   color: var(--color-text);
   font-size: var(--workspace-font-size-chat);
@@ -127,9 +129,10 @@ watch(
   white-space: pre-wrap;
 }
 .work-message.user > p {
-  border-color: var(--main-100);
-  border-radius: 16px 4px 16px 16px;
-  background: var(--main-50);
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 10px 0 10px 10px;
+  background: var(--gray-50);
 }
 .work-message__version {
   padding: 1px 5px;
@@ -168,5 +171,8 @@ watch(
   .work-message.user {
     max-width: 94%;
   }
+}
+.work-message.user :deep(.message-actions) {
+  justify-content: flex-end;
 }
 </style>

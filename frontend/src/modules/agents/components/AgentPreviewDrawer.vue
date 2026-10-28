@@ -1,19 +1,25 @@
 <!-- Adapted from original agent UI, MIT licensed. -->
 <template>
-  <a-drawer
-    :open="modelValue"
-    :closable="!sending || !!currentRun || !!currentPreparation"
-    :mask-closable="!sending || !!currentRun || !!currentPreparation"
-    :keyboard="!sending || !!currentRun || !!currentPreparation"
-    width="min(680px, 100vw)"
-    :body-style="{ display: 'flex', flexDirection: 'column', padding: '0', minHeight: '0' }"
+  <component
+    :is="embedded ? 'section' : ADrawer"
+    :class="{ 'agent-preview-panel': embedded }"
+    v-bind="
+      embedded
+        ? {}
+        : {
+            open: modelValue,
+            closable: false,
+            maskClosable: !sending || !!currentRun || !!currentPreparation,
+            keyboard: !sending || !!currentRun || !!currentPreparation,
+            width: 'min(680px, 100vw)',
+            bodyStyle: { display: 'flex', flexDirection: 'column', padding: '0', minHeight: '0' }
+          }
+    "
     @close="close"
   >
-    <template #title
-      ><span class="agent-drawer-title">{{ agent?.name || '智能体' }} · 试聊</span></template
-    >
-    <template #extra
-      ><a-tooltip title="清空对话"
+    <header class="preview-heading">
+      <h2><MessageOutlined />{{ embedded ? '对话体验' : `${agent?.name || '智能体'} · 试聊` }}</h2>
+      <a-tooltip title="清空对话"
         ><a-button
           type="text"
           aria-label="清空对话"
@@ -21,9 +27,21 @@
             (!messages.length && !error) || (sending && !currentRun && !currentPreparation)
           "
           @click="clearConversation"
-          ><template #icon><ClearOutlined /></template></a-button></a-tooltip
-    ></template>
-    <div class="preview-version">已保存草稿 v{{ agent?.version }}</div>
+          ><template #icon><ClearOutlined /></template></a-button
+      ></a-tooltip>
+      <a-button
+        v-if="!embedded"
+        type="text"
+        aria-label="关闭试聊"
+        :disabled="sending && !currentRun && !currentPreparation"
+        @click="close"
+        ><CloseOutlined
+      /></a-button>
+    </header>
+    <div class="preview-version">
+      <RobotOutlined /><span>{{ agent ? `已保存草稿 v${agent.version}` : '保存后可开始试聊' }}</span
+      ><span v-if="disabled && agent" class="preview-save-hint">保存后试聊</span>
+    </div>
     <div ref="historyRef" class="preview-history" aria-live="polite" :aria-busy="sending">
       <article
         v-if="welcomeMessage"
@@ -34,7 +52,12 @@
         </div>
         <div class="preview-message__content">{{ welcomeMessage }}</div>
       </article>
-      <WorkspaceState v-else-if="!messages.length && !sending" kind="empty" title="暂无消息" />
+      <WorkspaceState
+        v-else-if="!messages.length && !sending"
+        kind="empty"
+        :title="agent?.name || '对话体验'"
+        :message="agent ? '发送消息，体验已保存草稿。' : '保存智能体后可开始对话。'"
+      />
       <article
         v-for="(item, index) in messages"
         :key="index"
@@ -76,10 +99,11 @@
         placeholder="输入消息"
         :auto-size="{ minRows: 3, maxRows: 7 }"
         :maxlength="32000"
-        :disabled="sending"
+        :disabled="sending || disabled"
         @keydown.enter.exact.prevent="send"
       />
       <div class="preview-composer__actions">
+        <span>Enter 发送 · Shift + Enter 换行</span>
         <a-tooltip v-if="sending" title="停止生成"
           ><a-button
             aria-label="停止生成"
@@ -91,14 +115,14 @@
         <a-button
           v-else
           type="primary"
-          :disabled="!draft.trim() || !agent?.agentId || recoverable || stopping"
+          :disabled="disabled || !draft.trim() || !agent?.agentId || recoverable || stopping"
           aria-label="发送"
           @click="send"
           ><template #icon><SendOutlined /></template>发送</a-button
         >
       </div>
     </div>
-  </a-drawer>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -115,6 +139,8 @@ import {
 } from 'ant-design-vue'
 import {
   ClearOutlined,
+  CloseOutlined,
+  MessageOutlined,
   RobotOutlined,
   SendOutlined,
   StopOutlined,
@@ -136,8 +162,19 @@ import {
   preparationFinished
 } from '../../knowledge/public.ts'
 import type { KnowledgeHit, KnowledgePreparation } from '../../knowledge/public.ts'
-const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    agent: Agent | null
+    embedded?: boolean
+    disabled?: boolean
+  }>(),
+  { embedded: false, disabled: false }
+)
+const emit = defineEmits<{
+  'update:modelValue': [value: boolean]
+  'busy-change': [value: boolean]
+}>()
 interface Message extends PreviewMessage {
   reasoning?: string
   status?: string
@@ -258,7 +295,8 @@ async function send(event?: Event): Promise<void> {
   if (event instanceof KeyboardEvent && event.isComposing) return
   const agent = props.agent,
     content = draft.value.trim()
-  if (!agent || sending.value || cancelPending || recoverable.value || !content) return
+  if (!agent || props.disabled || sending.value || cancelPending || recoverable.value || !content)
+    return
   const priorMessages = messages.value.map((item) => ({ ...item }))
   const conversation: Message[] = [...priorMessages, { role: 'user', content }]
   const payload = conversation
@@ -431,8 +469,10 @@ async function close(): Promise<void> {
   reset()
   emit('update:modelValue', false)
 }
+watch(sending, (value) => emit('busy-change', value))
 watch(() => [props.modelValue, props.agent?.agentId, props.agent?.version], reset)
 onBeforeUnmount(() => {
+  emit('busy-change', false)
   scope.dispose()
   pending = null
   assistant = null
@@ -440,6 +480,82 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.agent-preview-panel {
+  display: flex;
+  min-width: 0;
+  height: min(650px, calc(100dvh - 230px));
+  min-height: 440px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: #fff;
+}
+.preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.preview-heading > .ant-tooltip-disabled-compatible-wrapper,
+.preview-heading > .ant-btn {
+  flex: 0 0 auto;
+}
+.preview-heading h2 {
+  margin-right: auto;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.preview-heading h2 > span {
+  color: var(--main-700);
+}
+.preview-version {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--gray-25);
+}
+.preview-save-hint {
+  margin-left: auto;
+  color: var(--main-700);
+}
+.agent-preview-panel .preview-history {
+  padding: 20px 16px;
+}
+.agent-preview-panel .preview-composer {
+  margin: 0 12px 12px;
+  padding: 10px;
+  border: 1px solid var(--gray-150);
+  border-radius: 7px;
+}
+.agent-preview-panel .preview-composer :deep(textarea) {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  font-size: 14px;
+}
+.agent-preview-panel .preview-message__content {
+  margin-left: 22px;
+  padding: 10px 12px;
+  border-radius: 0 7px 7px 7px;
+  background: var(--gray-50);
+  font-size: 14px;
+}
+.agent-preview-panel .preview-message--user .preview-message__content {
+  background: var(--main-50);
+}
+.preview-composer__actions > span {
+  margin-right: auto;
+  align-self: center;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
 .agent-drawer-title {
   display: block;
   overflow-wrap: anywhere;

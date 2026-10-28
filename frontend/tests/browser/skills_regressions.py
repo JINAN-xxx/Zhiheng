@@ -58,7 +58,7 @@ class SkillsUIRegressions(DeveloperBoundary):
 
     async def open_skills(self):
         await self.page.goto(self.origin + '/skills')
-        await expect(self.page.get_by_role('heading', name='技能管理', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
 
     async def prepare_upload(self, raw=b'fixture skill'):
         await self.page.get_by_role('button', name='上传技能', exact=True).click()
@@ -83,7 +83,7 @@ class SkillsUIRegressions(DeveloperBoundary):
 
     async def test_detail_is_literal_and_status_uses_version_before_delete(self):
         await self.open_skills()
-        await self.page.get_by_role('button', name='查看', exact=True).click()
+        await self.page.get_by_role('button', name='查看详情', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.locator('pre')).to_have_text(self.content)
         self.assertIsNone(await self.page.evaluate('window.skillExecuted'))
@@ -100,7 +100,7 @@ class SkillsUIRegressions(DeveloperBoundary):
         self.member = True
         await self.open_skills()
         await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_have_count(0)
-        await self.page.get_by_role('button', name='查看', exact=True).click()
+        await self.page.get_by_role('button', name='查看详情', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.locator('pre')).to_have_text(self.content)
         await expect(drawer.get_by_role('button', name='停用技能', exact=True)).to_have_count(0)
@@ -141,7 +141,7 @@ class SkillsUIRegressions(DeveloperBoundary):
         await self.page.route('**/api/skills/import/prepare?*', prepare)
         try:
             await self.page.goto(self.origin + '/models')
-            await self.page.get_by_role('button', name='智能体扩展', exact=True).click()
+            await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
             await self.page.get_by_role('link', name='技能管理', exact=True).click()
             await self.page.get_by_role('button', name='上传技能', exact=True).click()
             dialog = self.page.get_by_role('dialog')
@@ -211,10 +211,10 @@ class SkillsUIRegressions(DeveloperBoundary):
         await self.page.route('**/api/skills/skill-2/content', lambda route: route.fulfill(json={'content': '第二技能正文'}))
         try:
             await self.open_skills()
-            await self.page.locator('.skill-card').filter(has_text='示例技能').get_by_role('button', name='查看', exact=True).click()
+            await self.page.locator('.skill-card').filter(has_text='示例技能').get_by_role('button', name='查看详情', exact=True).click()
             await asyncio.wait_for(requested.wait(), timeout=5)
             await self.page.locator('.ant-drawer-open').get_by_role('button', name='Close', exact=True).click()
-            await self.page.locator('.skill-card').filter(has_text='第二技能').get_by_role('button', name='查看', exact=True).click()
+            await self.page.locator('.skill-card').filter(has_text='第二技能').get_by_role('button', name='查看详情', exact=True).click()
             drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
             await expect(drawer.locator('pre')).to_have_text('第二技能正文')
             release.set()
@@ -226,9 +226,9 @@ class SkillsUIRegressions(DeveloperBoundary):
     async def test_delete_confirmation_closes_when_leaving_skill_page(self):
         self.skill['status'] = 'disabled'
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='智能体扩展', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
         await self.page.get_by_role('link', name='技能管理', exact=True).click()
-        await self.page.get_by_role('button', name='查看', exact=True).click()
+        await self.page.get_by_role('button', name='查看详情', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button', name='删除技能', exact=True).click()
         await expect(self.page.get_by_role('dialog')).to_be_visible()

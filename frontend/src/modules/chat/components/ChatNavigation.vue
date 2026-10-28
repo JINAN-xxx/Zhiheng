@@ -139,6 +139,7 @@ const filtered = computed(() =>
           </button>
           <WorkspaceMoreMenu
             v-if="!conversationLocked(conversation.id)"
+            compact
             :items="menuItems(conversation)"
             @command="(value) => command(value, conversation)"
           />
@@ -178,7 +179,7 @@ const filtered = computed(() =>
   flex: 1;
   flex-direction: column;
   gap: 9px;
-  padding: 13px 10px;
+  padding: 12px 10px;
   color: var(--color-text);
 }
 .recent-sessions__heading {

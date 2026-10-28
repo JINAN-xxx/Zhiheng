@@ -45,7 +45,7 @@ class AgentsUIRegressions(DeveloperBoundary):
                 await expect(drawer.locator('.preview-reasoning')).to_contain_text('先核实资料')
                 await drawer.get_by_role('button', name='停止生成', exact=True).click()
             await asyncio.wait_for(requested.wait(), timeout=5)
-            await drawer.get_by_role('button', name='Close' if action == 'close' else '清空对话', exact=True).click()
+            await drawer.get_by_role('button', name='关闭试聊' if action == 'close' else '清空对话', exact=True).click()
             await self.page.wait_for_timeout(200)
             await expect(drawer).to_be_visible()
             await expect(drawer.locator('.preview-reasoning')).to_contain_text('先核实资料')
@@ -122,8 +122,8 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.agents = []
         await self.open_agents()
         await self.page.get_by_role('button', name='新建智能体', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
-        await dialog.get_by_label('名称', exact=True).fill('研究助手')
+        dialog = self.page.locator('.agent-editor--page')
+        await dialog.get_by_label('智能体名称', exact=True).fill('研究助手')
         await dialog.get_by_role('combobox', name=re.compile(r'模型$')).click()
         await self.page.locator('.ant-select-item-option-content').filter(has_text='日常助手').click()
         await dialog.get_by_label('欢迎语', exact=True).fill('你好，我是助手')
@@ -138,7 +138,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await self.page.route('**/api/agents/agent-1', lambda route: route.fulfill(status=409, json={'error': {'code': 'version_conflict', 'message': '智能体已更新，请刷新'}}) if route.request.method == 'PATCH' else route.fulfill(json=self.agent))
         await self.open_agents()
         await self.page.get_by_role('button', name='配置', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
+        dialog = self.page.locator('.agent-editor--page')
         await dialog.get_by_label('系统提示词', exact=True).fill('未保存的新提示')
         await dialog.get_by_role('button', name='保存', exact=True).click()
         await expect(dialog.get_by_text('智能体已更新，请刷新', exact=True)).to_be_visible()
@@ -148,7 +148,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.agent['application_id'] = 'app-1'
         await self.open_agents()
         await self.page.get_by_role('button', name='配置', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
+        dialog = self.page.locator('.agent-editor--page')
         await dialog.get_by_role('button', name='发布', exact=True).click()
         await expect(dialog.get_by_role('button', name='取消发布', exact=True)).to_be_visible()
         self.assertEqual(self.agent['published_version'], 1)
@@ -190,7 +190,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await drawer.get_by_role('textbox', name='试聊消息', exact=True).fill('请回答')
         await drawer.get_by_role('button', name='发送', exact=True).click()
         await expect(drawer.get_by_role('button', name='恢复查看', exact=True)).to_be_visible(timeout=10000)
-        await drawer.get_by_role('button', name='Close' if action == 'close' else '清空对话', exact=True).click()
+        await drawer.get_by_role('button', name='关闭试聊' if action == 'close' else '清空对话', exact=True).click()
         if action == 'close': await expect(drawer).not_to_be_visible()
         else:
             await expect(drawer.locator('.preview-reasoning')).to_have_count(0)
@@ -259,7 +259,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await self.open_agents()
         await expect(self.page.get_by_text('有未发布更改', exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='配置', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
+        dialog = self.page.locator('.agent-editor--page')
         await expect(dialog.get_by_role('button', name='发布', exact=True)).to_be_disabled()
 
 

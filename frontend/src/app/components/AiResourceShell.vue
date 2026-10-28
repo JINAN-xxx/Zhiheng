@@ -30,8 +30,8 @@ defineProps({ inset: { type: Boolean, default: false } })
   padding: 0;
 }
 .ai-resource-shell.is-inset {
-  padding: 20px;
-  background: var(--bg-container);
+  padding: 0;
+  background: var(--bg-page);
 }
 @media (min-width: 992px) {
   .ai-resource-shell.is-inset {
@@ -40,7 +40,7 @@ defineProps({ inset: { type: Boolean, default: false } })
 }
 @media (max-width: 760px) {
   .ai-resource-shell {
-    padding: 14px;
+    padding: 0;
   }
 }
 </style>

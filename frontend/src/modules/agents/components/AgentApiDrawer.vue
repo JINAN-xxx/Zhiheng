@@ -362,7 +362,7 @@ onBeforeUnmount(() => {
   margin: 0;
   color: var(--color-text);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 .api-endpoint {
   display: flex;

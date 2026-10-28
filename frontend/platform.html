@@ -3,11 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#046A82" />
-    <title>智衡 · AI 工作空间</title>
+    <meta name="theme-color" content="#6155EE" />
+    <title>智衡</title>
+    <style>
+      .startup-loading {
+        display: grid;
+        min-height: 100dvh;
+        place-items: center;
+        background: var(--bg-page, #f7f8fc);
+        color: var(--color-text-secondary, #7a7f8e);
+        font: 14px var(--workspace-font-family, system-ui);
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><div class="startup-loading" role="status">正在加载…</div></div>
     <script type="module" src="/src/app/main.ts"></script>
   </body>
 </html>

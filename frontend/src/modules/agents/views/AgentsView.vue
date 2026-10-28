@@ -4,7 +4,7 @@
     <WorkspaceToolbar title="智能体">
       <template #actions>
         <a-tooltip title="刷新智能体">
-          <a-button shape="circle" :loading="loading" aria-label="刷新智能体" @click="load"
+          <a-button :loading="loading" aria-label="刷新智能体" @click="load"
             ><template #icon><ReloadOutlined /></template
           ></a-button>
         </a-tooltip>
@@ -36,8 +36,13 @@
         <a-alert v-if="error" class="agent-alert" type="warning" :message="error" show-icon />
         <div class="agent-grid">
           <article v-for="agent in agents" :key="agent.agentId" class="agent-card">
+            <div class="agent-card__top">
+              <span class="agent-card__icon"><RobotOutlined /></span
+              ><a-button type="text" :aria-label="`编辑${agent.name}`" @click="openEditor(agent)"
+                ><EllipsisOutlined
+              /></a-button>
+            </div>
             <div class="agent-card__header">
-              <span class="agent-card__icon"><RobotOutlined /></span>
               <strong :title="agent.name">{{ agent.name }}</strong>
               <a-tag :color="agent.status === 'published' ? 'green' : 'default'">{{
                 agent.status === 'published' ? '已发布' : '草稿'
@@ -45,8 +50,8 @@
             </div>
             <p>{{ agent.description || '暂无描述' }}</p>
             <div class="agent-card__metadata">
-              <span>{{ agent.skillSlugs.length }} 个技能</span>
-              <span>{{ agent.knowledgeBaseIds.length }} 个知识库</span>
+              <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
+              <span><DatabaseOutlined />{{ agent.knowledgeBaseIds.length }} 个知识库</span>
               <span v-if="hasUnpublishedAgentChanges(agent)" class="agent-pending"
                 >有未发布更改</span
               >
@@ -74,6 +79,9 @@
               >
             </div>
           </article>
+          <button class="create-agent-card" type="button" @click="openEditor()">
+            <PlusOutlined /><span>创建新的智能体</span>
+          </button>
         </div>
         <a-pagination
           v-if="total > query.pageSize"
@@ -86,20 +94,14 @@
         />
       </template>
     </section>
-    <AgentEditorModal
-      v-model="editorOpen"
-      :agent-id="selectedAgentId"
-      @changed="load"
-      @deleted="load"
-      @preview="showPreview"
-    />
     <AgentPreviewDrawer v-model="previewOpen" :agent="toolAgent" />
     <AgentApiDrawer v-model="apiOpen" :agent="toolAgent" />
   </main>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -110,6 +112,9 @@ import {
 } from 'ant-design-vue'
 import {
   ApiOutlined,
+  DatabaseOutlined,
+  EllipsisOutlined,
+  ThunderboltOutlined,
   MessageOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -122,7 +127,6 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getAgent, listAgents } from '../api/index.ts'
 import type { Agent } from '../api/index.ts'
 import { hasUnpublishedAgentChanges } from '../presentation.ts'
-import AgentEditorModal from '../components/AgentEditorModal.vue'
 import AgentPreviewDrawer from '../components/AgentPreviewDrawer.vue'
 import AgentApiDrawer from '../components/AgentApiDrawer.vue'
 const agents = ref<Agent[]>([]),
@@ -130,9 +134,9 @@ const agents = ref<Agent[]>([]),
   loading = ref(false),
   error = ref('')
 const query = reactive({ keyword: '', pageNum: 1, pageSize: 12 })
-const editorOpen = ref(false),
-  selectedAgentId = ref(''),
-  previewOpen = ref(false),
+const route = useRoute(),
+  router = useRouter()
+const previewOpen = ref(false),
   apiOpen = ref(false),
   toolAgent = ref<Agent | null>(null),
   openingId = ref('')
@@ -164,13 +168,7 @@ function search(): void {
 function openEditor(agent?: Agent): void {
   toolScope.replace()
   openingId.value = ''
-  selectedAgentId.value = agent?.agentId ?? ''
-  editorOpen.value = true
-}
-function showPreview(agent: Agent): void {
-  editorOpen.value = false
-  toolAgent.value = agent
-  previewOpen.value = true
+  void router.push(agent ? `/agents/${encodeURIComponent(agent.agentId)}` : '/agents/new')
 }
 async function openAgentTool(agent: Agent, tool: 'preview' | 'api'): Promise<void> {
   const context = toolScope.replace()
@@ -189,6 +187,16 @@ async function openAgentTool(agent: Agent, tool: 'preview' | 'api'): Promise<voi
     if (context.isCurrent()) openingId.value = ''
   }
 }
+watch(
+  () => route.query.action,
+  (action) => {
+    if (action !== 'create') return
+    const query = { ...route.query }
+    delete query.action
+    void router.replace({ path: '/agents/new', query })
+  },
+  { immediate: true }
+)
 onMounted(load)
 onBeforeUnmount(() => {
   listScope.dispose()
@@ -205,14 +213,14 @@ onBeforeUnmount(() => {
   min-height: 0;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-container);
+  background: var(--bg-page);
   font-family: var(--workspace-font-family);
 }
 .agent-content {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 20px 24px 28px;
+  padding: 24px 28px 32px;
 }
 .agent-controls {
   display: flex;
@@ -232,16 +240,30 @@ onBeforeUnmount(() => {
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 20px;
 }
 .agent-card {
   display: flex;
   min-width: 0;
-  min-height: 190px;
+  min-height: 255px;
   flex-direction: column;
-  padding: 17px;
+  padding: 22px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
+  background: #fff;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.agent-card:hover {
+  border-color: var(--main-200);
+  box-shadow: 0 4px 18px #24273305;
+}
+.agent-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
 }
 .agent-card__header {
   display: flex;
@@ -252,7 +274,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -261,9 +284,9 @@ onBeforeUnmount(() => {
 }
 .agent-card__icon {
   display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
   color: var(--main-700);
   background: var(--main-50);
@@ -277,7 +300,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.7;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -289,14 +313,47 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
   font-size: 12px;
 }
+.agent-card__metadata > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.create-agent-card {
+  display: flex;
+  min-height: 255px;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-direction: column;
+  border: 1px dashed var(--gray-150);
+  border-radius: 8px;
+  background: #ffffff70;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.create-agent-card > .anticon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--main-50);
+  color: var(--main-700);
+  font-size: 20px;
+}
+.create-agent-card:hover {
+  border-color: var(--main-300);
+  color: var(--main-700);
+}
 .agent-pending {
   color: var(--color-warning-700);
 }
 .agent-card__footer {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
+  justify-content: flex-start;
+  gap: 8px;
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--gray-100);
@@ -321,5 +378,8 @@ onBeforeUnmount(() => {
   .agent-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+:deep(.ant-btn-link) {
+  color: var(--main-700);
 }
 </style>

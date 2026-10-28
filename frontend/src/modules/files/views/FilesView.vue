@@ -206,7 +206,24 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <WorkspacePage title="文件管理" subtitle="文件生命周期、访问控制、引用与存储治理">
+  <WorkspacePage title="文件管理" subtitle="管理受管文件、访问权限与保留规则" class="files-page">
+    <template #actions>
+      <input ref="input" type="file" hidden aria-label="上传文件" @change="upload" />
+      <a-button aria-label="保留策略" @click="policy?.open()"
+        ><FieldTimeOutlined />保留策略</a-button
+      >
+      <a-button aria-label="存储对账" @click="reconcile?.open()"
+        ><PartitionOutlined />存储对账</a-button
+      >
+      <a-button aria-label="保留提醒" @click="reminders?.open()"><BellOutlined />保留提醒</a-button>
+      <a-button
+        type="primary"
+        :loading="uploading"
+        :disabled="mutationBusy || loading"
+        @click="input?.click()"
+        ><UploadOutlined />上传</a-button
+      >
+    </template>
     <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" /><a-alert
       v-if="notice"
       :message="notice"
@@ -215,103 +232,104 @@ onBeforeUnmount(() => {
       class="mb8"
       @close="notice = ''"
     />
-    <FileSearchForm
-      v-model:query-params="queryParams"
-      v-model:date-range="dateRange"
-      :show="showSearch"
-      @query="search"
-      @reset="reset"
-    />
     <FileStatistics v-if="stats" :stats="stats" />
-    <div class="table-toolbar mb8">
-      <input ref="input" type="file" hidden aria-label="上传文件" @change="upload" />
-      <a-button
-        type="primary"
-        :loading="uploading"
-        :disabled="mutationBusy || loading"
-        @click="input?.click()"
-        ><UploadOutlined />上传</a-button
-      >
-      <a-button
-        :disabled="!hasActiveSelection || mutationBusy || loading"
-        @click="acl?.open(activeSelected)"
-        ><LockOutlined />授权</a-button
-      >
-      <a-button
-        :disabled="!hasActiveSelection || mutationBusy || loading"
-        @click="transfer?.open(activeSelected)"
-        ><SwapOutlined />转移</a-button
-      >
-      <a-button
-        :disabled="
-          !selected.length ||
-          selected.some((file) => file.status !== 'deleted') ||
-          mutationBusy ||
-          loading
-        "
-        @click="change('restore')"
-        ><RollbackOutlined />恢复</a-button
-      >
-      <a-button
-        danger
-        :disabled="
-          !selected.length ||
-          selected.some(
-            (file) => !['deleted', 'purging'].includes(file.status) || file.referenceCount > 0
-          ) ||
-          mutationBusy ||
-          loading
-        "
-        @click="change('purge')"
-        ><DeleteFilled />清理</a-button
-      >
-      <a-button
-        danger
-        :disabled="
-          !hasActiveSelection ||
-          activeSelected.some((file) => file.referenceCount > 0) ||
-          mutationBusy ||
-          loading
-        "
-        @click="change('delete')"
-        ><DeleteOutlined />删除</a-button
-      >
-      <a-button aria-label="保留策略" @click="policy?.open()"><FieldTimeOutlined />策略</a-button
-      ><a-button aria-label="存储对账" @click="reconcile?.open()"
-        ><PartitionOutlined />对账</a-button
-      ><a-button aria-label="保留提醒" @click="reminders?.open()"><BellOutlined />提醒</a-button>
-      <span class="toolbar-spacer" /><a-tooltip title="显示或隐藏筛选"
-        ><a-button aria-label="显示或隐藏筛选" @click="showSearch = !showSearch"
-          ><FilterOutlined /></a-button></a-tooltip
-      ><a-tooltip title="刷新"
-        ><a-button aria-label="刷新文件" :loading="loading" @click="load"
-          ><ReloadOutlined /></a-button
-      ></a-tooltip>
-    </div>
-    <FileTable
-      :file-list="files"
-      :users="users"
-      :loading="loading"
-      :busy-ids="loading ? files.map((file) => file.fileId) : busyIds"
-      @selection-change="selected = $event"
-      @view="detail?.open($event)"
-      @download="download"
-      @reference="references?.open($event)"
-      @acl="acl?.open([$event])"
-      @transfer="transfer?.open([$event])"
-      @audit="audit?.open($event)"
-      @delete="change('delete', $event)"
-      @restore="change('restore', $event)"
-      @purge="change('purge', $event)"
-    />
-    <a-pagination
-      v-if="total > 0"
-      v-model:current="queryParams.pageNum"
-      v-model:page-size="queryParams.pageSize"
-      :total="total"
-      show-size-changer
-      @change="load"
-    />
+    <section class="file-resources" aria-label="文件资源">
+      <div class="file-resources__heading">
+        <h2>
+          文件列表 <span>{{ total }}</span>
+        </h2>
+        <div class="file-resources__tools">
+          <a-tooltip title="显示或隐藏筛选"
+            ><a-button
+              aria-label="显示或隐藏筛选"
+              :aria-expanded="showSearch"
+              @click="showSearch = !showSearch"
+              ><FilterOutlined /></a-button></a-tooltip
+          ><a-tooltip title="刷新"
+            ><a-button aria-label="刷新文件" :loading="loading" @click="load"
+              ><ReloadOutlined /></a-button
+          ></a-tooltip>
+        </div>
+      </div>
+      <FileSearchForm
+        v-model:query-params="queryParams"
+        v-model:date-range="dateRange"
+        :show="showSearch"
+        @query="search"
+        @reset="reset"
+      />
+      <div class="table-toolbar mb8">
+        <span class="file-selection">已选 {{ selected.length }} 项</span>
+        <a-button
+          :disabled="!hasActiveSelection || mutationBusy || loading"
+          @click="acl?.open(activeSelected)"
+          ><LockOutlined />授权</a-button
+        >
+        <a-button
+          :disabled="!hasActiveSelection || mutationBusy || loading"
+          @click="transfer?.open(activeSelected)"
+          ><SwapOutlined />转移</a-button
+        >
+        <a-button
+          :disabled="
+            !selected.length ||
+            selected.some((file) => file.status !== 'deleted') ||
+            mutationBusy ||
+            loading
+          "
+          @click="change('restore')"
+          ><RollbackOutlined />恢复</a-button
+        >
+        <a-button
+          danger
+          :disabled="
+            !selected.length ||
+            selected.some(
+              (file) => !['deleted', 'purging'].includes(file.status) || file.referenceCount > 0
+            ) ||
+            mutationBusy ||
+            loading
+          "
+          @click="change('purge')"
+          ><DeleteFilled />清理</a-button
+        >
+        <a-button
+          danger
+          :disabled="
+            !hasActiveSelection ||
+            activeSelected.some((file) => file.referenceCount > 0) ||
+            mutationBusy ||
+            loading
+          "
+          @click="change('delete')"
+          ><DeleteOutlined />删除</a-button
+        >
+      </div>
+      <FileTable
+        :file-list="files"
+        :users="users"
+        :loading="loading"
+        :busy-ids="loading ? files.map((file) => file.fileId) : busyIds"
+        @selection-change="selected = $event"
+        @view="detail?.open($event)"
+        @download="download"
+        @reference="references?.open($event)"
+        @acl="acl?.open([$event])"
+        @transfer="transfer?.open([$event])"
+        @audit="audit?.open($event)"
+        @delete="change('delete', $event)"
+        @restore="change('restore', $event)"
+        @purge="change('purge', $event)"
+      />
+      <a-pagination
+        v-if="total > 0"
+        v-model:current="queryParams.pageNum"
+        v-model:page-size="queryParams.pageSize"
+        :total="total"
+        show-size-changer
+        @change="load"
+      />
+    </section>
     <FileDetailDialog
       ref="detail"
       :users="users"
@@ -332,17 +350,60 @@ onBeforeUnmount(() => {
   </WorkspacePage>
 </template>
 <style scoped>
+.files-page {
+  color: var(--color-text);
+}
+.file-resources {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--bg-container);
+}
+.file-resources__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.file-resources__heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.file-resources__heading h2 span {
+  margin-left: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+}
+.file-resources__tools {
+  display: flex;
+  gap: 8px;
+}
 .table-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
-.toolbar-spacer {
-  flex: 1;
+.file-selection {
+  margin-right: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 :deep(.ant-pagination) {
-  margin-top: 16px;
+  margin-top: 18px;
+  text-align: right;
+}
+@media (max-width: 767px) {
+  .file-resources {
+    padding: 16px;
+  }
+  .file-selection {
+    flex-basis: 100%;
+  }
 }
 </style>

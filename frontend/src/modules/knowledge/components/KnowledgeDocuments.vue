@@ -1,7 +1,7 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <template>
   <section class="knowledge-documents">
-    <WorkspaceToolbar :title="database.name" :subtitle="'文档管理 · ' + 'Milvus'">
+    <WorkspaceToolbar :title="database.name" subtitle="文档管理">
       <template #actions>
         <a-button aria-label="返回知识库" @click="emit('back')">
           <template #icon><ArrowLeftOutlined /></template>
@@ -25,6 +25,14 @@
         >
           <template #icon><FolderAddOutlined /></template>
           新建文件夹
+        </a-button>
+        <a-button
+          v-if="database.can_manage"
+          :disabled="busy && !importRecoverable"
+          aria-label="导入受管文件"
+          @click="emit('import')"
+        >
+          <template #icon><ImportOutlined /></template>导入受管文件
         </a-button>
         <a-button
           v-if="database.can_manage"
@@ -52,7 +60,6 @@
         message="原文权限与知识库权限分别生效；共享知识库后，请按需要设置原文的访问权限。"
         show-icon
       />
-      <slot name="jobs" />
 
       <div class="document-controls">
         <a-input
@@ -139,6 +146,9 @@
                 {{ documentStatus(record.status)
                 }}{{ record.status === 'failed' && record.active_revision ? '（旧索引可用）' : '' }}
               </a-tag>
+              <p v-if="!record.isFolder && record.error" class="document-error">
+                {{ record.error.message }}
+              </p>
             </template>
             <template v-else-if="column.key === 'size'">{{
               record.isFolder ? '—' : formatSize(record.file_size)
@@ -146,13 +156,25 @@
             <template v-else-if="column.key === 'chunks'">{{
               record.isFolder
                 ? '—'
-                : (record.chunk_size || '—') + ' / ' + (record.chunk_overlap ?? '—')
+                : (record.chunk_size || '—') +
+                  ' / ' +
+                  (record.chunk_overlap ?? '—') +
+                  ' / ' +
+                  (record.chunk_count ?? '—')
             }}</template>
             <template v-else-if="column.key === 'time'">{{
               formatTime(record.created_at)
             }}</template>
             <template v-else-if="column.key === 'actions'">
-              <a-space :size="0">
+              <a-space :size="0" wrap>
+                <a-button
+                  v-if="!record.isFolder"
+                  type="link"
+                  size="small"
+                  :aria-label="'下载原文：' + record.file_name"
+                  @click="downloadRow(record)"
+                  >下载原文</a-button
+                >
                 <a-button
                   v-if="!record.isFolder && database.can_manage"
                   type="link"
@@ -185,6 +207,7 @@
           </template>
         </ResourceTable>
       </template>
+      <slot name="jobs" />
     </div>
   </section>
 </template>
@@ -195,6 +218,7 @@ import {
   FileTextOutlined,
   FolderAddOutlined,
   FolderOutlined,
+  ImportOutlined,
   ReloadOutlined,
   SearchOutlined,
   UploadOutlined
@@ -221,6 +245,7 @@ import { folderTrail as getTrail, formatTime, formatSize, documentStatus } from 
 const props = defineProps<{
   database: KnowledgeBase
   graphAvailable?: boolean
+  importRecoverable?: boolean
   folders: KnowledgeFolder[]
   documents: KnowledgeDocument[]
   folderId: string | null
@@ -235,6 +260,8 @@ const emit = defineEmits<{
   'select-folder': [id: string | null]
   'create-folder': []
   upload: []
+  import: []
+  download: [doc: KnowledgeDocument]
   preview: [doc: KnowledgeDocument]
   'rename-folder': [folder: KnowledgeFolder]
   rechunk: [doc: KnowledgeDocument]
@@ -263,9 +290,9 @@ const columns: TableColumnsType<Row> = [
   { title: '文件名', key: 'name', width: 250 },
   { title: '向量状态', key: 'status', width: 160 },
   { title: '大小', key: 'size', width: 90 },
-  { title: '切片 / 重叠', key: 'chunks', width: 115 },
+  { title: '切片 / 重叠 / 数量', key: 'chunks', width: 150 },
   { title: '上传时间', key: 'time', width: 160 },
-  { title: '操作', key: 'actions', width: 240 }
+  { title: '操作', key: 'actions', width: 330 }
 ]
 const folderTrail = computed(() => getTrail(props.folders, props.folderId))
 const matchingFolders = computed(() =>
@@ -325,6 +352,9 @@ function removeRow(row: Row): void {
   if (row.isFolder) emit('remove-folder', row)
   else emit('remove-document', row)
 }
+function downloadRow(row: Row): void {
+  if (!row.isFolder) emit('download', row)
+}
 function sourceAcl(row: Row): void {
   if (!row.isFolder) emit('source-acl', row)
 }
@@ -358,8 +388,9 @@ watch(
   display: flex;
   min-height: 54px;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
@@ -377,7 +408,14 @@ watch(
   margin-left: auto;
   white-space: nowrap;
   color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.document-error {
+  margin: 6px 0 0;
+  color: var(--color-error);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .document-alert {

@@ -209,7 +209,7 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         await expect(drawer.get_by_text('正在检索知识库', exact=True)).to_be_visible()
         await drawer.get_by_role('button', name='停止生成', exact=True).click()
         await expect(drawer.get_by_text('已停止', exact=True)).to_be_visible()
-        await drawer.get_by_role('button', name='Close', exact=True).click()
+        await drawer.get_by_role('button', name='关闭试聊', exact=True).click()
         await expect(drawer).not_to_be_visible()
         self.assertEqual(self.preparation_cancels, 1)
         self.assertEqual(len(self.previews), 1)
@@ -218,7 +218,7 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         self.agent['owner_id'] = 'resource-owner'
         await self.open_agents()
         await self.page.get_by_role('button', name='配置', exact=True).click()
-        await expect(self.page.get_by_role('dialog').get_by_text('业务知识', exact=True)).to_be_visible()
+        await expect(self.page.locator('.agent-editor--page').get_by_text('业务知识', exact=True)).to_be_visible()
         self.assertEqual(self.knowledge_queries, [{'agent_id': ['agent-1']}])
 
     async def test_api_key_includes_published_knowledge_embedding_model_grants(self):

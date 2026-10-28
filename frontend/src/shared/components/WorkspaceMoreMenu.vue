@@ -3,7 +3,9 @@
   <a-dropdown
     :trigger="['click']"
     placement="bottomRight"
-    overlay-class-name="workspace-more-popup"
+    :overlay-class-name="
+      compact ? 'workspace-more-popup workspace-more-popup--compact' : 'workspace-more-popup'
+    "
     :get-popup-container="popupContainer"
   >
     <button type="button" class="workspace-more-menu" aria-label="更多操作" title="更多操作">
@@ -40,7 +42,9 @@ export interface MenuAction {
   danger?: boolean
   divided?: boolean
 }
-const props = withDefaults(defineProps<{ items?: MenuAction[] }>(), { items: () => [] })
+const props = withDefaults(defineProps<{ items?: MenuAction[]; compact?: boolean }>(), {
+  items: () => []
+})
 const emit = defineEmits<{ command: [command: string, item: MenuAction] }>()
 function popupContainer(triggerNode: HTMLElement): HTMLElement {
   return triggerNode.ownerDocument.body
@@ -130,6 +134,21 @@ function handleMenuClick({ key }: { key: string | number }): void {
     flex: 1;
     min-width: 0;
     white-space: nowrap;
+  }
+}
+</style>
+
+<style lang="scss">
+.workspace-more-popup--compact {
+  .ant-dropdown-menu {
+    min-width: 128px;
+    padding: 4px;
+  }
+  .ant-dropdown-menu-item {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 13px;
+    line-height: 20px;
   }
 }
 </style>

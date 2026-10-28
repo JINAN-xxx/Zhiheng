@@ -2,7 +2,7 @@
 <template>
   <section class="models-panel">
     <div class="models-summary">
-      <strong>模型授权</strong><span>汇总访问密钥授权关系与模型当前可用状态</span>
+      <span>共 {{ rows.length }} 个授权模型</span>
     </div>
     <WorkspaceState
       v-if="!canView"
@@ -75,7 +75,7 @@ const columns = [
 .models-summary {
   display: grid;
   gap: 3px;
-  min-height: 64px;
+  min-height: 54px;
   align-content: center;
   padding: 12px 18px;
   border-bottom: 1px solid var(--gray-150);
@@ -88,8 +88,8 @@ const columns = [
 }
 
 .models-summary strong {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 .models-summary span {
   font-size: 13px;
@@ -102,5 +102,8 @@ const columns = [
 
 .model-identity code {
   font-family: var(--workspace-font-mono);
+}
+.model-identity strong {
+  font-weight: 500;
 }
 </style>

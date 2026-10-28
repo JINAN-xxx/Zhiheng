@@ -35,8 +35,17 @@
             <WorkspaceStatus :status="item.status" :label="developerKeyStatusLabel(item.status)" />
           </div>
           <code>{{ item.maskedKey }}</code>
+          <small class="key-row__models"
+            >授权模型：{{
+              item.grants.map((grant) => modelName(grant.modelId)).join('、') || '无'
+            }}</small
+          >
           <small
             >{{ item.grants.length }} 个模型授权 · 最近使用 {{ formatTime(item.lastUsedAt) }}</small
+          >
+          <small>到期时间：{{ item.expiresAt ? formatTime(item.expiresAt) : '无到期时间' }}</small>
+          <small v-if="item.status === 'retiring'" class="key-row__retiring"
+            >旧密钥处于轮换宽限期</small
           >
         </div>
         <div class="key-row__quota">
@@ -65,18 +74,23 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import { developerKeyStatusLabel } from '../presentation.ts'
 import type { DeveloperKey } from '../api/index.ts'
-withDefaults(
+import type { ChatModel } from '../../models/public.ts'
+const props = withDefaults(
   defineProps<{
     keys: DeveloperKey[]
+    models?: ChatModel[]
     loading?: boolean
     error?: string
     canList?: boolean
     canCreate?: boolean
     actions: MenuAction[]
   }>(),
-  { loading: false, error: '', canList: false, canCreate: false }
+  { loading: false, error: '', canList: false, canCreate: false, models: () => [] }
 )
 defineEmits<{ create: []; retry: []; command: [command: string, item: DeveloperKey] }>()
+function modelName(id: string): string {
+  return props.models.find((model) => model.id === id)?.name ?? id
+}
 function formatTime(value: string | null): string {
   return value ? new Date(value).toLocaleString('zh-CN') : '从未'
 }
@@ -94,7 +108,7 @@ function formatTime(value: string | null): string {
 .subpage-actions {
   min-height: 64px;
   justify-content: space-between;
-  padding: 12px 18px;
+  padding: 18px 22px;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -104,8 +118,8 @@ function formatTime(value: string | null): string {
 }
 
 .subpage-actions strong {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
 }
 .subpage-actions > div > span {
   font-size: 13px;
@@ -125,10 +139,10 @@ function formatTime(value: string | null): string {
 .key-row {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto 32px;
-  align-items: center;
-  gap: 16px;
-  min-height: 82px;
-  padding: 14px 18px;
+  align-items: start;
+  gap: 20px;
+  min-height: 112px;
+  padding: 22px;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -144,6 +158,53 @@ function formatTime(value: string | null): string {
   font-family: var(--workspace-font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.key-row__title strong {
+  font-weight: 500;
+}
+.key-row__models {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.key-row__quota {
+  display: grid;
+  gap: 8px;
+  padding-top: 3px;
+}
+.key-row__retiring {
+  color: var(--color-warning-900);
+}
+@media (max-width: 760px) {
+  .subpage-actions {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+  }
+  .subpage-actions > div {
+    min-width: 0;
+  }
+  .subpage-actions > :deep(.ant-btn) {
+    flex-shrink: 0;
+  }
+  .key-row {
+    grid-template-columns: minmax(0, 1fr) 32px;
+    gap: 12px;
+    padding: 18px 16px;
+  }
+  .key-row__quota {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .key-row > :deep(.ant-dropdown-trigger) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .key-row__title {
+    flex-wrap: wrap;
+  }
 }
 
 .stale-notice {

@@ -82,6 +82,7 @@
           </button>
           <WorkspaceMoreMenu
             v-if="taskActions(task).length"
+            compact
             :items="taskActions(task)"
             @command="handleCommand($event, task)"
           />
