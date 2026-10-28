@@ -79,14 +79,12 @@
       />
       <WorkEmptyState
         v-else
-        :can-chat="canChat"
         :can-create="capabilities.canCreate"
         :agents="workStore.availableAgents"
         :agents-loading="workStore.agentsLoading"
         :agents-error="workStore.agentsError"
         :creating="workStore.createLoading"
         :initial-draft="workStore.createDraft"
-        @mode="switchMode"
         @load-agents="loadAgents"
         @start="startWork"
       />
@@ -145,7 +143,6 @@ const capabilities = computed(() => ({
   canManageMembers: canEdit.value,
   canCreate: !!identity.value
 }))
-const canChat = true
 const error = ref('')
 let createdNavigationTaskId = ''
 async function loadCurrentTask(): Promise<void> {
@@ -244,9 +241,6 @@ async function upgradeMember(member: WorkMember): Promise<void> {
   } catch (reason) {
     display(reason)
   }
-}
-function switchMode(mode: 'chat' | 'work'): void {
-  if (mode === 'chat') void router.push('/chat')
 }
 watch(
   taskId,

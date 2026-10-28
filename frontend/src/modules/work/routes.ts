@@ -5,6 +5,6 @@ export const workRoutes: RouteRecordRaw[] = [
     alias: '/ai/chat/work',
     name: 'work',
     component: () => import('./views/WorkView.vue'),
-    meta: { title: '工作' }
+    meta: { title: '工作空间', activeMenu: '/work' }
   }
 ]

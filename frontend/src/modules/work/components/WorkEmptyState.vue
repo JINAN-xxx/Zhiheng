@@ -4,11 +4,6 @@
     <div class="work-empty-state__heading">
       <span class="work-empty-state__symbol" aria-hidden="true"><ThunderboltOutlined /></span>
       <h1>今天要完成什么工作？</h1>
-      <WorkspaceModeSwitch
-        model-value="work"
-        :can-chat="canChat"
-        @update:model-value="emit('mode', $event)"
-      />
     </div>
 
     <div v-if="canCreate" class="work-empty-state__form">
@@ -99,13 +94,11 @@ import {
   TeamOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons-vue'
-import WorkspaceModeSwitch from '../../../shared/components/WorkspaceModeSwitch.vue'
 import { validateWorkGoal, validateWorkMembers } from '../presentation.ts'
 import type { WorkDraft } from '../presentation.ts'
 import type { WorkAgent } from '../api/index.ts'
 import WorkAgentPicker from './WorkAgentPicker.vue'
 const props = defineProps<{
-  canChat: boolean
   canCreate: boolean
   agents: WorkAgent[]
   agentsLoading: boolean
@@ -115,7 +108,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   'load-agents': []
-  mode: [mode: 'chat' | 'work']
   start: [draft: WorkDraft]
 }>()
 const goal = ref(props.initialDraft.goal)

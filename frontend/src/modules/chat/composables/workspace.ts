@@ -455,8 +455,8 @@ function createChatWorkspace() {
   const route = useRoute()
   watch(
     () => route.name,
-    (name, previous) => {
-      if (name && (previous === undefined || name === 'chat')) void load()
+    (name) => {
+      if (name === 'chat') void load()
     },
     { immediate: true }
   )

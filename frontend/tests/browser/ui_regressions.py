@@ -32,8 +32,8 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
             'upstream_model': 'test-model', 'max_output_tokens': 512,
             'enabled': True, 'model_type': 'chat', 'published': True, 'capabilities': ['chat', 'stream']
         }
-        await self.page.route('**/api/**', self.respond)
         self.origin = os.environ.get('PLATFORM_BROWSER_URL', 'http://127.0.0.1:15191')
+        await self.page.route(self.origin + '/api/**', self.respond)
 
     async def asyncTearDown(self):
         await self.context.close()

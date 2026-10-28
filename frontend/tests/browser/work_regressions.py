@@ -21,6 +21,7 @@ class WorkUIRegressions(DeveloperBoundary):
         self.tasks = []
         self.runs = []
         self.memberships = []
+        self.chat_requests = []
         self.run = {'id': 'work-run', 'resource_type': 'work_turn', 'resource_id': 'task-1', 'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1, 'revision': 3, 'projection_seq': 2, 'text': '核实后的结论', 'reasoning': '先查证再归纳', 'error': None, 'created_at': STAMP, 'usage': {'input_tokens': 20, 'output_tokens': 10, 'status': 'known'}}
 
     def member(self, agent_id):
@@ -33,6 +34,8 @@ class WorkUIRegressions(DeveloperBoundary):
 
     async def respond(self, route):
         path, method = urlparse(route.request.url).path, route.request.method
+        if path.startswith('/api/chat/'):
+            self.chat_requests.append((method, path))
         if path == '/api/work/agents/available':
             await route.fulfill(json=self.available)
         elif path == '/api/work/tasks':
@@ -133,15 +136,31 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('此工作已归档，只能查看历史内容。', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='重新打开', exact=True)).to_have_count(0)
 
-    async def test_work_navigation_keeps_chat_free_of_mode_switch(self):
+    async def test_work_and_chat_use_independent_navigation_without_mode_switch(self):
         await self.page.goto(self.origin + '/chat')
         await expect(self.page.get_by_role('group', name='选择聊天或工作', exact=True)).to_have_count(0)
         await self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='工作空间', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/work')
         await expect(self.page.get_by_role('heading', name='今天要完成什么工作？')).to_be_visible()
-        await self.page.get_by_role('button', name='聊天', exact=True).click()
+        await expect(self.page.get_by_role('group', name='选择聊天或工作', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='聊天', exact=True)).to_have_count(0)
+        await self.page.get_by_role('textbox', name='工作目标', exact=True).fill('仅在工作空间使用的目标')
+        await self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='对话体验', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/chat')
         await expect(self.page.get_by_role('group', name='选择聊天或工作', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_have_value('')
+
+    async def test_direct_work_links_do_not_initialize_ordinary_chat(self):
+        for path in ['/work', '/ai/chat/work']:
+            with self.subTest(path=path):
+                async with self.page.expect_response(lambda response: urlparse(response.url).path == '/api/work/tasks'):
+                    async with self.page.expect_response(lambda response: urlparse(response.url).path == '/api/work/agents/available'):
+                        await self.page.goto(self.origin + path)
+                await expect(self.page.get_by_role('heading', name='今天要完成什么工作？', exact=True)).to_be_visible()
+                self.assertEqual(self.chat_requests, [])
+                navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
+                await expect(navigation.get_by_role('link', name='工作空间', exact=True)).to_have_attribute('aria-current', 'page')
+                await expect(navigation.get_by_role('link', name='对话体验', exact=True)).not_to_have_attribute('aria-current', 'page')
 
 
     async def test_lost_admission_retries_same_key_and_cas(self):
