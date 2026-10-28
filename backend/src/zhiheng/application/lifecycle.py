@@ -24,11 +24,16 @@ class RunLifecycle:
                 error=snapshot.error.model_dump() if snapshot.error else None,
                 terminal=snapshot.status in TERMINAL_STATUSES,
             )
-        elif snapshot.resource_type == 'chat' and snapshot.status == 'completed':
-            await self.chat.complete(
-                session,
-                conversation_id=snapshot.resource_id,
-                run_id=snapshot.id,
-                content=snapshot.text,
-                reasoning=snapshot.reasoning,
-            )
+        elif snapshot.resource_type == 'chat':
+            if snapshot.status == 'completed':
+                await self.chat.complete(
+                    session,
+                    conversation_id=snapshot.resource_id,
+                    run_id=snapshot.id,
+                    content=snapshot.text,
+                    reasoning=snapshot.reasoning,
+                )
+            else:
+                await self.chat.project_incomplete(
+                    session, run_id=snapshot.id, content=snapshot.text, reasoning=snapshot.reasoning
+                )

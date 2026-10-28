@@ -32,7 +32,11 @@ const entryPlugin: Plugin = {
 export default defineConfig({
   plugins: [entryPlugin, vue()],
   appType: 'spa',
+  ...(process.env.PLATFORM_VITE_CACHE_DIR ? { cacheDir: process.env.PLATFORM_VITE_CACHE_DIR } : {}),
   server: {
+    ...(process.env.PLATFORM_HMR_PORT
+      ? { hmr: { clientPort: Number(process.env.PLATFORM_HMR_PORT) } }
+      : {}),
     proxy: apiProxy
   },
   build: {

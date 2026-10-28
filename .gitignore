@@ -176,3 +176,6 @@ node_modules/
 
 # New core local file storage
 /.runtime/
+
+# Generated source-mode proxy configuration
+deploy/core/.source/

@@ -43,6 +43,10 @@ import {
 import type { ChatMessage, Conversation } from '../api/index.ts'
 import { nextSendIntent } from '../api/sendIntent.ts'
 import type { SendIntent } from '../api/sendIntent.ts'
+import { regenerateMessage, setMessageFeedback } from '../api/messageActions.ts'
+import type { FeedbackValue } from '../api/messageActions.ts'
+import { groupMessageVersions, nextRegenerationIntent } from './messageVersions.ts'
+import type { RegenerationIntent } from './messageVersions.ts'
 import { uploadFile } from '../../files/public.ts'
 import { createChatFileQueue } from '../attachments.ts'
 import type { QueuedFile } from '../attachments.ts'
@@ -120,6 +124,18 @@ function createChatWorkspace() {
   const messagesElement = ref<HTMLElement | null>(null)
   const pageScope = new RequestScope()
   const conversationScope = new RequestScope()
+  const messageActionScope = new RequestScope()
+  const feedbackBusy = reactive(new Set<string>())
+  const confirmedFeedback = new Map<string, { revision: number; value: FeedbackValue }>()
+  let feedbackRevision = 0
+  const pendingRegenerations = reactive(new Map<string, RegenerationIntent>())
+  const preparationComposerPolicies = new Map<string, boolean>()
+  const regenerationPending = computed(() =>
+    Boolean(selected.value && pendingRegenerations.has(selected.value.id))
+  )
+  const canRetryRegeneration = computed(
+    () => regenerationPending.value && !sending.value && !running.value
+  )
   const running = computed(
     () =>
       preparing.value ||
@@ -153,6 +169,11 @@ function createChatWorkspace() {
     queue.clear()
     pageScope.dispose()
     conversationScope.dispose()
+    messageActionScope.dispose()
+    pendingRegenerations.clear()
+    preparationComposerPolicies.clear()
+    feedbackBusy.clear()
+    confirmedFeedback.clear()
     draft.value = ''
     pendingSend = null
     selectedSkills.value = []
@@ -165,6 +186,17 @@ function createChatWorkspace() {
   async function scroll(): Promise<void> {
     await nextTick()
     messagesElement.value?.scrollTo({ top: messagesElement.value.scrollHeight, behavior: 'smooth' })
+  }
+  async function readMessages(conversationId: string, signal: AbortSignal): Promise<ChatMessage[]> {
+    const requestedRevision = feedbackRevision
+    const history = await getMessages(conversationId, signal)
+    return history.map((message) => {
+      const confirmed = confirmedFeedback.get(message.id)
+      // A history read started before this PUT response cannot erase the confirmed value.
+      return confirmed && confirmed.revision > requestedRevision
+        ? { ...message, feedback: confirmed.value }
+        : message
+    })
   }
   function updateRun(run: RunSnapshot): void {
     if (acceptSnapshot(activeRun.value, run)) {
@@ -192,13 +224,14 @@ function createChatWorkspace() {
       context.signal
     )
     if (context.isCurrent() && selected.value) {
-      messages.value = await getMessages(selected.value.id, context.signal)
+      messages.value = await readMessages(selected.value.id, context.signal)
       if (context.isCurrent()) await scroll()
     }
   }
   async function acceptMainRun(
     run: RunSnapshot,
-    context: ReturnType<RequestScope['current']>
+    context: ReturnType<RequestScope['current']>,
+    clearComposer = true
   ): Promise<void> {
     const conversation = selected.value
     if (!conversation || run.resource_type !== 'chat' || run.resource_id !== conversation.id)
@@ -208,12 +241,15 @@ function createChatWorkspace() {
       activeRun.value = null
       updateRun(run)
     }
-    pendingSend = null
-    queue.clear()
-    draft.value = ''
-    selectedSkills.value = []
-    selectedKnowledgeBases.value = []
-    messages.value = await getMessages(conversation.id, context.signal)
+    if (clearComposer) {
+      pendingSend = null
+      queue.clear()
+      draft.value = ''
+      selectedSkills.value = []
+      selectedKnowledgeBases.value = []
+    }
+    pendingRegenerations.delete(conversation.id)
+    messages.value = await readMessages(conversation.id, context.signal)
     if (!context.isCurrent()) return
     sending.value = false
     await scroll()
@@ -238,8 +274,10 @@ function createChatWorkspace() {
   }
   async function followKnowledge(
     initial: KnowledgePreparation,
-    context: ReturnType<RequestScope['current']>
+    context: ReturnType<RequestScope['current']>,
+    clearComposer = preparationComposerPolicies.get(initial.id) ?? true
   ): Promise<void> {
+    preparationComposerPolicies.set(initial.id, clearComposer)
     if (initial.resource_type !== 'chat' || initial.resource_id !== selected.value?.id)
       throw new Error('知识检索准备与当前会话不匹配')
     initial = updatePreparation(initial)
@@ -260,12 +298,15 @@ function createChatWorkspace() {
       context.signal
     )
     if (!context.isCurrent()) return
-    if (value.run) await acceptMainRun(value.run, context)
+    if (value.run) await acceptMainRun(value.run, context, clearComposer)
     else if (value.status === 'cancelled') error.value = '知识检索已取消'
     else error.value = value.error?.message ?? '知识检索未完成，请检查知识库后重试'
   }
   async function selectConversation(conversation: Conversation | null): Promise<void> {
     const context = conversationScope.replace()
+    messageActionScope.replace()
+    feedbackBusy.clear()
+    confirmedFeedback.clear()
     selected.value = conversation
     queue.clear()
     messages.value = []
@@ -286,20 +327,32 @@ function createChatWorkspace() {
     if (!conversation) return
     loading.value = true
     try {
-      const history = await getMessages(conversation.id, context.signal)
+      const history = await readMessages(conversation.id, context.signal)
       if (!context.isCurrent()) return
       messages.value = history
+      const pending = pendingRegenerations.get(conversation.id)
+      if (
+        pending &&
+        history.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.generation_index > pending.generationIndex &&
+            (pending.questionId === null || message.reply_to_message_id === pending.questionId)
+        )
+      )
+        pendingRegenerations.delete(conversation.id)
       if (conversation.preparation_id) {
+        pendingRegenerations.delete(conversation.id)
         historyReady.value = true
         const preparation = await getPreparation(conversation.preparation_id, context.signal)
         if (!context.isCurrent()) return
         historyReady.value = true
         loading.value = false
-        await followKnowledge(preparation, context)
+        await followKnowledge(preparation, context, false)
         return
       }
       const last = history.at(-1)
-      if (last?.role === 'user' && last.run_id) {
+      if (last?.run_id && (last.role === 'user' || !last.is_complete)) {
         const run = await getRun(last.run_id, context.signal)
         if (!context.isCurrent()) return
         activeRun.value = run
@@ -381,7 +434,7 @@ function createChatWorkspace() {
     error.value = ''
     try {
       if (!historyReady.value) {
-        const history = await getMessages(conversationId, context.signal)
+        const history = await readMessages(conversationId, context.signal)
         if (!context.isCurrent()) return
         messages.value = history
         historyReady.value = true
@@ -412,6 +465,7 @@ function createChatWorkspace() {
     const message = draft.value.trim() || (queuedFiles.value.length ? '请分析上传的文件。' : '')
     if (
       sending.value ||
+      regenerationPending.value ||
       readOnly.value ||
       running.value ||
       loading.value ||
@@ -492,6 +546,124 @@ function createChatWorkspace() {
       }
     } finally {
       if (isCurrent()) sending.value = false
+    }
+  }
+  function messageActionReason(message: ChatMessage): string {
+    if (loading.value || !historyReady.value) return '请等待会话加载完成'
+    if (message.run_id === activeRun.value?.id && running.value)
+      return '本次回复正在生成，结束后可操作'
+    if (!messages.value.some((item) => item.id === message.id)) return '请刷新会话后重试'
+    return ''
+  }
+  function shareReason(message: ChatMessage): string {
+    return (
+      messageActionReason(message) || (message.content.trim() ? '' : '当前回复没有可分享的正文')
+    )
+  }
+  function regenerationReason(message: ChatMessage): string {
+    if (selected.value?.archived) return '会话已归档，取消归档后可重新生成'
+    if (readOnly.value) return '会话状态待核对，请刷新会话'
+    if (running.value || sending.value) return '当前正在生成或提交，请结束后重试'
+    if (loading.value || !historyReady.value) return '请等待会话加载完成'
+    if (canRetry.value) return '上一条发送结果待确认，请先使用原请求重试'
+    const pending = selected.value ? pendingRegenerations.get(selected.value.id) : undefined
+    if (pending && pending.messageId !== message.id)
+      return '重新生成结果待确认，请使用原重新生成请求重试'
+    const row = groupMessageVersions(messages.value).find((row) =>
+      row.versions.some((item) => item.id === message.id)
+    )
+    const latestQuestion = [...messages.value].reverse().find((item) => item.role === 'user')
+    if (!latestQuestion || row?.questionId !== latestQuestion.id) return '只能重新生成最新一轮回复'
+    return messages.value.some((item) => item.id === message.id) ? '' : '请刷新会话后重试'
+  }
+  async function regenerate(message: ChatMessage): Promise<void> {
+    const blocked = regenerationReason(message)
+    if (blocked) {
+      error.value = blocked
+      return
+    }
+    const conversation = selected.value
+    const owner = identity.value?.id
+    if (!conversation || !owner) return
+    const versions = groupMessageVersions(messages.value).find((row) =>
+      row.versions.some((item) => item.id === message.id)
+    )
+    const highestGeneration = Math.max(
+      ...(versions?.versions ?? [message]).map((item) => item.generation_index)
+    )
+    const intent = nextRegenerationIntent(
+      pendingRegenerations.get(conversation.id) ?? null,
+      conversation.id,
+      {
+        ...message,
+        reply_to_message_id: versions?.questionId ?? message.reply_to_message_id,
+        generation_index: highestGeneration
+      },
+      () => crypto.randomUUID()
+    )
+    pendingRegenerations.set(conversation.id, intent)
+    const context = conversationScope.replace()
+    const isCurrent = () => context.isCurrent() && identity.value?.id === owner
+    sending.value = true
+    error.value = ''
+    try {
+      const admission = await regenerateMessage(
+        conversation.id,
+        intent.messageId,
+        intent.clientRequestId,
+        context.signal
+      )
+      if (!isCurrent()) return
+      pendingRegenerations.delete(conversation.id)
+      if (isPreparation(admission)) {
+        if (activeRun.value?.id !== admission.run?.id) activeRun.value = null
+        await followKnowledge(admission, context, false)
+      } else await acceptMainRun(admission, context, false)
+    } catch (reason) {
+      if (isCurrent() && !isAborted(reason)) {
+        if (reason instanceof ApiError && reason.status < 500)
+          pendingRegenerations.delete(conversation.id)
+        error.value = `${errorMessage(reason)}${pendingRegenerations.has(conversation.id) ? '；重新生成结果待确认，请使用原请求重试。' : ''}`
+        disconnected.value = running.value
+      }
+    } finally {
+      if (isCurrent()) sending.value = false
+    }
+  }
+  async function retryRegeneration(): Promise<void> {
+    const pending = selected.value ? pendingRegenerations.get(selected.value.id) : undefined
+    const message = pending
+      ? messages.value.find((item) => item.id === pending.messageId)
+      : undefined
+    if (message) await regenerate(message)
+  }
+  async function feedback(message: ChatMessage, value: FeedbackValue): Promise<void> {
+    if (feedbackBusy.has(message.id)) return
+    const blocked = messageActionReason(message)
+    if (blocked) {
+      error.value = blocked
+      return
+    }
+    const context = messageActionScope.current(),
+      conversationId = selected.value?.id,
+      owner = identity.value?.id
+    feedbackBusy.add(message.id)
+    try {
+      const result = await setMessageFeedback(message.id, value, context.signal)
+      if (
+        !context.isCurrent() ||
+        selected.value?.id !== conversationId ||
+        identity.value?.id !== owner
+      )
+        return
+      if (result.message_id !== message.id) throw new Error('消息反馈与当前回复不匹配')
+      confirmedFeedback.set(message.id, { revision: ++feedbackRevision, value: result.value })
+      const current = messages.value.find((item) => item.id === message.id)
+      if (current) current.feedback = result.value
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    } finally {
+      if (context.isCurrent()) feedbackBusy.delete(message.id)
     }
   }
   function stop(): Promise<void> {
@@ -586,7 +758,8 @@ function createChatWorkspace() {
       metadataUnknown.value.includes(id) ||
       pendingStops.has(id) ||
       Boolean(conversations.value.find((item) => item.id === id)?.preparation_id) ||
-      (selected.value?.id === id && (sending.value || running.value || canRetry.value))
+      (selected.value?.id === id && (sending.value || running.value || canRetry.value)) ||
+      pendingRegenerations.has(id)
     )
   }
   async function changeConversation(
@@ -649,6 +822,15 @@ function createChatWorkspace() {
   })
 
   return {
+    regenerate,
+    retryRegeneration,
+    regenerationPending,
+    canRetryRegeneration,
+    regenerationReason,
+    messageActionReason,
+    shareReason,
+    feedback,
+    feedbackBusy,
     selectedKnowledgeBases,
     activePreparation,
     activeRunSources,

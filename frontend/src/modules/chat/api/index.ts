@@ -20,6 +20,10 @@ export interface ChatAttachment {
   parser_version: string | null
 }
 export interface ChatMessage {
+  reply_to_message_id: string | null
+  generation_index: number
+  is_complete: boolean
+  feedback: 'up' | 'down' | null
   knowledge_sources: KnowledgeHit[]
   attachments: ChatAttachment[]
   id: string
@@ -41,10 +45,19 @@ function parseConversation(value: unknown): Conversation {
     archived: data.archived === undefined ? false : boolean(data.archived)
   }
 }
-function parseMessage(value: unknown): ChatMessage {
+export function parseMessage(value: unknown): ChatMessage {
   const data = object(value)
   if (data.role !== 'user' && data.role !== 'assistant') throw new Error('不支持的消息角色')
+  const generation = data.generation_index === undefined ? 1 : number(data.generation_index)
+  if (!Number.isInteger(generation) || generation < 1) throw new Error('回复版本格式不正确')
+  const feedback = data.feedback === undefined ? null : data.feedback
+  if (feedback !== null && feedback !== 'up' && feedback !== 'down')
+    throw new Error('消息反馈格式不正确')
   return {
+    reply_to_message_id: data.reply_to_message_id == null ? null : string(data.reply_to_message_id),
+    generation_index: generation,
+    is_complete: data.is_complete === undefined ? true : boolean(data.is_complete),
+    feedback,
     knowledge_sources:
       data.knowledge_sources === undefined ? [] : list(parseKnowledgeHit)(data.knowledge_sources),
     attachments:

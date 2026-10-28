@@ -1,0 +1,62 @@
+# Development overlay: reuse dependency images, load application code from bind mounts.
+services:
+  api:
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
+    command:
+      [python, -m, zhiheng, serve, --host, 0.0.0.0, --port, "19090", --reload]
+  worker:
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
+  migrator:
+    environment:
+      PYTHONPATH: /app/src
+    volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
+  ui-source:
+    image: node:24-alpine
+    working_dir: /workspace/frontend
+    command:
+      [
+        node,
+        node_modules/vite/bin/vite.js,
+        --config,
+        vite.platform.config.ts,
+        --host,
+        0.0.0.0,
+        --port,
+        "15190",
+        --strictPort,
+      ]
+    environment:
+      PLATFORM_API_TARGET: http://api:19090
+      PLATFORM_VITE_CACHE_DIR: /tmp/zhiheng-vite-cache
+      PLATFORM_HMR_PORT: "${CORE_WEB_PORT:-19080}"
+    volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/frontend:/workspace/frontend:ro"
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/frontend/node_modules:/workspace/frontend/node_modules"
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:15190/platform.html').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+  web:
+    volumes:
+      - "${CORE_SOURCE_PROXY_CONFIG:?Set CORE_SOURCE_PROXY_CONFIG}:/etc/nginx/conf.d/default.conf:ro"
+    depends_on:
+      ui-source:
+        condition: service_healthy

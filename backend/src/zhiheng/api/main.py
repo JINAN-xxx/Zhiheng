@@ -17,6 +17,8 @@ from zhiheng.api.routes.developer import router as developer_router
 from zhiheng.api.routes.files import router as files_router
 from zhiheng.api.routes.knowledge import router as knowledge_router
 from zhiheng.api.routes.knowledge_graph import router as knowledge_graph_router
+from zhiheng.api.routes.message_actions import public_router as shared_messages_router
+from zhiheng.api.routes.message_actions import router as message_actions_router
 from zhiheng.api.routes.models import router as models_router
 from zhiheng.api.routes.public import router as public_router
 from zhiheng.api.routes.public_agents import router as public_agents_router
@@ -54,6 +56,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(usage_router)
     app.include_router(public_router)
     app.include_router(chat_router)
+    app.include_router(message_actions_router)
+    app.include_router(shared_messages_router)
     app.include_router(developer_router)
     app.include_router(runs_router)
     app.include_router(work_router)
@@ -66,7 +70,7 @@ def create_app(settings: Settings) -> FastAPI:
             CORSMiddleware,
             allow_origins=list(settings.allowed_origins),
             allow_credentials=True,
-            allow_methods=['GET', 'POST', 'PATCH', 'DELETE'],
+            allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
             allow_headers=['Content-Type', 'Authorization'],
         )
 
@@ -88,3 +92,8 @@ def create_app(settings: Settings) -> FastAPI:
         return JSONResponse({'status': 'ok'})
 
     return app
+
+
+def create_configured_app() -> FastAPI:
+    """Explicit process factory used by the source-mode reload supervisor."""
+    return create_app(Settings())

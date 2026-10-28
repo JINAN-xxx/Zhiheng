@@ -133,13 +133,15 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('此工作已归档，只能查看历史内容。', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='重新打开', exact=True)).to_have_count(0)
 
-    async def test_original_work_mode_and_recent_navigation(self):
+    async def test_work_navigation_keeps_chat_free_of_mode_switch(self):
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='工作', exact=True).click()
+        await expect(self.page.get_by_role('group', name='选择聊天或工作', exact=True)).to_have_count(0)
+        await self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='工作空间', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/work')
         await expect(self.page.get_by_role('heading', name='今天要完成什么工作？')).to_be_visible()
         await self.page.get_by_role('button', name='聊天', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page.get_by_role('group', name='选择聊天或工作', exact=True)).to_have_count(0)
 
 
     async def test_lost_admission_retries_same_key_and_cas(self):

@@ -37,3 +37,5 @@
 
 - [控制台 UI 接入计划](superpowers/plans/2026-10-28-console-ui.md)
 - [2026-10-28 控制台 UI 验收](superpowers/verification/2026-10-28-console-ui.md)
+
+- [消息操作与源码运行验收](superpowers/verification/2026-10-28-message-actions.md)

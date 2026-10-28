@@ -1,6 +1,6 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import {
   Alert as AAlert,
@@ -31,6 +31,9 @@ import { KnowledgePicker, KnowledgeSources } from '../../knowledge/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
 import ChatMessageFiles from '../components/ChatMessageFiles.vue'
+import MessageShareDialog from '../components/MessageShareDialog.vue'
+import { groupMessageVersions } from '../composables/messageVersions.ts'
+import type { ChatMessage } from '../api/index.ts'
 import { CHAT_FILE_ACCEPT } from '../attachments.ts'
 const {
   selectConversation,
@@ -65,7 +68,15 @@ const {
   running,
   canRecover,
   modelOptions,
-  visibleMessages,
+  regenerate,
+  retryRegeneration,
+  regenerationPending,
+  canRetryRegeneration,
+  regenerationReason,
+  messageActionReason,
+  shareReason,
+  feedback,
+  feedbackBusy,
   canRetry,
   send,
   stop,
@@ -73,6 +84,45 @@ const {
   setModelId,
   keydown
 } = useChatWorkspace()
+const selectedVersions = reactive<Record<string, string>>({})
+const messageRows = computed(() =>
+  groupMessageVersions(messages.value).map((row) => {
+    const index = Math.max(
+      0,
+      row.versions.findIndex((item) => item.id === selectedVersions[row.key])
+    )
+    const selectedIndex =
+      selectedVersions[row.key] && row.versions[index]?.id === selectedVersions[row.key]
+        ? index
+        : row.versions.length - 1
+    return { ...row, index: selectedIndex, message: row.versions[selectedIndex]! }
+  })
+)
+const activeRunRepresented = computed(() =>
+  messages.value.some(
+    (message) => message.role === 'assistant' && message.run_id === activeRun.value?.id
+  )
+)
+const shareMessageId = ref<string | null>(null)
+function isActive(message: ChatMessage): boolean {
+  return Boolean(
+    message.role === 'assistant' && activeRun.value && message.run_id === activeRun.value.id
+  )
+}
+function messageText(message: ChatMessage): string {
+  return isActive(message) ? activeRun.value!.text : message.content
+}
+async function regenerateReply(message: ChatMessage, key: string): Promise<void> {
+  delete selectedVersions[key]
+  await regenerate(message)
+}
+watch(
+  () => selected.value?.id,
+  () => {
+    shareMessageId.value = null
+    for (const key of Object.keys(selectedVersions)) delete selectedVersions[key]
+  }
+)
 const compactHistory = useMediaQuery('(max-width: 760px)')
 const historyVisible = ref(!compactHistory.value)
 async function newConversation(): Promise<void> {
@@ -148,7 +198,10 @@ onBeforeUnmount(() => {
         /></AButton>
       </header>
       <div v-if="selected" class="chat-session-heading">{{ selected.title }}</div>
-      <div v-if="error || listError || canRetry || canRecover" class="chat-alert">
+      <div
+        v-if="error || listError || canRetry || canRecover || canRetryRegeneration"
+        class="chat-alert"
+      >
         <AAlert v-if="error" :message="error" type="error" show-icon /><AAlert
           v-if="listError"
           :message="listError"
@@ -156,6 +209,8 @@ onBeforeUnmount(() => {
           show-icon
         />
         <AButton v-if="canRetry" size="small" @click="send(true)">使用原请求重试</AButton
+        ><AButton v-if="canRetryRegeneration" size="small" @click="retryRegeneration"
+          >使用原重新生成请求重试</AButton
         ><AButton v-if="canRecover" size="small" @click="reconnect">恢复查看</AButton>
       </div>
       <section
@@ -170,33 +225,84 @@ onBeforeUnmount(() => {
           @prompt="draft = $event"
         />
         <article
-          v-for="message in visibleMessages"
-          :key="message.id"
+          v-for="row in messageRows"
+          :id="`message-${row.message.id}`"
+          :key="row.key"
           class="message-row"
-          :class="message.role"
+          :class="row.message.role"
         >
           <AAvatar class="message-avatar" :size="30"
-            ><UserOutlined v-if="message.role === 'user'" /><RobotOutlined v-else
+            ><UserOutlined v-if="row.message.role === 'user'" /><RobotOutlined v-else
           /></AAvatar>
           <div class="message-body">
-            <div class="message-meta">{{ message.role === 'user' ? '我' : '智衡' }}</div>
+            <div class="message-meta">
+              {{ row.message.role === 'user' ? '我' : '智衡' }}
+              <ATag v-if="isActive(row.message) && activeRun">{{
+                runStatusLabel[activeRun.status]
+              }}</ATag>
+            </div>
             <AiMessage
-              v-if="message.role === 'assistant'"
-              :content="message.content"
-              :reasoning-content="message.reasoning"
+              v-if="row.message.role === 'assistant'"
+              :content="messageText(row.message)"
+              :reasoning-content="
+                isActive(row.message) ? (activeRun?.reasoning ?? '') : row.message.reasoning
+              "
+              :loading="isActive(row.message) && running"
             />
-            <p v-else class="user-message">{{ message.content }}</p>
-            <ChatMessageFiles :files="message.attachments" />
-            <KnowledgeSources :sources="message.knowledge_sources" />
-            <div v-if="message.skill_snapshots.length" class="message-skills">
-              <ATag v-for="skill in message.skill_snapshots" :key="skill.revision_id"
+            <p v-else class="user-message">{{ row.message.content }}</p>
+            <p v-if="isActive(row.message) && activeRun?.error" class="run-error">
+              {{ activeRun.error.message }}
+            </p>
+            <ChatMessageFiles :files="row.message.attachments" />
+            <KnowledgeSources :sources="row.message.knowledge_sources" />
+            <div v-if="row.message.skill_snapshots.length" class="message-skills">
+              <ATag v-for="skill in row.message.skill_snapshots" :key="skill.revision_id"
                 >技能：{{ skill.name }}</ATag
               >
             </div>
-            <MessageActions :content="message.content" :role="message.role" />
+            <span
+              v-if="isActive(row.message) && activeRun?.usage.status === 'unknown'"
+              class="muted small"
+              >用量待核对</span
+            >
+            <div v-if="row.versions.length > 1" class="reply-versions" aria-label="回复版本">
+              <button
+                type="button"
+                aria-label="上一个回复版本"
+                :disabled="row.index === 0"
+                @click="selectedVersions[row.key] = row.versions[row.index - 1]!.id"
+              >
+                ‹
+              </button>
+              <span>{{ row.index + 1 }} / {{ row.versions.length }}</span>
+              <button
+                type="button"
+                aria-label="下一个回复版本"
+                :disabled="row.index === row.versions.length - 1"
+                @click="selectedVersions[row.key] = row.versions[row.index + 1]!.id"
+              >
+                ›
+              </button>
+            </div>
+            <MessageActions
+              :key="row.message.id"
+              :content="messageText(row.message)"
+              :role="row.message.role"
+              :regenerate="row.message.role === 'assistant'"
+              :feedback-enabled="row.message.role === 'assistant'"
+              :share="row.message.role === 'assistant'"
+              :feedback-value="row.message.feedback"
+              :feedback-busy="feedbackBusy.has(row.message.id)"
+              :regenerate-reason="regenerationReason(row.message)"
+              :feedback-reason="messageActionReason(row.message)"
+              :share-reason="shareReason(row.message)"
+              @regenerate="regenerateReply(row.message, row.key)"
+              @feedback="feedback(row.message, $event)"
+              @share="shareMessageId = row.message.id"
+            />
           </div>
         </article>
-        <article v-if="activeRun" class="message-row assistant">
+        <article v-if="activeRun && !activeRunRepresented" class="message-row assistant">
           <AAvatar class="message-avatar" :size="30"><RobotOutlined /></AAvatar>
           <div class="message-body">
             <div class="message-meta">
@@ -362,6 +468,7 @@ onBeforeUnmount(() => {
                 listLoading ||
                 !historyReady ||
                 !fileQueueReady ||
+                regenerationPending ||
                 readOnly
               "
               aria-label="发送消息"
@@ -372,10 +479,45 @@ onBeforeUnmount(() => {
         </div>
       </footer>
     </main>
+    <MessageShareDialog
+      v-if="shareMessageId"
+      :message-id="shareMessageId"
+      @close="shareMessageId = null"
+    />
   </div>
 </template>
 
 <style scoped lang="scss">
+.reply-versions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+.reply-versions button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+.reply-versions button:hover {
+  background: var(--gray-50);
+}
+.reply-versions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.reply-versions button:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 2px;
+}
 .archived-actions {
   display: flex;
   flex-wrap: wrap;

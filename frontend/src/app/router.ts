@@ -44,7 +44,7 @@ export const router = createRouter({
   ]
 })
 router.beforeEach(async (to) => {
-  if (to.meta.public) return identity.value ? '/chat' : true
+  if (to.meta.public) return to.name === 'login' && identity.value ? '/chat' : true
   let user
   try {
     user = await restoreIdentity()

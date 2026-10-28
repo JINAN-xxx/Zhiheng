@@ -5,12 +5,19 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.file_inputs import MAX_NORMALIZED_IMAGE_BYTES, FileInputService
 from zhiheng.application.knowledge_preparation import PreparationStart
 from zhiheng.application.lifecycle import RunLifecycle
-from zhiheng.modules.chat.public import ChatService, ConversationInfo, SkillSnapshot
+from zhiheng.modules.chat.public import (
+    ChatRequestContext,
+    ChatService,
+    ConversationInfo,
+    RegenerationTarget,
+    SkillSnapshot,
+)
 from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.files.public import FileService, PreparedAttachment
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
@@ -40,6 +47,7 @@ class PreparedChatInputs:
     binding: ModelBinding
     attachments: tuple[PreparedAttachment, ...]
     knowledge: PreparedKnowledge | None = None
+    regeneration_message_id: UUID | None = None
 
 
 class ChatRunService:
@@ -70,17 +78,25 @@ class ChatRunService:
         file_ids: Sequence[UUID] = (),
         prepared: PreparedChatInputs | None = None,
     ) -> RunSnapshot:
+        regeneration_message_id = prepared.regeneration_message_id if prepared else None
         knowledge_base_ids = (
             [base.base_id for base in prepared.knowledge.bases] if prepared and prepared.knowledge else []
         )
-        fingerprint = self.fingerprint(
-            'chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids
+        fingerprint = (
+            self.regeneration_fingerprint(conversation_id, regeneration_message_id)
+            if regeneration_message_id
+            else self.fingerprint('chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids)
         )
         await self._runs.lock_request(session, principal.id, client_request_id)
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)
         if existing is not None:
             return existing
         await self._chat.require_conversation(session, principal, conversation_id, lock=True)
+        target = (
+            await self._chat.regeneration_target(session, principal, conversation_id, regeneration_message_id)
+            if regeneration_message_id
+            else None
+        )
         knowledge = prepared.knowledge if prepared else None
         if self.knowledge:
             await self.knowledge.store.ensure_idle(
@@ -104,8 +120,17 @@ class ChatRunService:
             )
             for value in selection.revisions
         ]
-        await self._validate_attachments(session, principal, conversation_id, binding, attachments)
-        context = await self._chat.context(session, principal, conversation_id)
+        await self._validate_attachments(
+            session,
+            principal,
+            conversation_id,
+            binding,
+            attachments,
+            target=target,
+        )
+        context = await self._chat.context(
+            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+        )
         extra = ''.join(
             f'\n\n[Attachment: {item.summary.original_filename}]\n{item.text}'
             for item in attachments
@@ -133,20 +158,130 @@ class ChatRunService:
             request=request,
             token_limit=token_limit,
         )
-        await self._chat.add_user_message(
-            session,
-            conversation_id=conversation_id,
-            run_id=run.id,
-            content=message,
-            skill_snapshots=snapshots,
-            attachments=attachments,
-            knowledge_sources=knowledge.hits if knowledge else (),
-        )
+        if target:
+            await self._chat.add_regenerated_reply(
+                session,
+                conversation_id=conversation_id,
+                run_id=run.id,
+                target=target,
+                skill_snapshots=snapshots,
+                knowledge_sources=knowledge.hits if knowledge else (),
+            )
+        else:
+            await self._chat.add_user_message(
+                session,
+                conversation_id=conversation_id,
+                run_id=run.id,
+                content=message,
+                skill_snapshots=snapshots,
+                attachments=attachments,
+                knowledge_sources=knowledge.hits if knowledge else (),
+                request_context=ChatRequestContext(
+                    model_id=model_id,
+                    skill_slugs=list(skill_slugs),
+                    file_ids=list(file_ids),
+                    knowledge_base_ids=knowledge_base_ids,
+                ),
+            )
         if self._files is not None:
             await self._files.attach(session, principal, attachments, resource_type='chat', resource_id=run.id)
         if knowledge and self.knowledge:
             await self.knowledge.bind(session, knowledge, principal, run.id)
         return run
+
+    @staticmethod
+    def regeneration_fingerprint(conversation_id: UUID, message_id: UUID) -> str:
+        return dependency_fingerprint(['chat_regeneration', str(conversation_id), str(message_id)])
+
+    async def _regeneration_context(
+        self, session: AsyncSession, conversation_id: UUID, target: RegenerationTarget
+    ) -> ChatRequestContext:
+        if target.request_context:
+            try:
+                return ChatRequestContext.model_validate(target.request_context)
+            except ValidationError as error:
+                raise AppError(
+                    'regeneration_context_unavailable', '原请求选择无法完整恢复，请重新发送问题', 409
+                ) from error
+        try:
+            request = ModelRequest.model_validate(
+                await self._runs.resource_payload(session, target.question.run_id, 'chat', conversation_id)
+            )
+        except (ValidationError, AppError) as error:
+            if isinstance(error, AppError) and error.code != 'run_not_found':
+                raise
+            raise AppError('regeneration_context_unavailable', '原请求快照无法完整恢复，请重新发送问题', 409) from error
+        # Before request_context existed, retrieval added an extra system message and
+        # wrapped the current question. Hits cannot reconstruct bases with no hits.
+        systems = [message for message in request.messages if message.role == 'system']
+        if (
+            target.question.knowledge_sources
+            or len(systems) != len(target.question.skill_snapshots)
+            or not request.messages
+            or request.messages[-1].content.startswith('[知识资料]\n')
+        ):
+            raise AppError('regeneration_context_unavailable', '原知识库选择无法完整恢复，请重新发送问题', 409)
+        return ChatRequestContext(
+            model_id=request.binding.model_id,
+            skill_slugs=[skill.slug for skill in target.question.skill_snapshots],
+            file_ids=[attachment.file_id for attachment in target.question.attachments],
+        )
+
+    async def regenerate_chat(
+        self,
+        principal: Principal,
+        conversation_id: UUID,
+        message_id: UUID,
+        *,
+        client_request_id: UUID,
+        token_limit: int,
+    ) -> RunSnapshot | PreparationInfo:
+        assert self.knowledge is not None and self.file_inputs is not None
+        value = self.regeneration_fingerprint(conversation_id, message_id)
+        async with self.knowledge.database.sessions.begin() as session:
+            await self._runs.lock_request(session, principal.id, client_request_id)
+            conversation = await self._chat.require_conversation(session, principal, conversation_id, lock=True)
+            existing = await self._runs.existing_request(session, principal.id, client_request_id, value)
+            if existing:
+                return existing
+            intent = await self.knowledge.store.existing(session, principal.id, client_request_id, value)
+            if intent:
+                return await self.knowledge.info(session, principal, intent.id)
+            if conversation.archived:
+                raise AppError('conversation_archived', '已归档对话不能重新生成', 409)
+            target = await self._chat.regeneration_target(session, principal, conversation_id, message_id)
+            await self.knowledge.store.ensure_idle(session, 'chat', conversation_id)
+            if await self._runs.has_active(session, conversation_id):
+                raise AppError('conversation_busy', '当前对话仍有运行中的请求', 409)
+            selection = await self._regeneration_context(session, conversation_id, target)
+            if not selection.knowledge_base_ids:
+                binding = await self._models.resolve(session, selection.model_id)
+        if selection.knowledge_base_ids:
+            return await self.prepare_knowledge_chat(
+                principal,
+                conversation_id,
+                model_id=selection.model_id,
+                message=target.question.content,
+                client_request_id=client_request_id,
+                skill_slugs=selection.skill_slugs,
+                file_ids=selection.file_ids,
+                knowledge_base_ids=selection.knowledge_base_ids,
+                regeneration_message_id=message_id,
+            )
+        attachments = await self.file_inputs.prepare_many(principal, selection.file_ids)
+        async with self.knowledge.database.sessions.begin() as session:
+            return await self.admit_chat(
+                session,
+                principal,
+                conversation_id=conversation_id,
+                model_id=selection.model_id,
+                message=target.question.content,
+                client_request_id=client_request_id,
+                token_limit=token_limit,
+                skill_slugs=selection.skill_slugs,
+                file_ids=selection.file_ids,
+                prepared=PreparedChatInputs(binding, attachments, regeneration_message_id=message_id),
+            )
 
     async def _validate_attachments(
         self,
@@ -155,8 +290,16 @@ class ChatRunService:
         conversation_id: UUID,
         binding: ModelBinding,
         attachments: tuple[PreparedAttachment, ...],
+        *,
+        target: RegenerationTarget | None = None,
     ) -> None:
-        history = await self._chat.attachment_history(session, principal, conversation_id)
+        if target and [(item.summary.file_id, item.summary.sha256) for item in attachments] != [
+            (item.file_id, item.sha256) for item in target.question.attachments
+        ]:
+            raise AppError('file_snapshot_changed', '原问题的附件已变化，无法重新生成', 409)
+        history = await self._chat.attachment_history(
+            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+        )
         if self._files is not None:
             for file_id in sorted({item.summary.file_id for item in (*history, *attachments)}):
                 await self._files.require(session, principal, file_id, active=True, lock=True)
@@ -321,10 +464,15 @@ class ChatRunService:
         skill_slugs: Sequence[str],
         file_ids: Sequence[UUID],
         knowledge_base_ids: Sequence[UUID],
+        regeneration_message_id: UUID | None = None,
     ) -> RunSnapshot | PreparationInfo:
         assert self.knowledge is not None and self.file_inputs is not None
         prep = self.knowledge
-        value = self.fingerprint('chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids)
+        value = (
+            self.regeneration_fingerprint(conversation_id, regeneration_message_id)
+            if regeneration_message_id
+            else self.fingerprint('chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids)
+        )
         async with prep.database.sessions.begin() as session:
             await self._runs.lock_request(session, principal.id, client_request_id)
             await self._chat.require_conversation(session, principal, conversation_id, lock=True)
@@ -338,7 +486,9 @@ class ChatRunService:
             if await self._runs.has_active(session, conversation_id):
                 raise AppError('conversation_busy', '当前对话仍有运行中的请求', 409)
             binding = await prep.binding_for(session, principal, model_id, list(knowledge_base_ids))
-            dependencies = await self._knowledge_dependencies(session, principal, conversation_id, skill_slugs, binding)
+            dependencies = await self._knowledge_dependencies(
+                session, principal, conversation_id, skill_slugs, binding, regeneration_message_id
+            )
         attachments = await self.file_inputs.prepare_many(principal, list(file_ids))
         request: dict[str, object] = {
             'query': message,
@@ -350,9 +500,14 @@ class ChatRunService:
             'knowledge_base_ids': [str(item) for item in knowledge_base_ids],
             'attachments': [item.model_dump(mode='json') for item in attachments],
         }
+        if regeneration_message_id:
+            request['regeneration_message_id'] = str(regeneration_message_id)
         async with prep.database.sessions.begin() as session:
             await self._runs.lock_request(session, principal.id, client_request_id)
             await self._chat.require_conversation(session, principal, conversation_id, lock=True)
+            existing = await self._runs.existing_request(session, principal.id, client_request_id, value)
+            if existing:
+                return existing
             intent = await prep.store.existing(session, principal.id, client_request_id, value)
             if intent:
                 return prep.store.info(intent)
@@ -365,6 +520,7 @@ class ChatRunService:
                 conversation_id,
                 skill_slugs,
                 await prep.binding_for(session, principal, model_id, list(knowledge_base_ids)),
+                regeneration_message_id,
             )
             if dependencies != current:
                 raise AppError('knowledge_preparation_stale', '会话或模型依赖已变化', 409)
@@ -390,10 +546,18 @@ class ChatRunService:
         conversation_id: UUID,
         skill_slugs: Sequence[str],
         binding: ModelBinding,
+        regeneration_message_id: UUID | None = None,
     ) -> dict[str, object]:
         conversation = await self._chat.require_conversation(session, principal, conversation_id)
         selection = await resolve_selection(session, skill_slugs)
-        context = await self._chat.context(session, principal, conversation_id)
+        target = (
+            await self._chat.regeneration_target(session, principal, conversation_id, regeneration_message_id)
+            if regeneration_message_id
+            else None
+        )
+        context = await self._chat.context(
+            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+        )
         return {
             'conversation_version': conversation.version,
             'skills': [
@@ -414,7 +578,12 @@ class ChatRunService:
         request = state.request
         binding = ModelRequest.model_validate(state.dependencies['main_request']).binding
         current = await self._knowledge_dependencies(
-            session, principal, state.resource_id, request['skill_slugs'], binding
+            session,
+            principal,
+            state.resource_id,
+            request['skill_slugs'],
+            binding,
+            UUID(request['regeneration_message_id']) if request.get('regeneration_message_id') else None,
         )
         if any(current[key] != state.dependencies[key] for key in current):
             raise AppError('knowledge_preparation_stale', '会话或技能已变化', 409)
@@ -429,7 +598,12 @@ class ChatRunService:
             token_limit=self.knowledge.token_limit,
             skill_slugs=request['skill_slugs'],
             file_ids=[UUID(item) for item in request['file_ids']],
-            prepared=PreparedChatInputs(binding, attachments, knowledge),
+            prepared=PreparedChatInputs(
+                binding,
+                attachments,
+                knowledge,
+                UUID(request['regeneration_message_id']) if request.get('regeneration_message_id') else None,
+            ),
         )
 
     async def check_knowledge_dependencies(self, session: AsyncSession, state: RetrievalState) -> None:
@@ -437,7 +611,12 @@ class ChatRunService:
         principal = await self.knowledge.knowledge.identity.principal_for_user(session, state.actor_id)
         binding = ModelRequest.model_validate(state.dependencies['main_request']).binding
         current = await self._knowledge_dependencies(
-            session, principal, state.resource_id, state.request['skill_slugs'], binding
+            session,
+            principal,
+            state.resource_id,
+            state.request['skill_slugs'],
+            binding,
+            UUID(state.request['regeneration_message_id']) if state.request.get('regeneration_message_id') else None,
         )
         if any(current[key] != state.dependencies[key] for key in current):
             raise AppError('knowledge_preparation_stale', '会话或技能依赖已变化', 409)

@@ -2,11 +2,13 @@ import argparse
 import asyncio
 import getpass
 import sys
+from pathlib import Path
 
 import uvicorn
 from pydantic import ValidationError
 
 from zhiheng.api.main import create_app
+from zhiheng.api.request_logging import uvicorn_log_config
 from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.database import Database
@@ -31,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     serve = commands.add_parser('serve', help='启动 API')
     serve.add_argument('--host', default='127.0.0.1')
     serve.add_argument('--port', type=int, default=19090)
+    serve.add_argument('--reload', action='store_true', help='源码开发时自动重载API')
     commands.add_parser('worker', help='启动持久任务 worker')
     commands.add_parser('migrate', help='初始化或升级新平台数据库')
     admin = commands.add_parser('create-admin', help='显式创建管理员')
@@ -45,7 +48,25 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.command == 'serve':
-            uvicorn.run(create_app(settings), host=args.host, port=args.port, proxy_headers=False)
+            if args.reload:
+                uvicorn.run(
+                    'zhiheng.api.main:create_configured_app',
+                    host=args.host,
+                    port=args.port,
+                    factory=True,
+                    reload=True,
+                    reload_dirs=[str(Path(__file__).resolve().parents[1])],
+                    proxy_headers=False,
+                    log_config=uvicorn_log_config(),
+                )
+            else:
+                uvicorn.run(
+                    create_app(settings),
+                    host=args.host,
+                    port=args.port,
+                    proxy_headers=False,
+                    log_config=uvicorn_log_config(),
+                )
         elif args.command == 'worker':
             asyncio.run(run_worker(settings))
         elif args.command == 'migrate':

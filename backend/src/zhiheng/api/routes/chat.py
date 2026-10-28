@@ -51,6 +51,11 @@ class ChatRequest(BaseModel):
     skill_slugs: list[SkillSlug] = Field(default_factory=list, max_length=5)
 
 
+class RegenerateRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    client_request_id: UUID
+
+
 @router.get('')
 async def conversations(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency, archived: bool = False
@@ -77,6 +82,11 @@ async def messages(
     conversation_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[MessageInfo]:
     values = await container.chat.messages(session, principal, conversation_id)
+    feedback = await container.message_actions.feedback_for_messages(
+        session, principal, conversation_id=conversation_id, message_ids=[value.id for value in values]
+    )
+    for value in values:
+        value.feedback = feedback.get(value.id)
     for value in values:
         value.knowledge_sources = await container.knowledge_preparation.visible_hits(
             session, principal, value.knowledge_sources
@@ -117,6 +127,23 @@ async def create_run(
             client_request_id=body.client_request_id,
             token_limit=container.settings.token_limit,
         )
+
+
+@router.post('/{conversation_id}/messages/{message_id}/regenerate', status_code=202)
+async def regenerate_message(
+    conversation_id: UUID,
+    message_id: UUID,
+    body: RegenerateRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> RunSnapshot | PreparationInfo:
+    return await container.admission.regenerate_chat(
+        principal,
+        conversation_id,
+        message_id,
+        client_request_id=body.client_request_id,
+        token_limit=container.settings.token_limit,
+    )
 
 
 class ConversationVersion(BaseModel):

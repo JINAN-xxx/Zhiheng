@@ -17,7 +17,7 @@ from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
 from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.agents.public import AgentService
-from zhiheng.modules.chat.public import ChatService
+from zhiheng.modules.chat.public import ChatService, MessageActionService
 from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
 from zhiheng.modules.files.public import FileJobs, FileService
 from zhiheng.modules.identity.public import IdentityService
@@ -69,6 +69,7 @@ class Container:
             self.agents, self.agent_management, self.keys, self.models, self.usage, self.runs
         )
         self.chat = ChatService()
+        self.message_actions = MessageActionService(self.chat, self.identity)
         self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs, self.files)
         self.vectors = MilvusStore(
             settings.milvus_uri, settings.milvus_token.get_secret_value(), settings.milvus_database

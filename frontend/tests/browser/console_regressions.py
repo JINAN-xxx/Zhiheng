@@ -121,7 +121,7 @@ class ConsoleUIRegressions(unittest.IsolatedAsyncioTestCase):
         toolbar = self.page.get_by_role('toolbar', name='回复操作', exact=True)
         await expect(toolbar.get_by_role('button')).to_have_count(6)
         for label in ['重新生成', '赞同', '不赞同', '朗读', '分享']:
-            await expect(toolbar.get_by_role('button', name=label, exact=True)).to_be_disabled()
+            await expect(toolbar.get_by_role('button', name=label, exact=True)).to_be_enabled()
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         history = self.page.get_by_role('complementary', name='对话历史', exact=True)
         if await history.is_visible():
