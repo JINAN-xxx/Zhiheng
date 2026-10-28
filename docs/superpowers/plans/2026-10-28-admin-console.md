@@ -4,11 +4,11 @@
 
 ## 范围与任务
 
-- [ ] identity：用户增改/停用/删除与密码重置；角色及实际接口权限；部门树、岗位、菜单元数据；在线会话查看及强制退出。保护本人、最后一个管理员、历史归属与并发版本。
-- [ ] operations：字典类型/数据、系统参数、公告 CRUD，登录与操作日志分页及筛选；真实系统/数据库/Redis/Worker 状态。参数与菜单仅影响有明确接入的行为，不提供任意代码、SQL或Redis清库入口。
-- [ ] frontend：admin 独立入口、二级导航和上述真实页面；普通账号按权限显示入口，直接调用无权限接口仍403；写操作防重复、版本冲突提示、删除确认、密码不回显。
-- [ ] root：公共授权接口、认证 DTO 与权限接线；日志接线、显式迁移0010、schema inventory、隔离PG/Redis/API/Worker和真实浏览器验证；迁移前备份、原数据指纹和正常源码实例升级。
-- [ ] 独立规格与质量审查，修复实际问题；前后端规范/测试、升级与已有AI回归后交付。完整保护旧55份跟踪及2份未跟踪优化。
+- [x] identity：用户增改/停用/删除与密码重置；角色及实际接口权限；部门树、岗位、菜单元数据；在线会话查看及强制退出。保护本人、最后一个管理员、历史归属与并发版本。
+- [x] operations：字典类型/数据、系统参数、公告 CRUD，登录与操作日志分页及筛选；真实系统/数据库/Redis/Worker 状态。参数与菜单仅影响有明确接入的行为，不提供任意代码、SQL或Redis清库入口。
+- [x] frontend：admin 独立入口、二级导航和上述真实页面；普通账号按权限显示入口，直接调用无权限接口仍403；写操作防重复、版本冲突提示、删除确认、密码不回显。
+- [x] root：公共授权接口、认证 DTO 与权限接线；日志接线、显式迁移0010、schema inventory、隔离PG/Redis/API/Worker和真实浏览器验证；迁移前备份、原数据指纹和正常源码实例升级。
+- [x] 独立规格与质量审查，修复实际问题；前后端规范/测试、升级与已有AI回归后交付。完整保护旧55份跟踪及2份未跟踪优化。
 
 ## 共用协议（各实现者遵循，变动先协调）
 
@@ -19,8 +19,8 @@
 - /roles：code,name,permissions:string[],is_active,remark；实际权限目录 GET /permissions => {items:[{code,label,group}]}。code创建后稳定。
 - /departments：parent_id|null,name,sort_order,leader,phone,email,is_active；GET仍为扁平items供树组件构造，防环、子部门和用户占用保护。
 - /posts：code,name,sort_order,is_active,remark；有关联时不能删除。
-- /menus：parent_id|null,name,path,permission,sort_order,is_visible；只允许已接通内部页面，菜单配置可控制后台导航名称、顺序及可见性，不能绕过后端固定权限。权限目录真实控制API。
-- /sessions：GET返回session_id, user_id,username,created_at,expires_at,is_current；DELETE /sessions/{session_id}强制退出，不能返回登录令牌或其摘要。current会话不可误踢。
+- /menus：parent_id|null,name,path,permission,sort_order,is_visible；只允许12个已接通后台页面，菜单配置可控制后台导航名称、顺序及可见性，不能绕过后端固定权限。权限目录真实控制API。
+- /sessions：GET返回session_id, user_id,username,created_at,expires_at,is_current,version；DELETE /sessions/{session_id}?expected_version=…强制退出，不能返回登录令牌或其摘要。current会话不可误踢。旧账号与会话原本未知的时间保持null。
 - /dictionaries：code,name,is_active,remark；/dictionaries/{id}/items：label,value,sort_order,is_active,remark；字典类型有数据时不能误删除。
 - /configs：key,name,value,remark,is_active；仅平台可公开维护的业务参数，不管理部署env或供应商密钥，不返回秘密。首个接入参数 console.notice_enabled 控制公告可见性，true/false服务端校验。
 - /notices：title,content,kind（notice/announcement）,status（draft/published）,remark；发布内容登录用户通过 GET /notices/published 获取，参数禁用时返回空集合；前端通知面板需实际接入。
