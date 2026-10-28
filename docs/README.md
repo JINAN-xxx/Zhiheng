@@ -41,3 +41,4 @@
 - [消息操作与源码运行验收](superpowers/verification/2026-10-28-message-actions.md)
 - [知识库与存储入口整合验收](superpowers/verification/2026-10-28-knowledge-storage.md)
 - [工作空间独立入口验收](superpowers/verification/2026-10-28-work-isolation.md)
+- [后台管理恢复验收](superpowers/verification/2026-10-28-admin-console.md)

@@ -5,9 +5,12 @@ import {
   Menu as AMenu,
   MenuItem as AMenuItem
 } from 'ant-design-vue'
-import { BgColorsOutlined, BulbOutlined, BellOutlined, DownOutlined } from '@ant-design/icons-vue'
+import { BgColorsOutlined, BulbOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { isDark, toggleTheme } from '../../shared/theme.ts'
 import { identity } from '../../modules/identity/public.ts'
+import { canAccessAdmin } from '../../modules/admin/public.ts'
+import { RouterLink } from 'vue-router'
+import PlatformNotices from './PlatformNotices.vue'
 withDefaults(
   defineProps<{ leaving: boolean; variant?: 'topbar' | 'sidebar'; collapsed?: boolean }>(),
   { variant: 'topbar', collapsed: false }
@@ -26,15 +29,7 @@ const emit = defineEmits<{ logout: [] }>()
       >
         <BulbOutlined v-if="isDark" /><BgColorsOutlined v-else />
       </button>
-      <button
-        class="platform-account-menu__icon"
-        type="button"
-        disabled
-        title="当前版本暂无通知服务"
-        aria-label="通知"
-      >
-        <BellOutlined />
-      </button>
+      <PlatformNotices />
     </template>
     <ADropdown v-else :trigger="['click']" placement="topRight">
       <button
@@ -53,6 +48,8 @@ const emit = defineEmits<{ logout: [] }>()
       <template #overlay
         ><AMenu
           ><AMenuItem disabled>{{ identity?.username }}</AMenuItem
+          ><AMenuItem v-if="canAccessAdmin(identity)" key="admin"
+            ><RouterLink to="/admin">后台管理</RouterLink></AMenuItem
           ><AMenuItem key="logout" @click="emit('logout')">退出登录</AMenuItem></AMenu
         ></template
       >

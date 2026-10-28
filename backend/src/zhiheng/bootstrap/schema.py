@@ -10,6 +10,7 @@ from zhiheng.modules.files.public import schema_tables as file_tables
 from zhiheng.modules.identity.public import schema_tables as identity_tables
 from zhiheng.modules.knowledge.public import schema_tables as knowledge_tables
 from zhiheng.modules.models.public import schema_tables as model_tables
+from zhiheng.modules.operations.public import schema_tables as operation_tables
 from zhiheng.modules.skills.public import schema_tables as skill_tables
 from zhiheng.modules.work.public import schema_tables as work_tables
 from zhiheng.runtime.orm import Outbox, Run
@@ -27,6 +28,7 @@ def schema_metadata() -> MetaData:
         *work_tables(),
         *file_tables(),
         *knowledge_tables(),
+        *operation_tables(),
         Base.metadata.tables[Run.__tablename__],
         Base.metadata.tables[Outbox.__tablename__],
     )

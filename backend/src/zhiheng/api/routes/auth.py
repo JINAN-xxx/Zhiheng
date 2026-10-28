@@ -9,6 +9,7 @@ from zhiheng.api.dependencies import (
     PrincipalDependency,
     SessionDependency,
 )
+from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 router = APIRouter(prefix='/api/auth', tags=['identity'])
@@ -24,10 +25,16 @@ class UserResponse(BaseModel):
     id: UUID
     username: str
     is_admin: bool
+    permissions: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_principal(cls, principal: Principal) -> 'UserResponse':
-        return cls(id=principal.id, username=principal.username, is_admin=principal.is_admin)
+        return cls(
+            id=principal.id,
+            username=principal.username,
+            is_admin=principal.is_admin,
+            permissions=sorted(principal.permissions),
+        )
 
 
 class LoginResponse(BaseModel):
@@ -38,10 +45,26 @@ class LoginResponse(BaseModel):
 async def login(
     body: LoginRequest, response: Response, container: ContainerDependency, session: SessionDependency
 ) -> LoginResponse:
-    async with session.begin():
-        principal, token = await container.identity.login(
-            session, username=body.username, password=body.password.get_secret_value()
-        )
+    try:
+        async with session.begin():
+            principal, token = await container.identity.login(
+                session, username=body.username, password=body.password.get_secret_value()
+            )
+            await container.operations.record(
+                session, principal=principal, action='login', kind='login', message='登录成功'
+            )
+    except AppError:
+        async with session.begin():
+            await container.operations.record(
+                session,
+                principal=None,
+                username=body.username,
+                action='login',
+                kind='login',
+                outcome='failed',
+                message='登录验证失败',
+            )
+        raise
     response.set_cookie(
         COOKIE_NAME,
         token,

@@ -9,7 +9,12 @@ class Principal:
     id: UUID
     username: str
     is_admin: bool
+    permissions: frozenset[str] = frozenset()
 
     def require_admin(self) -> None:
         if not self.is_admin:
             raise AppError('forbidden', '需要管理员权限', 403)
+
+    def require_permission(self, permission: str) -> None:
+        if not self.is_admin and permission not in self.permissions:
+            raise AppError('forbidden', '当前账号没有此操作权限', 403)

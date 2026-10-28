@@ -10,6 +10,7 @@ import { agentRoutes } from '../modules/agents/public.ts'
 import { fileRoutes } from '../modules/files/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { knowledgeRoutes } from '../modules/knowledge/public.ts'
+import { adminRoutes, canAccessAdmin } from '../modules/admin/public.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -18,6 +19,8 @@ declare module 'vue-router' {
     admin?: boolean
     navigation?: boolean
     activeMenu?: string
+    console?: boolean
+    permission?: string
   }
 }
 export const router = createRouter({
@@ -39,6 +42,7 @@ export const router = createRouter({
     ...workRoutes,
     ...fileRoutes,
     ...knowledgeRoutes,
+    ...adminRoutes,
     { path: '/', redirect: '/overview' },
     { path: '/:pathMatch(.*)*', redirect: '/chat' }
   ]
@@ -53,6 +57,9 @@ router.beforeEach(async (to) => {
   }
   if (!user) return '/login'
   if (to.meta.admin && !user.is_admin) return '/chat'
+  if (to.meta.console && !canAccessAdmin(user)) return '/chat'
+  if (to.meta.permission && !user.is_admin && !user.permissions?.includes(to.meta.permission))
+    return '/admin'
   return true
 })
 router.afterEach((to) => {

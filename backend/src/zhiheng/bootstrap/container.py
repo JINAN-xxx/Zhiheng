@@ -20,7 +20,7 @@ from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.chat.public import ChatService, MessageActionService
 from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
 from zhiheng.modules.files.public import FileJobs, FileService
-from zhiheng.modules.identity.public import IdentityService
+from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
 from zhiheng.modules.knowledge.public import (
     PREPARATION_TERMINAL,
     GraphSDK,
@@ -32,6 +32,7 @@ from zhiheng.modules.knowledge.public import (
     binding_fingerprint,
 )
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelService
+from zhiheng.modules.operations.public import OperationsService
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.contracts import ClaimedRun
@@ -47,6 +48,8 @@ class Container:
         self.redis = Redis.from_url(settings.redis_url.get_secret_value(), decode_responses=True)
         self.cipher = CredentialCipher(settings.credential_key.get_secret_value())
         self.identity = IdentityService(settings.session_ttl_seconds)
+        self.admin_identity = IdentityAdminService(self.identity)
+        self.operations = OperationsService()
         self.files = FileService(LocalFileStorage(settings.files_root), self.identity)
         self.file_jobs = FileJobs(self.files, self.database.sessions)
         self.file_inputs = FileInputService(self.database, self.files, NativeParser())
