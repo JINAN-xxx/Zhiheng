@@ -660,15 +660,12 @@ watch(
 .graph-setup-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 18px;
-  margin-bottom: 18px;
+  gap: 32px;
+  margin-bottom: 24px;
 }
 .graph-panel {
   min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 0;
 }
 .graph-panel h2 {
   margin: 0 0 10px;
@@ -683,7 +680,10 @@ watch(
   margin-bottom: 14px;
 }
 .graph-build-panel {
-  margin-bottom: 18px;
+  margin-bottom: 24px;
+  padding: 24px 0;
+  border-top: 1px solid var(--gray-150);
+  border-bottom: 1px solid var(--gray-150);
 }
 .graph-preview-select {
   width: 100%;
@@ -743,10 +743,7 @@ watch(
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 8px 0;
 }
 
 .graph-controls > :deep(.ant-select) {

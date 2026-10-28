@@ -315,7 +315,7 @@ function saveEditor(): void {
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--gray-10);
+  background: var(--bg-page);
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
@@ -404,9 +404,8 @@ function saveEditor(): void {
   margin: 8px 0 24px;
   padding: 16px;
   border: 1px solid var(--gray-200);
-  border-radius: 18px;
-  background: var(--bg-container);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  border-radius: 8px;
+  background: var(--bg-page);
 }
 .work-composer:focus-within {
   border-color: var(--main-400);
@@ -435,7 +434,7 @@ function saveEditor(): void {
 .work-composer__controls :deep(.ant-select-selector) {
   border-color: var(--gray-150);
   border-radius: 9px;
-  background: var(--gray-10);
+  background: var(--bg-page);
   box-shadow: none;
 }
 .work-composer__unavailable {
@@ -482,7 +481,7 @@ function saveEditor(): void {
     width: calc(100% - 24px);
     margin-bottom: 12px;
     padding: 12px;
-    border-radius: 16px;
+    border-radius: 8px;
   }
   .work-composer__controls {
     align-items: flex-start;

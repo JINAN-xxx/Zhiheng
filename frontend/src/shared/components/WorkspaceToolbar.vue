@@ -44,7 +44,7 @@ const emit = defineEmits(['open-sidebar'])
   gap: var(--workspace-space-4);
   padding: 0 24px;
   background: transparent;
-  border-bottom: 1px solid var(--gray-150);
+  border-bottom: 0;
 
   &__leading,
   &__actions {

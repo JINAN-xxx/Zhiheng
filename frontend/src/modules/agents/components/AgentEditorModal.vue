@@ -879,7 +879,7 @@ onBeforeUnmount(() => {
   padding: 8px 12px;
   border: 1px solid var(--gray-150);
   border-radius: 5px;
-  background: #fff;
+  background: var(--bg-page);
   color: var(--color-text-secondary);
   font: inherit;
   font-size: 13px;
@@ -893,19 +893,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 .config-section {
-  margin-bottom: 18px;
-  overflow: hidden;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: #fff;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--gray-150);
   scroll-margin-top: 140px;
 }
 .config-heading {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 18px 22px;
-  border-bottom: 1px solid var(--gray-100);
+  padding: 18px 0 12px;
 }
 .config-heading > span {
   display: grid;
@@ -922,7 +918,7 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 .config-fields {
-  padding: 22px 22px 2px;
+  padding: 8px 0 2px;
 }
 .config-fields :deep(.ant-form-item) {
   margin-bottom: 22px;
@@ -967,10 +963,8 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: 12px;
   margin-top: 16px;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: #fff;
+  padding: 18px 0;
+  border-top: 1px solid var(--gray-150);
   color: var(--main-700);
 }
 .publication-note h3 {
@@ -1022,10 +1016,10 @@ onBeforeUnmount(() => {
     padding: 16px;
   }
   .config-heading {
-    padding: 16px;
+    padding: 16px 0 12px;
   }
   .config-fields {
-    padding: 16px 16px 0;
+    padding: 8px 0 0;
   }
   .editor-heading h1 {
     font-size: 20px;

@@ -200,29 +200,23 @@ function start(): void {
 .work-empty-state__form {
   display: grid;
   gap: 12px;
-  padding: 20px;
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--bg-container);
-  box-shadow: none;
+  padding: 0;
 }
 .work-empty-state__label {
   color: var(--color-text);
   font-size: 13px;
   font-weight: 500;
 }
-.work-empty-state__form:focus-within {
-  border-color: var(--main-400);
-  box-shadow:
-    0 0 0 3px var(--main-50),
-    0 6px 24px rgb(0 0 0 / 4%);
-}
 .work-empty-state__form :deep(.ant-input) {
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: var(--bg-page);
   line-height: 1.8;
-  box-shadow: none;
+}
+.work-empty-state__form :deep(.ant-input:focus) {
+  border-color: var(--main-400);
+  box-shadow: 0 0 0 2px var(--main-50);
 }
 .work-empty-state__members {
   min-width: 0;
@@ -291,7 +285,7 @@ function start(): void {
 .work-empty-state__executor :deep(.ant-select-selector) {
   border-color: var(--gray-150);
   border-radius: 9px;
-  background: var(--gray-10);
+  background: var(--bg-page);
   box-shadow: none;
 }
 .work-empty-state__footer > :deep(.ant-btn) {
@@ -317,10 +311,6 @@ function start(): void {
     height: 42px;
     border-radius: 14px;
     font-size: 22px;
-  }
-  .work-empty-state__form {
-    padding: 16px;
-    border-radius: 12px;
   }
   .work-empty-state__members {
     align-items: flex-start;

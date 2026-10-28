@@ -271,10 +271,7 @@ watch(
   display: grid;
   grid-template-columns: minmax(240px, 1fr) 150px auto;
   gap: 10px;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 0 0 18px;
 }
 
 .query-controls--graph {
@@ -298,11 +295,8 @@ watch(
 }
 
 .query-passage {
-  margin-top: 14px;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 20px 0;
+  border-top: 1px solid var(--gray-150);
 }
 
 .query-source {

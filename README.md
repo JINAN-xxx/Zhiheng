@@ -6,7 +6,7 @@
 
 本机正式入口为 <http://127.0.0.1:19080>。2026-10-27 已恢复旧项目的一份硅基流动连接及四个模型，文本、Embedding、Rerank 的四次真实调用全部完成，原模型管理页和聊天模型选择器已复查。正式实例已备份并升级至 `0008_graph`，原模型配置及 44 张原表数据保留，向量与图谱能力可用，详见[模型服务恢复记录](docs/superpowers/verification/2026-10-27-model-service-restoration.md)和[图谱验收](docs/superpowers/verification/2026-10-27-lightrag.md)。
 
-前端采用已确认的控制台 UI：白色导航、浅灰背景、蓝紫主色和统一系统字体。工作台与资源搜索读取真实接口；对话和工作保留独立历史栏，智能体使用完整配置页与右侧试聊，技能继续通过 `SKILL.md` 或 ZIP 包解析并确认安装。各业务页面复用原有权限、运行状态和接口，保留完整配置与治理操作。源码位于 `frontend/src/`；`frontend/design-previews/bailian/` 保留为设计参考，示例状态不进入正式业务。接入范围见[控制台 UI 计划](docs/superpowers/plans/2026-10-28-console-ui.md)，原页面及未提交优化保存在 `legacy/frontend/`。
+前端固定使用浅色，导航与内容采用统一白色底色、蓝紫主色和系统字体；资源以内容行、间距和细分隔线组织，页面减少卡片外框及嵌套底板。主题切换已移除，旧深色偏好与系统深色模式不影响当前界面。工作台与资源搜索读取真实接口；对话和工作保留独立历史栏，智能体使用完整配置页与右侧试聊，技能继续通过 `SKILL.md` 或 ZIP 包解析并确认安装。各业务页面复用原有权限、运行状态和接口，保留完整配置与治理操作。源码位于 `frontend/src/`；`frontend/design-previews/bailian/` 保留为设计参考，示例状态不进入正式业务。当前样式见[白色界面验收](docs/superpowers/verification/2026-10-29-white-console.md)，原界面接入范围见[控制台 UI 计划](docs/superpowers/plans/2026-10-28-console-ui.md)。原页面及未提交优化保存在 `legacy/frontend/`。
 
 2026-10-28 已在正常入口启用这套控制台 UI，保留现有模型配置与业务接口。34 项核心测试和 182 个唯一浏览器用例完成验证，真实登录及十个页面只读检查通过；执行次数、重试记录和明确限制见[控制台 UI 验收](docs/superpowers/verification/2026-10-28-console-ui.md)。
 

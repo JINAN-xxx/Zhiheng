@@ -94,7 +94,7 @@ function formatPercentage(size: number): string {
 
 <style scoped>
 .file-statistics {
-  margin-bottom: 16px;
+  margin-bottom: 28px;
 }
 
 .file-statistics-header {
@@ -122,18 +122,15 @@ function formatPercentage(size: number): string {
 .file-statistics-content {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
+  gap: 20px;
 }
 
 .file-stat-item {
   --stat-color: var(--workspace-main);
   position: relative;
   min-width: 0;
-  min-height: 124px;
-  padding: 16px;
-  background: var(--workspace-surface);
-  border: 1px solid var(--workspace-border);
-  border-radius: 8px;
+  min-height: 108px;
+  padding: 12px 0;
 }
 
 .file-stat-main {
@@ -177,18 +174,16 @@ function formatPercentage(size: number): string {
   height: 30px;
   color: var(--stat-color);
   font-size: 16px;
-  background-color: color-mix(in srgb, var(--stat-color) 12%, transparent);
-  border-radius: 7px;
 }
 
 .file-stat-extra {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
   margin-top: 12px;
   color: var(--workspace-text-secondary);
   font-size: 12px;
   line-height: 18px;
-  white-space: nowrap;
 }
 
 .stat-purple {
@@ -225,7 +220,7 @@ function formatPercentage(size: number): string {
 
 @media (max-width: 560px) {
   .file-statistics-content {
-    grid-template-columns: minmax(0, 1fr);
+    gap: 12px 20px;
   }
 }
 </style>

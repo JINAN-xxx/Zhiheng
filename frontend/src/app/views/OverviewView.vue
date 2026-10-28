@@ -145,7 +145,7 @@ onBeforeUnmount(() => scope.dispose())
 .console-overview__metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
+  gap: 28px;
 }
 .console-metric {
   text-decoration: none;
@@ -153,11 +153,8 @@ onBeforeUnmount(() => scope.dispose())
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-  min-height: 110px;
-  padding: 22px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  min-height: 104px;
+  padding: 16px 0;
   color: var(--color-text);
 }
 .console-metric > div {
@@ -178,13 +175,11 @@ onBeforeUnmount(() => scope.dispose())
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 10px;
-  background: var(--main-50);
   color: var(--main-color);
   font-size: 21px;
 }
 .console-overview__section {
-  margin-top: 28px;
+  margin-top: 32px;
 }
 .console-overview__section h2 {
   margin: 0 0 16px;
@@ -195,7 +190,7 @@ onBeforeUnmount(() => scope.dispose())
 .console-shortcuts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 24px;
 }
 .console-shortcuts a {
   text-decoration: none;
@@ -204,11 +199,9 @@ onBeforeUnmount(() => scope.dispose())
   gap: 12px;
   min-width: 0;
   min-height: 86px;
-  padding: 16px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--gray-150);
   color: var(--color-text);
-  background: var(--bg-container);
 }
 .console-shortcuts a > .anticon:first-child {
   color: var(--main-color);
@@ -232,15 +225,12 @@ onBeforeUnmount(() => scope.dispose())
   color: var(--color-text-tertiary);
   font-size: 12px;
 }
-.console-shortcuts a:hover,
-.console-metric:hover {
-  border-color: var(--main-200);
+.console-shortcuts a:hover strong,
+.console-metric:hover strong {
+  color: var(--main-color);
 }
 .console-resource-panel {
-  padding: 22px 24px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding-top: 4px;
 }
 .console-resource-panel > header {
   display: flex;
@@ -290,8 +280,6 @@ onBeforeUnmount(() => scope.dispose())
   place-items: center;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
   color: var(--main-color);
   font-size: 18px;
 }
@@ -324,12 +312,12 @@ onBeforeUnmount(() => scope.dispose())
 @media (max-width: 760px) {
   .console-overview__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 16px;
   }
   .console-metric {
     text-decoration: none;
     min-height: 94px;
-    padding: 14px;
+    padding: 12px 0;
   }
   .console-metric strong {
     font-size: 24px;
@@ -339,7 +327,7 @@ onBeforeUnmount(() => scope.dispose())
   }
   .console-shortcuts a {
     text-decoration: none;
-    padding: 12px;
+    padding: 12px 0;
     gap: 9px;
   }
   .console-shortcuts a > .anticon:last-child {
@@ -347,9 +335,6 @@ onBeforeUnmount(() => scope.dispose())
   }
   .console-shortcuts small {
     font-size: 11px;
-  }
-  .console-resource-panel {
-    padding: 16px;
   }
   .console-resource-row__kind {
     display: none;

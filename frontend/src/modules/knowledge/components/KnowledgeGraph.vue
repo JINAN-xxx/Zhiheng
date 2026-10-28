@@ -67,7 +67,6 @@ import type { ECharts, EChartsCoreOption } from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
 import { object } from '../../../shared/validation.ts'
-import { isDark } from '../../../shared/theme.ts'
 import type { ChartGraph } from '../graphPresentation.ts'
 use([GraphChart, CanvasRenderer])
 const props = defineProps<{ graph: ChartGraph }>()
@@ -149,10 +148,6 @@ onMounted(async () => {
   render()
 })
 watch(() => props.graph, render)
-watch(isDark, async () => {
-  await nextTick()
-  render()
-})
 onBeforeUnmount(() => {
   observer?.disconnect()
   chart?.dispose()
@@ -194,10 +189,9 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 .knowledge-graph__detail {
-  padding: 16px;
-  background: var(--bg-container);
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  margin-top: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--gray-150);
 }
 .knowledge-graph__detail > div {
   display: flex;

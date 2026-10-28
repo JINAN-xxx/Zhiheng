@@ -86,7 +86,7 @@ onBeforeUnmount(() => scope.dispose())
   min-width: 0;
   min-height: 100%;
   color: var(--color-text);
-  background: var(--workspace-bg-page, #f7f8fc);
+  background: var(--workspace-bg);
   font-family: var(--workspace-font-family);
 }
 .admin-navigation {
@@ -94,7 +94,7 @@ onBeforeUnmount(() => scope.dispose())
   width: 164px;
   padding: 18px 12px;
   border-right: 1px solid var(--gray-150);
-  background: var(--bg-container);
+  background: transparent;
 }
 .admin-navigation__title {
   padding: 4px 12px 16px;

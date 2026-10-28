@@ -66,7 +66,7 @@ defineProps({
   align-items: center;
   padding: 84px 24px 64px;
   overflow-x: hidden;
-  background: var(--gray-50);
+  background: var(--bg-page);
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
@@ -119,9 +119,9 @@ defineProps({
 .auth-shell__panel {
   width: min(100%, 420px);
   padding: 32px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .auth-shell--split .auth-shell__panel {

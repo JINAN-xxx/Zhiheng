@@ -5,8 +5,7 @@ import {
   Menu as AMenu,
   MenuItem as AMenuItem
 } from 'ant-design-vue'
-import { BgColorsOutlined, BulbOutlined, DownOutlined } from '@ant-design/icons-vue'
-import { isDark, toggleTheme } from '../../shared/theme.ts'
+import { DownOutlined } from '@ant-design/icons-vue'
 import { identity } from '../../modules/identity/public.ts'
 import { canAccessAdmin } from '../../modules/admin/public.ts'
 import { RouterLink } from 'vue-router'
@@ -20,15 +19,6 @@ const emit = defineEmits<{ logout: [] }>()
 <template>
   <div class="platform-account-menu" :class="[variant, { collapsed }]" aria-label="账户与通知">
     <template v-if="variant === 'topbar'">
-      <button
-        class="platform-account-menu__icon"
-        type="button"
-        title="切换主题"
-        aria-label="切换主题"
-        @click="toggleTheme"
-      >
-        <BulbOutlined v-if="isDark" /><BgColorsOutlined v-else />
-      </button>
       <PlatformNotices />
     </template>
     <ADropdown v-else :trigger="['click']" placement="topRight">

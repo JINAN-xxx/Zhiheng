@@ -333,9 +333,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
 .api-docs-nav {
   overflow-y: auto;
   padding: 16px 0;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  border-right: 1px solid var(--gray-150);
 }
 .api-docs-nav__title {
   padding: 0 16px 10px;
@@ -360,10 +358,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
 .api-docs-content {
   min-width: 0;
   overflow: auto;
-  padding: 22px 32px 48px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  padding: 16px 12px 48px;
 }
 .api-docs-intro {
   max-width: 920px;
@@ -392,8 +387,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
   margin: 8px 0 0;
   overflow: auto;
   padding: 12px 14px;
-  border: 1px solid var(--gray-150);
-  background: var(--gray-10);
+  border-left: 2px solid var(--gray-150);
+  background: transparent;
   color: var(--color-text);
   line-height: 1.6;
   white-space: pre-wrap;
@@ -460,7 +455,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
   vertical-align: top;
 }
 .api-doc-fields th {
-  background: var(--gray-10);
+  background: var(--bg-page);
   color: var(--color-text-secondary);
   font-weight: 500;
 }
@@ -506,7 +501,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSecti
     padding: 7px 10px;
   }
   .api-docs-content {
-    padding: 18px 16px 36px;
+    padding: 12px 0 36px;
   }
 }
 </style>

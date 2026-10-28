@@ -16,7 +16,7 @@
         <MarkdownRender
           :content="reasoningContent"
           html-policy="safe"
-          :is-dark="isDark"
+          :is-dark="false"
           :final="!loading"
           mode="chat"
           code-renderer="shiki"
@@ -28,7 +28,7 @@
       <MarkdownRender
         :content="content"
         html-policy="safe"
-        :is-dark="isDark"
+        :is-dark="false"
         :final="!loading"
         mode="chat"
         code-renderer="shiki"
@@ -46,7 +46,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { MarkdownRender } from 'markstream-vue'
-import { isDark } from '../../../shared/theme.ts'
 import { RightOutlined } from '@ant-design/icons-vue'
 import { enableKatex, enableMermaid } from 'markstream-vue'
 import 'markstream-vue/index.css'

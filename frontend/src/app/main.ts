@@ -1,14 +1,15 @@
 import { createApp } from 'vue'
 import 'ant-design-vue/dist/reset.css'
 import '../shared/styles/console-tokens.css'
-import '../shared/styles/console-tokens.dark.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
 import { clearIdentity } from '../modules/identity/public.ts'
 import { http } from '../shared/http.ts'
+import { initializeLightTheme } from '../shared/theme.ts'
 import App from './App.vue'
 import { router } from './router.ts'
+initializeLightTheme()
 http.setUnauthorizedHandler(() => {
   clearIdentity()
   void router.replace('/login')

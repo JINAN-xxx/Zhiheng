@@ -364,10 +364,7 @@ defineExpose({ open })
   position: relative;
   overflow: hidden;
   min-height: 112px;
-  padding: 16px 18px;
-  border: 1px solid var(--workspace-border);
-  border-radius: 8px;
-  background: var(--workspace-surface);
+  padding: 12px 0;
 }
 
 .summary-card--danger {
@@ -422,9 +419,8 @@ defineExpose({ open })
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-  padding: 10px 14px;
-  border-radius: 6px;
-  background: var(--workspace-surface-muted);
+  padding: 12px 0;
+  border-top: 1px solid var(--workspace-border);
 }
 
 .reconcile-toolbar__tip {
@@ -465,7 +461,7 @@ defineExpose({ open })
   }
   .summary-card {
     min-width: 0;
-    padding: 12px;
+    padding: 12px 0;
   }
   .reconcile-toolbar {
     align-items: flex-start;

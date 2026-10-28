@@ -79,9 +79,9 @@ onBeforeUnmount(() => scope.dispose())
   width: min(800px, 100%);
   margin: auto;
   padding: 28px;
-  background: var(--bg-container);
-  border: 1px solid var(--gray-150);
-  border-radius: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 .shared-message-card header {
   display: flex;

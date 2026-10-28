@@ -108,7 +108,7 @@ function formatTime(value: string | null): string {
 .subpage-actions {
   min-height: 64px;
   justify-content: space-between;
-  padding: 18px 22px;
+  padding: 4px 0 18px;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -142,7 +142,7 @@ function formatTime(value: string | null): string {
   align-items: start;
   gap: 20px;
   min-height: 112px;
-  padding: 22px;
+  padding: 22px 0;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -178,7 +178,7 @@ function formatTime(value: string | null): string {
   .subpage-actions {
     align-items: flex-start;
     gap: 12px;
-    padding: 16px;
+    padding: 4px 0 16px;
   }
   .subpage-actions > div {
     min-width: 0;
@@ -189,7 +189,7 @@ function formatTime(value: string | null): string {
   .key-row {
     grid-template-columns: minmax(0, 1fr) 32px;
     gap: 12px;
-    padding: 18px 16px;
+    padding: 18px 0;
   }
   .key-row__quota {
     grid-row: 2;

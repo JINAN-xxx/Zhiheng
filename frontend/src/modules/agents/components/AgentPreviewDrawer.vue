@@ -487,9 +487,8 @@ onBeforeUnmount(() => {
   min-height: 440px;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: #fff;
+  border-left: 1px solid var(--gray-150);
+  background: var(--bg-page);
 }
 .preview-heading {
   display: flex;
@@ -518,7 +517,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 7px;
-  background: var(--gray-25);
+  background: transparent;
 }
 .preview-save-hint {
   margin-left: auto;
@@ -646,6 +645,12 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 10px;
+}
+@media (max-width: 950px) {
+  .agent-preview-panel {
+    border-left: 0;
+    border-top: 1px solid var(--gray-150);
+  }
 }
 @media (max-width: 520px) {
   .preview-history {

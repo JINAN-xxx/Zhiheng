@@ -11,7 +11,7 @@ import { onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { identity, logout } from '../modules/identity/public.ts'
 import { ChatWorkspaceProvider } from '../modules/chat/public.ts'
 import { WorkWorkspaceProvider } from '../modules/work/public.ts'
-import { isDark, darkTheme, lightTheme } from '../shared/theme.ts'
+import { lightTheme } from '../shared/theme.ts'
 import { errorMessage } from '../shared/http.ts'
 import PlatformSidebar from './components/PlatformSidebar.vue'
 import AiResourceShell from './components/AiResourceShell.vue'
@@ -44,7 +44,6 @@ async function afterDrawerChange(open: boolean): Promise<void> {
     topbar.value?.focusMenu()
   }
 }
-const theme = computed(() => (isDark.value ? darkTheme : lightTheme))
 async function signOut(): Promise<void> {
   leaving.value = true
   try {
@@ -58,7 +57,7 @@ async function signOut(): Promise<void> {
 }
 </script>
 <template>
-  <AConfigProvider :theme="theme">
+  <AConfigProvider :theme="lightTheme">
     <AAlert v-if="error" :message="error" type="error" closable @close="error = ''" />
     <RouterView v-if="route.meta.public" />
     <ChatWorkspaceProvider v-else-if="identity">

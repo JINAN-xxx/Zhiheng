@@ -125,7 +125,7 @@ onBeforeUnmount(() => scope.dispose())
 .monitor-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 32px 40px;
 }
 .monitor-grid dl {
   display: grid;

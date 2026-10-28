@@ -411,15 +411,22 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('must-remain-in-memory', await self.page.evaluate('JSON.stringify(localStorage) + document.cookie'))
         self.assertEqual(sum(count for (method, _path), count in self.counts.items() if method == 'POST'), 0)
 
-    async def test_original_theme_switch_changes_surface_and_survives_reload(self):
+    async def test_light_theme_ignores_old_dark_preference_and_system_theme(self):
+        await self.page.add_init_script("localStorage.setItem('zhiheng-color-scheme', 'dark')")
+        await self.page.emulate_media(color_scheme='dark')
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='切换主题', exact=True).click()
-        await expect(self.page.locator('html')).to_have_class(re.compile('dark'), timeout=2000)
-        await expect(self.page.locator('.platform-chat')).to_have_css('background-color', 'rgb(27, 32, 48)')
-        await self.page.reload()
-        await expect(self.page.locator('html')).to_have_class(re.compile('dark'))
-        await self.page.get_by_role('button', name='切换主题', exact=True).click()
+        await expect(self.page.locator('.platform-chat')).to_be_visible()
+        await expect(self.page.get_by_role('button', name='切换主题', exact=True)).to_have_count(0)
         await expect(self.page.locator('html')).not_to_have_class(re.compile('dark'))
+        await expect(self.page.locator('html')).to_have_css('color-scheme', 'light')
+        await expect(self.page.locator('.platform-chat')).to_have_css('background-color', 'rgb(255, 255, 255)')
+        await self.page.reload()
+        await expect(self.page.locator('.platform-chat')).to_be_visible()
+        await self.page.emulate_media(color_scheme='light')
+        await self.page.emulate_media(color_scheme='dark')
+        self.assertTrue(await self.page.evaluate("matchMedia('(prefers-color-scheme: dark)').matches"))
+        await expect(self.page.locator('html')).not_to_have_class(re.compile('dark'))
+        await expect(self.page.locator('.platform-chat')).to_have_css('background-color', 'rgb(255, 255, 255)')
 
     async def prepare_login(self):
         requests = []
