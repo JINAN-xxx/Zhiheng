@@ -6,7 +6,6 @@ import {
   ApiOutlined,
   BarChartOutlined,
   DatabaseOutlined,
-  FileOutlined,
   HomeOutlined,
   MessageOutlined,
   RobotOutlined,
@@ -48,12 +47,7 @@ const groups = computed(() => [
   },
   {
     title: '知识与数据',
-    items: [
-      { path: '/knowledge', label: '知识库', icon: DatabaseOutlined },
-      ...(identity.value?.is_admin
-        ? [{ path: '/files', label: '文件管理', icon: FileOutlined }]
-        : [])
-    ]
+    items: [{ path: '/knowledge', label: '知识库', icon: DatabaseOutlined }]
   },
   {
     title: '开发与用量',

@@ -28,7 +28,7 @@ class DeveloperBoundary(unittest.IsolatedAsyncioTestCase):
         self.hold_keys = False
         self.keys_requested = asyncio.Event()
         self.release_keys = asyncio.Event()
-        await self.page.route('**/api/**', self.respond)
+        await self.page.route(self.origin + '/api/**', self.respond)
 
     async def asyncTearDown(self):
         self.release_keys.set()

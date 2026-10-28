@@ -24,10 +24,13 @@ class FilesUIRegressions(DeveloperBoundary):
     async def asyncSetUp(self):
         self.file_rows = [dict(FILE)]
         self.file_writes = []
+        self.file_requests = []
         await super().asyncSetUp()
 
     async def respond(self, route):
         path = urlparse(route.request.url).path
+        if path.startswith('/api/files'):
+            self.file_requests.append(path)
         if path == '/api/files':
             await route.fulfill(json={'items': self.file_rows, 'total': len(self.file_rows), 'page': 1, 'page_size': 20})
         elif path == '/api/files/stats':
@@ -51,14 +54,58 @@ class FilesUIRegressions(DeveloperBoundary):
             await route.fulfill(json=[])
         elif path == '/api/files/reconcile/stats':
             await route.fulfill(json={'open': 0, 'resolved': 0, 'ignored': 0, 'quarantined': 0})
+        elif path == '/api/knowledge/bases':
+            await route.fulfill(json=[])
+        elif path == '/api/knowledge/capabilities':
+            await route.fulfill(json={'milvus_configured': True, 'milvus_available': True, 'native_formats': ['txt', 'md', 'pdf', 'docx', 'xlsx'], 'graph_available': False, 'mineru_available': False})
         else:
             await super().respond(route)
 
-    async def test_original_file_page_is_available(self):
-        await self.page.goto(self.origin + '/files')
-        await expect(self.page.get_by_role('heading', name='文件管理', exact=True)).to_be_visible()
+    async def test_storage_is_reached_from_knowledge_and_returns_there(self):
+        await self.page.goto(self.origin + '/knowledge')
+        await self.page.get_by_role('button', name='存储管理', exact=True).click()
+        await expect(self.page).to_have_url(self.origin + '/knowledge/storage')
+        await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
+        navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
+        await expect(navigation.get_by_role('link', name='知识库', exact=True)).to_have_attribute('aria-current', 'page')
+        await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('管理知识文档与对话附件的存储、权限及保留规则', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('文件概览', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='存储对账', exact=True)).to_be_visible()
+        await expect(self.page.locator('input[type="file"]')).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='上传', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='返回知识库', exact=True).click()
+        await expect(self.page).to_have_url(self.origin + '/knowledge')
+        await expect(self.page.get_by_role('button', name='创建知识库', exact=True)).to_be_visible()
+
+    async def test_old_file_links_keep_storage_tools_and_knowledge_selection(self):
+        for path in ['/files', '/system/file']:
+            with self.subTest(path=path):
+                await self.page.goto(self.origin + path)
+                await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
+                navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
+                await expect(navigation.get_by_role('link', name='知识库', exact=True)).to_have_attribute('aria-current', 'page')
+                await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()
+
+    async def test_members_cannot_enter_storage_using_new_or_old_links(self):
+        await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={'id': 'member-1', 'username': 'member', 'is_admin': False}))
+        await self.page.goto(self.origin + '/knowledge')
+        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='存储管理', exact=True)).to_have_count(0)
+        for path in ['/knowledge/storage', '/files', '/system/file']:
+            with self.subTest(path=path):
+                await self.page.goto(self.origin + path)
+                await expect(self.page).to_have_url(self.origin + '/chat')
+        self.assertEqual(self.file_requests, [])
+
+    async def test_mobile_knowledge_storage_round_trip_stays_on_screen(self):
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        await self.page.goto(self.origin + '/knowledge')
+        await self.page.get_by_role('button', name='存储管理', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
+        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        await self.page.get_by_role('button', name='返回知识库', exact=True).click()
+        await expect(self.page.get_by_role('button', name='创建知识库', exact=True)).to_be_visible()
 
     async def test_original_acl_has_deny_expiry_and_real_builtin_rules(self):
         await self.page.goto(self.origin + '/files')

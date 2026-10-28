@@ -3,6 +3,10 @@
   <section class="knowledge-overview">
     <WorkspaceToolbar title="知识库" subtitle="管理文档、验证检索、构建知识图谱">
       <template #actions>
+        <a-button v-if="canManageStorage" aria-label="存储管理" @click="emit('storage')">
+          <template #icon><HddOutlined /></template>
+          存储管理
+        </a-button>
         <a-tooltip title="刷新知识库">
           <a-button
             shape="circle"
@@ -136,6 +140,7 @@ import {
   DatabaseOutlined,
   DeleteOutlined,
   FileTextOutlined,
+  HddOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -158,10 +163,12 @@ const props = defineProps<{
   loading: boolean
   error: string
   graphAvailable: boolean
+  canManageStorage?: boolean
 }>()
 const emit = defineEmits<{
   refresh: []
   create: []
+  storage: []
   edit: [base: KnowledgeBase]
   acl: [base: KnowledgeBase]
   remove: [base: KnowledgeBase]

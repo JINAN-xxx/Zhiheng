@@ -75,8 +75,9 @@ class ConsoleUIRegressions(unittest.IsolatedAsyncioTestCase):
         for label, value in [('模型', '1'), ('智能体', '2'), ('知识库', '3'), ('技能', '4')]:
             await expect(self.page.get_by_role('link', name=label + '数量', exact=True)).to_contain_text(value)
         navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        for label in ['工作台', '对话体验', '模型目录', '智能体', '技能管理', '工作空间', '知识库', '文件管理', '开发接入', '用量与调用']:
+        for label in ['工作台', '对话体验', '模型目录', '智能体', '技能管理', '工作空间', '知识库', '开发接入', '用量与调用']:
             await expect(navigation.get_by_role('link', name=label, exact=True)).to_be_visible()
+        await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='搜索资源', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='搜索资源', exact=True)
         await expect(dialog.get_by_role('textbox', name='搜索资源名称', exact=True)).to_be_focused()

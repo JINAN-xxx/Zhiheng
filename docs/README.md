@@ -39,3 +39,4 @@
 - [2026-10-28 控制台 UI 验收](superpowers/verification/2026-10-28-console-ui.md)
 
 - [消息操作与源码运行验收](superpowers/verification/2026-10-28-message-actions.md)
+- [知识库与存储入口整合验收](superpowers/verification/2026-10-28-knowledge-storage.md)

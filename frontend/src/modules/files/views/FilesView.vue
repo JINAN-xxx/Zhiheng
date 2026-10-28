@@ -1,6 +1,7 @@
 <!-- Adapted from original system/file/index.vue, MIT licensed. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -8,6 +9,7 @@ import {
   Tooltip as ATooltip
 } from 'ant-design-vue'
 import {
+  ArrowLeftOutlined,
   BellOutlined,
   DeleteFilled,
   DeleteOutlined,
@@ -17,8 +19,7 @@ import {
   PartitionOutlined,
   ReloadOutlined,
   RollbackOutlined,
-  SwapOutlined,
-  UploadOutlined
+  SwapOutlined
 } from '@ant-design/icons-vue'
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
@@ -29,8 +30,7 @@ import {
   emptyQuery,
   findFileUsers,
   getFileStats,
-  listFiles,
-  uploadFile
+  listFiles
 } from '../api/index.ts'
 import type { FileStats, FileUser, ManagedFile } from '../api/index.ts'
 import { isoDateTime, saveBlob } from '../presentation.ts'
@@ -56,9 +56,8 @@ const total = ref(0),
   loading = ref(false),
   error = ref(''),
   busyIds = ref<string[]>([]),
-  uploading = ref(false),
   notice = ref('')
-const input = ref<HTMLInputElement | null>(null)
+const router = useRouter()
 const detail = ref<InstanceType<typeof FileDetailDialog> | null>(null),
   references = ref<InstanceType<typeof FileReferenceDrawer> | null>(null),
   acl = ref<InstanceType<typeof FileAclDrawer> | null>(null),
@@ -77,7 +76,7 @@ const activeSelected = computed(() =>
 const hasActiveSelection = computed(
   () => selected.value.length > 0 && activeSelected.value.length === selected.value.length
 )
-const mutationBusy = computed(() => busyIds.value.length > 0 || uploading.value)
+const mutationBusy = computed(() => busyIds.value.length > 0)
 async function load(): Promise<void> {
   const context = scope.replace()
   loading.value = true
@@ -160,34 +159,6 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
     if (context.isCurrent()) busyIds.value = []
   }
 }
-async function upload(event: Event): Promise<void> {
-  const picker = event.target as HTMLInputElement,
-    file = picker.files?.[0]
-  picker.value = ''
-  if (!file || mutationBusy.value) return
-  if (!file.size || file.size > 20 * 1024 * 1024) {
-    error.value = '请选择非空文件，单个文件最大20MiB'
-    return
-  }
-  const context = writes.replace()
-  uploading.value = true
-  error.value = ''
-  try {
-    await uploadFile(file, context.signal)
-    if (context.isCurrent()) {
-      notice.value = '文件上传成功'
-      await load()
-    }
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) {
-      const message = `${errorMessage(reason)}；请刷新列表确认上传结果。`
-      await load()
-      error.value = message
-    }
-  } finally {
-    if (context.isCurrent()) uploading.value = false
-  }
-}
 onMounted(() => {
   void load()
   const context = userScope.replace()
@@ -206,9 +177,15 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <WorkspacePage title="文件管理" subtitle="管理受管文件、访问权限与保留规则" class="files-page">
+  <WorkspacePage
+    title="存储管理"
+    subtitle="管理知识文档与对话附件的存储、权限及保留规则"
+    class="files-page"
+  >
     <template #actions>
-      <input ref="input" type="file" hidden aria-label="上传文件" @change="upload" />
+      <a-button aria-label="返回知识库" @click="router.push('/knowledge')"
+        ><ArrowLeftOutlined />返回知识库</a-button
+      >
       <a-button aria-label="保留策略" @click="policy?.open()"
         ><FieldTimeOutlined />保留策略</a-button
       >
@@ -216,13 +193,6 @@ onBeforeUnmount(() => {
         ><PartitionOutlined />存储对账</a-button
       >
       <a-button aria-label="保留提醒" @click="reminders?.open()"><BellOutlined />保留提醒</a-button>
-      <a-button
-        type="primary"
-        :loading="uploading"
-        :disabled="mutationBusy || loading"
-        @click="input?.click()"
-        ><UploadOutlined />上传</a-button
-      >
     </template>
     <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" /><a-alert
       v-if="notice"

@@ -916,7 +916,7 @@ class FileService:
         )
         return {
             **dict.fromkeys(['open', 'resolved', 'ignored', 'quarantined'], 0),
-            **dict(rows.tuples()),
+            **dict(rows.tuples().all()),
         }
 
     async def release_resources(
