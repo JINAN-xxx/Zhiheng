@@ -41,7 +41,7 @@ const emit = defineEmits<{ logout: [] }>()
         <AAvatar :size="30">{{ identity?.username.slice(0, 1).toUpperCase() }}</AAvatar>
         <span v-if="!collapsed" class="platform-account-menu__identity"
           ><strong>{{ identity?.username }}</strong
-          ><small>{{ identity?.is_admin ? '管理员' : '用户' }}</small></span
+          ><small>{{ identity?.is_admin ? '超级管理员' : '用户' }}</small></span
         >
         <DownOutlined v-if="!collapsed" class="platform-account-menu__chevron" />
       </button>

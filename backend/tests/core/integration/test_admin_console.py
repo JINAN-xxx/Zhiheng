@@ -3,6 +3,8 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from zhiheng.infrastructure.database import SCHEMA_REVISION
+
 
 async def test_role_permissions_apply_to_existing_sessions_and_monitor(admin: httpx.AsyncClient, app: FastAPI) -> None:
     role = await admin.post(
@@ -37,7 +39,7 @@ async def test_role_permissions_apply_to_existing_sessions_and_monitor(admin: ht
         assert monitor.status_code == 200, monitor.text
         assert monitor.json()['database']['status'] == 'ok'
         assert monitor.json()['redis']['status'] == 'ok'
-        assert monitor.json()['schema_version'] == '0010_admin_console'
+        assert monitor.json()['schema_version'] == SCHEMA_REVISION
         assert (await member.get('/api/admin/users')).status_code == 403
         assert (await member.post('/api/admin/roles', json={'code': 'deny', 'name': '拒绝'})).status_code == 403
         updated = await admin.patch(

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
+from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.contracts import IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.shared.errors import AppError
@@ -64,6 +65,7 @@ class IdentityService:
             .where(
                 IdentityUserRole.user_id == user.id,
                 IdentityRole.is_active.is_(True),
+                IdentityRole.system_key.is_(None),
             )
         )
         granted = frozenset(code for group in permissions for code in group if code in PERMISSION_CODES)
@@ -94,6 +96,7 @@ class IdentityService:
         user = IdentityUser(username=username, password_hash=password_hash, is_admin=is_admin)
         session.add(user)
         await session.flush()
+        await sync_builtin_role_membership(session, user.id, is_admin=user.is_admin)
         return Principal(user.id, user.username, user.is_admin)
 
     async def login(self, session: AsyncSession, *, username: str, password: str) -> tuple[Principal, str]:

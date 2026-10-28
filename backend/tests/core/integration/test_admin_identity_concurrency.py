@@ -8,9 +8,10 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from argon2 import PasswordHasher
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables
 from zhiheng.shared.errors import AppError
@@ -130,6 +131,54 @@ async def test_existing_token_observes_committed_role_revocation(pg_identity: tu
         await service.update(session, first, 'roles', role['id'], {'permissions': []}, expected_version=1)
     async with factory() as session:
         assert (await service.identity.authenticate(session, token)).permissions == frozenset()
+
+
+async def test_concurrent_first_admin_creation_shares_one_builtin_role(settings: Any) -> None:
+    engine = create_async_engine(settings.database_url.get_secret_value())
+    async with engine.begin() as connection:
+        for table in schema_tables():
+            await connection.run_sync(table.create)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    identity = IdentityService()
+    second_insert = asyncio.Event()
+    insert_count = 0
+
+    def observe_insert(connection: Any, cursor: Any, statement: str, parameters: Any, context: Any, many: bool) -> None:
+        nonlocal insert_count
+        if statement.startswith('INSERT INTO identity_roles '):
+            insert_count += 1
+            if insert_count == 2:
+                second_insert.set()
+
+    async def create_second() -> Principal:
+        async with factory.begin() as session:
+            return await identity.create_user(
+                session, username='second-admin', password='a-long-test-password', is_admin=True
+            )
+
+    event.listen(engine.sync_engine, 'before_cursor_execute', observe_insert)
+    task = None
+    try:
+        async with factory() as first_session:
+            first = await identity.create_user(
+                first_session, username='first-admin', password='a-long-test-password', is_admin=True
+            )
+            task = asyncio.create_task(create_second())
+            # Hold the winning unique key uncommitted until the second transaction
+            # really attempts its insert, forcing the savepoint recovery path.
+            await asyncio.wait_for(second_insert.wait(), timeout=10)
+            await first_session.commit()
+            second = await asyncio.wait_for(task, timeout=10)
+        async with factory() as session:
+            roles = list(await session.scalars(select(IdentityRole)))
+            assert len(roles) == 1 and roles[0].system_key == 'super_admin'
+            assert set(await session.scalars(select(IdentityUserRole.user_id))) == {first.id, second.id}
+    finally:
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        event.remove(engine.sync_engine, 'before_cursor_execute', observe_insert)
+        await engine.dispose()
 
 
 @pytest.mark.parametrize('mutation', ['password_reset', 'disable', 'delete'])

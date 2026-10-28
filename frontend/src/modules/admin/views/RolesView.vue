@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Button as AButton, Modal, Tag as ATag } from 'ant-design-vue'
+import { Button as AButton, Modal as AModal, Modal, Tag as ATag } from 'ant-design-vue'
 import { identity } from '../../identity/public.ts'
 import { hasAdminPermission } from '../access.ts'
 import { decodeRole, getPermissions } from '../api/index.ts'
@@ -14,12 +14,14 @@ const { rows, total, page, search, loading, error, saving, load, save, remove, f
   useCollection<Role, RolePayload>('roles', decodeRole)
 const writable = computed(() => hasAdminPermission(identity.value, 'roles', 'write'))
 const canManage = (role: Role): boolean =>
+  role.system_key === null &&
   Boolean(
     identity.value?.is_admin ||
       role.permissions.every((code) => identity.value?.permissions?.includes(code))
   )
 const open = ref(false),
   editing = ref<Role | null>(null),
+  preview = ref<Role | null>(null),
   formError = ref(''),
   permissions = ref<Permission[]>([]),
   permissionError = ref('')
@@ -52,7 +54,7 @@ function refresh(): void {
 onMounted(loadPermissions)
 onBeforeUnmount(() => controller.abort())
 function edit(role: Role | null = null): void {
-  if (role && !canManage(role)) return
+  if (!writable.value || (role && !canManage(role))) return
   editing.value = role
   Object.assign(
     form,
@@ -70,7 +72,7 @@ function edit(role: Role | null = null): void {
   open.value = true
 }
 async function submit(): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !writable.value || (editing.value && !canManage(editing.value))) return
   if (!form.code.trim() || !form.name.trim()) {
     formError.value = '请填写角色编码和名称'
     return
@@ -103,9 +105,18 @@ function confirmDelete(role: Role): void {
     onOk: () => remove(role)
   })
 }
+function permissionSummary(role: Role): string {
+  if (role.system_key === 'super_admin') return '全部管理权限'
+  return (
+    role.permissions
+      .map((code) => permissions.value.find((item) => item.code === code)?.label || code)
+      .join('、') || '暂无授权'
+  )
+}
 const columns = [
   { title: '角色', key: 'role', width: 220 },
   { title: '权限', key: 'permissions', width: 300 },
+  { title: '成员数', dataIndex: 'member_count', key: 'members', width: 90 },
   { title: '状态', key: 'status', width: 100 },
   { title: '备注', dataIndex: 'remark', key: 'remark', width: 180 },
   { title: '操作', key: 'actions', width: 120 }
@@ -132,24 +143,24 @@ const columns = [
         <div v-if="column.key === 'role'" class="admin-primary">
           <strong>{{ record.name }}</strong
           ><small class="admin-code">{{ record.code }}</small>
+          <ATag v-if="record.system_key" class="role-builtin" color="purple">系统内置</ATag>
         </div>
-        <span v-else-if="column.key === 'permissions'">{{
-          record.permissions
-            .map((code) => permissions.find((item) => item.code === code)?.label || code)
-            .join('、') || '暂无授权'
-        }}</span>
+        <span v-else-if="column.key === 'permissions'">{{ permissionSummary(record) }}</span>
         <ATag v-else-if="column.key === 'status'" :color="record.is_active ? 'green' : 'default'">{{
           activeLabel(record.is_active)
         }}</ATag>
-        <div v-else-if="column.key === 'actions' && writable" class="admin-actions">
-          <AButton type="link" :disabled="!canManage(record)" @click="edit(record)">编辑</AButton
-          ><AButton
-            type="link"
-            danger
-            :disabled="saving || !canManage(record)"
-            @click="confirmDelete(record)"
-            >删除</AButton
-          >
+        <div v-else-if="column.key === 'actions'" class="admin-actions">
+          <AButton v-if="record.system_key" type="link" @click="preview = record">查看</AButton>
+          <template v-else-if="writable">
+            <AButton type="link" :disabled="!canManage(record)" @click="edit(record)">编辑</AButton
+            ><AButton
+              type="link"
+              danger
+              :disabled="saving || !canManage(record)"
+              @click="confirmDelete(record)"
+              >删除</AButton
+            >
+          </template>
         </div>
       </template></ResourceTable
     >
@@ -191,6 +202,27 @@ const columns = [
         >备注<textarea v-model="form.remark" aria-label="备注" rows="3" maxlength="1000" />
       </label>
     </AdminDialog>
+    <AModal :open="Boolean(preview)" title="查看内置角色" :footer="null" @cancel="preview = null">
+      <template v-if="preview">
+        <p class="admin-muted">
+          系统内置角色由系统维护，身份通过用户管理中的“超级管理员”开关管理。
+        </p>
+        <dl class="role-details">
+          <dt>角色名称</dt>
+          <dd>{{ preview.name }}</dd>
+          <dt>角色编码</dt>
+          <dd class="admin-code">{{ preview.code }}</dd>
+          <dt>权限</dt>
+          <dd>{{ permissionSummary(preview) }}</dd>
+          <dt>成员数</dt>
+          <dd>{{ preview.member_count }}</dd>
+          <dt>状态</dt>
+          <dd>{{ activeLabel(preview.is_active) }}</dd>
+          <dt>备注</dt>
+          <dd>{{ preview.remark || '—' }}</dd>
+        </dl>
+      </template>
+    </AModal>
   </AdminPage>
 </template>
 <style scoped>
@@ -218,5 +250,21 @@ const columns = [
   width: 100%;
   font-size: 13px;
   font-weight: 500;
+}
+.role-builtin {
+  justify-self: start;
+}
+.role-details {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px 16px;
+  margin: 20px 0 0;
+}
+.role-details dt {
+  color: var(--color-text-secondary);
+}
+.role-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 </style>

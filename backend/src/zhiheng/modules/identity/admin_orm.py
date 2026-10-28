@@ -43,6 +43,7 @@ class IdentityPost(Versioned, Base):
 class IdentityRole(Versioned, Base):
     __tablename__ = 'identity_roles'
     code: Mapped[str] = mapped_column(String(80), unique=True)
+    system_key: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     name: Mapped[str] = mapped_column(String(100))
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

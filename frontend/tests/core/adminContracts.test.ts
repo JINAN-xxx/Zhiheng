@@ -3,10 +3,59 @@ import assert from 'node:assert/strict'
 import {
   decodeNavigation,
   decodePage,
+  decodeRole,
   decodeSession,
-  decodeUser
+  decodeUser,
+  decodeUserOptions
 } from '../../src/modules/admin/api/types.ts'
 import { decodeMonitor } from '../../src/modules/admin/api/monitor.ts'
+
+const roleRecord = {
+  id: 'role',
+  version: 1,
+  code: 'super_admin',
+  name: '超级管理员',
+  permissions: [],
+  is_active: true,
+  remark: ''
+}
+
+void test('role contract retains system identity and member counts from the server', () => {
+  const role = decodeRole({ ...roleRecord, system_key: 'super_admin', member_count: 2 })
+  assert.equal(role.system_key, 'super_admin')
+  assert.equal(role.member_count, 2)
+  assert.throws(() => decodeRole({ ...roleRecord, system_key: true, member_count: 2 }))
+  assert.throws(() => decodeRole({ ...roleRecord, system_key: null, member_count: '2' }))
+})
+
+void test('historical role responses receive ordinary role metadata defaults', () => {
+  const role = decodeRole(roleRecord)
+  assert.equal(role.system_key, null)
+  assert.equal(role.member_count, 0)
+})
+
+void test('user role options retain system identity and support historical responses', () => {
+  const options = decodeUserOptions({
+    departments: [{ id: 'department', name: '总部' }],
+    posts: [],
+    roles: [
+      { id: 'system-role', name: '超级管理员', system_key: 'super_admin' },
+      { id: 'ordinary-role', name: '运营员' }
+    ]
+  })
+  assert.deepEqual(options.roles, [
+    { id: 'system-role', name: '超级管理员', system_key: 'super_admin' },
+    { id: 'ordinary-role', name: '运营员', system_key: null }
+  ])
+  assert.deepEqual(options.departments, [{ id: 'department', name: '总部' }])
+  assert.throws(() =>
+    decodeUserOptions({
+      departments: [],
+      posts: [],
+      roles: [{ id: 'role', name: '角色', system_key: 1 }]
+    })
+  )
+})
 
 void test('navigation projection has its own contract and needs no entity identifier', () => {
   assert.deepEqual(

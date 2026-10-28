@@ -23,6 +23,7 @@ from zhiheng.modules.identity.admin_permissions import (
     AREAS,
     PERMISSION_CODES,
 )
+from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.shared.errors import AppError
 
@@ -47,7 +48,7 @@ MODELS: dict[str, type[AdminRow]] = {
 MAX_PAGE_SIZE = 200
 DTO_FIELDS = {
     'users': ('username', 'display_name', 'email', 'phone', 'department_id', 'is_active', 'is_admin', 'remark'),
-    'roles': ('code', 'name', 'permissions', 'is_active', 'remark'),
+    'roles': ('code', 'name', 'permissions', 'is_active', 'remark', 'system_key'),
     'departments': ('parent_id', 'name', 'sort_order', 'leader', 'phone', 'email', 'is_active'),
     'posts': ('code', 'name', 'sort_order', 'is_active', 'remark'),
     'menus': ('parent_id', 'name', 'path', 'permission', 'sort_order', 'is_visible'),
@@ -120,6 +121,13 @@ class IdentityAdminService:
                     .where(IdentityUserPost.user_id == row.id)
                     .order_by(IdentityUserPost.post_id)
                 )
+            )
+        if kind == 'roles':
+            result['member_count'] = int(
+                await session.scalar(
+                    select(func.count()).select_from(IdentityUserRole).where(IdentityUserRole.role_id == row.id)
+                )
+                or 0
             )
         return result
 
@@ -238,12 +246,18 @@ class IdentityAdminService:
                 else set()
             )
             fields[field] = sorted(set(fields[field]), key=str)
-            for identifier in fields[field]:
+            for identifier in tuple(fields[field]):
                 reference = await self._row(session, kind, identifier, lock=True)
                 assert isinstance(reference, (IdentityRole, IdentityPost))
                 if not reference.is_active and identifier not in existing_ids:
                     raise _error('inactive_assignment', '不能分配已停用角色或岗位')
                 if isinstance(reference, IdentityRole):
+                    if reference.system_key is not None:
+                        final_admin = fields.get('is_admin', existing_user.is_admin if existing_user else False)
+                        if not principal.is_admin or not (final_admin or (existing_user and existing_user.is_admin)):
+                            raise _error('builtin_role_assignment_forbidden', '内置角色由超级管理员身份自动维护', 403)
+                        fields[field].remove(identifier)
+                        continue
                     self._grant_permissions(principal, reference.permissions)
 
     async def _memberships(self, session: AsyncSession, user_id: UUID, fields: dict[str, Any]) -> None:
@@ -255,6 +269,11 @@ class IdentityAdminService:
                 await session.execute(delete(model).where(model.user_id == user_id))
                 session.add_all([model(user_id=user_id, **{key: identifier}) for identifier in fields.pop(field)])
         await session.flush()
+
+    @staticmethod
+    def _protect_builtin_role(row: IdentityRole) -> None:
+        if row.system_key is not None:
+            raise _error('builtin_role_protected', '系统内置角色由系统维护，不能修改或删除', 409)
 
     @staticmethod
     def _manage_user(principal: Principal, row: IdentityUser | None, fields: dict[str, Any]) -> None:
@@ -344,6 +363,8 @@ class IdentityAdminService:
             await self._memberships(session, row.id, values)
             for key, value in values.items():
                 setattr(row, key, value)
+            assert isinstance(row, IdentityUser)
+            await sync_builtin_role_membership(session, row.id, is_admin=row.is_admin)
         else:
             row = model(**values)
             session.add(row)
@@ -386,6 +407,7 @@ class IdentityAdminService:
             await self._user_references(session, principal, values, existing_user=row)
             await self._memberships(session, row.id, values)
         if isinstance(row, IdentityRole):
+            self._protect_builtin_role(row)
             self._grant_permissions(principal, row.permissions)
             if 'permissions' in values:
                 values['permissions'] = self._grant_permissions(principal, values['permissions'])
@@ -395,6 +417,8 @@ class IdentityAdminService:
             self._menu(values, row)
         await self._unique(session, kind, values, identifier)
         await self._cas(session, kind, row, values, expected_version)
+        if isinstance(row, IdentityUser):
+            await sync_builtin_role_membership(session, row.id, is_admin=row.is_admin)
         if revoke_sessions:
             await session.execute(delete(IdentitySession).where(IdentitySession.user_id == row.id))
         return await self._dto(session, kind, row)
@@ -429,6 +453,7 @@ class IdentityAdminService:
             await session.execute(delete(IdentitySession).where(IdentitySession.user_id == row.id))
             return
         if isinstance(row, IdentityRole):
+            self._protect_builtin_role(row)
             self._grant_permissions(principal, row.permissions)
         checks = []
         if kind in {'departments', 'menus'}:
@@ -480,12 +505,16 @@ class IdentityAdminService:
         for kind, model in (('departments', IdentityDepartment), ('posts', IdentityPost), ('roles', IdentityRole)):
             rows = await session.scalars(select(model).where(model.is_active.is_(True)).order_by(model.name, model.id))
             result[kind] = [
-                {'id': row.id, 'name': row.name}
+                {
+                    'id': row.id,
+                    'name': row.name,
+                    **({'system_key': row.system_key} if isinstance(row, IdentityRole) else {}),
+                }
                 for item in rows
                 for row in [cast('IdentityDepartment | IdentityPost | IdentityRole', item)]
                 if not isinstance(row, IdentityRole)
                 or principal.is_admin
-                or frozenset(row.permissions) <= principal.permissions
+                or (row.system_key is None and frozenset(row.permissions) <= principal.permissions)
             ]
         return result
 

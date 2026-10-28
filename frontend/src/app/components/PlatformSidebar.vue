@@ -11,12 +11,10 @@ import {
   RobotOutlined,
   ThunderboltOutlined,
   TeamOutlined,
-  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined
 } from '@ant-design/icons-vue'
 import { identity } from '../../modules/identity/public.ts'
-import { canAccessAdmin } from '../../modules/admin/public.ts'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import BrandMark from '../../shared/components/BrandMark.vue'
 withDefaults(
@@ -57,12 +55,6 @@ const groups = computed(() => [
       { path: '/developer', label: '开发接入', icon: ApiOutlined },
       { path: '/usage', label: '用量与调用', icon: BarChartOutlined }
     ]
-  },
-  {
-    title: '平台管理',
-    items: canAccessAdmin(identity.value)
-      ? [{ path: '/admin', label: '后台管理', icon: SettingOutlined }]
-      : []
   }
 ])
 function active(path: string): boolean {

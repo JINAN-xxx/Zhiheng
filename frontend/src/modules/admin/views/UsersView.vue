@@ -87,9 +87,9 @@ async function edit(user: AdminUser | null = null): Promise<void> {
   }
 }
 function withExisting(
-  items: { id: string; name: string }[],
+  items: { id: string; name: string; system_key?: string | null }[],
   selected: string[]
-): { id: string; name: string }[] {
+): { id: string; name: string; system_key?: string | null }[] {
   return [
     ...items,
     ...selected
@@ -221,7 +221,7 @@ const columns = [
           ><ATag :color="record.is_active ? 'green' : 'default'">{{
             activeLabel(record.is_active)
           }}</ATag
-          ><ATag v-if="record.is_admin" color="purple">管理员</ATag></template
+          ><ATag v-if="record.is_admin" color="purple">超级管理员</ATag></template
         >
         <div v-else-if="column.key === 'actions' && writable" class="admin-actions">
           <AButton type="link" :disabled="!canManage(record)" @click="edit(record)">编辑</AButton
@@ -314,10 +314,11 @@ const columns = [
               v-for="item in withExisting(options.roles, form.role_ids)"
               :key="item.id"
               :value="item.id"
+              :disabled="Boolean(item.system_key)"
             >
-              {{ item.name }}
-            </option>
-          </select></label
+              {{ item.name }}{{ item.system_key ? '（系统内置）' : '' }}
+            </option></select
+          ><small>系统内置角色由“超级管理员”开关管理。</small></label
         >
       </div>
       <label class="admin-check"

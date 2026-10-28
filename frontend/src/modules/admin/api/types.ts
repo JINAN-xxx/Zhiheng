@@ -27,6 +27,8 @@ export interface AdminUser extends Entity {
 export interface Role extends Entity {
   code: string
   name: string
+  system_key: string | null
+  member_count: number
   permissions: string[]
   is_active: boolean
   remark: string
@@ -91,10 +93,13 @@ export interface Option {
   id: string
   name: string
 }
+export interface RoleOption extends Option {
+  system_key: string | null
+}
 export interface UserOptions {
   departments: Option[]
   posts: Option[]
-  roles: Option[]
+  roles: RoleOption[]
 }
 export interface NavigationEntry {
   name: string
@@ -170,6 +175,8 @@ export const decodeRole: Decoder<Role> = (value) => {
     ...base(r),
     code: string(r.code),
     name: string(r.name),
+    system_key: r.system_key === undefined ? null : nullableString(r.system_key),
+    member_count: r.member_count === undefined ? 0 : number(r.member_count),
     permissions: list(string)(r.permissions),
     is_active: boolean(r.is_active),
     remark: string(r.remark)
@@ -271,7 +278,13 @@ export const decodeUserOptions: Decoder<UserOptions> = (value) => {
   return {
     departments: list(option)(r.departments),
     posts: list(option)(r.posts),
-    roles: list(option)(r.roles)
+    roles: list((value): RoleOption => {
+      const r = object(value)
+      return {
+        ...option(r),
+        system_key: r.system_key === undefined ? null : nullableString(r.system_key)
+      }
+    })(r.roles)
   }
 }
 export const decodeNavigation: Decoder<NavigationEntry> = (value) => {
@@ -320,7 +333,9 @@ export type UserPayload = Omit<AdminUser, keyof Entity | 'username' | 'is_admin'
   password?: string
   is_admin?: boolean
 }
-export type RolePayload = Omit<Role, keyof Entity | 'code'> & { code?: string }
+export type RolePayload = Omit<Role, keyof Entity | 'code' | 'system_key' | 'member_count'> & {
+  code?: string
+}
 export type DepartmentPayload = Omit<Department, keyof Entity>
 export type PostPayload = Omit<Post, keyof Entity | 'code'> & { code?: string }
 export type MenuPayload = Omit<Menu, keyof Entity>
