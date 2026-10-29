@@ -38,6 +38,7 @@ const emit = defineEmits<{ logout: [] }>()
       <template #overlay
         ><AMenu
           ><AMenuItem disabled>{{ identity?.username }}</AMenuItem
+          ><AMenuItem key="profile"><RouterLink to="/profile">个人资料</RouterLink></AMenuItem
           ><AMenuItem v-if="canAccessAdmin(identity)" key="admin"
             ><RouterLink to="/admin">后台管理</RouterLink></AMenuItem
           ><AMenuItem key="logout" @click="emit('logout')">退出登录</AMenuItem></AMenu

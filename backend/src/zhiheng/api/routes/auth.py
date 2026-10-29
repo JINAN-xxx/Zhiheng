@@ -9,6 +9,7 @@ from zhiheng.api.dependencies import (
     PrincipalDependency,
     SessionDependency,
 )
+from zhiheng.modules.identity.public import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -80,6 +81,58 @@ async def login(
 @router.get('/me')
 async def me(principal: PrincipalDependency) -> UserResponse:
     return UserResponse.from_principal(principal)
+
+
+@router.get('/profile')
+async def profile(
+    principal: PrincipalDependency, container: ContainerDependency, session: SessionDependency
+) -> ProfileInfo:
+    async with session.begin():
+        return await container.identity.profile(session, user_id=principal.id)
+
+
+@router.patch('/profile')
+async def update_profile(
+    body: ProfilePatch,
+    principal: PrincipalDependency,
+    container: ContainerDependency,
+    session: SessionDependency,
+) -> ProfileInfo:
+    async with session.begin():
+        result = await container.identity.update_profile(session, user_id=principal.id, body=body)
+        await container.operations.record(
+            session,
+            principal=principal,
+            action='profile.update',
+            resource_type='user',
+            resource_id=str(principal.id),
+            message='已更新本人资料',
+        )
+    return result
+
+
+@router.post('/password', status_code=204)
+async def change_password(
+    body: PasswordChange,
+    principal: PrincipalDependency,
+    container: ContainerDependency,
+    session: SessionDependency,
+) -> Response:
+    async with session.begin():
+        await container.identity.change_password(session, user_id=principal.id, body=body)
+        await container.operations.record(
+            session,
+            principal=principal,
+            action='profile.change_password',
+            resource_type='user',
+            resource_id=str(principal.id),
+            message='已更新本人登录凭据并撤销会话',
+        )
+    response = Response(status_code=204)
+    response.delete_cookie(
+        COOKIE_NAME, path='/api', secure=container.settings.cookie_secure, httponly=True, samesite='strict'
+    )
+    return response
 
 
 @router.post('/logout', status_code=204)

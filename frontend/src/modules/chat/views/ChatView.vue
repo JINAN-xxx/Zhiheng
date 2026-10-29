@@ -45,7 +45,6 @@ const {
   removeFile,
   retryFile,
   fileQueueReady,
-  supportsVision,
   readOnly,
   modelId,
   messages,
@@ -178,17 +177,6 @@ onBeforeUnmount(() => {
           @click="newConversation"
           ><PlusOutlined aria-hidden="true" /><span class="chat-toolbar__label">新建对话</span>
         </AButton>
-        <ASelect
-          :value="modelId"
-          class="model-select"
-          :options="modelOptions"
-          show-search
-          option-filter-prop="label"
-          aria-label="选择模型"
-          placeholder="选择平台模型"
-          :disabled="running || sending || loading"
-          @update:value="setModelId"
-        />
         <button
           class="toolbar-icon-button"
           type="button"
@@ -325,9 +313,11 @@ onBeforeUnmount(() => {
         </article>
       </section>
       <footer class="composer">
-        <div class="composer-context">
-          <span class="model-capability">{{ supportsVision ? '文本与图片' : '文本对话' }}</span
-          ><span v-if="!modelOptions.length && !listLoading" class="muted small"
+        <div
+          v-if="(!modelOptions.length && !listLoading) || sending || activeRun || preparing"
+          class="composer-context"
+        >
+          <span v-if="!modelOptions.length && !listLoading" class="muted small"
             >暂无可用模型，请联系管理员配置</span
           >
           <div class="composer-context-actions">
@@ -431,54 +421,69 @@ onBeforeUnmount(() => {
             @keydown="keydown"
           />
           <div class="composer-actions">
-            <SkillPicker
-              v-model="selectedSkills"
-              v-model:open="skillPickerOpen"
-              :disabled="running || sending || loading"
-              @selected="handleSkillSelected"
-            />
-            <KnowledgePicker
-              v-model="selectedKnowledgeBases"
-              :disabled="running || sending || loading || readOnly"
-            />
-            <AButton
-              type="text"
-              :disabled="sending || running || loading || readOnly"
-              aria-label="添加图片或附件"
-              title="每条消息最多10张图片、5个文档，单个文件最大20MiB"
-              @click="fileInput?.click()"
-              ><PaperClipOutlined /></AButton
-            ><span class="composer-hint">{{
-              draft.length ? `${draft.length} / 16000` : '单个文件最大20MiB'
-            }}</span
-            ><AButton
-              v-if="running"
-              class="composer-submit"
-              danger
-              :loading="stopping"
-              :disabled="stopAcknowledged"
-              aria-label="停止生成"
-              @click="stop"
-              ><PauseCircleOutlined />停止</AButton
-            ><AButton
-              v-else
-              class="composer-submit"
-              type="primary"
-              :loading="sending"
-              :disabled="
-                (!draft.trim() && !queuedFiles.length) ||
-                !modelId ||
-                loading ||
-                listLoading ||
-                !historyReady ||
-                !fileQueueReady ||
-                regenerationPending ||
-                readOnly
-              "
-              aria-label="发送消息"
-              @click="send()"
-              ><SendOutlined />发送</AButton
-            >
+            <div class="composer-tools">
+              <SkillPicker
+                v-model="selectedSkills"
+                v-model:open="skillPickerOpen"
+                :disabled="running || sending || loading"
+                @selected="handleSkillSelected"
+              />
+              <KnowledgePicker
+                v-model="selectedKnowledgeBases"
+                :disabled="running || sending || loading || readOnly"
+              />
+              <AButton
+                type="text"
+                :disabled="sending || running || loading || readOnly"
+                aria-label="添加图片或附件"
+                title="每条消息最多10张图片、5个文档，单个文件最大20MiB"
+                @click="fileInput?.click()"
+                ><PaperClipOutlined /></AButton
+              ><span class="composer-hint">{{
+                draft.length ? `${draft.length} / 16000` : '单个文件最大20MiB'
+              }}</span>
+            </div>
+            <div class="composer-controls">
+              <ASelect
+                :value="modelId"
+                class="model-select"
+                :options="modelOptions"
+                show-search
+                option-filter-prop="label"
+                aria-label="选择模型"
+                placeholder="选择平台模型"
+                :disabled="running || sending || loading"
+                @update:value="setModelId"
+              />
+              <AButton
+                v-if="running"
+                class="composer-submit"
+                danger
+                :loading="stopping"
+                :disabled="stopAcknowledged"
+                aria-label="停止生成"
+                @click="stop"
+                ><PauseCircleOutlined />停止</AButton
+              ><AButton
+                v-else
+                class="composer-submit"
+                type="primary"
+                :loading="sending"
+                :disabled="
+                  (!draft.trim() && !queuedFiles.length) ||
+                  !modelId ||
+                  loading ||
+                  listLoading ||
+                  !historyReady ||
+                  !fileQueueReady ||
+                  regenerationPending ||
+                  readOnly
+                "
+                aria-label="发送消息"
+                @click="send()"
+                ><SendOutlined />发送</AButton
+              >
+            </div>
           </div>
         </div>
       </footer>
@@ -583,7 +588,8 @@ onBeforeUnmount(() => {
 }
 
 .model-select {
-  width: min(320px, 100%);
+  flex: 1;
+  width: min(220px, 100%);
   min-width: 0;
 }
 
@@ -595,7 +601,6 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-height: 70px;
   padding: 12px 24px;
-  border-bottom: 1px solid var(--gray-150);
 }
 .chat-toolbar-action {
   flex-shrink: 0;
@@ -650,31 +655,6 @@ button.chat-toolbar-action:focus-visible,
   align-items: center;
   gap: 8px;
   margin-left: auto;
-}
-
-.model-capability {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--gray-150);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 20px;
-}
-
-.model-capability:focus-visible {
-  outline: 2px solid var(--main-color);
-  outline-offset: 2px;
-}
-
-.model-capability-description {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
 .message-history {
@@ -880,9 +860,30 @@ button.chat-toolbar-action:focus-visible,
 }
 
 .composer-actions {
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 8px;
   margin-top: 8px;
+}
+
+.composer-tools,
+.composer-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-tools {
+  flex: 1 1 auto;
+}
+
+.composer-controls {
+  flex: 0 1 304px;
+}
+
+.composer-hint {
+  margin-left: auto;
 }
 
 .composer-actions :deep(.ant-upload-wrapper),
@@ -891,7 +892,7 @@ button.chat-toolbar-action:focus-visible,
 }
 
 .composer-submit {
-  margin-left: auto;
+  flex-shrink: 0;
   width: 84px;
   height: 36px;
   border-radius: 10px;
@@ -925,16 +926,13 @@ button.chat-toolbar-action:focus-visible,
   .message-history {
     padding: 16px 12px;
   }
-  .model-select {
-    width: 180px;
+  .composer-tools,
+  .composer-controls {
+    flex-basis: 100%;
   }
 }
 
 @media (max-width: 480px) {
-  .model-select {
-    width: 150px;
-    min-width: 0;
-  }
   .composer-surface {
     padding: 12px;
     border-radius: 16px;

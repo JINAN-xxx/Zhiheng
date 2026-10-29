@@ -706,10 +706,12 @@ async function stopTest(): Promise<void> {
               :loading="loading"
               ><template #bodyCell="{ column, record: connection }"
                 ><template v-if="column.key === 'name'"
-                  ><code>{{ connection.name }}</code
-                  ><ATag v-if="isMobile">{{
-                    connection.enabled ? '已启用' : '已停用'
-                  }}</ATag></template
+                  ><div class="mobile-model-cell">
+                    <span class="model-display-name" :title="connection.name">{{
+                      connection.name
+                    }}</span>
+                    <ATag v-if="isMobile">{{ connection.enabled ? '已启用' : '已停用' }}</ATag>
+                  </div></template
                 ><template v-else-if="column.key === 'provider'">OpenAI 兼容</template
                 ><template v-else-if="column.key === 'status'"
                   ><ATag :color="connection.has_api_key ? 'success' : 'warning'">{{
@@ -1303,6 +1305,9 @@ async function stopTest(): Promise<void> {
   display: grid;
   min-width: 0;
   gap: 8px;
+}
+.mobile-model-cell > :deep(.ant-tag) {
+  justify-self: start;
 }
 .mobile-model-meta {
   display: flex;

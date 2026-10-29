@@ -32,10 +32,10 @@ const sharedComponents = {
     controlHeight: 34
   },
   Table: {
-    borderColor: '#ECEEF3',
-    headerBg: '#FAFBFE',
-    headerColor: '#7A7F8E',
-    rowHoverBg: '#F8F7FF'
+    colorBorderSecondary: '#ECEEF3',
+    colorFillAlter: '#FBFCFF',
+    colorTextHeading: '#7A7F8E',
+    fontWeightStrong: 500
   }
 }
 

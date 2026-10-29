@@ -57,6 +57,13 @@ async function submit(): Promise<void> {
 <template>
   <AuthShell title="登录">
     <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
+    <AAlert
+      v-else-if="route.query.passwordChanged === '1'"
+      message="密码修改成功，请使用新密码重新登录"
+      type="success"
+      show-icon
+      class="space-bottom"
+    />
     <AForm
       name="login"
       class="login-form"

@@ -7,14 +7,21 @@ from uuid import UUID
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
+from zhiheng.modules.identity.admin_orm import (
+    IdentityDepartment,
+    IdentityPost,
+    IdentityRole,
+    IdentityUserPost,
+    IdentityUserRole,
+)
 from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.contracts import IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
+from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -23,6 +30,104 @@ MAX_PASSWORD_LENGTH = 1024
 
 
 class IdentityService:
+    async def _profile_user(self, session: AsyncSession, user_id: UUID, *, lock: bool = False) -> IdentityUser:
+        query = select(IdentityUser).where(IdentityUser.id == user_id)
+        if lock:
+            query = query.with_for_update()
+        user = await session.scalar(query.execution_options(populate_existing=True))
+        if user is None or not user.is_active or user.deleted_at is not None:
+            raise AppError('unauthenticated', '登录状态已失效，请重新登录', 401)
+        return user
+
+    async def profile(self, session: AsyncSession, *, user_id: UUID) -> ProfileInfo:
+        user = await self._profile_user(session, user_id)
+        department_name = (
+            await session.scalar(select(IdentityDepartment.name).where(IdentityDepartment.id == user.department_id))
+            if user.department_id is not None
+            else None
+        )
+        roles = await session.scalars(
+            select(IdentityRole.name)
+            .join(IdentityUserRole)
+            .where(IdentityUserRole.user_id == user.id)
+            .order_by(IdentityRole.name, IdentityRole.id)
+        )
+        posts = await session.scalars(
+            select(IdentityPost.name)
+            .join(IdentityUserPost)
+            .where(IdentityUserPost.user_id == user.id)
+            .order_by(IdentityPost.sort_order, IdentityPost.name, IdentityPost.id)
+        )
+        return ProfileInfo(
+            id=user.id,
+            username=user.username,
+            display_name=user.display_name,
+            email=user.email,
+            phone=user.phone,
+            is_admin=user.is_admin,
+            department_name=department_name,
+            roles=list(roles),
+            posts=list(posts),
+            created_at=user.created_at,
+            version=user.version,
+        )
+
+    async def _profile_cas(
+        self,
+        session: AsyncSession,
+        user: IdentityUser,
+        *,
+        expected_version: int,
+        fields: dict[str, str],
+    ) -> None:
+        if user.version != expected_version:
+            raise AppError('version_conflict', '资料已被其他操作修改，请刷新后重试', 409)
+        changed = await session.scalar(
+            update(IdentityUser)
+            .where(IdentityUser.id == user.id, IdentityUser.version == expected_version)
+            .values(**fields, version=expected_version + 1, updated_at=datetime.now(timezone.utc))
+            .returning(IdentityUser.id)
+            .execution_options(synchronize_session=False)
+        )
+        if changed is None:
+            raise AppError('version_conflict', '资料已被其他操作修改，请刷新后重试', 409)
+
+    async def update_profile(self, session: AsyncSession, *, user_id: UUID, body: ProfilePatch) -> ProfileInfo:
+        user = await self._profile_user(session, user_id, lock=True)
+        await self._profile_cas(
+            session,
+            user,
+            expected_version=body.expected_version,
+            fields=body.model_dump(exclude_unset=True, exclude={'expected_version'}),
+        )
+        return await self.profile(session, user_id=user_id)
+
+    async def change_password(self, session: AsyncSession, *, user_id: UUID, body: PasswordChange) -> None:
+        user = await self._profile_user(session, user_id)
+        if user.version != body.expected_version:
+            raise AppError('version_conflict', '资料已被其他操作修改，请刷新后重试', 409)
+        encoded = user.password_hash
+        current_password = body.current_password.get_secret_value()
+        new_password = body.new_password.get_secret_value()
+        try:
+            await asyncio.to_thread(self._hasher.verify, encoded, current_password)
+        except (VerificationError, InvalidHashError) as exc:
+            raise AppError('invalid_current_password', '当前密码错误', 400) from exc
+        if new_password == current_password:
+            raise AppError('unchanged_password', '新密码不能与当前密码相同', 400)
+        # Both expensive Argon2 operations finish before taking the user lock.
+        password_hash = await self.hash_password(new_password)
+        user = await self._profile_user(session, user_id, lock=True)
+        if user.password_hash != encoded:
+            raise AppError('version_conflict', '登录凭据已被其他操作修改，请刷新后重试', 409)
+        await self._profile_cas(
+            session,
+            user,
+            expected_version=body.expected_version,
+            fields={'password_hash': password_hash},
+        )
+        await session.execute(delete(IdentitySession).where(IdentitySession.user_id == user_id))
+
     async def directory(self, session: AsyncSession, *, search: str = '') -> list[IdentityInfo]:
         query = select(IdentityUser).where(IdentityUser.is_active.is_(True), IdentityUser.deleted_at.is_(None))
         if search:

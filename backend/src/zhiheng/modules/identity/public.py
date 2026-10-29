@@ -14,6 +14,7 @@ from zhiheng.modules.identity.admin_permissions import permission_catalog
 from zhiheng.modules.identity.admin_service import IdentityAdminService
 from zhiheng.modules.identity.contracts import IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
+from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.modules.identity.service import IdentityService
 
 """Identity use cases; callers receive principals, never identity ORM objects."""
@@ -24,7 +25,10 @@ __all__ = [
     'IdentityAdminService',
     'IdentityInfo',
     'IdentityService',
+    'PasswordChange',
     'PasswordReset',
+    'ProfileInfo',
+    'ProfilePatch',
     'permission_catalog',
     'schema_tables',
 ]
