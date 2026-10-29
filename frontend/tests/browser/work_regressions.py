@@ -97,6 +97,87 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.page.goto(self.origin + '/work?taskId=task-1')
         await expect(self.page.get_by_role('heading', name=self.task['title'], exact=True)).to_be_visible()
 
+    async def open_work_history(self):
+        await self.page.get_by_role('button', name='工作记录', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='工作记录', exact=True)
+        await expect(dialog).to_be_visible()
+        return dialog
+
+    async def close_work_history(self):
+        dialog = self.page.get_by_role('dialog', name='工作记录', exact=True)
+        await dialog.get_by_role('button', name='Close', exact=True).click()
+        await expect(dialog).not_to_be_visible()
+
+    async def test_history_modal_leaves_main_workspace_and_goal_draft_intact(self):
+        await self.page.goto(self.origin + '/work')
+        goal = self.page.get_by_role('textbox', name='工作目标', exact=True)
+        await goal.fill('未提交的工作目标')
+        await expect(self.page.get_by_role('complementary', name='工作任务列表', exact=True)).to_have_count(0)
+        before = await self.page.locator('.work-view__content').bounding_box()
+        await self.open_work_history()
+        after = await self.page.locator('.work-view__content').bounding_box()
+        for key in ['x', 'y', 'width', 'height']:
+            self.assertLessEqual(abs(before[key] - after[key]), 1)
+        await self.close_work_history()
+        await expect(goal).to_have_value('未提交的工作目标')
+        await expect(self.page.get_by_role('button', name='新建工作', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='工作记录', exact=True)).to_be_focused()
+        self.assertEqual(self.posts, [])
+
+    async def test_selecting_a_work_record_closes_modal(self):
+        self.tasks = [self.task]
+        await self.page.goto(self.origin + '/work')
+        dialog = await self.open_work_history()
+        await dialog.locator('.recent-work__open').click()
+        await expect(dialog).not_to_be_visible()
+        await expect(self.page).to_have_url(self.origin + '/work?taskId=task-1')
+        await expect(self.page.get_by_role('heading', name='研究目标', exact=True)).to_be_visible()
+        self.assertEqual(self.chat_requests, [])
+
+    async def test_opening_work_records_preserves_current_message_draft(self):
+        await self.open_task()
+        message = self.page.get_by_role('textbox', name='工作消息', exact=True)
+        await message.fill('保留给当前成员的消息草稿')
+        await self.open_work_history()
+        await self.close_work_history()
+        await expect(message).to_have_value('保留给当前成员的消息草稿')
+        await expect(self.page.get_by_role('heading', name='研究目标', exact=True)).to_be_visible()
+        self.assertEqual(self.runs, [])
+
+    async def test_work_history_modal_fits_mobile_and_new_work_is_always_accessible(self):
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        await self.page.goto(self.origin + '/work')
+        await expect(self.page.get_by_role('heading', name='今天要完成什么工作？', exact=True)).to_be_visible()
+        before = await self.page.locator('.work-view__content').bounding_box()
+        dialog = await self.open_work_history()
+        after = await self.page.locator('.work-view__content').bounding_box()
+        self.assertAlmostEqual(before['width'], after['width'], delta=1)
+        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        await dialog.get_by_role('button', name='Close', exact=True).click()
+        await expect(dialog).not_to_be_visible()
+        await self.page.get_by_role('button', name='新建工作', exact=True).click()
+        await expect(self.page.get_by_role('textbox', name='工作目标', exact=True)).to_be_visible()
+        self.assertEqual(self.posts, [])
+
+    async def test_many_work_records_can_scroll_to_the_last_record(self):
+        self.tasks = [{**self.task, 'id': f'task-{index}', 'title': f'待查工作 {index}'} for index in range(20)]
+        for viewport in [{'width': 1440, 'height': 900}, {'width': 320, 'height': 568}]:
+            with self.subTest(viewport=viewport):
+                await self.page.set_viewport_size(viewport)
+                await self.page.goto(self.origin + '/work')
+                await expect(self.page.get_by_role('textbox', name='工作目标', exact=True)).to_be_visible()
+                dialog = await self.open_work_history()
+                listing = dialog.locator('.recent-work__list')
+                await expect(dialog.locator('.recent-work__open')).to_have_count(20)
+                self.assertTrue(await listing.evaluate('(node) => node.scrollHeight > node.clientHeight'))
+                last = dialog.locator('.recent-work__open').last
+                await last.scroll_into_view_if_needed()
+                item = await last.bounding_box()
+                bounds = await listing.bounding_box()
+                self.assertGreaterEqual(item['y'], bounds['y'] - 1)
+                self.assertLessEqual(item['y'] + item['height'], bounds['y'] + bounds['height'] + 1)
+                await self.close_work_history()
+
     async def create_task(self, await_heading=True):
         await self.page.goto(self.origin + '/work')
         await expect(self.page.get_by_role('heading', name='今天要完成什么工作？')).to_be_visible()
@@ -279,6 +360,7 @@ class WorkUIRegressions(DeveloperBoundary):
 
     async def test_recent_work_rename_and_delete_use_versions(self):
         await self.open_task()
+        await self.open_work_history()
         recent = self.page.locator('.recent-work__item')
         await recent.hover()
         await recent.get_by_role('button', name='更多操作', exact=True).click()
@@ -286,8 +368,11 @@ class WorkUIRegressions(DeveloperBoundary):
         dialog = self.page.get_by_role('dialog', name='重命名工作', exact=True)
         await dialog.get_by_label('工作标题', exact=True).fill('新的工作标题')
         await dialog.get_by_role('button', name=re.compile(r'^(?:OK|确\s*定)$')).click()
+        await expect(dialog).not_to_be_visible()
+        await self.close_work_history()
         await expect(self.page.get_by_role('heading', name='新的工作标题', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1], {'title': '新的工作标题', 'expected_version': 1})
+        await self.open_work_history()
         await recent.hover()
         await recent.get_by_role('button', name='更多操作', exact=True).click()
         await self.page.get_by_role('menuitem', name='删除工作', exact=True).click()
@@ -367,6 +452,7 @@ class WorkUIRegressions(DeveloperBoundary):
         try:
             await self.create_task()
             await asyncio.wait_for(requested.wait(), timeout=5)
+            await self.open_work_history()
             await expect(self.page.locator('.recent-work__item .workspace-more-menu')).to_have_count(0)
             release.set()
             await expect(self.page.get_by_role('button', name='停止', exact=True)).to_be_visible()
@@ -380,7 +466,9 @@ class WorkUIRegressions(DeveloperBoundary):
         self.task['current_run_id'] = self.run['id']
         self.task['messages'] = [self.message('assistant', {'agent_id': 'agent-a', 'client_request_id': 'turn', 'message': 'question'}, self.run)]
         await self.open_task()
+        await self.open_work_history()
         await expect(self.page.locator('.recent-work__item .workspace-more-menu')).to_have_count(0)
+        await self.close_work_history()
         await expect(self.page.locator('.work-message').get_by_text('正在停止', exact=True)).to_be_visible()
 
 
@@ -443,9 +531,11 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.page.route('**/api/work/tasks', collection)
         await self.create_task(await_heading=False)
         await expect(self.page.get_by_text('无法连接服务，请检查网络后重试', exact=True)).to_be_visible()
+        await self.open_work_history()
         await self.page.get_by_role('button', name='刷新工作列表', exact=True).click()
         await expect(self.page.locator('.recent-work__open')).to_have_count(1)
         await self.page.locator('.recent-work__open').click()
+        await expect(self.page.get_by_role('dialog', name='工作记录', exact=True)).not_to_be_visible()
         await self.page.get_by_role('button', name='继续执行', exact=True).click()
         await expect(self.page.locator('.work-message.assistant')).to_have_count(1)
         await self.page.get_by_role('button', name='新建工作', exact=True).click()
