@@ -233,20 +233,25 @@ function open(base: KnowledgeBase, view: string): void {
 }
 
 .knowledge-grid {
-  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(230px, 1fr));
+  gap: 18px;
+  margin-top: 20px;
 }
 
 .knowledge-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   min-width: 0;
-  gap: 10px 28px;
-  padding: 24px 0;
-  border-bottom: 1px solid var(--gray-150);
+  min-height: 240px;
+  flex-direction: column;
+  padding: 22px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--bg-container);
 }
 
-.knowledge-card:last-child {
-  border-bottom: 0;
+.knowledge-card:hover {
+  border-color: var(--main-300);
 }
 
 .knowledge-card__header {
@@ -259,6 +264,7 @@ function open(base: KnowledgeBase, view: string): void {
 .knowledge-card__header h2 {
   margin: 0;
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   color: var(--color-text);
   font-size: 16px;
@@ -273,17 +279,20 @@ function open(base: KnowledgeBase, view: string): void {
 
 .knowledge-card__icon {
   display: grid;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
   place-items: center;
+  border-radius: 7px;
   color: var(--main-700);
+  background: var(--main-50);
   font-size: 17px;
 }
 
 .knowledge-card > p {
   display: -webkit-box;
-  margin: 0;
+  min-height: 42px;
+  margin: 20px 0 14px;
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
@@ -293,22 +302,17 @@ function open(base: KnowledgeBase, view: string): void {
   -webkit-line-clamp: 2;
 }
 
-.knowledge-card__header,
-.knowledge-card > p,
-.knowledge-card__metadata,
-.knowledge-card__created {
-  grid-column: 1;
-}
-
 .knowledge-card__metadata {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
+  margin-bottom: 12px;
   color: var(--color-text-secondary);
   font-size: 12px;
 }
 
 .knowledge-card__created {
+  margin-bottom: 14px;
   color: var(--color-text-secondary);
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -316,25 +320,17 @@ function open(base: KnowledgeBase, view: string): void {
 
 .knowledge-card__footer {
   display: flex;
-  grid-column: 2;
-  grid-row: 1 / span 4;
-  align-content: center;
-  align-self: center;
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 4px;
-  max-width: 320px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-100);
 }
 
 @media (max-width: 1080px) {
-  .knowledge-card {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .knowledge-card__footer {
-    grid-column: 1;
-    grid-row: auto;
-    max-width: none;
+  .knowledge-grid {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
   }
 }
 
@@ -359,17 +355,8 @@ function open(base: KnowledgeBase, view: string): void {
     text-align: right;
   }
 
-  .knowledge-card {
-    gap: 10px;
-    padding: 20px 0;
-  }
-
-  .knowledge-card__header {
-    flex-wrap: wrap;
-  }
-
-  .knowledge-card__header h2 {
-    flex: 1;
+  .knowledge-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

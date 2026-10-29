@@ -468,7 +468,7 @@ function formatTime(value: string): string {
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-page);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 
@@ -487,7 +487,9 @@ function formatTime(value: string): string {
   width: 100%;
   min-height: 0;
   overflow: hidden;
-  background: transparent;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .developer-grid.is-list > :deep(.workspace-panel) {
@@ -523,7 +525,7 @@ function formatTime(value: string): string {
 .application-list-view :deep(.ant-pagination) {
   display: flex;
   justify-content: flex-end;
-  margin: 18px 0;
+  margin: 18px 16px;
 }
 
 .application-row {
@@ -608,7 +610,9 @@ function formatTime(value: string): string {
   min-height: 0;
   flex: 0 1 auto;
   overflow: auto;
-  background: transparent;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .application-context-bar,

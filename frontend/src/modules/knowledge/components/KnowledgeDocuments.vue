@@ -390,7 +390,10 @@ watch(
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 4px 0 12px;
+  padding: 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .document-controls :deep(.ant-input-affix-wrapper) {

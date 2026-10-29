@@ -119,9 +119,9 @@ defineProps({
 .auth-shell__panel {
   width: min(100%, 420px);
   padding: 32px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 
 .auth-shell--split .auth-shell__panel {

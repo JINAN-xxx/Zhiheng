@@ -270,7 +270,7 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
   display: flex;
   position: relative;
   overflow: hidden;
-  background: var(--bg-page);
+  background: var(--bg-container);
 }
 .work-view__loading {
   margin: auto;
@@ -282,7 +282,7 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
   width: 240px;
   min-height: 0;
   border-right: 1px solid var(--gray-150);
-  background: var(--bg-page);
+  background: var(--gray-25);
 }
 .work-history > header {
   display: flex;

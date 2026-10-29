@@ -916,7 +916,7 @@ async function stopTest(): Promise<void> {
   display: flex;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-page);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 .model-workspace {
@@ -1068,16 +1068,18 @@ async function stopTest(): Promise<void> {
 }
 .model-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
 }
 .model-card {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.8fr) auto;
-  align-items: center;
-  gap: 10px 28px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--gray-150);
+  padding: 22px 22px 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.model-card:hover {
+  border-color: var(--main-200);
 }
 .model-card__header {
   display: flex;
@@ -1124,16 +1126,13 @@ async function stopTest(): Promise<void> {
   margin: 0;
 }
 .model-card__code {
-  grid-column: 1;
-  padding-left: 52px;
+  margin-top: 18px;
 }
 .model-card__details {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 18px;
-  grid-column: 2;
-  grid-row: 1 / 3;
-  margin: 0;
+  margin: 18px 0 20px;
 }
 .model-card__details > div {
   min-width: 0;
@@ -1153,11 +1152,10 @@ async function stopTest(): Promise<void> {
 .model-card__footer {
   display: flex;
   justify-content: space-between;
-  grid-column: 3;
-  grid-row: 1 / 3;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-150);
 }
 .model-card__connection {
   display: flex;
@@ -1192,8 +1190,9 @@ async function stopTest(): Promise<void> {
 .test-result pre {
   max-height: 300px;
   overflow: auto;
-  padding: 12px 0 12px 14px;
-  border-left: 2px solid var(--gray-150);
+  padding: 16px;
+  border-radius: 5px;
+  background: var(--gray-25);
   line-height: 1.7;
 }
 @media (max-width: 760px) {
@@ -1219,18 +1218,8 @@ async function stopTest(): Promise<void> {
   }
 }
 @media (min-width: 761px) and (max-width: 1100px) {
-  .model-card {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px 20px;
-  }
-  .model-card__details {
-    grid-column: 1;
-    grid-row: 3;
-    padding-left: 52px;
-  }
-  .model-card__footer {
-    grid-column: 2;
-    grid-row: 1 / 4;
+  .model-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
@@ -1248,7 +1237,10 @@ async function stopTest(): Promise<void> {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 20px;
-  padding: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 .panel-summary {
   display: flex;
@@ -1271,10 +1263,12 @@ async function stopTest(): Promise<void> {
 }
 .model-table :deep(.ant-table-container) {
   overflow: hidden;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
 }
 .model-table :deep(.ant-table-thead > tr > th) {
   border-bottom-color: var(--gray-150);
-  background: var(--bg-page);
+  background: var(--gray-10);
   color: var(--color-text-secondary);
   font-size: 13px;
   font-weight: 500;
@@ -1516,9 +1510,10 @@ async function stopTest(): Promise<void> {
   gap: 8px;
 }
 .test-result {
-  margin-top: 24px;
-  padding: 20px 0 0;
-  border-top: 1px solid var(--gray-150);
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
 }
 .test-result__heading {
   display: flex;

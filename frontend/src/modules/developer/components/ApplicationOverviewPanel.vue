@@ -45,7 +45,7 @@ function formatTime(value: string): string {
 .overview-panel {
   display: grid;
   gap: 24px;
-  padding: 4px 0 24px;
+  padding: 24px;
 }
 
 .overview-grid {
@@ -76,8 +76,10 @@ function formatTime(value: string): string {
 }
 
 .access-guide {
-  padding: 20px 0 0;
+  padding: 16px;
   border-top: 1px solid var(--gray-150);
+  background: var(--gray-25);
+  border-radius: 5px;
 }
 
 .access-guide p {
@@ -95,7 +97,7 @@ function formatTime(value: string): string {
 }
 @media (max-width: 640px) {
   .overview-panel {
-    padding: 0 0 18px;
+    padding: 18px;
   }
   .overview-grid {
     grid-template-columns: 1fr;

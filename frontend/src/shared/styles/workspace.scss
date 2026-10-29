@@ -119,8 +119,8 @@ code,
 
 .workspace-surface {
   background: var(--workspace-surface);
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--workspace-border);
+  border-radius: var(--workspace-radius-md);
 }
 
 .workspace-focus-ring:focus-visible,

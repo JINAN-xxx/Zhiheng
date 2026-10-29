@@ -21,7 +21,7 @@ defineExpose({ focusMenu: () => menuButtonRef.value?.focus() })
       <MenuOutlined />
     </button>
     <div class="platform-topbar__context">
-      <strong>{{ title }}</strong>
+      <span class="sr-only">{{ title }}</span>
     </div>
     <div class="platform-topbar__actions">
       <PlatformResourceSearch /><PlatformAccountMenu :leaving="leaving" @logout="emit('logout')" />
@@ -37,8 +37,8 @@ defineExpose({ focusMenu: () => menuButtonRef.value?.focus() })
   height: var(--platform-topbar-height);
   min-height: var(--platform-topbar-height);
   padding: 0 32px;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--bg-container);
+  border-bottom: 0;
+  background: var(--bg-page);
 }
 .platform-topbar__menu {
   display: grid;
@@ -55,15 +55,6 @@ defineExpose({ focusMenu: () => menuButtonRef.value?.focus() })
 .platform-topbar__context {
   flex: 1;
   min-width: 0;
-}
-.platform-topbar__context strong {
-  display: block;
-  overflow: hidden;
-  color: var(--gray-700);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 400;
 }
 .platform-topbar__actions {
   display: flex;

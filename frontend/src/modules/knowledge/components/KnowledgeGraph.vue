@@ -189,9 +189,10 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 .knowledge-graph__detail {
-  margin-top: 16px;
-  padding: 16px 0;
-  border-top: 1px solid var(--gray-150);
+  padding: 16px;
+  background: var(--bg-container);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
 }
 .knowledge-graph__detail > div {
   display: flex;

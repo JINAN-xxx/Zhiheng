@@ -77,7 +77,7 @@ const columns = [
   gap: 3px;
   min-height: 54px;
   align-content: center;
-  padding: 12px 0;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--gray-150);
 }
 

@@ -48,7 +48,7 @@
           <p>{{ selectedFile?.name }}</p>
         </div>
       </div>
-      <a-descriptions :column="1" size="small">
+      <a-descriptions :column="1" bordered size="small">
         <a-descriptions-item label="技能名称">{{ prepared.skillName }}</a-descriptions-item>
         <a-descriptions-item label="技能标识"
           ><code>{{ prepared.skillSlug }}</code></a-descriptions-item
@@ -217,8 +217,10 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   margin-top: 18px;
-  padding: 18px 0 0;
-  border-top: 1px solid var(--gray-150);
+  padding: 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 7px;
+  background: var(--gray-25);
   color: var(--main-700);
 }
 .upload-guide strong {
@@ -237,7 +239,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 20px;
-  padding: 4px 0;
+  padding: 16px;
+  border-radius: 7px;
+  background: var(--main-50);
   color: var(--main-700);
 }
 .prepared-heading > span {
@@ -276,7 +280,7 @@ onBeforeUnmount(() => {
 }
 :deep(.ant-upload-drag) {
   border-color: var(--gray-150);
-  background: var(--bg-page);
+  background: var(--gray-25);
   padding: 16px;
   border-radius: 8px;
 }

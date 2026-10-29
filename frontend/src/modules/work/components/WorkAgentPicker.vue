@@ -87,6 +87,7 @@ function confirm(): void {
 }
 .work-agent-picker {
   display: grid;
+  gap: 10px;
   max-height: min(420px, 56vh);
   overflow-y: auto;
   padding: 2px;
@@ -97,9 +98,10 @@ function confirm(): void {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 7px 12px;
-  padding: 16px 10px;
-  border-bottom: 1px solid var(--gray-150);
-  background: var(--bg-page);
+  padding: 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 12px;
+  background: var(--gray-10);
   transition:
     border-color 0.18s,
     background 0.18s;

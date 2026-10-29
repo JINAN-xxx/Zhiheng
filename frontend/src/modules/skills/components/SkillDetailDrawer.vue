@@ -22,7 +22,7 @@
         />
       </div>
 
-      <a-descriptions :column="1" size="small">
+      <a-descriptions :column="1" bordered size="small">
         <a-descriptions-item label="说明">{{ detail.description || '-' }}</a-descriptions-item>
         <a-descriptions-item label="版本">{{ detail.version || '-' }}</a-descriptions-item>
         <a-descriptions-item label="来源">{{
@@ -268,8 +268,10 @@ onBeforeUnmount(() => {
   max-height: 360px;
   margin: 0;
   overflow: auto;
-  padding: 4px 0 4px 14px;
-  border-left: 2px solid var(--gray-150);
+  padding: 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 6px;
+  background: var(--gray-25);
   color: var(--color-text);
   font-family: var(--workspace-font-mono);
   font-size: 12px;

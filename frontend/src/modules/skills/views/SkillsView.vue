@@ -232,19 +232,23 @@ onBeforeUnmount(() => scope.dispose())
   font-size: 13px;
 }
 .skill-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(230px, 1fr));
+  gap: 20px;
 }
 .skill-card {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 28px;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--gray-150);
+  display: flex;
+  min-height: 225px;
+  flex-direction: column;
+  padding: 22px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
+}
+.skill-card:hover {
+  border-color: var(--main-300);
 }
 .skill-card__header {
-  grid-column: 1;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -272,9 +276,9 @@ onBeforeUnmount(() => scope.dispose())
   font-size: 17px;
 }
 .skill-card p {
-  grid-column: 1;
   display: -webkit-box;
-  margin: 5px 0 9px 47px;
+  min-height: 42px;
+  margin: 14px 0 10px;
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: 14px;
@@ -283,25 +287,28 @@ onBeforeUnmount(() => scope.dispose())
   -webkit-line-clamp: 2;
 }
 .skill-card__footer {
-  grid-column: 2;
-  grid-row: 1 / 4;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--gray-100);
 }
 .skill-card__tags {
-  grid-column: 1;
   display: flex;
-  gap: 14px;
-  margin-left: 47px;
+  gap: 7px;
+  margin-bottom: 18px;
 }
 .skill-card__tags span {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--gray-50);
   color: var(--color-text-secondary);
   font-size: 12px;
 }
 .skill-card__tags span:first-child {
+  background: var(--main-50);
   color: var(--main-700);
 }
 .skill-card__footer > span {
@@ -315,20 +322,17 @@ onBeforeUnmount(() => scope.dispose())
   justify-content: flex-end;
   margin-top: 18px;
 }
+@media (max-width: 1080px) {
+  .skill-grid {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
+  }
+}
 @media (max-width: 600px) {
   .skill-content {
     padding: 14px 12px;
   }
-  .skill-card {
+  .skill-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .skill-card__footer {
-    grid-column: 1;
-    grid-row: 4;
-    flex-direction: row;
-    justify-content: space-between;
-    align-items: center;
-    margin: 10px 0 0 47px;
   }
   .skill-controls {
     flex-wrap: wrap;

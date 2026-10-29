@@ -119,7 +119,7 @@ function active(path: string): boolean {
   height: 100%;
   min-height: 0;
   background: var(--bg-sider);
-  border-right: 1px solid var(--gray-150);
+  border-right: 0;
   color: var(--color-text);
 }
 .platform-brand-row {
@@ -191,7 +191,7 @@ function active(path: string): boolean {
 }
 .platform-sidebar__account {
   margin-top: auto;
-  border-top: 1px solid var(--gray-150);
+  border-top: 0;
   padding: 12px;
 }
 .collapsed .platform-brand-row {

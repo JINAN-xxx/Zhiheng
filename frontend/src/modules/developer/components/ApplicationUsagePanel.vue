@@ -162,7 +162,9 @@ const formatCost = (value: string | null) => (value === null ? '待核对' : val
 }
 
 .usage-mobile-item {
-  border-bottom: 1px solid var(--gray-150);
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 </style>
 
@@ -170,12 +172,13 @@ const formatCost = (value: string | null) => (value === null ? '待核对' : val
 @media (max-width: 760px) {
   .usage-mobile-list {
     display: grid;
-    gap: 0;
+    gap: 10px;
+    padding: 14px;
   }
   .usage-mobile-item {
     display: grid;
     gap: 8px;
-    padding: 18px 0;
+    padding: 14px;
     color: var(--color-text-secondary);
     font-size: 13px;
     overflow-wrap: anywhere;

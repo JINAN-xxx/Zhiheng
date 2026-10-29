@@ -37,7 +37,10 @@
         <div class="agent-grid">
           <article v-for="agent in agents" :key="agent.agentId" class="agent-card">
             <div class="agent-card__top">
-              <span class="agent-card__icon"><RobotOutlined /></span>
+              <span class="agent-card__icon"><RobotOutlined /></span
+              ><a-button type="text" :aria-label="`编辑${agent.name}`" @click="openEditor(agent)"
+                ><EllipsisOutlined
+              /></a-button>
             </div>
             <div class="agent-card__header">
               <strong :title="agent.name">{{ agent.name }}</strong>
@@ -74,9 +77,6 @@
                 @click="openAgentTool(agent, 'api')"
                 ><ApiOutlined />API</a-button
               >
-              <a-button type="text" :aria-label="`编辑${agent.name}`" @click="openEditor(agent)"
-                ><EllipsisOutlined
-              /></a-button>
             </div>
           </article>
           <button class="create-agent-card" type="button" @click="openEditor()">
@@ -238,23 +238,34 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 .agent-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
 }
 .agent-card {
-  display: grid;
+  display: flex;
   min-width: 0;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
-  column-gap: 16px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--gray-150);
+  min-height: 255px;
+  flex-direction: column;
+  padding: 22px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: #fff;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.agent-card:hover {
+  border-color: var(--main-200);
+  box-shadow: 0 4px 18px #24273305;
 }
 .agent-card__top {
-  grid-column: 1;
-  grid-row: 1 / 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
 }
 .agent-card__header {
-  grid-column: 2;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -283,9 +294,9 @@ onBeforeUnmount(() => {
   font-size: 18px;
 }
 .agent-card p {
-  grid-column: 2;
   display: -webkit-box;
-  margin: 7px 0 10px;
+  min-height: 42px;
+  margin: 14px 0 12px;
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
@@ -295,10 +306,10 @@ onBeforeUnmount(() => {
   -webkit-box-orient: vertical;
 }
 .agent-card__metadata {
-  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
+  margin-bottom: 12px;
   color: var(--color-text-secondary);
   font-size: 12px;
 }
@@ -309,39 +320,43 @@ onBeforeUnmount(() => {
 }
 .create-agent-card {
   display: flex;
-  min-height: 64px;
+  min-height: 255px;
   align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 12px 0;
-  border: 0;
-  background: transparent;
-  color: var(--main-700);
+  justify-content: center;
+  gap: 16px;
+  flex-direction: column;
+  border: 1px dashed var(--gray-150);
+  border-radius: 8px;
+  background: #ffffff70;
+  color: var(--color-text-secondary);
   font: inherit;
   cursor: pointer;
 }
 .create-agent-card > .anticon {
-  width: 42px;
-  font-size: 18px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--main-50);
+  color: var(--main-700);
+  font-size: 20px;
 }
 .create-agent-card:hover {
-  color: var(--main-500);
-}
-.create-agent-card:focus-visible {
-  outline: 2px solid var(--main-400);
-  outline-offset: 2px;
+  border-color: var(--main-300);
+  color: var(--main-700);
 }
 .agent-pending {
   color: var(--color-warning-700);
 }
 .agent-card__footer {
-  grid-column: 3;
-  grid-row: 1 / 4;
-  align-self: center;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 4px;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-100);
 }
 .agent-alert {
   margin-bottom: 14px;
@@ -351,26 +366,17 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   margin-top: 18px;
 }
-@media (max-width: 900px) {
-  .agent-card__footer {
-    grid-column: 2;
-    grid-row: 4;
-    margin-top: 12px;
+@media (max-width: 1100px) {
+  .agent-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 640px) {
   .agent-content {
     padding: 16px;
   }
-  .agent-card {
-    grid-template-columns: 36px minmax(0, 1fr);
-    column-gap: 12px;
-    padding-block: 18px;
-  }
-  .agent-card__icon {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
+  .agent-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 :deep(.ant-btn-link) {

@@ -197,7 +197,7 @@ async function load(): Promise<void> {
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--bg-page);
+  background: var(--workspace-bg-page, #f7f8fc);
   font-family: var(--workspace-font-family);
 }
 .usage-content {
@@ -252,11 +252,13 @@ async function load(): Promise<void> {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: transparent;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 .usage-table-wrap :deep(.ant-table-thead > tr > th) {
   border-bottom-color: var(--gray-150);
-  background: var(--bg-page);
+  background: var(--gray-10);
   color: var(--color-text-secondary);
 }
 .usage-table-wrap :deep(.ant-table-tbody > tr > td) {
@@ -266,11 +268,14 @@ async function load(): Promise<void> {
 }
 .usage-mobile-list {
   display: grid;
+  gap: 14px;
 }
 .usage-mobile-item {
   min-width: 0;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--gray-150);
+  padding: 17px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 .usage-mobile-item__header {
   display: flex;
@@ -301,7 +306,7 @@ async function load(): Promise<void> {
 .usage-table-wrap :deep(.ant-pagination) {
   display: flex;
   justify-content: flex-end;
-  margin: 18px 0;
+  margin: 18px 16px;
 }
 @media (min-width: 992px) {
   .usage-content {
@@ -343,14 +348,15 @@ async function load(): Promise<void> {
 .usage-quota {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  margin-bottom: 28px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--gray-150);
+  gap: 18px;
+  margin-bottom: 24px;
 }
 .usage-quota > div {
   min-width: 0;
-  padding: 4px 0;
+  padding: 22px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 .usage-quota span {
   display: block;
@@ -388,7 +394,7 @@ async function load(): Promise<void> {
     margin-bottom: 18px;
   }
   .usage-quota > div {
-    padding: 4px 0;
+    padding: 14px 10px;
   }
   .usage-quota strong {
     font-size: 19px;

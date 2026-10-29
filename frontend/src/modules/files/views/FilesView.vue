@@ -325,8 +325,10 @@ onBeforeUnmount(() => {
 }
 .file-resources {
   min-width: 0;
-  padding-top: 24px;
-  border-top: 1px solid var(--gray-150);
+  padding: 20px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--bg-container);
 }
 .file-resources__heading {
   display: flex;
@@ -367,9 +369,8 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 @media (max-width: 767px) {
-  .file-resources__heading {
-    align-items: flex-start;
-    flex-wrap: wrap;
+  .file-resources {
+    padding: 16px;
   }
   .file-selection {
     flex-basis: 100%;

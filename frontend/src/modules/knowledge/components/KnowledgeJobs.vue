@@ -85,9 +85,11 @@ const operations = {
 </template>
 <style scoped>
 .knowledge-jobs {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--gray-150);
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--bg-container);
 }
 summary {
   color: var(--color-text-secondary);

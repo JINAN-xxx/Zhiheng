@@ -17,8 +17,7 @@ const sharedComponents = {
     fontWeight: 400
   },
   Card: {
-    borderRadiusLG: 0,
-    colorBorderSecondary: 'transparent',
+    borderRadiusLG: 8,
     boxShadowTertiary: 'none'
   },
   Drawer: {
@@ -34,7 +33,7 @@ const sharedComponents = {
   },
   Table: {
     borderColor: '#ECEEF3',
-    headerBg: '#FFFFFF',
+    headerBg: '#FAFBFE',
     headerColor: '#7A7F8E',
     rowHoverBg: '#F8F7FF'
   }
