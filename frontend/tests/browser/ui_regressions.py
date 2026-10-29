@@ -492,6 +492,78 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         self.assertEqual(len(requests), 2)
         self.assertEqual(self.counts[('GET', '/api/auth/me')], 0)
 
+    async def instrument_password_manager(self, mode='pending'):
+        await self.page.add_init_script("""(mode => {
+          window.passwordSaveCalls = [];
+          if (mode === 'unsupported') {
+            Object.defineProperty(window, 'PasswordCredential', {value: undefined});
+          } else {
+            Object.defineProperty(navigator.credentials, 'store', {value: credential => {
+              window.passwordSaveCalls.push({username: credential.id, password: credential.password});
+              return mode === 'rejected' ? Promise.reject(new Error('Saving rejected')) : new Promise(() => {});
+            }});
+          }
+        })(""" + json.dumps(mode) + ');')
+
+    async def test_password_save_starts_only_after_authentication_and_does_not_block_login(self):
+        await self.instrument_password_manager()
+        await self.prepare_login()
+        started, release = asyncio.Event(), asyncio.Event()
+        async def authenticate(route):
+            started.set()
+            await release.wait()
+            await route.fulfill(json={'user': {'id': 'user-1', 'username': 'admin', 'is_admin': True}})
+        await self.page.route(self.origin + '/api/auth/login', authenticate)
+        await self.page.get_by_role('checkbox', name='保存密码', exact=True).check()
+        try:
+            await self.page.get_by_role('button', name='登录', exact=True).click()
+            await asyncio.wait_for(started.wait(), timeout=5)
+            self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), [])
+            await expect(self.page.get_by_placeholder('账号', exact=True)).to_be_disabled()
+            release.set()
+            await expect(self.page).to_have_url(self.origin + '/chat')
+            self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), [{'username': 'admin', 'password': 'browser-test-password'}])
+            self.assertNotIn('browser-test-password', await self.page.evaluate('JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.cookie'))
+        finally:
+            release.set()
+
+    async def test_failed_login_never_requests_password_storage(self):
+        await self.instrument_password_manager()
+        await self.prepare_login()
+        await self.page.get_by_role('checkbox', name='保存密码', exact=True).check()
+        await self.page.get_by_placeholder('密码', exact=True).fill('incorrect-password')
+        await self.page.get_by_role('button', name='登录', exact=True).click()
+        await expect(self.page.get_by_text('用户名或密码错误', exact=True)).to_be_visible()
+        self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), [])
+
+    async def verify_browser_password_save_fallback(self, mode):
+        await self.instrument_password_manager(mode)
+        await self.prepare_login()
+        await self.page.get_by_role('checkbox', name='保存密码', exact=True).check()
+        await self.page.get_by_role('button', name='登录', exact=True).click()
+        await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page.get_by_text('请使用浏览器的密码管理器保存密码', exact=True)).to_be_visible()
+
+    async def test_browser_password_save_unavailable_keeps_login_working(self):
+        await self.verify_browser_password_save_fallback('unsupported')
+
+    async def test_browser_password_save_rejected_keeps_login_working(self):
+        await self.verify_browser_password_save_fallback('rejected')
+
+    async def test_forgot_password_guide_preserves_form_without_requests(self):
+        requests = await self.prepare_login()
+        await expect(self.page.get_by_text('使用账号继续', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('账号由管理员分配', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='忘记密码', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='忘记密码', exact=True)
+        await expect(dialog).to_be_visible()
+        await expect(dialog.get_by_text('后台管理 → 用户管理', exact=True)).to_be_visible()
+        await dialog.get_by_role('button', name='知道了', exact=True).click()
+        await expect(dialog).not_to_be_visible()
+        await expect(self.page.get_by_placeholder('账号', exact=True)).to_have_value('admin')
+        await expect(self.page.get_by_placeholder('密码', exact=True)).to_have_value('browser-test-password')
+        self.assertEqual(requests, [])
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

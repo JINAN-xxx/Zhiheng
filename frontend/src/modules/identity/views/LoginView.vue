@@ -4,18 +4,24 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Checkbox as ACheckbox,
   Form as AForm,
   FormItem as AFormItem,
   Input as AInput,
-  InputPassword as AInputPassword
+  InputPassword as AInputPassword,
+  Modal as AModal,
+  message
 } from 'ant-design-vue'
 import AuthShell from '../../../shared/components/AuthShell.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { login } from '../public.ts'
+import { identity, login } from '../public.ts'
+import { savePasswordInBrowser } from '../browserPasswords.ts'
 const router = useRouter()
 const route = useRoute()
 const loginForm = reactive({ username: '', password: '' })
 const busy = ref(false)
+const savePassword = ref(false)
+const recoveryOpen = ref(false)
 const error = ref(typeof route.query.reason === 'string' ? route.query.reason : '')
 const scope = new RequestScope()
 onBeforeUnmount(() => {
@@ -28,8 +34,18 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = ''
   try {
-    await login(loginForm.username.trim(), loginForm.password, context.signal)
-    if (context.isCurrent()) await router.replace('/chat')
+    const username = loginForm.username.trim()
+    await login(username, loginForm.password, context.signal)
+    if (!context.isCurrent()) return
+    if (savePassword.value) {
+      const authenticatedUser = identity.value
+      // Browser confirmation may outlive this page; it must never delay login.
+      void savePasswordInBrowser(window, username, loginForm.password).then((result) => {
+        if (result !== 'requested' && authenticatedUser && identity.value === authenticatedUser)
+          message.info('请使用浏览器的密码管理器保存密码')
+      })
+    }
+    await router.replace('/chat')
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -39,7 +55,7 @@ async function submit(): Promise<void> {
 }
 </script>
 <template>
-  <AuthShell title="登录" description="使用账号继续">
+  <AuthShell title="登录">
     <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
     <AForm
       name="login"
@@ -76,6 +92,14 @@ async function submit(): Promise<void> {
           :disabled="busy"
         />
       </AFormItem>
+      <div class="login-options">
+        <span title="由浏览器密码管理器保存">
+          <ACheckbox v-model:checked="savePassword" :disabled="busy">保存密码</ACheckbox>
+        </span>
+        <button type="button" class="login-recovery" :disabled="busy" @click="recoveryOpen = true">
+          忘记密码
+        </button>
+      </div>
       <AButton
         class="login-submit"
         type="primary"
@@ -87,7 +111,21 @@ async function submit(): Promise<void> {
         >{{ busy ? '登录中…' : '登录' }}</AButton
       >
     </AForm>
-    <p class="login-help">账号由管理员分配</p>
+    <AModal
+      :open="recoveryOpen"
+      title="忘记密码"
+      centered
+      :width="400"
+      :style="{ maxWidth: 'calc(100vw - 32px)' }"
+      @cancel="recoveryOpen = false"
+    >
+      <p>请联系平台管理员，通过以下入口重置密码：</p>
+      <p class="login-recovery-path">后台管理 → 用户管理</p>
+      <p>重置后，使用新密码登录。</p>
+      <template #footer
+        ><AButton type="primary" @click="recoveryOpen = false">知道了</AButton></template
+      >
+    </AModal>
   </AuthShell>
 </template>
 <style scoped>
@@ -136,11 +174,41 @@ async function submit(): Promise<void> {
   box-shadow: none;
 }
 
-.login-help {
-  margin: 24px 0 0;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: center;
+.login-options {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 20px;
+}
+
+.login-recovery {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--main-color);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.login-recovery:hover {
+  color: var(--main-800);
+}
+
+.login-recovery:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 4px;
+}
+
+.login-recovery:disabled {
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
+
+.login-recovery-path {
+  color: var(--color-text);
+  font-weight: var(--workspace-font-weight-medium);
 }
 </style>
