@@ -16,6 +16,8 @@ from zhiheng.modules.chat.actions.public import (
     schema_tables as action_schema_tables,
 )
 from zhiheng.modules.chat.contracts import (
+    ChatGenerationConfig,
+    ChatGenerationSettings,
     ChatRequestContext,
     ConversationInfo,
     MessageInfo,
@@ -26,6 +28,8 @@ from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.chat.service import ChatService
 
 __all__ = [
+    'ChatGenerationConfig',
+    'ChatGenerationSettings',
     'ChatRequestContext',
     'ChatService',
     'ConversationInfo',

@@ -1,3 +1,5 @@
+import { generationRequest, parseGenerationConfig } from '../generationSettings.ts'
+import type { ChatGenerationConfig, ChatGenerationRequest } from '../generationSettings.ts'
 import { decodeVoid, http } from '../../../shared/http.ts'
 import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
 import type { KnowledgeHit } from '../../knowledge/public.ts'
@@ -20,6 +22,7 @@ export interface ChatAttachment {
   parser_version: string | null
 }
 export interface ChatMessage {
+  generation_config?: ChatGenerationConfig | null
   reply_to_message_id: string | null
   generation_index: number
   is_complete: boolean
@@ -54,6 +57,8 @@ export function parseMessage(value: unknown): ChatMessage {
   if (feedback !== null && feedback !== 'up' && feedback !== 'down')
     throw new Error('消息反馈格式不正确')
   return {
+    generation_config:
+      data.generation_config == null ? null : parseGenerationConfig(data.generation_config),
     reply_to_message_id: data.reply_to_message_id == null ? null : string(data.reply_to_message_id),
     generation_index: generation,
     is_complete: data.is_complete === undefined ? true : boolean(data.is_complete),
@@ -115,7 +120,7 @@ export const getMessages = (id: string, signal: AbortSignal) =>
   })
 export const sendMessage = (
   id: string,
-  body: {
+  body: ChatGenerationRequest & {
     model_id: string
     message: string
     client_request_id: string
@@ -127,7 +132,10 @@ export const sendMessage = (
 ) =>
   http.request(`/chat/conversations/${encodeURIComponent(id)}/runs`, {
     method: 'POST',
-    body,
+    body: (() => {
+      const { system_prompt = '', temperature = null, max_output_tokens = null, ...base } = body
+      return { ...base, ...generationRequest({ system_prompt, temperature, max_output_tokens }) }
+    })(),
     signal,
     decode: parseRunAdmission
   })

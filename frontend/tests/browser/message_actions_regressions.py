@@ -80,7 +80,7 @@ class MessageActionsRegressions(DeveloperBoundary):
 
     async def open_chat(self):
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='操作会话', exact=True).click()
+        await self.select_conversation('操作会话')
         await expect(self.page.get_by_text('原回复', exact=True)).to_be_visible()
 
     async def test_feedback_is_mutually_exclusive_clearable_and_survives_reload(self):
@@ -93,7 +93,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         await expect(up).to_have_attribute('aria-pressed', 'false')
         await expect(down).to_have_attribute('aria-pressed', 'true')
         await self.page.reload()
-        await self.page.get_by_role('button', name='操作会话', exact=True).click()
+        await self.select_conversation('操作会话')
         await expect(down).to_have_attribute('aria-pressed', 'true')
         await down.click()
         await expect(down).to_have_attribute('aria-pressed', 'false')
@@ -107,14 +107,14 @@ class MessageActionsRegressions(DeveloperBoundary):
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(json={'message_id': 'a1', 'value': 'up'})
-        await self.page.route('**/api/chat/messages/a1/feedback', delayed)
+        await self.page.route(self.origin + '/api/chat/messages/a1/feedback', delayed)
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='赞同', exact=True).click()
             await requested.wait()
             await self.page.get_by_role('button', name='不赞同', exact=True).dispatch_event('click')
             self.assertEqual(len(self.feedback_calls), 1)
-            await self.page.get_by_role('button', name='另一会话', exact=True).click()
+            await self.select_conversation('另一会话')
             release.set()
             await expect(self.page.get_by_text('另一回复', exact=True)).to_be_visible()
             await expect(self.page.get_by_role('button', name='赞同', exact=True)).to_have_attribute('aria-pressed', 'false')
@@ -148,9 +148,9 @@ class MessageActionsRegressions(DeveloperBoundary):
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(json=snapshot)
-        await self.page.route('**/api/chat/conversations/c1/messages', delayed_history)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', delayed_history)
         self.run.update(status='running', text='正在生成新的回复', revision=2)
-        await self.page.route('**/api/runs/regen-run/events', lambda route: route.fulfill(content_type='text/plain', body='broken stream'))
+        await self.page.route(self.origin + '/api/runs/regen-run/events', lambda route: route.fulfill(content_type='text/plain', body='broken stream'))
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='重新生成', exact=True).click()
@@ -169,7 +169,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         async def uncertain(route):
             self.regenerate_calls.append(route.request.post_data_json)
             await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '接纳结果未知'}})
-        await self.page.route('**/api/chat/conversations/c1/messages/a1/regenerate', uncertain)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/a1/regenerate', uncertain)
         await self.open_chat()
         await self.page.get_by_role('button', name='重新生成', exact=True).click()
         await expect(self.page.get_by_text(re.compile('接纳结果未知'))).to_be_visible()
@@ -185,7 +185,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         async def uncertain(route):
             requests.append(route.request.post_data_json)
             await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '普通发送接纳未知'}})
-        await self.page.route('**/api/chat/conversations/c1/runs', uncertain)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/runs', uncertain)
         await self.open_chat()
         await self.page.get_by_role('textbox', name='消息内容').fill('新的普通提问')
         await self.page.get_by_role('button', name='发送消息', exact=True).click()
@@ -202,7 +202,7 @@ class MessageActionsRegressions(DeveloperBoundary):
     async def test_refresh_discovers_assistant_placeholder_and_recovers_existing_run(self):
         self.history.append(chat_message('a2', 'assistant', '', reply_to_message_id='q1', generation_index=2, is_complete=False, run_id='regen-run'))
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='操作会话', exact=True).click()
+        await self.select_conversation('操作会话')
         await expect(self.page.get_by_text('新回复', exact=True)).to_be_visible()
         self.assertEqual(self.regenerate_calls, [])
 
@@ -229,13 +229,13 @@ class MessageActionsRegressions(DeveloperBoundary):
     async def test_public_share_is_safe_readonly_and_accessible_while_signed_in_or_anonymous(self):
         for anonymous in [False, True]:
             if anonymous:
-                await self.page.route('**/api/auth/me', lambda route: route.fulfill(status=401, json={'error': {'code': 'unauthenticated', 'message': '未登录'}}))
+                await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(status=401, json={'error': {'code': 'unauthenticated', 'message': '未登录'}}))
             await self.page.goto(self.origin + '/share/fixture-share-token')
             await expect(self.page.get_by_text('公开提问', exact=True)).to_be_visible()
             await expect(self.page.get_by_text(re.compile('公开回答'))).to_be_visible()
             self.assertFalse(await self.page.evaluate('Boolean(window.shareInjected)'))
             await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_count(0)
-        await self.page.route('**/api/shared/messages/invalid', lambda route: route.fulfill(status=404, json={'error': {'code': 'not_found', 'message': '无效'}}))
+        await self.page.route(self.origin + '/api/shared/messages/invalid', lambda route: route.fulfill(status=404, json={'error': {'code': 'not_found', 'message': '无效'}}))
         await self.page.goto(self.origin + '/share/invalid')
         await expect(self.page.get_by_text('分享链接无效、已过期或已撤销', exact=True)).to_be_visible()
 
@@ -270,7 +270,7 @@ class MessageActionsRegressions(DeveloperBoundary):
                     await route.fulfill(json=[])
             else:
                 await original(route)
-        await self.page.route('**/api/chat/messages/a1/shares', delayed)
+        await self.page.route(self.origin + '/api/chat/messages/a1/shares', delayed)
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='分享', exact=True).click()
@@ -302,18 +302,18 @@ class MessageActionsRegressions(DeveloperBoundary):
 
     async def test_regeneration_knowledge_reconnect_preserves_next_draft(self):
         prep = {'kind': 'knowledge_preparation', 'id': 'regen-prep', 'resource_type': 'chat', 'resource_id': 'c1', 'status': 'waiting_models', 'phase': 'embedding', 'run': None, 'hits': [], 'error': None, 'created_at': STAMP, 'updated_at': STAMP}
-        await self.page.route('**/api/chat/conversations/c1/messages/a1/regenerate', lambda route: route.fulfill(status=202, json=prep))
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/a1/regenerate', lambda route: route.fulfill(status=202, json=prep))
         async def failed(route):
             await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '检索观察断开'}})
-        await self.page.route('**/api/knowledge/preparations/regen-prep', failed)
+        await self.page.route(self.origin + '/api/knowledge/preparations/regen-prep', failed)
         await self.open_chat()
         await self.page.get_by_role('textbox', name='消息内容').fill('检索过程中要保留的下一条草稿')
         await self.page.get_by_role('button', name='重新生成', exact=True).click()
         await expect(self.page.get_by_text('检索观察断开', exact=True)).to_be_visible()
         self.history.append(chat_message('a2', 'assistant', '新回复', reply_to_message_id='q1', generation_index=2, run_id='regen-run'))
         prep.update(status='admitted', phase='admitted', run=self.run, updated_at='2026-10-28T00:00:01Z')
-        await self.page.unroute('**/api/knowledge/preparations/regen-prep', failed)
-        await self.page.route('**/api/knowledge/preparations/regen-prep', lambda route: route.fulfill(json=prep))
+        await self.page.unroute(self.origin + '/api/knowledge/preparations/regen-prep', failed)
+        await self.page.route(self.origin + '/api/knowledge/preparations/regen-prep', lambda route: route.fulfill(json=prep))
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         await expect(self.page.get_by_text('新回复', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('检索过程中要保留的下一条草稿')
@@ -321,16 +321,16 @@ class MessageActionsRegressions(DeveloperBoundary):
     async def test_failed_regeneration_can_retry_feedback_and_share_partial_text(self):
         self.run.update(status='failed', text='中途失败的内容', error={'code': 'provider_error', 'message': '受控模型失败'})
         self.history.append(chat_message('a2', 'assistant', '中途失败的内容', reply_to_message_id='q1', generation_index=2, is_complete=False, run_id='regen-run'))
-        await self.page.route('**/api/chat/messages/a2/share-preview?*', lambda route: route.fulfill(json={'message_id': 'a2', 'question': '原问题', 'answer': '中途失败的内容', 'content_hash': 'partial-hash'}))
+        await self.page.route(self.origin + '/api/chat/messages/a2/share-preview?*', lambda route: route.fulfill(json={'message_id': 'a2', 'question': '原问题', 'answer': '中途失败的内容', 'content_hash': 'partial-hash'}))
         async def shares(route):
             if route.request.method == 'GET':
                 await route.fulfill(json=[])
             else:
                 self.share_calls.append(route.request.post_data_json)
                 await route.fulfill(json={'id': 'partial-share', 'message_id': 'a2', 'token': 'partial-token', 'created_at': STAMP, 'expires_at': '2026-11-04T00:00:00Z', 'revoked_at': None})
-        await self.page.route('**/api/chat/messages/a2/shares', shares)
+        await self.page.route(self.origin + '/api/chat/messages/a2/shares', shares)
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='操作会话', exact=True).click()
+        await self.select_conversation('操作会话')
         await expect(self.page.get_by_text('受控模型失败', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='重新生成', exact=True)).to_have_attribute('aria-disabled', 'false')
         await self.page.get_by_role('button', name='赞同', exact=True).click()
@@ -349,7 +349,7 @@ class MessageActionsRegressions(DeveloperBoundary):
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(json={'id': 'late-share', 'message_id': 'a1', 'token': 'late-secret-token', 'created_at': STAMP, 'expires_at': '2026-11-04T00:00:00Z', 'revoked_at': None})
-        await self.page.route('**/api/chat/messages/a1/shares', lambda route: delayed(route) if route.request.method == 'POST' else route.fulfill(json=[]))
+        await self.page.route(self.origin + '/api/chat/messages/a1/shares', lambda route: delayed(route) if route.request.method == 'POST' else route.fulfill(json=[]))
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='分享', exact=True).click()

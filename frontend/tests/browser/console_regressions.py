@@ -5,8 +5,9 @@ import re
 import unittest
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, expect
+from developer_regressions import ChatHistoryInteractions
 
-class ConsoleUIRegressions(unittest.IsolatedAsyncioTestCase):
+class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(headless=True)
@@ -109,7 +110,7 @@ class ConsoleUIRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_chat_messages_keep_both_roles_and_copy_raw_text(self):
         self.chat_history = True
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='对话样例', exact=True).click()
+        await self.select_conversation('对话样例')
         user = self.page.locator('.message-row.user')
         assistant = self.page.locator('.message-row.assistant')
         await expect(self.page.get_by_role('toolbar', name='回复操作', exact=True)).to_be_visible(timeout=8000)
@@ -124,9 +125,7 @@ class ConsoleUIRegressions(unittest.IsolatedAsyncioTestCase):
         for label in ['重新生成', '赞同', '不赞同', '朗读', '分享']:
             await expect(toolbar.get_by_role('button', name=label, exact=True)).to_be_enabled()
         await self.page.set_viewport_size({'width': 390, 'height': 844})
-        history = self.page.get_by_role('complementary', name='对话历史', exact=True)
-        if await history.is_visible():
-            await history.get_by_role('button', name='收起对话历史', exact=True).click()
+        await expect(self.page.get_by_role('dialog', name='历史记录', exact=True)).to_be_hidden()
         await self.page.get_by_role('button', name='复制回复', exact=True).click()
         self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), '**完整回复**\n\n```text\n保留代码与换行\n```')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))

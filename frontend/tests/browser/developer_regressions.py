@@ -10,7 +10,28 @@ from urllib.parse import parse_qs, urlparse
 from playwright.async_api import async_playwright, expect
 
 
-class DeveloperBoundary(unittest.IsolatedAsyncioTestCase):
+class ChatHistoryInteractions:
+    async def open_history(self):
+        await self.page.locator('.chat-toolbar').get_by_role('button', name='历史记录', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='历史记录', exact=True)
+        await expect(dialog).to_be_visible()
+        # Ant Modal moves keyboard focus after its opening animation.
+        await expect(dialog.locator(':focus')).to_have_count(1)
+        return dialog
+
+    async def close_history(self):
+        dialog = self.page.get_by_role('dialog', name='历史记录', exact=True)
+        await dialog.get_by_role('button', name='Close', exact=True).click()
+        await expect(dialog).to_be_hidden()
+
+    async def select_conversation(self, title):
+        dialog = await self.open_history()
+        await dialog.get_by_role('button', name=title, exact=True).click()
+        await expect(dialog).to_be_hidden()
+
+
+class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCase):
+
     async def asyncSetUp(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(headless=True)
@@ -133,8 +154,8 @@ class DeveloperUIRegressions(DeveloperBoundary):
                     await route.fulfill(json={'items': [self.app], 'total': 1})
             else:
                 await original(route)
-        await self.page.unroute('**/api/**')
-        await self.page.route('**/api/**', fixtures)
+        await self.page.unroute(self.origin + '/api/**')
+        await self.page.route(self.origin + '/api/**', fixtures)
         try:
             await self.open_details()
             await self.page.get_by_role('button', name=re.compile('编辑')).click()
@@ -169,7 +190,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(json={**key, 'id': 'key-2', 'api_key': self.secret})
-        await self.page.route('**/api/developer/applications/app-1/keys/key-1/rotate', rotate)
+        await self.page.route(self.origin + '/api/developer/applications/app-1/keys/key-1/rotate', rotate)
         try:
             await self.open_details()
             await self.page.get_by_role('tab', name='访问密钥', exact=True).click()
@@ -193,7 +214,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
                 await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '应用服务暂时不可用'}})
             else:
                 await route.fulfill(status=200, json=self.app)
-        await self.page.route('**/api/developer/applications/app-1', detail)
+        await self.page.route(self.origin + '/api/developer/applications/app-1', detail)
         await self.page.goto(self.origin + '/developer?applicationId=app-1')
         await expect(self.page.get_by_text('应用服务暂时不可用', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name=re.compile(r'^重\s*试$')).click()
@@ -206,7 +227,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
 
     async def test_failed_lifecycle_action_preserves_record_and_shows_error(self):
         await self.open_details()
-        await self.page.route('**/api/developer/applications/app-1/disable', lambda route: route.fulfill(status=409, json={'error': {'code': 'conflict', 'message': '应用状态已变化，请刷新后重试'}}))
+        await self.page.route(self.origin + '/api/developer/applications/app-1/disable', lambda route: route.fulfill(status=409, json={'error': {'code': 'conflict', 'message': '应用状态已变化，请刷新后重试'}}))
         await self.page.get_by_role('button', name=re.compile('停用')).click()
         await self.confirm_action('停用后，该应用下所有访问密钥将无法调用')
         await expect(self.page.get_by_text('应用状态已变化，请刷新后重试', exact=True)).to_be_visible()

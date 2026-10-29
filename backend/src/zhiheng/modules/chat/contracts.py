@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypedDict
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from zhiheng.modules.files.public import AttachmentSummary
 from zhiheng.modules.knowledge.public import Hit
@@ -25,6 +25,38 @@ class SkillSnapshot(BaseModel):
     content_hash: str
 
 
+class ChatGenerationValues(TypedDict):
+    system_prompt: str
+    temperature: float | None
+    max_output_tokens: int | None
+
+
+class ChatGenerationSettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    system_prompt: str = Field(default='', strict=True, max_length=32000)
+    temperature: float | None = Field(default=None, strict=True, ge=0, le=2, allow_inf_nan=False)
+    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
+
+    @field_validator('system_prompt')
+    @classmethod
+    def encodable_prompt(cls, value: str) -> str:
+        value.encode('utf-8')
+        if '\x00' in value:
+            raise ValueError('Invalid system prompt')
+        return value
+
+    def generation_settings(self) -> ChatGenerationValues:
+        return {
+            'system_prompt': self.system_prompt,
+            'temperature': self.temperature,
+            'max_output_tokens': self.max_output_tokens,
+        }
+
+
+class ChatGenerationConfig(ChatGenerationSettings):
+    model_id: UUID
+
+
 class MessageInfo(BaseModel):
     id: UUID
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
@@ -38,14 +70,14 @@ class MessageInfo(BaseModel):
     generation_index: int = 1
     is_complete: bool = False
     feedback: Literal['up', 'down'] | None = None
+    generation_config: ChatGenerationConfig | None = None
     created_at: datetime
 
 
-class ChatRequestContext(BaseModel):
+class ChatRequestContext(ChatGenerationConfig):
     """User selections only; never stores credentials or model authorization."""
 
     model_config = ConfigDict(extra='forbid')
-    model_id: UUID
     skill_slugs: list[str] = Field(default_factory=list)
     file_ids: list[UUID] = Field(default_factory=list)
     knowledge_base_ids: list[UUID] = Field(default_factory=list)

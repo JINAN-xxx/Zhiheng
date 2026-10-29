@@ -87,7 +87,7 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
                     json={"error": {"code": "unavailable", "message": "后续观察失败"}},
                 )
 
-        await self.page.route("**/api/knowledge/preparations/prep-chat", observe)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat", observe)
         try:
             await self.start_preparation()
             await asyncio.wait_for(started.wait(), 4)
@@ -123,7 +123,7 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/knowledge/preparations/prep-chat/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
         await self.start_preparation()
         await self.page.get_by_role("button", name="停止生成", exact=True).click()
         await self.page.wait_for_timeout(150)
@@ -145,9 +145,9 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
         async def list_conversations(route):
             await route.fulfill(json=[self.conversation, other])
 
-        await self.page.route("**/api/chat/conversations", list_conversations)
+        await self.page.route(self.origin + "/api/chat/conversations", list_conversations)
         await self.page.route(
-            "**/api/chat/conversations/c2/messages", lambda r: r.fulfill(json=[])
+            self.origin + "/api/chat/conversations/c2/messages", lambda r: r.fulfill(json=[])
         )
         first_cancel = asyncio.Event()
 
@@ -159,7 +159,7 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
                 json={"error": {"code": "unavailable", "message": "取消响应未确认"}},
             )
 
-        await self.page.route("**/api/knowledge/preparations/prep-chat/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
         main = []
 
         async def stop_main(route):
@@ -167,18 +167,18 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
             self.run.update(status="cancelled", revision=10)
             await route.fulfill(json=self.run)
 
-        await self.page.route("**/api/runs/knowledge-run/cancel", stop_main)
+        await self.page.route(self.origin + "/api/runs/knowledge-run/cancel", stop_main)
         await self.start_preparation()
         await self.page.get_by_role("button", name="停止生成", exact=True).click()
         await expect(
             self.page.get_by_text("取消响应未确认", exact=True)
         ).to_be_visible()
-        await self.page.get_by_role("button", name="另一会话", exact=True).click()
+        await self.select_conversation('另一会话')
         await expect(
             self.page.get_by_role("button", name="选择知识库", exact=True)
         ).to_be_enabled()
         self.release = True
-        await self.page.get_by_role("button", name="附件会话", exact=True).click()
+        await self.select_conversation('附件会话')
         await expect(
             self.page.get_by_role("button", name="停止生成", exact=True)
         ).to_have_count(0)
@@ -205,7 +205,7 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             else:
                 await route.fallback()
 
-        await self.page.route("**/api/knowledge/bases", unavailable)
+        await self.page.route(self.origin + "/api/knowledge/bases", unavailable)
         await self.page.goto(self.origin + "/knowledge")
         await self.page.get_by_role("button", name="创建知识库", exact=True).click()
         dialog = self.page.get_by_role("dialog")
@@ -240,10 +240,13 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             file_read.set()
             await route.fulfill(json=FILE)
 
-        await self.page.route("**/assets/FileAclDrawer-*.js", delayed_chunk)
-        await self.page.route("**/api/files/file-1", file)
         await self.page.route(
-            "**/api/files/file-1/acl",
+            re.compile(re.escape(self.origin) + r"/(?:assets/FileAclDrawer-[^/?]+\.js|src/modules/files/components/FileAclDrawer\.vue)(?:\?.*)?$"),
+            delayed_chunk,
+        )
+        await self.page.route(self.origin + "/api/files/file-1", file)
+        await self.page.route(
+            self.origin + "/api/files/file-1/acl",
             lambda r: r.fulfill(
                 json={
                     "file": FILE,
@@ -271,7 +274,7 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
                 chunk_urls=chunk_urls,
             )
             async with self.page.expect_response(
-                lambda r: "/assets/FileAclDrawer-" in r.url and r.url.endswith(".js")
+                lambda r: r.url in chunk_urls
             ) as loaded:
                 release.set()
             self.observations["chunk_status"] = (await loaded.value).status
@@ -322,8 +325,8 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             self.preparation.update(status="cancelled", phase="cancelled")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/knowledge/preparations/prep-1", observe)
-        await self.page.route("**/api/knowledge/preparations/prep-1/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-1", observe)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-1/cancel", cancel)
         try:
             await self.page.goto(self.origin + "/knowledge/base-1/query")
             await self.page.get_by_role("textbox", name="检索问题", exact=True).fill(
@@ -416,11 +419,11 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
                 )
 
         await self.page.route(
-            "**/api/knowledge/bases/base-1/documents/doc-1/preview", delayed
+            self.origin + "/api/knowledge/bases/base-1/documents/doc-1/preview", delayed
         )
         self.bases.append({**self.base, "id": "base-2", "name": "另一知识库"})
         await self.page.route(
-            "**/api/knowledge/bases/base-2", lambda r: r.fulfill(json=self.bases[1])
+            self.origin + "/api/knowledge/bases/base-2", lambda r: r.fulfill(json=self.bases[1])
         )
         for suffix, payload in [
             ("documents", {"items": [], "total": 0}),
@@ -431,7 +434,7 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             async def reply(route, request, payload=payload):
                 await route.fulfill(json=payload)
 
-            await self.page.route("**/api/knowledge/bases/base-2/" + suffix, reply)
+            await self.page.route(self.origin + "/api/knowledge/bases/base-2/" + suffix, reply)
         try:
             await self.page.goto(self.origin + "/knowledge/base-1/documents")
             await self.page.get_by_role(
@@ -481,8 +484,8 @@ class WorkQuality(Evidence, WorkKnowledgePreparation):
                 json={"error": {"code": "unavailable", "message": "停止响应丢失"}},
             )
 
-        await self.page.route("**/api/knowledge/preparations/prep-work", unavailable)
-        await self.page.route("**/api/knowledge/preparations/prep-work/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", unavailable)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
         await expect(self.page.get_by_text("观察暂时失败", exact=True)).to_be_visible()
         await self.page.get_by_role("button", name="停止", exact=True).click()
         await expect(self.page.get_by_text("停止响应丢失", exact=True)).to_be_visible()
@@ -495,7 +498,7 @@ class WorkQuality(Evidence, WorkKnowledgePreparation):
                 self.task.update(preparation_id=None, version=2)
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/knowledge/preparations/prep-work", observe)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", observe)
         await self.page.get_by_role("button", name="恢复查看", exact=True).click()
         await expect(
             self.page.get_by_role("textbox", name="工作消息", exact=True)
@@ -509,7 +512,7 @@ class WorkQuality(Evidence, WorkKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/knowledge/preparations/prep-work/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
         await self.open_task()
         await self.page.get_by_role("button", name="停止", exact=True).click()
         await self.page.wait_for_timeout(150)
@@ -539,7 +542,7 @@ class WorkQuality(Evidence, WorkKnowledgePreparation):
                 with contextlib.suppress(Exception):
                     await route.fulfill(json=stale)
 
-        await self.page.route("**/api/knowledge/preparations/prep-work", observe)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", observe)
         try:
             await self.open_task()
             await asyncio.wait_for(started.wait(), 4)
@@ -581,8 +584,8 @@ class AgentQuality(Evidence, AgentKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/knowledge/preparations/prep-agent", observe)
-        await self.page.route("**/api/knowledge/preparations/prep-agent/cancel", cancel)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-agent", observe)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-agent/cancel", cancel)
         await self.open_agents()
         await self.page.get_by_role("button", name="试聊", exact=True).click()
         drawer = self.page.locator(".ant-drawer-open .ant-drawer-content")
@@ -593,7 +596,7 @@ class AgentQuality(Evidence, AgentKnowledgePreparation):
         await expect(drawer.get_by_text("正在检索知识库", exact=True)).to_be_visible()
         await drawer.get_by_role("button", name="停止生成", exact=True).click()
         await expect(drawer.get_by_text("试聊观察失败", exact=True)).to_be_visible()
-        await self.page.unroute("**/api/knowledge/preparations/prep-agent", observe)
+        await self.page.unroute(self.origin + "/api/knowledge/preparations/prep-agent", observe)
         await drawer.get_by_role("button", name="恢复查看", exact=True).click()
         await self.page.wait_for_timeout(180)
         self.observations.update(
@@ -647,11 +650,11 @@ class ChatMultiTurnQuality(Evidence, ChatKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/chat/conversations/c1/messages", messages)
-        await self.page.route("**/api/chat/conversations/c1/runs", admit)
-        await self.page.route("**/api/knowledge/preparations/prep-chat/cancel", cancel)
+        await self.page.route(self.origin + "/api/chat/conversations/c1/messages", messages)
+        await self.page.route(self.origin + "/api/chat/conversations/c1/runs", admit)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
         await self.page.goto(self.origin + "/chat")
-        await self.page.get_by_role("button", name="附件会话", exact=True).click()
+        await self.select_conversation('附件会话')
         text = self.page.get_by_role("textbox", name="消息内容", exact=True)
         await text.fill("先完成普通对话")
         await self.page.get_by_role("button", name="发送消息", exact=True).click()
@@ -704,8 +707,8 @@ class WorkMultiTurnQuality(Evidence, WorkKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route("**/api/work/tasks/task-1/runs", admit)
-        await self.page.route("**/api/knowledge/preparations/prep-work/cancel", cancel)
+        await self.page.route(self.origin + "/api/work/tasks/task-1/runs", admit)
+        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
         await self.open_task()
         text = self.page.get_by_role("textbox", name="工作消息", exact=True)
         await text.fill("先完成第一轮")

@@ -51,7 +51,7 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
 
     async def start_preparation(self, wait_for_phase=True):
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='附件会话', exact=True).click()
+        await self.select_conversation('附件会话')
         await self.page.get_by_role('button', name='选择知识库', exact=True).click()
         await self.page.get_by_role('button', name='选择知识库：业务知识', exact=True).click()
         await self.page.get_by_role('button', name='完成选择知识库', exact=True).click()
@@ -65,7 +65,7 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
         self.assertEqual(self.changes[0]['knowledge_base_ids'], ['base-1'])
         await expect(self.page.get_by_role('button', name='选择知识库', exact=True)).to_be_disabled()
         await self.page.reload()
-        await self.page.get_by_role('button', name='附件会话', exact=True).click()
+        await self.select_conversation('附件会话')
         await expect(self.page.locator('.run-state')).to_have_text('正在检索知识库')
         self.release = True
         await expect(self.page.get_by_text('根据业务知识回答。', exact=True)).to_be_visible()
@@ -85,10 +85,12 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
             self.changes.append(route.request.post_data_json)
             self.conversation['preparation_id'] = 'prep-chat'
             await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '接纳响应丢失'}})
-        await self.page.route('**/api/chat/conversations/c1/runs', lost)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/runs', lost)
         await self.start_preparation(wait_for_phase=False)
         await expect(self.page.get_by_text('接纳响应丢失', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='刷新会话', exact=True).click()
+        dialog = await self.open_history()
+        await dialog.get_by_role('button', name='刷新会话', exact=True).click()
+        await self.close_history()
         await expect(self.page.locator('.run-state')).to_have_text('正在检索知识库')
         await expect(self.page.get_by_role('button', name='使用原请求重试', exact=True)).to_have_count(0)
         self.release = True
@@ -107,11 +109,13 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
                 self.preparation.update(status='admitted', phase='admitted', run=self.run)
                 self.conversation['preparation_id'] = None
                 await route.fulfill(json=self.preparation)
-        await self.page.route('**/api/knowledge/preparations/prep-chat', observe)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-chat', observe)
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='附件会话', exact=True).click()
+        await self.select_conversation('附件会话')
         await expect(self.page.get_by_text('准备读取失败', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='刷新会话', exact=True).click()
+        dialog = await self.open_history()
+        await dialog.get_by_role('button', name='刷新会话', exact=True).click()
+        await self.close_history()
         await expect(self.page.get_by_text('根据业务知识回答。', exact=True)).to_be_visible()
         await self.page.get_by_role('textbox', name='消息内容', exact=True).fill('下一条问题')
         await expect(self.page.get_by_role('button', name='发送消息', exact=True)).to_be_enabled()
@@ -121,8 +125,8 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
         self.run.update(status='running', text='', revision=2)
         async def unreadable(route):
             await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '准备观察中断'}})
-        await self.page.route('**/api/knowledge/preparations/prep-chat', unreadable)
-        await self.page.route('**/api/knowledge/preparations/prep-chat/cancel', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '取消接纳响应丢失'}}))
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-chat', unreadable)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-chat/cancel', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '取消接纳响应丢失'}}))
         stopped = asyncio.Event()
         calls = []
         async def stop_main(route):
@@ -130,12 +134,12 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
             self.run.update(status='cancelled', revision=9)
             await route.fulfill(json=self.run)
             stopped.set()
-        await self.page.route('**/api/runs/knowledge-run/cancel', stop_main)
+        await self.page.route(self.origin + '/api/runs/knowledge-run/cancel', stop_main)
         await self.start_preparation()
         await expect(self.page.get_by_text('准备观察中断', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='停止生成', exact=True).click()
         await expect(self.page.get_by_text('取消接纳响应丢失', exact=True)).to_be_visible()
-        await self.page.unroute('**/api/knowledge/preparations/prep-chat', unreadable)
+        await self.page.unroute(self.origin + '/api/knowledge/preparations/prep-chat', unreadable)
         self.release = True
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         try:
@@ -158,13 +162,13 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
                 self.conversation['preparation_id'] = None
                 await route.fulfill(json=self.preparation)
                 confirmed.set()
-        await self.page.route('**/api/knowledge/preparations/prep-chat', unreadable)
-        await self.page.route('**/api/knowledge/preparations/prep-chat/cancel', cancel)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-chat', unreadable)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-chat/cancel', cancel)
         await self.start_preparation()
         await expect(self.page.get_by_text('准备观察中断', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='停止生成', exact=True).click()
         await expect(self.page.get_by_text('停止响应丢失', exact=True)).to_be_visible()
-        await self.page.unroute('**/api/knowledge/preparations/prep-chat', unreadable)
+        await self.page.unroute(self.origin + '/api/knowledge/preparations/prep-chat', unreadable)
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         try:
             await asyncio.wait_for(confirmed.wait(), timeout=3)
@@ -266,8 +270,8 @@ class WorkKnowledgePreparation(WorkUIRegressions):
     async def test_lost_preparation_stop_continues_after_task_run_handoff(self):
         await self.open_task()
         await expect(self.page.get_by_text('正在检索知识库', exact=True)).to_be_visible()
-        await self.page.route('**/api/knowledge/preparations/prep-work', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备观察中断'}}))
-        await self.page.route('**/api/knowledge/preparations/prep-work/cancel', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作取消接纳响应丢失'}}))
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备观察中断'}}))
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work/cancel', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作取消接纳响应丢失'}}))
         await expect(self.page.get_by_text('工作准备观察中断', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='停止', exact=True).click()
         await expect(self.page.get_by_text('工作取消接纳响应丢失', exact=True)).to_be_visible()
@@ -281,7 +285,7 @@ class WorkKnowledgePreparation(WorkUIRegressions):
             self.task.update(current_run_id=None, version=3)
             await route.fulfill(json=self.run)
             stopped.set()
-        await self.page.route('**/api/work/tasks/task-1/runs/work-run/cancel', stop_main)
+        await self.page.route(self.origin + '/api/work/tasks/task-1/runs/work-run/cancel', stop_main)
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         try:
             await asyncio.wait_for(stopped.wait(), timeout=4)
@@ -298,7 +302,7 @@ class WorkKnowledgePreparation(WorkUIRegressions):
                 await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备读取失败'}})
             else:
                 await route.fulfill(json=self.preparation)
-        await self.page.route('**/api/knowledge/preparations/prep-work', observe)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', observe)
         await self.open_task()
         await expect(self.page.get_by_text('工作准备读取失败', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
@@ -323,12 +327,12 @@ class WorkKnowledgePreparation(WorkUIRegressions):
                 self.task.update(preparation_id=None, version=2)
                 await route.fulfill(json=self.preparation)
                 confirmed.set()
-        await self.page.route('**/api/knowledge/preparations/prep-work', unreadable)
-        await self.page.route('**/api/knowledge/preparations/prep-work/cancel', cancel)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', unreadable)
+        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work/cancel', cancel)
         await expect(self.page.get_by_text('工作准备观察中断', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='停止', exact=True).click()
         await expect(self.page.get_by_text('工作停止响应丢失', exact=True)).to_be_visible()
-        await self.page.unroute('**/api/knowledge/preparations/prep-work', unreadable)
+        await self.page.unroute(self.origin + '/api/knowledge/preparations/prep-work', unreadable)
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         try:
             await asyncio.wait_for(confirmed.wait(), timeout=3)

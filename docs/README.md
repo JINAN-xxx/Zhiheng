@@ -44,3 +44,4 @@
 - [后台管理恢复验收](superpowers/verification/2026-10-28-admin-console.md)
 - [内置角色与账号菜单入口](superpowers/verification/2026-10-29-builtin-role.md)
 - [统一白色界面与关闭主题切换](superpowers/verification/2026-10-29-white-console.md)
+- [历史记录弹窗与模型生成设置](superpowers/verification/2026-10-29-chat-history-settings.md)

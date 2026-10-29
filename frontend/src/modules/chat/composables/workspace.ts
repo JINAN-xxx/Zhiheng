@@ -43,6 +43,12 @@ import {
 import type { ChatMessage, Conversation } from '../api/index.ts'
 import { nextSendIntent } from '../api/sendIntent.ts'
 import type { SendIntent } from '../api/sendIntent.ts'
+import {
+  defaultGenerationSettings,
+  generationRequest,
+  generationSettingsError
+} from '../generationSettings.ts'
+import type { ChatGenerationSettings } from '../generationSettings.ts'
 import { regenerateMessage, setMessageFeedback } from '../api/messageActions.ts'
 import type { FeedbackValue } from '../api/messageActions.ts'
 import { groupMessageVersions, nextRegenerationIntent } from './messageVersions.ts'
@@ -56,6 +62,11 @@ function createChatWorkspace() {
   const models = ref<ChatModel[]>([])
   const selected = ref<Conversation | null>(null)
   const modelId = ref<string>()
+  let modelNeedsSelection = false
+  const generationSettings = ref<ChatGenerationSettings>(defaultGenerationSettings())
+  const selectedModel = computed(
+    () => models.value.find((model) => model.id === modelId.value) ?? null
+  )
   const messages = ref<ChatMessage[]>([])
   const draft = ref('')
   const queuedFiles = ref<QueuedFile[]>([])
@@ -175,6 +186,7 @@ function createChatWorkspace() {
     feedbackBusy.clear()
     confirmedFeedback.clear()
     draft.value = ''
+    generationSettings.value = defaultGenerationSettings()
     pendingSend = null
     selectedSkills.value = []
     selectedKnowledgeBases.value = []
@@ -308,6 +320,9 @@ function createChatWorkspace() {
     feedbackBusy.clear()
     confirmedFeedback.clear()
     selected.value = conversation
+    if (modelNeedsSelection) modelId.value = modelOptions.value[0]?.value
+    modelNeedsSelection = false
+    generationSettings.value = defaultGenerationSettings()
     queue.clear()
     messages.value = []
     activeRun.value = null
@@ -330,6 +345,21 @@ function createChatWorkspace() {
       const history = await readMessages(conversation.id, context.signal)
       if (!context.isCurrent()) return
       messages.value = history
+      const config = history.at(-1)?.generation_config
+      if (config) {
+        generationSettings.value = {
+          system_prompt: config.system_prompt,
+          temperature: config.temperature,
+          max_output_tokens: config.max_output_tokens
+        }
+        if (modelOptions.value.some((model) => model.value === config.model_id)) {
+          modelId.value = config.model_id
+        } else {
+          modelId.value = undefined
+          modelNeedsSelection = true
+          error.value = '原模型当前不可用，请重新选择模型'
+        }
+      }
       const pending = pendingRegenerations.get(conversation.id)
       if (
         pending &&
@@ -412,7 +442,10 @@ function createChatWorkspace() {
       ) {
         void restorePreparation(selected.value.id, preparationId)
       }
-      if (!modelOptions.value.some((model) => model.value === modelId.value)) {
+      if (
+        !modelNeedsSelection &&
+        !modelOptions.value.some((model) => model.value === modelId.value)
+      ) {
         modelId.value = modelOptions.value[0]?.value
       }
     } catch (reason) {
@@ -482,6 +515,16 @@ function createChatWorkspace() {
       error.value = '请选择已启用视觉能力的模型后发送图片'
       return
     }
+    if (!retry) {
+      const settingsError = generationSettingsError(
+        generationSettings.value,
+        selectedModel.value?.max_output_tokens
+      )
+      if (settingsError) {
+        error.value = settingsError
+        return
+      }
+    }
     const ownerId = identity.value?.id
     if (!ownerId) return
     const context = conversationScope.replace()
@@ -494,6 +537,7 @@ function createChatWorkspace() {
             {
               conversationId: selected.value?.id ?? null,
               model_id: model,
+              ...generationRequest(generationSettings.value),
               message,
               skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug),
               file_ids: queuedFiles.value.map((file) => file.fileId!),
@@ -524,6 +568,7 @@ function createChatWorkspace() {
         conversationId,
         {
           model_id: request.model_id,
+          ...generationRequest(request),
           message: request.message,
           client_request_id: request.client_request_id,
           skill_slugs: request.skill_slugs ?? [],
@@ -800,8 +845,19 @@ function createChatWorkspace() {
       if (context.isCurrent()) metadataBusy.value = []
     }
   }
+  function applyGenerationSettings(settings: ChatGenerationSettings): void {
+    if (sending.value || running.value || loading.value || readOnly.value) return
+    const settingsError = generationSettingsError(settings, selectedModel.value?.max_output_tokens)
+    if (settingsError) {
+      error.value = settingsError
+      return
+    }
+    generationSettings.value = { ...settings }
+  }
   function setModelId(value: unknown): void {
     modelId.value = typeof value === 'string' ? value : undefined
+    if (modelId.value) modelNeedsSelection = false
+    if (modelId.value && error.value === '原模型当前不可用，请重新选择模型') error.value = ''
   }
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -849,6 +905,9 @@ function createChatWorkspace() {
     changeConversation,
     selected,
     modelId,
+    selectedModel,
+    generationSettings,
+    applyGenerationSettings,
     messages,
     draft,
     selectedSkills,

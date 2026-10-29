@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.application.chat_runs import PreparedChatInputs
-from zhiheng.modules.chat.public import ConversationInfo, MessageInfo
+from zhiheng.modules.chat.public import ChatGenerationSettings, ConversationInfo, MessageInfo
 from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
@@ -18,7 +18,7 @@ class ConversationRequest(BaseModel):
     title: str = Field(default='新对话', min_length=1, max_length=100)
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(ChatGenerationSettings):
     model_config = ConfigDict(extra='forbid')
     model_id: UUID
     message: str = Field(min_length=1, max_length=16000)
@@ -107,12 +107,19 @@ async def create_run(
     async with session.begin():
         await container.chat.require_conversation(session, principal, conversation_id)
         fingerprint = container.admission.fingerprint(
-            'chat', conversation_id, body.model_id, body.message, body.skill_slugs, body.file_ids
+            'chat',
+            conversation_id,
+            body.model_id,
+            body.message,
+            body.skill_slugs,
+            body.file_ids,
+            **body.generation_settings(),
         )
         existing = await container.runs.existing_request(session, principal.id, body.client_request_id, fingerprint)
         if existing is not None:
             return existing
         binding = await container.models.resolve(session, body.model_id)
+        container.admission.generation_binding(binding, body)
     attachments = await container.file_inputs.prepare_many(principal, body.file_ids)
     async with session.begin():
         return await container.admission.admit_chat(
@@ -126,6 +133,7 @@ async def create_run(
             prepared=PreparedChatInputs(binding, attachments),
             client_request_id=body.client_request_id,
             token_limit=container.settings.token_limit,
+            **body.generation_settings(),
         )
 
 

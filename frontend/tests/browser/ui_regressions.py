@@ -14,9 +14,10 @@ from collections import Counter
 from urllib.parse import urlparse
 
 from playwright.async_api import async_playwright, expect
+from developer_regressions import ChatHistoryInteractions
 
 
-class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
+class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
@@ -85,12 +86,14 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_chat_recovery_survives_conversation_refresh(self):
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='恢复中会话').click()
+        await self.select_conversation('恢复中会话')
         recovery = self.page.get_by_role('button', name='恢复查看', exact=True)
         await expect(recovery).to_be_visible(timeout=10000)
         self.assertEqual(self.counts[('GET', '/api/runs/r1/events')], 4)
+        await self.open_history()
         async with self.page.expect_response(lambda response: urlparse(response.url).path == '/api/chat/conversations'):
-            await self.page.get_by_role('button', name='刷新会话').click()
+            await self.page.get_by_role('dialog', name='历史记录', exact=True).get_by_role('button', name='刷新会话', exact=True).click()
+        await self.close_history()
         await expect(self.page.locator('.page-spinner')).to_have_count(0)
         await expect(recovery).to_be_visible(timeout=1200)
         gets_before_recovery = self.counts[('GET', '/api/runs/r1')]
@@ -106,16 +109,16 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_next_send_shows_submission_instead_of_previous_completion(self):
         self.completed = True
         started, release = asyncio.Event(), asyncio.Event()
-        await self.page.route('**/api/chat/conversations/c1/messages', lambda route: route.fulfill(json=[{'id': 'message-1', 'role': 'user', 'content': '你好', 'run_id': 'r1', 'created_at': '2026-10-23T00:00:00Z'}]))
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', lambda route: route.fulfill(json=[{'id': 'message-1', 'role': 'user', 'content': '你好', 'run_id': 'r1', 'created_at': '2026-10-23T00:00:00Z'}]))
         async def submit(route):
             started.set()
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '暂时不可用'}})
-        await self.page.route('**/api/chat/conversations/c1/runs', submit)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/runs', submit)
         try:
             await self.page.goto(self.origin + '/chat')
-            await self.page.get_by_role('button', name='恢复中会话').click()
+            await self.select_conversation('恢复中会话')
             await expect(self.page.locator('.run-state')).to_have_text('已完成')
             await self.page.get_by_role('textbox', name='消息内容').fill('下一轮问题')
             await self.page.get_by_role('button', name='发送消息').click()
@@ -187,10 +190,10 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
             })
             sent.set()
 
-        await self.page.route('**/api/models', models)
-        await self.page.route('**/api/chat/conversations', conversations)
-        await self.page.route('**/api/chat/conversations/c2/messages', lambda route: route.fulfill(status=200, json=[]))
-        await self.page.route('**/api/chat/conversations/c2/runs', submit)
+        await self.page.route(self.origin + '/api/models', models)
+        await self.page.route(self.origin + '/api/chat/conversations', conversations)
+        await self.page.route(self.origin + '/api/chat/conversations/c2/messages', lambda route: route.fulfill(status=200, json=[]))
+        await self.page.route(self.origin + '/api/chat/conversations/c2/runs', submit)
         await self.page.goto(self.origin + '/chat')
         await self.page.locator('.model-select').click()
         await self.page.locator('.ant-select-item-option-content').filter(has_text='第二模型').click()
@@ -202,8 +205,10 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_send_freezes_input_before_creating_conversation(self):
         release_create, _, _, sent, captured = await self.prepare_new_send()
         await self.page.get_by_role('button', name='整理思路', exact=True).click()
+        await self.open_history()
         async with self.page.expect_response(lambda response: urlparse(response.url).path == '/api/chat/conversations'):
-            await self.page.get_by_role('button', name='刷新会话').click()
+            await self.page.get_by_role('dialog', name='历史记录', exact=True).get_by_role('button', name='刷新会话', exact=True).click()
+        await self.close_history()
         await expect(self.page.locator('.page-spinner')).to_have_count(0)
         release_create.set()
         await asyncio.wait_for(sent.wait(), timeout=5)
@@ -214,7 +219,8 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_old_list_cannot_remove_a_new_conversation(self):
         release_create, refresh_started, release_refresh, sent, _ = await self.prepare_new_send(hold_refresh=True)
-        await self.page.get_by_role('button', name='刷新会话').click()
+        await self.open_history()
+        await self.page.get_by_role('dialog', name='历史记录', exact=True).get_by_role('button', name='刷新会话', exact=True).click()
         await asyncio.wait_for(refresh_started.wait(), timeout=5)
         release_create.set()
         await asyncio.wait_for(sent.wait(), timeout=5)
@@ -238,13 +244,15 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
             posts.append(route.request.post_data_json)
             await route.fulfill(status=409, json={'error': {'code': 'active_run', 'message': '已有运行中任务'}})
 
-        await self.page.route('**/api/chat/conversations/c1/messages', history)
-        await self.page.route('**/api/chat/conversations/c1/runs', submit)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/runs', submit)
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='恢复中会话').click()
+        await self.select_conversation('恢复中会话')
         await asyncio.wait_for(history_started.wait(), timeout=5)
+        await self.open_history()
         async with self.page.expect_response(lambda response: urlparse(response.url).path == '/api/chat/conversations'):
-            await self.page.get_by_role('button', name='刷新会话').click()
+            await self.page.get_by_role('dialog', name='历史记录', exact=True).get_by_role('button', name='刷新会话', exact=True).click()
+        await self.close_history()
         await self.page.get_by_role('textbox', name='消息内容').fill('不可提前发送')
         await self.page.get_by_role('textbox', name='消息内容').press('Enter')
         await self.page.wait_for_timeout(150)
@@ -255,19 +263,26 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(posts, [])
 
 
-    async def test_sidebar_collapses_without_losing_chat_history(self):
+    async def test_primary_navigation_collapses_without_losing_chat_messages(self):
+        self.completed = True
         await self.page.goto(self.origin + '/chat')
+        await self.select_conversation('恢复中会话')
+        await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
         sidebar = self.page.locator('.platform-shell__sidebar')
         await expect(sidebar).to_be_visible()
         self.assertEqual(round((await sidebar.bounding_box())['width']), 224)
         await self.page.get_by_role('button', name='收起侧栏', exact=True).click()
         await expect(sidebar).to_have_css('width', '56px')
+        await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('textbox', name='消息内容')).to_be_visible()
         await expect(self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='智能体', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='选择技能', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='展开侧栏', exact=True).click()
-        await expect(self.page.get_by_role('complementary', name='对话历史', exact=True).get_by_role('button', name='恢复中会话')).to_be_visible()
-        await expect(self.page.locator('.conversation-panel')).to_have_count(1)
+        await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('dialog', name='历史记录', exact=True)).to_be_hidden()
+        dialog = await self.open_history()
+        await expect(dialog.get_by_role('button', name='恢复中会话', exact=True)).to_be_visible()
+        await self.close_history()
 
     async def test_mobile_navigation_drawer_closes_after_navigation_and_escape(self):
         await self.page.set_viewport_size({'width': 390, 'height': 844})
@@ -303,7 +318,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(copy).to_be_visible()
         await copy.click()
         self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
-        await self.page.route(re.compile(r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(status=200, json=[{**self.model, 'id': ''}]))
+        await self.page.route(re.compile(re.escape(self.origin) + r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(status=200, json=[{**self.model, 'id': ''}]))
         await self.page.get_by_role('button', name='刷新当前视图', exact=True).click()
         await expect(copy).to_be_disabled()
         self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
@@ -342,9 +357,9 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         async def history(route):
             await route.fulfill(status=200, json=[{'id':'code-message','role':'assistant','content':content,'run_id':'done','created_at':'2026-10-23T00:00:00Z'}])
         await self.context.grant_permissions(['clipboard-read', 'clipboard-write'])
-        await self.page.route('**/api/chat/conversations/c1/messages', history)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='恢复中会话').click()
+        await self.select_conversation('恢复中会话')
         await expect(self.page.locator('.ai-message-content pre code span[style*="color"]')).not_to_have_count(0, timeout=10000)
         copy = self.page.locator('.ai-message-content').get_by_role('button', name='Copy', exact=True)
         await expect(copy).to_have_count(1)
@@ -354,9 +369,9 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_assistant_markdown_renders_structure_and_filters_active_content(self):
         async def history(route):
             await route.fulfill(status=200, json=[{'id':'safe-message','role':'assistant','content':'**安全标题**\n\n[危险链接](javascript:alert(1))\n\n<script>window.markdownInjected = true</script>','run_id':'done','created_at':'2026-10-23T00:00:00Z'}])
-        await self.page.route('**/api/chat/conversations/c1/messages', history)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
         await self.page.goto(self.origin + '/chat')
-        await self.page.get_by_role('button', name='恢复中会话').click()
+        await self.select_conversation('恢复中会话')
         await expect(self.page.locator('.ai-message-content strong')).to_have_text('安全标题', timeout=2000)
         self.assertIsNone(await self.page.evaluate('window.markdownInjected'))
         self.assertEqual(await self.page.locator('.ai-message-content script, .ai-message-content a[href^="javascript:"]').count(), 0)
@@ -387,7 +402,7 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_chat_refreshes_models_when_first_opened_from_model_center(self):
         await self.page.goto(self.origin + '/models')
         await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
-        await self.page.route('**/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'首次进入聊天前接入的模型'}]))
+        await self.page.route(self.origin + '/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'首次进入聊天前接入的模型'}]))
         await self.page.get_by_role('link', name='对话体验', exact=True).click()
         await expect(self.page.locator('.model-select')).to_contain_text('首次进入聊天前接入的模型')
 
@@ -395,12 +410,13 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.origin + '/chat')
         await expect(self.page.locator('.model-select')).to_contain_text('测试模型')
         await self.page.get_by_role('link', name='模型目录', exact=True).click()
-        await self.page.route('**/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'刚接入的模型'}]))
+        await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
+        await self.page.route(self.origin + '/api/models', lambda route: route.fulfill(status=200, json=[{**self.model, 'id':'m2', 'name':'刚接入的模型'}]))
         await self.page.get_by_role('link', name='对话体验', exact=True).click()
         await expect(self.page.locator('.model-select')).to_contain_text('刚接入的模型', timeout=2000)
 
     async def test_original_login_validates_empty_fields_without_storing_passwords(self):
-        await self.page.route('**/api/auth/me', lambda route: route.fulfill(status=401, json={'error': {'code':'unauthenticated','message':'请先登录'}}))
+        await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(status=401, json={'error': {'code':'unauthenticated','message':'请先登录'}}))
         await self.page.goto(self.origin + '/login')
         await expect(self.page.get_by_role('button', name='登录', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='登录', exact=True).click()
@@ -440,8 +456,8 @@ class PlatformUIRegressions(unittest.IsolatedAsyncioTestCase):
         async def unauthenticated(route):
             self.counts[('GET', '/api/auth/me')] += 1
             await route.fulfill(status=401, json={'error': {'code': 'unauthenticated', 'message': '请先登录'}})
-        await self.page.route('**/api/auth/login', login)
-        await self.page.route('**/api/auth/me', unauthenticated)
+        await self.page.route(self.origin + '/api/auth/login', login)
+        await self.page.route(self.origin + '/api/auth/me', unauthenticated)
         await self.page.goto(self.origin + '/login')
         await self.page.get_by_placeholder('账号', exact=True).fill('admin')
         await self.page.get_by_placeholder('密码', exact=True).fill('browser-test-password')

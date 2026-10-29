@@ -12,6 +12,7 @@ from zhiheng.application.file_inputs import MAX_NORMALIZED_IMAGE_BYTES, FileInpu
 from zhiheng.application.knowledge_preparation import PreparationStart
 from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.modules.chat.public import (
+    ChatGenerationSettings,
     ChatRequestContext,
     ChatService,
     ConversationInfo,
@@ -64,7 +65,7 @@ class ChatRunService:
         self.knowledge: KnowledgePreparation | None = None
         self.file_inputs: FileInputService | None = None
 
-    async def admit_chat(
+    async def admit_chat(  # noqa: PLR0913 - mirrors the chat admission contract
         self,
         session: AsyncSession,
         principal: Principal,
@@ -77,7 +78,13 @@ class ChatRunService:
         skill_slugs: Sequence[str] = (),
         file_ids: Sequence[UUID] = (),
         prepared: PreparedChatInputs | None = None,
+        system_prompt: str = '',
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
     ) -> RunSnapshot:
+        settings = ChatGenerationSettings(
+            system_prompt=system_prompt, temperature=temperature, max_output_tokens=max_output_tokens
+        )
         regeneration_message_id = prepared.regeneration_message_id if prepared else None
         knowledge_base_ids = (
             [base.base_id for base in prepared.knowledge.bases] if prepared and prepared.knowledge else []
@@ -85,7 +92,16 @@ class ChatRunService:
         fingerprint = (
             self.regeneration_fingerprint(conversation_id, regeneration_message_id)
             if regeneration_message_id
-            else self.fingerprint('chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids)
+            else self.fingerprint(
+                'chat',
+                conversation_id,
+                model_id,
+                message,
+                skill_slugs,
+                file_ids,
+                knowledge_base_ids,
+                **settings.generation_settings(),
+            )
         )
         await self._runs.lock_request(session, principal.id, client_request_id)
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)
@@ -108,6 +124,7 @@ class ChatRunService:
         attachments = prepared.attachments if prepared is not None else ()
         if prepared is not None and binding != prepared.binding:
             raise AppError('model_binding_changed', '模型配置已变化，请重试', 409)
+        binding = self.generation_binding(binding, settings)
         if tuple(file_ids) != tuple(item.summary.file_id for item in attachments):
             raise AppError('invalid_attachments', '附件快照不一致', 422)
         if binding.model_type != 'chat':
@@ -142,7 +159,10 @@ class ChatRunService:
             *context,
             ModelMessage('user', message + extra, images),
         )
-        request = ModelRequest(binding=binding, messages=knowledge.apply_context(messages) if knowledge else messages)
+        messages = knowledge.apply_context(messages) if knowledge else messages
+        system_messages = (ModelMessage('system', settings.system_prompt),) if settings.system_prompt else ()
+        messages = (*system_messages, *messages)
+        request = ModelRequest(binding=binding, messages=messages)
         if knowledge and self.knowledge:
             await self.knowledge.check(session, knowledge, principal)
         image_bytes = sum(len(image.data_url.encode()) for item in request.messages for image in item.images)
@@ -158,6 +178,13 @@ class ChatRunService:
             request=request,
             token_limit=token_limit,
         )
+        request_context = ChatRequestContext(
+            model_id=model_id,
+            skill_slugs=list(skill_slugs),
+            file_ids=list(file_ids),
+            knowledge_base_ids=knowledge_base_ids,
+            **settings.generation_settings(),
+        )
         if target:
             await self._chat.add_regenerated_reply(
                 session,
@@ -166,6 +193,7 @@ class ChatRunService:
                 target=target,
                 skill_snapshots=snapshots,
                 knowledge_sources=knowledge.hits if knowledge else (),
+                request_context=request_context,
             )
         else:
             await self._chat.add_user_message(
@@ -176,18 +204,34 @@ class ChatRunService:
                 skill_snapshots=snapshots,
                 attachments=attachments,
                 knowledge_sources=knowledge.hits if knowledge else (),
-                request_context=ChatRequestContext(
-                    model_id=model_id,
-                    skill_slugs=list(skill_slugs),
-                    file_ids=list(file_ids),
-                    knowledge_base_ids=knowledge_base_ids,
-                ),
+                request_context=request_context,
             )
         if self._files is not None:
             await self._files.attach(session, principal, attachments, resource_type='chat', resource_id=run.id)
         if knowledge and self.knowledge:
             await self.knowledge.bind(session, knowledge, principal, run.id)
         return run
+
+    @staticmethod
+    def generation_binding(binding: ModelBinding, settings: ChatGenerationSettings) -> ModelBinding:
+        if binding.model_type != 'chat' and (
+            settings.system_prompt or settings.temperature is not None or settings.max_output_tokens is not None
+        ):
+            raise AppError('unsupported_generation_settings', '生成设置仅支持聊天模型', 422)
+        if settings.max_output_tokens is not None and settings.max_output_tokens > binding.max_output_tokens:
+            raise AppError('invalid_max_output_tokens', '输出长度不能超过当前模型上限', 422)
+        return binding.model_copy(
+            update={
+                'max_output_tokens': (
+                    settings.max_output_tokens if settings.max_output_tokens is not None else binding.max_output_tokens
+                ),
+                'options': (
+                    binding.options.model_copy(update={'temperature': settings.temperature})
+                    if settings.temperature is not None
+                    else binding.options
+                ),
+            }
+        )
 
     @staticmethod
     def regeneration_fingerprint(conversation_id: UUID, message_id: UUID) -> str:
@@ -256,6 +300,7 @@ class ChatRunService:
             selection = await self._regeneration_context(session, conversation_id, target)
             if not selection.knowledge_base_ids:
                 binding = await self._models.resolve(session, selection.model_id)
+                self.generation_binding(binding, selection)
         if selection.knowledge_base_ids:
             return await self.prepare_knowledge_chat(
                 principal,
@@ -267,6 +312,7 @@ class ChatRunService:
                 file_ids=selection.file_ids,
                 knowledge_base_ids=selection.knowledge_base_ids,
                 regeneration_message_id=message_id,
+                **selection.generation_settings(),
             )
         attachments = await self.file_inputs.prepare_many(principal, selection.file_ids)
         async with self.knowledge.database.sessions.begin() as session:
@@ -281,6 +327,7 @@ class ChatRunService:
                 skill_slugs=selection.skill_slugs,
                 file_ids=selection.file_ids,
                 prepared=PreparedChatInputs(binding, attachments, regeneration_message_id=message_id),
+                **selection.generation_settings(),
             )
 
     async def _validate_attachments(
@@ -438,6 +485,10 @@ class ChatRunService:
         skill_slugs: Sequence[str] = (),
         file_ids: Sequence[UUID] = (),
         knowledge_base_ids: Sequence[UUID] = (),
+        *,
+        system_prompt: str = '',
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
     ) -> str:
         fields: list[object] = [source, str(resource_id), str(model_id), message]
         if skill_slugs:
@@ -446,6 +497,16 @@ class ChatRunService:
             fields.append({'file_ids': [str(value) for value in file_ids]})
         if knowledge_base_ids:
             fields.append({'knowledge_base_ids': [str(value) for value in knowledge_base_ids]})
+        if system_prompt or temperature is not None or max_output_tokens is not None:
+            fields.append(
+                {
+                    'generation_settings': {
+                        'system_prompt': system_prompt,
+                        'temperature': temperature,
+                        'max_output_tokens': max_output_tokens,
+                    }
+                }
+            )
         value = json.dumps(
             fields,
             ensure_ascii=False,
@@ -453,7 +514,7 @@ class ChatRunService:
         )
         return hashlib.sha256(value.encode()).hexdigest()
 
-    async def prepare_knowledge_chat(
+    async def prepare_knowledge_chat(  # noqa: PLR0913 - persists the same chat admission contract
         self,
         principal: Principal,
         conversation_id: UUID,
@@ -465,13 +526,28 @@ class ChatRunService:
         file_ids: Sequence[UUID],
         knowledge_base_ids: Sequence[UUID],
         regeneration_message_id: UUID | None = None,
+        system_prompt: str = '',
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
     ) -> RunSnapshot | PreparationInfo:
         assert self.knowledge is not None and self.file_inputs is not None
+        settings = ChatGenerationSettings(
+            system_prompt=system_prompt, temperature=temperature, max_output_tokens=max_output_tokens
+        )
         prep = self.knowledge
         value = (
             self.regeneration_fingerprint(conversation_id, regeneration_message_id)
             if regeneration_message_id
-            else self.fingerprint('chat', conversation_id, model_id, message, skill_slugs, file_ids, knowledge_base_ids)
+            else self.fingerprint(
+                'chat',
+                conversation_id,
+                model_id,
+                message,
+                skill_slugs,
+                file_ids,
+                knowledge_base_ids,
+                **settings.generation_settings(),
+            )
         )
         async with prep.database.sessions.begin() as session:
             await self._runs.lock_request(session, principal.id, client_request_id)
@@ -486,6 +562,7 @@ class ChatRunService:
             if await self._runs.has_active(session, conversation_id):
                 raise AppError('conversation_busy', '当前对话仍有运行中的请求', 409)
             binding = await prep.binding_for(session, principal, model_id, list(knowledge_base_ids))
+            self.generation_binding(binding, settings)
             dependencies = await self._knowledge_dependencies(
                 session, principal, conversation_id, skill_slugs, binding, regeneration_message_id
             )
@@ -499,6 +576,7 @@ class ChatRunService:
             'file_ids': [str(item) for item in file_ids],
             'knowledge_base_ids': [str(item) for item in knowledge_base_ids],
             'attachments': [item.model_dump(mode='json') for item in attachments],
+            **settings.generation_settings(),
         }
         if regeneration_message_id:
             request['regeneration_message_id'] = str(regeneration_message_id)
@@ -576,6 +654,9 @@ class ChatRunService:
         assert self.knowledge is not None
         principal = await self.knowledge.knowledge.identity.principal_for_user(session, state.actor_id)
         request = state.request
+        settings = ChatGenerationSettings.model_validate(
+            {key: request[key] for key in ('system_prompt', 'temperature', 'max_output_tokens') if key in request}
+        )
         binding = ModelRequest.model_validate(state.dependencies['main_request']).binding
         current = await self._knowledge_dependencies(
             session,
@@ -604,6 +685,7 @@ class ChatRunService:
                 knowledge,
                 UUID(request['regeneration_message_id']) if request.get('regeneration_message_id') else None,
             ),
+            **settings.generation_settings(),
         )
 
     async def check_knowledge_dependencies(self, session: AsyncSession, state: RetrievalState) -> None:

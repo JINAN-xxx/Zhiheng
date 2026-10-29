@@ -1,7 +1,6 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { useMediaQuery } from '@vueuse/core'
 import {
   Alert as AAlert,
   Avatar as AAvatar,
@@ -12,7 +11,8 @@ import {
   Textarea as ATextarea
 } from 'ant-design-vue'
 import {
-  MenuOutlined,
+  HistoryOutlined,
+  PlusOutlined,
   PaperClipOutlined,
   CloseOutlined,
   FileTextOutlined,
@@ -24,7 +24,9 @@ import {
   UserOutlined
 } from '@ant-design/icons-vue'
 import { runStatusLabel } from '../../../shared/stream.ts'
-import { ChatNavigation, useChatWorkspace } from '../public.ts'
+import { useChatWorkspace } from '../public.ts'
+import ChatHistoryDialog from '../components/ChatHistoryDialog.vue'
+import ChatGenerationSettingsDialog from '../components/ChatGenerationSettingsDialog.vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { SkillPicker } from '../../skills/public.ts'
 import { KnowledgePicker, KnowledgeSources } from '../../knowledge/public.ts'
@@ -68,6 +70,9 @@ const {
   running,
   canRecover,
   modelOptions,
+  selectedModel,
+  generationSettings,
+  applyGenerationSettings,
   regenerate,
   retryRegeneration,
   regenerationPending,
@@ -123,14 +128,10 @@ watch(
     for (const key of Object.keys(selectedVersions)) delete selectedVersions[key]
   }
 )
-const compactHistory = useMediaQuery('(max-width: 760px)')
-const historyVisible = ref(!compactHistory.value)
+const historyOpen = ref(false)
+const settingsOpen = ref(false)
 async function newConversation(): Promise<void> {
   await selectConversation(null)
-  closeHistory()
-}
-function closeHistory(): void {
-  if (compactHistory.value) historyVisible.value = false
 }
 const fileInput = ref<HTMLInputElement | null>(null)
 function chooseFiles(event: Event): void {
@@ -147,36 +148,36 @@ onBeforeUnmount(() => {
     class="platform-chat workspace-chat-page"
     :class="{ 'is-empty': !messages.length && !activeRun && !selected }"
   >
-    <aside v-show="historyVisible" class="conversation-panel" aria-label="对话历史">
-      <header class="conversation-panel__heading">
-        <h2>对话历史</h2>
-        <AButton
-          v-if="compactHistory"
-          type="text"
-          aria-label="收起对话历史"
-          @click="historyVisible = false"
-          ><CloseOutlined
-        /></AButton>
-      </header>
-      <AButton class="conversation-panel__new" @click="newConversation">新建对话</AButton>
-      <ChatNavigation @navigate="closeHistory" />
-    </aside>
-    <button
-      v-if="compactHistory && historyVisible"
-      type="button"
-      class="conversation-scrim"
-      aria-label="关闭对话历史"
-      @click="historyVisible = false"
+    <ChatHistoryDialog v-model:open="historyOpen" />
+    <ChatGenerationSettingsDialog
+      v-model:open="settingsOpen"
+      :settings="generationSettings"
+      :model="selectedModel"
+      :disabled="running || sending || loading || listLoading || readOnly || preparing"
+      @save="applyGenerationSettings"
     />
     <main class="chat-workspace">
       <header class="chat-toolbar">
+        <button
+          type="button"
+          class="chat-toolbar-action"
+          aria-label="历史记录"
+          aria-haspopup="dialog"
+          aria-controls="chat-history-dialog"
+          :aria-expanded="historyOpen"
+          title="历史记录"
+          @click="historyOpen = true"
+        >
+          <HistoryOutlined aria-hidden="true" /><span class="chat-toolbar__label">历史记录</span>
+        </button>
         <AButton
           type="text"
-          :aria-label="historyVisible ? '收起对话历史' : '展开对话历史'"
-          :aria-expanded="historyVisible"
-          @click="historyVisible = !historyVisible"
-          ><MenuOutlined
-        /></AButton>
+          class="chat-toolbar-action"
+          aria-label="新建对话"
+          title="新建对话"
+          @click="newConversation"
+          ><PlusOutlined aria-hidden="true" /><span class="chat-toolbar__label">新建对话</span>
+        </AButton>
         <ASelect
           :value="modelId"
           class="model-select"
@@ -188,14 +189,17 @@ onBeforeUnmount(() => {
           :disabled="running || sending || loading"
           @update:value="setModelId"
         />
-        <AButton
+        <button
           class="toolbar-icon-button"
-          type="text"
-          disabled
-          aria-label="对话偏好"
-          title="当前版本暂不支持修改对话偏好"
-          ><SettingOutlined
-        /></AButton>
+          type="button"
+          aria-label="对话设置"
+          aria-haspopup="dialog"
+          :aria-expanded="settingsOpen"
+          title="对话设置"
+          @click="settingsOpen = true"
+        >
+          <SettingOutlined />
+        </button>
       </header>
       <div v-if="selected" class="chat-session-heading">{{ selected.title }}</div>
       <div
@@ -570,6 +574,12 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   width: var(--workspace-control-height);
   height: var(--workspace-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
 }
 
 .model-select {
@@ -586,6 +596,44 @@ onBeforeUnmount(() => {
   min-height: 70px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--gray-150);
+}
+.chat-toolbar-action {
+  flex-shrink: 0;
+}
+button.chat-toolbar-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--workspace-control-height);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+button.chat-toolbar-action:hover,
+.toolbar-icon-button:hover {
+  background: var(--gray-50);
+}
+button.chat-toolbar-action:focus-visible,
+.toolbar-icon-button:focus-visible {
+  outline: 2px solid var(--main-color);
+  outline-offset: 2px;
+}
+@media (max-width: 600px) {
+  .chat-toolbar__label {
+    display: none;
+  }
+  .chat-toolbar-action {
+    width: var(--workspace-control-height);
+    padding: 0;
+  }
+  button.chat-toolbar-action {
+    padding: 0;
+  }
 }
 
 .composer-context {
@@ -907,52 +955,12 @@ onBeforeUnmount(() => {
 .chat-alert :deep(.ant-btn) {
   margin: 0 8px 8px 0;
 }
-.conversation-panel {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 220px;
-  width: 220px;
-  min-height: 0;
-  border-right: 1px solid var(--gray-150);
-  background: var(--gray-25);
-}
-.conversation-panel__heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 50px;
-  padding: 10px 14px 2px;
-}
-.conversation-panel__heading h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
-.conversation-panel__new {
-  margin: 5px 12px 0;
-  color: var(--main-color);
-  border-color: var(--main-200);
-}
 .chat-session-heading {
   padding: 10px 28px 0;
   color: var(--color-text-tertiary);
   font-size: 12px;
 }
-.conversation-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  padding: 0;
-  border: 0;
-  background: rgb(25 26 40 / 12%);
-}
 @media (max-width: 760px) {
-  .conversation-panel {
-    position: absolute;
-    inset: 0 auto 0 0;
-    z-index: 11;
-    width: 240px;
-  }
   .message-history {
     padding: 18px;
   }

@@ -2,11 +2,13 @@ from collections.abc import Sequence
 from typing import Literal, cast
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from zhiheng.modules.chat.contracts import (
+    ChatGenerationConfig,
     ChatRequestContext,
     ConversationInfo,
     MessageInfo,
@@ -115,7 +117,19 @@ class ChatService:
 
     @staticmethod
     def _message(row: ChatMessage, question_id: UUID | None = None) -> MessageInfo:
+        generation_config = None
+        # Old selection contexts did not record these controls. Only an explicit
+        # user-selection snapshot can describe a user's system prompt.
+        context = row.request_context or {}
+        if {'system_prompt', 'temperature', 'max_output_tokens'} <= context.keys():
+            try:
+                generation_config = ChatGenerationConfig.model_validate(
+                    {key: context[key] for key in ('model_id', 'system_prompt', 'temperature', 'max_output_tokens')}
+                )
+            except (KeyError, ValidationError):
+                pass
         return MessageInfo(
+            generation_config=generation_config,
             attachments=[AttachmentSummary.model_validate(value) for value in row.attachments],
             knowledge_sources=[Hit.model_validate(value) for value in row.knowledge_sources],
             id=row.id,
@@ -267,6 +281,7 @@ class ChatService:
                 content=content,
                 reasoning=reasoning,
                 knowledge_sources=question.knowledge_sources if question else [],
+                request_context=question.request_context if question else {},
                 reply_to_message_id=question.id if question else None,
                 is_complete=True,
             )
@@ -332,6 +347,7 @@ class ChatService:
         target: RegenerationTarget,
         skill_snapshots: Sequence[SkillSnapshot],
         knowledge_sources: Sequence[Hit],
+        request_context: ChatRequestContext | None = None,
     ) -> None:
         session.add(
             ChatMessage(
@@ -343,6 +359,7 @@ class ChatService:
                 generation_index=target.next_generation_index,
                 skill_snapshots=[value.model_dump(mode='json') for value in skill_snapshots],
                 knowledge_sources=[value.model_dump(mode='json') for value in knowledge_sources],
+                request_context=request_context.model_dump(mode='json') if request_context else {},
             )
         )
 
