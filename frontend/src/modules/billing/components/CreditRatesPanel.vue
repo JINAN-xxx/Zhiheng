@@ -95,10 +95,6 @@ async function save(): Promise<void> {
   }
   error.value = rateError(body)
   if (error.value) return
-  if (!form.reason.trim()) {
-    error.value = '请填写定价原因'
-    return
-  }
   body.reason = form.reason.trim()
   const signature = JSON.stringify(body)
   if (!retryBody || signature !== retrySignature) {
@@ -187,13 +183,13 @@ async function save(): Promise<void> {
         <AFormItem v-else label="积分 / 检索单元" name="search_points"
           ><AInput v-model:value="form.search_points" :disabled="form.is_free || saving"
         /></AFormItem>
-        <AFormItem label="定价原因" name="reason" required
+        <AFormItem label="备注" name="reason"
           ><AInput.TextArea
             v-model:value="form.reason"
             :disabled="saving"
             :rows="2"
             :maxlength="1000"
-            placeholder="填写本次价格调整的依据"
+            placeholder="选填，可说明本次价格调整"
         /></AFormItem>
         <p class="rate-hint">
           输入价格适用于未命中缓存的输入；缓存按缓存价格计算，不会重复计费。新增价格仅影响后续调用。

@@ -20,14 +20,29 @@ class StrictRequest(CreditValue):
     model_config = ConfigDict(extra='forbid')
 
 
-class CreditWrite(StrictRequest):
-    reason: str = Field(min_length=1, max_length=1000)
+class CreditRequest(StrictRequest):
+    reason: str = Field(default='', max_length=1000)
     client_request_id: str = Field(min_length=1, max_length=128)
 
     @field_validator('reason', 'client_request_id')
     @classmethod
-    def nonblank(cls, value: str) -> str:
-        value = value.strip()
+    def trimmed(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator('client_request_id')
+    @classmethod
+    def nonblank_request_id(cls, value: str) -> str:
+        if not value:
+            raise ValueError('A nonblank value is required')
+        return value
+
+
+class CreditWrite(CreditRequest):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator('reason')
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
         if not value:
             raise ValueError('A nonblank value is required')
         return value
@@ -38,13 +53,14 @@ class CreditState(BaseModel):
     version: int
 
 
-class CreditStatePatch(CreditWrite):
+class CreditStatePatch(CreditRequest):
     enabled: bool = Field(strict=True)
     expected_version: int = Field(strict=True, ge=0)
 
 
-class CreditAccountStatePatch(CreditStatePatch):
-    pass
+class CreditAccountStatePatch(CreditWrite):
+    enabled: bool = Field(strict=True)
+    expected_version: int = Field(strict=True, ge=0)
 
 
 class CreditAdjustment(CreditWrite):
@@ -90,7 +106,7 @@ class CreditPrices(StrictRequest):
         return self
 
 
-class CreditRateCreate(CreditPrices, CreditWrite):
+class CreditRateCreate(CreditPrices, CreditRequest):
     @field_validator('input_points', 'output_points', 'cache_points', 'search_points', mode='before')
     @classmethod
     def decimal_string(cls, value: object) -> object:

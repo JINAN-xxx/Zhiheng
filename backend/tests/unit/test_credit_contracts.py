@@ -42,6 +42,42 @@ def test_free_rate_cannot_hide_nonzero_price() -> None:
         )
 
 
+@pytest.mark.parametrize('reason', [None, '', '   ', ' 调整积分倍率 '])
+def test_rate_note_is_optional_and_trimmed(reason: str | None) -> None:
+    values = {'billing_mode': 'token', 'input_points': '1', 'client_request_id': 'rate-note'}
+    if reason is not None:
+        values['reason'] = reason
+    data = contracts().CreditRateCreate(**values)
+    assert data.reason == (reason or '').strip()
+
+
+@pytest.mark.parametrize('reason', [None, '', '   '])
+def test_optional_rate_note_does_not_relax_grant_reason(reason: str | None) -> None:
+    values = {'kind': 'grant', 'points': '1', 'client_request_id': 'grant-reason'}
+    if reason is not None:
+        values['reason'] = reason
+    with pytest.raises(ValidationError):
+        contracts().CreditAdjustment(**values)
+
+
+@pytest.mark.parametrize('reason', [None, '', '   '])
+def test_mode_switch_note_is_optional(reason: str | None) -> None:
+    values = {'enabled': True, 'expected_version': 0, 'client_request_id': 'switch-note'}
+    if reason is not None:
+        values['reason'] = reason
+    data = contracts().CreditStatePatch(**values)
+    assert data.reason == ''
+
+
+@pytest.mark.parametrize('reason', [None, '', '   '])
+def test_account_pause_still_requires_reason(reason: str | None) -> None:
+    values = {'enabled': False, 'expected_version': 0, 'client_request_id': 'pause-reason'}
+    if reason is not None:
+        values['reason'] = reason
+    with pytest.raises(ValidationError):
+        contracts().CreditAccountStatePatch(**values)
+
+
 def test_price_computation_uses_per_million_and_cache_replaces_input() -> None:
     c = contracts()
     pricing = import_module('zhiheng.modules.billing.pricing')

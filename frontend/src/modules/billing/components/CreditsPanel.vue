@@ -167,7 +167,7 @@ async function save(): Promise<void> {
   if (!kind || saving.value || (kind === 'mode' ? !access.value.switchMode : !access.value.write))
     return
   formError.value = ''
-  if (!form.reason.trim()) {
+  if (kind !== 'mode' && !form.reason.trim()) {
     formError.value = '请填写操作原因'
     return
   }
@@ -446,13 +446,16 @@ function searchAccounts(): void {
             :disabled="saving"
             placeholder="请输入正数，最多 18 位小数"
         /></AFormItem>
-        <AFormItem label="操作原因" name="reason" required
+        <AFormItem
+          :label="dialog === 'mode' ? '备注' : '操作原因'"
+          name="reason"
+          :required="dialog !== 'mode'"
           ><AInput.TextArea
             v-model:value="form.reason"
             :disabled="saving"
             :maxlength="1000"
             :rows="3"
-            placeholder="填写发放、回收或状态变更的依据"
+            :placeholder="dialog === 'mode' ? '选填' : '填写发放、回收或状态变更的依据'"
         /></AFormItem>
       </AForm>
       <p class="credit-footnote">操作会留存审计记录；相同请求重试不会重复发放或回收。</p>

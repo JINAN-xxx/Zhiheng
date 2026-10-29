@@ -148,6 +148,70 @@ async def test_point_rate_history_quote_scope_and_model_type(
         ).status_code == 422
 
 
+async def test_point_rate_optional_note_keeps_version_operator_audit_and_replay(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str
+) -> None:
+    operator_id = (await admin.get('/api/auth/me')).json()['id']
+    path = f'/api/billing/models/{model_id}/rates'
+    for version, note in enumerate((None, '', '   ', ' 调整积分倍率 '), start=1):
+        body = {'billing_mode': 'token', 'input_points': '1', 'client_request_id': uuid4().hex}
+        if note is not None:
+            body['reason'] = note
+        created = await admin.post(path, json=body)
+        assert created.status_code == 201, created.text
+        assert created.json()['version'] == version and created.json()['created_at']
+        replay = await admin.post(path, json=body)
+        assert replay.status_code == 201 and replay.json() == created.json()
+        async with app.state.container.database.sessions() as session:
+            command = (
+                await session.execute(
+                    text(
+                        'SELECT operator_id, reason, created_at, result FROM billing_commands '
+                        'WHERE client_request_id = :request_id'
+                    ),
+                    {'request_id': body['client_request_id']},
+                )
+            ).one()
+            assert str(command.operator_id) == operator_id
+            assert command.reason == (note or '').strip() and command.created_at
+            assert command.result['version'] == version
+    assert len((await admin.get(path)).json()) == 4
+
+
+async def test_mode_switch_optional_note_keeps_audit_and_disabling_needs_no_prices(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str
+) -> None:
+    await point_rate(admin, model_id)
+    enabled = {'enabled': True, 'expected_version': 0, 'client_request_id': uuid4().hex}
+    result = await admin.patch('/api/billing/state', json=enabled)
+    assert result.status_code == 200 and result.json() == {'enabled': True, 'version': 1}, result.text
+    assert (await admin.patch('/api/billing/state', json=enabled)).json() == result.json()
+    model = next(item for item in (await admin.get('/api/models')).json() if item['id'] == model_id)
+    unpriced = await admin.post(
+        '/api/models',
+        json={
+            'name': 'New unpriced model',
+            'connection_id': model['connection_id'],
+            'upstream_model': 'new-unpriced',
+            'max_output_tokens': 64,
+            'published': True,
+        },
+    )
+    assert unpriced.status_code == 201, unpriced.text
+    disabled = {'enabled': False, 'expected_version': 1, 'client_request_id': uuid4().hex, 'reason': '  '}
+    result = await admin.patch('/api/billing/state', json=disabled)
+    assert result.status_code == 200 and result.json() == {'enabled': False, 'version': 2}, result.text
+    operator_id = (await admin.get('/api/auth/me')).json()['id']
+    async with app.state.container.database.sessions() as session:
+        commands = (
+            await session.execute(
+                text("SELECT operator_id,reason,created_at FROM billing_commands WHERE kind = 'state'")
+            )
+        ).all()
+        assert len(commands) == 2
+        assert all(str(row.operator_id) == operator_id and row.reason == '' and row.created_at for row in commands)
+
+
 async def test_mode_preflight_prices_pending_runtime_and_idempotent_replay(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:

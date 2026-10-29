@@ -283,13 +283,13 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(drawer.get_by_role('cell', name='待核对', exact=True)).to_be_visible()
         await expect(drawer.get_by_role('button', name='核对', exact=True)).to_have_count(0)
 
-    async def test_superadmin_switch_requires_explicit_reason_and_version(self):
+    async def test_superadmin_switch_keeps_note_and_version(self):
         self.user['is_admin'] = True
         await self.page.goto(self.origin + '/usage')
         await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
         await expect(dialog.get_by_text('请先配置模型积分价格并准备用户余额。启用后，未配置价格或余额不足的调用将被拒绝。', exact=True)).to_be_visible()
-        await dialog.get_by_label('操作原因', exact=True).fill('已完成价格与账户准备')
+        await dialog.get_by_label('备注', exact=True).fill('已完成价格与账户准备')
         await dialog.get_by_role('button', name='确认启用', exact=True).click()
         await expect(self.page.get_by_text('积分计费已启用', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1]['expected_version'], 0)
@@ -306,7 +306,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.origin + '/usage')
         await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
-        await dialog.get_by_label('操作原因', exact=True).fill('管理员确认启用积分')
+        await dialog.get_by_label('备注', exact=True).fill('管理员确认启用积分')
         await dialog.get_by_role('button', name='确认启用', exact=True).click()
         return dialog
 
@@ -314,7 +314,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         message = '以下已发布模型尚未配置积分费率：bge-m3、GLM-5.3-Flash'
         dialog = await self.rejected_mode_change('credit_rates_incomplete', message)
         await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
-        await expect(dialog.get_by_label('操作原因', exact=True)).to_have_value('管理员确认启用积分')
+        await expect(dialog.get_by_label('备注', exact=True)).to_have_value('管理员确认启用积分')
         self.assertFalse(self.state['enabled'])
 
     async def test_enable_preserves_active_work_message(self):
@@ -359,7 +359,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(dialog.get_by_text('零价格必须明确标记为免费', exact=True)).to_be_visible()
         await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('100')
         await dialog.get_by_label('输出积分 / 百万 Token', exact=True).fill('500')
-        await dialog.get_by_label('定价原因', exact=True).fill('按平台积分方案设置新版本')
+        await dialog.get_by_label('备注', exact=True).fill('按平台积分方案设置新版本')
         await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
         await expect(dialog.get_by_text('定价确认暂不可用', exact=True)).to_be_visible()
         await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
@@ -370,6 +370,35 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.rate_posts[-1]['output_points'], '500')
         self.assertFalse(self.rate_posts[-1]['is_free'])
         await self.save_evidence('model-credit-rates.png')
+
+    async def test_point_rate_can_save_without_note(self):
+        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        await self.page.goto(self.origin + '/models')
+        await self.page.get_by_role('button', name='费率配置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
+        await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('1')
+        await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
+        await expect(dialog.get_by_role('cell', name='1', exact=True)).to_be_visible()
+        await expect(dialog.get_by_label('备注', exact=True)).to_have_value('')
+        self.assertEqual(self.rate_posts[-1]['reason'], '')
+        self.assertTrue(self.rate_posts[-1]['client_request_id'])
+
+    async def test_superadmin_can_enable_and_disable_without_note(self):
+        self.user['is_admin'] = True
+        await self.page.goto(self.origin + '/usage')
+        await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
+        await dialog.get_by_role('button', name='确认启用', exact=True).click()
+        await expect(self.page.get_by_text('积分计费已启用', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='停用积分计费', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='停用积分计费', exact=True)
+        await expect(dialog.get_by_label('备注', exact=True)).to_have_value('')
+        await dialog.get_by_role('button', name='确认停用', exact=True).click()
+        await expect(self.page.get_by_text('积分计费未启用，当前沿用原规则', exact=True)).to_be_visible()
+        self.assertEqual([body['enabled'] for body in self.posts], [True, False])
+        self.assertEqual([body['expected_version'] for body in self.posts], [0, 1])
+        self.assertEqual([body['reason'] for body in self.posts], ['', ''])
+        self.assertNotEqual(self.posts[0]['client_request_id'], self.posts[1]['client_request_id'])
 
 
 if __name__ == '__main__':

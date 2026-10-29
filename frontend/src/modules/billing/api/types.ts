@@ -67,11 +67,18 @@ export interface CreditRate extends CreditRateInput {
   version: number
   created_at: string
 }
-export interface AuditedMutation {
-  reason: string
+export interface NoteMutation {
+  reason?: string
   client_request_id: string
 }
-export interface CreditRateCreate extends CreditRateInput, AuditedMutation {}
+export interface AuditedMutation extends NoteMutation {
+  reason: string
+}
+export interface CreditRateCreate extends CreditRateInput, NoteMutation {}
+export interface CreditStateMutation extends NoteMutation {
+  enabled: boolean
+  expected_version: number
+}
 export interface StateMutation extends AuditedMutation {
   enabled: boolean
   expected_version: number

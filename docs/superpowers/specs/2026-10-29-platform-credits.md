@@ -14,7 +14,7 @@
 
 ## 核心公开契约
 
-`CreditService` 提供 `state/set_state`、`summary/summaries`、`adjust`（grant/reclaim）、`set_account_state`、`rates/create_rate/quote`、`reserve/require_reservation/settle/reconcile`、`ledger/reservations`。写操作均使用调用者、client_request_id、reason；状态/核对操作另带 expected_version。读写权限为 `ai:credits:read/write`，费率使用原 `ai:rates:read/write`，本人查询默认可用。
+`CreditService` 提供 `state/set_state`、`summary/summaries`、`adjust`（grant/reclaim）、`set_account_state`、`rates/create_rate/quote`、`reserve/require_reservation/settle/reconcile`、`ledger/reservations`。写操作均记录调用者和 client_request_id；费率创建与全局启停的 reason 是选填备注，省略或空白统一保存为空字符串。发放、回收、账户暂停/恢复和人工核对仍要求填写原因。状态/核对操作另带 expected_version。读写权限为 `ai:credits:read/write`，费率使用原 `ai:rates:read/write`，本人查询默认可用。
 
 - state：`{enabled, version}`，默认 false/0。
 - summary：`{user_id,enabled,version,allocated_points,reclaimed_points,used_points,reserved_points,available_points}`，金额为字符串，缺账户返回零余额/version0。
@@ -29,14 +29,14 @@
 
 新增 `/api/billing`：
 
-- GET `/state`、PATCH `/state`（仅超级管理员）；开关请求 `{enabled,expected_version,reason,client_request_id}`。
+- GET `/state`、PATCH `/state`（仅超级管理员）；开关请求 `{enabled,expected_version,client_request_id,reason?}`。启用检查模型积分价格，停用不要求价格齐备；两者均保留在途任务检查和审计。
 - GET `/me`、`/me/ledger`、`/me/usage`，分页参数 page/page_size。
 - GET `/accounts?search=&page=&page_size=`，返回summary加username/display_name/is_active；经 identity 公开目录组装，不能直接读identity ORM。
 - POST `/accounts/{user_id}/adjust`、PATCH `/accounts/{user_id}/state`、GET对应 `/ledger` 和 `/usage`。
 - GET/POST `/models/{model_id}/rates`：管理价格历史与新版本；GET `/models/{model_id}/quote` 给已发布模型提供公开积分价格，其他需管理读取权限。
 - POST `/usage/{run_id}/reconcile`：仅 credits write，要求已unknown、expected_version、client_request_id、reason和可确认的 input/output/cache/search 用量或 rejected_before_execution。
 
-复用“用量与调用”：普通用户看我的积分/消费与历史Token；有积分管理权限者看用户账户、发放/回收/暂停与待核对。模型费率弹窗增加积分计价，原金额版本作为历史保留，不混单位。新Key可配置月度积分上限；页面沿用白色/系统字体/蓝紫，不新增重复主导航。
+复用“用量与调用”：普通用户看我的积分/消费与历史Token；有积分管理权限者看用户账户、发放/回收/暂停与待核对。模型费率弹窗增加积分计价，原金额版本作为历史保留，不混单位。“定价原因”改为选填“备注”，全局启停也不强制填写备注；操作人、时间、价格版本和切换版本由系统自动记录。新Key可配置月度积分上限；页面沿用白色/系统字体/蓝紫，不新增重复主导航。
 
 ## 一期验收
 

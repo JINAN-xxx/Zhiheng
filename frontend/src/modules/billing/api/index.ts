@@ -17,6 +17,7 @@ import type {
   CreditRateCreate,
   CreditReconciliation,
   CreditState,
+  CreditStateMutation,
   CreditSummary,
   CreditUsage,
   StateMutation
@@ -124,7 +125,7 @@ function page<T>(decode: (value: unknown) => T) {
 }
 export const getCreditState = (signal: AbortSignal) =>
   http.request(`${root}/state`, { signal, decode: parseCreditState })
-export const setCreditState = (body: StateMutation, signal: AbortSignal) =>
+export const setCreditState = (body: CreditStateMutation, signal: AbortSignal) =>
   http.request(`${root}/state`, { method: 'PATCH', body, signal, decode: parseCreditState })
 export const getMyCredits = (signal: AbortSignal) =>
   http.request(`${root}/me`, { signal, decode: parseCreditSummary })

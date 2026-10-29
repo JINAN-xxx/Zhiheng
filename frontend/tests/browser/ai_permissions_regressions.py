@@ -102,7 +102,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
         await expect(dialog.get_by_role('tab', name='积分计价', exact=True)).to_have_attribute('aria-selected', 'true')
         await expect(dialog.get_by_role('button', name='创建积分价格版本', exact=True)).to_have_count(0)
-        await expect(dialog.get_by_label('定价原因', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_label('备注', exact=True)).to_have_count(0)
         await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
         await expect(dialog.get_by_text('历史费率版本', exact=True)).to_be_visible()
         await expect(dialog.get_by_role('button', name='创建价格版本', exact=True)).to_have_count(0)

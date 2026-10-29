@@ -23,6 +23,7 @@ from zhiheng.modules.billing.contracts import (
     CreditRateCreate,
     CreditRateInfo,
     CreditReconcile,
+    CreditRequest,
     CreditReservation,
     CreditState,
     CreditStatePatch,
@@ -648,10 +649,10 @@ class CreditService:
         actor: Principal,
         kind: str,
         target: str,
-        data: CreditWrite,
+        data: CreditRequest,
         result_type: type[Result],
     ) -> Result | None:
-        if not data.client_request_id.strip() or not data.reason.strip():
+        if not data.client_request_id.strip() or (isinstance(data, CreditWrite) and not data.reason.strip()):
             raise AppError('invalid_request', '操作原因与幂等标识不能为空', 422)
         await self._lock(session, f'command:{actor.id}:{data.client_request_id}')
         row = await session.scalar(
@@ -671,7 +672,7 @@ class CreditService:
         actor: Principal,
         kind: str,
         target: str,
-        data: CreditWrite,
+        data: CreditRequest,
         result: BaseModel,
     ) -> None:
         session.add(
@@ -688,7 +689,7 @@ class CreditService:
         await session.flush()
 
     @staticmethod
-    def _payload(data: CreditWrite) -> dict[str, Any]:
+    def _payload(data: CreditRequest) -> dict[str, Any]:
         result = data.model_dump(mode='json')
         # Equivalent decimal spellings represent the same request payload.
         for name, value in data.model_dump().items():
