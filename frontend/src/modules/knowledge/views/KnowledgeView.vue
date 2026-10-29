@@ -36,7 +36,7 @@ import KnowledgeAclDrawer from '../components/KnowledgeAclDrawer.vue'
 import ChunkFields from '../components/ChunkFields.vue'
 import { useKnowledgeWorkspace } from '../composables/workspace.ts'
 import { formatSize, validChunks } from '../presentation.ts'
-import { identity } from '../../identity/public.ts'
+import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { managedImportStorageKey, parseManagedImportDraft } from '../managedImportDraft.ts'
 import type { ManagedImportDraft } from '../managedImportDraft.ts'
 const {
@@ -434,7 +434,7 @@ const uploadLabels = {
       v-if="!baseId"
       :databases="bases"
       :graph-available="capabilities?.graph_available === true"
-      :can-manage-storage="identity?.is_admin === true"
+      :can-manage-storage="hasAnyPermission(identity, 'ai:storage:read', 'ai:storage:write')"
       :loading="loading"
       :error="listError"
       @refresh="loadList"

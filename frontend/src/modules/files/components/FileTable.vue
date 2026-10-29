@@ -58,9 +58,12 @@
         ><span v-else>{{ row.aclEntryCount || 0 }} 项</span></template
       >
       <template v-else-if="column.key === 'reference'"
-        ><a-button v-if="row.referenceCount" type="link" @click="emit('reference', row)"
+        ><a-button
+          v-if="row.referenceCount && canManageFile(identity, row)"
+          type="link"
+          @click="emit('reference', row)"
           >{{ row.referenceCount }} 项</a-button
-        ><span v-else>0 项</span></template
+        ><span v-else>{{ row.referenceCount }} 项</span></template
       >
       <a-tag
         v-else-if="column.key === 'storageStatus'"
@@ -93,7 +96,7 @@
             @click="emit('download', row)"
             ><DownloadOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip v-if="row.status === 'active'" title="授权"
+        <a-tooltip v-if="row.status === 'active' && canManageFile(identity, row)" title="授权"
           ><a-button
             type="link"
             :aria-label="`访问权限：${row.displayName}`"
@@ -101,7 +104,7 @@
             @click="emit('acl', row)"
             ><LockOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip v-if="row.status === 'active'" title="转移"
+        <a-tooltip v-if="row.status === 'active' && canManageFile(identity, row)" title="转移"
           ><a-button
             type="link"
             :aria-label="`转移文件：${row.displayName}`"
@@ -109,7 +112,7 @@
             @click="emit('transfer', row)"
             ><SwapOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip title="审计"
+        <a-tooltip v-if="canManageFile(identity, row)" title="审计"
           ><a-button
             type="link"
             :aria-label="`文件审计：${row.displayName}`"
@@ -118,11 +121,11 @@
             ><AuditOutlined /></a-button
         ></a-tooltip>
         <a-tooltip
-          v-if="row.status === 'active' && row.referenceCount"
+          v-if="row.status === 'active' && row.referenceCount && canManageFile(identity, row)"
           title="存在业务引用，无法删除"
           ><a-button type="link" danger disabled><DeleteOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip v-else-if="row.status === 'active'" title="删除"
+        <a-tooltip v-else-if="row.status === 'active' && canManageFile(identity, row)" title="删除"
           ><a-button
             type="link"
             danger
@@ -131,7 +134,7 @@
             @click="emit('delete', row)"
             ><DeleteOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip v-if="row.status === 'deleted'" title="恢复"
+        <a-tooltip v-if="row.status === 'deleted' && canManageFile(identity, row)" title="恢复"
           ><a-button
             type="link"
             :aria-label="`恢复文件：${row.displayName}`"
@@ -140,7 +143,7 @@
             ><RollbackOutlined /></a-button
         ></a-tooltip>
         <a-tooltip
-          v-if="row.status !== 'active'"
+          v-if="row.status !== 'active' && canManageFile(identity, row)"
           :title="row.status === 'purging' ? '重试永久清理' : '永久清理'"
           ><a-button
             type="link"
@@ -177,6 +180,8 @@ import {
   SwapOutlined
 } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import { identity } from '../../identity/public.ts'
+import { canManageFile } from '../access.ts'
 import {
   expirationLabel,
   expirationTagType,
@@ -238,7 +243,12 @@ function locked(row: ManagedFile): boolean {
   return props.busyIds.includes(row.fileId)
 }
 function immutable(row: ManagedFile): boolean {
-  return locked(row) || row.sourceFileId !== null || row.status === 'purged'
+  return (
+    !canManageFile(identity.value, row) ||
+    locked(row) ||
+    row.sourceFileId !== null ||
+    row.status === 'purged'
+  )
 }
 function userLabel(id: string): string {
   return props.users.find((user) => user.id === id)?.username ?? id

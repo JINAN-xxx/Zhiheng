@@ -9,13 +9,18 @@
       show-icon
       class="mb8"
     />
-    <div class="mb8">
-      <a-button type="primary" :disabled="saving" @click="handleAdd"
+    <div v-if="canWrite" class="mb8">
+      <a-button type="primary" aria-label="新增策略" :disabled="saving" @click="handleAdd"
         ><PlusOutlined />
         新增
       </a-button>
     </div>
-    <ResourceTable :columns="columns" :rows="policyList" :loading="loading" row-key="resourceType">
+    <ResourceTable
+      :columns="visibleColumns"
+      :rows="policyList"
+      :loading="loading"
+      row-key="resourceType"
+    >
       <template #bodyCell="{ column, record: row }">
         <template v-if="column.key === 'status'"
           ><a-tag :color="row.enabled ? 'green' : 'default'">{{
@@ -26,7 +31,7 @@
         <template v-else-if="column.key === 'updateTime'">{{
           formatTime(row.updatedAt) || '-'
         }}</template>
-        <a-space v-else-if="column.key === 'actions'"
+        <a-space v-else-if="column.key === 'actions' && canWrite"
           ><a-tooltip title="修改"
             ><a-button type="link" :disabled="saving" aria-label="修改策略" @click="handleEdit(row)"
               ><EditOutlined /></a-button></a-tooltip
@@ -43,7 +48,7 @@
     </ResourceTable>
   </ResourceDrawer>
 
-  <a-modal :title="formTitle" :open="formOpen" :width="520" @cancel="closeForm">
+  <a-modal :title="formTitle" :open="formOpen && canWrite" :width="520" @cancel="closeForm">
     <a-alert v-if="formError" :message="formError" type="error" show-icon />
     <a-form :model="form" :disabled="saving" layout="vertical">
       <a-form-item label="业务类型" name="resourceType">
@@ -111,6 +116,7 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getRetentionPolicies, saveRetentionPolicy, deleteRetentionPolicy } from '../api/index.ts'
 import type { RetentionPolicy } from '../api/index.ts'
 import { formatTime } from '../presentation.ts'
+const props = defineProps<{ canRead: boolean; canWrite: boolean }>()
 const visible = ref(false),
   loading = ref(false),
   saving = ref(false),
@@ -136,6 +142,9 @@ const columns: TableColumnsType<RetentionPolicy> = [
   { title: '更新时间', key: 'updateTime', width: 180 },
   { title: '操作', key: 'actions', width: 100 }
 ]
+const visibleColumns = computed(() =>
+  columns.filter((column) => column.key !== 'actions' || props.canWrite)
+)
 function closeForm(): void {
   writes.replace()
   formOpen.value = false
@@ -149,12 +158,14 @@ function close(): void {
   policyList.value = []
 }
 function open(): void {
+  if (!props.canRead) return
   close()
   error.value = ''
   visible.value = true
   void getList()
 }
 async function getList(): Promise<void> {
+  if (!props.canRead) return
   const context = scope.replace()
   loading.value = true
   try {
@@ -167,12 +178,14 @@ async function getList(): Promise<void> {
   }
 }
 function handleAdd(): void {
+  if (!props.canWrite) return
   editing.value = null
   Object.assign(form, { resourceType: '', retentionDays: 30, enabled: true, remark: '' })
   formError.value = ''
   formOpen.value = true
 }
 function handleEdit(row: RetentionPolicy): void {
+  if (!props.canWrite) return
   editing.value = { ...row }
   Object.assign(form, row)
   formError.value = ''
@@ -182,7 +195,7 @@ function setDays(value: unknown): void {
   form.retentionDays = typeof value === 'number' ? value : 0
 }
 async function submit(): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !props.canWrite) return
   if (
     !/^[a-z][a-z0-9_]{0,31}$/.test(form.resourceType) ||
     !Number.isInteger(form.retentionDays) ||
@@ -221,7 +234,7 @@ async function submit(): Promise<void> {
   }
 }
 async function handleDelete(row: RetentionPolicy): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !props.canWrite) return
   const context = writes.replace(),
     target = { ...row }
   saving.value = true
@@ -229,7 +242,8 @@ async function handleDelete(row: RetentionPolicy): Promise<void> {
     if (
       !(await confirm(`是否删除业务类型“${target.resourceType}”的保留策略？`)) ||
       !context.isCurrent() ||
-      !visible.value
+      !visible.value ||
+      !props.canWrite
     )
       return
     await deleteRetentionPolicy(target, context.signal)

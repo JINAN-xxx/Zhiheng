@@ -8,27 +8,51 @@ import {
 import { EllipsisOutlined } from '@ant-design/icons-vue'
 import type { ChatModel } from '../api/index.ts'
 
-defineProps<{ model: ChatModel; busy: boolean; testing: boolean }>()
-defineEmits<{
+const props = defineProps<{
+  model: ChatModel
+  busy: boolean
+  testing: boolean
+  canWrite: boolean
+  canReadRates: boolean
+  canTest: boolean
+}>()
+const emit = defineEmits<{
   edit: []
   rates: []
   test: []
   control: [action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete']
 }>()
+function edit(): void {
+  if (props.canWrite) emit('edit')
+}
+function rates(): void {
+  if (props.canReadRates) emit('rates')
+}
+function test(): void {
+  if (props.canTest && !props.busy && props.model.enabled) emit('test')
+}
+function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete'): void {
+  if (props.canWrite) emit('control', action)
+}
 </script>
 
 <template>
-  <div class="model-actions">
+  <div v-if="canWrite || canReadRates || canTest" class="model-actions">
     <div class="desktop-actions">
-      <AButton type="link" size="small" aria-label="编辑模型" @click="$emit('edit')">编辑</AButton>
-      <AButton type="link" size="small" aria-label="费率配置" @click="$emit('rates')">费率</AButton>
+      <AButton v-if="canWrite" type="link" size="small" aria-label="编辑模型" @click="edit"
+        >编辑</AButton
+      >
+      <AButton v-if="canReadRates" type="link" size="small" aria-label="费率配置" @click="rates"
+        >费率</AButton
+      >
       <AButton
+        v-if="canTest"
         type="link"
         size="small"
         aria-label="测试连接"
         :loading="testing && busy"
         :disabled="busy || !model.enabled"
-        @click="$emit('test')"
+        @click="test"
         >测试</AButton
       >
     </div>
@@ -36,18 +60,20 @@ defineEmits<{
       <AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton>
       <template #overlay>
         <AMenu>
-          <AMenuItem @click="$emit('edit')">编辑模型</AMenuItem>
-          <AMenuItem @click="$emit('rates')">费率配置</AMenuItem>
-          <AMenuItem :disabled="busy || !model.enabled" @click="$emit('test')">测试连接</AMenuItem>
-          <AMenuItem @click="$emit('control', model.enabled ? 'disable' : 'enable')">{{
+          <AMenuItem v-if="canWrite" @click="edit">编辑模型</AMenuItem>
+          <AMenuItem v-if="canReadRates" @click="rates">费率配置</AMenuItem>
+          <AMenuItem v-if="canTest" :disabled="busy || !model.enabled" @click="test"
+            >测试连接</AMenuItem
+          >
+          <AMenuItem v-if="canWrite" @click="control(model.enabled ? 'disable' : 'enable')">{{
             model.enabled ? '停用' : '启用'
           }}</AMenuItem>
           <AMenuItem
-            v-if="model.enabled"
-            @click="$emit('control', model.published ? 'unpublish' : 'publish')"
+            v-if="canWrite && model.enabled"
+            @click="control(model.published ? 'unpublish' : 'publish')"
             >{{ model.published ? '取消发布' : '发布' }}</AMenuItem
           >
-          <AMenuItem v-if="!model.enabled" danger @click="$emit('control', 'delete')"
+          <AMenuItem v-if="canWrite && !model.enabled" danger @click="control('delete')"
             >删除模型</AMenuItem
           >
         </AMenu>

@@ -1,8 +1,10 @@
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID, uuid4
 
 import httpx
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy import select
@@ -14,6 +16,7 @@ from zhiheng.api.routes.admin_identity import router
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.principal import Principal
 
 
 class Audit:
@@ -102,3 +105,56 @@ async def test_identity_router_leaves_operations_paths_available(api: tuple[Any,
     assert (await client.get('/api/admin/dictionaries')).status_code == 404
     response = await client.get('/api/admin/users/options')
     assert response.status_code == 200 and set(response.json()) == {'roles', 'posts', 'departments'}
+
+
+async def test_role_codes_are_generated_uniquely_and_remain_stable_after_edit(api: tuple[Any, ...]) -> None:
+    client, _, _, _ = api
+    codes = []
+    for name in ('First role', 'Second role'):
+        created = await client.post('/api/admin/roles', json={'name': name})
+        assert created.status_code == 201, created.text
+        role = created.json()
+        code = role['code']
+        assert len(code) == 37 and code.startswith('role_')
+        assert UUID(hex=code[5:]).version == 4
+        updated = await client.patch(
+            f'/api/admin/roles/{role["id"]}', json={'name': 'Renamed role', 'expected_version': 1}
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()['code'] == code
+        codes.append(code)
+    assert len(set(codes)) == 2
+
+
+async def test_explicit_legacy_role_code_remains_supported_unique_and_immutable(api: tuple[Any, ...]) -> None:
+    client, _, _, _ = api
+    fields = {'name': 'Legacy role', 'code': 'legacy.role:reader-1'}
+    created = await client.post('/api/admin/roles', json=fields)
+    assert created.status_code == 201, created.text
+    role = created.json()
+    duplicate = await client.post('/api/admin/roles', json=fields)
+    assert duplicate.status_code == 409
+    updated = await client.patch(
+        f'/api/admin/roles/{role["id"]}', json={'name': 'Renamed legacy role', 'expected_version': 1}
+    )
+    assert updated.status_code == 200 and updated.json()['code'] == fields['code']
+    rejected = await client.patch(f'/api/admin/roles/{role["id"]}', json={'code': 'renamed', 'expected_version': 2})
+    assert rejected.status_code == 422
+    assert (await client.get(f'/api/admin/roles/{role["id"]}')).json()['code'] == fields['code']
+
+
+@pytest.mark.parametrize('code', ['', '   ', None, 'invalid code'])
+async def test_explicit_invalid_role_codes_are_rejected(api: tuple[Any, ...], code: str | None) -> None:
+    client, _, _, _ = api
+    response = await client.post('/api/admin/roles', json={'name': 'Invalid role', 'code': code})
+    assert response.status_code == 422
+
+
+async def test_ai_only_permissions_do_not_open_the_system_permission_directory(api: tuple[Any, ...]) -> None:
+    client, _, _, app = api
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        uuid4(), 'ai-operator', False, frozenset({'ai:models:write', 'ai:storage:read'})
+    )
+    for path in ('/api/admin/permissions', '/api/admin/menus?navigation=true', '/api/admin/roles'):
+        response = await client.get(path)
+        assert response.status_code == 403, response.text

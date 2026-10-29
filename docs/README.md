@@ -48,3 +48,4 @@
 - [工作记录弹窗](superpowers/verification/2026-10-29-work-history-modal.md)
 - [登录页设计与验收](superpowers/verification/2026-10-29-login-ui.md)
 - [个人资料与全平台界面一致性](superpowers/verification/2026-10-29-profile-and-ui-consistency.md)
+- [AI 管理权限与角色自动编码](superpowers/verification/2026-10-29-ai-management-permissions.md)

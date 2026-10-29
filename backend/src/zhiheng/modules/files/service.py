@@ -47,7 +47,7 @@ from zhiheng.modules.files.orm import (
     FileReminder,
     FileRetentionPolicy,
 )
-from zhiheng.modules.identity.public import IdentityService
+from zhiheng.modules.identity.public import IdentityInfo, IdentityService
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.storage import StoragePort
@@ -578,7 +578,7 @@ class FileService:
                 raise AppError('file_referenced', '文件仍被业务历史引用，不能删除', 409)
         row.status = 'active' if restore else 'deleted'
         row.deleted_at = None if restore else utcnow()
-        policy = await self.policy(session)
+        policy = await self._policy(session)
         row.retention_until = None if restore else utcnow() + timedelta(days=policy.retention_days)
         self.touch(row, acl=True)
         self.audit(session, file_id, principal.id, 'restored' if restore else 'deleted')
@@ -654,7 +654,15 @@ class FileService:
                     )
         await session.flush()
 
-    async def policy(self, session: AsyncSession) -> PolicyInfo:
+    async def users(self, session: AsyncSession, principal: Principal, *, search: str = '') -> list[IdentityInfo]:
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
+        return await self._identity.directory(session, search=search)
+
+    async def policy(self, session: AsyncSession, principal: Principal) -> PolicyInfo:
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
+        return await self._policy(session)
+
+    async def _policy(self, session: AsyncSession) -> PolicyInfo:
         row = await session.get(FilePolicy, 1)
         return PolicyInfo(
             retention_days=row.retention_days if row else 30,
@@ -663,7 +671,7 @@ class FileService:
         )
 
     async def set_policy(self, session: AsyncSession, principal: Principal, body: PolicyRequest) -> PolicyInfo:
-        principal.require_admin()
+        principal.require_permission('ai:storage:write')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FilePolicy, 1)
@@ -676,7 +684,7 @@ class FileService:
         row.reminder_days = body.reminder_days
         row.version += 1
         await session.flush()
-        return await self.policy(session)
+        return await self._policy(session)
 
     async def cached_artifact(
         self, session: AsyncSession, principal: Principal, source_id: UUID, parser_version: str
@@ -715,7 +723,7 @@ class FileService:
         )
 
     async def retention_policies(self, session: AsyncSession, principal: Principal) -> list[RetentionPolicyInfo]:
-        principal.require_admin()
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
         return [
             self.retention_info(r)
             for r in await session.scalars(
@@ -743,7 +751,7 @@ class FileService:
         expected_version: int | None = None,
         remove: bool = False,
     ) -> RetentionPolicyInfo:
-        principal.require_admin()
+        principal.require_permission('ai:storage:write')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FileRetentionPolicy, body.resource_type)
@@ -889,7 +897,7 @@ class FileService:
         return await self.remove(session, principal, file_id, expected_version)
 
     async def jobs(self, session: AsyncSession, principal: Principal) -> list[JobInfo]:
-        principal.require_admin()
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
         return [
             JobInfo.model_validate(r)
             for r in await session.scalars(select(FileJob).order_by(FileJob.started_at.desc()).limit(50))
@@ -898,7 +906,7 @@ class FileService:
     async def issues(
         self, session: AsyncSession, principal: Principal, *, status: str = 'open'
     ) -> list[ReconcileIssueInfo]:
-        principal.require_admin()
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
         return [
             ReconcileIssueInfo.model_validate(r)
             for r in await session.scalars(
@@ -910,7 +918,7 @@ class FileService:
         ]
 
     async def issue_stats(self, session: AsyncSession, principal: Principal) -> dict[str, int]:
-        principal.require_admin()
+        principal.require_any_permission('ai:storage:read', 'ai:storage:write')
         rows = await session.execute(
             select(FileReconcileIssue.status, func.count()).group_by(FileReconcileIssue.status)
         )

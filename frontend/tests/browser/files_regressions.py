@@ -95,7 +95,7 @@ class FilesUIRegressions(DeveloperBoundary):
         for path in ['/knowledge/storage', '/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
-                await expect(self.page).to_have_url(self.origin + '/chat')
+                await expect(self.page).to_have_url(self.origin + '/knowledge')
         self.assertEqual(self.file_requests, [])
 
     async def test_mobile_knowledge_storage_round_trip_stays_on_screen(self):

@@ -394,7 +394,7 @@ class ChatRunService:
     async def admit_test(
         self, session: AsyncSession, principal: Principal, *, model_id: UUID, client_request_id: UUID, token_limit: int
     ) -> RunSnapshot:
-        principal.require_admin()
+        principal.require_permission('ai:models:test')
         fingerprint = self.fingerprint('connection_test', model_id, model_id, '')
         await self._runs.lock_request(session, principal.id, client_request_id)
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)

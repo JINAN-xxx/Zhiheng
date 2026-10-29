@@ -6,6 +6,12 @@ const currentUser = ref<User | null>(null)
 let version = 0
 let restorePromise: Promise<User | null> | null = null
 export const identity = readonly(currentUser)
+export function hasAnyPermission(
+  user: Pick<User, 'is_admin' | 'permissions'> | null | undefined,
+  ...codes: string[]
+): boolean {
+  return Boolean(user?.is_admin || codes.some((code) => user?.permissions?.includes(code)))
+}
 export function clearIdentity(): void {
   version += 1
   http.invalidate()

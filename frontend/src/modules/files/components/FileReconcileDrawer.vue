@@ -31,6 +31,7 @@ import {
 } from '../api/index.ts'
 import type { FileJob, ReconcileIssue } from '../api/index.ts'
 import { formatFileSize, formatTime } from '../presentation.ts'
+const props = defineProps<{ canRead: boolean; canWrite: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 const visible = ref(false),
   loading = ref(false),
@@ -82,6 +83,9 @@ const issueColumns: TableColumnsType<ReconcileIssue> = [
   { title: '最近发现', key: 'updatedAt', width: 180 },
   { title: '操作', key: 'actions', width: 70 }
 ]
+const visibleIssueColumns = computed(() =>
+  issueColumns.filter((column) => column.key !== 'actions' || props.canWrite)
+)
 const runColumns: TableColumnsType<FileJob> = [
   { title: '任务状态', key: 'status', width: 100 },
   { title: '检查对象', dataIndex: 'scanned', key: 'scanned', width: 100 },
@@ -107,6 +111,7 @@ function close(): void {
   loading.value = false
 }
 function open(): void {
+  if (!props.canRead) return
   close()
   visible.value = true
   error.value = ''
@@ -114,6 +119,7 @@ function open(): void {
   void refresh()
 }
 async function refresh(): Promise<void> {
+  if (!props.canRead) return
   stopPolling()
   const context = scope.replace(),
     requested = status.value
@@ -145,6 +151,7 @@ function setStatus(value: unknown): void {
   }
 }
 function actions(issue: ReconcileIssue): Action[] {
+  if (!props.canWrite) return []
   if (issue.status === 'quarantined' && issue.fileId) return ['repair']
   if (issue.status !== 'open') return []
   if (issue.kind === 'orphan') return ['ignore', 'quarantine', 'register']
@@ -158,7 +165,7 @@ function handleCommand(value: unknown, issue: ReconcileIssue): void {
   modalOpen.value = true
 }
 async function command(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
-  if (busy.value || running.value) return
+  if (busy.value || running.value || !props.canWrite) return
   const context = writes.replace()
   busy.value = true
   error.value = ''
@@ -184,7 +191,7 @@ async function scan(): Promise<void> {
   })
 }
 async function submit(): Promise<void> {
-  if (!current.value) return
+  if (!current.value || !props.canWrite) return
   const target = { ...current.value },
     action = form.action,
     reason = form.reason.trim(),
@@ -246,7 +253,12 @@ defineExpose({ open })
     <div class="reconcile-toolbar">
       <span class="reconcile-toolbar__tip">异常和任务列表分别显示最近100条、50条记录</span>
       <div class="reconcile-toolbar__actions">
-        <a-button type="primary" :loading="busy || running" @click="scan"
+        <a-button
+          v-if="canWrite"
+          type="primary"
+          aria-label="开始对账"
+          :loading="busy || running"
+          @click="scan"
           ><ReloadOutlined />开始对账</a-button
         ><a-button :loading="loading" @click="refresh">刷新</a-button>
       </div>
@@ -262,7 +274,7 @@ defineExpose({ open })
               @update:value="setStatus" /></a-form-item
         ></a-form>
         <ResourceTable
-          :columns="issueColumns"
+          :columns="visibleIssueColumns"
           :rows="issues"
           :loading="loading"
           row-key="id"
@@ -326,7 +338,7 @@ defineExpose({ open })
     </a-tabs>
   </ResourceDrawer>
   <a-modal
-    :open="modalOpen"
+    :open="modalOpen && canWrite"
     :title="actionLabels[form.action]"
     :width="520"
     @cancel="modalOpen = false"

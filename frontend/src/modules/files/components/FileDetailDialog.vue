@@ -45,14 +45,14 @@
       </a-descriptions-item>
       <a-descriptions-item label="业务引用">
         <a-button
-          v-if="detail.referenceCount"
+          v-if="detail.referenceCount && canManageFile(identity, detail)"
           type="primary"
           ghost
           @click="emit('reference', detail)"
         >
           {{ detail.referenceCount }} 项
         </a-button>
-        <span v-else>0 项</span>
+        <span v-else>{{ detail.referenceCount }} 项</span>
       </a-descriptions-item>
       <a-descriptions-item label="权限版本">
         {{ detail.aclVersion ?? '-' }}
@@ -85,7 +85,9 @@
     <template #footer>
       <div class="dialog-footer">
         <a-button
-          v-if="detail?.status === 'active' && !detail.sourceFileId"
+          v-if="
+            detail?.status === 'active' && !detail.sourceFileId && canManageFile(identity, detail)
+          "
           aria-label="编辑文件信息"
           @click="openEditor"
           >编辑信息</a-button
@@ -150,6 +152,8 @@ import {
   Tag as ATag
 } from 'ant-design-vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
+import { identity } from '../../identity/public.ts'
+import { canManageFile } from '../access.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getFile, updateFile } from '../api/index.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'
@@ -202,7 +206,13 @@ function setExpiry(value: unknown): void {
 }
 function openEditor(): void {
   const file = detail.value
-  if (!file) return
+  if (
+    !file ||
+    !canManageFile(identity.value, file) ||
+    file.status !== 'active' ||
+    file.sourceFileId
+  )
+    return
   Object.assign(form, {
     name: file.displayName,
     expires: localDateTime(file.expireTime),
@@ -213,7 +223,14 @@ function openEditor(): void {
 }
 async function save(): Promise<void> {
   const file = detail.value
-  if (!file || saving.value) return
+  if (
+    !file ||
+    !canManageFile(identity.value, file) ||
+    file.status !== 'active' ||
+    file.sourceFileId ||
+    saving.value
+  )
+    return
   const name = form.name.trim()
   if (!name || [...name].length > 255 || name.includes('\0') || /[\uD800-\uDFFF]/u.test(name)) {
     saveError.value = '请输入1到255字的有效名称'

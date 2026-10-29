@@ -30,7 +30,7 @@ MAX_SELECTION_BYTES = 32 * 1024
 
 class SkillService:
     async def prepare(self, session: AsyncSession, principal: Principal, payload: bytes, *, filename: str) -> DraftInfo:
-        principal.require_admin()
+        principal.require_permission('ai:skills:write')
         if len(filename) > MAX_FILENAME_LENGTH or '\x00' in filename:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
         parsed = SkillPackageParser().parse(payload, filename=filename)
@@ -57,7 +57,7 @@ class SkillService:
         )
 
     async def confirm(self, session: AsyncSession, principal: Principal, draft_id: UUID) -> SkillInfo:
-        principal.require_admin()
+        principal.require_permission('ai:skills:write')
         draft = await session.scalar(
             select(SkillDraft).where(SkillDraft.id == draft_id, SkillDraft.owner_id == principal.id).with_for_update()
         )
@@ -173,7 +173,7 @@ class SkillService:
     async def set_status(
         self, session: AsyncSession, principal: Principal, skill_id: UUID, *, status: SkillStatus, expected_version: int
     ) -> SkillInfo:
-        principal.require_admin()
+        principal.require_permission('ai:skills:write')
         skill, revision = await self._row(session, skill_id, lock=True)
         if skill.version != expected_version:
             raise AppError('skill_version_conflict', '技能已更新，请刷新后重试', 409)
@@ -189,7 +189,7 @@ class SkillService:
         *,
         reference_check: Callable[[AsyncSession, str], Awaitable[bool]],
     ) -> SkillInfo:
-        principal.require_admin()
+        principal.require_permission('ai:skills:write')
         skill, revision = await self._row(session, skill_id, lock=True)
         if skill.source == 'builtin' or skill.status != 'disabled':
             raise AppError('skill_delete_forbidden', '仅可删除已停用的上传技能', 409)

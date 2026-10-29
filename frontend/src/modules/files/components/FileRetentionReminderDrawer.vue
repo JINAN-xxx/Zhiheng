@@ -40,7 +40,7 @@ import {
 } from '../api/index.ts'
 import type { FileReminder, FileUser, ManagedFile } from '../api/index.ts'
 import { formatTime, isoDateTime } from '../presentation.ts'
-const props = defineProps<{ users: FileUser[] }>()
+const props = defineProps<{ users: FileUser[]; canRunJobs: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 const visible = ref(false),
   loading = ref(false),
@@ -152,6 +152,7 @@ async function command(action: (signal: AbortSignal) => Promise<void>): Promise<
   }
 }
 async function scan(): Promise<void> {
+  if (!props.canRunJobs) return
   await command(async (signal) => {
     const job = await runFileJob('reminders', signal)
     if (job.status === 'failed') throw new Error(job.errors.join('；') || '扫描失败')
@@ -260,7 +261,8 @@ defineExpose({ open })
       >
     </a-form>
     <a-space class="mb8"
-      ><a-button type="primary" :loading="busy" @click="scan"><ReloadOutlined />扫描</a-button
+      ><a-button v-if="canRunJobs" type="primary" :loading="busy" @click="scan"
+        ><ReloadOutlined />扫描</a-button
       ><a-button :disabled="busy || !ids.length" @click="read"
         ><CheckOutlined />已读</a-button
       ></a-space

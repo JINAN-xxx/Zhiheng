@@ -1,7 +1,7 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <a-modal
-    :open="modelValue"
+    :open="modelValue && canManage"
     title="上传技能"
     :width="640"
     :mask-closable="!submitting"
@@ -97,7 +97,7 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { confirmSkillImport, prepareSkillImport } from '../api/index.ts'
 import type { PreparedSkill, Skill } from '../api/index.ts'
 import { formatSkillBytes } from '../presentation.ts'
-const props = defineProps<{ modelValue: boolean }>()
+const props = defineProps<{ modelValue: boolean; canManage: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; installed: [skill: Skill] }>()
 const selectedFile = ref<File | null>(null),
   prepared = ref<PreparedSkill | null>(null),
@@ -143,7 +143,7 @@ function removeFile(): boolean {
 }
 async function prepare(): Promise<void> {
   const file = selectedFile.value
-  if (!file || submitting.value) return
+  if (!file || !props.canManage || submitting.value) return
   const context = scope.replace()
   submitting.value = true
   error.value = ''
@@ -158,7 +158,7 @@ async function prepare(): Promise<void> {
 }
 async function install(): Promise<void> {
   const draft = prepared.value
-  if (!draft || submitting.value) return
+  if (!draft || !props.canManage || submitting.value) return
   const context = scope.replace()
   submitting.value = true
   error.value = ''

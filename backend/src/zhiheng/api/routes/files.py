@@ -87,16 +87,14 @@ async def users(
     session: SessionDependency,
     search: Annotated[str, Query(max_length=80)] = '',
 ) -> list[IdentityInfo]:
-    principal.require_admin()
-    return await container.identity.directory(session, search=search)
+    return await container.files.users(session, principal, search=search)
 
 
 @router.get('/policy')
 async def policy(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> PolicyInfo:
-    principal.require_admin()
-    return await container.files.policy(session)
+    return await container.files.policy(session, principal)
 
 
 @router.patch('/policy')

@@ -63,9 +63,14 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
             else:
                 body = self.collection([{key: value for key, value in user.items() if key != 'password'} for user in self.users], query)
         elif path == '/api/admin/permissions':
-            body = {'items': [dict(code='system:notices:read', label='查看公告', group='公告'), dict(code='system:notices:write', label='管理公告', group='公告')]}
+            body = {'items': [dict(code='system:notices:read', label='查看公告', group='系统管理 · 公告'), dict(code='system:notices:write', label='管理公告', group='系统管理 · 公告'), dict(code='ai:models:write', label='维护模型与凭据', group='AI平台 · 模型管理')]}
         elif path == '/api/admin/roles':
-            body = self.collection(self.roles, query)
+            if method == 'POST':
+                self.roles.append({**request.post_data_json, 'id': 'role-new', 'code': 'role_0123456789abcdef', 'version': 1})
+                body = self.roles[-1]
+                status = 201
+            else:
+                body = self.collection(self.roles, query)
         elif path == '/api/admin/roles/role-1' and method == 'PATCH':
             self.roles[0].update({key: value for key, value in request.post_data_json.items() if key != 'expected_version'})
             self.roles[0]['version'] += 1
@@ -272,6 +277,21 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload['permissions'], ['system:notices:read', 'system:notices:write'])
         self.assertEqual(payload['expected_version'], 3)
         self.assertNotIn('code', payload)
+
+    async def test_new_role_generates_code_on_server_and_accepts_ai_permissions(self):
+        await self.open('roles')
+        await self.page.get_by_role('button', name='新建角色', exact=True).click()
+        dialog = self.page.get_by_role('dialog')
+        await expect(dialog.get_by_label('角色编码', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_text('AI平台 · 模型管理', exact=True)).to_be_visible()
+        await dialog.get_by_label('角色名称', exact=True).fill('模型接入员')
+        await dialog.get_by_label('维护模型与凭据', exact=True).check()
+        await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
+        await expect(dialog).not_to_be_visible()
+        payload = next(body for method, path, _, body in self.requests if method == 'POST' and path == '/api/admin/roles')
+        self.assertNotIn('code', payload)
+        self.assertEqual(payload['permissions'], ['ai:models:write'])
+        await expect(self.page.get_by_role('row').filter(has_text='模型接入员')).to_contain_text('role_0123456789abcdef')
 
     async def test_department_tree_expands_and_parent_cannot_be_self_or_descendant(self):
         await self.open('departments')

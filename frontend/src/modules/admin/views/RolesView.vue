@@ -73,8 +73,8 @@ function edit(role: Role | null = null): void {
 }
 async function submit(): Promise<void> {
   if (saving.value || !writable.value || (editing.value && !canManage(editing.value))) return
-  if (!form.code.trim() || !form.name.trim()) {
-    formError.value = '请填写角色编码和名称'
+  if (!form.name.trim()) {
+    formError.value = '请填写角色名称'
     return
   }
   if (permissionError.value) {
@@ -85,8 +85,7 @@ async function submit(): Promise<void> {
     name: form.name.trim(),
     permissions: [...form.permissions],
     is_active: form.is_active,
-    remark: form.remark,
-    ...(!editing.value ? { code: form.code.trim() } : {})
+    remark: form.remark
   }
   try {
     if (await save(editing.value, body)) open.value = false
@@ -125,7 +124,7 @@ const columns = [
 <template>
   <AdminPage
     title="角色权限"
-    subtitle="角色授权直接控制后台接口访问"
+    subtitle="角色授权控制系统与 AI 平台功能访问"
     :loading="loading"
     :error="error || permissionError"
     :total="total"
@@ -173,17 +172,17 @@ const columns = [
       @close="open = false"
       @save="submit"
     >
-      <div class="admin-form__grid">
-        <label
+      <div :class="{ 'admin-form__grid': Boolean(editing) }">
+        <label v-if="editing"
           >角色编码<input
             v-model="form.code"
             aria-label="角色编码"
             :disabled="Boolean(editing)"
-            maxlength="100" /></label
+            maxlength="80" /></label
         ><label>角色名称<input v-model="form.name" aria-label="角色名称" maxlength="100" /></label>
       </div>
       <fieldset class="permission-list">
-        <legend>接口权限</legend>
+        <legend>功能权限</legend>
         <div v-for="group in groups" :key="group.name" class="permission-group">
           <strong>{{ group.name }}</strong
           ><label v-for="item in group.items" :key="item.code" class="admin-check"

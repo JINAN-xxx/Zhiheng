@@ -22,6 +22,7 @@ import {
   SwapOutlined
 } from '@ant-design/icons-vue'
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
+import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
@@ -45,6 +46,11 @@ import FileSearchForm from '../components/FileSearchForm.vue'
 import FileStatistics from '../components/FileStatistics.vue'
 import FileTable from '../components/FileTable.vue'
 import FileTransferDialog from '../components/FileTransferDialog.vue'
+import { canManageFile } from '../access.ts'
+const canReadStorage = computed(() =>
+  hasAnyPermission(identity.value, 'ai:storage:read', 'ai:storage:write')
+)
+const canWriteStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:write'))
 const queryParams = ref(emptyQuery()),
   dateRange = ref<[string, string] | null>(null),
   showSearch = ref(true)
@@ -71,7 +77,9 @@ const scope = new RequestScope(),
   userScope = new RequestScope(),
   { confirm } = useConfirmation()
 const activeSelected = computed(() =>
-  selected.value.filter((file) => file.status === 'active' && !file.sourceFileId)
+  selected.value.filter(
+    (file) => file.status === 'active' && !file.sourceFileId && canManageFile(identity.value, file)
+  )
 )
 const hasActiveSelection = computed(
   () => selected.value.length > 0 && activeSelected.value.length === selected.value.length
@@ -128,7 +136,13 @@ async function download(file: ManagedFile): Promise<void> {
 async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile): Promise<void> {
   if (mutationBusy.value || loading.value) return
   const targets = (row ? [row] : selected.value).map((file) => ({ ...file }))
-  if (!targets.length || targets.some((file) => file.sourceFileId || file.status === 'purged'))
+  if (
+    !targets.length ||
+    targets.some(
+      (file) =>
+        !canManageFile(identity.value, file) || file.sourceFileId || file.status === 'purged'
+    )
+  )
     return
   const context = writes.replace(),
     labels = { delete: '移入回收站', restore: '恢复', purge: '永久清理' }
@@ -186,10 +200,10 @@ onBeforeUnmount(() => {
       <a-button aria-label="返回知识库" @click="router.push('/knowledge')"
         ><ArrowLeftOutlined />返回知识库</a-button
       >
-      <a-button aria-label="保留策略" @click="policy?.open()"
+      <a-button v-if="canReadStorage" aria-label="保留策略" @click="policy?.open()"
         ><FieldTimeOutlined />保留策略</a-button
       >
-      <a-button aria-label="存储对账" @click="reconcile?.open()"
+      <a-button v-if="canReadStorage" aria-label="存储对账" @click="reconcile?.open()"
         ><PartitionOutlined />存储对账</a-button
       >
       <a-button aria-label="保留提醒" @click="reminders?.open()"><BellOutlined />保留提醒</a-button>
@@ -243,7 +257,7 @@ onBeforeUnmount(() => {
         <a-button
           :disabled="
             !selected.length ||
-            selected.some((file) => file.status !== 'deleted') ||
+            selected.some((file) => file.status !== 'deleted' || !canManageFile(identity, file)) ||
             mutationBusy ||
             loading
           "
@@ -255,7 +269,10 @@ onBeforeUnmount(() => {
           :disabled="
             !selected.length ||
             selected.some(
-              (file) => !['deleted', 'purging'].includes(file.status) || file.referenceCount > 0
+              (file) =>
+                !['deleted', 'purging'].includes(file.status) ||
+                file.referenceCount > 0 ||
+                !canManageFile(identity, file)
             ) ||
             mutationBusy ||
             loading
@@ -283,10 +300,10 @@ onBeforeUnmount(() => {
         @selection-change="selected = $event"
         @view="detail?.open($event)"
         @download="download"
-        @reference="references?.open($event)"
-        @acl="acl?.open([$event])"
-        @transfer="transfer?.open([$event])"
-        @audit="audit?.open($event)"
+        @reference="canManageFile(identity, $event) && references?.open($event)"
+        @acl="canManageFile(identity, $event) && acl?.open([$event])"
+        @transfer="canManageFile(identity, $event) && transfer?.open([$event])"
+        @audit="canManageFile(identity, $event) && audit?.open($event)"
         @delete="change('delete', $event)"
         @restore="change('restore', $event)"
         @purge="change('purge', $event)"
@@ -312,11 +329,21 @@ onBeforeUnmount(() => {
     /><FileTransferDialog ref="transfer" @refresh="load" /><FileAuditDrawer
       ref="audit"
       :users="users"
-    /><FileRetentionPolicyDrawer ref="policy" /><FileRetentionReminderDrawer
+    /><FileRetentionPolicyDrawer
+      ref="policy"
+      :can-read="canReadStorage"
+      :can-write="canWriteStorage"
+    /><FileRetentionReminderDrawer
       ref="reminders"
       :users="users"
+      :can-run-jobs="canWriteStorage"
       @refresh="load"
-    /><FileReconcileDrawer ref="reconcile" @refresh="load" />
+    /><FileReconcileDrawer
+      ref="reconcile"
+      :can-read="canReadStorage"
+      :can-write="canWriteStorage"
+      @refresh="load"
+    />
   </WorkspacePage>
 </template>
 <style scoped>

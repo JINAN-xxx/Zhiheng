@@ -24,3 +24,27 @@ def test_regular_account_cannot_enter_console() -> None:
     with pytest.raises(AppError) as error:
         Principal(uuid4(), 'member', False).require_permission('system:monitor:read')
     assert error.value.status_code == 403
+
+
+def test_any_permission_accepts_an_explicit_management_capability_only() -> None:
+    manager = Principal(uuid4(), 'manager', False, frozenset({'ai:models:write'}))
+    assert manager.has_any_permission('ai:models:read', 'ai:models:write')
+    manager.require_any_permission('ai:models:read', 'ai:models:write')
+    assert not manager.has_any_permission('ai:rates:write')
+    with pytest.raises(AppError):
+        manager.require_any_permission('ai:rates:read', 'ai:rates:write')
+    with pytest.raises(AppError):
+        manager.require_permission('ai:models:read')
+
+
+def test_empty_permissions_never_authorize_an_ordinary_user() -> None:
+    member = Principal(uuid4(), 'member', False)
+    assert not member.has_any_permission()
+    with pytest.raises(AppError):
+        member.require_any_permission()
+
+
+def test_super_admin_keeps_access_to_ai_capabilities() -> None:
+    admin = Principal(uuid4(), 'admin', True)
+    assert admin.has_any_permission('ai:models:read')
+    admin.require_any_permission('ai:models:write', 'ai:rates:write')

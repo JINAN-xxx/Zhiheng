@@ -14,7 +14,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined
 } from '@ant-design/icons-vue'
-import { identity } from '../../modules/identity/public.ts'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import BrandMark from '../../shared/components/BrandMark.vue'
 withDefaults(
@@ -33,9 +32,7 @@ const groups = computed(() => [
   },
   {
     title: '模型服务',
-    items: identity.value?.is_admin
-      ? [{ path: '/models', label: '模型目录', icon: AppstoreOutlined }]
-      : []
+    items: [{ path: '/models', label: '模型目录', icon: AppstoreOutlined }]
   },
   {
     title: '应用构建',

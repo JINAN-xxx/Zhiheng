@@ -15,7 +15,7 @@ import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { createRateCard, getRateCards } from '../api/index.ts'
 import type { ChatModel, RateCard, RateInput } from '../api/index.ts'
-const props = defineProps<{ model: ChatModel | null }>()
+const props = defineProps<{ model: ChatModel | null; canRead: boolean; canWrite: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const cards = ref<RateCard[]>([]),
   loading = ref(false),
@@ -37,8 +37,8 @@ const columns = [
   { title: '币种', dataIndex: 'currency', key: 'currency', width: 80 }
 ]
 watch(
-  () => props.model?.id,
-  async (id) => {
+  () => [props.model?.id, props.canRead] as const,
+  async ([id, allowed]) => {
     const context = scope.replace()
     mutation.replace()
     saving.value = false
@@ -52,7 +52,8 @@ watch(
       search_price: '0',
       currency: 'USD'
     })
-    if (!id) return
+    loading.value = false
+    if (!id || !allowed) return
     loading.value = true
     try {
       const result = await getRateCards(id, context.signal)
@@ -76,7 +77,7 @@ function close(): void {
 }
 async function save(): Promise<void> {
   const id = props.model?.id
-  if (!id || saving.value) return
+  if (!id || !props.canWrite || saving.value) return
   error.value = ''
   const prices = [form.input_price, form.output_price, form.cache_price, form.search_price]
   if (prices.some((value) => !/^(0|[1-9]\d*)(\.\d{1,12})?$/.test(value.trim()))) {
@@ -116,7 +117,7 @@ async function save(): Promise<void> {
 </script>
 <template>
   <AModal
-    :open="model !== null"
+    :open="model !== null && canRead"
     title="费率配置"
     width="min(680px, 94vw)"
     destroy-on-close
@@ -149,8 +150,8 @@ async function save(): Promise<void> {
         ><template v-else-if="column.key === 'currency'">{{ record.currency }}</template></template
       >
     </ResourceTable>
-    <ADivider orientation="left">新增价格版本</ADivider>
-    <AForm :model="form" layout="vertical" @submit.prevent>
+    <ADivider v-if="canWrite" orientation="left">新增价格版本</ADivider>
+    <AForm v-if="canWrite" :model="form" layout="vertical" @submit.prevent>
       <div v-if="form.billing_mode === 'token'" class="rate-grid">
         <AFormItem label="输入令牌单价" name="input_price"
           ><AInput v-model:value="form.input_price"
@@ -171,7 +172,9 @@ async function save(): Promise<void> {
     </AForm>
     <template #footer
       ><AButton @click="close">关闭</AButton
-      ><AButton type="primary" :loading="saving" @click="save">创建价格版本</AButton></template
+      ><AButton v-if="canWrite" type="primary" :loading="saving" @click="save"
+        >创建价格版本</AButton
+      ></template
     >
   </AModal>
 </template>

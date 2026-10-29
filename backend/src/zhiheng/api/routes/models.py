@@ -76,9 +76,7 @@ async def models(
     session: SessionDependency,
     include_disabled: bool = False,
 ) -> list[ModelInfo]:
-    if include_disabled:
-        principal.require_admin()
-    return await container.models.list_models(session, include_disabled=include_disabled)
+    return await container.models.list_models(session, principal=principal, include_disabled=include_disabled)
 
 
 @router.post('', status_code=201)

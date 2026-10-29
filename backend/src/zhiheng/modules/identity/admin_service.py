@@ -22,6 +22,7 @@ from zhiheng.modules.identity.admin_permissions import (
     ALLOWED_MENU_PATHS,
     AREAS,
     PERMISSION_CODES,
+    SYSTEM_PERMISSION_CODES,
 )
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
@@ -519,7 +520,7 @@ class IdentityAdminService:
         return result
 
     async def navigation(self, session: AsyncSession, principal: Principal) -> dict[str, Any]:
-        if not principal.is_admin and not principal.permissions.intersection(PERMISSION_CODES):
+        if not principal.is_admin and not principal.permissions.intersection(SYSTEM_PERMISSION_CODES):
             raise _error('forbidden', '需要后台管理权限', 403)
         overrides = {
             row.path: row

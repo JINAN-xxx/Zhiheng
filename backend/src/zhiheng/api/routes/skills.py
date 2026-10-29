@@ -61,7 +61,7 @@ async def prepare(
     session: SessionDependency,
     filename: Annotated[str, Query(min_length=1, max_length=255)],
 ) -> DraftInfo:
-    principal.require_admin()
+    principal.require_permission('ai:skills:write')
     payload = await request.body()
     async with session.begin():
         return await container.skills.prepare(session, principal, payload, filename=filename)

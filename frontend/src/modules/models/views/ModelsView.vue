@@ -39,6 +39,7 @@ import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import ModelRatesDialog from '../components/ModelRatesDialog.vue'
 import ModelActions from '../components/ModelActions.vue'
+import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -56,8 +57,20 @@ import {
   controlModel
 } from '../api/index.ts'
 import type { ChatModel, ModelConnection } from '../api/index.ts'
+const canReadModels = computed(() =>
+  hasAnyPermission(identity.value, 'ai:models:read', 'ai:models:write')
+)
+const canWriteModels = computed(() => hasAnyPermission(identity.value, 'ai:models:write'))
+const canTestModels = computed(() => hasAnyPermission(identity.value, 'ai:models:test'))
+const canReadRates = computed(() =>
+  hasAnyPermission(identity.value, 'ai:rates:read', 'ai:rates:write')
+)
+const canWriteRates = computed(() => hasAnyPermission(identity.value, 'ai:rates:write'))
+const hasModelActions = computed(
+  () => canWriteModels.value || canTestModels.value || canReadRates.value
+)
 function setActiveTab(value: unknown): void {
-  activeTab.value = typeof value === 'string' ? value : 'platform'
+  activeTab.value = value === 'credentials' && canReadModels.value ? 'credentials' : 'platform'
 }
 const activeTab = ref('platform')
 const modelSearch = ref('')
@@ -93,14 +106,22 @@ const visibleModelColumns = computed<TableColumnsType<ChatModel>>(() =>
   isMobile.value
     ? [
         { title: '模型代码', key: 'model' },
-        { title: '操作', key: 'actions', width: 64, align: 'right' }
+        ...(hasModelActions.value
+          ? [{ title: '操作', key: 'actions', width: 64, align: 'right' as const }]
+          : [])
       ]
-    : modelColumns
+    : modelColumns.filter(
+        (column) =>
+          (column.key !== 'binding' || canReadModels.value) &&
+          (column.key !== 'actions' || hasModelActions.value)
+      )
 )
 const visibleConnectionColumns = computed(() =>
   isMobile.value
-    ? connectionColumns.filter((column) => column.key === 'name' || column.key === 'actions')
-    : connectionColumns
+    ? connectionColumns.filter(
+        (column) => column.key === 'name' || (column.key === 'actions' && canWriteModels.value)
+      )
+    : connectionColumns.filter((column) => column.key !== 'actions' || canWriteModels.value)
 )
 const connections = ref<ModelConnection[]>([])
 const models = ref<ChatModel[]>([])
@@ -173,8 +194,8 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const [items, availableModels] = await Promise.all([
-      getConnections(context.signal),
-      getModels(context.signal, true)
+      canReadModels.value ? getConnections(context.signal) : Promise.resolve([]),
+      getModels(context.signal, canReadModels.value)
     ])
     if (context.isCurrent()) {
       connections.value = items
@@ -199,6 +220,7 @@ async function copyModelCode(value: string): Promise<void> {
   }
 }
 function openConnection(connection: ModelConnection | null = null): void {
+  if (!canWriteModels.value) return
   mutationScope.replace()
   saving.value = false
   editingConnection.value = connection
@@ -211,6 +233,7 @@ function openConnection(connection: ModelConnection | null = null): void {
   modalError.value = ''
 }
 function openModel(model: ChatModel | null = null): void {
+  if (!canWriteModels.value) return
   mutationScope.replace()
   saving.value = false
   editingModel.value = model
@@ -237,7 +260,7 @@ function closeConnection(): void {
   modalError.value = ''
 }
 async function saveConnection(): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !canWriteModels.value) return
   const editing = editingConnection.value
   if (
     !connectionForm.name.trim() ||
@@ -301,10 +324,10 @@ async function changeModel(
   model: ChatModel,
   action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete'
 ): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !canWriteModels.value) return
   const context = mutationScope.replace()
   const execute = async () => {
-    if (!context.isCurrent()) return
+    if (!context.isCurrent() || !canWriteModels.value) return
     saving.value = true
     error.value = ''
     try {
@@ -332,10 +355,10 @@ async function changeConnection(
   connection: ModelConnection,
   action: 'enable' | 'disable' | 'delete'
 ): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !canWriteModels.value) return
   const context = mutationScope.replace()
   const execute = async () => {
-    if (!context.isCurrent()) return
+    if (!context.isCurrent() || !canWriteModels.value) return
     saving.value = true
     error.value = ''
     try {
@@ -360,7 +383,7 @@ async function changeConnection(
     })
 }
 async function saveModel(): Promise<void> {
-  if (saving.value) return
+  if (saving.value || !canWriteModels.value) return
   const maxOutputTokens = modelForm.max_output_tokens
   if (
     !modelForm.name.trim() ||
@@ -427,7 +450,7 @@ async function followTest(
   )
 }
 async function testModel(model: ChatModel): Promise<void> {
-  if (testBusy.value) return
+  if (testBusy.value || !canTestModels.value || !model.enabled) return
   const context = testScope.replace()
   testingModel.value = model.id
   testRun.value = null
@@ -450,7 +473,7 @@ async function testModel(model: ChatModel): Promise<void> {
   }
 }
 async function resumeTest(): Promise<void> {
-  if (!testRun.value) return
+  if (!testRun.value || !canTestModels.value) return
   const context = testScope.replace()
   error.value = ''
   testDisconnected.value = false
@@ -464,7 +487,7 @@ async function resumeTest(): Promise<void> {
   }
 }
 async function stopTest(): Promise<void> {
-  if (!testRun.value) return
+  if (!testRun.value || !canTestModels.value) return
   const context = testScope.current()
   try {
     const run = await cancelModelTest(testRun.value.id, context.signal)
@@ -481,13 +504,17 @@ async function stopTest(): Promise<void> {
         ><AButton shape="circle" aria-label="刷新当前视图" :loading="loading" @click="load"
           ><ReloadOutlined /></AButton
         ><AButton
-          v-if="activeTab === 'platform' || isMobile"
+          v-if="canWriteModels && (activeTab === 'platform' || isMobile)"
           type="primary"
           aria-label="接入模型"
           :disabled="!connections.length"
           @click="openModel()"
           ><PlusOutlined />接入模型</AButton
-        ><AButton v-else type="primary" aria-label="新增凭据" @click="openConnection()"
+        ><AButton
+          v-if="canWriteModels && activeTab !== 'platform' && !isMobile"
+          type="primary"
+          aria-label="新增凭据"
+          @click="openConnection()"
           ><PlusOutlined />新增凭据</AButton
         ></template
       ></WorkspaceToolbar
@@ -518,7 +545,7 @@ async function stopTest(): Promise<void> {
                   v-model:value="modelSearch"
                   allow-clear
                   aria-label="搜索模型"
-                  placeholder="搜索模型名称、代码或连接"
+                  :placeholder="canReadModels ? '搜索模型名称、代码或连接' : '搜索模型名称或代码'"
                 >
                   <template #prefix><SearchOutlined /></template>
                 </AInput>
@@ -591,7 +618,10 @@ async function stopTest(): Promise<void> {
                   </div>
                 </dl>
                 <div class="model-card__footer">
-                  <span class="model-card__connection" :title="connectionName(model.connection_id)"
+                  <span
+                    v-if="canReadModels"
+                    class="model-card__connection"
+                    :title="connectionName(model.connection_id)"
                     ><span
                       class="connection-dot"
                       :class="{ 'is-enabled': connectionEnabled(model.connection_id) }"
@@ -605,8 +635,11 @@ async function stopTest(): Promise<void> {
                     :model="model"
                     :busy="testBusy"
                     :testing="testingModel === model.id"
+                    :can-write="canWriteModels"
+                    :can-read-rates="canReadRates"
+                    :can-test="canTestModels"
                     @edit="openModel(model)"
-                    @rates="rateModel = model"
+                    @rates="canReadRates && (rateModel = model)"
                     @test="testModel(model)"
                     @control="changeModel(model, $event)"
                   />
@@ -640,6 +673,7 @@ async function stopTest(): Promise<void> {
                     <div v-if="isMobile" class="mobile-model-meta">
                       <ATag color="blue">{{ modelTypeLabel(model.model_type) }}</ATag
                       ><ATag
+                        v-if="canReadModels"
                         :color="connectionEnabled(model.connection_id) ? 'success' : 'default'"
                         >{{
                           connectionEnabled(model.connection_id) ? '连接已启用' : '连接不可用'
@@ -668,8 +702,11 @@ async function stopTest(): Promise<void> {
                     :model="model"
                     :busy="testBusy"
                     :testing="testingModel === model.id"
+                    :can-write="canWriteModels"
+                    :can-read-rates="canReadRates"
+                    :can-test="canTestModels"
                     @edit="openModel(model)"
-                    @rates="rateModel = model"
+                    @rates="canReadRates && (rateModel = model)"
                     @test="testModel(model)"
                     @control="changeModel(model, $event)"
                   />
@@ -681,19 +718,25 @@ async function stopTest(): Promise<void> {
               :message="
                 models.length
                   ? '试试其他模型类型或关键词。'
-                  : connections.length
-                    ? '点击接入模型，选择已保存的连接。'
-                    : '请先在凭据管理中添加模型连接。'
+                  : !canWriteModels
+                    ? '当前暂无可用模型，请联系平台管理员。'
+                    : connections.length
+                      ? '点击接入模型，选择已保存的连接。'
+                      : '请先在凭据管理中添加模型连接。'
               "
             /></section
         ></ATabPane>
-        <ATabPane key="credentials" tab="凭据管理"
+        <ATabPane v-if="canReadModels" key="credentials" tab="凭据管理"
           ><section class="workspace-panel">
             <div v-if="isMobile" class="panel-toolbar">
               <div class="panel-summary">
                 <span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
               </div>
-              <AButton type="primary" aria-label="新增凭据" @click="openConnection()"
+              <AButton
+                v-if="canWriteModels"
+                type="primary"
+                aria-label="新增凭据"
+                @click="openConnection()"
                 ><PlusOutlined />新建凭据</AButton
               >
             </div>
@@ -728,7 +771,7 @@ async function stopTest(): Promise<void> {
                   }}
                   个</template
                 >
-                <template v-else-if="column.key === 'actions'"
+                <template v-else-if="column.key === 'actions' && canWriteModels"
                   ><AButton
                     type="link"
                     size="small"
@@ -759,10 +802,12 @@ async function stopTest(): Promise<void> {
             <WorkspaceState
               v-else
               title="暂无服务商凭据"
-              message="添加 OpenAI 兼容的模型服务连接。"
+              :message="
+                canWriteModels ? '添加 OpenAI 兼容的模型服务连接。' : '当前暂无服务商凭据。'
+              "
             /></section></ATabPane
       ></ATabs>
-      <section v-if="testRun" class="test-result">
+      <section v-if="testRun && canTestModels" class="test-result">
         <div class="test-result__heading">
           <h2>
             连接测试 <ATag>{{ runStatusLabel[testRun.status] }}</ATag>
@@ -792,7 +837,7 @@ async function stopTest(): Promise<void> {
     </section>
   </main>
   <ADrawer
-    :open="connectionOpen"
+    :open="connectionOpen && canWriteModels"
     :title="editingConnection ? '编辑服务商凭据' : '新建服务商凭据'"
     width="min(620px, 100vw)"
     root-class-name="model-form-drawer"
@@ -827,7 +872,7 @@ async function stopTest(): Promise<void> {
     >
   </ADrawer>
   <ADrawer
-    :open="modelOpen"
+    :open="modelOpen && canWriteModels"
     :title="editingModel ? '编辑模型' : '接入模型'"
     width="min(840px, 100vw)"
     root-class-name="model-onboarding-drawer"
@@ -899,7 +944,9 @@ async function stopTest(): Promise<void> {
     </div>
     <template #footer
       ><div class="onboarding-footer">
-        <span class="footer-status">保存后可在模型目录中测试连接。</span>
+        <span class="footer-status">{{
+          canTestModels ? '保存后可在模型目录中测试连接。' : '保存后可在模型目录查看模型。'
+        }}</span>
         <div class="footer-actions">
           <AButton @click="closeModel">取消</AButton
           ><AButton type="primary" :loading="saving" @click="saveModel">保存模型</AButton>
@@ -907,7 +954,12 @@ async function stopTest(): Promise<void> {
       </div></template
     >
   </ADrawer>
-  <ModelRatesDialog :model="rateModel" @close="rateModel = null" />
+  <ModelRatesDialog
+    :model="rateModel"
+    :can-read="canReadRates"
+    :can-write="canWriteRates"
+    @close="rateModel = null"
+  />
 </template>
 <style scoped>
 .ai-model-center {

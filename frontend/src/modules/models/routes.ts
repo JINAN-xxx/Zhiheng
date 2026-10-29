@@ -5,6 +5,6 @@ export const modelRoutes: RouteRecordRaw[] = [
     alias: '/ai/model',
     name: 'models',
     component: () => import('./views/ModelsView.vue'),
-    meta: { title: '模型中心', admin: true, navigation: true }
+    meta: { title: '模型目录', navigation: true }
   }
 ]

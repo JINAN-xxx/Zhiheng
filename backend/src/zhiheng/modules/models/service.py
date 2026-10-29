@@ -30,7 +30,7 @@ class ModelService:
     async def create_connection(
         self, session: AsyncSession, principal: Principal, *, name: str, base_url: str, api_key: str
     ) -> ConnectionInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         connection = ModelConnection(
             name=name, base_url=base_url.rstrip('/'), encrypted_api_key=self._cipher.encrypt(api_key)
         )
@@ -48,7 +48,7 @@ class ModelService:
         return revision
 
     async def list_connections(self, session: AsyncSession, principal: Principal) -> list[ConnectionInfo]:
-        principal.require_admin()
+        principal.require_any_permission('ai:models:read', 'ai:models:write')
         rows = await session.scalars(
             select(ModelConnection)
             .where(ModelConnection.deleted_at.is_(None))
@@ -60,7 +60,7 @@ class ModelService:
     async def update_connection(
         self, session: AsyncSession, principal: Principal, connection_id: UUID, fields: dict[str, object]
     ) -> ConnectionInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         row = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -87,7 +87,7 @@ class ModelService:
         *,
         reference_check: Callable[[AsyncSession, UUID], Awaitable[bool]],
     ) -> ConnectionInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         row = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -121,7 +121,7 @@ class ModelService:
         published: bool = True,
         vision_enabled: bool = False,
     ) -> ModelInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         connection = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -144,7 +144,13 @@ class ModelService:
         await session.flush()
         return self._model_info(model)
 
-    async def list_models(self, session: AsyncSession, *, include_disabled: bool = False) -> list[ModelInfo]:
+    async def list_models(
+        self, session: AsyncSession, *, principal: Principal | None = None, include_disabled: bool = False
+    ) -> list[ModelInfo]:
+        if include_disabled:
+            if principal is None:
+                raise AppError('forbidden', '当前账号没有此操作权限', 403)
+            principal.require_any_permission('ai:models:read', 'ai:models:write')
         query = select(ModelDefinition).where(ModelDefinition.deleted_at.is_(None))
         if not include_disabled:
             query = query.join(ModelConnection, ModelConnection.id == ModelDefinition.connection_id).where(
@@ -159,7 +165,7 @@ class ModelService:
     async def update_model(
         self, session: AsyncSession, principal: Principal, model_id: UUID, fields: dict[str, object]
     ) -> ModelInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         row = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
@@ -189,7 +195,7 @@ class ModelService:
         *,
         reference_check: Callable[[AsyncSession, UUID], Awaitable[bool]],
     ) -> ModelInfo:
-        principal.require_admin()
+        principal.require_permission('ai:models:write')
         row = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
@@ -319,7 +325,7 @@ class ModelService:
         )
 
     async def add_rate(self, session: AsyncSession, principal: Principal, model_id: UUID, body: RateCreate) -> RateInfo:
-        principal.require_admin()
+        principal.require_permission('ai:rates:write')
         model = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
@@ -336,7 +342,7 @@ class ModelService:
         return RateInfo.model_validate(row, from_attributes=True)
 
     async def rates(self, session: AsyncSession, principal: Principal, model_id: UUID) -> list[RateInfo]:
-        principal.require_admin()
+        principal.require_any_permission('ai:rates:read', 'ai:rates:write')
         rows = await session.scalars(
             select(RateCard).where(RateCard.model_id == model_id).order_by(RateCard.version.desc())
         )

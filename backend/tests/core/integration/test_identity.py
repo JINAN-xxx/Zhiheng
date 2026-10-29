@@ -58,3 +58,68 @@ async def test_session_tokens_and_passwords_are_not_stored_in_plaintext(admin: h
     assert password.startswith('$argon2id$')
     assert password != 'platform-test-password'
     assert token_hash != token
+
+
+async def test_ai_role_changes_refresh_existing_http_sessions(admin: httpx.AsyncClient, app: object) -> None:
+    permissions = [
+        'ai:models:read',
+        'ai:models:write',
+        'ai:models:test',
+        'ai:rates:read',
+        'ai:rates:write',
+        'ai:skills:write',
+        'ai:storage:read',
+        'ai:storage:write',
+    ]
+    created = await admin.post('/api/admin/roles', json={'name': 'AI operator'})
+    assert created.status_code == 201, created.text
+    role = created.json()
+    assert role['code'].startswith('role_') and len(role['code']) == 37
+    created_user = await admin.post(
+        '/api/admin/users',
+        json={'username': 'ai-operator', 'password': 'platform-test-password', 'role_ids': [role['id']]},
+    )
+    assert created_user.status_code == 201, created_user.text
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as operator:
+        login = await operator.post(
+            '/api/auth/login', json={'username': 'ai-operator', 'password': 'platform-test-password'}
+        )
+        assert login.status_code == 200, login.text
+        assert login.json()['user']['permissions'] == []
+        changed = await admin.patch(
+            f'/api/admin/roles/{role["id"]}', json={'permissions': permissions, 'expected_version': 1}
+        )
+        assert changed.status_code == 200, changed.text
+        current = await operator.get('/api/auth/me')
+        assert current.status_code == 200
+        assert set(current.json()['permissions']) == set(permissions)
+        assert current.json()['is_admin'] is False
+        for path in ('/api/admin/permissions', '/api/admin/roles', '/api/admin/menus?navigation=true'):
+            assert (await operator.get(path)).status_code == 403
+        for version, active in ((2, False), (3, True)):
+            changed = await admin.patch(
+                f'/api/admin/roles/{role["id"]}', json={'is_active': active, 'expected_version': version}
+            )
+            assert changed.status_code == 200 and changed.json()['code'] == role['code']
+            current = await operator.get('/api/auth/me')
+            assert current.status_code == 200
+            assert set(current.json()['permissions']) == (set(permissions) if active else set())
+        revoked = await admin.patch(f'/api/admin/roles/{role["id"]}', json={'permissions': [], 'expected_version': 4})
+        assert revoked.status_code == 200, revoked.text
+        assert (await operator.get('/api/auth/me')).json()['permissions'] == []
+
+
+async def test_full_system_and_ai_permission_catalog_can_be_granted_over_http(admin: httpx.AsyncClient) -> None:
+    response = await admin.get('/api/admin/permissions')
+    assert response.status_code == 200
+    permissions = sorted(item['code'] for item in response.json()['items'])
+    assert len(permissions) == 28
+    created = await admin.post('/api/admin/roles', json={'name': 'All permissions', 'permissions': permissions})
+    assert created.status_code == 201, created.text
+    role = created.json()
+    assert role['permissions'] == permissions
+    updated = await admin.patch(
+        f'/api/admin/roles/{role["id"]}', json={'permissions': permissions, 'expected_version': 1}
+    )
+    assert updated.status_code == 200 and updated.json()['permissions'] == permissions

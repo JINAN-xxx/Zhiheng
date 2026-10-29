@@ -183,7 +183,7 @@ async function remove(): Promise<void> {
       resolve(false)
     }
   })
-  if (!accepted || !context.isCurrent()) return
+  if (!accepted || !context.isCurrent() || !props.canManage) return
   deleting.value = true
   actionError.value = ''
   try {

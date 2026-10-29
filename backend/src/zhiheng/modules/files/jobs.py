@@ -76,7 +76,7 @@ class FileJobs:
             return await self._files.info(session, row)
 
     async def run(self, principal: Principal, kind: JobKind) -> JobInfo:
-        principal.require_admin()
+        principal.require_permission('ai:storage:write')
         job_id = uuid4()
         async with self._sessions() as guard:
             connection = await guard.connection()
@@ -183,7 +183,7 @@ class FileJobs:
                 .limit(1)
             )
             cursor = previous.cursor if previous is not None else ''
-            policy = await self._files.policy(session)
+            policy = await self._files.policy(session, principal)
             if kind == 'expiry':
                 query = select(FileRecord).where(
                     FileRecord.status == 'active', FileRecord.expires_at <= now, FileRecord.source_file_id.is_(None)
@@ -327,7 +327,7 @@ class FileJobs:
         return len(candidates) + len(entries), changed, f'{next_file}:{next_object}'
 
     async def issue_action(self, principal: Principal, issue_id: UUID, body: IssueAction) -> ReconcileIssueInfo:
-        principal.require_admin()
+        principal.require_permission('ai:storage:write')
         async with self._transaction() as session:
             await self._lock_issue_maintenance(session)
             issue = await session.scalar(

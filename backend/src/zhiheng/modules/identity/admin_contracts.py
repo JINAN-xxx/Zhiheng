@@ -1,9 +1,11 @@
 """Strict administration request schemas shared by HTTP and identity use cases."""
 
 from typing import ClassVar, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+
+from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 
 
 class RequestModel(BaseModel):
@@ -50,16 +52,18 @@ class UserPatch(PatchRequest):
 
 
 class RoleCreate(RequestModel):
-    code: str = Field(min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_.:-]+$')
+    code: str = Field(
+        default_factory=lambda: f'role_{uuid4().hex}', min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_.:-]+$'
+    )
     name: str = Field(min_length=1, max_length=100)
-    permissions: list[str] = Field(default_factory=list, max_length=20)
+    permissions: list[str] = Field(default_factory=list, max_length=len(PERMISSION_CODES))
     is_active: bool = True
     remark: str = Field(default='', max_length=2000)
 
 
 class RolePatch(PatchRequest):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    permissions: list[str] | None = Field(default=None, max_length=20)
+    permissions: list[str] | None = Field(default=None, max_length=len(PERMISSION_CODES))
     is_active: bool | None = None
     remark: str | None = Field(default=None, max_length=2000)
 

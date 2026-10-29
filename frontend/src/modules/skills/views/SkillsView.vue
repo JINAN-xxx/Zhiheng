@@ -85,7 +85,7 @@
       </template>
     </section>
 
-    <SkillUploadModal v-model="uploadOpen" @installed="handleInstalled" />
+    <SkillUploadModal v-model="uploadOpen" :can-manage="canManage" @installed="handleInstalled" />
     <SkillDetailDrawer
       v-model="detailOpen"
       :skill-id="selectedSkillId"
@@ -113,7 +113,7 @@ import {
   ThunderboltOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue'
-import { identity } from '../../identity/public.ts'
+import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
@@ -125,7 +125,7 @@ import SkillDetailDrawer from '../components/SkillDetailDrawer.vue'
 import SkillUploadModal from '../components/SkillUploadModal.vue'
 const route = useRoute(),
   router = useRouter()
-const canManage = computed(() => identity.value?.is_admin ?? false)
+const canManage = computed(() => hasAnyPermission(identity.value, 'ai:skills:write'))
 const skills = ref<Skill[]>([]),
   total = ref(0),
   loading = ref(false),
