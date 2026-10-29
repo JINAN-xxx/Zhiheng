@@ -178,7 +178,7 @@ async function reconcile(): Promise<void> {
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) {
       formError.value =
-        reason instanceof ApiError && reason.status === 409
+        reason instanceof ApiError && reason.status === 409 && reason.code === 'version_conflict'
           ? '记录版本已变化，请关闭弹窗并刷新后重新核对'
           : errorMessage(reason)
     }

@@ -213,7 +213,7 @@ async function save(): Promise<void> {
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason))
       formError.value =
-        reason instanceof ApiError && reason.status === 409
+        reason instanceof ApiError && reason.status === 409 && reason.code === 'version_conflict'
           ? '操作冲突或版本已变化。请关闭弹窗并刷新最新账户后重试；已确认的操作不会重复执行。'
           : errorMessage(reason)
   } finally {

@@ -296,6 +296,59 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.posts[-1]['enabled'], True)
         self.assertTrue(self.posts[-1]['client_request_id'])
 
+    async def rejected_mode_change(self, code, message):
+        self.user['is_admin'] = True
+        async def reject(route):
+            if route.request.method == 'PATCH':
+                return await route.fulfill(status=409, json={'error': {'code': code, 'message': message}})
+            await self.respond(route)
+        await self.page.route(self.origin + '/api/billing/state', reject)
+        await self.page.goto(self.origin + '/usage')
+        await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
+        await dialog.get_by_label('操作原因', exact=True).fill('管理员确认启用积分')
+        await dialog.get_by_role('button', name='确认启用', exact=True).click()
+        return dialog
+
+    async def test_enable_preserves_missing_rates_message_and_model_names(self):
+        message = '以下已发布模型尚未配置积分费率：bge-m3、GLM-5.3-Flash'
+        dialog = await self.rejected_mode_change('credit_rates_incomplete', message)
+        await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
+        await expect(dialog.get_by_label('操作原因', exact=True)).to_have_value('管理员确认启用积分')
+        self.assertFalse(self.state['enabled'])
+
+    async def test_enable_preserves_active_work_message(self):
+        message = '仍有进行中的运行或知识任务，请等待完成后再切换积分计费'
+        dialog = await self.rejected_mode_change('billing_switch_busy', message)
+        await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
+        self.assertFalse(self.state['enabled'])
+
+    async def test_enable_version_conflict_keeps_refresh_guidance(self):
+        dialog = await self.rejected_mode_change('version_conflict', '数据已更新，请刷新后重试')
+        await expect(dialog.get_by_text('操作冲突或版本已变化。请关闭弹窗并刷新最新账户后重试；已确认的操作不会重复执行。', exact=True)).to_be_visible()
+
+    async def test_reclaim_preserves_insufficient_available_points_message(self):
+        message = '仅能回收未使用且未预占的积分'
+        await self.page.route(self.origin + '/api/billing/accounts/user-1/adjust', lambda route: route.fulfill(status=409, json={'error': {'code': 'credits_insufficient', 'message': message}}))
+        await self.page.goto(self.origin + '/usage')
+        await self.page.get_by_role('tab', name='用户积分', exact=True).click()
+        await self.page.get_by_role('button', name='回收', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='回收积分', exact=True)
+        await dialog.get_by_label('积分数量', exact=True).fill('100')
+        await dialog.get_by_label('操作原因', exact=True).fill('回收剩余积分')
+        await dialog.get_by_role('button', name='确认回收', exact=True).click()
+        await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
+
+    async def test_reconciliation_preserves_confirmed_usage_conflict_message(self):
+        message = '已有实际用量，不能确认模型调用未执行'
+        await self.page.route(self.origin + '/api/billing/usage/run-unknown/reconcile', lambda route: route.fulfill(status=409, json={'error': {'code': 'usage_conflict', 'message': message}}))
+        dialog = await self.open_usage_reconciliation()
+        await dialog.get_by_label('实际输入 Token', exact=True).fill('1000')
+        await dialog.get_by_label('实际输出 Token', exact=True).fill('200')
+        await dialog.get_by_label('核对依据', exact=True).fill('供应商提供的实际计量')
+        await dialog.get_by_role('button', name='确认核对', exact=True).click()
+        await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
+
     async def test_point_rate_requires_explicit_free_and_sends_per_million_strings(self):
         self.fail_rate_once = True
         self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
