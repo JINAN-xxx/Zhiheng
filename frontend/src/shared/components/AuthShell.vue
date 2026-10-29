@@ -1,200 +1,212 @@
 <!-- Adapted from the original RuoYi / 智衡 frontend, MIT licensed. -->
-<template>
-  <main class="auth-shell" :class="{ 'auth-shell--wide': wide, 'auth-shell--split': split }">
-    <div v-if="split" class="auth-shell__left">
-      <BrandMark class="auth-shell__left-logo" />
-    </div>
-
-    <header v-if="!split" class="auth-shell__brand" aria-label="智衡">
-      <BrandMark class="auth-shell__logo" />
-    </header>
-
-    <section class="auth-shell__panel">
-      <div v-if="eyebrow || title || description" class="auth-shell__heading">
-        <span v-if="eyebrow" class="auth-shell__eyebrow">{{ eyebrow }}</span>
-        <h1 v-if="title">{{ title }}</h1>
-        <p v-if="description">{{ description }}</p>
-      </div>
-      <slot />
-    </section>
-
-    <footer v-if="$slots.footer" class="auth-shell__footer">
-      <slot name="footer" />
-    </footer>
-  </main>
-</template>
-
 <script setup lang="ts">
 import BrandMark from './BrandMark.vue'
 
-defineProps({
-  brand: {
-    type: String,
-    default: '智衡'
-  },
-  eyebrow: {
-    type: String,
-    default: ''
-  },
-  title: {
-    type: String,
-    default: ''
-  },
-  description: {
-    type: String,
-    default: ''
-  },
-  wide: {
-    type: Boolean,
-    default: false
-  },
-  split: {
-    type: Boolean,
-    default: false
-  }
-})
+defineProps<{ title: string; description?: string }>()
 </script>
+
+<template>
+  <main class="auth-shell">
+    <header class="auth-shell__brand" aria-label="智衡">
+      <BrandMark />
+    </header>
+
+    <div class="auth-shell__layout">
+      <div class="auth-shell__visual" aria-hidden="true">
+        <div class="auth-shell__artwork">
+          <svg class="auth-shell__orbits" viewBox="0 0 440 400" fill="none">
+            <ellipse
+              class="auth-shell__orbit"
+              cx="220"
+              cy="200"
+              rx="194"
+              ry="131"
+              transform="rotate(-28 220 200)"
+            />
+            <ellipse
+              class="auth-shell__orbit auth-shell__orbit--accent"
+              cx="220"
+              cy="200"
+              rx="194"
+              ry="131"
+              transform="rotate(28 220 200)"
+            />
+            <circle class="auth-shell__halo" cx="220" cy="200" r="98" />
+            <circle class="auth-shell__node" cx="62" cy="128" r="7" />
+            <circle class="auth-shell__node auth-shell__node--accent" cx="378" cy="272" r="7" />
+            <circle class="auth-shell__node auth-shell__node--small" cx="290" cy="55" r="4" />
+            <circle class="auth-shell__node auth-shell__node--small" cx="150" cy="345" r="4" />
+          </svg>
+          <BrandMark compact class="auth-shell__symbol" />
+        </div>
+        <p class="auth-shell__caption">
+          <span>对话</span><span class="auth-shell__dot">·</span><span>智能体</span
+          ><span class="auth-shell__dot">·</span><span>知识库</span>
+        </p>
+      </div>
+
+      <section class="auth-shell__panel" aria-labelledby="auth-title">
+        <div class="auth-shell__heading">
+          <h1 id="auth-title">{{ title }}</h1>
+          <p v-if="description">{{ description }}</p>
+        </div>
+        <slot />
+      </section>
+    </div>
+  </main>
+</template>
 
 <style scoped>
 .auth-shell {
-  position: relative;
-  box-sizing: border-box;
   display: flex;
   min-height: 100vh;
+  min-height: 100svh;
   flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 84px 24px 64px;
-  overflow-x: hidden;
+  padding: 32px 48px;
   background: var(--bg-page);
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
 
-.auth-shell--split {
-  padding: 0;
-}
-
-.auth-shell__left {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 33.333%;
-  height: 100vh;
-  pointer-events: none;
-}
-
-.auth-shell__left-logo {
-  height: 48px;
-  width: auto;
-  object-fit: contain;
-}
-
 .auth-shell__brand {
-  position: absolute;
-  top: 28px;
-  left: 32px;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
 }
 
-.auth-shell__logo {
-  height: 36px;
-  width: auto;
-  object-fit: contain;
+.auth-shell__layout {
+  display: grid;
+  width: min(100%, 1120px);
+  flex: 1;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(64px, 8vw, 128px);
+  margin: 0 auto;
+  padding: 48px 0 92px;
 }
 
-.auth-shell__brand-text {
-  margin-left: 10px;
-  font-size: 18px;
-  font-weight: var(--workspace-font-weight-semibold);
-  white-space: nowrap;
-  color: var(--color-text);
-  font-family: var(--workspace-font-family);
+.auth-shell__visual {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
 }
 
-.auth-shell__panel {
-  width: min(100%, 420px);
-  padding: 32px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+.auth-shell__artwork {
+  position: relative;
+  display: grid;
+  width: min(100%, 440px);
+  aspect-ratio: 1.1;
+  place-items: center;
 }
 
-.auth-shell--split .auth-shell__panel {
-  width: min(100%, 420px);
+.auth-shell__orbits {
+  position: absolute;
+  width: 100%;
+  height: 100%;
 }
 
-.auth-shell--wide .auth-shell__panel {
-  width: min(100%, 680px);
+.auth-shell__orbit {
+  stroke: var(--gray-150);
+  stroke-width: 1;
 }
 
-.auth-shell__heading {
-  margin-bottom: 28px;
+.auth-shell__orbit--accent {
+  stroke: var(--main-100);
 }
 
-.auth-shell__eyebrow {
-  color: var(--main-color);
-  font-size: 12px;
-  font-weight: var(--workspace-font-weight-semibold);
+.auth-shell__halo {
+  fill: var(--main-30);
 }
 
-.auth-shell__heading h1 {
-  margin: 7px 0 8px;
-  color: var(--color-text);
-  font-size: 26px;
-  font-weight: var(--workspace-font-weight-semibold);
-  line-height: 1.3;
+.auth-shell__node {
+  fill: var(--bg-page);
+  stroke: var(--main-200);
+  stroke-width: 2;
 }
 
-.auth-shell__heading p {
+.auth-shell__node--accent {
+  fill: var(--main-color);
+  stroke: var(--main-color);
+}
+
+.auth-shell__node--small {
+  fill: var(--main-200);
+  stroke: none;
+}
+
+.auth-shell__symbol {
+  position: relative;
+}
+
+.auth-shell__symbol :deep(svg) {
+  width: clamp(96px, 12vw, 136px);
+  height: clamp(96px, 12vw, 136px);
+  stroke-width: 2;
+}
+
+.auth-shell__caption {
+  display: flex;
+  align-items: center;
+  gap: 18px;
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.5;
 }
 
-.auth-shell__footer {
-  position: absolute;
-  right: 24px;
-  bottom: 20px;
-  left: 24px;
-  color: var(--color-text-tertiary);
-  font-size: 12px;
-  text-align: center;
+.auth-shell__dot {
+  color: var(--gray-300);
 }
 
-.auth-shell--split .auth-shell__footer {
-  position: relative;
-  right: auto;
-  bottom: auto;
-  left: auto;
-  margin-top: 24px;
+.auth-shell__panel {
+  width: 100%;
+  max-width: 380px;
+  min-width: 0;
+  justify-self: center;
 }
 
-@media (max-width: 560px) {
+.auth-shell__heading {
+  margin-bottom: 32px;
+}
+
+.auth-shell__heading h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: var(--workspace-font-weight-semibold);
+  line-height: 1.4;
+}
+
+.auth-shell__heading p {
+  margin: 10px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
   .auth-shell {
-    align-items: start;
-    padding: 84px 16px 64px;
+    padding: 24px;
   }
 
-  .auth-shell__left {
-    position: relative;
-    width: 100%;
-    height: auto;
-    padding: 24px 0;
+  .auth-shell__layout {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 48px 0 88px;
   }
 
-  .auth-shell__brand {
-    top: 24px;
-    left: 20px;
+  .auth-shell__visual {
+    display: none;
   }
+}
 
-  .auth-shell__panel {
+@media (max-width: 480px) {
+  .auth-shell {
     padding: 24px 20px;
+  }
+
+  .auth-shell__layout {
+    padding-bottom: 64px;
   }
 }
 </style>

@@ -46,3 +46,4 @@
 - [统一白色界面与关闭主题切换](superpowers/verification/2026-10-29-white-console.md)
 - [历史记录弹窗与模型生成设置](superpowers/verification/2026-10-29-chat-history-settings.md)
 - [工作记录弹窗](superpowers/verification/2026-10-29-work-history-modal.md)
+- [登录页设计与验收](superpowers/verification/2026-10-29-login-ui.md)

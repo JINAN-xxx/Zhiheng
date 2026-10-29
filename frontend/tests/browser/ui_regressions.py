@@ -422,7 +422,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await self.page.get_by_role('button', name='登录', exact=True).click()
         await expect(self.page.get_by_text('请输入您的账号', exact=True)).to_be_visible(timeout=2000)
         await expect(self.page.get_by_text('请输入您的密码', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('checkbox', name='记住密码', exact=True)).to_be_disabled()
+        await expect(self.page.get_by_role('checkbox', name='记住密码', exact=True)).to_have_count(0)
         await self.page.get_by_placeholder('密码', exact=True).fill('must-remain-in-memory')
         self.assertNotIn('must-remain-in-memory', await self.page.evaluate('JSON.stringify(localStorage) + document.cookie'))
         self.assertEqual(sum(count for (method, _path), count in self.counts.items() if method == 'POST'), 0)
