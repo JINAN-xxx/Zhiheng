@@ -337,6 +337,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await expect(self.page.locator('.workspace-toolbar__subtitle')).to_have_count(0)
         await expect(self.page.locator('.panel-toolbar')).to_be_visible()
         await self.page.goto(self.origin + '/ai/usage')
+        await self.page.get_by_role('tab', name='历史 Token', exact=True).click()
         await expect(self.page.locator('.usage-mobile-item')).to_have_count(1)
         await expect(self.page.locator('.usage-mobile-item__meta')).to_contain_text('令牌 待核对 / 待核对')
         await expect(self.page.locator('.usage-mobile-item__header')).to_contain_text('待核对')

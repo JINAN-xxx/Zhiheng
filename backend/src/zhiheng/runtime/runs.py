@@ -15,6 +15,13 @@ ACTIVE_STATUSES = ('running', 'cancel_requested')
 
 
 class RunStore:
+    async def has_active_work(self, session: AsyncSession) -> bool:
+        """Global quiescence check for an explicit platform billing mode switch."""
+        return (
+            await session.scalar(select(Run.id).where(Run.status.in_(('pending', *ACTIVE_STATUSES))).limit(1))
+            is not None
+        )
+
     async def references_connection(self, session: AsyncSession, connection_id: UUID) -> bool:
         """Called with the admission connection row lock held by its owner."""
         return (

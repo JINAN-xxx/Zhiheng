@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.infrastructure.database import Database
-from zhiheng.modules.developer.public import UsageService
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.knowledge.public import (
     GraphClaim,
     GraphModelOperation,
@@ -109,6 +109,7 @@ class GraphRuns:
                 }
             )
             async with self.database.sessions.begin() as session:
+                await lock_billing_admission(session)
                 ordinal = await self.store.next_step(session, claim)
                 request_id = uuid5(claim.attempt_id, f'{call.role}:{call.operation}:{ordinal}')
                 await self.runs.lock_request(session, claim.owner_id, request_id)
@@ -125,14 +126,20 @@ class GraphRuns:
                 rate = None
                 with suppress(AppError):
                     rate = await self.models.latest_rate(session, binding.model_id)
+                input_tokens = sum(
+                    len(m.content.encode()) + 16 + sum(image.estimated_tokens for image in m.images)
+                    for m in request.messages
+                )
+                output_tokens = binding.max_output_tokens if call.role != 'embedding' else 0
                 await self.usage.reserve(
                     session,
                     user_id=claim.owner_id,
                     run_id=run.id,
                     model_id=binding.model_id,
                     source='knowledge_graph',
-                    tokens=sum(len(m.content.encode()) + 16 for m in call.messages)
-                    + (binding.max_output_tokens if call.role != 'embedding' else 0),
+                    tokens=input_tokens + output_tokens,
+                    estimated_input_tokens=input_tokens,
+                    max_output_tokens=output_tokens,
                     token_limit=self.token_limit,
                     rate=rate,
                     operation='embedding' if call.role == 'embedding' else 'chat',

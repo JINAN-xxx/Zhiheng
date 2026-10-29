@@ -70,6 +70,17 @@
             :rules="[{ required: true, whitespace: true, message: '请输入密钥名称' }]"
             ><a-input v-model:value="keyForm.keyName" :maxlength="80" :disabled="creating"
           /></a-form-item>
+          <a-form-item
+            label="月积分上限"
+            name="monthlyPointsLimit"
+            extra="留空仅受应用所有者余额约束；0 禁止积分调用。"
+          >
+            <a-input
+              v-model:value="keyForm.monthlyPointsLimit"
+              :disabled="creating"
+              placeholder="可选的十进制积分数"
+            />
+          </a-form-item>
           <a-button
             type="primary"
             html-type="submit"
@@ -131,6 +142,7 @@
 </template>
 
 <script setup lang="ts">
+import { monthlyPointsLimit } from '../../billing/presentation.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
@@ -184,7 +196,7 @@ const preparationExample = computed(
   () =>
     `HTTP 202\n{\n  "kind": "knowledge_preparation",\n  "id": "<PREPARATION_ID>",\n  "status": "waiting_models",\n  "polling_url": "/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>"\n}\n\ncurl '<ORIGIN>/v1/agents/${props.agent?.agentId ?? '<AGENT_ID>'}/preparations/<PREPARATION_ID>' \\\n  -H 'Authorization: Bearer <DEVELOPER_API_KEY>'`
 )
-const keyForm = reactive({ keyName: '' }),
+const keyForm = reactive({ keyName: '', monthlyPointsLimit: '' }),
   keys = ref<DeveloperKey[]>([]),
   loading = ref(false),
   creating = ref(false),
@@ -239,6 +251,13 @@ async function createKey(): Promise<void> {
     !keyForm.keyName.trim()
   )
     return
+  let pointLimit: string | null
+  try {
+    pointLimit = monthlyPointsLimit(keyForm.monthlyPointsLimit)
+  } catch (reason) {
+    error.value = errorMessage(reason)
+    return
+  }
   const context = mutationScope.replace()
   creating.value = true
   error.value = ''
@@ -247,6 +266,7 @@ async function createKey(): Promise<void> {
       binding.applicationId,
       {
         name: keyForm.keyName.trim(),
+        monthly_points_limit: pointLimit,
         model_ids: [...requiredModelIds.value],
         rpm_limit: 60,
         tpm_limit: null,
@@ -258,6 +278,7 @@ async function createKey(): Promise<void> {
     if (context.isCurrent() && props.modelValue) {
       issuedKey.value = result
       keyForm.keyName = ''
+      keyForm.monthlyPointsLimit = ''
       await loadKeys()
     }
   } catch (reason) {
@@ -303,6 +324,7 @@ function reset(): void {
   requiredModelIds.value = []
   requirementsReady.value = false
   keyForm.keyName = ''
+  keyForm.monthlyPointsLimit = ''
   error.value = ''
   loading.value = false
   creating.value = false

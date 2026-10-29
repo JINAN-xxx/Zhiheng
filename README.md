@@ -2,7 +2,11 @@
 
 智衡正在重建为以 AI 为核心的工作平台，采用模块化单体架构。模型管理、对话和用量治理直接内置于后端；模型接入使用 **LangChain 1.4.7**，前端使用 **Vue 3、TypeScript 和 Ant Design Vue**。
 
-**当前版本为 0.1.0，已接通 AI 对话、后台管理、完整模型管理、开发接入、技能、智能体、Work、受管文件、聊天附件、知识库向量检索和 LightRAG 图谱。MinerU 已完成本机部署准备，暂缓接入。** 本 README 对应根目录 `backend/`、`frontend/` 的当前源码。
+**当前版本为 0.1.0，已接通 AI 对话、后台管理、完整模型管理、平台积分、开发接入、技能、智能体、Work、受管文件、聊天附件、知识库向量检索和 LightRAG 图谱。MinerU 已完成本机部署准备，暂缓接入。** 本 README 对应根目录 `backend/`、`frontend/` 的当前源码。
+
+平台积分由内置 `billing` 模块统一管理。“用量与调用 → 我的积分”展示可用、预占、已消费及明细；拥有积分权限的管理员从“用户积分”发放、回收、暂停账户并核对未知用量。新用户默认零积分，积分长期有效。模型目录的“费率配置 → 积分计价”按百万 Token 或检索单元创建价格版本，调用先预占、后按实际用量结算，API Key 共用应用所有者积分并可单独配置月积分上限。历史 Token、金额费率和金额预算保留原单位。
+
+积分计费默认关闭，当前调用继续沿用原规则。启用顺序为：配置所有已发布模型的积分价格（免费也需明确标记）、向用户发放积分、超级管理员在“用户积分”显式启用。启停需等待在途运行与知识任务完成；缺价、余额不足或账户暂停均阻止新的积分调用。升级不会自动充值、设置真实价格或追扣历史调用。实现与验证见[平台积分验收](docs/superpowers/verification/2026-10-29-platform-credits.md)。
 
 本机正式入口为 <http://127.0.0.1:19080>。2026-10-27 已恢复旧项目的一份硅基流动连接及四个模型，文本、Embedding、Rerank 的四次真实调用全部完成，原模型管理页和聊天模型选择器已复查。正式实例已备份并升级至 `0008_graph`，原模型配置及 44 张原表数据保留，向量与图谱能力可用，详见[模型服务恢复记录](docs/superpowers/verification/2026-10-27-model-service-restoration.md)和[图谱验收](docs/superpowers/verification/2026-10-27-lightrag.md)。
 
@@ -37,7 +41,7 @@
 | 基础后台管理   | 已接通并通过本地验收   | 独立后台入口；用户、角色权限、部门、岗位、菜单、字典、参数、公告、登录/操作日志、在线会话和系统状态                                                                           |
 | 模型管理       | 已实现并通过本地验收   | 连接/模型新增、编辑、启停、发布与引用保护删除；文本、图片（需启用视觉）、Embedding、Rerank 的真实调用与分类测试                                                               |
 | AI 对话        | 已实现并通过本地验收   | 流式回复、多轮上下文、附件/图片、重命名/归档/删除、停止与断线恢复                                                                                                             |
-| 运行与用量     | 已实现并通过本地验收   | 后台执行、事务 outbox、租约、失联收敛、Token 配额预留和用量记录                                                                                                               |
+| 运行与用量     | 已实现并通过本地验收   | 后台执行、事务 outbox、租约、失联收敛、积分账户/预占/结算/流水与历史 Token 用量                                                                                                  |
 | 受管文件       | 已实现并通过本地验收   | 知识库内的存储治理、权限/引用保护、回收/审计/策略/提醒/对账；真实原生解析与聊天附件                                                                                           |
 | 知识库与图谱   | 向量与图谱已验收并部署 | 库/文件夹/文档管理、原生解析分块、Milvus 索引/检索、原文权限交集与 Chat/Agent/Work/API 向量组合；LightRAG 配置、试构建、发布、画布及带来源的上下文查询；MinerU 仅完成部署准备 |
 | 技能           | 已实现并通过本地验收   | 原技能管理界面、ZIP/主文件预检和确认安装、内容/启停/删除、聊天选择及历史快照                                                                                                  |
@@ -57,7 +61,7 @@ MinerU 按当前安排保留本机自托管路线：已核对硬件与临时容�
 
 2026-10-23 文件版本验收：最终后端327项完整回归，前端24项行为和91项页面回归、类型/格式/构建及独立规格/质量审查通过。真实容器覆盖受管上传、原生解析、图片模型调用、文件回收、提醒和已有数据升级，原24张表的原列/原行核对一致。详见[文件与聊天附件验收](docs/superpowers/verification/2026-10-23-files.md)；此前[开发接入与模型管理](docs/superpowers/verification/2026-10-23-developer-models.md)、[技能](docs/superpowers/verification/2026-10-23-skills.md)、[智能体](docs/superpowers/verification/2026-10-23-agents.md)和[Work](docs/superpowers/verification/2026-10-23-work.md)记录保留。上述早期验收使用本地模型协议服务；当前四个模型的真实供应商连通测试见模型服务恢复记录，生产负载尚未验收。
 
-模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额用 Decimal 计算。供应商未报告有效整数用量时保留预留、标记未知、费用为空；人工对账界面仍待建设。图片已接到普通聊天，模型须启用视觉能力。工具执行和结构化输出仍未接入。
+模型连接编辑会创建不可变凭据修订，历史 Run 继续使用其原始绑定。费率只追加版本，已预留调用使用冻结价格，金额和积分用 Decimal 计算。供应商未报告有效计量时保留预占、标记未知；积分管理员可核对未知消费，只补充尚未确认的计量，不能覆盖已有事实。图片已接到普通聊天，模型须启用视觉能力。工具执行和结构化输出仍未接入。
 
 ## 架构与目录
 
@@ -90,7 +94,7 @@ backend/
 ├── src/zhiheng/
 │   ├── api/             HTTP 入口
 │   ├── application/     跨模块用例与事务编排
-│   ├── modules/         identity、models、chat、developer、skills、agents、work、files、knowledge
+│   ├── modules/         identity、models、billing、chat、developer、skills、agents、work、files、knowledge
 │   ├── runtime/         运行、租约、outbox 与恢复原语
 │   ├── worker/          队列执行、取消观察与恢复
 │   ├── bootstrap/       配置和资源装配
@@ -101,7 +105,7 @@ backend/
 └── tests/               单元、契约、集成与浏览器验收
 frontend/src/
 ├── app/                 应用、布局和显式路由
-├── modules/             identity、models、chat、developer、skills、agents、work、files、knowledge、usage
+├── modules/             identity、models、billing、chat、developer、skills、agents、work、files、knowledge、usage
 └── shared/              HTTP、SSE、校验、原公共组件与视觉样式
 deploy/core/             Compose 和配置示例
 docs/README.md           文档索引

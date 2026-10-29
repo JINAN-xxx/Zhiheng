@@ -14,7 +14,8 @@ from zhiheng.modules.agents.public import (
     AgentService,
     PreviewRequest,
 )
-from zhiheng.modules.developer.public import DeveloperIdentity, KeyService, UsageService
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
+from zhiheng.modules.developer.public import DeveloperIdentity, KeyService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.knowledge.public import fingerprint as dependency_fingerprint
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
@@ -57,6 +58,7 @@ class AgentRunService:
         token_limit: int,
         prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
+        await lock_billing_admission(session)
         fingerprint = hashlib.sha256(
             json.dumps(
                 ['agent_preview', str(agent_id), [message.model_dump() for message in body.messages]],
@@ -84,6 +86,7 @@ class AgentRunService:
     async def public(
         self, session: AsyncSession, token: str, agent_id: UUID, body: PreviewRequest, token_limit: int
     ) -> tuple[RunSnapshot, DeveloperIdentity, UUID]:
+        await lock_billing_admission(session)
         identity = await self._keys.authenticate(session, token, lock=True)
         principal = Principal(identity.owner_id, '', False)
         try:
@@ -130,6 +133,7 @@ class AgentRunService:
         identity: DeveloperIdentity | None = None,
         prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
+        await lock_billing_admission(session)
         config = (
             agent.published_config
             if identity
@@ -144,7 +148,7 @@ class AgentRunService:
             selection = await self._agents.published_selection(session, owner(agent), agent.id, agent.published_version)
         else:
             selection = await resolve_selection(session, config.skill_slugs)
-        rate = await self._models.latest_rate(session, config.model_id) if identity else None
+        rate = await self._usage.money_rate(session, self._models, config.model_id, required=identity is not None)
         binding = binding.model_copy(
             update={'max_output_tokens': config.max_tokens, 'options': ModelOptions(temperature=config.temperature)}
         )
@@ -175,7 +179,11 @@ class AgentRunService:
             fingerprint=fingerprint,
             payload=request.model_dump(mode='json'),
         )
-        tokens = sum(len(item.content.encode('utf-8')) + 16 for item in messages) + config.max_tokens
+        input_tokens = sum(
+            len(item.content.encode('utf-8')) + 16 + sum(image.estimated_tokens for image in item.images)
+            for item in request.messages
+        )
+        tokens = input_tokens + request.binding.max_output_tokens
         await self._usage.reserve(
             session,
             user_id=agent.owner_id,
@@ -183,6 +191,8 @@ class AgentRunService:
             model_id=config.model_id,
             source=resource_type,
             tokens=tokens,
+            estimated_input_tokens=input_tokens,
+            max_output_tokens=request.binding.max_output_tokens,
             token_limit=token_limit,
             key_id=identity.key_id if identity else None,
             rate=rate,
@@ -226,6 +236,7 @@ class AgentRunService:
         request_id = uuid5(identity.key_id, str(body.client_request_id)) if identity else body.client_request_id
         namespace = identity.key_id if identity else principal.id
         async with prep.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             if identity:
                 await self._keys.authorize_identity(session, identity, [], lock=True)
             agent = await self._agents.get(session, principal, agent_id)

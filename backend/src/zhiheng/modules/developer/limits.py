@@ -1,15 +1,21 @@
 """Durable, transaction-scoped admission; the caller holds the key row lock."""
 
+from __future__ import annotations
+
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.developer.orm import DeveloperKey, Invocation, KeyMinuteBucket
-from zhiheng.modules.models.public import RateInfo
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from zhiheng.modules.models.public import RateInfo
 
 
 def reserved_cost(rate: RateInfo, tokens: int) -> Decimal:
@@ -19,12 +25,14 @@ def reserved_cost(rate: RateInfo, tokens: int) -> Decimal:
 
 
 async def reserve_limits(
-    session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo
-) -> tuple[int, str, Decimal]:
+    session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo | None
+) -> tuple[int, str, Decimal | None]:
     now = utcnow()
     minute, month = int(now.timestamp()) // 60, now.strftime('%Y-%m')
-    cost = reserved_cost(rate, tokens)
-    if rate.currency != key.currency:
+    cost = reserved_cost(rate, tokens) if rate is not None else None
+    if rate is None and key.monthly_budget is not None:
+        raise AppError('money_rate_required', '此密钥设有金额预算，模型必须配置同币种金额费率', 409)
+    if rate is not None and rate.currency != key.currency:
         raise AppError('currency_mismatch', 'Rate and budget currencies differ', 409)
     bucket = await session.scalar(
         select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
@@ -50,7 +58,7 @@ async def reserve_limits(
         or (key.concurrency_limit is not None and (active or 0) >= key.concurrency_limit)
         or (
             key.monthly_budget is not None
-            and (key.monthly_budget == 0 or (spent or Decimal(0)) + cost > key.monthly_budget)
+            and (key.monthly_budget == 0 or (spent or Decimal(0)) + (cost or Decimal(0)) > key.monthly_budget)
         )
     ):
         raise AppError('rate_limit_exceeded', 'API key quota exceeded', 429)

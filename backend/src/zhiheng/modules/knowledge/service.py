@@ -13,6 +13,7 @@ from zhiheng.modules.files.public import AclEntry, BuiltinPermission, FileInfo, 
 from zhiheng.modules.identity.public import IdentityInfo, IdentityService
 from zhiheng.modules.knowledge.contracts import (
     JOB_TERMINAL,
+    PREPARATION_TERMINAL,
     BaseAccess,
     BaseAcl,
     BaseAclInfo,
@@ -37,6 +38,7 @@ from zhiheng.modules.knowledge.orm import (
     KnowledgeGrant,
     KnowledgeJob,
     KnowledgeUpload,
+    RetrievalIntent,
 )
 from zhiheng.modules.models.public import ModelBinding, ModelService
 from zhiheng.runtime.contracts import RunError
@@ -67,6 +69,17 @@ def binding_fingerprint(binding: ModelBinding) -> str:
 class KnowledgeService:
     def __init__(self, files: FileService, identity: IdentityService, models: ModelService) -> None:
         self.files, self.identity, self.models = files, identity, models
+
+    async def has_active_work(self, session: AsyncSession) -> bool:
+        """Pending build/graph/preparation work can spawn model steps later."""
+        for model, terminal in (
+            (KnowledgeJob, JOB_TERMINAL),
+            (GraphJob, JOB_TERMINAL),
+            (RetrievalIntent, PREPARATION_TERMINAL),
+        ):
+            if await session.scalar(select(model.id).where(model.status.not_in(terminal)).limit(1)) is not None:
+                return True
+        return False
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return (

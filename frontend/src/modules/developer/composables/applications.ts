@@ -1,3 +1,4 @@
+import { monthlyPointsLimit } from '../../billing/presentation.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
@@ -27,6 +28,7 @@ const tabValue = (value: unknown): Tab =>
   value === 'keys' || value === 'models' || value === 'usage' ? value : 'overview'
 const defaultKeyForm = () => ({
   keyName: '',
+  monthlyPointsLimit: '',
   modelIds: [] as string[],
   expiresAt: null as string | null,
   rpmLimit: null as number | null,
@@ -441,6 +443,13 @@ export function useApplications() {
         .catch(() => false))
     )
       return
+    let pointLimit: string | null
+    try {
+      pointLimit = monthlyPointsLimit(keyForm.monthlyPointsLimit)
+    } catch (reason) {
+      formError.value = errorMessage(reason)
+      return
+    }
     const context = scopes.mutation.replace()
     saving.value = true
     formError.value = ''
@@ -449,6 +458,7 @@ export function useApplications() {
         id,
         {
           name: keyForm.keyName.trim(),
+          monthly_points_limit: pointLimit,
           model_ids: [...keyForm.modelIds],
           rpm_limit: keyForm.rpmLimit,
           tpm_limit: keyForm.tpmLimit,

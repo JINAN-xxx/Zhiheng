@@ -237,7 +237,9 @@ async def test_structured_missing_raw_usage_keeps_reservation(
     response = await drive(app.state.container, task)
     assert response.status_code == 200, response.text
     usage = (await admin.get(f'/api/developer/applications/{application["id"]}/usage')).json()['items'][0]
-    assert usage['status'] == 'unknown' and usage['billable_cost'] is None
+    assert usage['status'] == 'unknown'
+    # Search-unit money is known even if the provider omits diagnostic Token usage.
+    assert usage['billable_cost'] == ('0.500000000000' if kind == 'rerank' else None)
     assert usage['input_tokens'] is None and usage['output_tokens'] is None
     async with app.state.container.database.sessions() as session:
         account = await session.get(UsageAccount, UUID(application['owner_id']))

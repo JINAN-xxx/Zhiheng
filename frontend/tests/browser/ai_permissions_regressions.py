@@ -24,6 +24,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
             if not any(code in self.permissions for code in ['ai:models:read', 'ai:models:write']):
                 return await route.fulfill(status=403, json={'error': {'code': 'forbidden', 'message': '无模型管理权限'}})
             return await route.fulfill(json=[{'id': 'connection-1', 'name': '团队服务', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True, 'enabled': True}])
+        if path == '/api/billing/models/model-1/rates' and request.method == 'GET':
+            return await route.fulfill(json=[])
         if path == '/api/models/model-1/rate-cards':
             return await route.fulfill(json=[])
         if path == '/api/models/model-1/test' and request.method == 'POST':
@@ -98,6 +100,10 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await self.open_models()
         await self.page.get_by_role('button', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
+        await expect(dialog.get_by_role('tab', name='积分计价', exact=True)).to_have_attribute('aria-selected', 'true')
+        await expect(dialog.get_by_role('button', name='创建积分价格版本', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_label('定价原因', exact=True)).to_have_count(0)
+        await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
         await expect(dialog.get_by_text('历史费率版本', exact=True)).to_be_visible()
         await expect(dialog.get_by_role('button', name='创建价格版本', exact=True)).to_have_count(0)
         await expect(dialog.get_by_label('输入令牌单价', exact=True)).to_have_count(0)

@@ -295,6 +295,16 @@
                 @change="(value) => setLimit('concurrencyLimit', value)"
             /></a-form-item>
           </div>
+          <a-form-item
+            label="月积分上限"
+            name="monthlyPointsLimit"
+            extra="留空仅受应用所有者积分余额约束；0 表示禁止积分调用。密钥不拥有独立余额。"
+          >
+            <a-input
+              v-model:value="keyForm.monthlyPointsLimit"
+              placeholder="可选，使用十进制积分数"
+            />
+          </a-form-item>
           <a-form-item label="过期时间"
             ><a-date-picker
               :value="keyForm.expiresAt ?? ''"

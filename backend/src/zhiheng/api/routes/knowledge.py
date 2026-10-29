@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, Request, Response
 
 from zhiheng.api.contracts import EmptyRequest
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
+from zhiheng.modules.billing.public import lock_billing_admission
 from zhiheng.modules.knowledge.public import (
     NATIVE_FORMATS,
     BaseAcl,
@@ -211,6 +212,7 @@ async def import_documents(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
         value = fingerprint(['import', str(base_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
@@ -244,6 +246,7 @@ async def rechunk(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
         value = fingerprint(['rechunk', str(base_id), str(document_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
@@ -368,6 +371,7 @@ async def rebuild(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
         value = fingerprint(['rebuild', str(base_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
@@ -399,6 +403,7 @@ async def delete_document(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         await container.knowledge.authorize_base(session, principal, base_id, manage=True)
         value = fingerprint(['delete_document', str(base_id), str(document_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
@@ -430,6 +435,7 @@ async def delete_folder(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
         value = fingerprint(['delete_folder', str(base_id), str(folder_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
@@ -463,6 +469,7 @@ async def delete_base(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
+        await lock_billing_admission(session)
         base = await container.knowledge.authorize_base(session, principal, base_id, manage=True, include_deleted=True)
         value = fingerprint(['delete_base', str(base_id), body.model_dump(mode='json')])
         existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)

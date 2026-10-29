@@ -11,6 +11,16 @@ REQUIRED_MEMBERS = (
     'zhiheng/cli/main.py',
     'zhiheng/__init__.py',
     'zhiheng/py.typed',
+    'zhiheng/modules/billing/public.py',
+    'zhiheng/modules/billing/contracts.py',
+    'zhiheng/modules/billing/orm.py',
+    'zhiheng/modules/billing/service.py',
+    'zhiheng/modules/billing/pricing.py',
+    'zhiheng/modules/billing/usage.py',
+    'zhiheng/modules/billing/ports.py',
+    'zhiheng/modules/billing/gate.py',
+    'zhiheng/application/billing_management.py',
+    'zhiheng/api/routes/billing.py',
     'zhiheng/modules/skills/public.py',
     'zhiheng/modules/skills/package.py',
     'zhiheng/modules/skills/validation.py',
@@ -80,6 +90,10 @@ REQUIRED_MEMBERS = (
             'versions/0006_files.py',
             'versions/0007_knowledge.py',
             'versions/0008_graph.py',
+            'versions/0009_message_actions.py',
+            'versions/0010_admin_console.py',
+            'versions/0011_builtin_admin_role.py',
+            'versions/0012_platform_credits.py',
         )
     ),
 )
@@ -107,7 +121,14 @@ def test_accepts_core_and_builtin_cli(verify_wheel: Callable[[Path], Path], tmp_
 
 @pytest.mark.parametrize(
     'forbidden',
-    ['.env', 'zhiheng/.env.production', 'config/env.py', 'plugins/ai/hooks.py', 'legacy/backend/app.py', 'cli/main.py'],
+    [
+        '.env',
+        'zhiheng/.env.production',
+        'config/env.py',
+        'plugins/ai/hooks.py',
+        'legacy/backend/app.py',
+        'cli/main.py',
+    ],
 )
 def test_rejects_environment_or_legacy_files(
     verify_wheel: Callable[[Path], Path], tmp_path: Path, forbidden: str
@@ -136,11 +157,25 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0006_files.py',
         '0007_knowledge.py',
         '0008_graph.py',
+        '0009_message_actions.py',
+        '0010_admin_console.py',
+        '0011_builtin_admin_role.py',
+        '0012_platform_credits.py',
     ],
 )
 def test_requires_all_database_migration_revisions(
     verify_wheel: Callable[[Path], Path], tmp_path: Path, revision: str
 ) -> None:
-    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if not name.endswith(revision)))
+    write_wheel(
+        tmp_path,
+        tuple(name for name in REQUIRED_MEMBERS if not name.endswith(revision)),
+    )
     with pytest.raises(ValueError, match='migration'):
+        verify_wheel(tmp_path)
+
+
+@pytest.mark.parametrize('member', ['zhiheng/modules/billing/public.py', 'zhiheng/api/routes/billing.py'])
+def test_requires_platform_billing_resources(verify_wheel: Callable[[Path], Path], tmp_path: Path, member: str) -> None:
+    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if name != member))
+    with pytest.raises(ValueError, match='missing'):
         verify_wheel(tmp_path)

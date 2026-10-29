@@ -8,7 +8,7 @@ from uuid import UUID, uuid5
 
 from zhiheng.application.file_inputs import FileInputService
 from zhiheng.infrastructure.database import Database
-from zhiheng.modules.developer.public import UsageService
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.files.public import FileService
 from zhiheng.modules.knowledge.public import (
     BuildClaim,
@@ -168,6 +168,7 @@ class KnowledgeJobs:
             child_id = await self.store.step(session, claim.id, batch.key)
         if child_id is None:
             async with self.database.sessions.begin() as session:
+                await lock_billing_admission(session)
                 owner = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
                 await self.models.resolve(session, claim.binding.model_id)
                 await self.store.owned(session, claim)
@@ -201,6 +202,8 @@ class KnowledgeJobs:
                         model_id=claim.binding.model_id,
                         source='knowledge_embedding',
                         tokens=sum(len(text.encode()) + 16 for text in batch.texts),
+                        estimated_input_tokens=sum(len(text.encode()) + 16 for text in batch.texts),
+                        max_output_tokens=0,
                         token_limit=self.token_limit,
                         rate=rate,
                         operation='embedding',

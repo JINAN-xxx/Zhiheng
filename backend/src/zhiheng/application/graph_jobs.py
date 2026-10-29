@@ -8,6 +8,7 @@ from uuid import UUID
 
 from zhiheng.application.graph_runs import GraphModelCall, GraphRuns
 from zhiheng.infrastructure.database import Database
+from zhiheng.modules.billing.public import lock_billing_admission
 from zhiheng.modules.knowledge.public import (
     GraphBuildRequest,
     GraphClaim,
@@ -50,6 +51,7 @@ class GraphJobs:
         if not await self.sdk.available():
             raise AppError('graph_unavailable', '未配置可用的图谱运行连接', 503)
         async with self.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             return await self.store.service.admit(session, principal, base_id, body, operation)
 
     async def execute(self, job_id: UUID) -> None:

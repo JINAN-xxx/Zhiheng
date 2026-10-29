@@ -356,6 +356,48 @@ class ModelService:
             raise AppError('model_not_found', 'Model is unavailable', 404)
         return RateInfo.model_validate(row, from_attributes=True)
 
+    async def billing_metadata(self, session: AsyncSession, model_id: UUID) -> ModelInfo:
+        """Model existence and type for billing composition; includes disabled models."""
+        row = await session.scalar(
+            select(ModelDefinition).where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
+        )
+        if row is None:
+            raise AppError('model_not_found', '模型不存在', 404)
+        return self._model_info(row)
+
+    async def billing_models(self, session: AsyncSession) -> list[ModelInfo]:
+        """Complete public model inventory for internal billing preparation checks."""
+        rows = await session.scalars(
+            select(ModelDefinition)
+            .join(ModelConnection, ModelConnection.id == ModelDefinition.connection_id)
+            .where(
+                ModelDefinition.enabled.is_(True),
+                ModelDefinition.published.is_(True),
+                ModelDefinition.deleted_at.is_(None),
+                ModelConnection.enabled.is_(True),
+                ModelConnection.deleted_at.is_(None),
+            )
+            .order_by(ModelDefinition.id)
+        )
+        return [self._model_info(row) for row in rows]
+
+    async def is_public(self, session: AsyncSession, model_id: UUID) -> bool:
+        return (
+            await session.scalar(
+                select(ModelDefinition.id)
+                .join(ModelConnection, ModelConnection.id == ModelDefinition.connection_id)
+                .where(
+                    ModelDefinition.id == model_id,
+                    ModelDefinition.enabled.is_(True),
+                    ModelDefinition.published.is_(True),
+                    ModelDefinition.deleted_at.is_(None),
+                    ModelConnection.enabled.is_(True),
+                    ModelConnection.deleted_at.is_(None),
+                )
+            )
+            is not None
+        )
+
     @staticmethod
     def _connection_info(row: ModelConnection) -> ConnectionInfo:
         return ConnectionInfo(id=row.id, name=row.name, base_url=row.base_url, enabled=row.enabled)

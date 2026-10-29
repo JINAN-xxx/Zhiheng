@@ -17,8 +17,10 @@ from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
 from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.agents.public import AgentService
+from zhiheng.modules.billing.public import CreditService, UsageService
 from zhiheng.modules.chat.public import ChatService, MessageActionService
-from zhiheng.modules.developer.public import ApplicationService, KeyService, UsageService
+from zhiheng.modules.developer.public import ApplicationService, KeyService
+from zhiheng.modules.developer.public import UsageService as LegacyUsageService
 from zhiheng.modules.files.public import FileJobs, FileService
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
 from zhiheng.modules.knowledge.public import (
@@ -55,7 +57,9 @@ class Container:
         self.file_inputs = FileInputService(self.database, self.files, NativeParser())
         self.models = ModelService(self.cipher, settings.provider_timeout_seconds)
         self.knowledge = KnowledgeService(self.files, self.identity, self.models)
-        self.usage = UsageService()
+        self.credits = CreditService()
+        self.legacy_usage = LegacyUsageService()
+        self.usage = UsageService(self.credits, self.legacy_usage)
         self.applications = ApplicationService()
         self.keys = KeyService(self.applications, self.models, self.identity)
         self.runs = RunStore()

@@ -24,6 +24,8 @@ AI_PERMISSIONS = {
     'ai:models:test': ('模型连接 · 测试', 'AI平台 · 模型与凭据'),
     'ai:rates:read': ('模型费率 · 查看', 'AI平台 · 费率'),
     'ai:rates:write': ('模型费率 · 配置', 'AI平台 · 费率'),
+    'ai:credits:read': ('用户积分与消费流水 · 查看', 'AI平台 · 积分'),
+    'ai:credits:write': ('用户积分 · 发放、回收、暂停与用量核对', 'AI平台 · 积分'),
     'ai:skills:write': ('共享技能 · 导入、启停与删除', 'AI平台 · 共享技能'),
     'ai:storage:read': ('存储策略、对账与维护记录 · 查看', 'AI平台 · 存储治理'),
     'ai:storage:write': ('存储策略与维护任务 · 配置与执行', 'AI平台 · 存储治理'),

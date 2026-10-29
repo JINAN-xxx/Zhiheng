@@ -1,3 +1,4 @@
+import { parsePoints } from '../../billing/presentation.ts'
 import { http } from '../../../shared/http.ts'
 import { list, nullableNumber, number, object, string } from '../../../shared/validation.ts'
 
@@ -19,6 +20,7 @@ export interface DeveloperKey {
   status: 'active' | 'retiring' | 'revoked' | 'expired'
   grants: { modelId: string }[]
   quota: { rpmLimit: number | null; tpmLimit: number | null; concurrencyLimit: number | null }
+  monthlyPointsLimit: string | null
   expiresAt: string | null
   lastUsedAt: string | null
 }
@@ -49,6 +51,7 @@ export interface KeyInput {
   rpm_limit: number | null
   tpm_limit: number | null
   concurrency_limit: number | null
+  monthly_points_limit?: string | null
   expires_at: string | null
 }
 const root = '/developer/applications'
@@ -89,6 +92,10 @@ function parseKey(value: unknown): DeveloperKey {
       tpmLimit: nullableNumber(data.tpm_limit),
       concurrencyLimit: nullableNumber(data.concurrency_limit)
     },
+    monthlyPointsLimit:
+      data.monthly_points_limit === undefined || data.monthly_points_limit === null
+        ? null
+        : parsePoints(data.monthly_points_limit),
     expiresAt: nullableString(data.expires_at),
     lastUsedAt: nullableString(data.last_used_at)
   }

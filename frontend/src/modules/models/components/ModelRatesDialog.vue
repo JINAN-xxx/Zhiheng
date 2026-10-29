@@ -9,14 +9,18 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   Modal as AModal,
-  Tag as ATag
+  Tag as ATag,
+  Tabs as ATabs,
+  TabPane as ATabPane
 } from 'ant-design-vue'
+import CreditRatesPanel from '../../billing/components/CreditRatesPanel.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { createRateCard, getRateCards } from '../api/index.ts'
 import type { ChatModel, RateCard, RateInput } from '../api/index.ts'
 const props = defineProps<{ model: ChatModel | null; canRead: boolean; canWrite: boolean }>()
 const emit = defineEmits<{ close: [] }>()
+const activeTab = ref<string | number>('points')
 const cards = ref<RateCard[]>([]),
   loading = ref(false),
   saving = ref(false),
@@ -43,6 +47,7 @@ watch(
     mutation.replace()
     saving.value = false
     cards.value = []
+    activeTab.value = 'points'
     error.value = ''
     Object.assign(form, {
       billing_mode: props.model?.model_type === 'rerank' ? 'search_unit' : 'token',
@@ -137,42 +142,66 @@ async function save(): Promise<void> {
         form.billing_mode === 'search_unit' ? '按检索单元计费' : '按令牌计费'
       }}</span>
     </div>
-    <h3 class="rate-history-title">历史费率版本</h3>
-    <ResourceTable :columns="columns" :rows="cards" :loading="loading" :scroll-x="'100%'">
-      <template #bodyCell="{ column, record }"
-        ><template v-if="column.key === 'price'"
-          ><span v-if="record.billing_mode === 'search_unit'">{{ record.search_price }} / 单元</span
-          ><span v-else
-            >输入 {{ record.input_price }} / 输出 {{ record.output_price }} / 缓存
-            {{ record.cache_price }} · 每 Token</span
-          ></template
-        ><template v-else-if="column.key === 'version'">{{ record.version }}</template
-        ><template v-else-if="column.key === 'currency'">{{ record.currency }}</template></template
-      >
-    </ResourceTable>
-    <ADivider v-if="canWrite" orientation="left">新增价格版本</ADivider>
-    <AForm v-if="canWrite" :model="form" layout="vertical" @submit.prevent>
-      <div v-if="form.billing_mode === 'token'" class="rate-grid">
-        <AFormItem label="输入令牌单价" name="input_price"
-          ><AInput v-model:value="form.input_price"
-        /></AFormItem>
-        <AFormItem label="输出令牌单价" name="output_price"
-          ><AInput v-model:value="form.output_price"
-        /></AFormItem>
-        <AFormItem label="缓存令牌单价（可选）" name="cache_price"
-          ><AInput v-model:value="form.cache_price"
-        /></AFormItem>
-      </div>
-      <AFormItem v-else label="检索单元单价" name="search_price"
-        ><AInput v-model:value="form.search_price"
-      /></AFormItem>
-      <AFormItem label="币种" name="currency"
-        ><AInput v-model:value="form.currency" :maxlength="3"
-      /></AFormItem>
-    </AForm>
+    <ATabs v-model:active-key="activeTab">
+      <ATabPane key="points" tab="积分计价">
+        <CreditRatesPanel
+          v-if="model"
+          :model-id="model.id"
+          :search-unit="model.model_type === 'rerank'"
+          :can-write="canWrite"
+        />
+      </ATabPane>
+      <ATabPane key="money" tab="历史金额费率">
+        <AAlert
+          message="以下金额沿用原币种与每 Token / 检索单元单位，不能直接作为积分价格。"
+          type="info"
+          show-icon
+        />
+        <h3 class="rate-history-title">历史费率版本</h3>
+        <ResourceTable :columns="columns" :rows="cards" :loading="loading" :scroll-x="'100%'">
+          <template #bodyCell="{ column, record }"
+            ><template v-if="column.key === 'price'"
+              ><span v-if="record.billing_mode === 'search_unit'"
+                >{{ record.search_price }} / 单元</span
+              ><span v-else
+                >输入 {{ record.input_price }} / 输出 {{ record.output_price }} / 缓存
+                {{ record.cache_price }} · 每 Token</span
+              ></template
+            ><template v-else-if="column.key === 'version'">{{ record.version }}</template
+            ><template v-else-if="column.key === 'currency'">{{
+              record.currency
+            }}</template></template
+          >
+        </ResourceTable>
+        <ADivider v-if="canWrite" orientation="left">新增价格版本</ADivider>
+        <AForm v-if="canWrite" :model="form" layout="vertical" @submit.prevent>
+          <div v-if="form.billing_mode === 'token'" class="rate-grid">
+            <AFormItem label="输入令牌单价" name="input_price"
+              ><AInput v-model:value="form.input_price"
+            /></AFormItem>
+            <AFormItem label="输出令牌单价" name="output_price"
+              ><AInput v-model:value="form.output_price"
+            /></AFormItem>
+            <AFormItem label="缓存令牌单价（可选）" name="cache_price"
+              ><AInput v-model:value="form.cache_price"
+            /></AFormItem>
+          </div>
+          <AFormItem v-else label="检索单元单价" name="search_price"
+            ><AInput v-model:value="form.search_price"
+          /></AFormItem>
+          <AFormItem label="币种" name="currency"
+            ><AInput v-model:value="form.currency" :maxlength="3"
+          /></AFormItem>
+        </AForm>
+      </ATabPane>
+    </ATabs>
     <template #footer
       ><AButton @click="close">关闭</AButton
-      ><AButton v-if="canWrite" type="primary" :loading="saving" @click="save"
+      ><AButton
+        v-if="canWrite && activeTab === 'money'"
+        type="primary"
+        :loading="saving"
+        @click="save"
         >创建价格版本</AButton
       ></template
     >

@@ -94,6 +94,7 @@ class KeyService:
             tpm_limit=row.tpm_limit,
             concurrency_limit=row.concurrency_limit,
             monthly_budget=str(row.monthly_budget) if row.monthly_budget is not None else None,
+            monthly_points_limit=str(row.monthly_points_limit) if row.monthly_points_limit is not None else None,
             currency=row.currency,
             expires_at=row.expires_at,
         )

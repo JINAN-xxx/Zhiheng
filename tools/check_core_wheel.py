@@ -9,6 +9,16 @@ REQUIRED_FILES = frozenset(
         'zhiheng/cli/main.py',
         'zhiheng/__init__.py',
         'zhiheng/py.typed',
+        'zhiheng/modules/billing/public.py',
+        'zhiheng/modules/billing/contracts.py',
+        'zhiheng/modules/billing/orm.py',
+        'zhiheng/modules/billing/service.py',
+        'zhiheng/modules/billing/pricing.py',
+        'zhiheng/modules/billing/usage.py',
+        'zhiheng/modules/billing/ports.py',
+        'zhiheng/modules/billing/gate.py',
+        'zhiheng/application/billing_management.py',
+        'zhiheng/api/routes/billing.py',
         'zhiheng/modules/skills/public.py',
         'zhiheng/modules/skills/package.py',
         'zhiheng/modules/skills/validation.py',
@@ -90,6 +100,10 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0006_files.py',
         'versions/0007_knowledge.py',
         'versions/0008_graph.py',
+        'versions/0009_message_actions.py',
+        'versions/0010_admin_console.py',
+        'versions/0011_builtin_admin_role.py',
+        'versions/0012_platform_credits.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

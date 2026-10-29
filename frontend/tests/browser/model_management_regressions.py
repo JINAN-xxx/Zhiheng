@@ -40,12 +40,13 @@ class ModelManagementRegressions(DeveloperBoundary):
             else:
                 created = {**route.request.post_data_json, 'id': 'new-rate', 'model_id': 'model-1', 'version': 2, 'created_at': '2026-10-23T01:00:00Z'}
                 await route.fulfill(status=201, json=created)
-        await self.page.route('**/api/models/model-1/rate-cards', rates)
+        await self.page.route(self.origin + '/api/models/model-1/rate-cards', rates)
         try:
             await self.page.goto(self.origin + '/models')
             await self.page.get_by_role('button', name='费率配置', exact=True).click()
             await requested.wait()
             dialog = self.page.get_by_role('dialog')
+            await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
             await dialog.get_by_label('输入令牌单价', exact=True).fill('0.000000012345')
             await dialog.get_by_role('button', name='创建价格版本', exact=True).click()
             await expect(dialog.get_by_text('2', exact=True)).to_be_visible()
@@ -77,6 +78,8 @@ class ModelManagementRegressions(DeveloperBoundary):
             payload = route.request.post_data_json
             self.posts.append(payload)
             body = {**payload, 'id': 'new-model', 'enabled': True, 'published': True, 'capabilities': [payload['model_type']]}
+        elif path == '/api/billing/models/model-1/rates' and method == 'GET':
+            body = []
         elif path == '/api/models/model-1/rate-cards':
             if method == 'POST':
                 payload = route.request.post_data_json
@@ -119,6 +122,7 @@ class ModelManagementRegressions(DeveloperBoundary):
         await self.page.goto(self.origin + '/models')
         await self.page.get_by_role('button', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog')
+        await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
         await dialog.get_by_label('输入令牌单价', exact=True).fill('0.00000001')
         await dialog.get_by_label('输出令牌单价', exact=True).fill('0.00000002')
         await dialog.get_by_role('button', name='创建价格版本', exact=True).click()

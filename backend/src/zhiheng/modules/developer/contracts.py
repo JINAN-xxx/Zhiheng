@@ -1,10 +1,11 @@
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from zhiheng.shared.time import utcnow
 
@@ -13,6 +14,16 @@ class UsageOutcome(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     status: Literal['pending', 'known', 'unknown'] = 'pending'
+    points_enforced: bool = False
+
+
+@dataclass(frozen=True)
+class LegacyReservation:
+    """Admission metadata exposed to the unified usage facade without exposing ORM rows."""
+
+    points_enforced: bool
+    key_id: UUID | None = None
+    key_limit: Decimal | None = None
 
 
 class UsageRecord(BaseModel):
@@ -81,6 +92,9 @@ class KeyCreate(StrictRequest):
     concurrency_limit: int | None = Field(default=None, strict=True, gt=0)
     expires_at: datetime | None = None
     monthly_budget: Decimal | None = Field(default=None, ge=0, max_digits=30, decimal_places=12)
+    monthly_points_limit: Decimal | None = Field(
+        default=None, ge=0, max_digits=38, decimal_places=18, allow_inf_nan=False
+    )
     currency: str = Field(default='USD', pattern=r'^[A-Z]{3}$')
 
     @field_validator('name')
@@ -95,7 +109,7 @@ class KeyCreate(StrictRequest):
             raise ValueError('Duplicate models')
         return value
 
-    @field_validator('monthly_budget', mode='before')
+    @field_validator('monthly_budget', 'monthly_points_limit', mode='before')
     @classmethod
     def exact_budget(cls, value: object) -> object:
         if value is not None and not isinstance(value, str):
@@ -125,11 +139,18 @@ class KeyInfo(BaseModel):
     tpm_limit: int | None
     concurrency_limit: int | None
     monthly_budget: Decimal | None
+    monthly_points_limit: Decimal | None = None
     currency: str
     created_at: datetime
     expires_at: datetime | None
     retire_at: datetime | None
     last_used_at: datetime | None
+
+    @field_serializer('monthly_points_limit', when_used='json')
+    def points_limit_json(self, value: Decimal | None) -> str | None:
+        if value is None:
+            return None
+        return format(value.copy_abs() if value.is_zero() else value, 'f')
 
 
 class IssuedKey(KeyInfo):

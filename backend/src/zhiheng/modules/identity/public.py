@@ -12,7 +12,7 @@ from zhiheng.modules.identity.admin_orm import (
 )
 from zhiheng.modules.identity.admin_permissions import permission_catalog
 from zhiheng.modules.identity.admin_service import IdentityAdminService
-from zhiheng.modules.identity.contracts import IdentityInfo
+from zhiheng.modules.identity.contracts import IdentityDirectoryEntry, IdentityDirectoryPage, IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.modules.identity.service import IdentityService
@@ -23,6 +23,8 @@ from zhiheng.modules.identity.service import IdentityService
 __all__ = [
     'AdminKind',
     'IdentityAdminService',
+    'IdentityDirectoryEntry',
+    'IdentityDirectoryPage',
     'IdentityInfo',
     'IdentityService',
     'PasswordChange',

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.identity.admin_orm import (
@@ -19,7 +19,7 @@ from zhiheng.modules.identity.admin_orm import (
 )
 from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
-from zhiheng.modules.identity.contracts import IdentityInfo
+from zhiheng.modules.identity.contracts import IdentityDirectoryEntry, IdentityDirectoryPage, IdentityInfo
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
@@ -27,6 +27,8 @@ from zhiheng.shared.principal import Principal
 
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_LENGTH = 1024
+MAX_DIRECTORY_PAGE_SIZE = 200
+MAX_DIRECTORY_SEARCH_LENGTH = 200
 
 
 class IdentityService:
@@ -137,6 +139,62 @@ class IdentityService:
             IdentityInfo(id=row.id, username=row.username)
             for row in await session.scalars(query.order_by(IdentityUser.username).limit(100))
         ]
+
+    async def directory_page(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        *,
+        search: str = '',
+        page: int = 1,
+        page_size: int = 20,
+    ) -> IdentityDirectoryPage:
+        """Include inactive and never-used accounts without exposing profile or credential fields."""
+        principal.require_any_permission('ai:credits:read', 'ai:credits:write')
+        if page < 1 or not 1 <= page_size <= MAX_DIRECTORY_PAGE_SIZE:
+            raise AppError('invalid_pagination', '分页参数无效', 422)
+        if len(search) > MAX_DIRECTORY_SEARCH_LENGTH or '\x00' in search:
+            raise AppError('invalid_identity_search', '用户搜索条件无效', 422)
+        query = select(IdentityUser).where(IdentityUser.deleted_at.is_(None))
+        if search:
+            escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            pattern = f'%{escaped}%'
+            query = query.where(
+                or_(
+                    IdentityUser.username.ilike(pattern, escape='\\'),
+                    IdentityUser.display_name.ilike(pattern, escape='\\'),
+                )
+            )
+        total = await session.scalar(select(func.count()).select_from(query.subquery()))
+        rows = await session.scalars(
+            query.order_by(IdentityUser.username, IdentityUser.id).offset((page - 1) * page_size).limit(page_size)
+        )
+        return IdentityDirectoryPage(
+            items=[IdentityDirectoryEntry.model_validate(row, from_attributes=True) for row in rows],
+            total=total or 0,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def directory_user(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        user_id: UUID,
+        *,
+        require_active: bool = False,
+        lock: bool = False,
+    ) -> IdentityDirectoryEntry:
+        principal.require_any_permission('ai:credits:read', 'ai:credits:write')
+        query = select(IdentityUser).where(IdentityUser.id == user_id, IdentityUser.deleted_at.is_(None))
+        if lock:
+            query = query.with_for_update(read=True)
+        user = await session.scalar(query.execution_options(populate_existing=True))
+        if user is None:
+            raise AppError('credit_user_not_found', '积分账户用户不存在', 404)
+        if require_active and not user.is_active:
+            raise AppError('credit_user_inactive', '用户已停用，不能继续发放积分', 409)
+        return IdentityDirectoryEntry.model_validate(user, from_attributes=True)
 
     async def matching_user_ids(self, session: AsyncSession, *, search: str) -> tuple[UUID, ...]:
         """Complete identity name matches for business filtering, including inactive historical owners."""

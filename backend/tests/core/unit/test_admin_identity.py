@@ -23,6 +23,8 @@ AI_PERMISSION_CODES = frozenset(
         'ai:skills:write',
         'ai:storage:read',
         'ai:storage:write',
+        'ai:credits:read',
+        'ai:credits:write',
     }
 )
 
@@ -267,13 +269,14 @@ async def test_menu_paths_and_permission_catalog_are_fixed(context: tuple[AsyncS
     ai = [item for item in catalog if item['code'].startswith('ai:')]
     assert len(system) == 20
     assert {item['code'] for item in ai} == AI_PERMISSION_CODES
-    assert len(catalog) == len({item['code'] for item in catalog}) == 28
+    assert len(catalog) == len({item['code'] for item in catalog}) == 30
     assert all(item['group'].startswith('系统管理 · ') for item in system)
     assert {item['group'] for item in ai} == {
         'AI平台 · 模型与凭据',
         'AI平台 · 费率',
         'AI平台 · 共享技能',
         'AI平台 · 存储治理',
+        'AI平台 · 积分',
     }
     assert all(item['label'] for item in catalog)
 

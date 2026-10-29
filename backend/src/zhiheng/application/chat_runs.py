@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.application.file_inputs import MAX_NORMALIZED_IMAGE_BYTES, FileInputService
 from zhiheng.application.knowledge_preparation import PreparationStart
 from zhiheng.application.lifecycle import RunLifecycle
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import (
     ChatGenerationSettings,
     ChatRequestContext,
@@ -19,7 +20,6 @@ from zhiheng.modules.chat.public import (
     RegenerationTarget,
     SkillSnapshot,
 )
-from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.files.public import FileService, PreparedAttachment
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.knowledge.public import fingerprint as dependency_fingerprint
@@ -65,7 +65,7 @@ class ChatRunService:
         self.knowledge: KnowledgePreparation | None = None
         self.file_inputs: FileInputService | None = None
 
-    async def admit_chat(  # noqa: PLR0913 - mirrors the chat admission contract
+    async def admit_chat(  # noqa: PLR0913, PLR0915 - one transaction owns the complete chat admission contract
         self,
         session: AsyncSession,
         principal: Principal,
@@ -82,6 +82,7 @@ class ChatRunService:
         temperature: float | None = None,
         max_output_tokens: int | None = None,
     ) -> RunSnapshot:
+        await lock_billing_admission(session)
         settings = ChatGenerationSettings(
             system_prompt=system_prompt, temperature=temperature, max_output_tokens=max_output_tokens
         )
@@ -283,6 +284,7 @@ class ChatRunService:
         assert self.knowledge is not None and self.file_inputs is not None
         value = self.regeneration_fingerprint(conversation_id, message_id)
         async with self.knowledge.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             await self._runs.lock_request(session, principal.id, client_request_id)
             conversation = await self._chat.require_conversation(session, principal, conversation_id, lock=True)
             existing = await self._runs.existing_request(session, principal.id, client_request_id, value)
@@ -316,6 +318,7 @@ class ChatRunService:
             )
         attachments = await self.file_inputs.prepare_many(principal, selection.file_ids)
         async with self.knowledge.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             return await self.admit_chat(
                 session,
                 principal,
@@ -394,6 +397,7 @@ class ChatRunService:
     async def admit_test(
         self, session: AsyncSession, principal: Principal, *, model_id: UUID, client_request_id: UUID, token_limit: int
     ) -> RunSnapshot:
+        await lock_billing_admission(session)
         principal.require_permission('ai:models:test')
         fingerprint = self.fingerprint('connection_test', model_id, model_id, '')
         await self._runs.lock_request(session, principal.id, client_request_id)
@@ -470,6 +474,9 @@ class ChatRunService:
             model_id=request.binding.model_id,
             source=resource_type,
             tokens=prompt_bytes + (request.binding.max_output_tokens if request.binding.model_type == 'chat' else 0),
+            estimated_input_tokens=prompt_bytes,
+            max_output_tokens=request.binding.max_output_tokens if request.binding.model_type == 'chat' else 0,
+            estimated_search_units=max(1, len(request.messages) - 1) if request.binding.model_type == 'rerank' else 0,
             token_limit=token_limit,
             rate=rate,
             operation=request.binding.model_type,
@@ -550,6 +557,7 @@ class ChatRunService:
             )
         )
         async with prep.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             await self._runs.lock_request(session, principal.id, client_request_id)
             await self._chat.require_conversation(session, principal, conversation_id, lock=True)
             existing = await self._runs.existing_request(session, principal.id, client_request_id, value)
@@ -581,6 +589,7 @@ class ChatRunService:
         if regeneration_message_id:
             request['regeneration_message_id'] = str(regeneration_message_id)
         async with prep.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             await self._runs.lock_request(session, principal.id, client_request_id)
             await self._chat.require_conversation(session, principal, conversation_id, lock=True)
             existing = await self._runs.existing_request(session, principal.id, client_request_id, value)

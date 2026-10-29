@@ -10,6 +10,7 @@ from zhiheng.modules.developer.contracts import (
     KeyCreate,
     KeyInfo,
     KeyRotate,
+    LegacyReservation,
     UsageOutcome,
     UsageSummary,
 )
@@ -28,6 +29,7 @@ __all__ = [
     'KeyInfo',
     'KeyRotate',
     'KeyService',
+    'LegacyReservation',
     'UsageOutcome',
     'UsageService',
     'UsageSummary',

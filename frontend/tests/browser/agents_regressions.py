@@ -215,6 +215,19 @@ class AgentsUIRegressions(DeveloperBoundary):
         await drawer.get_by_role('button', name='隐藏明文密钥', exact=True).click()
         await expect(drawer.get_by_text(self.secret, exact=True)).to_have_count(0)
 
+    async def test_api_key_monthly_points_limit_keeps_zero_as_a_string(self):
+        self.agent.update(status='published', application_id='draft-application', published_version=1, published_config={**self.config, 'application_id': 'app-1', 'model_id': 'published-model'})
+        await self.open_agents()
+        await self.page.get_by_role('button', name='API', exact=True).click()
+        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
+        await drawer.get_by_label('月积分上限', exact=True).fill('0')
+        await drawer.get_by_role('button', name='创建密钥', exact=True).click()
+        await expect(drawer.locator('.issued-key code')).to_have_text(self.secret)
+        self.assertEqual(self.posts[-1]['monthly_points_limit'], '0')
+        self.assertEqual(self.posts[-1]['model_ids'], ['published-model'])
+        self.assertNotIn('monthly_budget', self.posts[-1])
+        self.assertNotIn('allocated_points', self.posts[-1])
+
     async def test_key_creation_waits_for_revoke_and_later_revocation_still_works(self):
         self.agent.update(status='published', application_id='app-1', published_version=1, published_config={**self.config, 'application_id': 'app-1'})
         self.keys = [{'id': 'key-old', 'application_id': 'app-1', 'name': '旧客户端', 'prefix': 'sk-zh_old', 'status': 'active', 'model_ids': ['model-1'], 'rpm_limit': 60, 'tpm_limit': None, 'concurrency_limit': 2, 'expires_at': None, 'last_used_at': None}]

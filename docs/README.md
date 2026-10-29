@@ -1,6 +1,6 @@
 # 新平台文档
 
-日常开发以实际代码、当前代码规范和各域验收为准。知识库向量检索、LightRAG 图谱及后台管理已交付，正常实例数据库版本为 `0011_builtin_admin_role`，旧模型服务已恢复。MinerU 保留本机部署准备，按当前安排暂缓接入。
+日常开发以实际代码、当前代码规范和各域验收为准。知识库向量检索、LightRAG 图谱及后台管理已交付，新增 `0012_platform_credits` 提供默认关闭的积分计费，旧模型服务继续沿用。MinerU 保留本机部署准备，按当前安排暂缓接入。
 
 | 文档                                                                                 | 用途                                                                               |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
@@ -49,3 +49,5 @@
 - [登录页设计与验收](superpowers/verification/2026-10-29-login-ui.md)
 - [个人资料与全平台界面一致性](superpowers/verification/2026-10-29-profile-and-ui-consistency.md)
 - [AI 管理权限与角色自动编码](superpowers/verification/2026-10-29-ai-management-permissions.md)
+- [平台积分设计](superpowers/specs/2026-10-29-platform-credits.md)
+- [平台积分验收与启用步骤](superpowers/verification/2026-10-29-platform-credits.md)

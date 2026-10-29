@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0011_builtin_admin_role'
+SCHEMA_REVISION = '0012_platform_credits'
 
 
 class Base(DeclarativeBase):

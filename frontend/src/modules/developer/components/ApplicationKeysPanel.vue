@@ -52,6 +52,14 @@
           <span>每分钟请求数 {{ item.quota.rpmLimit ?? '不限' }}</span>
           <span>每分钟令牌数 {{ item.quota.tpmLimit ?? '不限' }}</span>
           <span>并发 {{ item.quota.concurrencyLimit ?? '不限' }}</span>
+          <span
+            >月积分上限
+            {{
+              item.monthlyPointsLimit === null
+                ? '仅受父账户约束'
+                : formatPoints(item.monthlyPointsLimit)
+            }}</span
+          >
         </div>
         <WorkspaceMoreMenu
           v-if="(item.status === 'active' || item.status === 'retiring') && actions.length"
@@ -66,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatPoints } from '../../billing/presentation.ts'
 import { Button as AButton } from 'ant-design-vue'
 import { KeyOutlined } from '@ant-design/icons-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'

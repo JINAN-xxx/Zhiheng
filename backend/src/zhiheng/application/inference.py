@@ -11,8 +11,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from zhiheng.application.lifecycle import RunLifecycle
+from zhiheng.modules.billing.public import UsageService
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequest, ProviderError
 from zhiheng.runtime.contracts import ClaimedRun, RunError, RunStatus, RunUsage
 from zhiheng.runtime.runs import RunStore

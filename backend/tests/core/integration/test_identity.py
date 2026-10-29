@@ -114,7 +114,7 @@ async def test_full_system_and_ai_permission_catalog_can_be_granted_over_http(ad
     response = await admin.get('/api/admin/permissions')
     assert response.status_code == 200
     permissions = sorted(item['code'] for item in response.json()['items'])
-    assert len(permissions) == 28
+    assert len(permissions) == 30
     created = await admin.post('/api/admin/roles', json={'name': 'All permissions', 'permissions': permissions})
     assert created.status_code == 201, created.text
     role = created.json()

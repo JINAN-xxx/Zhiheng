@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.application.knowledge_preparation import PreparationStart
 from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.modules.agents.public import AgentConfig, AgentInfo, AgentService, AgentSummary
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.developer.public import UsageService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.models.public import ModelBinding, ModelMessage, ModelOptions, ModelRequest, ModelService
@@ -224,6 +224,7 @@ class WorkRunService:
         token_limit: int,
         prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
+        await lock_billing_admission(session)
         owner = await self.owner(session, principal, task_id)
         value = fingerprint([str(body.agent_id), body.message])
         # Namespace the runtime UUID by task; preserve actual caller for private Run routes.
@@ -280,14 +281,21 @@ class WorkRunService:
             fingerprint=value,
             payload=request.model_dump(mode='json'),
         )
+        input_tokens = sum(
+            len(item.content.encode()) + 16 + sum(image.estimated_tokens for image in item.images)
+            for item in request.messages
+        )
         await self.usage.reserve(
             session,
             user_id=owner.id,
             run_id=run.id,
             model_id=config.model_id,
             source='work_turn',
-            tokens=sum(len(item.content.encode()) + 16 for item in request.messages) + config.max_tokens,
+            tokens=input_tokens + request.binding.max_output_tokens,
+            estimated_input_tokens=input_tokens,
+            max_output_tokens=request.binding.max_output_tokens,
             token_limit=token_limit,
+            rate=await self.usage.money_rate(session, self.models, request.binding.model_id),
             operation='chat',
         )
         await self.work.admit(
@@ -367,6 +375,7 @@ class WorkRunService:
         runtime_value = fingerprint([str(body.agent_id), body.message])
         value = fingerprint(['work_turn', str(task_id), body.model_dump(mode='json')])
         async with prep.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             owner = await self.owner(session, principal, task_id)
             await self.runs.lock_request(session, owner.id, request_id)
             await self.runs.lock_request(session, principal.id, request_id)

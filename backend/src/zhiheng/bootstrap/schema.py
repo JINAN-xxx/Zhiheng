@@ -4,6 +4,7 @@ from sqlalchemy import MetaData
 
 from zhiheng.infrastructure.database import Base
 from zhiheng.modules.agents.public import schema_tables as agent_tables
+from zhiheng.modules.billing.public import schema_tables as billing_tables
 from zhiheng.modules.chat.public import schema_tables as chat_tables
 from zhiheng.modules.developer.public import schema_tables as developer_tables
 from zhiheng.modules.files.public import schema_tables as file_tables
@@ -22,6 +23,7 @@ def schema_metadata() -> MetaData:
         *identity_tables(),
         *model_tables(),
         *developer_tables(),
+        *billing_tables(),
         *chat_tables(),
         *skill_tables(),
         *agent_tables(),

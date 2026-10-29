@@ -1,7 +1,6 @@
 """Durable, paid-call-idempotent retrieval before final model admission."""
 
 import asyncio
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid5
@@ -10,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.infrastructure.database import Database
+from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService, UsageService
+from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService
 from zhiheng.modules.knowledge.public import (
     BuildStore,
     Hit,
@@ -111,6 +111,7 @@ class KnowledgePreparation:
         body: PreparationStart,
         identity: DeveloperIdentity | None = None,
     ) -> PreparationInfo:
+        await lock_billing_admission(session)
         owner_id, resource_type, resource_id = body.owner_id, body.resource_type, body.resource_id
         request_id, value, request = body.request_id, body.value, body.request
         base_ids, dependencies, namespace_id = body.base_ids, body.dependencies, body.namespace_id
@@ -168,6 +169,7 @@ class KnowledgePreparation:
 
     async def finalize(self, intent_id: UUID, token: UUID) -> None:
         async with self.database.sessions.begin() as session:
+            await lock_billing_admission(session)
             row = await self.store.get(session, intent_id)
             state = self.store.state(row)
             if row.status != 'ready':
@@ -213,6 +215,7 @@ class KnowledgePreparation:
     async def query(
         self, session: AsyncSession, principal: Principal, base_id: UUID, body: QueryRequest
     ) -> PreparationInfo:
+        await lock_billing_admission(session)
         value = fingerprint(['knowledge_query', str(base_id), body.model_dump(mode='json')])
         await self.runs.lock_request(session, principal.id, body.client_request_id)
         await self.knowledge.authorize_base(session, principal, base_id)
@@ -409,6 +412,7 @@ class KnowledgePreparation:
                 child_id = await self.steps.step(session, state.id, step_key)
             if child_id is None:
                 async with self.database.sessions.begin() as session:
+                    await lock_billing_admission(session)
                     await self.authorize(session, state, lock=True)
                     await self.models.resolve(session, base.binding.model_id)
                     await self.store.owned(session, state.id, token)
@@ -433,12 +437,12 @@ class KnowledgePreparation:
                             fingerprint=value,
                             payload=request.model_dump(mode='json'),
                         )
-                        rate = None
-                        if state.key_id is not None:
-                            rate = await self.models.latest_rate(session, base.binding.model_id)
-                        else:
-                            with suppress(AppError):
-                                rate = await self.models.latest_rate(session, base.binding.model_id)
+                        rate = await self.usage.money_rate(
+                            session,
+                            self.models,
+                            base.binding.model_id,
+                            required=state.key_id is not None,
+                        )
                         await self.usage.reserve(
                             session,
                             user_id=state.owner_id,
@@ -446,6 +450,8 @@ class KnowledgePreparation:
                             model_id=base.binding.model_id,
                             source='knowledge_retrieval',
                             tokens=len(str(state.request['query']).encode()) + 16,
+                            estimated_input_tokens=len(str(state.request['query']).encode()) + 16,
+                            max_output_tokens=0,
                             token_limit=self.token_limit,
                             key_id=state.key_id,
                             rate=rate,

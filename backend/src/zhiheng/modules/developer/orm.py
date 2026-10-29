@@ -2,7 +2,18 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,9 +26,9 @@ class UsageAccount(Base):
     __table_args__ = (CheckConstraint('used_tokens >= 0 AND reserved_tokens >= 0 AND limit_tokens > 0'),)
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
-    limit_tokens: Mapped[int] = mapped_column(Integer)
-    used_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    reserved_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    limit_tokens: Mapped[int] = mapped_column(BigInteger)
+    used_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
 
 
 class Invocation(Base):
@@ -36,6 +47,7 @@ class Invocation(Base):
     application_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_applications.id'), index=True)
     key_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_keys.id'), index=True)
     operation: Mapped[str] = mapped_column(String(16), default='chat')
+    points_enforced: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
     rate_card_id: Mapped[UUID | None] = mapped_column(ForeignKey('model_rate_cards.id'))
     rate_version: Mapped[int | None] = mapped_column(Integer)
     rate_snapshot: Mapped[dict[str, str] | None] = mapped_column(JSONB)
@@ -71,6 +83,10 @@ class DeveloperKey(Base):
         CheckConstraint(
             '(rpm_limit IS NULL OR rpm_limit > 0) AND (tpm_limit IS NULL OR tpm_limit > 0) AND (concurrency_limit IS NULL OR concurrency_limit > 0) AND (monthly_budget IS NULL OR monthly_budget >= 0)'
         ),
+        CheckConstraint(
+            'monthly_points_limit IS NULL OR monthly_points_limit >= 0',
+            name='ck_developer_keys_monthly_points_limit',
+        ),
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     application_id: Mapped[UUID] = mapped_column(ForeignKey('developer_applications.id'), index=True)
@@ -83,6 +99,7 @@ class DeveloperKey(Base):
     tpm_limit: Mapped[int | None] = mapped_column(Integer)
     concurrency_limit: Mapped[int | None] = mapped_column(Integer)
     monthly_budget: Mapped[Decimal | None] = mapped_column(Numeric(30, 12))
+    monthly_points_limit: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
     currency: Mapped[str] = mapped_column(String(3), default='USD')
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -97,4 +114,4 @@ class KeyMinuteBucket(Base):
     key_id: Mapped[UUID] = mapped_column(ForeignKey('developer_keys.id'))
     minute: Mapped[int] = mapped_column(Integer)
     requests: Mapped[int] = mapped_column(Integer, default=0)
-    tokens: Mapped[int] = mapped_column(Integer, default=0)
+    tokens: Mapped[int] = mapped_column(BigInteger, default=0)

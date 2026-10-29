@@ -10,8 +10,8 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.core.integration.test_developer import admitted, provision
+from zhiheng.modules.billing.public import UsageOutcome, UsageService
 from zhiheng.modules.developer.orm import DeveloperKey, Invocation, UsageAccount
-from zhiheng.modules.developer.public import UsageOutcome, UsageService
 from zhiheng.runtime.contracts import ClaimedRun, RunUsage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
