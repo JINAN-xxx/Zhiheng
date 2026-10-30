@@ -72,10 +72,7 @@ async def update(
     session: SessionDependency,
 ) -> TaskDetail:
     async with session.begin():
-        await container.work.require(session, principal, task_id, lock=True)
-        await container.work_runs.ensure_preparation_idle(session, task_id)
-        await container.work.update(session, principal, task_id, body)
-        return await container.work_runs.detail(session, principal, task_id)
+        return await container.work_runs.update(session, principal, task_id, body)
 
 
 @router.delete('/tasks/{task_id}', status_code=204)

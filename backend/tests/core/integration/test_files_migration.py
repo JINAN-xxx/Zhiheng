@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 
 
 async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: str, admin: httpx.AsyncClient) -> None:
@@ -39,7 +40,7 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in tables:
             old = [r[1] for r in columns if r[0] == name]
             assert (
@@ -54,7 +55,17 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
                 )
             )
         ).all()
-        assert all(col in updated for col in columns)
+        # 0012 intentionally widens token counters; every value and nullability
+        # still survives, and all other existing column types remain unchanged.
+        widened = {
+            ('developer_accounts', 'limit_tokens'),
+            ('developer_accounts', 'used_tokens'),
+            ('developer_accounts', 'reserved_tokens'),
+            ('developer_minute_buckets', 'tokens'),
+        }
+        for table, name, old_type, nullable in columns:
+            expected_type = 'int8' if (table, name) in widened else old_type
+            assert (table, name, expected_type, nullable) in updated
 
         def compare(sync: Connection) -> list[Any]:
             return compare_metadata(MigrationContext.configure(sync), schema_metadata())

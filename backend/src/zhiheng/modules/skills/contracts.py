@@ -9,6 +9,7 @@ from zhiheng.modules.skills.validation import MAX_SLUG_LENGTH, SLUG_PATTERN
 
 SkillSlug = Annotated[str, StringConstraints(min_length=1, max_length=MAX_SLUG_LENGTH, pattern=SLUG_PATTERN)]
 SkillStatus = Literal['enabled', 'disabled']
+SkillImportAction = Literal['install', 'update', 'restore', 'unchanged']
 
 
 class SkillInfo(BaseModel):
@@ -40,6 +41,10 @@ class DraftInfo(BaseModel):
     content_hash: str
     file_count: int
     total_bytes: int
+    action: SkillImportAction = 'install'
+    target_skill_id: UUID | None = None
+    expected_version: int | None = None
+    current_package_version: str | None = None
 
 
 class SkillPage(BaseModel):

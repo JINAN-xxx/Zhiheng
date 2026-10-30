@@ -1,4 +1,5 @@
 """Original developer UI with controlled new-core HTTP boundaries."""
+
 import asyncio
 import contextlib
 import json
@@ -31,7 +32,6 @@ class ChatHistoryInteractions:
 
 
 class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCase):
-
     async def asyncSetUp(self):
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(headless=True)
@@ -122,7 +122,6 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         await self.page.goto(self.origin + '/developer?applicationId=app-1&tab=overview')
         await expect(self.page.get_by_role('heading', name='开发接入', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('heading', name='内部工具', exact=True)).to_be_visible()
-
 
 
 class DeveloperUIRegressions(DeveloperBoundary):
@@ -262,7 +261,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name=re.compile('停用')).click()
         await self.confirm_action('停用后，该应用下所有访问密钥将无法调用')
         await self.page.get_by_role('button', name=re.compile('删除应用')).click()
-        await self.confirm_action('仅停用应用可以删除')
+        await self.confirm_action('删除后应用将不再显示')
         await expect(self.page.get_by_text('暂无开发者应用', exact=True)).to_be_visible()
         self.assertIsNotNone(self.app['deleted_at'])
 

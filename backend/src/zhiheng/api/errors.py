@@ -20,7 +20,10 @@ def install_error_handlers(app: FastAPI) -> None:
                 status_code=error.status_code,
                 headers={'WWW-Authenticate': 'Bearer'} if error.status_code == status.HTTP_401_UNAUTHORIZED else None,
             )
-        return JSONResponse({'error': {'code': error.code, 'message': error.message}}, status_code=error.status_code)
+        payload: dict[str, object] = {'code': error.code, 'message': error.message}
+        if error.details is not None:
+            payload['details'] = error.details
+        return JSONResponse({'error': payload}, status_code=error.status_code)
 
     @app.exception_handler(HTTPException)
     async def http_error_handler(request: Request, error: HTTPException) -> JSONResponse:

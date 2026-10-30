@@ -34,7 +34,10 @@ async def test_downgrade_rejects_credit_history_and_keeps_all_points(settings: A
         async with engine.connect() as connection:
             assert await connection.scalar(text('SELECT allocated_points FROM billing_accounts')) == Decimal('100')
             assert await connection.scalar(text('SELECT count(*) FROM billing_ledger')) == 1
-            assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0012_platform_credits'
+            assert (
+                await connection.scalar(text('SELECT version_num FROM alembic_version'))
+                == '0013_skill_revision_history'
+            )
     finally:
         await engine.dispose()
 
@@ -78,7 +81,10 @@ async def test_bigint_counters_preserve_values_and_block_unsafe_narrowing(settin
             await _version(settings, '0011_builtin_admin_role', downgrade=True)
         async with engine.begin() as connection:
             assert await connection.scalar(text('SELECT used_tokens FROM developer_accounts')) == 2147483648
-            assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0012_platform_credits'
+            assert (
+                await connection.scalar(text('SELECT version_num FROM alembic_version'))
+                == '0013_skill_revision_history'
+            )
             await connection.execute(text('UPDATE developer_accounts SET used_tokens=7'))
         await _version(settings, '0011_builtin_admin_role', downgrade=True)
         # DDL ran through Alembic's connection; use a fresh asyncpg statement cache.

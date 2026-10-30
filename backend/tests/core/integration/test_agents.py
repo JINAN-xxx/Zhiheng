@@ -30,11 +30,8 @@ async def test_agent_lifecycle_isolates_publication_and_protects_model(admin: ht
     assert (await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': 2})).status_code == 409
     assert (
         await admin.delete(f'/api/agents/{agent["id"]}', headers={'Content-Type': 'application/json'})
-    ).status_code == 409
-    assert (await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': 3})).status_code == 200
-    assert (
-        await admin.delete(f'/api/agents/{agent["id"]}', headers={'Content-Type': 'application/json'})
     ).status_code == 200
+    assert (await admin.get(f'/api/agents/{agent["id"]}')).status_code == 404
     assert (
         await admin.delete(f'/api/models/{model_id}', headers={'Content-Type': 'application/json'})
     ).status_code == 409
@@ -241,7 +238,7 @@ async def test_agent_versions_immutable_republish_and_history_references(
     await admin.delete(f'/api/agents/{agent["id"]}', headers={'content-type': 'application/json'})
     await admin.patch(f'/api/skills/{skill["id"]}/status', json={'status': 'disabled', 'expected_version': 1})
     response = await admin.delete(f'/api/skills/{skill["id"]}', headers={'content-type': 'application/json'})
-    assert response.status_code == 409 and response.json()['error']['code'] == 'skill_referenced'
+    assert response.status_code == 200, response.text
     async with app.state.container.database.sessions.begin() as session:
         with pytest.raises(DBAPIError):
             async with session.begin_nested():

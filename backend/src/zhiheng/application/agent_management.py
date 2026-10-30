@@ -5,10 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.agents.public import AgentConfig, AgentInfo, AgentService, AgentSummary, AgentUpdate
 from zhiheng.modules.developer.public import ApplicationService
+from zhiheng.modules.knowledge.public import KnowledgeService
 from zhiheng.modules.models.public import ModelBinding, ModelService
 from zhiheng.modules.skills.public import SkillSelection, SkillService, resolve_selection
+from zhiheng.modules.work.public import WorkService
+from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import reference_conflict
 
 if TYPE_CHECKING:
     from zhiheng.application.knowledge_preparation import KnowledgePreparation
@@ -19,9 +23,36 @@ def owner(agent: AgentInfo) -> Principal:
 
 
 class AgentManagementService:
-    def __init__(self, agents: AgentService, applications: ApplicationService, models: ModelService) -> None:
+    def __init__(
+        self,
+        agents: AgentService,
+        applications: ApplicationService,
+        models: ModelService,
+        work: WorkService | None = None,
+        runs: RunStore | None = None,
+        knowledge_resources: KnowledgeService | None = None,
+    ) -> None:
         self._agents, self._applications, self._models = agents, applications, models
+        self._work, self._runs, self._knowledge_resources = (
+            work or WorkService(),
+            runs or RunStore(),
+            knowledge_resources,
+        )
         self.knowledge: KnowledgePreparation | None = None
+
+    async def remove(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> AgentInfo:
+        async def referenced(current: AsyncSession, target: UUID) -> bool:
+            references = await self._work.agent_references(current, target)
+            references.extend(await self._runs.agent_references(current, target))
+            if self._knowledge_resources is not None:
+                references.extend(await self._knowledge_resources.agent_references(current, target))
+            if references:
+                raise reference_conflict(
+                    'agent_referenced', '智能体仍被当前任务使用，请先解除引用', principal, references
+                )
+            return False
+
+        return await self._agents.remove(session, principal, agent_id, reference_check=referenced)
 
     async def validate(
         self, session: AsyncSession, principal: Principal, config: AgentConfig, *, publish: bool = False

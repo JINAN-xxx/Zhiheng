@@ -3,12 +3,13 @@ from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.runtime.contracts import ClaimedRun, RunError, RunSnapshot, RunStatus, RunUsage
 from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 ACTIVE_STATUSES = ('running', 'cancel_requested')
@@ -24,21 +25,70 @@ class RunStore:
 
     async def references_connection(self, session: AsyncSession, connection_id: UUID) -> bool:
         """Called with the admission connection row lock held by its owner."""
-        return (
-            await session.scalar(
-                select(Run.id).where(Run.payload['binding']['connection_id'].astext == str(connection_id)).limit(1)
+        return bool(await self.connection_references(session, connection_id))
+
+    async def connection_references(self, session: AsyncSession, connection_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(Run)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                Run.payload['binding']['connection_id'].astext == str(connection_id),
             )
-            is not None
+            .order_by(Run.id)
         )
+        return [self._reference(row) for row in rows]
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         """Called with the admission model row lock held by its owner."""
-        return (
-            await session.scalar(
-                select(Run.id).where(Run.payload['binding']['model_id'].astext == str(model_id)).limit(1)
+        return bool(await self.model_references(session, model_id))
+
+    async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(Run)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                Run.payload['binding']['model_id'].astext == str(model_id),
             )
-            is not None
+            .order_by(Run.id)
         )
+        return [self._reference(row) for row in rows]
+
+    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+        """Runtime payload references; Agent/Work owners also inspect their audit snapshots."""
+        rows = await session.scalars(
+            select(Run)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                or_(Run.payload['skill_slugs'].contains([slug]), Run.payload['skills'].contains([{'slug': slug}])),
+            )
+            .order_by(Run.id)
+        )
+        return [self._reference(row) for row in rows]
+
+    async def agent_references(self, session: AsyncSession, agent_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(Run)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                or_(
+                    (Run.resource_type.in_(('agent_preview', 'agent_invocation'))) & (Run.resource_id == agent_id),
+                    Run.payload['agent_id'].astext == str(agent_id),
+                ),
+            )
+            .order_by(Run.id)
+        )
+        return [self._reference(row) for row in rows]
+
+    @staticmethod
+    def _reference(row: Run) -> ResourceReference:
+        path = None
+        if row.resource_type in {'agent_preview', 'agent_invocation'}:
+            path = f'/agents/{row.resource_id}'
+        elif row.resource_type == 'work_turn':
+            path = f'/work?taskId={row.resource_id}'
+        elif row.resource_type == 'connection_test':
+            path = '/models'
+        return ResourceReference('run', row.id, '进行中的运行', row.status, row.owner_id, path)
 
     async def lock_request(self, session: AsyncSession, owner_id: UUID, request_id: UUID) -> None:
         key = int.from_bytes(hashlib.sha256(owner_id.bytes + request_id.bytes).digest()[:8], 'big', signed=True)

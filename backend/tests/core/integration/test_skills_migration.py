@@ -49,12 +49,20 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
     async with container.database.engine.begin() as connection:
         await connection.run_sync(downgrade)
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0002_developer'
-        snapshots = {
-            table: (
-                await connection.execute(
-                    text(f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1")
+        original_columns = {
+            table: ','.join(
+                f'"{name}"'
+                for name in await connection.scalars(
+                    text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:table ORDER BY ordinal_position"
+                    ),
+                    {'table': table},
                 )
             )
+            for table in tables
+        }
+        snapshots = {
+            table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
             .scalars()
             .all()
             for table in tables
@@ -64,9 +72,7 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
         for table in tables:
             assert (
                 await connection.execute(
-                    text(
-                        f"SELECT (to_jsonb(t)-'reasoning'-'billing_owner_id'-CASE WHEN '{table}'='models' THEN 'vision_enabled' ELSE '_no_new_column_' END)::text FROM {table} t ORDER BY 1"
-                    )
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[table]
         assert await connection.scalar(text('SELECT COUNT(*) FROM skills')) == 2

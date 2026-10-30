@@ -1,12 +1,13 @@
 """Original skill pages and chat picker against strict core HTTP contracts."""
+
 import asyncio
 import contextlib
 import re
 import unittest
 from urllib.parse import urlparse
 
-from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
+from playwright.async_api import expect
 
 
 class SkillsUIRegressions(DeveloperBoundary):
@@ -87,7 +88,7 @@ class SkillsUIRegressions(DeveloperBoundary):
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.locator('pre')).to_have_text(self.content)
         self.assertIsNone(await self.page.evaluate('window.skillExecuted'))
-        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_be_disabled()
+        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
         await drawer.get_by_role('button', name='停用技能', exact=True).click()
         await expect(drawer.get_by_role('button', name='重新启用', exact=True)).to_be_visible()
         self.assertEqual(self.updates, [{'status': 'disabled', 'expected_version': 1}])

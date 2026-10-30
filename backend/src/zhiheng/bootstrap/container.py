@@ -3,6 +3,7 @@ from redis.asyncio import Redis
 from zhiheng.application.agent_management import AgentManagementService
 from zhiheng.application.agent_runs import AgentRunService
 from zhiheng.application.chat_runs import ChatRunService
+from zhiheng.application.developer_management import DeveloperManagementService
 from zhiheng.application.file_inputs import FileInputService
 from zhiheng.application.graph_jobs import GraphJobs
 from zhiheng.application.graph_runs import GraphRuns
@@ -62,6 +63,7 @@ class Container:
         self.usage = UsageService(self.credits, self.legacy_usage)
         self.applications = ApplicationService()
         self.keys = KeyService(self.applications, self.models, self.identity)
+        self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()
         self.work = WorkService()
         self.work_runs = WorkRunService(self.work, AgentService(), self.models, self.identity, self.usage, self.runs)
@@ -70,12 +72,16 @@ class Container:
             self.models, self.runs, self.keys, self.agents, knowledge=self.knowledge
         )
         self.skills = SkillService()
-        self.skill_management = SkillManagementService(self.skills, self.agents)
-        self.agent_management = AgentManagementService(self.agents, self.applications, self.models)
+        self.agent_management = AgentManagementService(
+            self.agents, self.applications, self.models, self.work, self.runs, self.knowledge
+        )
         self.agent_runs = AgentRunService(
             self.agents, self.agent_management, self.keys, self.models, self.usage, self.runs
         )
         self.chat = ChatService()
+        self.skill_management = SkillManagementService(
+            self.skills, self.agents, self.work, self.runs, self.knowledge, chat=self.chat
+        )
         self.message_actions = MessageActionService(self.chat, self.identity)
         self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs, self.files)
         self.vectors = MilvusStore(

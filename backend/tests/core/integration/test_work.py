@@ -267,12 +267,11 @@ async def test_creation_member_set_fingerprint_limit_readd_and_summary(admin: ht
     assert len([m for m in readd.json()['members'] if m['removed_at'] is None]) == 10
     assert len(readd.json()['members']) == 11
     archived = await admin.patch(url, json={'status': 'archived', 'expected_version': readd.json()['version']})
-    assert (
-        await admin.patch(url, json={'status': 'active', 'expected_version': archived.json()['version']})
-    ).status_code == 409
+    reopened = await admin.patch(url, json={'status': 'active', 'expected_version': archived.json()['version']})
+    assert reopened.status_code == 200, reopened.text
     assert (
         await admin.delete(
-            url, params={'expected_version': archived.json()['version']}, headers={'Content-Type': 'application/json'}
+            url, params={'expected_version': reopened.json()['version']}, headers={'Content-Type': 'application/json'}
         )
     ).status_code == 204
     assert (await admin.get(url)).status_code == 404

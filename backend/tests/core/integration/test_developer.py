@@ -25,9 +25,7 @@ async def test_application_lifecycle_keys_and_owner_isolation(admin: httpx.Async
     assert (
         await admin.patch(f'/api/developer/applications/{app_id}', json={'name': 'Next', 'expected_version': 9})
     ).status_code == 409
-    assert (
-        await admin.delete(f'/api/developer/applications/{app_id}', headers={'Content-Type': 'application/json'})
-    ).status_code == 409
+    assert (await admin.get(f'/api/developer/applications/{app_id}')).json()['status'] == 'active'
     assert (await admin.post(f'/api/developer/applications/{app_id}/disable', json={})).status_code == 200
     assert (
         await admin.post(

@@ -54,10 +54,10 @@ async def test_connection_deletion_keeps_frozen_run_reference_after_rebinding(
     assert deletion.status_code == 409, deletion.text
     await execute_run(app.state.container, run.id)
     assert provider.request_headers[-1]['authorization'] == 'Bearer local-test-key'
-    # The same immutable credential history is protected after terminal settlement.
+    # Tombstoning releases the directory entry while retaining immutable credentials.
     assert (
         await admin.delete('/api/models/connections/' + connection_a, headers={'Content-Type': 'application/json'})
-    ).status_code == 409
+    ).status_code == 200
 
 
 @pytest.mark.asyncio

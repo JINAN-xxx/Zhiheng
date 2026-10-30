@@ -15,7 +15,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
     admin: httpx.AsyncClient, app: object, model_id: str
 ) -> None:
     await provision(admin, model_id)
-    await install(admin, 'before-agents')
+    skill = await install(admin, 'before-agents')
     conversation = (await admin.post('/api/chat/conversations', json={})).json()
     response = await admin.post(
         f'/api/chat/conversations/{conversation["id"]}/runs',
@@ -28,6 +28,12 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
     )
     await execute_run(app.state.container, UUID(response.json()['id']))
     container = app.state.container
+    # This fixture models 0003 data. Its immutable package and chat snapshots
+    # predate the 0013 confirmation envelope, which must block real downgrades.
+    async with container.database.engine.begin() as connection:
+        await connection.execute(
+            text('DELETE FROM skill_drafts WHERE confirmed_skill_id=:id'), {'id': UUID(skill['id'])}
+        )
     config = Config()
     config.set_main_option('script_location', str(migration_directory()))
 
@@ -48,6 +54,18 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
             .scalars()
             .all()
         )
+        original_columns = {
+            table: ','.join(
+                f'"{name}"'
+                for name in await connection.scalars(
+                    text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:table ORDER BY ordinal_position"
+                    ),
+                    {'table': table},
+                )
+            )
+            for table in tables
+        }
         snapshots = {
             table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
             .scalars()
@@ -56,14 +74,12 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0013_skill_revision_history'
         for table in tables:
             # Compare every original value; new projection and billing columns are verified below.
             assert (
                 await connection.execute(
-                    text(
-                        f"SELECT (to_jsonb(t) - CASE WHEN '{table}'='chat_conversations' THEN ARRAY['version','archived','deleted_at'] WHEN '{table}'='chat_messages' THEN ARRAY['attachments','attachment_inputs','knowledge_sources'] WHEN '{table}'='models' THEN ARRAY['vision_enabled'] ELSE ARRAY[]::text[] END-'reasoning'-'billing_owner_id')::text FROM {table} t ORDER BY 1"
-                    )
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[table]
         assert (

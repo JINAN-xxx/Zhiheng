@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
@@ -58,7 +59,7 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
             names = [column[1] for column in columns if column[0] == table]
             current = (

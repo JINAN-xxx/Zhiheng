@@ -103,6 +103,7 @@
 
         <section v-else class="application-detail">
           <a-alert v-if="error && selectedApplication" :message="error" type="error" show-icon />
+          <ResourceReferences :details="errorDetails" />
           <WorkspaceState v-if="detailLoading" kind="loading" />
           <WorkspaceState
             v-else-if="error && !selectedApplication"
@@ -131,10 +132,7 @@
                 />
               </div>
               <div class="detail-actions">
-                <a-button
-                  v-if="selectedApplication.status === 'active'"
-                  type="text"
-                  @click="openApplicationForm(selectedApplication)"
+                <a-button type="text" @click="openApplicationForm(selectedApplication)"
                   ><EditOutlined />编辑</a-button
                 >
                 <a-button
@@ -151,11 +149,7 @@
                   @click="enableSelectedApplication"
                   ><PlayCircleOutlined />重新启用</a-button
                 >
-                <a-button
-                  v-if="selectedApplication.status === 'disabled'"
-                  type="text"
-                  danger
-                  @click="deleteSelectedApplication"
+                <a-button type="text" danger @click="deleteSelectedApplication"
                   ><DeleteOutlined />删除应用</a-button
                 >
               </div>
@@ -384,6 +378,7 @@ import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import { applicationStatusLabel } from '../presentation.ts'
 import { useApplications } from '../composables/applications.ts'
+import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import ApplicationKeysPanel from '../components/ApplicationKeysPanel.vue'
 import ApplicationModelsPanel from '../components/ApplicationModelsPanel.vue'
 import ApplicationOverviewPanel from '../components/ApplicationOverviewPanel.vue'
@@ -404,6 +399,7 @@ const {
   usageLoading,
   saving,
   error,
+  errorDetails,
   keyError,
   modelError,
   usageError,

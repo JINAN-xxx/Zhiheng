@@ -19,6 +19,7 @@ from zhiheng.modules.models.contracts import (
 from zhiheng.modules.models.orm import ConnectionRevision, ModelConnection, ModelDefinition, RateCard
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference, reference_conflict
 from zhiheng.shared.time import utcnow
 
 
@@ -95,16 +96,20 @@ class ModelService:
         )
         if row is None:
             raise AppError('connection_not_found', '模型连接不存在', 404)
-        # Revisions and all model references remain permanent. Deletion is a tombstone.
-        if (
-            await session.scalar(
-                select(ModelDefinition.id).where(ModelDefinition.connection_id == connection_id).limit(1)
-            )
-            is not None
-        ):
-            raise AppError('connection_referenced', '连接仍被模型引用', 409)
+        # Tombstones retain identities and credential revisions for audit and cleanup.
+        models = await session.scalars(
+            select(ModelDefinition)
+            .where(ModelDefinition.connection_id == connection_id, ModelDefinition.deleted_at.is_(None))
+            .order_by(ModelDefinition.id)
+        )
+        references = [
+            ResourceReference('model', model.id, model.name, 'enabled' if model.enabled else 'disabled', path='/models')
+            for model in models
+        ]
+        if references:
+            raise reference_conflict('connection_referenced', '连接仍被当前模型引用', principal, references)
         if await reference_check(session, connection_id):
-            raise AppError('connection_referenced', '连接仍被历史运行引用', 409)
+            raise AppError('connection_referenced', '连接仍被进行中的任务引用', 409)
         row.deleted_at, row.enabled = utcnow(), False
         return self._connection_info(row)
 
@@ -205,8 +210,6 @@ class ModelService:
             raise AppError('model_unavailable', '模型不存在', 404)
         if await reference_check(session, model_id):
             raise AppError('model_referenced', '模型仍被授权引用', 409)
-        if await session.scalar(select(RateCard.id).where(RateCard.model_id == model_id).limit(1)) is not None:
-            raise AppError('model_referenced', '模型仍被费率引用', 409)
         row.deleted_at, row.enabled, row.published = utcnow(), False, False
         return self._model_info(row)
 

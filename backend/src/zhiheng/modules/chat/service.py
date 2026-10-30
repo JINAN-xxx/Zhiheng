@@ -19,8 +19,11 @@ from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.files.public import AttachmentSummary, PreparedAttachment
 from zhiheng.modules.knowledge.public import Hit
 from zhiheng.modules.models.public import ModelImage, ModelMessage
+from zhiheng.runtime.orm import Run
+from zhiheng.runtime.runs import ACTIVE_STATUSES
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 MAX_VISIBLE_MESSAGE_ROWS = 200
@@ -29,6 +32,20 @@ MAX_REPLY_GENERATIONS = 100
 
 
 class ChatService:
+    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+        rows = await session.execute(
+            select(Conversation, Run.status)
+            .join(ChatMessage, ChatMessage.conversation_id == Conversation.id)
+            .join(Run, Run.id == ChatMessage.run_id)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                ChatMessage.skill_snapshots.contains([{'slug': slug}]),
+            )
+            .distinct()
+            .order_by(Conversation.id)
+        )
+        return [ResourceReference('chat', row.id, row.title, status, row.owner_id, '/chat') for row, status in rows]
+
     async def create(self, session: AsyncSession, principal: Principal, title: str = '新对话') -> ConversationInfo:
         row = Conversation(owner_id=principal.id, title=title)
         session.add(row)

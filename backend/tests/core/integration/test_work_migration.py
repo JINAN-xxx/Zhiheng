@@ -7,6 +7,7 @@ from sqlalchemy import text
 from tests.core.integration.test_agents import config, provision
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 
 
 async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, model_id: str, app: object) -> None:
@@ -34,6 +35,18 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
             .scalars()
             .all()
         )
+        original_columns = {
+            name: ','.join(
+                f'"{column}"'
+                for column in await connection.scalars(
+                    text(
+                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:table ORDER BY ordinal_position"
+                    ),
+                    {'table': name},
+                )
+            )
+            for name in names
+        }
         snapshots = {
             name: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {name} t ORDER BY 1'))).scalars().all()
             for name in names
@@ -44,13 +57,11 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
         return compare_metadata(MigrationContext.configure(connection), schema_metadata())
 
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in names:
             assert (
                 await connection.execute(
-                    text(
-                        f"SELECT (to_jsonb(t) - CASE WHEN '{name}'='chat_conversations' THEN ARRAY['version','archived','deleted_at'] WHEN '{name}'='chat_messages' THEN ARRAY['attachments','attachment_inputs'] WHEN '{name}'='models' THEN ARRAY['vision_enabled'] ELSE ARRAY[]::text[] END)::text FROM {name} t ORDER BY 1"
-                    )
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[name]} FROM {name}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[name]
         assert await connection.run_sync(compare) == []

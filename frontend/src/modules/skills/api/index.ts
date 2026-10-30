@@ -23,6 +23,10 @@ export interface PreparedSkill {
   version: string
   fileCount: number
   totalBytes: number
+  action: 'install' | 'update' | 'restore' | 'unchanged'
+  targetSkillId: string | null
+  expectedVersion: number | null
+  currentPackageVersion: string | null
 }
 function parseSkill(value: unknown): Skill {
   const data = object(value)
@@ -45,6 +49,9 @@ function parseSkill(value: unknown): Skill {
 }
 function parsePrepared(value: unknown): PreparedSkill {
   const data = object(value)
+  const action = data.action ?? 'install'
+  if (!['install', 'update', 'restore', 'unchanged'].includes(string(action)))
+    throw new Error('技能导入动作无效')
   return {
     draftId: string(data.draft_id),
     expiresAt: string(data.expires_at),
@@ -53,7 +60,12 @@ function parsePrepared(value: unknown): PreparedSkill {
     description: string(data.description),
     version: string(data.package_version),
     fileCount: number(data.file_count),
-    totalBytes: number(data.total_bytes)
+    totalBytes: number(data.total_bytes),
+    action: action as PreparedSkill['action'],
+    targetSkillId: data.target_skill_id == null ? null : string(data.target_skill_id),
+    expectedVersion: data.expected_version == null ? null : number(data.expected_version),
+    currentPackageVersion:
+      data.current_package_version == null ? null : string(data.current_package_version)
   }
 }
 export const listSkills = (

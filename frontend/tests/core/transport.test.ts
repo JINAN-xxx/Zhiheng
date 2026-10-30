@@ -94,6 +94,58 @@ void test('current unauthorized response clears identity', async () => {
   await assert.rejects(client.request('/auth/me', { decode: decodeString }), ApiError)
   assert.equal(invalidations, 1)
 })
+void test('resource conflicts preserve structured details and the server message', async () => {
+  const details = {
+    references: [
+      { kind: 'agent', id: 'a1', name: '研究助手', status: 'published', path: '/agents/a1' }
+    ]
+  }
+  const client = createHttpClient({
+    fetch: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'model_referenced',
+              message: '请先处理当前使用中的资源',
+              details
+            }
+          }),
+          { status: 409 }
+        )
+      )
+  })
+  await assert.rejects(client.request('/models/m1', { decode: decodeString }), (error: unknown) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.message, '请先处理当前使用中的资源')
+    assert.ok('details' in error)
+    assert.deepEqual(error.details, details)
+    return true
+  })
+})
+void test('unknown conflict details do not replace the original error message', async () => {
+  const client = createHttpClient({
+    fetch: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'version_conflict',
+              message: '数据已更新，请刷新',
+              details: ['future-contract']
+            }
+          }),
+          { status: 409 }
+        )
+      )
+  })
+  await assert.rejects(client.request('/skills/s1', { decode: decodeString }), (error: unknown) => {
+    assert.ok(error instanceof ApiError)
+    assert.equal(error.code, 'version_conflict')
+    assert.equal(error.message, '数据已更新，请刷新')
+    return true
+  })
+})
 void test('replacing request context aborts previous signal and rejects late writes', () => {
   const scope = new RequestScope()
   const previous = scope.current()

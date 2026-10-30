@@ -11,6 +11,8 @@ REQUIRED_MEMBERS = (
     'zhiheng/cli/main.py',
     'zhiheng/__init__.py',
     'zhiheng/py.typed',
+    'zhiheng/shared/references.py',
+    'zhiheng/application/developer_management.py',
     'zhiheng/modules/billing/public.py',
     'zhiheng/modules/billing/contracts.py',
     'zhiheng/modules/billing/orm.py',
@@ -94,6 +96,7 @@ REQUIRED_MEMBERS = (
             'versions/0010_admin_console.py',
             'versions/0011_builtin_admin_role.py',
             'versions/0012_platform_credits.py',
+            'versions/0013_skill_revision_history.py',
         )
     ),
 )
@@ -161,6 +164,7 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0010_admin_console.py',
         '0011_builtin_admin_role.py',
         '0012_platform_credits.py',
+        '0013_skill_revision_history.py',
     ],
 )
 def test_requires_all_database_migration_revisions(
@@ -176,6 +180,15 @@ def test_requires_all_database_migration_revisions(
 
 @pytest.mark.parametrize('member', ['zhiheng/modules/billing/public.py', 'zhiheng/api/routes/billing.py'])
 def test_requires_platform_billing_resources(verify_wheel: Callable[[Path], Path], tmp_path: Path, member: str) -> None:
+    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if name != member))
+    with pytest.raises(ValueError, match='missing'):
+        verify_wheel(tmp_path)
+
+
+@pytest.mark.parametrize('member', ['zhiheng/shared/references.py', 'zhiheng/application/developer_management.py'])
+def test_requires_resource_lifecycle_services(
+    verify_wheel: Callable[[Path], Path], tmp_path: Path, member: str
+) -> None:
     write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if name != member))
     with pytest.raises(ValueError, match='missing'):
         verify_wheel(tmp_path)

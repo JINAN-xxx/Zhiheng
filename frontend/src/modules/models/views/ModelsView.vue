@@ -35,12 +35,13 @@ import {
 import { useWindowSize } from '@vueuse/core'
 import type { TableColumnsType } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import ModelRatesDialog from '../components/ModelRatesDialog.vue'
 import ModelActions from '../components/ModelActions.vue'
 import { hasAnyPermission, identity } from '../../identity/public.ts'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import {
@@ -145,6 +146,7 @@ function connectionEnabled(id: string): boolean {
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
+const errorDetails = ref<unknown>()
 const modalError = ref('')
 const connectionOpen = ref(false)
 const modelOpen = ref(false)
@@ -192,6 +194,7 @@ async function load(): Promise<void> {
   const context = scope.replace()
   loading.value = true
   error.value = ''
+  errorDetails.value = undefined
   try {
     const [items, availableModels] = await Promise.all([
       canReadModels.value ? getConnections(context.signal) : Promise.resolve([]),
@@ -217,6 +220,7 @@ async function copyModelCode(value: string): Promise<void> {
     await navigator.clipboard.writeText(value)
   } catch {
     error.value = '复制失败，请手动复制模型代码'
+    errorDetails.value = undefined
   }
 }
 function openConnection(connection: ModelConnection | null = null): void {
@@ -330,11 +334,15 @@ async function changeModel(
     if (!context.isCurrent() || !canWriteModels.value) return
     saving.value = true
     error.value = ''
+    errorDetails.value = undefined
     try {
       await controlModel(model.id, action, context.signal)
       if (context.isCurrent()) await load()
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        error.value = errorMessage(reason)
+        errorDetails.value = reason instanceof ApiError ? reason.details : undefined
+      }
     } finally {
       if (context.isCurrent()) saving.value = false
     }
@@ -343,7 +351,7 @@ async function changeModel(
     Modal.confirm({
       title:
         action === 'delete'
-          ? '删除该模型？有历史或业务引用时将拒绝删除。'
+          ? '删除该模型？模型将自动停用、取消发布并从目录移除，历史调用与账单记录仍会保留。当前依赖或在途使用需要先处理。'
           : '调整后，新请求将不能使用该模型。是否继续？',
       okText: '确定',
       cancelText: '取消',
@@ -361,11 +369,15 @@ async function changeConnection(
     if (!context.isCurrent() || !canWriteModels.value) return
     saving.value = true
     error.value = ''
+    errorDetails.value = undefined
     try {
       await controlConnection(connection.id, action, context.signal)
       if (context.isCurrent()) await load()
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        error.value = errorMessage(reason)
+        errorDetails.value = reason instanceof ApiError ? reason.details : undefined
+      }
     } finally {
       if (context.isCurrent()) saving.value = false
     }
@@ -375,7 +387,7 @@ async function changeConnection(
     Modal.confirm({
       title:
         action === 'delete'
-          ? '删除该凭据？模型或历史引用存在时将拒绝删除。'
+          ? '删除该凭据？当前模型或在途请求仍在使用时需要先处理，历史调用记录仍会保留。'
           : '停用后，新请求将不能使用此连接。是否继续？',
       okText: '确定',
       cancelText: '取消',
@@ -456,6 +468,7 @@ async function testModel(model: ChatModel): Promise<void> {
   testRun.value = null
   testDisconnected.value = false
   error.value = ''
+  errorDetails.value = undefined
   try {
     if (!testIntent || testIntent.modelId !== model.id)
       testIntent = { modelId: model.id, requestId: crypto.randomUUID() }
@@ -476,6 +489,7 @@ async function resumeTest(): Promise<void> {
   if (!testRun.value || !canTestModels.value) return
   const context = testScope.replace()
   error.value = ''
+  errorDetails.value = undefined
   testDisconnected.value = false
   try {
     await followTest(testRun.value, context)
@@ -521,6 +535,7 @@ async function stopTest(): Promise<void> {
     >
     <section class="model-workspace">
       <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
+      <ResourceReferences :details="errorDetails" />
       <ATabs :active-key="activeTab" class="workspace-tabs" @update:active-key="setActiveTab">
         <ATabPane key="platform" tab="平台模型"
           ><section class="workspace-panel">
@@ -787,10 +802,7 @@ async function stopTest(): Promise<void> {
                             changeConnection(connection, connection.enabled ? 'disable' : 'enable')
                           "
                           >{{ connection.enabled ? '停用' : '启用' }}</AMenuItem
-                        ><AMenuItem
-                          v-if="!connection.enabled"
-                          danger
-                          @click="changeConnection(connection, 'delete')"
+                        ><AMenuItem danger @click="changeConnection(connection, 'delete')"
                           >删除凭据</AMenuItem
                         ></AMenu
                       ></template

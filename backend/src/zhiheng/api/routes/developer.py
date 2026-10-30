@@ -64,7 +64,7 @@ async def delete(
     application_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> ApplicationInfo:
     async with session.begin():
-        return await container.applications.transition(session, principal, application_id, 'delete')
+        return await container.developer_management.transition(session, principal, application_id, 'delete')
 
 
 @router.post('/{application_id}/enable')
@@ -76,7 +76,7 @@ async def enable(
     _body: EmptyRequest | None = None,
 ) -> ApplicationInfo:
     async with session.begin():
-        return await container.applications.transition(session, principal, application_id, 'enable')
+        return await container.developer_management.transition(session, principal, application_id, 'enable')
 
 
 @router.post('/{application_id}/disable')
@@ -88,7 +88,7 @@ async def disable(
     _body: EmptyRequest | None = None,
 ) -> ApplicationInfo:
     async with session.begin():
-        return await container.applications.transition(session, principal, application_id, 'disable')
+        return await container.developer_management.transition(session, principal, application_id, 'disable')
 
 
 @router.get('/{application_id}/keys')

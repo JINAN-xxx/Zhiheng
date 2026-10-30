@@ -4,12 +4,12 @@ from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
+    SkillImportAction,
     SkillInfo,
     SkillPage,
     SkillRevisionValue,
@@ -17,7 +17,7 @@ from zhiheng.modules.skills.contracts import (
     SkillStatus,
 )
 from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillRevision
-from zhiheng.modules.skills.package import SkillPackageParser
+from zhiheng.modules.skills.package import ParsedSkillPackage, SkillPackageParser
 from zhiheng.modules.skills.validation import is_valid_slug, validate_search
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -34,6 +34,10 @@ class SkillService:
         if len(filename) > MAX_FILENAME_LENGTH or '\x00' in filename:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
         parsed = SkillPackageParser().parse(payload, filename=filename)
+        await self._lock_slug(session, parsed.slug)
+        skill = await session.scalar(select(Skill).where(Skill.slug == parsed.slug).with_for_update(read=True))
+        current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
+        action = self._import_action(skill, current, parsed)
         draft = SkillDraft(
             owner_id=principal.id,
             expires_at=utcnow() + timedelta(seconds=3600),
@@ -41,6 +45,9 @@ class SkillService:
             package_bytes=payload,
             package_sha=hashlib.sha256(payload).hexdigest(),
             parsed_hash=parsed.parsed_hash,
+            target_skill_id=skill.id if skill else None,
+            target_version=skill.version if skill else None,
+            action=action,
         )
         session.add(draft)
         await session.flush()
@@ -54,6 +61,10 @@ class SkillService:
             content_hash=parsed.content_hash,
             file_count=parsed.file_count,
             total_bytes=parsed.total_bytes,
+            action=action,
+            target_skill_id=draft.target_skill_id,
+            expected_version=draft.target_version,
+            current_package_version=current.package_version if current else None,
         )
 
     async def confirm(self, session: AsyncSession, principal: Principal, draft_id: UUID) -> SkillInfo:
@@ -63,8 +74,8 @@ class SkillService:
         )
         if draft is None:
             raise AppError('skill_draft_not_found', '技能导入草稿不存在', 404)
-        if draft.confirmed_skill_id is not None:
-            return await self.get(session, draft.confirmed_skill_id, include_deleted=True)
+        if draft.confirmed_info is not None:
+            return SkillInfo.model_validate(draft.confirmed_info)
         if draft.expires_at <= utcnow():
             raise AppError('skill_draft_expired', '技能导入草稿已过期', 409)
         if hashlib.sha256(draft.package_bytes).hexdigest() != draft.package_sha:
@@ -72,11 +83,32 @@ class SkillService:
         parsed = SkillPackageParser().parse(draft.package_bytes, filename=draft.filename)
         if parsed.parsed_hash != draft.parsed_hash:
             raise AppError('skill_draft_changed', '技能导入草稿校验失败', 409)
-        revision_id, skill_id = uuid4(), uuid4()
-        skill = Skill(id=skill_id, slug=parsed.slug, revision_id=revision_id)
+        await self._lock_slug(session, parsed.slug)
+        skill = await session.scalar(select(Skill).where(Skill.slug == parsed.slug).with_for_update())
+        current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
+        if (
+            (skill.id if skill else None) != draft.target_skill_id
+            or (skill.version if skill else None) != draft.target_version
+            or self._import_action(skill, current, parsed) != draft.action
+        ):
+            raise AppError('skill_version_conflict', '技能在预检后已变化，请重新导入确认', 409)
+        if draft.action == 'unchanged' and skill is not None and current is not None:
+            return await self._confirm_result(session, draft, skill, current)
+        revision_id = uuid4()
+        if skill is None:
+            skill = Skill(id=uuid4(), slug=parsed.slug, revision_id=revision_id)
+            session.add(skill)
+            await session.flush()
+        else:
+            skill.revision_id = revision_id
+            skill.version += 1
+            skill.updated_at = utcnow()
+            if draft.action == 'restore':
+                skill.deleted_at = None
+                skill.status = 'enabled'
         revision = SkillRevision(
             id=revision_id,
-            skill_id=skill_id,
+            skill_id=skill.id,
             name=parsed.name,
             description=parsed.description,
             package_version=parsed.package_version,
@@ -88,16 +120,38 @@ class SkillService:
             file_count=parsed.file_count,
             total_bytes=parsed.total_bytes,
         )
-        try:
-            async with session.begin_nested():
-                session.add(skill)
-                await session.flush()
-                session.add(revision)
-                draft.confirmed_skill_id = skill_id
-                await session.flush()
-        except IntegrityError as error:
-            raise AppError('skill_slug_conflict', '技能标识已存在', 409) from error
-        return self._info(skill, revision)
+        session.add(revision)
+        return await self._confirm_result(session, draft, skill, revision)
+
+    @staticmethod
+    async def _lock_slug(session: AsyncSession, slug: str) -> None:
+        # Row locks cover existing identities; this also serializes first installs.
+        await session.execute(
+            text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': f'skill-import:{slug}'}
+        )
+
+    @staticmethod
+    def _import_action(
+        skill: Skill | None, current: SkillRevision | None, parsed: ParsedSkillPackage
+    ) -> SkillImportAction:
+        if skill is None:
+            return 'install'
+        if skill.deleted_at is not None:
+            return 'restore'
+        if current is not None and current.content_hash == parsed.content_hash:
+            return 'unchanged'
+        return 'update'
+
+    async def _confirm_result(
+        self, session: AsyncSession, draft: SkillDraft, skill: Skill, revision: SkillRevision
+    ) -> SkillInfo:
+        await session.flush()
+        info = self._info(skill, revision)
+        draft.confirmed_skill_id = skill.id
+        draft.confirmed_revision_id = revision.id
+        draft.confirmed_info = info.model_dump(mode='json')
+        await session.flush()
+        return info
 
     async def list_skills(
         self,
@@ -148,19 +202,18 @@ class SkillService:
     async def _row(
         self, session: AsyncSession, skill_id: UUID, *, lock: bool = False, include_deleted: bool = False
     ) -> tuple[Skill, SkillRevision]:
-        query = (
-            select(Skill, SkillRevision)
-            .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-            .where(Skill.id == skill_id)
-        )
+        query = select(Skill).where(Skill.id == skill_id)
         if not include_deleted:
             query = query.where(Skill.deleted_at.is_(None))
         if lock:
             query = query.with_for_update(of=Skill)
-        row = (await session.execute(query)).first()
-        if row is None:
+        skill = await session.scalar(query)
+        if skill is None:
             raise AppError('skill_not_found', '技能不存在', 404)
-        return row[0], row[1]
+        revision = await session.get(SkillRevision, skill.revision_id)
+        if revision is None:
+            raise AppError('skill_not_found', '技能不存在', 404)
+        return skill, revision
 
     async def get(self, session: AsyncSession, skill_id: UUID, *, include_deleted: bool = False) -> SkillInfo:
         skill, revision = await self._row(session, skill_id, include_deleted=include_deleted)
@@ -191,10 +244,8 @@ class SkillService:
     ) -> SkillInfo:
         principal.require_permission('ai:skills:write')
         skill, revision = await self._row(session, skill_id, lock=True)
-        if skill.source == 'builtin' or skill.status != 'disabled':
-            raise AppError('skill_delete_forbidden', '仅可删除已停用的上传技能', 409)
         if await reference_check(session, skill.slug):
-            raise AppError('skill_referenced', '技能仍被智能体引用', 409)
+            raise AppError('skill_referenced', '技能仍有有效引用或进行中的调用', 409)
         skill.deleted_at = skill.updated_at = utcnow()
         skill.version += 1
         await session.flush()

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.files.public import AclEntry, BuiltinPermission, FileInfo, FileService
@@ -44,6 +44,7 @@ from zhiheng.modules.models.public import ModelBinding, ModelService
 from zhiheng.runtime.contracts import RunError
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 
@@ -82,14 +83,127 @@ class KnowledgeService:
         return False
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
-        return (
-            await session.scalar(select(KnowledgeBase.id).where(KnowledgeBase.embed_model_id == model_id).limit(1))
-            is not None
-            or await session.scalar(
-                select(GraphConfiguration.base_id).where(GraphConfiguration.llm_model_id == model_id).limit(1)
+        return bool(await self.model_references(session, model_id))
+
+    async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
+        bases = await session.scalars(
+            select(KnowledgeBase)
+            .outerjoin(GraphConfiguration, GraphConfiguration.base_id == KnowledgeBase.id)
+            .where(
+                KnowledgeBase.deleted_at.is_(None),
+                or_(
+                    KnowledgeBase.embed_model_id == model_id,
+                    GraphConfiguration.llm_model_id == model_id,
+                ),
             )
-            is not None
+            .order_by(KnowledgeBase.id)
         )
+        references = [
+            ResourceReference(
+                'knowledge', base.id, base.name, 'active', base.owner_id, f'/knowledge/{base.id}/documents'
+            )
+            for base in bases
+        ]
+        references.extend(await self._binding_references(session, 'model_id', model_id))
+        return references
+
+    async def connection_references(self, session: AsyncSession, connection_id: UUID) -> list[ResourceReference]:
+        """Parents can still spawn a child using an older connection after model rebinding."""
+        return await self._binding_references(session, 'connection_id', connection_id)
+
+    async def _binding_references(
+        self,
+        session: AsyncSession,
+        field: str,
+        value: UUID,
+    ) -> list[ResourceReference]:
+        references: list[ResourceReference] = []
+        jobs = await session.execute(
+            select(KnowledgeJob, KnowledgeBase)
+            .join(KnowledgeBase, KnowledgeBase.id == KnowledgeJob.base_id)
+            .join(IndexGeneration, IndexGeneration.id == KnowledgeJob.index_revision)
+            .where(KnowledgeJob.status.not_in(JOB_TERMINAL), IndexGeneration.binding[field].astext == str(value))
+            .order_by(KnowledgeJob.id)
+        )
+        references.extend(
+            ResourceReference(
+                'knowledge', job.id, base.name, job.status, base.owner_id, f'/knowledge/{base.id}/documents'
+            )
+            for job, base in jobs
+        )
+        graph_jobs = await session.execute(
+            select(GraphJob, KnowledgeBase)
+            .join(KnowledgeBase, KnowledgeBase.id == GraphJob.base_id)
+            .where(
+                GraphJob.status.not_in(JOB_TERMINAL),
+                GraphJob.operation != 'gc',
+                or_(
+                    GraphJob.frozen['llm_binding'][field].astext == str(value),
+                    GraphJob.frozen['embedding_binding'][field].astext == str(value),
+                ),
+            )
+            .order_by(GraphJob.id)
+        )
+        references.extend(
+            ResourceReference('knowledge', job.id, base.name, job.status, base.owner_id, f'/knowledge/{base.id}/graph')
+            for job, base in graph_jobs
+        )
+        preparations = await session.scalars(
+            select(RetrievalIntent)
+            .where(
+                RetrievalIntent.status.not_in(PREPARATION_TERMINAL),
+                or_(
+                    RetrievalIntent.dependencies['main_request']['binding'][field].astext == str(value),
+                    RetrievalIntent.dependencies['bases'].contains([{'binding': {field: str(value)}}]),
+                ),
+            )
+            .order_by(RetrievalIntent.id)
+        )
+        references.extend(self._preparation_reference(row) for row in preparations)
+        return references
+
+    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(RetrievalIntent)
+            .where(
+                RetrievalIntent.status.not_in(PREPARATION_TERMINAL),
+                or_(
+                    RetrievalIntent.dependencies['config']['skill_slugs'].contains([slug]),
+                    RetrievalIntent.dependencies['member_config']['skill_slugs'].contains([slug]),
+                    RetrievalIntent.dependencies['agent_config']['skill_slugs'].contains([slug]),
+                    RetrievalIntent.dependencies['member_skills'].contains([{'slug': slug}]),
+                ),
+            )
+            .order_by(RetrievalIntent.id)
+        )
+        return [self._preparation_reference(row) for row in rows]
+
+    async def agent_references(self, session: AsyncSession, agent_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(RetrievalIntent)
+            .where(
+                RetrievalIntent.status.not_in(PREPARATION_TERMINAL),
+                or_(
+                    RetrievalIntent.resource_type.in_(('agent_preview', 'agent_invocation'))
+                    & (RetrievalIntent.resource_id == agent_id),
+                    (RetrievalIntent.resource_type == 'work_turn')
+                    & (RetrievalIntent.request['body']['agent_id'].astext == str(agent_id)),
+                ),
+            )
+            .order_by(RetrievalIntent.id)
+        )
+        return [self._preparation_reference(row) for row in rows]
+
+    @staticmethod
+    def _preparation_reference(row: RetrievalIntent) -> ResourceReference:
+        path = None
+        if row.resource_type in {'agent_preview', 'agent_invocation'}:
+            path = f'/agents/{row.resource_id}'
+        elif row.resource_type == 'work_turn':
+            path = f'/work?taskId={row.resource_id}'
+        elif row.resource_type == 'knowledge_query':
+            path = f'/knowledge/{row.resource_id}/query'
+        return ResourceReference('knowledge', row.id, '知识检索准备任务', row.status, row.owner_id, path)
 
     async def deletion_binding(self, session: AsyncSession, base_id: UUID) -> ModelBinding:
         base = await session.get(KnowledgeBase, base_id)

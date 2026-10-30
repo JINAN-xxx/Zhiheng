@@ -70,7 +70,7 @@ class ApplicationService:
         self, session: AsyncSession, principal: Principal, application_id: UUID, body: ApplicationPatch
     ) -> ApplicationInfo:
         row = await self.require(session, principal, application_id, lock=True)
-        if row.status != 'active' or row.version != body.expected_version:
+        if row.version != body.expected_version:
             raise AppError('application_conflict', '应用状态或版本已改变', 409)
         row.name = body.name
         row.version += 1
@@ -83,9 +83,7 @@ class ApplicationService:
         row = await self.require(session, principal, application_id, lock=True)
         target = 'active' if action == 'enable' else 'disabled'
         if action == 'delete':
-            if row.status != 'disabled':
-                raise AppError('application_conflict', '请先停用应用', 409)
-            row.deleted_at = utcnow()
+            row.status, row.deleted_at = 'disabled', utcnow()
         elif row.status == target:
             raise AppError('application_conflict', '应用已经处于目标状态', 409)
         else:

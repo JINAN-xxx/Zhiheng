@@ -80,6 +80,7 @@ export function useApplications() {
     modelError = ref(''),
     usageError = ref(''),
     formError = ref('')
+  const errorDetails = ref<unknown>()
   const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 }),
     usageQuery = reactive({ pageNum: 1, pageSize: 10 })
   const applicationFormOpen = ref(false),
@@ -159,6 +160,7 @@ export function useApplications() {
     const context = scopes.list.replace()
     loading.value = true
     error.value = ''
+    errorDetails.value = undefined
     try {
       const result = await listApplications(
         { page: query.pageNum, page_size: query.pageSize, search: query.applicationName },
@@ -241,6 +243,7 @@ export function useApplications() {
     const context = scopes.detail.replace()
     detailLoading.value = true
     error.value = ''
+    errorDetails.value = undefined
     clearResources()
     selectedApplication.value = null
     try {
@@ -265,6 +268,7 @@ export function useApplications() {
   watch(
     () => [appId.value, activeTab.value, showDocs.value],
     ([id, tab, docs], previous) => {
+      errorDetails.value = undefined
       if (previous && (id !== previous[0] || tab !== previous[1])) closeForms()
       if (docs) {
         closeForms()
@@ -383,10 +387,13 @@ export function useApplications() {
     const labels = {
       enable: '重新启用后，该应用下仍然有效的访问密钥可继续调用。是否继续？',
       disable: '停用后，该应用下所有访问密钥将无法调用。是否继续？',
-      delete: '仅停用应用可以删除。删除后应用将不再显示，历史审计与调用记录仍会保留。是否继续？'
+      delete:
+        '删除后应用将不再显示，所有有效访问密钥将立即停用，历史审计与调用记录仍会保留。是否继续？'
     }
     if (!(await confirm(labels[action])) || !context.isCurrent()) return
     saving.value = true
+    error.value = ''
+    errorDetails.value = undefined
     try {
       if (action === 'delete') {
         await deleteApplication(application.applicationId, context.signal)
@@ -403,7 +410,10 @@ export function useApplications() {
         }
       }
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        error.value = errorMessage(reason)
+        errorDetails.value = reason instanceof ApiError ? reason.details : undefined
+      }
     } finally {
       if (context.isCurrent()) saving.value = false
     }
@@ -550,6 +560,7 @@ export function useApplications() {
     usageLoading,
     saving,
     error,
+    errorDetails,
     keyError,
     modelError,
     usageError,

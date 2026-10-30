@@ -18,11 +18,20 @@ from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.models.public import ModelBinding, ModelMessage, ModelOptions, ModelRequest, ModelService
 from zhiheng.modules.skills.public import SkillSelection, SkillService, require_available, require_available_set
-from zhiheng.modules.work.public import CreateTask, MemberSnapshot, TaskDetail, TaskSummary, WorkService, WorkTurn
+from zhiheng.modules.work.public import (
+    CreateTask,
+    MemberSnapshot,
+    TaskDetail,
+    TaskSummary,
+    UpdateTask,
+    WorkService,
+    WorkTurn,
+)
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference, reference_conflict
 
 if TYPE_CHECKING:
     from zhiheng.application.knowledge_preparation import KnowledgePreparation
@@ -117,6 +126,64 @@ class WorkRunService:
             except AppError:  # noqa: PERF203 - unavailable members remain visible as history
                 member.available = False
         return detail
+
+    async def update(self, session: AsyncSession, principal: Principal, task_id: UUID, body: UpdateTask) -> TaskDetail:
+        task = await self.work.require(session, principal, task_id)
+        if task.version != body.expected_version:
+            raise AppError('work_version_conflict', '任务已更新，请刷新后重试', 409)
+        reopening = body.status == 'active' and task.status != 'active'
+        configs: list[AgentConfig] = []
+        owner: Principal | None = None
+        if reopening:
+            owner = await self.owner(session, principal, task_id)
+            detail = await self.work.detail(session, principal, task_id)
+            snapshots = [
+                await self.work.member(session, task_id, member.agent_id)
+                for member in sorted(detail.members, key=lambda item: str(item.agent_id))
+                if member.removed_at is None
+            ]
+            try:
+                configs = [AgentConfig.model_validate(member.config) for member in snapshots]
+                bindings = await self.models.resolve_many(session, sorted({config.model_id for config in configs}))
+                for member, config in zip(snapshots, configs, strict=True):
+                    agent = await self.agents.get(session, owner, member.agent_id, lock=True)
+                    if agent.published_version is None:
+                        raise AppError('agent_unavailable', '任务成员智能体已取消发布', 409)
+                    self._binding(config, bindings[config.model_id])
+            except AppError as error:
+                raise self._reopen_error(principal, task, error) from error
+        # Match turn admission: Model -> connection -> Agent -> Task -> skills.
+        # Snapshot/version reads above take no Task lock while waiting on models.
+        current = await self.work.require(session, principal, task_id, lock=True)
+        if current.version != body.expected_version:
+            raise AppError('work_version_conflict', '任务已更新，请刷新后重试', 409)
+        await self.ensure_preparation_idle(session, task_id)
+        if reopening:
+            assert owner is not None
+            try:
+                await require_available_set(
+                    session, sorted({slug for config in configs for slug in config.skill_slugs})
+                )
+                for config in configs:
+                    if (
+                        config.knowledge_base_ids
+                        and self.knowledge
+                        and not await self.knowledge.can_use(session, owner.id, config.knowledge_base_ids)
+                    ):
+                        raise AppError('knowledge_unavailable', '任务成员知识库已不可用', 409)
+            except AppError as error:
+                raise self._reopen_error(principal, task, error) from error
+        await self.work.update(session, principal, task_id, body)
+        return await self.detail(session, principal, task_id)
+
+    @staticmethod
+    def _reopen_error(principal: Principal, task: TaskSummary, error: AppError) -> AppError:
+        return reference_conflict(
+            'work_dependencies_unavailable',
+            f'无法重新打开：{error.message}。请先检查并更新任务成员',
+            principal,
+            [ResourceReference('work', task.id, task.title, task.status, task.owner_id, f'/work?taskId={task.id}')],
+        )
 
     async def _prepare(
         self, session: AsyncSession, principal: Principal, ids: list[UUID]

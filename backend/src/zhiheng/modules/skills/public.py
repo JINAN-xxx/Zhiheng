@@ -3,6 +3,7 @@ from sqlalchemy import Table
 from zhiheng.infrastructure.database import Base
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
+    SkillImportAction,
     SkillInfo,
     SkillPage,
     SkillRevisionValue,
@@ -22,6 +23,7 @@ from zhiheng.modules.skills.service import (
 __all__ = [
     'MAX_SELECTION_BYTES',
     'DraftInfo',
+    'SkillImportAction',
     'SkillInfo',
     'SkillPage',
     'SkillRevisionValue',

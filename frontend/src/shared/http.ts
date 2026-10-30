@@ -3,11 +3,13 @@ import { object } from './validation.ts'
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
-  constructor(code: string, message: string, status: number) {
+  readonly details: unknown
+  constructor(code: string, message: string, status: number, details?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.status = status
+    this.details = details
   }
 }
 export function isAborted(error: unknown): boolean {
@@ -84,6 +86,7 @@ export function createHttpClient(options: HttpOptions = {}) {
     })
     if (!response.ok) {
       let code = `http_${response.status}`
+      let details: unknown
       let message =
         response.status === 401 ? '登录已过期，请重新登录' : `请求失败（${response.status}）`
       try {
@@ -91,11 +94,12 @@ export function createHttpClient(options: HttpOptions = {}) {
         const error = object(object(payload).error)
         if (typeof error.code === 'string') code = error.code
         if (typeof error.message === 'string') message = error.message
+        details = error.details
       } catch {
         /* Invalid error bodies use the status fallback. */
       }
       if (response.status === 401 && session === controller && !signal.aborted) unauthorized?.()
-      throw new ApiError(code, message, response.status)
+      throw new ApiError(code, message, response.status, details)
     }
     signal.throwIfAborted()
     return response

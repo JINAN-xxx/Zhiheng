@@ -11,6 +11,7 @@ from zhiheng.modules.models.public import ConnectionInfo, ModelInfo, ModelServic
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import reference_conflict
 
 
 class ModelManagementService:
@@ -30,20 +31,28 @@ class ModelManagementService:
     async def delete_connection(
         self, session: AsyncSession, principal: Principal, connection_id: UUID
     ) -> ConnectionInfo:
-        # The model owner holds the same connection row lock as resolve() while
-        # this runtime-owned query checks every historical frozen binding.
-        return await self._models.delete_connection(
-            session, principal, connection_id, reference_check=self._runs.references_connection
-        )
+        async def referenced(session: AsyncSession, resource_id: UUID) -> bool:
+            references = await self._runs.connection_references(session, resource_id)
+            if self._knowledge:
+                references.extend(await self._knowledge.connection_references(session, resource_id))
+            if references:
+                raise reference_conflict('connection_referenced', '连接仍被进行中的任务引用', principal, references)
+            return False
+
+        return await self._models.delete_connection(session, principal, connection_id, reference_check=referenced)
 
     async def delete_model(self, session: AsyncSession, principal: Principal, model_id: UUID) -> ModelInfo:
-        return await self._models.delete_model(session, principal, model_id, reference_check=self._model_referenced)
+        async def referenced(session: AsyncSession, resource_id: UUID) -> bool:
+            references = await self._work.model_references(session, resource_id)
+            references.extend(await self._agents.model_references(session, resource_id))
+            references.extend(await self._keys.model_references(session, resource_id))
+            references.extend(await self._runs.model_references(session, resource_id))
+            if self._knowledge:
+                references.extend(await self._knowledge.model_references(session, resource_id))
+            if references:
+                raise reference_conflict(
+                    'model_referenced', '模型仍被当前资源或进行中的任务引用', principal, references
+                )
+            return False
 
-    async def _model_referenced(self, session: AsyncSession, model_id: UUID) -> bool:
-        return (
-            bool(self._knowledge and await self._knowledge.references_model(session, model_id))
-            or await self._work.references_model(session, model_id)
-            or await self._agents.references_model(session, model_id)
-            or await self._keys.references_model(session, model_id)
-            or await self._runs.references_model(session, model_id)
-        )
+        return await self._models.delete_model(session, principal, model_id, reference_check=referenced)

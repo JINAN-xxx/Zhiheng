@@ -102,7 +102,7 @@ async def remove(
     _body: EmptyRequest | None = None,
 ) -> AgentInfo:
     async with session.begin():
-        return await container.agents.remove(session, principal, agent_id)
+        return await container.agent_management.remove(session, principal, agent_id)
 
 
 @router.post('/{agent_id}/preview', status_code=202)

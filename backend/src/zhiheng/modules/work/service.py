@@ -17,8 +17,11 @@ from zhiheng.modules.work.contracts import (
     safe_text,
 )
 from zhiheng.modules.work.orm import WorkMember, WorkMessage, WorkTask
+from zhiheng.runtime.orm import Run
+from zhiheng.runtime.runs import ACTIVE_STATUSES
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 MAX_MEMBERS = 10
@@ -191,7 +194,11 @@ class WorkService:
             raise AppError('work_version_conflict', '任务已更新，请刷新后重试', 409)
         if row.current_run_id:
             raise AppError('work_busy', '任务仍在执行', 409)
-        if not deleting and row.status != 'active' and not (allow_completed and row.status == 'completed'):
+        if (
+            not deleting
+            and row.status != 'active'
+            and not (allow_completed and row.status in {'completed', 'archived'})
+        ):
             raise AppError('work_read_only', '请先重新打开任务', 409)
         return row
 
@@ -217,7 +224,7 @@ class WorkService:
     async def update(self, session: AsyncSession, principal: Principal, task_id: UUID, body: UpdateTask) -> None:
         row = await self.editable(session, principal, task_id, body.expected_version, allow_completed=True)
         fields = body.model_fields_set - {'expected_version'}
-        if row.status == 'completed' and (fields != {'status'} or body.status not in ('active', 'archived')):
+        if row.status != 'active' and (fields != {'status'} or body.status not in ('active', 'archived')):
             raise AppError('work_read_only', '请先重新打开任务', 409)
         if 'active_agent_id' in fields and body.active_agent_id is not None:
             await self.member(session, task_id, body.active_agent_id)
@@ -427,16 +434,88 @@ class WorkService:
             self.touch(task)
         await session.flush()
 
-    async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
-        return (
-            await session.scalar(
-                select(WorkMember.id).where(WorkMember.config['model_id'].astext == str(model_id)).limit(1)
+    @staticmethod
+    def _task_reference(row: WorkTask) -> ResourceReference:
+        return ResourceReference('work', row.id, row.title, row.status, row.owner_id, f'/work?taskId={row.id}')
+
+    async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(WorkTask)
+            .join(WorkMember, WorkMember.task_id == WorkTask.id)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkMember.removed_at.is_(None),
+                WorkMember.config['model_id'].astext == str(model_id),
             )
-        ) is not None
+            .order_by(WorkTask.id)
+        )
+        return [self._task_reference(row) for row in rows.unique()]
+
+    async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
+        return bool(await self.model_references(session, model_id))
+
+    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(WorkTask)
+            .join(WorkMember, WorkMember.task_id == WorkTask.id)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkMember.removed_at.is_(None),
+                WorkMember.config['skill_slugs'].contains([slug]),
+            )
+            .order_by(WorkTask.id)
+        )
+        references = [self._task_reference(row) for row in rows.unique()]
+        runs = await session.scalars(
+            select(Run)
+            .join(WorkMessage, WorkMessage.run_id == Run.id)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                WorkMessage.role == 'assistant',
+                WorkMessage.audit['config']['skill_slugs'].contains([slug]),
+            )
+            .order_by(Run.id)
+        )
+        references.extend(
+            ResourceReference(
+                'run', row.id, '工作任务运行', row.status, row.owner_id, f'/work?taskId={row.resource_id}'
+            )
+            for row in runs
+        )
+        return references
 
     async def references_skill(self, session: AsyncSession, slug: str) -> bool:
-        return (
-            await session.scalar(
-                select(WorkMember.id).where(WorkMember.config['skill_slugs'].contains([slug])).limit(1)
+        return bool(await self.skill_references(session, slug))
+
+    async def agent_references(self, session: AsyncSession, agent_id: UUID) -> list[ResourceReference]:
+        rows = await session.scalars(
+            select(WorkTask)
+            .join(WorkMember, WorkMember.task_id == WorkTask.id)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkMember.removed_at.is_(None),
+                WorkMember.agent_id == agent_id,
             )
-        ) is not None
+            .order_by(WorkTask.id)
+        )
+        references = [self._task_reference(row) for row in rows.unique()]
+        runs = await session.scalars(
+            select(Run)
+            .join(WorkMessage, WorkMessage.run_id == Run.id)
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                WorkMessage.role == 'assistant',
+                WorkMessage.agent_id == agent_id,
+            )
+            .order_by(Run.id)
+        )
+        references.extend(
+            ResourceReference(
+                'run', row.id, '工作任务运行', row.status, row.owner_id, f'/work?taskId={row.resource_id}'
+            )
+            for row in runs
+        )
+        return references

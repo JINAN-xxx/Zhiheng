@@ -13,7 +13,7 @@
     <a-steps
       :current="prepared ? 1 : 0"
       size="small"
-      :items="[{ title: '选择文件' }, { title: '确认安装' }]"
+      :items="[{ title: '选择文件' }, { title: confirmationLabel }]"
     />
 
     <div v-if="!prepared" class="upload-stage">
@@ -54,11 +54,16 @@
           ><code>{{ prepared.skillSlug }}</code></a-descriptions-item
         >
         <a-descriptions-item label="版本">{{ prepared.version }}</a-descriptions-item>
+        <a-descriptions-item v-if="prepared.currentPackageVersion !== null" label="当前版本">{{
+          prepared.currentPackageVersion
+        }}</a-descriptions-item>
+        <a-descriptions-item label="处理方式">{{ actionLabel }}</a-descriptions-item>
         <a-descriptions-item label="说明">{{ prepared.description }}</a-descriptions-item>
         <a-descriptions-item label="文件规模">
           {{ prepared.fileCount }} 个文件，共 {{ formatSkillBytes(prepared.totalBytes) }}
         </a-descriptions-item>
       </a-descriptions>
+      <AAlert :message="actionDescription" type="info" show-icon style="margin-top: 16px" />
     </div>
 
     <AAlert v-if="error" :message="error" type="error" show-icon style="margin-top: 16px" />
@@ -75,7 +80,14 @@
       >
         解析技能
       </a-button>
-      <a-button v-else type="primary" :loading="submitting" @click="install">确认安装</a-button>
+      <a-button
+        v-else
+        type="primary"
+        :loading="submitting"
+        :disabled="prepared.action === 'unchanged'"
+        @click="install"
+        >{{ confirmationLabel }}</a-button
+      >
     </template>
   </a-modal>
 </template>
@@ -104,6 +116,33 @@ const selectedFile = ref<File | null>(null),
   submitting = ref(false),
   error = ref('')
 const scope = new RequestScope()
+const actionLabels = {
+  install: {
+    label: '安装技能',
+    confirm: '确认安装',
+    description: '将安装新技能，确认后可在技能列表中使用。'
+  },
+  update: {
+    label: '更新现有技能',
+    confirm: '确认更新',
+    description: '将更新同一标识的现有技能，保留旧版本和历史记录。'
+  },
+  restore: {
+    label: '恢复已删除技能',
+    confirm: '确认恢复',
+    description: '将恢复同一标识的技能，保留旧版本和历史记录。'
+  },
+  unchanged: {
+    label: '已安装',
+    confirm: '已安装',
+    description: '该技能已安装相同内容，无需重复安装。'
+  }
+}
+const actionLabel = computed(() => actionLabels[prepared.value?.action ?? 'install'].label)
+const confirmationLabel = computed(() => actionLabels[prepared.value?.action ?? 'install'].confirm)
+const actionDescription = computed(
+  () => actionLabels[prepared.value?.action ?? 'install'].description
+)
 const fileList = computed(() =>
   selectedFile.value
     ? [
@@ -158,7 +197,7 @@ async function prepare(): Promise<void> {
 }
 async function install(): Promise<void> {
   const draft = prepared.value
-  if (!draft || !props.canManage || submitting.value) return
+  if (!draft || draft.action === 'unchanged' || !props.canManage || submitting.value) return
   const context = scope.replace()
   submitting.value = true
   error.value = ''

@@ -1,21 +1,30 @@
+from __future__ import annotations
+
 import hashlib
 import secrets
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.developer.applications import ApplicationService
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
-from zhiheng.modules.identity.public import IdentityService
-from zhiheng.modules.models.public import ModelService
 from zhiheng.shared.errors import AppError
-from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
+
+if TYPE_CHECKING:
+    import builtins
+    from collections.abc import Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from zhiheng.modules.developer.applications import ApplicationService
+    from zhiheng.modules.identity.public import IdentityService
+    from zhiheng.modules.models.public import ModelService
+    from zhiheng.shared.principal import Principal
 
 
 @dataclass(frozen=True)
@@ -159,11 +168,45 @@ class KeyService:
         return self.info(row)
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
-        return (
-            await session.scalar(
-                select(DeveloperKey.id).where(DeveloperKey.model_ids.contains([str(model_id)])).limit(1)
+        return bool(await self.model_references(session, model_id))
+
+    async def model_references(self, session: AsyncSession, model_id: UUID) -> builtins.list[ResourceReference]:
+        rows = await session.execute(
+            select(DeveloperKey, DeveloperApplication)
+            .join(DeveloperApplication, DeveloperKey.application_id == DeveloperApplication.id)
+            .where(
+                DeveloperKey.model_ids.contains([str(model_id)]),
+                DeveloperApplication.status == 'active',
+                DeveloperApplication.deleted_at.is_(None),
             )
-            is not None
+            .order_by(DeveloperKey.id)
+        )
+        return [self._reference(key, app) for key, app in rows if self.usable(key)]
+
+    async def application_model_ids(self, session: AsyncSession, application_id: UUID) -> builtins.list[UUID]:
+        rows = await session.scalars(select(DeveloperKey).where(DeveloperKey.application_id == application_id))
+        return sorted({UUID(value) for key in rows if self.usable(key) for value in key.model_ids}, key=str)
+
+    async def application_references(
+        self, session: AsyncSession, application_id: UUID
+    ) -> builtins.list[ResourceReference]:
+        rows = await session.execute(
+            select(DeveloperKey, DeveloperApplication)
+            .join(DeveloperApplication, DeveloperKey.application_id == DeveloperApplication.id)
+            .where(DeveloperApplication.id == application_id)
+            .order_by(DeveloperKey.id)
+        )
+        return [self._reference(key, app) for key, app in rows if self.usable(key)]
+
+    @staticmethod
+    def _reference(key: DeveloperKey, application: DeveloperApplication) -> ResourceReference:
+        return ResourceReference(
+            'key',
+            key.id,
+            key.name,
+            key.status,
+            application.owner_id,
+            f'/developer?applicationId={application.id}&tab=keys',
         )
 
     @staticmethod

@@ -73,9 +73,7 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
             @click="control(model.published ? 'unpublish' : 'publish')"
             >{{ model.published ? '取消发布' : '发布' }}</AMenuItem
           >
-          <AMenuItem v-if="canWrite && !model.enabled" danger @click="control('delete')"
-            >删除模型</AMenuItem
-          >
+          <AMenuItem v-if="canWrite" danger @click="control('delete')">删除模型</AMenuItem>
         </AMenu>
       </template>
     </ADropdown>

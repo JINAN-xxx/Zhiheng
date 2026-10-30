@@ -10,11 +10,17 @@ from sqlalchemy import func, or_, select
 from zhiheng.modules.agents.contracts import AgentConfig, AgentInfo, AgentPage, AgentSummary, safe_text
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AgentVersion
 from zhiheng.modules.skills.public import MAX_SELECTION_BYTES, SkillSelection
+from zhiheng.runtime.orm import Run
+from zhiheng.runtime.runs import ACTIVE_STATUSES
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql.elements import ColumnElement
 
     from zhiheng.shared.principal import Principal
 
@@ -139,14 +145,30 @@ class AgentService:
         await session.flush()
         return await self.get(session, principal, agent_id)
 
-    async def remove(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> AgentInfo:
+    async def remove(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        agent_id: UUID,
+        *,
+        reference_check: Callable[[AsyncSession, UUID], Awaitable[bool]] | None = None,
+    ) -> AgentInfo:
         info = await self.get(session, principal, agent_id, lock=True)
-        if info.published_version is not None:
-            raise AppError('agent_published', '请先取消发布智能体', 409)
+        if reference_check is not None and await reference_check(session, agent_id):
+            raise AppError('agent_referenced', '智能体仍被当前任务引用', 409)
         row = await self._row(session, principal, agent_id)
         row.deleted_at = row.updated_at = utcnow()
+        row.published_version = None
         row.version += 1
-        return info.model_copy(update={'version': row.version, 'updated_at': row.updated_at})
+        return info.model_copy(
+            update={
+                'version': row.version,
+                'updated_at': row.updated_at,
+                'published_version': None,
+                'published_config': None,
+                'status': 'draft',
+            }
+        )
 
     async def list_agents(
         self,
@@ -198,23 +220,68 @@ class AgentService:
             if row.published_version is not None and row.published_config is not None
         ]
 
-    async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
-        return (
-            await session.scalar(select(Agent.id).where(Agent.config['model_id'].astext == str(model_id)).limit(1))
-        ) is not None or (
-            await session.scalar(
-                select(AgentVersion.id).where(AgentVersion.config['model_id'].astext == str(model_id)).limit(1)
+    async def _configuration_references(
+        self,
+        session: AsyncSession,
+        draft_match: ColumnElement[bool],
+        published_match: ColumnElement[bool],
+    ) -> list[ResourceReference]:
+        draft = await session.scalars(select(Agent).where(Agent.deleted_at.is_(None), draft_match).order_by(Agent.id))
+        references = [
+            ResourceReference(
+                'agent', row.id, str(row.config.get('name', '智能体')), 'draft', row.owner_id, f'/agents/{row.id}'
             )
-        ) is not None
+            for row in draft
+        ]
+        published = await session.execute(
+            select(Agent, AgentVersion)
+            .join(AgentVersion, (AgentVersion.agent_id == Agent.id) & (AgentVersion.version == Agent.published_version))
+            .where(Agent.deleted_at.is_(None), published_match)
+            .order_by(Agent.id)
+        )
+        references.extend(
+            ResourceReference(
+                'agent',
+                row.id,
+                str(version.config.get('name', '智能体')),
+                'published',
+                row.owner_id,
+                f'/agents/{row.id}',
+            )
+            for row, version in published
+        )
+        return references
+
+    async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
+        return await self._configuration_references(
+            session,
+            Agent.config['model_id'].astext == str(model_id),
+            AgentVersion.config['model_id'].astext == str(model_id),
+        )
+
+    async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
+        return bool(await self.model_references(session, model_id))
+
+    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+        references = await self._configuration_references(
+            session,
+            Agent.config['skill_slugs'].contains([slug]),
+            AgentVersion.config['skill_slugs'].contains([slug]),
+        )
+        runs = await session.scalars(
+            select(Run)
+            .join(AgentRunAudit, AgentRunAudit.run_id == Run.id)
+            .where(Run.status.in_(('pending', *ACTIVE_STATUSES)), AgentRunAudit.config['skill_slugs'].contains([slug]))
+            .order_by(Run.id)
+        )
+        references.extend(
+            ResourceReference('run', row.id, '智能体运行', row.status, row.owner_id, f'/agents/{row.resource_id}')
+            for row in runs
+        )
+        return references
 
     async def references_skill(self, session: AsyncSession, slug: str) -> bool:
-        return (
-            await session.scalar(select(Agent.id).where(Agent.config['skill_slugs'].contains([slug])).limit(1))
-        ) is not None or (
-            await session.scalar(
-                select(AgentVersion.id).where(AgentVersion.config['skill_slugs'].contains([slug])).limit(1)
-            )
-        ) is not None
+        return bool(await self.skill_references(session, slug))
 
     async def audit(
         self,

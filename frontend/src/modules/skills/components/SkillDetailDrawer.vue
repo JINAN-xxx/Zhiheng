@@ -49,22 +49,14 @@
         show-icon
         style="margin-top: 16px"
       />
+      <ResourceReferences :details="actionDetails" />
       <div v-if="canEdit || canRemove" class="detail-actions">
         <a-button v-if="canEdit" :loading="saving" @click="toggleStatus">
           {{ detail.status === 'enabled' ? '停用技能' : '重新启用' }}
         </a-button>
-        <a-tooltip
-          v-if="canRemove && detail.sourceType !== 'builtin'"
-          :title="detail.status === 'enabled' ? '请先停用技能再删除' : '删除技能'"
+        <a-button v-if="canRemove" danger :disabled="saving" :loading="deleting" @click="remove"
+          >删除技能</a-button
         >
-          <a-button
-            danger
-            :disabled="detail.status === 'enabled'"
-            :loading="deleting"
-            @click="remove"
-            >删除技能</a-button
-          >
-        </a-tooltip>
       </div>
     </template>
   </a-drawer>
@@ -78,10 +70,10 @@ import {
   Descriptions as ADescriptions,
   DescriptionsItem as ADescriptionsItem,
   Drawer as ADrawer,
-  Modal,
-  Tooltip as ATooltip
+  Modal
 } from 'ant-design-vue'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import { deleteSkill, getSkill, getSkillContent, updateSkillStatus } from '../api/index.ts'
@@ -100,6 +92,7 @@ const detail = ref<Skill | null>(null),
   deleting = ref(false),
   error = ref(''),
   actionError = ref('')
+const actionDetails = ref<unknown>()
 const canEdit = computed(() => props.canManage),
   canRemove = canEdit
 const readScope = new RequestScope(),
@@ -132,6 +125,7 @@ async function toggleStatus(): Promise<void> {
   const context = mutationScope.replace()
   saving.value = true
   actionError.value = ''
+  actionDetails.value = undefined
   try {
     const result = await updateSkillStatus(
       item.skillId,
@@ -145,27 +139,22 @@ async function toggleStatus(): Promise<void> {
       emit('changed', result)
     }
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      actionError.value = errorMessage(reason)
+      actionDetails.value = reason instanceof ApiError ? reason.details : undefined
+    }
   } finally {
     if (context.isCurrent()) saving.value = false
   }
 }
 async function remove(): Promise<void> {
   const item = detail.value
-  if (
-    !item ||
-    item.status !== 'disabled' ||
-    item.sourceType === 'builtin' ||
-    !props.canManage ||
-    deleting.value ||
-    saving.value
-  )
-    return
+  if (!item || !props.canManage || deleting.value || saving.value) return
   const context = mutationScope.replace()
   const accepted = await new Promise<boolean>((resolve) => {
     closeConfirmation?.()
     const dialog = Modal.confirm({
-      title: `确认删除技能“${item.skillName}”？删除后不可恢复。`,
+      title: `确认删除技能“${item.skillName}”？技能将从列表移除并停止新使用，历史版本和运行记录仍会保留。`,
       okText: '确定',
       cancelText: '取消',
       onOk: () => {
@@ -186,6 +175,7 @@ async function remove(): Promise<void> {
   if (!accepted || !context.isCurrent() || !props.canManage) return
   deleting.value = true
   actionError.value = ''
+  actionDetails.value = undefined
   try {
     await deleteSkill(item.skillId, context.signal)
     if (context.isCurrent()) {
@@ -193,7 +183,10 @@ async function remove(): Promise<void> {
       emit('update:modelValue', false)
     }
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      actionError.value = errorMessage(reason)
+      actionDetails.value = reason instanceof ApiError ? reason.details : undefined
+    }
   } finally {
     if (context.isCurrent()) deleting.value = false
   }
@@ -208,6 +201,7 @@ watch(
     content.value = ''
     error.value = ''
     actionError.value = ''
+    actionDetails.value = undefined
     saving.value = false
     deleting.value = false
     loading.value = false

@@ -41,16 +41,8 @@
         </div>
       </div>
       <div class="editor-actions">
-        <a-tooltip
-          v-if="saved && canEdit"
-          :title="saved.status === 'published' ? '取消发布后可删除' : '删除智能体'"
-        >
-          <a-button
-            danger
-            type="text"
-            :disabled="busy || saved.status === 'published'"
-            aria-label="删除智能体"
-            @click="remove"
+        <a-tooltip v-if="saved && canEdit" title="删除智能体">
+          <a-button danger type="text" :disabled="busy" aria-label="删除智能体" @click="remove"
             ><DeleteOutlined
           /></a-button>
         </a-tooltip>
@@ -120,6 +112,7 @@
           </button>
         </nav>
         <a-alert v-if="error" class="editor-alert" type="error" :message="error" show-icon />
+        <ResourceReferences :details="errorDetails" />
         <a-alert
           v-if="optionsError"
           class="editor-alert"
@@ -360,7 +353,8 @@ import {
   StopOutlined
 } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { identity } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
@@ -424,6 +418,7 @@ const loading = ref(false),
   error = ref(''),
   optionsLoading = ref(false),
   optionsError = ref('')
+const errorDetails = ref<unknown>()
 const models = ref<ChatModel[]>([]),
   skills = ref<Skill[]>([]),
   applications = ref<Application[]>([])
@@ -559,6 +554,7 @@ function acceptAgent(next: Agent): void {
 }
 async function save(): Promise<void> {
   if (!canEdit.value || busy.value) return
+  errorDetails.value = undefined
   const context = mutationScope.replace()
   if (
     !(await formRef.value
@@ -609,6 +605,7 @@ async function save(): Promise<void> {
 async function publish(): Promise<void> {
   const item = saved.value
   if (!item || dirty.value || busy.value || !canEdit.value) return
+  errorDetails.value = undefined
   const context = mutationScope.replace()
   actionBusy.value = true
   error.value = ''
@@ -624,6 +621,7 @@ async function publish(): Promise<void> {
 async function unpublish(): Promise<void> {
   const item = saved.value
   if (!item || busy.value || !canEdit.value) return
+  errorDetails.value = undefined
   const context = mutationScope.replace()
   if (
     !(await confirmation.confirm('取消发布后，新的 API 调用将立即停止。继续取消发布？')) ||
@@ -646,11 +644,18 @@ async function unpublish(): Promise<void> {
 }
 async function remove(): Promise<void> {
   const item = saved.value
-  if (!item || busy.value || item.status === 'published' || !canEdit.value) return
+  if (!item || busy.value || !canEdit.value) return
   const context = mutationScope.replace()
-  if (!(await confirmation.confirm(`删除智能体「${item.name}」？`)) || !context.isCurrent()) return
+  if (
+    !(await confirmation.confirm(
+      `删除智能体「${item.name}」？已发布的智能体将自动下线，历史版本和运行记录仍会保留。`
+    )) ||
+    !context.isCurrent()
+  )
+    return
   actionBusy.value = true
   error.value = ''
+  errorDetails.value = undefined
   try {
     await deleteAgent(item.agentId, context.signal)
     if (context.isCurrent()) {
@@ -658,7 +663,10 @@ async function remove(): Promise<void> {
       emit('update:modelValue', false)
     }
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      error.value = errorMessage(reason)
+      errorDetails.value = reason instanceof ApiError ? reason.details : undefined
+    }
   } finally {
     if (context.isCurrent()) actionBusy.value = false
   }
@@ -766,6 +774,7 @@ watch(
     saved.value = null
     Object.assign(form, createAgentForm())
     error.value = ''
+    errorDetails.value = undefined
     loadError.value = ''
     models.value = []
     skills.value = []

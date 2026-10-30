@@ -98,7 +98,9 @@ async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
     async with graph_role(settings) as (pg, url, role):
         sdk = GraphSDK(
             database_url=url,
-            milvus_uri=os.environ['ZHIHENG_TEST_MILVUS_URI'],
+            # The occupied workroot fails before any vector RPC (asserted below).
+            # Keep the real PG/cancellation checks independent of a Milvus service.
+            milvus_uri=os.getenv('ZHIHENG_TEST_MILVUS_URI', 'http://127.0.0.1:1'),
             milvus_token='',
             milvus_database='default',
             working_root=occupied,

@@ -29,7 +29,18 @@ from zhiheng.worker.main import build_worker
 
 
 @pytest.mark.parametrize(
-    'stage', ['workroot', 'temporary', 'constructor', 'partial-constructor', 'catalog', 'partial-read']
+    'stage',
+    [
+        'workroot',
+        'temporary',
+        'constructor',
+        'partial-constructor',
+        'catalog',
+        pytest.param(
+            'partial-read',
+            marks=pytest.mark.skipif(not os.getenv('ZHIHENG_TEST_MILVUS_URI'), reason='Separate Milvus URI required'),
+        ),
+    ],
 )
 async def test_initialization_releases_each_acquisition_and_proves_actual_stop(settings, tmp_path, monkeypatch, stage):
     await migrate(settings)
@@ -62,7 +73,9 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
             root.write_text('Actual regular file, not a mocked mkdir.')
         instance = boundary.GraphSDK(
             database_url=url,
-            milvus_uri=os.environ['ZHIHENG_TEST_MILVUS_URI'],
+            # Initialization faults must stop before vector IO (asserted below).
+            # Only partial-read requires a configured, real Milvus connection.
+            milvus_uri=os.getenv('ZHIHENG_TEST_MILVUS_URI', 'http://127.0.0.1:1'),
             milvus_token='',
             milvus_database='default',
             working_root=root,

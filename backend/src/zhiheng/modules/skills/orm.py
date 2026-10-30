@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, LargeBinary, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zhiheng.infrastructure.database import Base
@@ -28,7 +29,7 @@ class Skill(Base):
 class SkillRevision(Base):
     __tablename__ = 'skill_revisions'
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    skill_id: Mapped[UUID] = mapped_column(ForeignKey('skills.id'), unique=True)
+    skill_id: Mapped[UUID] = mapped_column(ForeignKey('skills.id'), index=True)
     name: Mapped[str] = mapped_column(String(100))
     description: Mapped[str] = mapped_column(String(500))
     package_version: Mapped[str] = mapped_column(String(64))
@@ -51,4 +52,9 @@ class SkillDraft(Base):
     package_bytes: Mapped[bytes] = mapped_column(LargeBinary)
     package_sha: Mapped[str] = mapped_column(String(64))
     parsed_hash: Mapped[str] = mapped_column(String(64))
+    target_skill_id: Mapped[UUID | None] = mapped_column(ForeignKey('skills.id'))
+    target_version: Mapped[int | None] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(16), default='install', server_default='install')
     confirmed_skill_id: Mapped[UUID | None] = mapped_column(ForeignKey('skills.id'))
+    confirmed_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey('skill_revisions.id'))
+    confirmed_info: Mapped[dict[str, object] | None] = mapped_column(JSONB)
