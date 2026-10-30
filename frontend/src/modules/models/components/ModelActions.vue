@@ -8,14 +8,19 @@ import {
 import { EllipsisOutlined } from '@ant-design/icons-vue'
 import type { ChatModel } from '../api/index.ts'
 
-const props = defineProps<{
-  model: ChatModel
-  busy: boolean
-  testing: boolean
-  canWrite: boolean
-  canReadRates: boolean
-  canTest: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    model: ChatModel
+    busy: boolean
+    testing: boolean
+    canWrite: boolean
+    canReadRates: boolean
+    canTest: boolean
+    presentation?: 'list' | 'card'
+    testDisabled?: boolean
+  }>(),
+  { presentation: 'list', testDisabled: false }
+)
 const emit = defineEmits<{
   edit: []
   rates: []
@@ -29,7 +34,7 @@ function rates(): void {
   if (props.canReadRates) emit('rates')
 }
 function test(): void {
-  if (props.canTest && !props.busy && props.model.enabled) emit('test')
+  if (props.canTest && !props.busy && props.model.enabled && !props.testDisabled) emit('test')
 }
 function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete'): void {
   if (props.canWrite) emit('control', action)
@@ -37,8 +42,22 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
 </script>
 
 <template>
-  <div v-if="canWrite || canReadRates || canTest" class="model-actions">
-    <div class="desktop-actions">
+  <div
+    v-if="canWrite || canReadRates || canTest"
+    class="model-actions"
+    :class="{ 'model-actions--card': presentation === 'card' }"
+  >
+    <AButton
+      v-if="presentation === 'card' && canTest"
+      type="link"
+      size="small"
+      aria-label="测试连接"
+      :loading="testing && busy"
+      :disabled="busy || !model.enabled || testDisabled"
+      @click="test"
+      >测试</AButton
+    >
+    <div v-if="presentation === 'list'" class="desktop-actions">
       <AButton v-if="canWrite" type="link" size="small" aria-label="编辑模型" @click="edit"
         >编辑</AButton
       >
@@ -51,18 +70,21 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
         size="small"
         aria-label="测试连接"
         :loading="testing && busy"
-        :disabled="busy || !model.enabled"
+        :disabled="busy || !model.enabled || testDisabled"
         @click="test"
         >测试</AButton
       >
     </div>
-    <ADropdown :trigger="['click']">
+    <ADropdown v-if="presentation === 'list' || canWrite || canReadRates" :trigger="['click']">
       <AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton>
       <template #overlay>
         <AMenu>
           <AMenuItem v-if="canWrite" @click="edit">编辑模型</AMenuItem>
           <AMenuItem v-if="canReadRates" @click="rates">费率配置</AMenuItem>
-          <AMenuItem v-if="canTest" :disabled="busy || !model.enabled" @click="test"
+          <AMenuItem
+            v-if="presentation === 'list' && canTest"
+            :disabled="busy || !model.enabled || testDisabled"
+            @click="test"
             >测试连接</AMenuItem
           >
           <AMenuItem v-if="canWrite" @click="control(model.enabled ? 'disable' : 'enable')">{{
@@ -91,6 +113,15 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
 .desktop-actions :deep(.ant-btn) {
   height: 28px;
   padding-inline: 5px;
+  font-size: 13px;
+}
+.model-actions--card {
+  flex-shrink: 0;
+  gap: 6px;
+}
+.model-actions--card > :deep(.ant-btn) {
+  height: 28px;
+  padding-inline: 6px;
   font-size: 13px;
 }
 @media (max-width: 760px) {

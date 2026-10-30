@@ -43,7 +43,8 @@ class ModelManagementRegressions(DeveloperBoundary):
         await self.page.route(self.origin + '/api/models/model-1/rate-cards', rates)
         try:
             await self.page.goto(self.origin + '/models')
-            await self.page.get_by_role('button', name='费率配置', exact=True).click()
+            await self.page.get_by_role('button', name='更多操作', exact=True).click()
+            await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
             await requested.wait()
             dialog = self.page.get_by_role('dialog')
             await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
@@ -120,7 +121,8 @@ class ModelManagementRegressions(DeveloperBoundary):
 
     async def test_manual_rate_keeps_exact_decimal_string(self):
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='费率配置', exact=True).click()
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
         await dialog.get_by_label('输入令牌单价', exact=True).fill('0.00000001')

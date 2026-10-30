@@ -64,29 +64,60 @@
     <p v-else-if="error" class="recent-work__error" role="alert">{{ error }}</p>
     <a-spin :spinning="loading" wrapper-class-name="recent-work__loading">
       <div class="recent-work__list">
-        <div
+        <ResourceCard
           v-for="task in tasks"
           :key="task.taskId"
           class="recent-work__item"
           :class="{ active: task.taskId === activeTaskId }"
+          :title="task.title"
+          :status="statusLabel(task.status)"
+          :tone="
+            task.currentRunId ? 'processing' : task.status === 'completed' ? 'positive' : 'neutral'
+          "
+          icon-tone="blue"
+          compact
+          :selected="task.taskId === activeTaskId"
+          :interactive="canOpen"
+          :open-label="`${task.status === 'active' ? '打开工作' : '查看记录'}：${task.title}`"
+          @open="canOpen && emit('open', task.taskId)"
         >
-          <button
-            type="button"
-            class="recent-work__open"
-            :aria-current="task.taskId === activeTaskId ? 'page' : undefined"
-            :disabled="!canOpen"
-            @click="canOpen && emit('open', task.taskId)"
-          >
-            <strong>{{ task.title }}</strong>
-            <small>{{ formatTime(task.updatedAt) }} · {{ statusLabel(task.status) }}</small>
-          </button>
-          <WorkspaceMoreMenu
-            v-if="taskActions(task).length"
-            compact
-            :items="taskActions(task)"
-            @command="handleCommand($event, task)"
-          />
-        </div>
+          <template #icon><ProjectOutlined /></template>
+          <p class="recent-work__goal" :title="task.goal">{{ task.goal }}</p>
+          <span class="recent-work__run" :class="{ 'is-running': task.currentRunId }">
+            <LoadingOutlined v-if="task.currentRunId" />
+            {{
+              task.currentRunId
+                ? '正在执行'
+                : task.status === 'active'
+                  ? '等待指令'
+                  : task.status === 'completed'
+                    ? '工作已完成'
+                    : '历史记录'
+            }}
+          </span>
+          <template #footer-info>
+            <time :datetime="task.updatedAt" :title="task.updatedAt">{{
+              formatTime(task.updatedAt)
+            }}</time>
+          </template>
+          <template #actions>
+            <a-button
+              size="small"
+              type="text"
+              class="recent-work__open resource-card-primary"
+              :aria-current="task.taskId === activeTaskId ? 'page' : undefined"
+              :disabled="!canOpen"
+              @click="canOpen && emit('open', task.taskId)"
+              >{{ task.status === 'active' ? '打开工作' : '查看记录' }}</a-button
+            >
+            <WorkspaceMoreMenu
+              v-if="taskActions(task).length"
+              compact
+              :items="taskActions(task)"
+              @command="handleCommand($event, task)"
+            />
+          </template>
+        </ResourceCard>
         <a-empty
           v-if="!loading && !tasks.length"
           :description="
@@ -115,10 +146,13 @@ import {
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
+  LoadingOutlined,
+  ProjectOutlined,
   ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons-vue'
 import {
+  Button as AButton,
   Dropdown as ADropdown,
   Empty as AEmpty,
   Input as AInput,
@@ -130,6 +164,7 @@ import {
   Spin as ASpin
 } from 'ant-design-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import ResourceCard from '../../../shared/components/ResourceCard.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { WorkSummary, WorkFilters, WorkStatus } from '../api/index.ts'
 const props = defineProps<{
@@ -304,50 +339,32 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   height: 100%;
 }
 .recent-work__item {
-  display: flex;
+  margin-bottom: 10px;
+}
+.recent-work__goal {
+  display: -webkit-box;
+  min-height: 36px;
+  margin: 0 0 6px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.recent-work__run {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 3px;
-  padding: 7px 6px 7px 9px;
-  border-radius: var(--workspace-radius-sm);
+  gap: 5px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
-.recent-work__item:hover {
-  background: var(--gray-50);
-}
-.recent-work__item.active {
-  background: var(--main-50);
+.recent-work__run.is-running {
   color: var(--main-700);
 }
 .recent-work__open {
-  min-width: 0;
-  display: grid;
-  flex: 1;
-  gap: 3px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.recent-work__open strong,
-.recent-work__open small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.recent-work__open strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-.recent-work__open small {
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
-  line-height: var(--workspace-line-height);
-  font-variant-numeric: tabular-nums;
-}
-.recent-work__item.active .recent-work__open small {
-  color: var(--color-text-secondary);
+  font-size: 12px;
 }
 .recent-work :deep(.ant-input-affix-wrapper) {
   flex-shrink: 0;
@@ -364,19 +381,6 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 .recent-work :deep(.ant-empty-description) {
   color: var(--color-text-secondary);
 }
-.recent-work__item :deep(.workspace-more-menu) {
-  opacity: 0;
-}
-.recent-work__item:hover :deep(.workspace-more-menu),
-.recent-work__item:focus-within :deep(.workspace-more-menu) {
-  opacity: 1;
-}
-@media (hover: none) {
-  .recent-work__item :deep(.workspace-more-menu) {
-    opacity: 1;
-  }
-}
-
 .recent-work__heading-actions {
   display: flex;
   align-items: center;

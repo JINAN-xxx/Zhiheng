@@ -158,6 +158,9 @@
     </a-modal>
     <a-modal v-model:open="infoOpen" title="工作信息" :footer="null">
       <h2 class="work-info-title">{{ task.title }}</h2>
+      <div class="work-info-identity">
+        <span>工作 ID</span><code>{{ task.taskId }}</code>
+      </div>
       <p class="work-info-goal">{{ task.goal }}</p>
     </a-modal>
   </section>
@@ -462,6 +465,22 @@ function saveEditor(): void {
   margin-top: 0;
   font-size: 18px;
   letter-spacing: 0;
+}
+.work-info-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 12px 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 22px;
+}
+.work-info-identity code {
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--workspace-font-mono);
+  overflow-wrap: anywhere;
 }
 .work-info-goal {
   max-height: 55vh;

@@ -34,55 +34,66 @@
       <WorkspaceState v-else-if="!agents.length" kind="empty" title="暂无智能体" />
       <template v-else>
         <a-alert v-if="error" class="agent-alert" type="warning" :message="error" show-icon />
-        <div class="agent-grid">
-          <article v-for="agent in agents" :key="agent.agentId" class="agent-card">
-            <div class="agent-card__top">
-              <span class="agent-card__icon"><RobotOutlined /></span
-              ><a-button type="text" :aria-label="`编辑${agent.name}`" @click="openEditor(agent)"
-                ><EllipsisOutlined
-              /></a-button>
-            </div>
-            <div class="agent-card__header">
-              <strong :title="agent.name">{{ agent.name }}</strong>
-              <a-tag :color="agent.status === 'published' ? 'green' : 'default'">{{
-                agent.status === 'published' ? '已发布' : '草稿'
-              }}</a-tag>
-            </div>
-            <p>{{ agent.description || '暂无描述' }}</p>
+        <ResourceCardGrid class="agent-grid">
+          <ResourceCard
+            v-for="agent in agents"
+            :key="agent.agentId"
+            class="agent-card"
+            :title="agent.name"
+            :status="agent.status === 'published' ? '已发布' : '草稿'"
+            :tone="agent.status === 'published' ? 'positive' : 'neutral'"
+            icon-tone="primary"
+            interactive
+            :open-label="`配置${agent.name}`"
+            @open="openEditor(agent)"
+          >
+            <template #icon><RobotOutlined /></template>
+            <template #title-action>
+              <button
+                class="resource-id-copy"
+                type="button"
+                aria-label="复制智能体 ID"
+                :title="copiedId === agent.agentId ? '已复制 ID' : '复制智能体 ID'"
+                @click.stop="copyAgentId(agent)"
+              >
+                <CheckOutlined v-if="copiedId === agent.agentId" /><CopyOutlined v-else />
+              </button>
+            </template>
+            <p class="agent-card__description" :title="agent.description || '暂无描述'">
+              {{ agent.description || '暂无描述' }}
+            </p>
             <div class="agent-card__metadata">
               <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
               <span><DatabaseOutlined />{{ agent.knowledgeBaseIds.length }} 个知识库</span>
-              <span v-if="hasUnpublishedAgentChanges(agent)" class="agent-pending"
-                >有未发布更改</span
-              >
-              <span v-else>v{{ agent.version }}</span>
             </div>
-            <div class="agent-card__footer">
-              <a-button size="small" type="link" aria-label="配置" @click="openEditor(agent)"
-                ><SettingOutlined />配置</a-button
-              >
+            <p v-if="hasUnpublishedAgentChanges(agent)" class="agent-pending">有未发布更改</p>
+            <template #footer-info>
+              {{
+                agent.status === 'published'
+                  ? `已发布 v${agent.publishedVersion}`
+                  : `草稿 v${agent.version}`
+              }}
+            </template>
+            <template #actions>
               <a-button
                 size="small"
-                type="link"
+                type="text"
+                class="resource-card-primary"
                 :loading="openingId === agent.agentId"
                 aria-label="试聊"
                 @click="openAgentTool(agent, 'preview')"
                 ><MessageOutlined />试聊</a-button
               >
-              <a-button
-                v-if="agent.status === 'published'"
-                size="small"
-                type="link"
-                aria-label="API"
-                @click="openAgentTool(agent, 'api')"
-                ><ApiOutlined />API</a-button
-              >
-            </div>
-          </article>
+              <WorkspaceMoreMenu
+                :items="agentActions(agent)"
+                @command="agentCommand($event, agent)"
+              />
+            </template>
+          </ResourceCard>
           <button class="create-agent-card" type="button" @click="openEditor()">
             <PlusOutlined /><span>创建新的智能体</span>
           </button>
-        </div>
+        </ResourceCardGrid>
         <a-pagination
           v-if="total > query.pageSize"
           v-model:current="query.pageNum"
@@ -107,13 +118,13 @@ import {
   Button as AButton,
   InputSearch as AInputSearch,
   Pagination as APagination,
-  Tag as ATag,
   Tooltip as ATooltip
 } from 'ant-design-vue'
 import {
   ApiOutlined,
+  CheckOutlined,
+  CopyOutlined,
   DatabaseOutlined,
-  EllipsisOutlined,
   ThunderboltOutlined,
   MessageOutlined,
   PlusOutlined,
@@ -123,6 +134,10 @@ import {
 } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import ResourceCard from '../../../shared/components/ResourceCard.vue'
+import ResourceCardGrid from '../../../shared/components/ResourceCardGrid.vue'
+import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getAgent, listAgents } from '../api/index.ts'
 import type { Agent } from '../api/index.ts'
@@ -139,10 +154,38 @@ const route = useRoute(),
 const previewOpen = ref(false),
   apiOpen = ref(false),
   toolAgent = ref<Agent | null>(null),
-  openingId = ref('')
+  openingId = ref(''),
+  copiedId = ref('')
 const listScope = new RequestScope(),
-  toolScope = new RequestScope()
+  toolScope = new RequestScope(),
+  copyScope = new RequestScope()
+function agentActions(agent: Agent): MenuAction[] {
+  return [
+    { command: 'configure', label: '配置', icon: SettingOutlined },
+    ...(agent.status === 'published' ? [{ command: 'api', label: 'API', icon: ApiOutlined }] : []),
+    { command: 'copy', label: '复制 ID', icon: CopyOutlined }
+  ]
+}
+function agentCommand(command: string, agent: Agent): void {
+  if (command === 'configure') openEditor(agent)
+  else if (command === 'api' && agent.status === 'published') void openAgentTool(agent, 'api')
+  else if (command === 'copy') void copyAgentId(agent)
+}
+async function copyAgentId(agent: Agent): Promise<void> {
+  const context = copyScope.replace()
+  copiedId.value = ''
+  error.value = ''
+  try {
+    if (!navigator.clipboard?.writeText)
+      throw new Error('当前浏览器无法复制，请允许剪贴板访问后重试')
+    await navigator.clipboard.writeText(agent.agentId)
+    if (context.isCurrent()) copiedId.value = agent.agentId
+  } catch (reason) {
+    if (context.isCurrent()) error.value = errorMessage(reason)
+  }
+}
 async function load(): Promise<void> {
+  copyScope.replace()
   const context = listScope.replace()
   loading.value = true
   error.value = ''
@@ -166,11 +209,13 @@ function search(): void {
   void load()
 }
 function openEditor(agent?: Agent): void {
+  copyScope.replace()
   toolScope.replace()
   openingId.value = ''
   void router.push(agent ? `/agents/${encodeURIComponent(agent.agentId)}` : '/agents/new')
 }
 async function openAgentTool(agent: Agent, tool: 'preview' | 'api'): Promise<void> {
+  copyScope.replace()
   const context = toolScope.replace()
   openingId.value = agent.agentId
   error.value = ''
@@ -201,6 +246,7 @@ onMounted(load)
 onBeforeUnmount(() => {
   listScope.dispose()
   toolScope.dispose()
+  copyScope.dispose()
   toolAgent.value = null
 })
 </script>
@@ -237,71 +283,15 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.agent-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-}
-.agent-card {
-  display: flex;
-  min-width: 0;
-  min-height: 255px;
-  flex-direction: column;
-  padding: 22px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: #fff;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.agent-card:hover {
-  border-color: var(--main-200);
-  box-shadow: 0 4px 18px #24273305;
-}
-.agent-card__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-}
-.agent-card__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.agent-card__header strong {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  font-size: 16px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-card__header :deep(.ant-tag) {
-  margin: 0;
-}
-.agent-card__icon {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  color: var(--main-700);
-  background: var(--main-50);
-  border-radius: 7px;
-  font-size: 18px;
-}
-.agent-card p {
+.agent-card__description {
   display: -webkit-box;
-  min-height: 42px;
-  margin: 14px 0 12px;
+  min-height: 40px;
+  margin: 0 0 12px;
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 20px;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -309,7 +299,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 12px;
-  margin-bottom: 12px;
   color: var(--color-text-secondary);
   font-size: 12px;
 }
@@ -320,13 +309,13 @@ onBeforeUnmount(() => {
 }
 .create-agent-card {
   display: flex;
-  min-height: 255px;
+  min-height: 208px;
   align-items: center;
   justify-content: center;
   gap: 16px;
   flex-direction: column;
   border: 1px dashed var(--gray-150);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #ffffff70;
   color: var(--color-text-secondary);
   font: inherit;
@@ -347,16 +336,9 @@ onBeforeUnmount(() => {
   color: var(--main-700);
 }
 .agent-pending {
+  margin: 8px 0 0;
   color: var(--color-warning-700);
-}
-.agent-card__footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid var(--gray-100);
+  font-size: 12px;
 }
 .agent-alert {
   margin-bottom: 14px;
@@ -366,20 +348,9 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   margin-top: 18px;
 }
-@media (max-width: 1100px) {
-  .agent-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 @media (max-width: 640px) {
   .agent-content {
     padding: 16px;
   }
-  .agent-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-:deep(.ant-btn-link) {
-  color: var(--main-700);
 }
 </style>

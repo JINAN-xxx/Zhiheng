@@ -5,7 +5,7 @@ import copy
 import json
 import re
 import unittest
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
@@ -101,12 +101,68 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='工作记录', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='工作记录', exact=True)
         await expect(dialog).to_be_visible()
+        await expect(dialog.locator(':focus')).to_have_count(1)
         return dialog
 
     async def close_work_history(self):
         dialog = self.page.get_by_role('dialog', name='工作记录', exact=True)
         await dialog.get_by_role('button', name='Close', exact=True).click()
         await expect(dialog).not_to_be_visible()
+
+    async def test_history_resource_cards_keep_goal_running_state_and_one_column_modal(self):
+        self.task.update(title='有明确目标的工作记录', goal='整理资料并核对来源，输出可以追溯的结论。' * 12)
+        self.tasks = [self.task, {**self.task, 'id': 'task-2', 'title': '正在执行的记录', 'current_run_id': 'run-2'}]
+        await self.page.goto(self.origin + '/work')
+        dialog = await self.open_work_history()
+        cards = dialog.locator('.recent-work__item.resource-card')
+        await expect(cards).to_have_count(2)
+        await expect(cards.first).to_contain_text(self.task['goal'])
+        await expect(cards.first).to_contain_text('等待指令')
+        await expect(cards.nth(1)).to_contain_text('正在执行')
+        await expect(cards.nth(1).get_by_role('button', name='更多操作', exact=True)).to_have_count(0)
+        first, second = await cards.evaluate_all('(nodes) => nodes.map(node => node.getBoundingClientRect().toJSON())')
+        self.assertAlmostEqual(first['x'], second['x'], delta=1)
+        self.assertGreaterEqual(second['y'], first['y'] + first['height'])
+        self.assertLessEqual((await dialog.locator('.ant-modal-content').bounding_box())['width'], 622)
+        self.assertEqual(self.posts, [])
+        self.assertEqual(self.runs, [])
+
+    async def test_history_card_more_menu_does_not_open_task_and_current_card_stays_selected(self):
+        await self.open_task()
+        dialog = await self.open_work_history()
+        card = dialog.locator('.recent-work__item.resource-card.active')
+        await expect(card).to_have_count(1)
+        await expect(card.locator('.recent-work__open')).to_have_attribute('aria-current', 'page')
+        await card.get_by_role('button', name='更多操作', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='重命名', exact=True)).to_be_visible()
+        await expect(dialog).to_be_visible()
+        await expect(self.page).to_have_url(self.origin + '/work?taskId=task-1')
+
+    async def test_history_cards_preserve_archive_filter_search_and_pagination(self):
+        queries = []
+        async def collection(route):
+            query = parse_qs(urlparse(route.request.url).query)
+            queries.append(query)
+            page = int(query.get('page', ['1'])[0])
+            status = query.get('status', ['active'])[0]
+            row = {**self.task, 'title': f'归档记录 {page}', 'status': status, 'id': f'archived-{page}'}
+            await route.fulfill(json={'items': [row], 'total': 21, 'page': page, 'page_size': 20})
+        await self.page.route('**/api/work/tasks?**', collection)
+        await self.page.goto(self.origin + '/work')
+        dialog = await self.open_work_history()
+        await dialog.locator('.recent-work__heading').get_by_text('已归档', exact=True).click()
+        await expect(dialog.get_by_role('radio', name='已归档', exact=True)).to_be_checked()
+        await expect(dialog.locator('.recent-work__item')).to_contain_text('已归档')
+        await expect(dialog.get_by_role('button', name='查看记录', exact=True)).to_be_visible()
+        await dialog.locator('.ant-pagination-next').click()
+        await expect(dialog.locator('.recent-work__item')).to_contain_text('归档记录 2')
+        self.assertEqual(queries[-1]['page'], ['2'])
+        self.assertEqual(queries[-1]['status'], ['archived'])
+        await dialog.get_by_role('textbox', name='搜索已归档工作', exact=True).fill('核对历史')
+        await expect(dialog.locator('.recent-work__item')).to_contain_text('归档记录 1')
+        self.assertEqual(queries[-1]['page'], ['1'])
+        self.assertEqual(queries[-1]['search'], ['核对历史'])
+        self.assertEqual(queries[-1]['status'], ['archived'])
 
     async def test_history_modal_leaves_main_workspace_and_goal_draft_intact(self):
         await self.page.goto(self.origin + '/work')

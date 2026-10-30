@@ -95,14 +95,15 @@ class AIPermissionsRegressions(DeveloperBoundary):
         for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await self.page.get_by_role('tab', name='凭据管理', exact=True).click()
-        await expect(self.page.get_by_text('团队服务', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('tabpanel', name='凭据管理', exact=True).get_by_text('团队服务', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='编辑凭据', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='更多凭据操作', exact=True)).to_have_count(0)
 
     async def test_rates_reader_can_view_history_but_cannot_create_a_price(self):
         self.permissions = ['ai:rates:read']
         await self.open_models()
-        await self.page.get_by_role('button', name='费率配置', exact=True).click()
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
         await expect(dialog.get_by_role('tab', name='积分计价', exact=True)).to_have_attribute('aria-selected', 'true')
         await expect(dialog.get_by_role('button', name='创建积分价格版本', exact=True)).to_have_count(0)
@@ -117,7 +118,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.permissions = ['ai:models:write']
         await self.open_models()
         await expect(self.page.get_by_role('button', name='接入模型', exact=True)).to_be_enabled()
-        await expect(self.page.get_by_role('button', name='编辑模型', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='编辑模型', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='费率配置', exact=True)).to_have_count(0)
 

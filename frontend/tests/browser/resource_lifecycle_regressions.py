@@ -253,7 +253,7 @@ class LifecycleAgents(AgentsUIRegressions):
 
         await self.page.route('**/api/agents/agent-1', block_delete)
         await self.open_agents()
-        await self.page.get_by_role('button', name='配置', exact=True).click()
+        await self.choose_agent_action('配置')
         await self.page.get_by_role('button', name='删除智能体', exact=True).click()
         await accept(self.page)
         references = self.page.get_by_role('region', name='使用中的资源', exact=True)
@@ -291,7 +291,7 @@ class LifecycleAgents(AgentsUIRegressions):
             ),
         )
         await self.open_agents()
-        await self.page.get_by_role('button', name='配置', exact=True).click()
+        await self.choose_agent_action('配置')
         await self.page.get_by_role('button', name='删除智能体', exact=True).click()
         await accept(self.page)
         await expect(
@@ -303,7 +303,7 @@ class LifecycleAgents(AgentsUIRegressions):
     async def test_published_agent_deletes_directly(self):
         self.agent.update(status='published', published_version=1, published_config=self.config.copy())
         await self.open_agents()
-        await self.page.get_by_role('button', name='配置', exact=True).click()
+        await self.choose_agent_action('配置')
         editor = self.page.locator('.agent-editor--page')
         await expect(editor.get_by_role('button', name='删除智能体', exact=True)).to_be_enabled()
         await editor.get_by_role('button', name='删除智能体', exact=True).click()

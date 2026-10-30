@@ -1,6 +1,6 @@
 <!-- Adapted from original model center, MIT licensed. -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -35,6 +35,8 @@ import {
 import { useWindowSize } from '@vueuse/core'
 import type { TableColumnsType } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import ResourceCard from '../../../shared/components/ResourceCard.vue'
+import ResourceCardGrid from '../../../shared/components/ResourceCardGrid.vue'
 import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
@@ -143,6 +145,9 @@ function connectionName(id: string): string {
 function connectionEnabled(id: string): boolean {
   return connections.value.some((connection) => connection.id === id && connection.enabled)
 }
+function connectionDisabled(id: string): boolean {
+  return connections.value.find((connection) => connection.id === id)?.enabled === false
+}
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -152,6 +157,7 @@ const connectionOpen = ref(false)
 const modelOpen = ref(false)
 const editingConnection = ref<ModelConnection | null>(null)
 const editingModel = ref<ChatModel | null>(null)
+const detailModel = ref<ChatModel | null>(null)
 const rateModel = ref<ChatModel | null>(null)
 const connectionForm = reactive({ name: '', base_url: '', api_key: '' })
 const modelForm = reactive<{
@@ -175,6 +181,14 @@ const testDisconnected = ref(false)
 const scope = new RequestScope()
 const mutationScope = new RequestScope()
 const testScope = new RequestScope()
+let copyEpoch = 0
+watch(
+  detailModel,
+  () => {
+    copyEpoch += 1
+  },
+  { flush: 'sync' }
+)
 let testIntent: { modelId: string; requestId: string } | null = null
 const testBusy = computed(
   () => testingModel.value !== '' && (testRun.value === null || !isTerminal(testRun.value))
@@ -216,9 +230,12 @@ onMounted(() => {
 })
 async function copyModelCode(value: string): Promise<void> {
   if (!value.trim()) return
+  const context = scope.current()
+  const epoch = ++copyEpoch
   try {
     await navigator.clipboard.writeText(value)
   } catch {
+    if (!context.isCurrent() || epoch !== copyEpoch) return
     error.value = '复制失败，请手动复制模型代码'
     errorDetails.value = undefined
   }
@@ -462,7 +479,13 @@ async function followTest(
   )
 }
 async function testModel(model: ChatModel): Promise<void> {
-  if (testBusy.value || !canTestModels.value || !model.enabled) return
+  if (
+    testBusy.value ||
+    !canTestModels.value ||
+    !model.enabled ||
+    connectionDisabled(model.connection_id)
+  )
+    return
   const context = testScope.replace()
   testingModel.value = model.id
   testRun.value = null
@@ -591,29 +614,35 @@ async function stopTest(): Promise<void> {
                 ><ReloadOutlined
               /></AButton>
             </div>
-            <section
+            <ResourceCardGrid
               v-if="!isMobile && modelView === 'cards' && filteredModels.length"
               class="model-grid"
               aria-label="平台模型"
             >
-              <article v-for="model in filteredModels" :key="model.id" class="model-card">
-                <div class="model-card__header">
-                  <span class="model-card__icon" :class="`model-card__icon--${model.model_type}`"
-                    ><ApiOutlined
-                  /></span>
-                  <div class="model-card__identity">
-                    <h2>{{ model.name }}</h2>
-                    <span>{{ modelTypeLabel(model.model_type) }}模型</span>
-                  </div>
-                  <ATag :color="model.enabled && model.published ? 'success' : 'default'">{{
-                    model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'
-                  }}</ATag>
-                </div>
-                <div class="model-card__code resource-value resource-value--secondary">
-                  <code class="resource-text" :title="model.id">{{ model.id }}</code>
+              <ResourceCard
+                v-for="model in filteredModels"
+                :key="model.id"
+                class="model-card"
+                :title="model.name"
+                :subtitle="`${modelTypeLabel(model.model_type)}模型`"
+                :status="model.enabled ? (model.published ? '已启用' : '草稿') : '已停用'"
+                :tone="model.enabled && model.published ? 'positive' : 'neutral'"
+                :icon-tone="
+                  model.model_type === 'embedding'
+                    ? 'green'
+                    : model.model_type === 'rerank'
+                      ? 'amber'
+                      : 'primary'
+                "
+                interactive
+                :open-label="`查看模型详情：${model.name}`"
+                @open="detailModel = model"
+              >
+                <template #icon><ApiOutlined /></template>
+                <template #title-action>
                   <button
                     type="button"
-                    class="copy-button"
+                    class="copy-button resource-id-copy"
                     aria-label="复制模型代码"
                     title="复制模型代码"
                     :disabled="!model.id.trim()"
@@ -621,46 +650,57 @@ async function stopTest(): Promise<void> {
                   >
                     <CopyOutlined />
                   </button>
-                </div>
+                </template>
                 <dl class="model-card__details">
                   <div>
                     <dt>上游模型</dt>
-                    <dd :title="model.upstream_model">{{ model.upstream_model }}</dd>
+                    <dd class="model-card__upstream" :title="model.upstream_model">
+                      {{ model.upstream_model }}
+                    </dd>
                   </div>
-                  <div>
+                  <div v-if="model.model_type === 'chat'" class="model-card__output">
                     <dt>最大输出</dt>
                     <dd>{{ model.max_output_tokens.toLocaleString() }} Token</dd>
                   </div>
                 </dl>
-                <div class="model-card__footer">
+                <p v-if="model.model_type !== 'chat'" class="model-card__purpose">
+                  {{
+                    model.model_type === 'embedding'
+                      ? '用于文本向量化与知识检索'
+                      : '用于检索结果相关性排序'
+                  }}
+                </p>
+                <template #footer-info>
                   <span
                     v-if="canReadModels"
                     class="model-card__connection"
                     :title="connectionName(model.connection_id)"
-                    ><span
-                      class="connection-dot"
-                      :class="{ 'is-enabled': connectionEnabled(model.connection_id) }"
-                    ></span
-                    >{{ connectionName(model.connection_id)
-                    }}<small>{{
-                      connectionEnabled(model.connection_id) ? '已启用' : '已停用或不可用'
-                    }}</small></span
+                    >{{ connectionName(model.connection_id) }}</span
                   >
+                  <span
+                    v-if="canReadModels && connectionDisabled(model.connection_id)"
+                    class="model-card__connection-warning"
+                    >连接已停用，暂不可测试</span
+                  >
+                </template>
+                <template #actions>
                   <ModelActions
+                    presentation="card"
                     :model="model"
                     :busy="testBusy"
                     :testing="testingModel === model.id"
                     :can-write="canWriteModels"
                     :can-read-rates="canReadRates"
                     :can-test="canTestModels"
+                    :test-disabled="connectionDisabled(model.connection_id)"
                     @edit="openModel(model)"
                     @rates="canReadRates && (rateModel = model)"
                     @test="testModel(model)"
                     @control="changeModel(model, $event)"
                   />
-                </div>
-              </article>
-            </section>
+                </template>
+              </ResourceCard>
+            </ResourceCardGrid>
             <ResourceTable
               v-else-if="filteredModels.length || loading"
               class="model-table"
@@ -720,6 +760,7 @@ async function stopTest(): Promise<void> {
                     :can-write="canWriteModels"
                     :can-read-rates="canReadRates"
                     :can-test="canTestModels"
+                    :test-disabled="connectionDisabled(model.connection_id)"
                     @edit="openModel(model)"
                     @rates="canReadRates && (rateModel = model)"
                     @test="testModel(model)"
@@ -966,6 +1007,51 @@ async function stopTest(): Promise<void> {
       </div></template
     >
   </ADrawer>
+  <ADrawer
+    :open="detailModel !== null"
+    title="模型详情"
+    :width="isMobile ? '100%' : 460"
+    @close="detailModel = null"
+  >
+    <div v-if="detailModel" role="dialog" aria-label="模型详情" aria-modal="true">
+      <h2 class="model-detail__name">{{ detailModel.name }}</h2>
+      <dl class="model-detail__fields">
+        <div>
+          <dt>模型 ID</dt>
+          <dd>
+            <code>{{ detailModel.id }}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>模型类型</dt>
+          <dd>{{ modelTypeLabel(detailModel.model_type) }}模型</dd>
+        </div>
+        <div>
+          <dt>状态</dt>
+          <dd>
+            {{ detailModel.enabled ? (detailModel.published ? '已启用' : '草稿') : '已停用' }}
+          </dd>
+        </div>
+        <div>
+          <dt>上游模型</dt>
+          <dd>
+            <code>{{ detailModel.upstream_model }}</code>
+          </dd>
+        </div>
+        <div v-if="detailModel.model_type === 'chat'">
+          <dt>最大输出</dt>
+          <dd>{{ detailModel.max_output_tokens.toLocaleString() }} Token</dd>
+        </div>
+        <div v-if="canReadModels">
+          <dt>连接</dt>
+          <dd>{{ connectionName(detailModel.connection_id) }}</dd>
+        </div>
+      </dl>
+      <AButton :disabled="!detailModel.id.trim()" @click="copyModelCode(detailModel.id)">
+        <CopyOutlined />复制模型代码
+      </AButton>
+    </div>
+  </ADrawer>
   <ModelRatesDialog
     :model="rateModel"
     :can-read="canReadRates"
@@ -1132,119 +1218,83 @@ async function stopTest(): Promise<void> {
 .view-switch :deep(.ant-btn:last-child) {
   border-radius: 0 5px 5px 0;
 }
-.model-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-.model-card {
-  min-width: 0;
-  padding: 22px 22px 14px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-}
-.model-card:hover {
-  border-color: var(--main-200);
-}
-.model-card__header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.model-card__icon {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--main-50);
-  color: var(--main-700);
-  font-size: 21px;
-}
-.model-card__icon--embedding {
-  background: var(--color-success-50);
-  color: var(--color-success-700);
-}
-.model-card__icon--rerank {
-  background: var(--color-warning-50);
-  color: var(--color-warning-900);
-}
-.model-card__identity {
-  flex: 1;
-  min-width: 0;
-}
-.model-card__identity h2 {
-  overflow: hidden;
-  margin: 0 0 4px;
-  font-size: 16px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-card__identity > span,
-.model-card__connection small {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.model-card__header :deep(.ant-tag) {
-  margin: 0;
-}
-.model-card__code {
-  margin-top: 18px;
-}
 .model-card__details {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  margin: 18px 0 20px;
+  display: flex;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 20px;
+  margin: 0;
 }
 .model-card__details > div {
   min-width: 0;
+  flex: 1;
+}
+.model-card__details > .model-card__output {
+  flex: 0 0 auto;
+  text-align: right;
 }
 .model-card__details dt {
-  margin-bottom: 6px;
+  margin-bottom: 3px;
   color: var(--color-text-secondary);
   font-size: 12px;
+  line-height: 18px;
 }
 .model-card__details dd {
   overflow: hidden;
   margin: 0;
+  font-size: 13px;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
 }
-.model-card__footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--gray-150);
+.model-card__details .model-card__upstream {
+  font-family: var(--workspace-font-mono);
+  font-size: 12px;
 }
-.model-card__connection {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+.model-card__purpose {
+  margin: 12px 0 0;
   color: var(--color-text-secondary);
   font-size: 12px;
+  line-height: 18px;
+}
+.model-card__connection {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-card__connection-warning {
+  display: block;
+  color: var(--color-warning-900);
+  font-size: 11px;
+  line-height: 16px;
+}
+.model-detail__name {
+  margin: 0 0 18px;
+  font-size: 18px;
   overflow-wrap: anywhere;
 }
-.model-card__connection small {
-  flex-basis: 100%;
-  padding-left: 12px;
+.model-detail__fields {
+  margin: 0 0 24px;
 }
-.connection-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-text-tertiary);
+.model-detail__fields > div {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gray-150);
 }
-.connection-dot.is-enabled {
-  background: var(--color-success-700);
+.model-detail__fields dt {
+  margin-bottom: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.model-detail__fields dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.model-detail__fields code {
+  font-family: var(--workspace-font-mono);
+  font-size: 12px;
 }
 .test-result {
   background: var(--bg-container);
@@ -1281,11 +1331,6 @@ async function stopTest(): Promise<void> {
   }
   .view-switch {
     display: none;
-  }
-}
-@media (min-width: 761px) and (max-width: 1100px) {
-  .model-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -134,6 +134,9 @@
               <h2>基本信息</h2>
             </div>
             <div class="config-fields">
+              <div v-if="saved" class="agent-resource-id" role="group" aria-label="智能体标识">
+                <span>智能体 ID</span><code>{{ saved.agentId }}</code>
+              </div>
               <a-form-item label="智能体名称" name="name"
                 ><a-input v-model:value="form.name" :maxlength="100" placeholder="为智能体命名"
               /></a-form-item>
@@ -932,6 +935,22 @@ onBeforeUnmount(() => {
 }
 .config-fields {
   padding: 22px 22px 2px;
+}
+.agent-resource-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-bottom: 18px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+.agent-resource-id code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  user-select: all;
 }
 .config-fields :deep(.ant-form-item) {
   margin-bottom: 22px;

@@ -353,7 +353,8 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.fail_rate_once = True
         self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='费率配置', exact=True).click()
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
         await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
         await expect(dialog.get_by_text('零价格必须明确标记为免费', exact=True)).to_be_visible()
@@ -374,7 +375,8 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_point_rate_can_save_without_note(self):
         self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='费率配置', exact=True).click()
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
         await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('1')
         await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
