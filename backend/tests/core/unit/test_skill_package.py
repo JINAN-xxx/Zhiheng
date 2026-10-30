@@ -40,6 +40,28 @@ def test_plain_and_zip_preserve_content_attachments_and_stable_tree_hash() -> No
     assert plain.package_version == '1.0.0'
 
 
+@pytest.mark.parametrize('filename', ['SKILL.md', 'minimal.zip'])
+def test_minimal_frontmatter_without_display_name_uses_skill_name(filename: str) -> None:
+    raw = b'---\nname: minimal-skill\ndescription: Summarize supplied material\n---\nKeep the original facts.'
+    payload = raw if filename == 'SKILL.md' else archive([('SKILL.md', raw), ('references/example.md', b'Context')])
+    parsed = parser().parse(payload, filename=filename)
+    assert parsed.slug == parsed.name == 'minimal-skill'
+    assert parsed.description == 'Summarize supplied material'
+    assert parsed.package_version == '1.0.0'
+    assert parsed.content == raw.decode()
+    assert parsed.file_count == (1 if filename == 'SKILL.md' else 2)
+
+
+@pytest.mark.parametrize('display_name', [b'null', b'""', b'123', b'"\\0"', b'x' * 101])
+def test_explicit_invalid_display_name_does_not_silently_fall_back(display_name: bytes) -> None:
+    from zhiheng.shared.errors import AppError
+
+    raw = b'---\nname: sample\ndescription: A test\ndisplay_name: ' + display_name + b'\n---\nInstruction'
+    with pytest.raises(AppError) as error:
+        parser().parse(raw, filename='SKILL.md')
+    assert error.value.code == 'invalid_skill_package'
+
+
 @pytest.mark.parametrize('path', ['/etc/a', '../a', 'a/../b', 'a\\b', 'a:b', 'a//b', './a'])
 def test_unsafe_zip_paths_are_rejected(path: str) -> None:
     value = parser()

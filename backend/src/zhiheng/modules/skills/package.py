@@ -127,7 +127,7 @@ class SkillPackageParser:
         if not isinstance(slug, str) or not is_valid_slug(slug):
             raise invalid()
         fields: list[str] = []
-        for key, limit, default in [('display_name', 100, None), ('description', 500, None), ('version', 64, '1.0.0')]:
+        for key, limit, default in [('display_name', 100, slug), ('description', 500, None), ('version', 64, '1.0.0')]:
             value = data.get(key, default)
             if not isinstance(value, str) or not value.strip() or len(value) > limit or _CONTROL.search(value):
                 raise invalid()
