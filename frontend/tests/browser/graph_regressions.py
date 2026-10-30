@@ -1,7 +1,12 @@
 """Original graph workspace with explicit core graph contracts."""
 import asyncio
 import contextlib
+import json
+import os
+import re
 import unittest
+from collections import Counter
+from pathlib import Path
 from urllib.parse import urlparse
 
 from playwright.async_api import expect
@@ -25,8 +30,22 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.config={'version':1,'llm_model_id':'chat-1','reasoning_strategy':'auto','timeout_seconds':240,'max_output_tokens':16384,'concurrency':2}
         self.graph_posts=[]
         self.graph_job=job()
+        self.graph_admitted=False
+        self.graph_reads=Counter()
+        self.graph_traffic=[]
+        self.page.on('request', lambda request: self.graph_traffic.append({'method': request.method, 'url': request.url}) if '/graph/' in request.url else None)
         self.graph={'revision':'graph-revision-1','nodes':[{'id':'甲','entity_name':'甲','entity_type':'组织','description':'<img src=x onerror=alert(1)>'},{'id':'乙','entity_name':'乙','entity_type':'人','description':'研发成员'}],'edges':[{'id':'rel-1','source':'甲','target':'乙','description':'合作'}],'is_truncated':False}
         self.slow_graph=None
+
+    async def asyncTearDown(self):
+        evidence = os.environ.get('GRAPH_UI_EVIDENCE')
+        if evidence:
+            destination = Path(evidence)
+            destination.mkdir(parents=True, exist_ok=True)
+            (destination / (self._testMethodName + '.json')).write_text(json.dumps({'requests': self.graph_traffic, 'reads': dict(self.graph_reads)}, ensure_ascii=False, indent=2))
+            with contextlib.suppress(Exception):
+                await self.page.screenshot(path=str(destination / (self._testMethodName + '.png')))
+        await super().asyncTearDown()
 
     async def respond(self,route):
         path,method=urlparse(route.request.url).path,route.request.method
@@ -36,11 +55,12 @@ class GraphRegressions(KnowledgeUIRegressions):
         if not path.startswith(prefix):
             await super().respond(route);return
         suffix=path[len(prefix):]
+        if method == 'GET': self.graph_reads[suffix] += 1
         if suffix=='/config':
             if method=='PATCH':
                 body=route.request.post_data_json;self.graph_posts.append((suffix,body));self.config={**body,'version':self.config['version']+1};self.config.pop('expected_version',None)
             await route.fulfill(json={'config':self.config,'available':True,'active_revision':'graph-revision-1','requires_rebuild':False,'can_manage':True,'supported_reasoning_strategies':['auto','default']});return
-        if suffix=='/jobs':await route.fulfill(json=[]);return
+        if suffix=='/jobs':await route.fulfill(json=[self.graph_job] if self.graph_admitted else []);return
         if suffix=='/labels':await route.fulfill(json={'items':['甲','乙'],'truncated':False});return
         if suffix=='/subgraph':
             if self.slow_graph:await self.slow_graph.wait()
@@ -48,6 +68,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         if suffix in ['/build','/preview']:
             self.graph_posts.append((suffix,route.request.post_data_json))
             self.graph_job=job('completed',suffix[1:])
+            self.graph_admitted=True
             await route.fulfill(status=202,json=self.graph_job);return
         if suffix=='/jobs/graph-job-1/cancel':
             self.graph_posts.append((suffix,route.request.post_data_json));self.graph_job=job('cancelled',self.graph_job['operation'],3)
@@ -80,7 +101,9 @@ class GraphRegressions(KnowledgeUIRegressions):
             accepted.append(route.request.post_data_json)
             if len(accepted)==1:
                 await route.fulfill(status=503,json={'error':{'code':'unavailable','message':'提交结果待确认'}})
-            else:await route.fulfill(status=202,json=job())
+            else:
+                self.graph_admitted=True
+                await route.fulfill(status=202,json=job())
         await self.page.route('**/api/knowledge/bases/base-1/graph/build',submit)
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
         await self.page.get_by_role('button',name='构建图谱',exact=True).click()
@@ -237,7 +260,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.locator('.knowledge-graph__canvas')).to_have_count(0)
 
 
-    async def test_original_graph_layout_survives_mobile_and_dark_theme(self):
+    async def test_original_graph_layout_survives_mobile_and_system_dark_preference(self):
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
         for width in [390,768,1440]:
@@ -246,8 +269,9 @@ class GraphRegressions(KnowledgeUIRegressions):
             geometry=await self.page.locator('.knowledge-graph-page__content').evaluate('(node)=>({scroll:node.scrollWidth,width:node.clientWidth})')
             self.assertLessEqual(geometry['scroll'],geometry['width']+1)
             await expect(self.page.get_by_role('button',name='构建图谱',exact=True)).to_be_visible()
-        await self.page.get_by_role('button',name='切换主题',exact=True).click()
-        await expect(self.page.locator('html')).to_have_class(__import__('re').compile('dark'))
+        await self.page.emulate_media(color_scheme='dark')
+        await expect(self.page.locator('html')).not_to_have_class(re.compile(r'\bdark\b'))
+        self.assertEqual(await self.page.locator('html').evaluate('(node)=>getComputedStyle(node).colorScheme'), 'light')
         color=await self.page.locator('.graph-panel h2').first.evaluate('(node)=>getComputedStyle(node).color')
         self.assertNotEqual(color,'rgb(0, 0, 0)')
 
@@ -469,6 +493,115 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.assertEqual(cancels[0], cancels[1])
         self.assertEqual(len(posts), 1)
 
+
+    async def test_background_initial_reads_and_same_refresh_preserve_canvas_and_draft(self):
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        canvas = self.page.locator('.knowledge-graph__canvas canvas')
+        await expect(canvas).to_be_visible()
+        await self.page.wait_for_timeout(250)
+        self.assertEqual({path: self.graph_reads[path] for path in ['/config', '/jobs', '/labels', '/subgraph']}, {'/config': 1, '/jobs': 1, '/labels': 1, '/subgraph': 1})
+        await self.page.get_by_text('高级选项', exact=True).click()
+        timeout = self.page.get_by_role('spinbutton', name='图谱响应超时秒数', exact=True)
+        await timeout.fill('330')
+        await timeout.press('Tab')
+        await expect(self.page.get_by_role('button', name='保存配置', exact=True)).to_be_enabled()
+        await canvas.evaluate('(el) => { window.keptGraphCanvas = el }')
+        await timeout.evaluate('(el) => { window.keptGraphTimeout = el }')
+        await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
+        await expect(timeout).to_have_value('330')
+        await self.page.wait_for_timeout(250)
+        self.assertTrue(await canvas.evaluate('(el) => el === window.keptGraphCanvas'))
+        self.assertTrue(await timeout.evaluate('(el) => el === window.keptGraphTimeout'))
+        await expect(self.page.locator('.ant-spin-spinning')).to_have_count(0)
+        self.assertEqual(self.graph_reads['/config'], 2)
+
+    async def test_background_canonical_history_removes_permission_filtered_preview(self):
+        self.graph_job = job(operation='preview')
+        self.graph_admitted = True
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await expect(self.page.locator('.graph-preview-result')).to_be_visible()
+        self.graph_admitted = False
+        await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
+        await expect(self.page.locator('.graph-preview-result')).to_have_count(0)
+        await expect(self.page.locator('.graph-history')).to_have_count(0)
+        await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+
+    async def test_background_progress_pauses_when_hidden_and_retains_the_canvas(self):
+        self.graph_job = job('running', 'preview')
+        self.graph_admitted = True
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        canvas = self.page.locator('.knowledge-graph__canvas canvas')
+        await expect(canvas).to_be_visible()
+        await canvas.evaluate('(el) => { window.keptGraphCanvas = el }')
+        await self.page.evaluate("Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'))")
+        reads = self.graph_reads['/jobs/graph-job-1']
+        await self.page.wait_for_timeout(1800)
+        self.assertEqual(self.graph_reads['/jobs/graph-job-1'], reads)
+        await self.page.evaluate("Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange'))")
+        async def observed():
+            while self.graph_reads['/jobs/graph-job-1'] <= reads:
+                await asyncio.sleep(.02)
+        await asyncio.wait_for(observed(), 1)
+        self.assertTrue(await canvas.evaluate('(el) => el === window.keptGraphCanvas'))
+        self.assertEqual(self.graph_reads['/subgraph'], 1)
+        self.graph_job = job('completed', 'preview', 3)
+        await expect(self.page.locator('.graph-preview-result')).to_be_visible(timeout=5000)
+        async def synchronized():
+            while self.graph_reads['/subgraph'] < 2:
+                await asyncio.sleep(.02)
+        await asyncio.wait_for(synchronized(), 3)
+        self.assertTrue(await canvas.evaluate('(el) => el === window.keptGraphCanvas'))
+        self.assertEqual(self.graph_reads['/config'], 2)
+        self.assertEqual(self.graph_reads['/jobs'], 2)
+        self.assertEqual(self.graph_reads['/subgraph'], 2)
+
+    async def test_background_leaving_graph_stops_reads_without_cancelling_the_job(self):
+        self.graph_job = job('running')
+        self.graph_admitted = True
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+        await self.page.get_by_role('button', name=re.compile('返回知识库$')).click()
+        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        reads = self.graph_reads['/jobs/graph-job-1']
+        await self.page.wait_for_timeout(1800)
+        self.assertEqual(self.graph_reads['/jobs/graph-job-1'], reads)
+        self.assertFalse(any('/cancel' in request['url'] for request in self.graph_traffic))
+        self.assertEqual(self.graph_job['status'], 'running')
+
+    async def test_background_same_gateway_error_retains_uncertain_cancel_after_read_recovery(self):
+        self.graph_job = job('running', 'preview')
+        self.graph_admitted = True
+        cancelled, failed_read, reads_after_cancel = False, False, 0
+        cancel_requests = []
+        message = '请求失败（503）'
+        async def cancel(route):
+            nonlocal cancelled
+            cancelled = True
+            cancel_requests.append(route.request.post_data_json)
+            await route.fulfill(status=503, json={'error': {'code': 'gateway_error', 'message': message}})
+        async def poll(route):
+            nonlocal failed_read, reads_after_cancel
+            if cancelled:
+                reads_after_cancel += 1
+                if not failed_read:
+                    failed_read = True
+                    await route.fulfill(status=503, json={'error': {'code': 'gateway_error', 'message': message}})
+                    return
+            await route.fulfill(json=self.graph_job)
+        await self.page.route('**/api/knowledge/bases/base-1/graph/jobs/graph-job-1/cancel', cancel)
+        await self.page.route('**/api/knowledge/bases/base-1/graph/jobs/graph-job-1', poll)
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+        await self.page.get_by_role('button', name='取消试构建', exact=True).click()
+        await expect(self.page.get_by_text(message, exact=True)).to_be_visible()
+        async def recovered():
+            while reads_after_cancel < 2:
+                await asyncio.sleep(.03)
+        await asyncio.wait_for(recovered(), 8)
+        await self.page.wait_for_timeout(100)
+        await expect(self.page.get_by_text(message, exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='确认原请求或恢复查看', exact=True)).to_be_visible()
+        self.assertEqual(cancel_requests, [{}])
 
     async def test_denied_completed_graph_result_allows_vector_fallback(self):
         posts=[]

@@ -1,4 +1,35 @@
 import type { FileStatus, StorageStatus } from './api/index.ts'
+export const commonFileTypeOptions = [
+  { label: '全部类型', value: '' },
+  { label: 'PDF', value: 'application/pdf' },
+  {
+    label: 'Word（DOCX）',
+    value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  },
+  {
+    label: 'Excel（XLSX）',
+    value: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  },
+  { label: '文本', value: 'text/plain' },
+  { label: 'Markdown', value: 'text/markdown' },
+  { label: 'CSV', value: 'text/csv' },
+  { label: 'JSON', value: 'application/json' },
+  { label: 'HTML', value: 'text/html' },
+  { label: 'PNG 图片', value: 'image/png' },
+  { label: 'JPEG 图片', value: 'image/jpeg' },
+  { label: 'GIF 图片', value: 'image/gif' },
+  { label: 'WebP 图片', value: 'image/webp' },
+  { label: 'SVG 图片', value: 'image/svg+xml' },
+  { label: 'ZIP 压缩包', value: 'application/zip' }
+]
+export function fileTypeLabel(filename: string, mime: string): string {
+  const extension = filename.match(/\.([a-z0-9]{1,16})$/i)?.[1]
+  if (extension) return extension.toUpperCase()
+  return (
+    commonFileTypeOptions.find((option) => option.value !== '' && option.value === mime)?.label ??
+    '文件'
+  )
+}
 export function formatFileSize(size: number): string {
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`

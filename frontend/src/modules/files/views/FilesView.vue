@@ -5,14 +5,19 @@ import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Dropdown as ADropdown,
+  Menu as AMenu,
+  MenuItem as AMenuItem,
   Pagination as APagination,
   Tooltip as ATooltip
 } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
+  BarChartOutlined,
   BellOutlined,
   DeleteFilled,
   DeleteOutlined,
+  DownOutlined,
   FieldTimeOutlined,
   FilterOutlined,
   LockOutlined,
@@ -24,7 +29,7 @@ import {
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
 import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
   changeFileState,
   downloadFile,
@@ -34,7 +39,7 @@ import {
   listFiles
 } from '../api/index.ts'
 import type { FileStats, FileUser, ManagedFile } from '../api/index.ts'
-import { isoDateTime, saveBlob } from '../presentation.ts'
+import { formatFileSize, isoDateTime, saveBlob } from '../presentation.ts'
 import FileAclDrawer from '../components/FileAclDrawer.vue'
 import FileAuditDrawer from '../components/FileAuditDrawer.vue'
 import FileDetailDialog from '../components/FileDetailDialog.vue'
@@ -53,7 +58,8 @@ const canReadStorage = computed(() =>
 const canWriteStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:write'))
 const queryParams = ref(emptyQuery()),
   dateRange = ref<[string, string] | null>(null),
-  showSearch = ref(true)
+  showSearch = ref(false),
+  showStatistics = ref(false)
 const files = ref<ManagedFile[]>([]),
   stats = ref<FileStats | null>(null),
   users = ref<FileUser[]>([]),
@@ -103,21 +109,49 @@ async function load(): Promise<void> {
       files.value = page.rows
       total.value = page.total
       stats.value = counts
-      selected.value = []
+      const ids = new Set(selected.value.map((file) => file.fileId))
+      selected.value = page.rows.filter(
+        (file) =>
+          ids.has(file.fileId) &&
+          !file.sourceFileId &&
+          file.status !== 'purged' &&
+          canManageFile(identity.value, file)
+      )
     }
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
+        files.value = []
+        stats.value = null
+        total.value = 0
+        selected.value = []
+      }
+      error.value = errorMessage(reason)
+    }
   } finally {
     if (context.isCurrent()) loading.value = false
   }
 }
 function search(): void {
+  selected.value = []
   queryParams.value.pageNum = 1
   void load()
 }
 function reset(): void {
+  const status = queryParams.value.status
   queryParams.value = emptyQuery()
+  queryParams.value.status = status
   dateRange.value = null
+  selected.value = []
+  void load()
+}
+function switchView(status: 'active' | 'deleted'): void {
+  if (queryParams.value.status === status) return
+  queryParams.value.status = status
+  search()
+}
+function changePage(): void {
+  selected.value = []
   void load()
 }
 async function download(file: ManagedFile): Promise<void> {
@@ -140,7 +174,12 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
     !targets.length ||
     targets.some(
       (file) =>
-        !canManageFile(identity.value, file) || file.sourceFileId || file.status === 'purged'
+        !canManageFile(identity.value, file) ||
+        file.sourceFileId ||
+        (action === 'delete' && (file.status !== 'active' || file.referenceCount > 0)) ||
+        (action === 'restore' && file.status !== 'deleted') ||
+        (action === 'purge' &&
+          (!['deleted', 'purging'].includes(file.status) || file.referenceCount > 0))
     )
   )
     return
@@ -160,6 +199,7 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
       await changeFileState(file, action, context.signal)
       if (!context.isCurrent()) return
       changed += 1
+      selected.value = selected.value.filter((selected) => selected.fileId !== file.fileId)
     }
     notice.value = `已${labels[action]}${changed}个文件`
     await load()
@@ -200,13 +240,39 @@ onBeforeUnmount(() => {
       <a-button aria-label="返回知识库" @click="router.push('/knowledge')"
         ><ArrowLeftOutlined />返回知识库</a-button
       >
-      <a-button v-if="canReadStorage" aria-label="保留策略" @click="policy?.open()"
-        ><FieldTimeOutlined />保留策略</a-button
-      >
-      <a-button v-if="canReadStorage" aria-label="存储对账" @click="reconcile?.open()"
-        ><PartitionOutlined />存储对账</a-button
-      >
-      <a-button aria-label="保留提醒" @click="reminders?.open()"><BellOutlined />保留提醒</a-button>
+      <a-dropdown :trigger="['click']">
+        <a-button aria-label="高级管理">高级管理<DownOutlined /></a-button>
+        <template #overlay>
+          <a-menu>
+            <a-menu-item
+              key="statistics"
+              aria-label="详细统计"
+              @click="showStatistics = !showStatistics"
+            >
+              <BarChartOutlined />详细统计
+            </a-menu-item>
+            <a-menu-item
+              v-if="canReadStorage"
+              key="policy"
+              aria-label="保留策略"
+              @click="policy?.open()"
+            >
+              <FieldTimeOutlined />保留策略
+            </a-menu-item>
+            <a-menu-item key="reminders" aria-label="保留提醒" @click="reminders?.open()">
+              <BellOutlined />保留提醒
+            </a-menu-item>
+            <a-menu-item
+              v-if="canReadStorage"
+              key="reconcile"
+              aria-label="存储对账"
+              @click="reconcile?.open()"
+            >
+              <PartitionOutlined />存储对账
+            </a-menu-item>
+          </a-menu>
+        </template>
+      </a-dropdown>
     </template>
     <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" /><a-alert
       v-if="notice"
@@ -216,24 +282,46 @@ onBeforeUnmount(() => {
       class="mb8"
       @close="notice = ''"
     />
-    <FileStatistics v-if="stats" :stats="stats" />
+    <FileStatistics v-if="showStatistics && stats" :stats="stats" />
     <section class="file-resources" aria-label="文件资源">
       <div class="file-resources__heading">
-        <h2>
-          文件列表 <span>{{ total }}</span>
-        </h2>
+        <div class="file-resources__overview">
+          <h2>{{ queryParams.status === 'deleted' ? '回收站' : '文件列表' }}</h2>
+          <div v-if="stats" role="region" aria-label="当前查询概览" class="file-summary">
+            当前查询 {{ total }} 个文件 · {{ formatFileSize(stats.totalSize) }}
+          </div>
+        </div>
         <div class="file-resources__tools">
-          <a-tooltip title="显示或隐藏筛选"
+          <a-tooltip title="展开更多筛选条件"
             ><a-button
-              aria-label="显示或隐藏筛选"
+              aria-label="高级筛选"
               :aria-expanded="showSearch"
               @click="showSearch = !showSearch"
-              ><FilterOutlined /></a-button></a-tooltip
+              ><FilterOutlined />高级筛选</a-button
+            ></a-tooltip
           ><a-tooltip title="刷新"
             ><a-button aria-label="刷新文件" :loading="loading" @click="load"
               ><ReloadOutlined /></a-button
           ></a-tooltip>
         </div>
+      </div>
+      <div class="file-view-tabs" role="tablist" aria-label="文件视图">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="queryParams.status === 'active'"
+          @click="switchView('active')"
+        >
+          文件
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="queryParams.status === 'deleted'"
+          @click="switchView('deleted')"
+        >
+          回收站
+        </button>
       </div>
       <FileSearchForm
         v-model:query-params="queryParams"
@@ -242,22 +330,17 @@ onBeforeUnmount(() => {
         @query="search"
         @reset="reset"
       />
-      <div class="table-toolbar mb8">
+      <div v-if="selected.length" role="region" aria-label="批量文件操作" class="table-toolbar mb8">
         <span class="file-selection">已选 {{ selected.length }} 项</span>
         <a-button
-          :disabled="!hasActiveSelection || mutationBusy || loading"
-          @click="acl?.open(activeSelected)"
-          ><LockOutlined />授权</a-button
-        >
-        <a-button
-          :disabled="!hasActiveSelection || mutationBusy || loading"
-          @click="transfer?.open(activeSelected)"
-          ><SwapOutlined />转移</a-button
-        >
-        <a-button
+          v-if="selected.some((file) => file.status === 'deleted')"
+          aria-label="恢复"
           :disabled="
             !selected.length ||
-            selected.some((file) => file.status !== 'deleted' || !canManageFile(identity, file)) ||
+            selected.some(
+              (file) =>
+                file.status !== 'deleted' || file.sourceFileId || !canManageFile(identity, file)
+            ) ||
             mutationBusy ||
             loading
           "
@@ -265,12 +348,15 @@ onBeforeUnmount(() => {
           ><RollbackOutlined />恢复</a-button
         >
         <a-button
+          v-if="selected.some((file) => ['deleted', 'purging'].includes(file.status))"
+          aria-label="永久清理"
           danger
           :disabled="
             !selected.length ||
             selected.some(
               (file) =>
                 !['deleted', 'purging'].includes(file.status) ||
+                file.sourceFileId ||
                 file.referenceCount > 0 ||
                 !canManageFile(identity, file)
             ) ||
@@ -278,9 +364,11 @@ onBeforeUnmount(() => {
             loading
           "
           @click="change('purge')"
-          ><DeleteFilled />清理</a-button
+          ><DeleteFilled />永久清理</a-button
         >
         <a-button
+          v-if="selected.some((file) => file.status === 'active')"
+          aria-label="移入回收站"
           danger
           :disabled="
             !hasActiveSelection ||
@@ -289,14 +377,36 @@ onBeforeUnmount(() => {
             loading
           "
           @click="change('delete')"
-          ><DeleteOutlined />删除</a-button
+          ><DeleteOutlined />移入回收站</a-button
         >
+        <a-dropdown v-if="hasActiveSelection" :trigger="['click']">
+          <a-button aria-label="更多批量操作" :disabled="mutationBusy || loading"
+            >更多<DownOutlined
+          /></a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item
+                key="acl"
+                :disabled="mutationBusy || loading"
+                @click="acl?.open(activeSelected)"
+                ><LockOutlined />授权</a-menu-item
+              >
+              <a-menu-item
+                key="transfer"
+                :disabled="mutationBusy || loading"
+                @click="transfer?.open(activeSelected)"
+                ><SwapOutlined />转移</a-menu-item
+              >
+            </a-menu>
+          </template>
+        </a-dropdown>
       </div>
       <FileTable
         :file-list="files"
         :users="users"
         :loading="loading"
         :busy-ids="loading ? files.map((file) => file.fileId) : busyIds"
+        :selected-ids="selected.map((file) => file.fileId)"
         @selection-change="selected = $event"
         @view="detail?.open($event)"
         @download="download"
@@ -314,7 +424,7 @@ onBeforeUnmount(() => {
         v-model:page-size="queryParams.pageSize"
         :total="total"
         show-size-changer
-        @change="load"
+        @change="changePage"
       />
     </section>
     <FileDetailDialog
@@ -375,9 +485,37 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 400;
 }
+.file-resources__overview {
+  min-width: 0;
+}
+.file-summary {
+  margin-top: 5px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.file-view-tabs {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--gray-150);
+}
+.file-view-tabs button {
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.file-view-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--main-700);
+  color: var(--main-700);
+}
 .file-resources__tools {
   display: flex;
   gap: 8px;
+  flex: 0 0 auto;
 }
 .table-toolbar {
   display: flex;
@@ -398,6 +536,9 @@ onBeforeUnmount(() => {
 @media (max-width: 767px) {
   .file-resources {
     padding: 16px;
+  }
+  .file-resources__heading {
+    flex-wrap: wrap;
   }
   .file-selection {
     flex-basis: 100%;

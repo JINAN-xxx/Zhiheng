@@ -3,10 +3,11 @@ import type { Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { object, string } from '../../../shared/validation.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import type { ContextTicket } from '../../../shared/http.ts'
+import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/graph.ts'
 import type { GraphConfigInput, GraphConfigState, GraphData, GraphJob } from '../api/graph.ts'
-import { waitForObservation } from '../api/index.ts'
 import { graphIsActive } from '../graphPresentation.ts'
 
 interface PendingBuild {
@@ -29,6 +30,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     starting = ref(false),
     stopping = ref(false)
   const error = ref(''),
+    observationError = ref(''),
     uncertain = ref(false),
     configUncertain = ref(false),
     recoverable = ref(false)
@@ -59,6 +61,30 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     }
   }
   let protectedEpoch = 0
+  const graphOptions = { node_label: '*', max_depth: 2, max_nodes: 100 }
+  const equal = (left: unknown, right: unknown): boolean =>
+    JSON.stringify(left) === JSON.stringify(right)
+  const denied = (reason: unknown): boolean =>
+    reason instanceof ApiError && [401, 403, 404].includes(reason.status)
+  const rejectedRead = (reason: unknown): boolean =>
+    reason instanceof ApiError &&
+    reason.status >= 400 &&
+    reason.status < 500 &&
+    ![408, 429].includes(reason.status)
+  function applyConfig(config: GraphConfigState): void {
+    if (state.value && equal(state.value.config, config.config)) config.config = state.value.config
+    state.value = config
+  }
+  function synchronizeJobs(rows: GraphJob[]): void {
+    const previous = new Map(jobs.value.map((job) => [job.id, job]))
+    jobs.value = rows.map((incoming) => {
+      const current = previous.get(incoming.id)
+      return current &&
+        (current.version > incoming.version || (!graphIsActive(current) && graphIsActive(incoming)))
+        ? current
+        : incoming
+    })
+  }
   function withoutProtectedResults(job: GraphJob): GraphJob {
     return {
       ...job,
@@ -88,82 +114,117 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     jobs.value = jobs.value.map(withoutProtectedResults)
     recoverable.value = active.value || !!pending.value || !!cancelId.value
   }
-  async function loadGraph(
-    options = { node_label: '*', max_depth: 2, max_nodes: 100 }
+  async function readGraph(
+    id: string,
+    ticket: ContextTicket,
+    options = graphOptions
   ): Promise<void> {
-    const id = baseId.value,
-      ticket = graphScope.replace()
+    if (!ticket.isCurrent() || id !== baseId.value) return
     if (!state.value?.active_revision || state.value.requires_rebuild) {
       graph.value = null
       labels.value = []
       return
     }
+    const [data, names] = await Promise.all([
+      api.getGraphData(id, options, ticket.signal),
+      api.getGraphLabels(id, ticket.signal)
+    ])
+    if (!ticket.isCurrent() || id !== baseId.value) return
+    if (!equal(graph.value, data)) graph.value = data
+    if (!equal(labels.value, names.items)) labels.value = names.items
+  }
+  async function loadGraph(options = graphOptions): Promise<void> {
+    const id = baseId.value,
+      ticket = graphScope.replace()
     try {
-      const [data, names] = await Promise.all([
-        api.getGraphData(id, options, ticket.signal),
-        api.getGraphLabels(id, ticket.signal)
-      ])
-      if (!ticket.isCurrent() || id !== baseId.value) return
-      graph.value = data
-      labels.value = names.items
+      await readGraph(id, ticket, options)
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
-        hideProtectedResults()
+        if (rejectedRead(reason)) hideProtectedResults()
         error.value = errorMessage(reason)
       }
+    }
+  }
+  async function synchronize(
+    id: string,
+    ticket: ContextTicket,
+    graphTicket: ContextTicket
+  ): Promise<void> {
+    const config = await api.getGraphConfig(id, ticket.signal)
+    const rows = config.can_manage ? await api.listGraphJobs(id, ticket.signal) : []
+    if (!ticket.isCurrent() || id !== baseId.value) return
+    applyConfig(config)
+    synchronizeJobs(rows)
+    configUncertain.value = false
+    try {
+      await readGraph(id, graphTicket)
+    } catch (reason) {
+      // A newer graph selection owns the canvas without stopping job observation.
+      if (isAborted(reason) && ticket.isCurrent() && !graphTicket.isCurrent()) return
+      throw reason
     }
   }
   async function load(): Promise<void> {
     const id = baseId.value,
-      ticket = readScope.replace()
+      ticket = readScope.replace(),
+      graphTicket = graphScope.replace()
+    pollScope.replace()
     if (!id || !enabled.value) return
-    loading.value = true
+    loading.value = state.value === null
     error.value = ''
+    observationError.value = ''
     try {
-      const config = await api.getGraphConfig(id, ticket.signal)
-      const rows = config.can_manage ? await api.listGraphJobs(id, ticket.signal) : []
-      if (!ticket.isCurrent() || id !== baseId.value) return
-      state.value = config
-      for (const job of rows) merge(job)
-      configUncertain.value = false
-      await loadGraph()
-      if (ticket.isCurrent()) void observe()
+      await synchronize(id, ticket, graphTicket)
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
-        if (reason instanceof ApiError && [401, 403, 404].includes(reason.status))
-          state.value = null
-        hideProtectedResults()
+        if (denied(reason)) state.value = null
+        if (rejectedRead(reason)) hideProtectedResults()
       }
     } finally {
-      if (ticket.isCurrent()) loading.value = false
+      if (ticket.isCurrent()) {
+        loading.value = false
+        if (state.value && active.value) void observe()
+      }
     }
   }
   async function observe(): Promise<void> {
+    if (!active.value) return
     const id = baseId.value,
       ticket = pollScope.replace()
     recoverable.value = !!cancelId.value
-    try {
-      while (ticket.isCurrent() && active.value) {
-        await waitForObservation(ticket.signal, 700)
-        for (const job of jobs.value.filter(graphIsActive)) {
-          const result = await api.getGraphJob(id, job.id, ticket.signal)
-          if (!ticket.isCurrent() || id !== baseId.value) return
-          merge(result)
+    observationError.value = ''
+    let failures = 0,
+      needsSynchronization = false
+    while (ticket.isCurrent() && (active.value || needsSynchronization)) {
+      try {
+        await waitForBackgroundObservation(ticket.signal, Math.min(1500 * 2 ** failures, 15_000))
+        if (!needsSynchronization) {
+          for (const job of jobs.value.filter(graphIsActive)) {
+            const result = await api.getGraphJob(id, job.id, ticket.signal)
+            if (!ticket.isCurrent() || id !== baseId.value) return
+            merge(result)
+          }
+          needsSynchronization = !active.value
         }
-      }
-      if (ticket.isCurrent() && state.value && !active.value) {
-        const config = await api.getGraphConfig(id, ticket.signal)
-        if (!ticket.isCurrent() || id !== baseId.value) return
-        state.value = config
-        await loadGraph()
-      }
-    } catch (reason) {
-      if (ticket.isCurrent() && !isAborted(reason)) {
-        error.value = errorMessage(reason)
-        if (reason instanceof ApiError && [401, 403, 404].includes(reason.status))
-          hideProtectedResults()
+        if (needsSynchronization) {
+          await synchronize(id, ticket, graphScope.replace())
+          if (!ticket.isCurrent() || id !== baseId.value) return
+          needsSynchronization = false
+        }
+        failures = 0
+        observationError.value = ''
+        recoverable.value = !!cancelId.value
+      } catch (reason) {
+        if (!ticket.isCurrent() || isAborted(reason)) return
+        observationError.value = errorMessage(reason)
         recoverable.value = true
+        if (denied(reason)) state.value = null
+        if (rejectedRead(reason)) {
+          hideProtectedResults()
+          return
+        }
+        failures = Math.min(failures + 1, 4)
       }
     }
   }
@@ -188,7 +249,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
         ticket.signal
       )
       if (!ticket.isCurrent() || id !== baseId.value) return false
-      state.value = result
+      applyConfig(result)
       return true
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
@@ -220,11 +281,15 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
         ticket.signal
       )
       if (!ticket.isCurrent() || intent.baseId !== baseId.value) return
-      merge(job, epoch)
       pending.value = null
       uncertain.value = false
       persist()
-      void observe()
+      if (epoch !== protectedEpoch) await load()
+      else {
+        merge(job, epoch)
+        if (active.value) void observe()
+        else await load()
+      }
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
@@ -285,10 +350,14 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     try {
       const result = await api.cancelGraphJob(id, job.id, ticket.signal)
       if (!ticket.isCurrent() || id !== baseId.value) return
-      merge(result, epoch)
       cancelId.value = null
       persist()
-      void observe()
+      if (epoch !== protectedEpoch) await load()
+      else {
+        merge(result, epoch)
+        if (active.value) void observe()
+        else await load()
+      }
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
@@ -327,6 +396,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
       labels.value = []
       jobs.value = []
       error.value = ''
+      observationError.value = ''
       pending.value = null
       cancelId.value = null
       uncertain.value = false
@@ -412,7 +482,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     saving,
     starting,
     stopping,
-    error,
+    error: computed(() => error.value || observationError.value),
     uncertain,
     configUncertain,
     recoverable,

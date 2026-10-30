@@ -25,7 +25,7 @@
           <div class="file-stat-icon"><BarChartOutlined /></div>
         </div>
         <div class="file-stat-extra">
-          <span>全部文件累计占用</span>
+          <span>当前查询累计占用</span>
         </div>
       </div>
 

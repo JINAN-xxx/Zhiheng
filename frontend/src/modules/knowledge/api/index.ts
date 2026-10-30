@@ -1,4 +1,5 @@
 import { decodeVoid, http } from '../../../shared/http.ts'
+import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import {
   boolean,
   list,
@@ -581,7 +582,7 @@ export async function observePreparation(
 ): Promise<KnowledgePreparation> {
   let value = update(initial) ?? initial
   while (!preparationFinished(value)) {
-    await waitForObservation(signal)
+    await waitForBackgroundObservation(signal)
     const incoming = await getPreparation(value.id, signal)
     value = update(incoming) ?? incoming
   }

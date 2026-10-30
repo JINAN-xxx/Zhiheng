@@ -59,6 +59,7 @@ const {
   detailLoading,
   listError,
   detailError,
+  observationError,
   actionError,
   actionBusy,
   busy,
@@ -82,8 +83,8 @@ const {
   preparation,
   elapsed,
   loadList,
-  loadDetail,
   refresh,
+  acceptJob,
   navigate,
   back,
   openEditor,
@@ -375,7 +376,7 @@ async function submitManagedImport(): Promise<void> {
   managedImport.uncertain = true
   managedImport.error = ''
   try {
-    await importDocuments(
+    const job = await importDocuments(
       id,
       { ...draft.request, file_ids: [...draft.request.file_ids] },
       ticket.signal
@@ -384,7 +385,7 @@ async function submitManagedImport(): Promise<void> {
     if (ticket.isCurrent()) {
       managedImport.open = false
       managedImport.uncertain = false
-      await refresh()
+      await acceptJob(job)
     }
   } catch (reason) {
     if (reason instanceof ApiError && reason.status < 500) {
@@ -455,7 +456,7 @@ const uploadLabels = {
         :kind="detailLoading ? 'loading' : 'error'"
         :message="detailError"
         :title="detailLoading ? '正在加载知识库' : '知识库不存在或无权访问'"
-        @retry="loadDetail"
+        @retry="refresh"
       />
     </section>
     <template v-else>
@@ -468,6 +469,7 @@ const uploadLabels = {
         :folder-id="folderId"
         :loading="detailLoading"
         :error="detailError"
+        :observation-error="observationError"
         :busy="busy"
         :import-recoverable="importRecoverable"
         @back="back"

@@ -100,113 +100,108 @@
         </a-breadcrumb>
       </div>
 
-      <WorkspaceState v-if="loading && !rows.length" kind="loading" />
-      <WorkspaceState
-        v-else-if="error && !rows.length"
-        kind="error"
-        :message="error"
-        @retry="emit('refresh')"
+      <a-alert
+        v-if="observationError"
+        class="document-alert"
+        type="warning"
+        :message="observationError + '；正在自动重试，后台任务仍会继续。'"
+        show-icon
       />
-      <template v-else>
-        <a-alert v-if="error" class="document-alert" type="warning" :message="error" show-icon />
-        <ResourceTable
-          :columns="columns"
-          :loading="loading"
-          :rows="rows"
-          row-key="rowKey"
-          :scroll-x="760"
-          :pagination="{ pageSize: 15, hideOnSinglePage: true, showSizeChanger: false }"
-          empty-text="当前目录暂无文档"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'name'">
-              <a-button
-                type="link"
-                class="document-name"
-                :aria-label="record.isFolder ? record.name : record.file_name"
-                @click="openRow(record)"
-              >
-                <FolderOutlined v-if="record.isFolder" />
-                <FileTextOutlined v-else />
-                {{ record.isFolder ? record.name : record.file_name }}
-              </a-button>
-            </template>
-            <template v-else-if="column.key === 'status'">
-              <span v-if="record.isFolder">文件夹</span>
-              <a-tag
-                v-else
-                :color="
-                  ['failed', 'error'].includes(record.status)
-                    ? 'error'
-                    : ['processing', 'pending'].includes(record.status)
-                      ? 'processing'
-                      : 'default'
-                "
-              >
-                {{ documentStatus(record.status)
-                }}{{ record.status === 'failed' && record.active_revision ? '（旧索引可用）' : '' }}
-              </a-tag>
-              <p v-if="!record.isFolder && record.error" class="document-error">
-                {{ record.error.message }}
-              </p>
-            </template>
-            <template v-else-if="column.key === 'size'">{{
-              record.isFolder ? '—' : formatSize(record.file_size)
-            }}</template>
-            <template v-else-if="column.key === 'chunks'">{{
-              record.isFolder
-                ? '—'
-                : (record.chunk_size || '—') +
-                  ' / ' +
-                  (record.chunk_overlap ?? '—') +
-                  ' / ' +
-                  (record.chunk_count ?? '—')
-            }}</template>
-            <template v-else-if="column.key === 'time'">{{
-              formatTime(record.created_at)
-            }}</template>
-            <template v-else-if="column.key === 'actions'">
-              <a-space :size="0" wrap>
-                <a-button
-                  v-if="!record.isFolder"
-                  type="link"
-                  size="small"
-                  :aria-label="'下载原文：' + record.file_name"
-                  @click="downloadRow(record)"
-                  >下载原文</a-button
-                >
-                <a-button
-                  v-if="!record.isFolder && database.can_manage"
-                  type="link"
-                  size="small"
-                  :aria-label="'原文权限：' + record.file_name"
-                  @click="sourceAcl(record)"
-                  >原文权限</a-button
-                >
-                <a-button
-                  v-if="database.can_manage"
-                  type="link"
-                  size="small"
-                  :disabled="busy"
-                  @click="editRow(record)"
-                >
-                  {{ record.isFolder ? '重命名' : '重新切片' }}
-                </a-button>
-                <a-button
-                  v-if="database.can_manage"
-                  type="link"
-                  size="small"
-                  danger
-                  :disabled="busy"
-                  @click="removeRow(record)"
-                >
-                  删除
-                </a-button>
-              </a-space>
-            </template>
+      <a-alert v-if="error" class="document-alert" type="warning" :message="error" show-icon />
+      <ResourceTable
+        :columns="columns"
+        :rows="rows"
+        row-key="rowKey"
+        :scroll-x="760"
+        :pagination="{ pageSize: 15, hideOnSinglePage: true, showSizeChanger: false }"
+        empty-text="当前目录暂无文档"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'">
+            <a-button
+              type="link"
+              class="document-name"
+              :aria-label="record.isFolder ? record.name : record.file_name"
+              @click="openRow(record)"
+            >
+              <FolderOutlined v-if="record.isFolder" />
+              <FileTextOutlined v-else />
+              {{ record.isFolder ? record.name : record.file_name }}
+            </a-button>
           </template>
-        </ResourceTable>
-      </template>
+          <template v-else-if="column.key === 'status'">
+            <span v-if="record.isFolder">文件夹</span>
+            <a-tag
+              v-else
+              :color="
+                ['failed', 'error'].includes(record.status)
+                  ? 'error'
+                  : ['processing', 'pending'].includes(record.status)
+                    ? 'processing'
+                    : 'default'
+              "
+            >
+              {{ documentStatus(record.status)
+              }}{{ record.status === 'failed' && record.active_revision ? '（旧索引可用）' : '' }}
+            </a-tag>
+            <p v-if="!record.isFolder && record.error" class="document-error">
+              {{ record.error.message }}
+            </p>
+          </template>
+          <template v-else-if="column.key === 'size'">{{
+            record.isFolder ? '—' : formatSize(record.file_size)
+          }}</template>
+          <template v-else-if="column.key === 'chunks'">{{
+            record.isFolder
+              ? '—'
+              : (record.chunk_size || '—') +
+                ' / ' +
+                (record.chunk_overlap ?? '—') +
+                ' / ' +
+                (record.chunk_count ?? '—')
+          }}</template>
+          <template v-else-if="column.key === 'time'">{{ formatTime(record.created_at) }}</template>
+          <template v-else-if="column.key === 'actions'">
+            <a-space :size="0" wrap>
+              <a-button
+                v-if="!record.isFolder"
+                type="link"
+                size="small"
+                :aria-label="'下载原文：' + record.file_name"
+                @click="downloadRow(record)"
+                >下载原文</a-button
+              >
+              <a-button
+                v-if="!record.isFolder && database.can_manage"
+                type="link"
+                size="small"
+                :aria-label="'原文权限：' + record.file_name"
+                @click="sourceAcl(record)"
+                >原文权限</a-button
+              >
+              <a-button
+                v-if="database.can_manage"
+                type="link"
+                size="small"
+                :disabled="busy"
+                @click="editRow(record)"
+              >
+                {{ record.isFolder ? '重命名' : '重新切片' }}
+              </a-button>
+              <a-button
+                v-if="database.can_manage"
+                type="link"
+                size="small"
+                danger
+                :disabled="busy"
+                @click="removeRow(record)"
+              >
+                删除
+              </a-button>
+            </a-space>
+          </template>
+        </template>
+      </ResourceTable>
       <slot name="jobs" />
     </div>
   </section>
@@ -236,7 +231,6 @@ import {
 } from 'ant-design-vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import { computed, ref, watch } from 'vue'
-import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import KnowledgeSectionNav from './KnowledgeSectionNav.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
@@ -251,6 +245,7 @@ const props = defineProps<{
   folderId: string | null
   loading: boolean
   error: string
+  observationError?: string
   busy: boolean
 }>()
 const emit = defineEmits<{

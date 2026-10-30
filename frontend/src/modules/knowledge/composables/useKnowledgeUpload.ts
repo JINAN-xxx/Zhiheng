@@ -4,7 +4,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/index.ts'
-import type { KnowledgeBase } from '../api/index.ts'
+import type { KnowledgeBase, KnowledgeJob } from '../api/index.ts'
 import { validChunks } from '../presentation.ts'
 import { parseUploadDraft } from '../uploadDraft.ts'
 import type { StagedUpload, UploadDraft } from '../uploadDraft.ts'
@@ -25,7 +25,7 @@ interface UploadContext {
   folderId: Readonly<Ref<string | null>>
   actionBusy: Readonly<Ref<boolean>>
   uncertain: Ref<boolean>
-  onAccepted: () => Promise<void>
+  onAccepted: (job: KnowledgeJob) => Promise<void>
 }
 // Keep only recovery metadata if browser storage fails during an authentication redirect.
 const volatileDrafts = new Map<string, UploadDraft>()
@@ -202,7 +202,7 @@ export function useKnowledgeUpload({
       const ids = uploadItems.value.map((item) => item.fileId!)
       awaitingAdmission = true
       saveDraft()
-      await api.importDocuments(
+      const job = await api.importDocuments(
         id,
         {
           file_ids: ids,
@@ -219,7 +219,8 @@ export function useKnowledgeUpload({
       uploadItems.value = []
       uploadOpen.value = false
       uncertain.value = false
-      await onAccepted()
+      uploading.value = false
+      await onAccepted(job)
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
         uploadError.value = errorMessage(error)
@@ -286,6 +287,11 @@ export function useKnowledgeUpload({
     storageKey = ''
   }
   function retainBeforeLeaving(): boolean {
+    if (identity.value && uploading.value && uploadItems.value.some((item) => !item.fileId)) {
+      uploadOpen.value = true
+      uploadError.value = '原文仍在上传，请等待上传完成后再离开。'
+      return false
+    }
     if (saveDraft() || !identity.value) return true
     uploadOpen.value = true
     uploadError.value = '无法保留未完成的上传，请先完成或取消此批次再离开。'

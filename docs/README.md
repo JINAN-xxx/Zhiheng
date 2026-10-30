@@ -53,3 +53,4 @@
 - [平台积分验收与启用步骤](superpowers/verification/2026-10-29-platform-credits.md)
 - [资源删除问题排查](superpowers/reviews/2026-10-30-resource-lifecycle.md)
 - [资源生命周期修复与验收](superpowers/verification/2026-10-30-resource-lifecycle.md)
+- [后台静默观察与存储管理精简](superpowers/verification/2026-10-30-quiet-background-ui.md)

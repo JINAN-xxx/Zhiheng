@@ -1,6 +1,8 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import type { ContextTicket } from '../../../shared/http.ts'
+import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
 import type { ManagedFile } from '../../files/public.ts'
@@ -19,6 +21,8 @@ import { useKnowledgeUpload } from './useKnowledgeUpload.ts'
 import { useKnowledgeGraph } from './useKnowledgeGraph.ts'
 
 type EditorKind = 'create' | 'base' | 'createFolder' | 'folder' | 'rechunk'
+const jobFinished = (job: KnowledgeJob) =>
+  ['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(job.status)
 
 export function useKnowledgeWorkspace() {
   const route = useRoute(),
@@ -40,6 +44,7 @@ export function useKnowledgeWorkspace() {
     detailLoading = ref(false),
     listError = ref(''),
     detailError = ref(''),
+    observationError = ref(''),
     actionError = ref('')
   const capabilities = ref<Awaited<ReturnType<typeof api.getCapabilities>> | null>(null)
   const graphEnabled = computed(
@@ -62,7 +67,14 @@ export function useKnowledgeWorkspace() {
     queueFile,
     submitUpload,
     resetUpload
-  } = useKnowledgeUpload({ baseId, selected, folderId, actionBusy, uncertain, onAccepted: refresh })
+  } = useKnowledgeUpload({
+    baseId,
+    selected,
+    folderId,
+    actionBusy,
+    uncertain,
+    onAccepted: acceptJob
+  })
   const scope = new RequestScope(),
     detailScope = new RequestScope(),
     writeScope = new RequestScope(),
@@ -74,6 +86,7 @@ export function useKnowledgeWorkspace() {
     () => actionBusy.value || uploading.value || !!selected.value?.active_job_id
   )
   const sourceAclFile = ref<ManagedFile | null>(null)
+  let disposed = false
   const editor = reactive({
     open: false,
     kind: 'create' as EditorKind,
@@ -94,67 +107,186 @@ export function useKnowledgeWorkspace() {
       .filter((model) => model.enabled && model.published && model.model_type === 'embedding')
       .map((model) => ({ value: model.id, label: model.name }))
   )
-  async function loadList(): Promise<void> {
+  async function loadList(silent = false, observer?: ContextTicket): Promise<boolean> {
     const ticket = scope.replace()
-    loading.value = true
+    const signal = observer ? AbortSignal.any([ticket.signal, observer.signal]) : ticket.signal
+    const isCurrent = () => ticket.isCurrent() && (!observer || observer.isCurrent())
+    if (!silent) loading.value = true
     listError.value = ''
     try {
-      const rows = await api.listBases(ticket.signal)
-      if (ticket.isCurrent()) bases.value = rows
+      const rows = await api.listBases(signal)
+      if (!isCurrent()) return false
+      bases.value = rows
+      return true
     } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) listError.value = errorMessage(error)
+      if (isCurrent() && !isAborted(error)) {
+        listError.value = errorMessage(error)
+        if (permissionDenied(error)) {
+          bases.value = []
+          denyProtectedDetail(error)
+        } else if (silent) observationError.value = errorMessage(error)
+      }
+      return false
     } finally {
       if (ticket.isCurrent()) loading.value = false
     }
   }
-  async function loadDetail(): Promise<void> {
+  function denyProtectedDetail(error: unknown): void {
+    scope.replace()
+    pollScope.replace()
+    detailScope.replace()
+    previewScope.replace()
+    sourceScope.replace()
+    writeScope.replace()
+    selected.value = null
+    documents.value = []
+    folders.value = []
+    jobs.value = []
+    bases.value = bases.value.filter((base) => base.id !== baseId.value)
+    sourceAclFile.value = null
+    folderId.value = null
+    Object.assign(preview, { open: false, loading: false, text: '', error: '' })
+    Object.assign(editor, {
+      open: false,
+      base: null,
+      folder: null,
+      doc: null,
+      name: '',
+      description: ''
+    })
+    Object.assign(deletion, { open: false, item: null })
+    actionBusy.value = false
+    loading.value = false
+    query.resetQuery()
+    detailLoading.value = false
+    observationError.value = ''
+    detailError.value = errorMessage(error)
+  }
+  const permissionDenied = (error: unknown) =>
+    error instanceof ApiError && [401, 403, 404].includes(error.status)
+  async function loadDetail(silent = false, observer?: ContextTicket): Promise<boolean> {
     const id = baseId.value
-    if (!id) return
+    if (!id) return false
     const ticket = detailScope.replace()
-    detailLoading.value = true
-    detailError.value = ''
+    const signal = observer ? AbortSignal.any([ticket.signal, observer.signal]) : ticket.signal
+    const isCurrent = () => ticket.isCurrent() && (!observer || observer.isCurrent())
+    if (!silent) {
+      detailLoading.value = true
+      detailError.value = ''
+    }
     try {
-      const base = await api.getBase(id, ticket.signal)
+      const base = await api.getBase(id, signal)
       const [docs, dirs, taskRows] = await Promise.all([
-        api.listDocuments(id, ticket.signal),
-        api.listFolders(id, ticket.signal),
-        base.can_manage ? api.listJobs(id, ticket.signal) : Promise.resolve([])
+        api.listDocuments(id, signal),
+        api.listFolders(id, signal),
+        base.can_manage ? api.listJobs(id, signal) : Promise.resolve([])
       ])
-      if (!ticket.isCurrent() || id !== baseId.value) return
+      if (!isCurrent() || id !== baseId.value) return false
       selected.value = base
       documents.value = docs.items
       folders.value = dirs
       jobs.value = taskRows
       if (folderId.value && !dirs.some((dir) => dir.id === folderId.value)) folderId.value = null
+      detailError.value = ''
+      return true
     } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) detailError.value = errorMessage(error)
+      if (isCurrent() && !isAborted(error)) {
+        if (permissionDenied(error)) denyProtectedDetail(error)
+        else if (silent) observationError.value = errorMessage(error)
+        else detailError.value = errorMessage(error)
+      }
+      return false
     } finally {
       if (ticket.isCurrent()) detailLoading.value = false
     }
   }
   async function pollJobs(): Promise<void> {
+    if (disposed) return
     const ticket = pollScope.replace(),
       id = baseId.value
+    if (!id || view.value !== 'documents' || !selected.value?.can_manage) return
+    const pendingIds = () => {
+      const ids = jobs.value.filter((job) => !jobFinished(job)).map((job) => job.id)
+      const activeId = selected.value?.active_job_id
+      if (activeId && !jobs.value.some((job) => job.id === activeId)) ids.push(activeId)
+      return [...new Set(ids)]
+    }
+    let failures = 0,
+      needsDetailSync = false,
+      needsOverviewSync = false
     try {
       while (
-        id &&
+        ticket.isCurrent() &&
         id === baseId.value &&
-        jobs.value.some(
-          (job) =>
-            !['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(job.status)
-        )
+        (needsDetailSync || needsOverviewSync || pendingIds().length)
       ) {
-        await api.waitForObservation(ticket.signal, 1200)
-        await loadDetail()
-        if (!ticket.isCurrent()) return
+        await waitForBackgroundObservation(ticket.signal, Math.min(1500 * 2 ** failures, 30_000))
+        try {
+          if (!needsDetailSync && !needsOverviewSync) {
+            const updates = await Promise.all(
+              pendingIds().map((jobId) => api.getJob(jobId, ticket.signal))
+            )
+            if (!ticket.isCurrent() || id !== baseId.value) return
+            for (const job of updates) {
+              const current = jobs.value.find((item) => item.id === job.id)
+              if (
+                current &&
+                (current.version > job.version || (jobFinished(current) && !jobFinished(job)))
+              )
+                continue
+              if (!current) jobs.value = [job, ...jobs.value]
+              else if (JSON.stringify(current) !== JSON.stringify(job))
+                jobs.value = jobs.value.map((item) => (item.id === job.id ? job : item))
+              if (jobFinished(job)) needsDetailSync = needsOverviewSync = true
+            }
+          }
+          if (needsDetailSync) {
+            const synced = await loadDetail(true, ticket)
+            if (!ticket.isCurrent() || id !== baseId.value) return
+            if (!synced) {
+              failures = Math.min(failures + 1, 5)
+              continue
+            }
+            needsDetailSync = false
+          }
+          if (needsOverviewSync) {
+            const synced = await loadList(true, ticket)
+            if (!ticket.isCurrent() || id !== baseId.value) return
+            if (!synced) {
+              failures = Math.min(failures + 1, 5)
+              continue
+            }
+            needsOverviewSync = false
+          }
+          failures = 0
+          observationError.value = ''
+        } catch (error) {
+          if (!ticket.isCurrent() || isAborted(error)) return
+          if (permissionDenied(error)) {
+            denyProtectedDetail(error)
+            return
+          }
+          failures = Math.min(failures + 1, 5)
+          observationError.value = errorMessage(error)
+        }
       }
     } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) detailError.value = errorMessage(error)
+      if (ticket.isCurrent() && !isAborted(error)) observationError.value = errorMessage(error)
     }
   }
   async function refresh(): Promise<void> {
-    await Promise.all([loadList(), loadDetail()])
-    void pollJobs()
+    const observer = pollScope.replace()
+    await Promise.all([loadList(false, observer), loadDetail(false, observer)])
+    if (observer.isCurrent()) void pollJobs()
+  }
+  async function acceptJob(job: KnowledgeJob): Promise<void> {
+    if (job.base_id !== baseId.value || !selected.value) return
+    jobs.value = [job, ...jobs.value.filter((item) => item.id !== job.id)]
+    selected.value = {
+      ...selected.value,
+      active_job_id: jobFinished(job) ? null : job.id
+    }
+    await refresh()
   }
   async function navigate(base: KnowledgeBase, destination: string): Promise<void> {
     if (baseId.value === base.id) await loadDetail()
@@ -223,6 +355,7 @@ export function useKnowledgeWorkspace() {
     actionBusy.value = true
     editorError.value = ''
     try {
+      let accepted: KnowledgeJob | undefined
       if (editor.kind === 'create')
         await api.createBase(
           {
@@ -248,7 +381,7 @@ export function useKnowledgeWorkspace() {
       else if (editor.kind === 'folder' && editor.folder)
         await api.renameFolder(editor.folder, editor.name.trim(), ticket.signal)
       else if (editor.kind === 'rechunk' && editor.doc)
-        await api.rechunkDocument(
+        accepted = await api.rechunkDocument(
           editor.doc,
           {
             chunk_size: editor.size!,
@@ -260,7 +393,8 @@ export function useKnowledgeWorkspace() {
       if (!ticket.isCurrent()) return
       editor.open = false
       uncertain.value = false
-      await refresh()
+      if (accepted) await acceptJob(accepted)
+      else await refresh()
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
         editorError.value = errorMessage(error)
@@ -289,18 +423,21 @@ export function useKnowledgeWorkspace() {
     actionBusy.value = true
     actionError.value = ''
     try {
+      let accepted: KnowledgeJob | undefined
       if (deletion.kind === 'base' && 'embed_model_id' in item)
         await api.deleteBase(item, deletion.key, ticket.signal)
       else if (deletion.kind === 'rebuild' && 'embed_model_id' in item)
-        await api.rebuildBase(item, deletion.key, ticket.signal)
+        accepted = await api.rebuildBase(item, deletion.key, ticket.signal)
       else if (deletion.kind === 'folder' && 'parent_id' in item)
-        await api.deleteFolder(item, deletion.key, ticket.signal)
-      else if ('file_id' in item) await api.deleteDocument(item, deletion.key, ticket.signal)
+        accepted = await api.deleteFolder(item, deletion.key, ticket.signal)
+      else if ('file_id' in item)
+        accepted = await api.deleteDocument(item, deletion.key, ticket.signal)
       if (!ticket.isCurrent()) return
       deletion.open = false
       uncertain.value = false
       if (deletion.kind === 'base') await back()
-      await refresh()
+      if (accepted) await acceptJob(accepted)
+      else await refresh()
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
         actionError.value = errorMessage(error)
@@ -316,8 +453,8 @@ export function useKnowledgeWorkspace() {
     actionBusy.value = true
     actionError.value = ''
     try {
-      await api.cancelJob(job.id, ticket.signal)
-      if (ticket.isCurrent()) await refresh()
+      const cancelled = await api.cancelJob(job.id, ticket.signal)
+      if (ticket.isCurrent()) await acceptJob(cancelled)
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) actionError.value = errorMessage(error)
     } finally {
@@ -388,6 +525,7 @@ export function useKnowledgeWorkspace() {
       jobs.value = []
       folderId.value = null
       detailError.value = ''
+      observationError.value = ''
       actionError.value = ''
       editor.open = false
       deletion.open = false
@@ -400,6 +538,13 @@ export function useKnowledgeWorkspace() {
       }
     },
     { immediate: true }
+  )
+  watch(
+    () => route.path,
+    () => {
+      pollScope.replace()
+      if (selected.value?.id === baseId.value) void pollJobs()
+    }
   )
   const initial = optionsScope.current()
   void Promise.allSettled([
@@ -417,6 +562,7 @@ export function useKnowledgeWorkspace() {
   })
   void loadList()
   onBeforeUnmount(() => {
+    disposed = true
     for (const owner of [
       scope,
       detailScope,
@@ -446,6 +592,7 @@ export function useKnowledgeWorkspace() {
     detailLoading,
     listError,
     detailError,
+    observationError,
     actionError,
     actionBusy,
     busy,
@@ -465,6 +612,7 @@ export function useKnowledgeWorkspace() {
     loadList,
     loadDetail,
     refresh,
+    acceptJob,
     navigate,
     back,
     openEditor,

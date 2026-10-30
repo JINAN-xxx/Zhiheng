@@ -1,87 +1,102 @@
 <!-- Adapted from original FileSearchForm, MIT licensed. -->
 <template>
-  <a-form v-show="show" :model="queryParams" layout="vertical" class="file-search-form">
+  <a-form :model="queryParams" layout="vertical" class="file-search-form">
     <a-form-item label="文件名称" name="originalName">
       <a-input
         v-model:value="queryParams.originalName"
+        aria-label="搜索文件名"
         placeholder="请输入原始文件名"
         allow-clear
         @press-enter="emit('query')"
       />
     </a-form-item>
-    <a-form-item label="访问类型" name="accessType">
-      <a-select
-        :value="queryParams.accessType || undefined"
-        placeholder="请选择访问类型"
-        allow-clear
-        :options="accessTypeOptions"
-        @update:value="setAccess"
-      />
-    </a-form-item>
-    <a-form-item label="文件状态" name="status">
-      <a-select
-        :value="queryParams.status || undefined"
-        placeholder="请选择文件状态"
-        allow-clear
-        :options="statusOptions"
-        @update:value="setStatus"
-      />
-    </a-form-item>
-    <a-form-item label="上传用户" name="uploaderSearch">
-      <a-input
-        v-model:value="queryParams.uploaderSearch"
-        placeholder="请输入上传用户"
-        allow-clear
-        @press-enter="emit('query')"
-      />
-    </a-form-item>
-    <a-form-item label="所有者" name="ownerSearch">
-      <a-input
-        v-model:value="queryParams.ownerSearch"
-        placeholder="请输入所有者"
-        allow-clear
-        @press-enter="emit('query')"
-      />
-    </a-form-item>
-    <a-form-item label="过期状态" name="expirationStatus">
-      <a-select
-        :value="queryParams.expirationStatus || undefined"
-        placeholder="请选择过期状态"
-        allow-clear
-        :options="expirationOptions"
-        @update:value="setExpiration"
-      />
-    </a-form-item>
     <a-form-item label="文件类型" name="mime"
-      ><a-input
-        v-model:value="queryParams.mime"
-        aria-label="筛选 MIME 类型"
-        placeholder="例如 text/plain"
+      ><a-select
+        class="file-type-filter"
+        :value="queryParams.mime"
+        :options="fileTypeOptions"
+        show-search
+        option-filter-prop="label"
         allow-clear
-        @press-enter="emit('query')"
+        @update:value="setMime"
     /></a-form-item>
-    <a-form-item label="上传时间">
-      <a-range-picker
-        v-bind="dateRange ? { value: dateRange } : {}"
-        value-format="YYYY-MM-DD HH:mm:ss"
-        show-time
-        :placeholder="['开始时间', '结束时间']"
-        @update:value="setDates"
-      />
-    </a-form-item>
-    <a-form-item
+    <a-form-item class="file-search-actions"
       ><a-space
         ><a-button aria-label="搜索文件" type="primary" @click="emit('query')"
           ><SearchOutlined />搜索</a-button
-        ><a-button aria-label="重置筛选" @click="handleReset"
+        ><a-button aria-label="重置筛选" @click="emit('reset')"
           ><ReloadOutlined />重置</a-button
         ></a-space
       ></a-form-item
     >
+    <div v-show="show" class="file-advanced-search">
+      <a-form-item label="自定义 MIME 类型">
+        <a-input
+          v-model:value="queryParams.mime"
+          aria-label="筛选 MIME 类型"
+          placeholder="例如 application/octet-stream"
+          allow-clear
+          @press-enter="emit('query')"
+        />
+      </a-form-item>
+      <a-form-item label="访问类型" name="accessType">
+        <a-select
+          :value="queryParams.accessType || undefined"
+          placeholder="请选择访问类型"
+          allow-clear
+          :options="accessTypeOptions"
+          @update:value="setAccess"
+        />
+      </a-form-item>
+      <a-form-item label="文件状态" name="status">
+        <a-select
+          :value="queryParams.status || undefined"
+          placeholder="请选择文件状态"
+          allow-clear
+          :options="statusOptions"
+          @update:value="setStatus"
+        />
+      </a-form-item>
+      <a-form-item label="上传用户" name="uploaderSearch">
+        <a-input
+          v-model:value="queryParams.uploaderSearch"
+          placeholder="请输入上传用户"
+          allow-clear
+          @press-enter="emit('query')"
+        />
+      </a-form-item>
+      <a-form-item label="所有者" name="ownerSearch">
+        <a-input
+          v-model:value="queryParams.ownerSearch"
+          placeholder="请输入所有者"
+          allow-clear
+          @press-enter="emit('query')"
+        />
+      </a-form-item>
+      <a-form-item label="过期状态" name="expirationStatus">
+        <a-select
+          :value="queryParams.expirationStatus || undefined"
+          placeholder="请选择过期状态"
+          allow-clear
+          :options="expirationOptions"
+          @update:value="setExpiration"
+        />
+      </a-form-item>
+      <a-form-item label="上传时间">
+        <a-range-picker
+          v-bind="dateRange ? { value: dateRange } : {}"
+          value-format="YYYY-MM-DD HH:mm:ss"
+          show-time
+          :placeholder="['开始时间', '结束时间']"
+          @update:value="setDates"
+        />
+      </a-form-item>
+    </div>
   </a-form>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import {
   Form as AForm,
   FormItem as AFormItem,
@@ -92,8 +107,8 @@ import {
   Space as ASpace
 } from 'ant-design-vue'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
-import { emptyQuery } from '../api/index.ts'
 import type { FileQuery } from '../api/index.ts'
+import { commonFileTypeOptions } from '../presentation.ts'
 const accessTypeOptions = [
   { label: '平台内公开', value: 'public' },
   { label: '受保护文件', value: 'private' }
@@ -114,6 +129,15 @@ defineProps<{ show: boolean }>()
 const emit = defineEmits<{ query: []; reset: [] }>()
 const queryParams = defineModel<FileQuery>('queryParams', { required: true })
 const dateRange = defineModel<[string, string] | null>('dateRange', { required: true })
+const fileTypeOptions = computed(() => {
+  const mime = queryParams.value.mime
+  return commonFileTypeOptions.some((option) => option.value === mime)
+    ? commonFileTypeOptions
+    : [...commonFileTypeOptions, { label: '自定义类型', value: mime }]
+})
+function setMime(value: unknown): void {
+  queryParams.value.mime = typeof value === 'string' ? value : ''
+}
 function setAccess(value: unknown): void {
   queryParams.value.accessType = value === 'public' || value === 'private' ? value : ''
 }
@@ -135,17 +159,12 @@ function setDates(value: unknown): void {
       ? [value[0], value[1]]
       : null
 }
-function handleReset(): void {
-  Object.assign(queryParams.value, emptyQuery())
-  dateRange.value = null
-  emit('reset')
-}
 </script>
 
 <style scoped>
 .file-search-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
   gap: 12px 16px;
   margin-bottom: 18px;
   padding-bottom: 18px;
@@ -166,24 +185,26 @@ function handleReset(): void {
 .file-search-form :deep(.ant-picker) {
   width: 100%;
 }
-.file-search-form :deep(.ant-form-item:last-child) {
+.file-advanced-search {
+  display: grid;
   grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-end;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
 }
-@media (max-width: 1120px) {
-  .file-search-form {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.file-search-actions {
+  align-self: end;
 }
 @media (max-width: 760px) {
+  .file-advanced-search,
   .file-search-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 480px) {
   .file-search-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .file-advanced-search {
     grid-template-columns: minmax(0, 1fr);
   }
 }

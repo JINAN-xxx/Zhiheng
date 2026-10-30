@@ -5,19 +5,18 @@
     :rows="fileList"
     :loading="loading"
     row-key="fileId"
-    :scroll-x="1750"
+    :scroll-x="900"
   >
-    <template #headerCell="{ column }"
-      ><a-checkbox
+    <template #headerCell="{ column }">
+      <a-checkbox
         v-if="column.key === 'selection'"
         aria-label="全选文件"
         :checked="allSelected"
         :indeterminate="someSelected"
         @change="toggleAll"
-      /><template v-else>{{
-        columns.find((item) => item.key === column.key)?.title
-      }}</template></template
-    >
+      />
+      <template v-else>{{ columns.find((item) => item.key === column.key)?.title }}</template>
+    </template>
     <template #bodyCell="{ column, record: row }">
       <a-checkbox
         v-if="column.key === 'selection'"
@@ -26,61 +25,30 @@
         :checked="selectedIds.includes(row.fileId)"
         @change="(event) => toggleRow(row, event.target?.checked ?? false)"
       />
-      <a-tag
-        v-else-if="column.key === 'accessType'"
-        :color="row.accessType === 'public' ? 'green' : 'orange'"
-        >{{ row.accessType === 'public' ? '公开' : '受保护' }}</a-tag
-      >
-      <template v-else-if="column.key === 'originalName'"
-        ><span class="file-name"
+      <template v-else-if="column.key === 'originalName'">
+        <span class="file-name"
           ><FileTextOutlined /><span>{{ row.displayName }}</span></span
-        ><small v-if="row.displayName !== row.originalName" class="file-original-name">{{
+        >
+        <small v-if="row.displayName !== row.originalName" class="file-summary">{{
           row.originalName
-        }}</small></template
-      ><template v-else-if="column.key === 'extension'">{{
-        row.originalName.includes('.') ? row.originalName.split('.').pop()?.toLowerCase() : '—'
-      }}</template
-      ><template v-else-if="column.key === 'createBy'">{{ userLabel(row.uploaderUserId) }}</template
-      ><template v-else-if="column.key === 'fileSize'">{{ formatFileSize(row.fileSize) }}</template
-      ><template v-else-if="column.key === 'ownerName'">{{ userLabel(row.ownerUserId) }}</template>
-      <a-tag v-else-if="column.key === 'expireTime'" :color="expirationTagType(row.expireTime)">{{
-        expirationLabel(row.expireTime)
-      }}</a-tag>
-      <template v-else-if="column.key === 'acl'"
-        ><a-tooltip
-          v-if="row.aclNearestExpireTime"
-          :title="`最近过期：${formatTime(row.aclNearestExpireTime)}`"
-          ><a-tag :color="isAclExpiring(row.aclNearestExpireTime) ? 'orange' : 'default'"
-            >{{ row.aclEntryCount }} 项<span v-if="isAclExpiring(row.aclNearestExpireTime)">
-              · 即将过期</span
-            ></a-tag
-          ></a-tooltip
-        ><span v-else>{{ row.aclEntryCount || 0 }} 项</span></template
-      >
-      <template v-else-if="column.key === 'reference'"
-        ><a-button
-          v-if="row.referenceCount && canManageFile(identity, row)"
-          type="link"
-          @click="emit('reference', row)"
-          >{{ row.referenceCount }} 项</a-button
-        ><span v-else>{{ row.referenceCount }} 项</span></template
-      >
-      <a-tag
-        v-else-if="column.key === 'storageStatus'"
-        :color="storageStatusTagType(row.storageStatus)"
-        >{{ storageStatusLabel(row.storageStatus) }}</a-tag
-      >
+        }}</small>
+        <small class="file-summary"
+          >{{ formatFileSize(row.fileSize) }} ·
+          {{ fileTypeLabel(row.originalName, row.mimeType) }}</small
+        >
+      </template>
+      <template v-else-if="column.key === 'source'">
+        <span>{{ userLabel(row.uploaderUserId) }}</span>
+        <small class="file-source">{{ row.sourceFileId ? '派生文件' : '上传文件' }}</small>
+      </template>
       <template v-else-if="column.key === 'createTime'">{{ formatTime(row.createTime) }}</template>
-      <template v-else-if="column.key === 'status'"
-        ><a-tag
-          :color="
-            row.status === 'active' ? 'green' : row.status === 'deleted' ? 'default' : 'orange'
-          "
-          >{{ statusLabel(row.status) }}</a-tag
-        ></template
+      <a-tag
+        v-else-if="column.key === 'status'"
+        :color="row.status === 'active' ? 'green' : row.status === 'deleted' ? 'default' : 'orange'"
+        >{{ statusLabel(row.status) }}</a-tag
       >
-      <a-space v-else-if="column.key === 'actions'" :size="2">
-        <a-tooltip title="详细"
+      <a-space v-else-if="column.key === 'actions'" :size="2" class="file-actions">
+        <a-tooltip title="详情"
           ><a-button
             type="link"
             :aria-label="`查看文件：${row.displayName}`"
@@ -96,74 +64,102 @@
             @click="emit('download', row)"
             ><DownloadOutlined /></a-button
         ></a-tooltip>
-        <a-tooltip v-if="row.status === 'active' && canManageFile(identity, row)" title="授权"
-          ><a-button
-            type="link"
-            :aria-label="`访问权限：${row.displayName}`"
-            :disabled="immutable(row)"
-            @click="emit('acl', row)"
-            ><LockOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip v-if="row.status === 'active' && canManageFile(identity, row)" title="转移"
-          ><a-button
-            type="link"
-            :aria-label="`转移文件：${row.displayName}`"
-            :disabled="immutable(row)"
-            @click="emit('transfer', row)"
-            ><SwapOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip v-if="canManageFile(identity, row)" title="审计"
-          ><a-button
-            type="link"
-            :aria-label="`文件审计：${row.displayName}`"
-            :disabled="locked(row)"
-            @click="emit('audit', row)"
-            ><AuditOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip
-          v-if="row.status === 'active' && row.referenceCount && canManageFile(identity, row)"
-          title="存在业务引用，无法删除"
-          ><a-button type="link" danger disabled><DeleteOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip v-else-if="row.status === 'active' && canManageFile(identity, row)" title="删除"
-          ><a-button
-            type="link"
-            danger
-            :aria-label="`删除文件：${row.displayName}`"
-            :disabled="immutable(row)"
-            @click="emit('delete', row)"
-            ><DeleteOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip v-if="row.status === 'deleted' && canManageFile(identity, row)" title="恢复"
-          ><a-button
-            type="link"
-            :aria-label="`恢复文件：${row.displayName}`"
-            :disabled="immutable(row)"
-            @click="emit('restore', row)"
-            ><RollbackOutlined /></a-button
-        ></a-tooltip>
-        <a-tooltip
-          v-if="row.status !== 'active' && canManageFile(identity, row)"
-          :title="row.status === 'purging' ? '重试永久清理' : '永久清理'"
-          ><a-button
-            type="link"
-            danger
-            :aria-label="`永久清理：${row.displayName}`"
-            :disabled="immutable(row)"
-            @click="emit('purge', row)"
-            ><DeleteFilled /></a-button
-        ></a-tooltip>
+        <template v-if="canManageFile(identity, row)">
+          <a-tooltip
+            v-if="row.status === 'active'"
+            :title="row.referenceCount ? '存在业务引用，无法移入回收站' : '移入回收站'"
+          >
+            <a-button
+              type="link"
+              danger
+              :aria-label="`删除文件：${row.displayName}`"
+              :disabled="immutable(row) || row.referenceCount > 0"
+              @click="emit('delete', row)"
+              ><DeleteOutlined
+            /></a-button>
+          </a-tooltip>
+          <a-tooltip v-if="row.status === 'deleted'" title="恢复"
+            ><a-button
+              type="link"
+              :aria-label="`恢复文件：${row.displayName}`"
+              :disabled="immutable(row)"
+              @click="emit('restore', row)"
+              ><RollbackOutlined /></a-button
+          ></a-tooltip>
+          <a-tooltip
+            v-if="['deleted', 'purging'].includes(row.status)"
+            :title="
+              row.referenceCount
+                ? '存在业务引用，无法永久清理'
+                : row.status === 'purging'
+                  ? '重试永久清理'
+                  : '永久清理'
+            "
+          >
+            <a-button
+              type="link"
+              danger
+              :aria-label="`永久清理：${row.displayName}`"
+              :disabled="immutable(row) || row.referenceCount > 0"
+              @click="emit('purge', row)"
+              ><DeleteFilled
+            /></a-button>
+          </a-tooltip>
+          <a-dropdown :trigger="['click']">
+            <a-button
+              type="link"
+              :aria-label="`更多操作：${row.displayName}`"
+              :disabled="locked(row)"
+              ><MoreOutlined
+            /></a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item
+                  v-if="row.status === 'active'"
+                  key="acl"
+                  :aria-label="`访问权限：${row.displayName}`"
+                  :disabled="immutable(row)"
+                  @click="emit('acl', row)"
+                  ><LockOutlined />访问权限</a-menu-item
+                >
+                <a-menu-item
+                  v-if="row.status === 'active'"
+                  key="transfer"
+                  :aria-label="`转移文件：${row.displayName}`"
+                  :disabled="immutable(row)"
+                  @click="emit('transfer', row)"
+                  ><SwapOutlined />转移文件</a-menu-item
+                >
+                <a-menu-item
+                  key="reference"
+                  :aria-label="`业务引用：${row.displayName}`"
+                  @click="emit('reference', row)"
+                  ><LinkOutlined />业务引用</a-menu-item
+                >
+                <a-menu-item
+                  key="audit"
+                  :aria-label="`文件审计：${row.displayName}`"
+                  @click="emit('audit', row)"
+                  ><AuditOutlined />文件审计</a-menu-item
+                >
+              </a-menu>
+            </template>
+          </a-dropdown>
+        </template>
       </a-space>
     </template>
   </ResourceTable>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import {
   Button as AButton,
   Checkbox as ACheckbox,
+  Dropdown as ADropdown,
+  Menu as AMenu,
+  MenuItem as AMenuItem,
   Space as ASpace,
   Tag as ATag,
   Tooltip as ATooltip
@@ -175,28 +171,22 @@ import {
   DownloadOutlined,
   EyeOutlined,
   FileTextOutlined,
+  LinkOutlined,
   LockOutlined,
+  MoreOutlined,
   RollbackOutlined,
   SwapOutlined
 } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { identity } from '../../identity/public.ts'
 import { canManageFile } from '../access.ts'
-import {
-  expirationLabel,
-  expirationTagType,
-  formatFileSize,
-  formatTime,
-  isAclExpiring,
-  statusLabel,
-  storageStatusLabel,
-  storageStatusTagType
-} from '../presentation.ts'
+import { fileTypeLabel, formatFileSize, formatTime, statusLabel } from '../presentation.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'
 const props = defineProps<{
   fileList: ManagedFile[]
   loading: boolean
   busyIds: string[]
+  selectedIds: string[]
   users: FileUser[]
 }>()
 const emit = defineEmits<{
@@ -211,33 +201,20 @@ const emit = defineEmits<{
   restore: [row: ManagedFile]
   purge: [row: ManagedFile]
 }>()
-const selectedIds = ref<string[]>([])
-const selectedRows = computed(() =>
-  props.fileList.filter((row) => selectedIds.value.includes(row.fileId))
-)
+const selectableRows = computed(() => props.fileList.filter((row) => !immutable(row)))
 const allSelected = computed(
   () =>
-    props.fileList.some((row) => !immutable(row)) &&
-    props.fileList
-      .filter((row) => !immutable(row))
-      .every((row) => selectedIds.value.includes(row.fileId))
+    selectableRows.value.length > 0 &&
+    selectableRows.value.every((row) => props.selectedIds.includes(row.fileId))
 )
-const someSelected = computed(() => selectedIds.value.length > 0 && !allSelected.value)
+const someSelected = computed(() => props.selectedIds.length > 0 && !allSelected.value)
 const columns: TableColumnsType<ManagedFile> = [
   { title: '', key: 'selection', width: 48 },
-  { title: '文件名称', key: 'originalName', width: 220, ellipsis: true },
-  { title: '访问类型', key: 'accessType', width: 110 },
-  { title: '扩展名', key: 'extension', width: 90 },
-  { title: '文件大小', key: 'fileSize', width: 120 },
-  { title: '上传用户', key: 'createBy', width: 120, ellipsis: true },
-  { title: '所有者', key: 'ownerName', width: 120 },
-  { title: '文件有效期', key: 'expireTime', width: 150 },
-  { title: 'ACL', key: 'acl', width: 130 },
-  { title: '业务引用', key: 'reference', width: 100 },
-  { title: '存储状态', key: 'storageStatus', width: 110 },
-  { title: '上传时间', key: 'createTime', width: 180 },
+  { title: '文件名称', key: 'originalName', width: 300, ellipsis: true },
   { title: '状态', key: 'status', width: 90 },
-  { title: '操作', key: 'actions', width: 300, fixed: 'right' }
+  { title: '来源', key: 'source', width: 140, ellipsis: true },
+  { title: '上传时间', key: 'createTime', width: 180 },
+  { title: '操作', key: 'actions', width: 160, fixed: 'right' }
 ]
 function locked(row: ManagedFile): boolean {
   return props.busyIds.includes(row.fileId)
@@ -253,29 +230,19 @@ function immutable(row: ManagedFile): boolean {
 function userLabel(id: string): string {
   return props.users.find((user) => user.id === id)?.username ?? id
 }
-function notifySelection(): void {
-  emit('selection-change', selectedRows.value)
-}
 function toggleRow(row: ManagedFile, checked: boolean): void {
   if (immutable(row)) return
-  selectedIds.value = checked
-    ? [...new Set([...selectedIds.value, row.fileId])]
-    : selectedIds.value.filter((id) => id !== row.fileId)
-  notifySelection()
+  const ids = checked
+    ? [...new Set([...props.selectedIds, row.fileId])]
+    : props.selectedIds.filter((id) => id !== row.fileId)
+  emit(
+    'selection-change',
+    props.fileList.filter((file) => ids.includes(file.fileId))
+  )
 }
 function toggleAll(event: { target: { checked?: boolean } }): void {
-  selectedIds.value = event.target.checked
-    ? props.fileList.filter((row) => !immutable(row)).map((row) => row.fileId)
-    : []
-  notifySelection()
+  emit('selection-change', event.target.checked ? selectableRows.value : [])
 }
-watch(
-  () => props.fileList,
-  () => {
-    selectedIds.value = []
-    notifySelection()
-  }
-)
 </script>
 
 <style scoped>
@@ -294,21 +261,21 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-original-name {
+.file-summary,
+.file-source {
   display: block;
   margin-top: 3px;
-  padding-left: 22px;
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.file-action-disabled-wrapper {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 12px;
-  vertical-align: middle;
+.file-summary {
+  padding-left: 22px;
+}
+.file-actions :deep(.ant-btn) {
+  width: 30px;
+  padding-inline: 6px;
 }
 </style>

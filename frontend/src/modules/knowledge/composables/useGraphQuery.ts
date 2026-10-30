@@ -1,11 +1,11 @@
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { object, string } from '../../../shared/validation.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/graph.ts'
 import type { GraphJob, GraphQueryResult } from '../api/graph.ts'
-import { waitForObservation } from '../api/index.ts'
 import { graphIsActive } from '../graphPresentation.ts'
 
 export type GraphQueryMode = 'mix' | 'local' | 'global' | 'hybrid' | 'naive'
@@ -62,7 +62,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
           persist()
           continue
         }
-        await waitForObservation(ticket.signal, 600)
+        await waitForBackgroundObservation(ticket.signal)
         const job = await api.getGraphJob(id, current.id, ticket.signal)
         if (!ticket.isCurrent() || id !== baseId.value) return
         if (job.version >= current.version) current = job
@@ -212,6 +212,8 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
       return false
     }
     if (!raw) return false
+    const id = baseId.value,
+      ticket = scope.replace()
     let restoredSettled = false
     try {
       const saved = object(JSON.parse(raw) as unknown)
@@ -232,8 +234,6 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
       cancelRequested = saved.cancelRequested === true
       if (saved.jobId !== null) {
         knownJobId = string(saved.jobId)
-        const id = baseId.value,
-          ticket = scope.replace()
         busy.value = true
         const job = await api.getGraphJob(id, knownJobId, ticket.signal)
         if (!ticket.isCurrent() || id !== baseId.value) return false
@@ -250,6 +250,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
       }
       return !!current || !!intent || !!knownJobId
     } catch (reason) {
+      if (!ticket.isCurrent() || id !== baseId.value || isAborted(reason)) return false
       result.value = null
       busy.value = false
       error.value = errorMessage(reason)

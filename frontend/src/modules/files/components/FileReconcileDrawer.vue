@@ -21,7 +21,9 @@ import type { TableColumnsType } from 'ant-design-vue'
 import { ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import type { ContextTicket } from '../../../shared/http.ts'
+import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import {
   getFileJobs,
   getReconcileIssues,
@@ -37,6 +39,8 @@ const visible = ref(false),
   loading = ref(false),
   busy = ref(false),
   error = ref(''),
+  observationError = ref(''),
+  readDenied = ref(false),
   activeTab = ref('issues'),
   modalOpen = ref(false)
 const issues = ref<ReconcileIssue[]>([]),
@@ -71,7 +75,6 @@ const jobStatuses: Record<FileJob['status'], string> = {
 }
 const scope = new RequestScope(),
   writes = new RequestScope()
-let poll: ReturnType<typeof setTimeout> | undefined
 const runs = computed(() => jobs.value.filter((job) => job.kind === 'reconcile'))
 const running = computed(() => jobs.value.some((job) => job.status === 'running'))
 const issueColumns: TableColumnsType<ReconcileIssue> = [
@@ -94,12 +97,7 @@ const runColumns: TableColumnsType<FileJob> = [
   { title: '完成时间', key: 'finishedAt', width: 180 },
   { title: '失败原因', key: 'errors', width: 250 }
 ]
-function stopPolling(): void {
-  if (poll) clearTimeout(poll)
-  poll = undefined
-}
 function close(): void {
-  stopPolling()
   scope.replace()
   writes.replace()
   visible.value = false
@@ -115,15 +113,24 @@ function open(): void {
   close()
   visible.value = true
   error.value = ''
+  observationError.value = ''
   activeTab.value = 'issues'
   void refresh()
 }
-async function refresh(): Promise<void> {
+function observeNext(context: ContextTicket, delay = 2000): void {
+  void waitForBackgroundObservation(context.signal, delay)
+    .then(() => {
+      if (context.isCurrent() && visible.value) void refresh(true)
+    })
+    .catch((reason: unknown) => {
+      if (context.isCurrent() && !isAborted(reason)) observationError.value = errorMessage(reason)
+    })
+}
+async function refresh(background = false): Promise<void> {
   if (!props.canRead) return
-  stopPolling()
   const context = scope.replace(),
     requested = status.value
-  loading.value = true
+  if (!background) loading.value = true
   try {
     const [values, counts, runs] = await Promise.all([
       getReconcileIssues(requested, context.signal),
@@ -134,12 +141,29 @@ async function refresh(): Promise<void> {
     issues.value = values
     Object.assign(stats, counts)
     jobs.value = runs
-    if (runs.some((job) => job.status === 'running'))
-      poll = setTimeout(() => {
-        if (visible.value) void refresh()
-      }, 2000)
+    readDenied.value = false
+    observationError.value = ''
+    if (runs.some((job) => job.status === 'running')) observeNext(context)
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      observationError.value = errorMessage(reason)
+      if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
+        issues.value = []
+        jobs.value = []
+        current.value = null
+        modalOpen.value = false
+        Object.assign(stats, { open: 0, resolved: 0, ignored: 0, quarantined: 0 })
+        readDenied.value = true
+        error.value = ''
+      } else if (
+        visible.value &&
+        running.value &&
+        (reason instanceof TypeError ||
+          (reason instanceof ApiError &&
+            (reason.status >= 500 || [408, 429].includes(reason.status))))
+      )
+        observeNext(context, 4000)
+    }
   } finally {
     if (context.isCurrent()) loading.value = false
   }
@@ -151,7 +175,7 @@ function setStatus(value: unknown): void {
   }
 }
 function actions(issue: ReconcileIssue): Action[] {
-  if (!props.canWrite) return []
+  if (!props.canWrite || readDenied.value) return []
   if (issue.status === 'quarantined' && issue.fileId) return ['repair']
   if (issue.status !== 'open') return []
   if (issue.kind === 'orphan') return ['ignore', 'quarantine', 'register']
@@ -165,7 +189,7 @@ function handleCommand(value: unknown, issue: ReconcileIssue): void {
   modalOpen.value = true
 }
 async function command(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
-  if (busy.value || running.value || !props.canWrite) return
+  if (busy.value || running.value || readDenied.value || !props.canWrite) return
   const context = writes.replace()
   busy.value = true
   error.value = ''
@@ -177,8 +201,9 @@ async function command(action: (signal: AbortSignal) => Promise<void>): Promise<
     }
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
+      const message = errorMessage(reason)
       await refresh()
+      if (context.isCurrent() && visible.value && !readDenied.value) error.value = message
     }
   } finally {
     if (context.isCurrent()) busy.value = false
@@ -212,7 +237,6 @@ async function submit(): Promise<void> {
   })
 }
 onBeforeUnmount(() => {
-  stopPolling()
   scope.dispose()
   writes.dispose()
 })
@@ -220,7 +244,13 @@ defineExpose({ open })
 </script>
 <template>
   <ResourceDrawer :open="visible" title="文件存储对账" width="88%" @close="close">
-    <a-alert v-if="error" :message="error" type="error" show-icon class="mb8" />
+    <a-alert
+      v-if="error || observationError"
+      :message="error || observationError"
+      type="error"
+      show-icon
+      class="mb8"
+    />
     <a-alert
       message="对账检查登记信息与实际文件的大小和摘要。隔离文件不可下载；修复仅复验已恢复的真实内容。每次分批检查，连续运行会继续扫描。"
       type="info"
@@ -257,10 +287,11 @@ defineExpose({ open })
           v-if="canWrite"
           type="primary"
           aria-label="开始对账"
+          :disabled="readDenied"
           :loading="busy || running"
           @click="scan"
           ><ReloadOutlined />开始对账</a-button
-        ><a-button :loading="loading" @click="refresh">刷新</a-button>
+        ><a-button :loading="loading" @click="refresh()">刷新</a-button>
       </div>
     </div>
     <a-tabs :active-key="activeTab" @update:active-key="(value) => (activeTab = String(value))">

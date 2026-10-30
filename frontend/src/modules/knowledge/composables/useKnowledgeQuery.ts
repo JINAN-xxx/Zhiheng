@@ -21,6 +21,7 @@ export function useKnowledgeQuery(
 ) {
   const graphQuery = useGraphQuery(baseId)
   const graphTarget = ref(false)
+  const selectionScope = new RequestScope()
   async function submitSelectedQuery(
     text: string,
     target: 'kb' | 'graph' = 'kb',
@@ -28,18 +29,24 @@ export function useKnowledgeQuery(
   ): Promise<void> {
     if (target === 'graph') {
       if (queryBusy.value || queryRecoverable.value) return
+      selectionScope.replace()
       graphTarget.value = true
       await graphQuery.submit(text, mode)
     } else {
       if (graphQuery.busy.value || graphQuery.recoverable.value) return
+      selectionScope.replace()
       graphTarget.value = false
       graphQuery.clear()
       await submitQuery(text)
     }
   }
   async function restoreSelectedQuery(id: string): Promise<void> {
+    if (id !== baseId.value) return
+    const ticket = selectionScope.replace()
     graphTarget.value = graphQuery.hasSaved()
-    graphTarget.value = await graphQuery.restore()
+    const restored = await graphQuery.restore()
+    if (!ticket.isCurrent() || id !== baseId.value) return
+    graphTarget.value = restored
     if (!graphTarget.value) await restoreQuery(id)
   }
   const queryBusy = ref(false),
@@ -201,6 +208,7 @@ export function useKnowledgeQuery(
     }
   }
   function resetQuery(): void {
+    selectionScope.replace()
     graphQuery.reset()
     graphTarget.value = false
     queryScope.replace()
@@ -258,7 +266,10 @@ export function useKnowledgeQuery(
       }
     }
   }
-  onBeforeUnmount(() => queryScope.dispose())
+  onBeforeUnmount(() => {
+    selectionScope.dispose()
+    queryScope.dispose()
+  })
   return {
     graphQuery,
     graphTarget,

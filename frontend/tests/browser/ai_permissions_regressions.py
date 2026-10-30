@@ -73,6 +73,10 @@ class AIPermissionsRegressions(DeveloperBoundary):
             await link.click()
             await expect(link).not_to_be_visible()
 
+    async def open_storage_tool(self, label):
+        await self.page.get_by_role('button', name='高级管理', exact=True).click()
+        await self.page.get_by_role('menuitem', name=label, exact=True).click()
+
     async def test_basic_user_sees_published_models_without_management_requests_on_desktop_and_mobile(self):
         for width in [1440, 390]:
             with self.subTest(width=width):
@@ -125,12 +129,12 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
         await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_have_count(0)
         await self.page.keyboard.press('Escape')
-        await self.page.get_by_role('button', name='保留策略', exact=True).click()
+        await self.open_storage_tool('保留策略')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content').filter(has_text='文件保留策略')
         await expect(drawer).to_be_visible()
         await expect(drawer.get_by_role('button', name='新增策略', exact=True)).to_have_count(0)
         await drawer.get_by_role('button', name='Close', exact=True).click()
-        await self.page.get_by_role('button', name='存储对账', exact=True).click()
+        await self.open_storage_tool('存储对账')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content').filter(has_text='文件存储对账')
         await expect(drawer).to_be_visible()
         await expect(drawer.get_by_role('button', name='开始对账', exact=True)).to_have_count(0)
@@ -176,7 +180,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
                 await self.page.get_by_role('button', name='用户菜单', exact=True).click()
                 await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_have_count(0)
                 await self.page.keyboard.press('Escape')
-        await self.page.get_by_role('button', name='存储对账', exact=True).click()
+        await self.open_storage_tool('存储对账')
         await expect(self.page.get_by_role('button', name='开始对账', exact=True)).to_be_visible()
 
     async def test_storage_writer_cannot_manage_another_owners_visible_file(self):
@@ -186,6 +190,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()
         for label in ['访问权限：业务报告', '转移文件：业务报告', '删除文件：业务报告']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
+            await expect(self.page.get_by_role('menuitem', name=label, exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='更多操作：业务报告', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('checkbox', name='选择文件：业务报告', exact=True)).to_be_disabled()
         await self.page.get_by_role('button', name='查看文件：业务报告', exact=True).click()
         await expect(self.page.get_by_role('button', name='编辑文件信息', exact=True)).to_have_count(0)
@@ -194,8 +200,10 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.permissions = ['ai:storage:read']
         self.file_rows = [dict(FILE)]
         await self.page.goto(self.origin + '/knowledge/storage')
-        await expect(self.page.get_by_role('button', name='访问权限：业务报告', exact=True)).to_be_enabled()
-        await expect(self.page.get_by_role('button', name='转移文件：业务报告', exact=True)).to_be_enabled()
+        await self.page.get_by_role('button', name='更多操作：业务报告', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='访问权限：业务报告', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('menuitem', name='转移文件：业务报告', exact=True)).to_be_enabled()
+        await self.page.keyboard.press('Escape')
         await expect(self.page.get_by_role('button', name='删除文件：业务报告', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='查看文件：业务报告', exact=True).click()
         await expect(self.page.get_by_role('button', name='编辑文件信息', exact=True)).to_be_visible()
