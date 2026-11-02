@@ -30,6 +30,25 @@ async def _finish_query(container: Any, admin: Any, info: dict[str, Any]) -> dic
     raise AssertionError(info)
 
 
+async def _credit_snapshot(connection: Any) -> dict[str, list[str]]:
+    tables = (
+        (
+            await connection.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'billing_%' ORDER BY tablename"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert tables
+    return {
+        table: list((await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))).scalars())
+        for table in tables
+    }
+
+
 async def test_graph_schema_has_complete_sdk_catalog_and_business_inventory(settings: object) -> None:
     await migrate(settings)
     engine = create_async_engine(settings.database_url.get_secret_value())
@@ -87,9 +106,7 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
                 IndexGeneration.base_id == UUID(base['id']), IndexGeneration.status == 'active'
             )
         )
-        revision = generation.id
-        fingerprint = generation.fingerprint
-        collection = generation.collection_name
+        revision, fingerprint, collection = generation.id, generation.fingerprint, generation.collection_name
         assert (
             'response_format' not in generation.binding['options']
             and 'reasoning_effort' not in generation.binding['options']
@@ -110,11 +127,22 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
         command.downgrade(config, '0007_knowledge')
 
     async with container.database.engine.begin() as connection:
+        credit_snapshots = await _credit_snapshot(connection)
         await connection.run_sync(downgrade)
         snapshots = {
-            table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
-            .scalars()
-            .all()
+            table: (
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:table ORDER BY ordinal_position"
+                        ),
+                        {'table': table},
+                    )
+                )
+                .scalars()
+                .all(),
+                (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))).scalars().all(),
+            )
             for table in (
                 'knowledge_generations',
                 'knowledge_documents',
@@ -127,10 +155,20 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
-        for table, rows in snapshots.items():
+        for table, (old_columns, rows) in snapshots.items():
+            columns = ','.join('"' + name.replace('"', '""') + '"' for name in old_columns)
             assert (
-                await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))
+                await connection.execute(
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {columns} FROM {table}) t ORDER BY 1')
+                )
             ).scalars().all() == rows
+        assert (
+            await connection.scalar(
+                text('SELECT count(*) FROM developer_invocations WHERE points_enforced IS DISTINCT FROM false')
+            )
+            == 0
+        )
+        assert await _credit_snapshot(connection) == credit_snapshots
     replay = await admin.post(endpoint, json=body)
     assert replay.status_code == 202 and replay.json()['id'] == prepared['id'], replay.text
     assert len(provider.requests) == before_http

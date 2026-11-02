@@ -221,14 +221,14 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
     async def test_editor_loads_knowledge_options_for_saved_agent_owner(self):
         self.agent['owner_id'] = 'resource-owner'
         await self.open_agents()
-        await self.page.get_by_role('button', name='配置', exact=True).click()
+        await self.choose_agent_action('配置')
         await expect(self.page.locator('.agent-editor--page').get_by_text('业务知识', exact=True)).to_be_visible()
         self.assertEqual(self.knowledge_queries, [{'agent_id': ['agent-1']}])
 
     async def test_api_key_includes_published_knowledge_embedding_model_grants(self):
         self.agent.update(status='published', application_id='draft-app', knowledge_base_ids=['draft-base'], published_version=1, published_config={**self.config, 'model_id': 'published-model', 'application_id': 'app-1', 'knowledge_base_ids': ['base-1']})
         await self.open_agents()
-        await self.page.get_by_role('button', name='API', exact=True).click()
+        await self.choose_agent_action('API')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button', name='创建密钥', exact=True).click()
         await expect(drawer.get_by_text('密钥仅显示一次', exact=True)).to_be_visible()

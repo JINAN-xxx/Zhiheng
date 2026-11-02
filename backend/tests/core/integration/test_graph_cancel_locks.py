@@ -20,7 +20,7 @@ async def test_public_cancel_and_renew_lock_base_before_sources(
     base = await graph_base(admin, app, provider)
     path = f'/api/knowledge/bases/{base["id"]}/graph'
     async with graph_role(container.settings) as (pg, url, _):
-        container.graph_sdk.database_url = url
+        container.graph_sdk.database_url, container.graph_sdk.uri = url, real_vectors.uri
         response = await admin.post(path + '/build', json={'expected_version': 1, 'client_request_id': str(uuid4())})
         assert response.status_code == 202, response.text
         job = response.json()

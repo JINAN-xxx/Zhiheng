@@ -69,7 +69,6 @@ def add_model(page: Page, name: str, upstream: str) -> None:
 def configure_models(
     page: Page, provider: ProviderServer, artifacts: Path, provider_base_url: str | None = None
 ) -> None:
-    page.get_by_role('button', name='模型中心', exact=True).click()
     page.get_by_role('link', name='模型目录', exact=True).click()
     page.get_by_role('tab', name='凭据管理').click()
     page.get_by_role('button', name='新增凭据').click()
@@ -94,7 +93,7 @@ def configure_models(
 
 
 def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None:
-    page.get_by_role('link', name='智能对话').click()
+    page.get_by_role('link', name='对话体验', exact=True).click()
     composer = page.get_by_role('textbox', name='消息内容')
     for question, expected_replies in [('第一轮真实聊天', 1), ('第二轮沿用同一连接', 2)]:
         composer.fill(question)
@@ -103,7 +102,11 @@ def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None
         expect(page.locator('.message-content').filter(has_text='你好')).to_have_count(expected_replies)
     page.screenshot(path=str(artifacts / 'chat-desktop.png'), full_page=True)
     page.reload()
-    page.locator('.conversation-item').first.click()
+    page.get_by_role('button', name='历史记录', exact=True).click()
+    history = page.get_by_role('dialog', name='历史记录', exact=True)
+    expect(history).to_be_visible()
+    history.locator('.conversation-item').first.click()
+    expect(history).not_to_be_visible()
     expect(page.locator('.message-content').filter(has_text='你好')).to_have_count(2)
     page.locator('.model-select .ant-select-selector').click()
     page.locator('.ant-select-item-option').filter(has_text='慢速助手').click()
@@ -119,20 +122,21 @@ def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None
 
 
 def usage_and_logout(page: Page, base_url: str, artifacts: Path) -> None:
-    model_center = page.get_by_role('button', name='模型中心', exact=True)
-    if model_center.get_attribute('aria-expanded') != 'true':
-        model_center.click()
-    page.get_by_role('link', name='用量记录').click()
+    page.get_by_role('link', name='用量与调用', exact=True).click()
+    page.get_by_role('tab', name='历史 Token', exact=True).click()
     expect(page.locator('.usage-table tbody tr.ant-table-row')).to_have_count(4)
     expect(page.locator('.usage-table').get_by_text('待核对')).not_to_have_count(0)
     page.screenshot(path=str(artifacts / 'usage.png'), full_page=True)
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='打开主菜单').click()
-    page.locator('.ant-drawer-open .ant-drawer-content').get_by_role('link', name='智能对话').click()
+    page.locator('.ant-drawer-open .ant-drawer-content').get_by_role(
+        'link', name='对话体验', exact=True
+    ).click()
     expect(page.get_by_role('textbox', name='消息内容')).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     page.screenshot(path=str(artifacts / 'chat-mobile.png'), full_page=True)
-    page.get_by_role('button', name='用户菜单', exact=True).click()
+    page.get_by_role('button', name='打开主菜单', exact=True).click()
+    page.locator('.platform-mobile-drawer').get_by_role('button', name='用户菜单', exact=True).click()
     page.get_by_role('menuitem', name='退出登录', exact=True).click()
     expect(page).to_have_url(f'{base_url}/login')
     assert page.context.request.get(f'{base_url}/api/auth/me').status == 401
@@ -159,6 +163,11 @@ def browser_flow(base_url: str, provider: ProviderServer, artifacts: Path) -> No
             exercise_chat(page, provider, artifacts)
             usage_and_logout(page, base_url, artifacts)
             assert not errors, errors
+        except Exception:
+            with suppress(Exception):
+                page.screenshot(path=str(artifacts / 'failure.png'), full_page=True)
+                (artifacts / 'failure.html').write_text(page.content())
+            raise
         finally:
             browser.close()
 
@@ -238,6 +247,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-url', default='http://127.0.0.1:15191')
     parser.add_argument('--api-port', type=int, default=19090)
+    parser.add_argument('--artifacts-dir', type=Path, default=Path('/tmp/zhiheng-core-browser-artifacts'))
     args = parser.parse_args()
     database_url = os.environ['ZHIHENG_TEST_DATABASE_URL']
     database_name = f'core_browser_{uuid4().hex}'
@@ -247,8 +257,8 @@ def main() -> int:
         env = child_environment(
             instance_url, os.environ['ZHIHENG_TEST_REDIS_URL'], args.base_url, files_root=Path(files_root)
         )
-        artifacts = Path('/tmp/zhiheng-core-browser-artifacts')
-        artifacts.mkdir(exist_ok=True)
+        artifacts = args.artifacts_dir
+        artifacts.mkdir(parents=True, exist_ok=True)
         asyncio.run(create_database(database_url, database_name))
         try:
             subprocess.run([python, '-m', 'zhiheng', 'migrate'], env=env, cwd='/tmp', check=True)
