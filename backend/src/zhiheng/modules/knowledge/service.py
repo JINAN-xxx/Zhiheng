@@ -234,7 +234,7 @@ class KnowledgeService:
             raise AppError('knowledge_not_found', '知识库不存在', 404)
         allowed = self.manages(principal, base)
         if not allowed and not manage:
-            grant = await session.get(KnowledgeGrant, (base.id, principal.id))
+            grant = await session.get(KnowledgeGrant, (base.id, principal.id), populate_existing=lock)
             effective = grant is not None and (grant.expires_at is None or grant.expires_at > utcnow())
             allowed = not (effective and grant and grant.effect == 'deny') and (
                 base.access == 'public' or bool(effective and grant and grant.effect == 'allow')

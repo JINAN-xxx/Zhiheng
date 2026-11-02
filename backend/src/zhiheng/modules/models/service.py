@@ -213,6 +213,25 @@ class ModelService:
         row.deleted_at, row.enabled, row.published = utcnow(), False, False
         return self._model_info(row)
 
+    async def lock_many(self, session: AsyncSession, model_ids: list[UUID]) -> None:
+        """Order dependency locks without granting liveness or invocation authority."""
+        models = list(
+            await session.scalars(
+                select(ModelDefinition)
+                .where(ModelDefinition.id.in_(model_ids))
+                .order_by(ModelDefinition.id)
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
+            )
+        )
+        await session.execute(
+            select(ModelConnection)
+            .where(ModelConnection.id.in_({item.connection_id for item in models}))
+            .order_by(ModelConnection.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
     async def resolve_many(self, session: AsyncSession, model_ids: list[UUID]) -> dict[UUID, ModelBinding]:
         """Freeze binding metadata while allowing invocation foreign-key checks."""
         models = list(

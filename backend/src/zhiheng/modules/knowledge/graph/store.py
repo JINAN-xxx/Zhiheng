@@ -105,11 +105,20 @@ class GraphStore:
         )
 
     async def _owned(self, session: AsyncSession, claim: GraphClaim) -> tuple[GraphJob, GraphAttempt]:
+        await self.service.lock_models(session, claim.frozen)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)
         await self.service.knowledge.require(session, owner, claim.base_id, lock=True)
-        job = await session.scalar(select(GraphJob).where(GraphJob.id == claim.job_id).with_for_update())
+        job = await session.scalar(
+            select(GraphJob)
+            .where(GraphJob.id == claim.job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         attempt = await session.scalar(
-            select(GraphAttempt).where(GraphAttempt.id == claim.attempt_id).with_for_update()
+            select(GraphAttempt)
+            .where(GraphAttempt.id == claim.attempt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if (
             job is None
@@ -221,6 +230,8 @@ class GraphStore:
         error: dict[str, object] | None,
         stopped: bool,
     ) -> None:
+        if status == 'completed':
+            await self.service.lock_models(session, claim.frozen)
         await session.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == claim.base_id).with_for_update())
         job = await session.scalar(select(GraphJob).where(GraphJob.id == claim.job_id).with_for_update())
         attempt = await session.scalar(

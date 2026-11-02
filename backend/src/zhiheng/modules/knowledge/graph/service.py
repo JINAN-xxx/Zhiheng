@@ -27,8 +27,9 @@ from zhiheng.modules.knowledge.graph.contracts import (
     sdk_chunk_id,
 )
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphConfiguration, GraphGeneration, GraphJob, GraphPin
-from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeChunk, KnowledgeDocument
+from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeBase, KnowledgeChunk, KnowledgeDocument
 from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerprint, fingerprint
+from zhiheng.modules.models.public import ModelBinding
 from zhiheng.runtime.contracts import RunError
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -61,15 +62,20 @@ class GraphService:
         )
 
     async def patch(self, session: AsyncSession, principal: Principal, base_id: UUID, body: GraphConfigPatch) -> None:
-        await self.knowledge.require(session, principal, base_id, manage=True, lock=True)
+        await self.knowledge.require(session, principal, base_id, manage=True)
         binding = await self.knowledge.models.resolve(session, body.llm_model_id)
+        await self.knowledge.require(session, principal, base_id, manage=True, lock=True)
         if binding.model_type != 'chat':
             raise AppError('graph_chat_required', '图谱抽取需要聊天模型', 422)
         if body.reasoning_strategy in {'low', 'disabled'}:
             # No model capability declaration exists for these policies yet.
             # Reject rather than infer vendor options from a model name.
             raise AppError('unsupported_capability', '该模型未声明所选推理参数能力', 422)
-        row = await session.get(GraphConfiguration, base_id)
+        row = await session.scalar(
+            select(GraphConfiguration)
+            .where(GraphConfiguration.base_id == base_id)
+            .execution_options(populate_existing=True)
+        )
         actual = row.version if row else 0
         if body.expected_version != actual:
             raise AppError('graph_version_conflict', '图谱配置已更新，请刷新后重试', 409)
@@ -111,14 +117,53 @@ class GraphService:
             **source.model_dump(),
         )
 
-    async def freeze(self, session: AsyncSession, principal: Principal, base_id: UUID) -> GraphFrozen:
-        base = await self.knowledge.require(session, principal, base_id, lock=True)
-        owner = await self.knowledge.identity.principal_for_user(session, base.owner_id)
-        config_row = await session.get(GraphConfiguration, base_id)
+    async def lock_models(self, session: AsyncSession, frozen: GraphFrozen) -> None:
+        """Lock the original model set; stopped-writer proof needs no live model."""
+        await self.knowledge.models.lock_many(
+            session, sorted({frozen.config.llm_model_id, UUID(str(frozen.embedding_binding['model_id']))})
+        )
+
+    async def _lock_dependencies(
+        self, session: AsyncSession, principal: Principal, base_id: UUID, expected: GraphFrozen | None
+    ) -> tuple[KnowledgeBase, GraphConfig, dict[UUID, ModelBinding]]:
+        base = await self.knowledge.require(session, principal, base_id)
+        config_row = await session.scalar(
+            select(GraphConfiguration)
+            .where(GraphConfiguration.base_id == base_id)
+            .execution_options(populate_existing=True)
+        )
         if config_row is None or base.active_revision is None:
             raise AppError('graph_not_configured', '请先配置图谱并完成向量索引', 409)
         config = GraphConfig.model_validate(config_row, from_attributes=True)
-        bindings = await self.knowledge.models.resolve_many(session, [config.llm_model_id, base.embed_model_id])
+        embedding_id = base.embed_model_id
+        if expected is not None and (
+            config != expected.config or embedding_id != UUID(str(expected.embedding_binding['model_id']))
+        ):
+            raise AppError('graph_stale', '图谱来源、模型或配置已变化，请重新构建', 409)
+        model_ids = sorted({config.llm_model_id, embedding_id})
+        await self.knowledge.models.lock_many(session, model_ids)
+        base = await self.knowledge.require(session, principal, base_id, lock=True)
+        config_row = await session.scalar(
+            select(GraphConfiguration)
+            .where(GraphConfiguration.base_id == base_id)
+            .execution_options(populate_existing=True)
+        )
+        if (
+            config_row is None
+            or GraphConfig.model_validate(config_row, from_attributes=True) != config
+            or base.embed_model_id != embedding_id
+        ):
+            raise AppError('graph_stale', '图谱来源、模型或配置已变化，请重新构建', 409)
+        # These rows and their connections are already locked. Never extend the
+        # model set while owning the base, including after a concurrent rebind.
+        bindings = await self.knowledge.models.resolve_many(session, model_ids)
+        return base, config, bindings
+
+    async def freeze(
+        self, session: AsyncSession, principal: Principal, base_id: UUID, *, expected: GraphFrozen | None = None
+    ) -> GraphFrozen:
+        base, config, bindings = await self._lock_dependencies(session, principal, base_id, expected)
+        owner = await self.knowledge.identity.principal_for_user(session, base.owner_id)
         llm, embedding = bindings[config.llm_model_id], bindings[base.embed_model_id]
         if llm.model_type != 'chat' or embedding.model_type != 'embedding':
             raise AppError('unsupported_graph_models', '图谱需要聊天和Embedding模型的明确绑定', 422)
@@ -240,7 +285,7 @@ class GraphService:
 
     async def authorize(self, session: AsyncSession, principal: Principal, base_id: UUID, frozen: GraphFrozen) -> None:
         self.validate_frozen(frozen)
-        current = await self.freeze(session, principal, base_id)
+        current = await self.freeze(session, principal, base_id, expected=frozen)
         if current.content_fingerprint != frozen.content_fingerprint:
             raise AppError('graph_stale', '图谱来源、模型或配置已变化，请重新构建', 409)
 
@@ -254,7 +299,22 @@ class GraphService:
             raise AppError('graph_not_ready', '图谱尚未完成构建', 409)
         self._validate_generation(generation)
         await self.authorize(session, principal, base_id, GraphFrozen.model_validate(generation.frozen))
-        return generation
+        config = await session.scalar(
+            select(GraphConfiguration)
+            .where(GraphConfiguration.base_id == base_id)
+            .execution_options(populate_existing=True)
+        )
+        current_generation: GraphGeneration | None = await session.scalar(
+            select(GraphGeneration).where(GraphGeneration.id == generation.id).execution_options(populate_existing=True)
+        )
+        if (
+            config is None
+            or current_generation is None
+            or config.active_revision != current_generation.id
+            or current_generation.status != 'active'
+        ):
+            raise AppError('graph_stale', '图谱活动版本已变化，请重新读取', 409)
+        return current_generation
 
     async def replay(
         self,
@@ -380,9 +440,7 @@ class GraphService:
         body: GraphBuildRequest | GraphPreviewRequest | GraphQueryRequest,
         operation: GraphOperation,
     ) -> GraphJobInfo:
-        base = await self.knowledge.require(
-            session, principal, base_id, manage=operation in {'build', 'preview'}, lock=True
-        )
+        base = await self.knowledge.require(session, principal, base_id, manage=operation in {'build', 'preview'})
         if operation in {'build', 'preview'}:
             self.knowledge.idle(base)
         key = int(fingerprint({'actor': principal.id, 'request': body.client_request_id, 'kind': 'graph'})[:16], 16) - (
@@ -400,6 +458,11 @@ class GraphService:
                 raise AppError('idempotency_conflict', '请求标识已用于其他内容', 409)
             return await self.job(session, principal, base_id, existing.id)
         frozen = await self.freeze(session, principal, base_id)
+        base = await self.knowledge.require(
+            session, principal, base_id, manage=operation in {'build', 'preview'}, lock=True
+        )
+        if operation in {'build', 'preview'}:
+            self.knowledge.idle(base)
         revision = uuid4()
         if isinstance(body, GraphQueryRequest):
             generation = await self._active_generation(session, principal, base_id)
