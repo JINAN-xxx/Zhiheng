@@ -14,7 +14,7 @@ from zhiheng.modules.developer.contracts import (
     UsageSummary,
 )
 from zhiheng.modules.developer.keys import KeyService
-from zhiheng.modules.developer.limits import reserve_limits, reserved_cost, settle_minute
+from zhiheng.modules.developer.limits import check_limits, reserve_limits, reserved_cost, settle_minute
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, Invocation, UsageAccount
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.runtime.orm import Run
@@ -29,6 +29,27 @@ if TYPE_CHECKING:
 
 
 class UsageService:
+    async def preflight(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        key_id: UUID,
+        tokens: int,
+        token_limit: int,
+        rate: RateInfo | None,
+        points_enforced: bool,
+    ) -> LegacyReservation:
+        key = await session.get(DeveloperKey, key_id, populate_existing=True)
+        if key is None:
+            raise AppError('invalid_api_key', 'Invalid API key', 401)
+        await check_limits(session, key, tokens, rate)
+        account = await session.get(UsageAccount, user_id)
+        remaining = account.limit_tokens - account.used_tokens - account.reserved_tokens if account else token_limit
+        if not points_enforced and tokens > remaining:
+            raise AppError('quota_exceeded', '可用 token 配额不足', 429)
+        return LegacyReservation(points_enforced, key.id, key.monthly_points_limit)
+
     async def require_reservation(
         self,
         session: AsyncSession,

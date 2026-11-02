@@ -81,13 +81,15 @@ async def test_skill_owner_isolation(admin, app):
 
 ## 任务四：个人知识库、技能与异步操作
 
-- [ ] 正确Bearer+Scope下创建本人KB、入库、查询；本人SKILL包预检确认；operation状态/取消按应用隔离，body指定其他owner拒绝。
-- [ ] 知识库元数据、目录、文档、重新切片/重建走原领域作业；API来源只存服务端owner/app/key/request身份，执行阶段复核权限。
-- [ ] 索引和查询仍走原Run/Model/积分预占结算；接纳检查模型/费率，费用和余额按模型步骤原制度，不新增账本。
-- [ ] operation是原作业状态映射：partial不能报成功，cancel_requested不能报cancelled；网络断开不取消；撤权后缓存结果也过滤当前来源ACL。
-- [ ] 技能按个人查找，同slug跨用户独立；同Owner未授权给当前App的目标不能预检泄露/覆盖。历史revision和确认事实不能改写。
-- [ ] `pytest tests/core/integration/test_resource_knowledge.py tests/core/integration/test_resource_skills.py tests/core/integration/test_resource_operations.py -q`，补真实Worker/Milvus、撤Key、ACL变化、无重复消费/重复安装。
-- [ ] 两阶段审查后提交。
+- [x] 正确Bearer+Scope下创建本人KB、入库、查询；本人SKILL包预检确认；operation状态/取消按应用隔离，body指定其他owner拒绝。
+- [x] 知识库元数据、目录、文档、重新切片/重建走原领域作业；API来源只存服务端owner/app/key/request身份，执行阶段复核权限。
+- [x] 索引和查询仍走原Run/Model/积分预占结算；接纳检查模型/费率，费用和余额按模型步骤原制度，不新增账本。
+- [x] operation是原作业状态映射：partial不能报成功，cancel_requested不能报cancelled；网络断开不取消；撤权后缓存结果也过滤当前来源ACL。
+- [x] 技能按个人查找，同slug跨用户独立；同Owner未授权给当前App的目标不能预检泄露/覆盖。历史revision和确认事实不能改写。
+- [x] `pytest tests/core/integration/test_resource_knowledge.py tests/core/integration/test_resource_skills.py tests/core/integration/test_resource_operations.py -q`，补真实Worker/Milvus、撤Key、ACL变化、无重复消费/重复安装。
+- [x] 两阶段审查后提交。
+
+阶段四验收：27 个资源方法/路径齐备；160 项受影响检查点及后续技能元数据、fence、实际新建事实、权限/429 修正均通过，最终 15 项与冻结 38 文件逐项匹配。独立规格 3/3、质量 PostgreSQL 2/2 通过；当前 200 文件类型及架构检查通过。原 Worker/Run/Usage 用例复用，无新增迁移、依赖、队列或账本；最终全量回归继续任务六。
 
 ## 任务五：协议目录、规范与前端
 

@@ -57,14 +57,51 @@ class EmbeddingBatch:
     dimension: int | None
 
 
+@dataclass(frozen=True)
+class BuildFacts:
+    base_id: UUID
+    operation: str
+    status: str
+    binding: ModelBinding
+
+
 class BuildStore:
     def __init__(self, knowledge: KnowledgeService) -> None:
         self.knowledge = knowledge
 
-    async def model_guard(
-        self, session: AsyncSession, job_id: UUID, run_id: UUID
-    ) -> tuple[UUID, ModelBinding, UUID, str]:
+    async def facts(self, session: AsyncSession, job_id: UUID) -> BuildFacts | None:
         job = await session.get(KnowledgeJob, job_id)
+        if job is None:
+            return None
+        generation = await session.get(IndexGeneration, job.index_revision)
+        assert generation is not None
+        return BuildFacts(job.base_id, job.operation, job.status, ModelBinding.model_validate(generation.binding))
+
+    async def lock_base(self, session: AsyncSession, job_id: UUID) -> None:
+        base_id = await session.scalar(select(KnowledgeJob.base_id).where(KnowledgeJob.id == job_id))
+        if base_id is not None:
+            await session.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == base_id).with_for_update())
+
+    async def reject(self, session: AsyncSession, job_id: UUID, error: AppError) -> None:
+        await self.lock_base(session, job_id)
+        job = await session.scalar(
+            select(KnowledgeJob)
+            .where(KnowledgeJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if job is not None and job.status not in JOB_TERMINAL and job.lease_until is None:
+            await self.fail(session, job, 'failed', error.code, error.message)
+
+    async def model_guard(
+        self, session: AsyncSession, job_id: UUID, run_id: UUID, *, lock: bool = False
+    ) -> tuple[UUID, ModelBinding, UUID, str]:
+        if lock:
+            await self.lock_base(session, job_id)
+        query = select(KnowledgeJob).where(KnowledgeJob.id == job_id).execution_options(populate_existing=True)
+        if lock:
+            query = query.with_for_update()
+        job = await session.scalar(query)
         if job is None or job.status in JOB_TERMINAL or job.status == 'cancel_requested':
             raise AppError('knowledge_execution_cancelled', '知识模型步骤已失效', 409)
         base = await session.get(KnowledgeBase, job.base_id)
@@ -103,7 +140,13 @@ class BuildStore:
         ]
 
     async def claim(self, session: AsyncSession, job_id: UUID) -> BuildClaim | None:
-        job = await session.scalar(select(KnowledgeJob).where(KnowledgeJob.id == job_id).with_for_update())
+        await self.lock_base(session, job_id)
+        job = await session.scalar(
+            select(KnowledgeJob)
+            .where(KnowledgeJob.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if job is None or job.status in JOB_TERMINAL:
             return None
         if job.lease_until is not None:
@@ -183,6 +226,7 @@ class BuildStore:
                 document.error = job.error
 
     async def fail_claim(self, session: AsyncSession, claim: BuildClaim, status: str, code: str, message: str) -> None:
+        await self.lock_base(session, claim.id)
         job = await session.scalar(select(KnowledgeJob).where(KnowledgeJob.id == claim.id).with_for_update())
         if (
             job
@@ -382,8 +426,8 @@ class BuildStore:
         ]
 
     async def publish(self, session: AsyncSession, claim: BuildClaim, binding: ModelBinding) -> None:
-        job = await self.owned(session, claim)
         base = await session.scalar(select(KnowledgeBase).where(KnowledgeBase.id == claim.base_id).with_for_update())
+        job = await self.owned(session, claim)
         generation = await session.get(IndexGeneration, claim.revision)
         assert base is not None and generation is not None
         if (

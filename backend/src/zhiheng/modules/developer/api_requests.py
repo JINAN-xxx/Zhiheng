@@ -3,7 +3,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid5
 
@@ -49,6 +49,7 @@ class APIRequestInfo:
     snapshot: dict[str, object] | None
     snapshot_expired: bool
     replayed: bool
+    created_at: datetime
 
     @property
     def result_pending(self) -> bool:
@@ -145,6 +146,9 @@ class APIRequestService:
         if row.result_id is not None:
             if row.result_id != result_id or row.result_kind != result_kind:
                 raise AppError('idempotency_conflict', '请求已关联原生结果', 409)
+            if resources is not None:
+                row.resources = normalized_resources((*row.resources, *resources))
+                await session.flush()
             return self.info(row, replayed=True)
         row.result_kind, row.result_id, row.snapshot = result_kind, result_id, snapshot
         if resources is not None:
@@ -168,6 +172,26 @@ class APIRequestService:
         )
         return APIOrigin(row.owner_id, row.application_id, row.key_id, row.id) if row is not None else None
 
+    async def operation_page(
+        self, session: AsyncSession, application_id: UUID, *, after: tuple[datetime, UUID] | None, limit: int
+    ) -> list[APIRequestInfo]:
+        query = select(APIRequest).where(
+            APIRequest.application_id == application_id,
+            APIRequest.result_kind.in_(['knowledge_job', 'knowledge_preparation']),
+        )
+        if after is not None:
+            timestamp, identifier = after
+            query = query.where(
+                (APIRequest.created_at < timestamp)
+                | ((APIRequest.created_at == timestamp) & (APIRequest.id < identifier))
+            )
+        return [
+            self.info(row)
+            for row in await session.scalars(
+                query.order_by(APIRequest.created_at.desc(), APIRequest.id.desc()).limit(limit)
+            )
+        ]
+
     @staticmethod
     def info(row: APIRequest, *, replayed: bool = False) -> APIRequestInfo:
         expired = row.snapshot_expires_at <= utcnow()
@@ -185,4 +209,5 @@ class APIRequestService:
             None if expired else row.snapshot,
             expired,
             replayed,
+            row.created_at,
         )

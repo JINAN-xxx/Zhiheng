@@ -13,11 +13,18 @@ from zhiheng.application.files.queries import FileQueries
 from zhiheng.application.graph_jobs import GraphJobs
 from zhiheng.application.graph_runs import GraphRuns
 from zhiheng.application.identity.accounts import AccountService
+from zhiheng.application.knowledge.commands import KnowledgeCommands
+from zhiheng.application.knowledge.origin import KnowledgeOriginGuard
+from zhiheng.application.knowledge.queries import KnowledgeQueries
 from zhiheng.application.knowledge_jobs import KnowledgeJobs
 from zhiheng.application.knowledge_preparation import KnowledgePreparation
 from zhiheng.application.model_management import ModelManagementService
+from zhiheng.application.operations.cancellation import OperationCancellation
+from zhiheng.application.operations.queries import OperationQueries
 from zhiheng.application.public_runs import PublicRunService
 from zhiheng.application.skill_management import PreparationSkillOwners, SkillManagementService
+from zhiheng.application.skills.commands import SkillCommands
+from zhiheng.application.skills.queries import SkillQueries
 from zhiheng.application.work_runs import WorkRunService
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
@@ -46,7 +53,7 @@ from zhiheng.modules.knowledge.public import (
     NativeParser,
     binding_fingerprint,
 )
-from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelService
+from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequest, ModelService
 from zhiheng.modules.operations.public import OperationsService
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.modules.work.public import WorkService
@@ -99,8 +106,10 @@ class Container:
         self.skill_management = SkillManagementService(
             self.skills, self.agents, self.work, self.runs, self.knowledge, chat=self.chat
         )
-        self.message_actions = MessageActionService(self.chat, self.identity)
-        self.admission = ChatRunService(self.chat, self.models, self.usage, self.runs, self.files)
+        self.message_actions, self.admission = (
+            MessageActionService(self.chat, self.identity),
+            ChatRunService(self.chat, self.models, self.usage, self.runs, self.files),
+        )
         self.vectors = MilvusStore(
             settings.milvus_uri, settings.milvus_token.get_secret_value(), settings.milvus_database
         )
@@ -126,6 +135,7 @@ class Container:
             self.vectors,
             settings.token_limit,
         )
+        self._configure_resource_facades()
         self.admission.knowledge, self.admission.file_inputs = self.knowledge_preparation, self.file_inputs
         self.knowledge_preparation.finalizers['chat'] = self.admission.finalize_knowledge
         self.agent_runs.knowledge = self.knowledge_preparation
@@ -158,6 +168,29 @@ class Container:
         self.graph_jobs = GraphJobs(self.database, self.graph_store, self.graph_runs, self.graph_sdk)
         self.outbox = OutboxStore()
         self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs)
+
+    def _configure_resource_facades(self) -> None:
+        self.skill_commands = SkillCommands(
+            self.database, self.skills, self.skill_management, self.resource_access, self.file_queries
+        )
+        self.skill_queries = SkillQueries(self.database, self.skills, self.resource_access)
+        self.knowledge_origin = KnowledgeOriginGuard(self.resource_access)
+        self.knowledge_jobs.origin_guard = self.knowledge_origin
+        self.knowledge_preparation.resource_guard = self.knowledge_origin.retrieval
+        self.operation_queries = OperationQueries(
+            self.database, self.resource_access, self.knowledge, self.knowledge_preparation
+        )
+        self.operation_cancellation = OperationCancellation(self.operation_queries)
+        self.knowledge_commands = KnowledgeCommands(
+            self.database,
+            self.knowledge,
+            self.models,
+            self.usage,
+            self.resource_access,
+            self.knowledge_preparation,
+            self.operation_queries,
+        )
+        self.knowledge_queries = KnowledgeQueries(self.database, self.knowledge, self.resource_access)
 
     def _configure_resource_access(self) -> None:
         self.resource_grants = ResourceGrantService(self.applications)
@@ -211,11 +244,20 @@ class Container:
                 bases = self.knowledge_preparation.store.bases(state)
                 await self.knowledge_preparation.store.revalidate(session, owner, bases)
             else:
+                origin = await self.knowledge_origin.job(
+                    session, claim.resource_id, model_ids=(ModelRequest.model_validate(claim.payload).binding.model_id,)
+                )
                 owner_id, expected, file_id, sha256 = await self.knowledge_jobs.store.model_guard(
                     session, claim.resource_id, claim.id
                 )
                 owner = await self.identity.principal_for_user(session, owner_id)
                 binding = await self.models.resolve(session, expected.model_id)
+                if origin is not None:
+                    await self.knowledge_jobs.store.model_guard(session, claim.resource_id, claim.id, lock=True)
+                    await self.knowledge_origin.job(
+                        session, claim.resource_id, model_ids=(expected.model_id,), lock=True
+                    )
+                    owner = self.resource_access.personal(owner)
                 source = await self.files.require(session, owner, file_id, active=True)
                 if binding_fingerprint(binding) != binding_fingerprint(expected) or source.sha256 != sha256:
                     raise AppError('knowledge_preparation_stale', '知识模型或来源已变化', 409)

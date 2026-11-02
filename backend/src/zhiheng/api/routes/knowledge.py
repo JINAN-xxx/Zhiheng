@@ -5,7 +5,6 @@ from fastapi import APIRouter, Query, Request, Response
 
 from zhiheng.api.contracts import EmptyRequest
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.billing.public import lock_billing_admission
 from zhiheng.modules.knowledge.public import (
     NATIVE_FORMATS,
     BaseAcl,
@@ -24,7 +23,6 @@ from zhiheng.modules.knowledge.public import (
     PreparationInfo,
     QueryRequest,
     RechunkRequest,
-    fingerprint,
     split_chunks,
 )
 from zhiheng.shared.errors import AppError
@@ -68,8 +66,7 @@ async def create(
     body: BaseCreate, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> BaseInfo:
     async with session.begin():
-        binding = await container.models.resolve(session, body.embed_model_id)
-        return await container.knowledge.create(session, principal, body, binding)
+        return await container.knowledge_commands.native.create(session, principal, body)
 
 
 @router.get('/bases/{base_id}')
@@ -88,7 +85,7 @@ async def patch_base(
     session: SessionDependency,
 ) -> BaseInfo:
     async with session.begin():
-        return await container.knowledge.patch(session, principal, base_id, body)
+        return await container.knowledge_commands.native.patch(session, principal, base_id, body)
 
 
 @router.get('/bases/{base_id}/acl')
@@ -137,7 +134,7 @@ async def create_folder(
     session: SessionDependency,
 ) -> FolderInfo:
     async with session.begin():
-        return await container.knowledge.create_folder(session, principal, base_id, body)
+        return await container.knowledge_commands.native.folder_create(session, principal, base_id, body)
 
 
 @router.patch('/bases/{base_id}/folders/{folder_id}')
@@ -150,7 +147,7 @@ async def rename_folder(
     session: SessionDependency,
 ) -> FolderInfo:
     async with session.begin():
-        return await container.knowledge.rename_folder(session, principal, base_id, folder_id, body)
+        return await container.knowledge_commands.native.folder_patch(session, principal, base_id, folder_id, body)
 
 
 @router.post('/bases/{base_id}/uploads', status_code=201, openapi_extra={'x-transport-policy': 'binary_file'})
@@ -212,22 +209,14 @@ async def import_documents(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        value = fingerprint(['import', str(base_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.models.resolve(session, base.embed_model_id)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='import',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(
+            'import',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(
                 file_ids=body.file_ids,
                 folder_id=body.folder_id,
                 chunk_size=body.chunk_size,
@@ -246,27 +235,16 @@ async def rechunk(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        value = fingerprint(['rechunk', str(base_id), str(document_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.models.resolve(session, base.embed_model_id)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True, lock=True)
-        document = await container.knowledge.document_info(session, base_id, document_id)
-        container.knowledge.version(document.version, body.expected_version)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='rechunk',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(
-                document_ids=[document_id], chunk_size=body.chunk_size, chunk_overlap=body.chunk_overlap
-            ),
+            'rechunk',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(chunk_size=body.chunk_size, chunk_overlap=body.chunk_overlap),
+            version=body.expected_version,
+            child_id=document_id,
         )
 
 
@@ -371,25 +349,15 @@ async def rebuild(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        value = fingerprint(['rebuild', str(base_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.models.resolve(session, base.embed_model_id)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True, lock=True)
-        container.knowledge.version(base.version, body.expected_version)
-        ids = await container.knowledge.all_document_ids(session, base_id)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='rebuild',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(document_ids=ids),
+            'rebuild',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(),
+            version=body.expected_version,
         )
 
 
@@ -403,25 +371,16 @@ async def delete_document(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        value = fingerprint(['delete_document', str(base_id), str(document_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.knowledge.deletion_binding(session, base_id)
-        await container.knowledge.authorize_base(session, principal, base_id, manage=True, lock=True)
-        document = await container.knowledge.document_info(session, base_id, document_id, include_deleted=True)
-        container.knowledge.version(document.version, body.expected_version)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='delete_document',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(document_ids=[document_id]),
+            'delete_document',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(),
+            version=body.expected_version,
+            child_id=document_id,
         )
 
 
@@ -435,28 +394,16 @@ async def delete_folder(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        value = fingerprint(['delete_folder', str(base_id), str(folder_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.knowledge.deletion_binding(session, base_id)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True, lock=True)
-        container.knowledge.idle(base)
-        folder = await container.knowledge.authorize_folder(session, base_id, folder_id, include_deleted=True)
-        assert folder is not None
-        container.knowledge.version(folder.version, body.expected_version)
-        ids = await container.knowledge.deletion_scope(session, principal, base_id, folder_id)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='delete_folder',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(document_ids=ids),
+            'delete_folder',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(),
+            version=body.expected_version,
+            child_id=folder_id,
         )
 
 
@@ -469,26 +416,13 @@ async def delete_base(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        await lock_billing_admission(session)
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True, include_deleted=True)
-        value = fingerprint(['delete_base', str(base_id), body.model_dump(mode='json')])
-        existing = await container.knowledge.existing_job(session, principal, body.client_request_id, value)
-        if existing:
-            return existing
-        binding = await container.knowledge.deletion_binding(session, base_id)
-        base = await container.knowledge.authorize_base(
-            session, principal, base_id, manage=True, lock=True, include_deleted=True
-        )
-        container.knowledge.version(base.version, body.expected_version)
-        return await container.knowledge.queue(
+        return await container.knowledge_commands.native.console_job(
             session,
             principal,
             base_id,
-            operation='delete_base',
-            request_id=body.client_request_id,
-            value=value,
-            binding=binding,
-            selection=BuildSelection(
-                document_ids=await container.knowledge.all_document_ids(session, base_id, include_tombstoned=True)
-            ),
+            'delete_base',
+            body.client_request_id,
+            body.model_dump(mode='json'),
+            BuildSelection(),
+            version=body.expected_version,
         )

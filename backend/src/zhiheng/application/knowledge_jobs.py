@@ -1,22 +1,27 @@
 """Finite knowledge ticks submit model children and always return their queue slot."""
 
 import asyncio
-from contextlib import suppress
 from dataclasses import replace
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid5
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.file_inputs import FileInputService
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
+from zhiheng.modules.developer.public import APIOrigin
 from zhiheng.modules.files.public import FileService
 from zhiheng.modules.knowledge.public import (
+    JOB_TERMINAL,
     BuildClaim,
     BuildStore,
     GenerationStore,
     KnowledgeService,
     MilvusStore,
     VectorIOControl,
+    binding_fingerprint,
     fingerprint,
     split_chunks,
     validate_vectors,
@@ -25,6 +30,9 @@ from zhiheng.modules.models.public import ModelMessage, ModelRequest, ModelServi
 from zhiheng.runtime.contracts import TERMINAL_STATUSES
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+
+if TYPE_CHECKING:
+    from zhiheng.application.knowledge.origin import KnowledgeOriginGuard
 
 
 class KnowledgeJobs:
@@ -44,10 +52,58 @@ class KnowledgeJobs:
         self.models, self.runs, self.usage, self.vectors = models, runs, usage, vectors
         self.store, self.token_limit = BuildStore(knowledge), token_limit
         self.generations = GenerationStore()
+        self.origin_guard: KnowledgeOriginGuard | None = None
+
+    async def authorize_origin(
+        self, session: AsyncSession, claim: BuildClaim, *, models: bool = True
+    ) -> APIOrigin | None:
+        if self.origin_guard is None:
+            return None
+        paid = models and not claim.operation.startswith('delete')
+        origin = await self.origin_guard.job(session, claim.id, model_ids=(claim.binding.model_id,) if paid else ())
+        if origin is not None and paid:
+            binding = await self.models.resolve(session, claim.binding.model_id)
+            if binding_fingerprint(binding) != binding_fingerprint(claim.binding):
+                raise AppError('knowledge_preparation_stale', '知识模型绑定已变化', 409)
+        if origin is not None:
+            principal = await self.knowledge.identity.principal_for_user(session, origin.owner_id)
+            await self.knowledge.authorize_base(
+                session,
+                principal,
+                claim.base_id,
+                manage=True,
+                lock=True,
+                include_deleted=claim.operation == 'delete_base',
+            )
+            await self.store.owned(session, claim)
+            await self.origin_guard.job(
+                session, claim.id, model_ids=(claim.binding.model_id,) if paid else (), lock=True
+            )
+        return origin
 
     async def tick(self, job_id: UUID) -> None:
-        async with self.database.sessions.begin() as session:
-            claim = await self.store.claim(session, job_id)
+        try:
+            async with self.database.sessions.begin() as session:
+                facts = await self.store.facts(session, job_id)
+                if (
+                    self.origin_guard is not None
+                    and facts is not None
+                    and facts.status not in {*JOB_TERMINAL, 'cancel_requested'}
+                ):
+                    paid = not facts.operation.startswith('delete')
+                    origin = await self.origin_guard.job(
+                        session, job_id, model_ids=(facts.binding.model_id,) if paid else ()
+                    )
+                    if origin is not None and paid:
+                        binding = await self.models.resolve(session, facts.binding.model_id)
+                        if binding_fingerprint(binding) != binding_fingerprint(facts.binding):
+                            raise AppError('knowledge_preparation_stale', '知识模型绑定已变化', 409)
+                claim = await self.store.claim(session, job_id)
+        except AppError as error:
+            async with self.database.sessions.begin() as session:
+                await self.store.reject(session, job_id, error)
+            await self.cancel_children(job_id)
+            return
         if claim is None:
             await self.cancel_children(job_id)
             return
@@ -119,6 +175,7 @@ class KnowledgeJobs:
         while True:
             await asyncio.sleep(0.2)
             async with self.database.sessions.begin() as session:
+                await self.authorize_origin(session, claim)
                 state, lease_until = await self.store.control(session, claim)
             if state != 'active':
                 return state
@@ -126,6 +183,8 @@ class KnowledgeJobs:
                 claim.io_control.renew(lease_until)
 
     async def _stage(self, claim: BuildClaim) -> None:
+        async with self.database.sessions.begin() as session:
+            await self.authorize_origin(session, claim)
         handlers = {'parse': self._parse, 'embedding': self._embedding, 'write': self._write, 'publish': self._publish}
         if claim.phase not in handlers:
             raise AppError('invalid_build_phase', '知识任务阶段无效', 503)
@@ -147,6 +206,7 @@ class KnowledgeJobs:
                 raise AppError('ocr_required', '图像入库需要OCR解析', 422)
             chunks = split_chunks(attachment.text, size, overlap)
             async with self.database.sessions.begin() as session:
+                await self.authorize_origin(session, claim)
                 source = await self.files.source_snapshot(
                     session, owner, file_id, artifact_file_id=attachment.summary.artifact_file_id
                 )
@@ -169,6 +229,7 @@ class KnowledgeJobs:
         if child_id is None:
             async with self.database.sessions.begin() as session:
                 await lock_billing_admission(session)
+                origin = await self.authorize_origin(session, claim, models=True)
                 owner = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
                 await self.models.resolve(session, claim.binding.model_id)
                 await self.store.owned(session, claim)
@@ -192,9 +253,9 @@ class KnowledgeJobs:
                         fingerprint=value,
                         payload=request.model_dump(mode='json'),
                     )
-                    rate = None
-                    with suppress(AppError):
-                        rate = await self.models.latest_rate(session, claim.binding.model_id)
+                    rate = await self.usage.money_rate(
+                        session, self.models, claim.binding.model_id, required=origin is not None
+                    )
                     await self.usage.reserve(
                         session,
                         user_id=owner.id,
@@ -205,6 +266,7 @@ class KnowledgeJobs:
                         estimated_input_tokens=sum(len(text.encode()) + 16 for text in batch.texts),
                         max_output_tokens=0,
                         token_limit=self.token_limit,
+                        key_id=origin.key_id if origin else None,
                         rate=rate,
                         operation='embedding',
                     )
@@ -237,10 +299,12 @@ class KnowledgeJobs:
         if rows:
             await self.vectors.build(spec, rows, control=claim.io_control)
         async with self.database.sessions.begin() as session:
+            await self.authorize_origin(session, claim)
             await self.store.release(session, claim, 'publish', 'publishing')
 
     async def _publish(self, claim: BuildClaim) -> None:
         async with self.database.sessions.begin() as session:
+            await self.authorize_origin(session, claim, models=not claim.operation.startswith('delete'))
             binding = (
                 claim.binding
                 if claim.operation.startswith('delete')

@@ -87,6 +87,7 @@ class ResourceAccessService:
         *,
         lock: bool,
         binding: bool = False,
+        include_deleted: bool = False,
     ) -> DomainAccess:
         principal = self.personal(principal)
         if kind == 'file':
@@ -100,10 +101,12 @@ class ResourceAccessService:
                 SourceFileFact(info.id, info.owner_id, info.size, info.status, info.source_file_id),
             )
         if kind == 'knowledge_base':
-            base, actions = await self.knowledge.delegable_access(session, principal, resource_id, lock=lock)
+            base, actions = await self.knowledge.delegable_access(
+                session, principal, resource_id, lock=lock, include_deleted=include_deleted
+            )
             return DomainAccess(actions, ResourceOwnership(base.owner_id, str(base.owner_id)))
         if kind == 'skill':
-            skill = await self.skills.access(session, principal.id, resource_id, lock=lock)
+            skill = await self.skills.access(session, principal.id, resource_id, lock=lock, include_deleted=True)
             return DomainAccess(
                 frozenset({'read', 'write', 'delete'}), ResourceOwnership(skill.owner_id, str(skill.owner_id))
             )
@@ -118,12 +121,16 @@ class ResourceAccessService:
         action: ResourceAction,
         *,
         lock: bool = True,
+        include_deleted: bool = False,
+        operation_scope: Scope | None = None,
     ) -> None:
         """Preflight with lock=False, then lock Models/Connections before final domain locking."""
-        current = await self.current(session, caller, resource_scope(kind, action))
+        current = await self.current(session, caller, operation_scope or resource_scope(kind, action))
         assert current.identity is not None
         binding = await self.grants.require(session, current.identity.application_id, kind, resource_id, action)
-        facts = await self.domain_actions(session, current.principal, kind, resource_id, lock=lock)
+        facts = await self.domain_actions(
+            session, current.principal, kind, resource_id, lock=lock, include_deleted=include_deleted
+        )
         if action not in facts.actions or binding != facts.ownership:
             raise AppError('resource_not_found', '资源不存在', 404)
 
@@ -218,7 +225,9 @@ class ResourceAccessService:
         await self.authorize_request(session, caller, info)
         return info
 
-    async def authorize_request(self, session: AsyncSession, caller: CallerContext, info: APIRequestInfo) -> None:
+    async def authorize_request(
+        self, session: AsyncSession, caller: CallerContext, info: APIRequestInfo, *, lock: bool = True
+    ) -> None:
         current = await self.current(session, caller, info.required_scope)
         if current.identity is None or current.identity.application_id != info.application_id:
             raise AppError('request_not_found', '请求不存在', 404)
@@ -231,6 +240,8 @@ class ResourceAccessService:
                 cast('ResourceKind', target['kind']),
                 UUID(target['id']),
                 cast('ResourceAction', target['action']),
+                lock=lock,
+                include_deleted=info.operation == 'knowledge.delete_base',
             )
         if info.replayed and info.snapshot_expired:
             details: dict[str, object] = {

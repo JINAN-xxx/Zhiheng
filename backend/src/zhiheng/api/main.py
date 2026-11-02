@@ -12,6 +12,9 @@ from zhiheng.api.common.resource_protocol import ResourceProtocolMiddleware
 from zhiheng.api.errors import install_error_handlers
 from zhiheng.api.middleware import PublicTransportMiddleware, RequestOriginMiddleware
 from zhiheng.api.resources.files import router as resource_files_router
+from zhiheng.api.resources.knowledge import router as resource_knowledge_router
+from zhiheng.api.resources.operations import router as resource_operations_router
+from zhiheng.api.resources.skills import router as resource_skills_router
 from zhiheng.api.routes.admin_identity import router as admin_identity_router
 from zhiheng.api.routes.admin_monitor import router as admin_monitor_router
 from zhiheng.api.routes.admin_operations import router as admin_operations_router
@@ -58,6 +61,9 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(admin_monitor_router)
     app.include_router(files_router)
     app.include_router(resource_files_router)
+    app.include_router(resource_knowledge_router)
+    app.include_router(resource_operations_router)
+    app.include_router(resource_skills_router)
     app.include_router(knowledge_router)
     app.include_router(knowledge_graph_router)
     app.include_router(agents_router)

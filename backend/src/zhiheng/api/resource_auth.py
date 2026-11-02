@@ -16,7 +16,7 @@ from zhiheng.modules.developer.public import Scope
 resource_bearer = HTTPBearer(scheme_name='ResourceBearer', auto_error=False)
 
 
-def resource_caller(scope: Scope) -> Callable[..., Awaitable[CallerContext]]:
+def resource_caller(scope: Scope | None) -> Callable[..., Awaitable[CallerContext]]:
     async def dependency(
         request: Request,
         container: ContainerDependency,
@@ -29,7 +29,12 @@ def resource_caller(scope: Scope) -> Callable[..., Awaitable[CallerContext]]:
             identity = await container.keys.authenticate(admission, token, lock=True)
             await container.resource_limits.consume(admission, identity)
         async with container.database.sessions() as authorization:
-            caller = await container.resource_access.bearer(authorization, token, scope=scope, lock=False)
+            if scope is None:
+                identity = await container.keys.authenticate(authorization, token, lock=False)
+                principal = await container.identity.principal_for_user(authorization, identity.owner_id)
+                caller = CallerContext('key', principal, identity)
+            else:
+                caller = await container.resource_access.bearer(authorization, token, scope=scope, lock=False)
             request_id = request.scope.get('state', {}).get('resource_request_id')
             return replace(caller, request_id=UUID(request_id)) if request_id else caller
 

@@ -354,6 +354,11 @@ class RetrievalStore:
         row = await self._row(session, record.id, lock=True)
         await self._fail_row(session, row, status, code, message)
 
+    async def request_cancel(self, session: AsyncSession, intent_id: UUID) -> None:
+        row = await self._row(session, intent_id, lock=True)
+        if row.status not in PREPARATION_TERMINAL and row.status != 'cancel_requested':
+            row.status, row.updated_at = 'cancel_requested', utcnow()
+
     async def claim(self, session: AsyncSession, intent_id: UUID) -> tuple[RetrievalState, UUID] | None:
         row = await self._row(session, intent_id, lock=True)
         if row.status in PREPARATION_TERMINAL:

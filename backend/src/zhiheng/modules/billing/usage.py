@@ -99,6 +99,47 @@ class UsageService:
                     key_limit=reservation.key_limit,
                 )
 
+    async def require_model_price(self, session: AsyncSession, models: ModelService, model_id: UUID) -> None:
+        """Reject unpriced API model steps before accepting durable work; reserve still freezes the actual price."""
+        if await self.points_enabled(session):
+            if await self._credits.quote(session, model_id) is None:
+                raise AppError('credit_rate_missing', '模型尚未配置积分费率', 409)
+        else:
+            await self.money_rate(session, models, model_id, required=True)
+
+    async def preflight(
+        self,
+        session: AsyncSession,
+        models: ModelService,
+        *,
+        user_id: UUID,
+        key_id: UUID,
+        model_id: UUID,
+        input_tokens: int,
+        token_limit: int,
+    ) -> None:
+        await self.require_model_price(session, models, model_id)
+        enabled = await self.points_enabled(session)
+        rate = await self.money_rate(session, models, model_id, required=True)
+        reservation = await self._legacy.preflight(
+            session,
+            user_id=user_id,
+            key_id=key_id,
+            tokens=input_tokens,
+            token_limit=token_limit,
+            rate=rate,
+            points_enforced=enabled,
+        )
+        if enabled:
+            await self._credits.preflight(
+                session,
+                user_id=user_id,
+                model_id=model_id,
+                key_id=key_id,
+                key_limit=reservation.key_limit,
+                input_tokens=input_tokens,
+            )
+
     async def require_reservation(
         self,
         session: AsyncSession,

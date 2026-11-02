@@ -1,15 +1,21 @@
 import hashlib
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import DateTime, delete, func, literal, or_, select, text
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Load
 
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
+    ResourceSkillInfo,
+    RevisionContent,
+    RevisionInfo,
     SkillAccess,
+    SkillConfirmation,
     SkillImportAction,
     SkillInfo,
     SkillPage,
@@ -27,6 +33,22 @@ from zhiheng.shared.time import utcnow
 MAX_FILENAME_LENGTH = 255
 MAX_SELECTION = 5
 MAX_SELECTION_BYTES = 32 * 1024
+
+
+def revision_columns(*, content: bool = False) -> Load:
+    columns = (
+        SkillRevision.id,
+        SkillRevision.skill_id,
+        SkillRevision.name,
+        SkillRevision.description,
+        SkillRevision.package_version,
+        SkillRevision.content_hash,
+        SkillRevision.package_sha,
+        SkillRevision.filename,
+        SkillRevision.file_count,
+        SkillRevision.total_bytes,
+    )
+    return Load(SkillRevision).load_only(*columns, *([SkillRevision.content] if content else []), raiseload=True)
 
 
 class SkillService:
@@ -87,15 +109,30 @@ class SkillService:
         )
         return (skill_id, *legacy)
 
-    async def prepare(self, session: AsyncSession, principal: Principal, payload: bytes, *, filename: str) -> DraftInfo:
+    async def prepare(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        payload: bytes,
+        *,
+        filename: str,
+        parsed: ParsedSkillPackage | None = None,
+        target_check: Callable[[AsyncSession, UUID | None], Awaitable[None]] | None = None,
+    ) -> DraftInfo:
         if len(filename) > MAX_FILENAME_LENGTH or '\x00' in filename:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
-        parsed = SkillPackageParser().parse(payload, filename=filename)
+        parsed = parsed or SkillPackageParser().parse(payload, filename=filename)
         await self._lock_slug(session, principal.id, parsed.slug)
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update(read=True)
         )
-        current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
+        if target_check is not None:
+            await target_check(session, skill.id if skill is not None else None)
+        current = (
+            await session.get(SkillRevision, skill.revision_id, options=(revision_columns(),))
+            if skill is not None
+            else None
+        )
         action = self._import_action(skill, current, parsed)
         draft = SkillDraft(
             owner_id=principal.id,
@@ -126,26 +163,73 @@ class SkillService:
             current_package_version=current.package_version if current else None,
         )
 
-    async def confirm(self, session: AsyncSession, principal: Principal, draft_id: UUID) -> SkillInfo:
+    async def draft_package(self, session: AsyncSession, owner_id: UUID, draft_id: UUID) -> tuple[bytes, str] | None:
         draft = await session.scalar(
-            select(SkillDraft).where(SkillDraft.id == draft_id, SkillDraft.owner_id == principal.id).with_for_update()
+            select(SkillDraft).where(SkillDraft.id == draft_id, SkillDraft.owner_id == owner_id)
         )
         if draft is None:
             raise AppError('skill_draft_not_found', '技能导入草稿不存在', 404)
         if draft.confirmed_info is not None:
-            return SkillInfo.model_validate(draft.confirmed_info)
+            return None
         if draft.expires_at <= utcnow():
             raise AppError('skill_draft_expired', '技能导入草稿已过期', 409)
         if hashlib.sha256(draft.package_bytes).hexdigest() != draft.package_sha:
             raise AppError('skill_draft_changed', '技能导入草稿校验失败', 409)
-        parsed = SkillPackageParser().parse(draft.package_bytes, filename=draft.filename)
+        return draft.package_bytes, draft.filename
+
+    async def confirm(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        draft_id: UUID,
+        *,
+        parsed: ParsedSkillPackage | None = None,
+        target_check: Callable[[AsyncSession, UUID | None], Awaitable[None]] | None = None,
+    ) -> SkillInfo:
+        return (
+            await self.confirm_with_outcome(session, principal, draft_id, parsed=parsed, target_check=target_check)
+        ).info
+
+    async def confirm_with_outcome(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        draft_id: UUID,
+        *,
+        parsed: ParsedSkillPackage | None = None,
+        target_check: Callable[[AsyncSession, UUID | None], Awaitable[None]] | None = None,
+    ) -> SkillConfirmation:
+        if parsed is None:
+            package = await self.draft_package(session, principal.id, draft_id)
+            parsed = SkillPackageParser().parse(package[0], filename=package[1]) if package is not None else None
+        draft = await session.scalar(
+            select(SkillDraft)
+            .where(SkillDraft.id == draft_id, SkillDraft.owner_id == principal.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if draft is None:
+            raise AppError('skill_draft_not_found', '技能导入草稿不存在', 404)
+        if draft.confirmed_info is not None:
+            return SkillConfirmation(SkillInfo.model_validate(draft.confirmed_info), False)
+        if draft.expires_at <= utcnow():
+            raise AppError('skill_draft_expired', '技能导入草稿已过期', 409)
+        if hashlib.sha256(draft.package_bytes).hexdigest() != draft.package_sha:
+            raise AppError('skill_draft_changed', '技能导入草稿校验失败', 409)
+        assert parsed is not None
         if parsed.parsed_hash != draft.parsed_hash:
             raise AppError('skill_draft_changed', '技能导入草稿校验失败', 409)
         await self._lock_slug(session, principal.id, parsed.slug)
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update()
         )
-        current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
+        if target_check is not None:
+            await target_check(session, skill.id if skill is not None else None)
+        current = (
+            await session.get(SkillRevision, skill.revision_id, options=(revision_columns(),))
+            if skill is not None
+            else None
+        )
         if (
             (skill.id if skill else None) != draft.target_skill_id
             or (skill.version if skill else None) != draft.target_version
@@ -153,7 +237,8 @@ class SkillService:
         ):
             raise AppError('skill_version_conflict', '技能在预检后已变化，请重新导入确认', 409)
         if draft.action == 'unchanged' and skill is not None and current is not None:
-            return await self._confirm_result(session, draft, skill, current)
+            return SkillConfirmation(await self._confirm_result(session, draft, skill, current), False)
+        created = skill is None
         revision_id = uuid4()
         if skill is None:
             skill = Skill(id=uuid4(), owner_id=principal.id, slug=parsed.slug, revision_id=revision_id)
@@ -181,7 +266,7 @@ class SkillService:
             total_bytes=parsed.total_bytes,
         )
         session.add(revision)
-        return await self._confirm_result(session, draft, skill, revision)
+        return SkillConfirmation(await self._confirm_result(session, draft, skill, revision), created)
 
     @staticmethod
     async def _lock_slug(session: AsyncSession, owner_id: UUID, slug: str) -> None:
@@ -228,6 +313,7 @@ class SkillService:
             select(Skill, SkillRevision)
             .join(SkillRevision, Skill.revision_id == SkillRevision.id)
             .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
+            .options(revision_columns())
         )
         if status is not None:
             query = query.where(Skill.status == status)
@@ -240,7 +326,7 @@ class SkillService:
                     SkillRevision.description.ilike(pattern),
                 )
             )
-        total = await session.scalar(select(func.count()).select_from(query.subquery()))
+        total = await session.scalar(select(func.count()).select_from(query.with_only_columns(Skill.id).subquery()))
         rows = (await session.execute(query.order_by(Skill.slug).offset((page - 1) * page_size).limit(page_size))).all()
         return SkillPage(
             items=[self._info(skill, revision) for skill, revision in rows],
@@ -254,6 +340,7 @@ class SkillService:
             await session.execute(
                 select(Skill, SkillRevision)
                 .join(SkillRevision, Skill.revision_id == SkillRevision.id)
+                .options(revision_columns())
                 .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None), Skill.status == 'enabled')
                 .order_by(Skill.slug)
             )
@@ -268,6 +355,7 @@ class SkillService:
         *,
         lock: bool = False,
         include_deleted: bool = False,
+        content: bool = False,
     ) -> tuple[Skill, SkillRevision]:
         query = select(Skill).where(Skill.id == skill_id, Skill.owner_id == owner_id)
         if not include_deleted:
@@ -277,15 +365,141 @@ class SkillService:
         skill = await session.scalar(query)
         if skill is None:
             raise AppError('skill_not_found', '技能不存在', 404)
-        revision = await session.get(SkillRevision, skill.revision_id)
+        revision = await session.get(SkillRevision, skill.revision_id, options=(revision_columns(content=content),))
         if revision is None:
             raise AppError('skill_not_found', '技能不存在', 404)
         return skill, revision
 
-    async def access(self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, lock: bool = False) -> SkillAccess:
-        skill, _ = await self._row(session, owner_id, skill_id, lock=lock)
+    async def access(
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        skill_id: UUID,
+        *,
+        lock: bool = False,
+        include_deleted: bool = False,
+    ) -> SkillAccess:
+        skill, _ = await self._row(session, owner_id, skill_id, lock=lock, include_deleted=include_deleted)
         assert skill.owner_id is not None
         return SkillAccess(skill.id, skill.owner_id, skill.version, skill.status)
+
+    async def target(self, session: AsyncSession, owner_id: UUID, slug: str) -> UUID | None:
+        return cast(
+            'UUID | None', await session.scalar(select(Skill.id).where(Skill.owner_id == owner_id, Skill.slug == slug))
+        )
+
+    async def resource_info(
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        skill_id: UUID,
+        *,
+        include_deleted: bool = False,
+        receipt: SkillInfo | None = None,
+    ) -> ResourceSkillInfo:
+        skill, revision = await self._row(session, owner_id, skill_id, include_deleted=include_deleted)
+        info = receipt or self._info(skill, revision)
+        return ResourceSkillInfo(
+            id=info.id,
+            owner_id=owner_id,
+            slug=info.slug,
+            name=info.name,
+            description=info.description,
+            status='deleted' if skill.deleted_at is not None and receipt is None else info.status,
+            resource_version=info.version,
+            current_revision_id=info.revision_id,
+            package_version=info.package_version,
+            content_hash=info.content_hash,
+            created_at=info.created_at,
+            updated_at=info.updated_at,
+        )
+
+    async def resource_items(
+        self, session: AsyncSession, owner_id: UUID, ids: list[UUID], *, after: tuple[datetime, UUID] | None, limit: int
+    ) -> list[ResourceSkillInfo]:
+        query = select(Skill.id).where(Skill.owner_id == owner_id, Skill.id.in_(ids), Skill.deleted_at.is_(None))
+        if after is not None:
+            query = query.where(
+                (Skill.created_at < after[0]) | ((Skill.created_at == after[0]) & (Skill.id < after[1]))
+            )
+        found = await session.scalars(query.order_by(Skill.created_at.desc(), Skill.id.desc()).limit(limit))
+        return [await self.resource_info(session, owner_id, identifier) for identifier in found]
+
+    async def revisions(
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        skill_id: UUID,
+        *,
+        after: tuple[datetime, UUID] | None = None,
+        limit: int = 101,
+        revision_id: UUID | None = None,
+    ) -> list[RevisionInfo]:
+        skill, _ = await self._row(session, owner_id, skill_id)
+        # Native immutable receipts carry release time. Personal builtin copies use their creation time.
+        times = (
+            select(
+                SkillDraft.confirmed_revision_id.label('revision_id'),
+                func.min(sql_cast(SkillDraft.confirmed_info['updated_at'].astext, DateTime(timezone=True))).label(
+                    'released_at'
+                ),
+            )
+            .where(
+                SkillDraft.owner_id == owner_id,
+                SkillDraft.confirmed_skill_id == skill_id,
+                SkillDraft.confirmed_info.is_not(None),
+            )
+            .group_by(SkillDraft.confirmed_revision_id)
+            .subquery()
+        )
+        released = func.coalesce(times.c.released_at, literal(skill.created_at, type_=DateTime(timezone=True)))
+        query = (
+            select(SkillRevision, released.label('released_at'))
+            .outerjoin(times, times.c.revision_id == SkillRevision.id)
+            .where(SkillRevision.skill_id == skill_id)
+            .options(revision_columns())
+        )
+        if revision_id is not None:
+            query = query.where(SkillRevision.id == revision_id)
+        if after is not None:
+            query = query.where((released < after[0]) | ((released == after[0]) & (SkillRevision.id < after[1])))
+        rows = await session.execute(query.order_by(released.desc(), SkillRevision.id.desc()).limit(limit))
+        return [self.revision_info(row, created_at) for row, created_at in rows]
+
+    async def revision(self, session: AsyncSession, owner_id: UUID, skill_id: UUID, revision_id: UUID) -> RevisionInfo:
+        found = await self.revisions(session, owner_id, skill_id, revision_id=revision_id, limit=1)
+        if not found:
+            raise AppError('skill_revision_not_found', '技能修订不存在', 404)
+        return found[0]
+
+    async def revision_content(
+        self, session: AsyncSession, owner_id: UUID, skill_id: UUID, revision_id: UUID
+    ) -> RevisionContent:
+        info = await self.revision(session, owner_id, skill_id, revision_id)
+        content = await session.scalar(
+            select(SkillRevision.package_bytes).where(
+                SkillRevision.skill_id == skill_id, SkillRevision.id == revision_id
+            )
+        )
+        if content is None:
+            raise AppError('skill_revision_not_found', '技能修订不存在', 404)
+        return RevisionContent(info, content)
+
+    @staticmethod
+    def revision_info(row: SkillRevision, created_at: datetime) -> RevisionInfo:
+        return RevisionInfo(
+            id=row.id,
+            skill_id=row.skill_id,
+            name=row.name,
+            description=row.description,
+            package_version=row.package_version,
+            content_hash=row.content_hash,
+            package_sha=row.package_sha,
+            filename=row.filename,
+            file_count=row.file_count,
+            total_bytes=row.total_bytes,
+            created_at=created_at,
+        )
 
     async def get(
         self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, include_deleted: bool = False
@@ -294,7 +508,7 @@ class SkillService:
         return self._info(skill, revision)
 
     async def content(self, session: AsyncSession, owner_id: UUID, skill_id: UUID) -> str:
-        _, revision = await self._row(session, owner_id, skill_id)
+        _, revision = await self._row(session, owner_id, skill_id, content=True)
         return revision.content
 
     async def set_status(
@@ -411,6 +625,7 @@ async def resolve_selection(session: AsyncSession, owner_id: UUID, slugs: Sequen
         await session.execute(
             select(Skill, SkillRevision)
             .join(SkillRevision, Skill.revision_id == SkillRevision.id)
+            .options(revision_columns(content=True))
             .where(
                 Skill.owner_id == owner_id, Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled'
             )
@@ -447,7 +662,7 @@ async def require_frozen_available(session: AsyncSession, owner_id: UUID, select
             )
             .with_for_update(read=True)
         )
-        revision = await session.get(SkillRevision, value.revision_id)
+        revision = await session.get(SkillRevision, value.revision_id, options=(revision_columns(content=True),))
         if (
             skill is None
             or revision is None

@@ -241,6 +241,32 @@ class CreditService:
         )
         return CreditRateInfo.model_validate(row, from_attributes=True) if row else None
 
+    async def preflight(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        model_id: UUID,
+        key_id: UUID,
+        key_limit: Decimal | None,
+        input_tokens: int,
+    ) -> None:
+        rate = await self.quote(session, model_id)
+        if rate is None:
+            raise AppError('credit_rate_missing', '模型尚未配置积分费率', 409)
+        held = points_for_usage(rate, input_tokens=input_tokens, output_tokens=0, search_units=0)
+        account = await self.summary(session, user_id)
+        if not account.enabled:
+            raise AppError('credits_paused', '积分账户已暂停', 403)
+        if account.available_points < held:
+            raise AppError('credits_insufficient', '可用积分不足', 429)
+        if key_limit is not None:
+            month = utcnow().astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
+            monthly = await session.get(CreditKeyMonth, (key_id, month))
+            used = _sum(monthly.used_points, monthly.reserved_points) if monthly else ZERO
+            if key_limit == 0 or _sum(used, held) > key_limit:
+                raise AppError('key_points_limit_exceeded', 'API Key 月度积分上限不足', 429)
+
     async def reserve(  # noqa: PLR0913 -- fixed public reservation contract includes all admission inputs.
         self,
         session: AsyncSession,

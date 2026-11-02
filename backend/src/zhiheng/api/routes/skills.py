@@ -103,7 +103,7 @@ async def status(
     session: SessionDependency,
 ) -> SkillInfo:
     async with session.begin():
-        return await container.skills.set_status(session, principal, skill_id, **body.model_dump())
+        return await container.skill_commands.status(session, principal, skill_id, **body.model_dump())
 
 
 @router.delete('/{skill_id}')
@@ -115,4 +115,4 @@ async def remove(
     _body: EmptyRequest | None = None,
 ) -> SkillInfo:
     async with session.begin():
-        return await container.skill_management.remove(session, principal, skill_id)
+        return await container.skill_commands.remove(session, principal, skill_id)

@@ -38,6 +38,12 @@ class SkillInfo(BaseModel):
     updated_at: datetime
 
 
+@dataclass(frozen=True)
+class SkillConfirmation:
+    info: SkillInfo
+    created: bool
+
+
 class DraftInfo(BaseModel):
     model_config = ConfigDict(extra='forbid')
     draft_id: UUID
@@ -61,6 +67,41 @@ class SkillPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ResourceSkillInfo(BaseModel):
+    id: UUID
+    owner_id: UUID
+    slug: str
+    name: str
+    description: str
+    status: Literal['enabled', 'disabled', 'deleted']
+    resource_version: int
+    current_revision_id: UUID
+    package_version: str
+    content_hash: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RevisionInfo(BaseModel):
+    id: UUID
+    skill_id: UUID
+    name: str
+    description: str
+    package_version: str
+    content_hash: str
+    package_sha: str
+    filename: str
+    file_count: int
+    total_bytes: int
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class RevisionContent:
+    info: RevisionInfo
+    content: bytes
 
 
 @dataclass(frozen=True)

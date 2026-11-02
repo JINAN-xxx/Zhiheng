@@ -25,8 +25,9 @@ def resource_error(
     response_headers = {'X-Request-ID': request_id, **(headers or {})}
     if status == HTTPStatus.UNAUTHORIZED:
         response_headers['WWW-Authenticate'] = 'Bearer'
-    if status == HTTPStatus.TOO_MANY_REQUESTS and details is not None and 'retry_after' in details:
-        response_headers['Retry-After'] = str(details['retry_after'])
+    if status == HTTPStatus.TOO_MANY_REQUESTS:
+        retry_after = details.get('retry_after') if details is not None else None
+        response_headers.setdefault('Retry-After', str(retry_after) if retry_after is not None else '60')
     return JSONResponse(
         {'error': {'code': code, 'message': message, 'details': details, 'request_id': request_id}},
         status_code=status,

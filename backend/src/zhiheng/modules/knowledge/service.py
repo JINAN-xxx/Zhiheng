@@ -57,6 +57,10 @@ class BuildSelection:
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
+    def __post_init__(self) -> None:
+        if self.file_ids is not None and len(set(self.file_ids)) != len(self.file_ids):
+            raise AppError('invalid_source_selection', '入库源文件不能重复', 422)
+
 
 def fingerprint(value: object) -> str:
     return hashlib.sha256(
@@ -295,11 +299,19 @@ class KnowledgeService:
         return BaseAccess(base.id, base.owner_id, base.embed_model_id, base.version, base.active_job_id)
 
     async def delegable_access(
-        self, session: AsyncSession, principal: Principal, base_id: UUID, *, lock: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        base_id: UUID,
+        *,
+        lock: bool = False,
+        include_deleted: bool = False,
     ) -> tuple[BaseAccess, frozenset[str]]:
-        base = await self.authorize_base(session, principal, base_id, lock=lock)
+        base = await self.authorize_base(session, principal, base_id, lock=lock, include_deleted=include_deleted)
         if base.owner_id == principal.id:
             return base, frozenset({'read', 'write', 'query', 'delete'})
+        if include_deleted:
+            await self.require(session, principal, base_id)
         grant = await session.get(KnowledgeGrant, (base.id, principal.id), populate_existing=lock)
         if grant is None or grant.effect != 'allow' or (grant.expires_at is not None and grant.expires_at <= utcnow()):
             raise AppError('knowledge_not_found', '知识库不存在', 404)

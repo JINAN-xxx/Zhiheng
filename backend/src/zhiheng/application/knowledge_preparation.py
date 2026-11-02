@@ -77,6 +77,7 @@ class KnowledgePreparation:
         ] = {}
         self.terminal_callbacks: dict[str, Callable[[AsyncSession, RetrievalState], Awaitable[None]]] = {}
         self.dependency_guards: dict[str, Callable[[AsyncSession, RetrievalState], Awaitable[None]]] = {}
+        self.resource_guard: Callable[[AsyncSession, RetrievalState], Awaitable[None]] | None = None
 
     async def binding_for(
         self, session: AsyncSession, owner: Principal, model_id: UUID, base_ids: list[UUID]
@@ -225,15 +226,23 @@ class KnowledgePreparation:
         await self.runs.lock_request(session, state.actor_id, request_id)
 
     async def query(
-        self, session: AsyncSession, principal: Principal, base_id: UUID, body: QueryRequest
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        base_id: UUID,
+        body: QueryRequest,
+        *,
+        identity: DeveloperIdentity | None = None,
+        namespace_id: UUID | None = None,
     ) -> PreparationInfo:
         await lock_billing_admission(session)
         value = fingerprint(['knowledge_query', str(base_id), body.model_dump(mode='json')])
-        await self.runs.lock_request(session, principal.id, body.client_request_id)
+        namespace = namespace_id or principal.id
+        await self.runs.lock_request(session, namespace, body.client_request_id)
         await self.knowledge.authorize_base(session, principal, base_id)
-        row = await self.store.existing(session, principal.id, body.client_request_id, value)
+        row = await self.store.existing(session, namespace, body.client_request_id, value)
         if row is not None:
-            return await self.info(session, principal, row.id)
+            return self.store.info(row) if identity else await self.info(session, principal, row.id)
         bases = await self.store.snapshot(session, principal, [base_id])
         for base in bases:
             binding = await self.models.resolve(session, base.binding.model_id)
@@ -242,7 +251,7 @@ class KnowledgePreparation:
         row = await self.store.create(
             session,
             body=RetrievalAdmission(
-                namespace_id=principal.id,
+                namespace_id=namespace,
                 request_id=body.client_request_id,
                 actor_id=principal.id,
                 owner_id=principal.id,
@@ -251,9 +260,24 @@ class KnowledgePreparation:
                 value=value,
                 request=body.model_dump(mode='json'),
                 dependencies={'bases': [base.model_dump(mode='json') for base in bases]},
+                key_id=identity.key_id if identity else None,
+                application_id=identity.application_id if identity else None,
             ),
         )
         return self.store.info(row)
+
+    async def admission_rate(
+        self, session: AsyncSession, model_id: UUID, identity: DeveloperIdentity, tokens: int = 1
+    ) -> None:
+        await self.usage.preflight(
+            session,
+            self.models,
+            user_id=identity.owner_id,
+            key_id=identity.key_id,
+            model_id=model_id,
+            input_tokens=tokens,
+            token_limit=self.token_limit,
+        )
 
     @staticmethod
     def identity_scope(resource_type: str) -> Scope:
@@ -274,6 +298,10 @@ class KnowledgePreparation:
             await self.keys.authorize_identity(
                 session, identity, required, scope=self.identity_scope(state.resource_type), lock=lock
             )
+        if self.resource_guard is not None:
+            await self.resource_guard(session, state)
+        if state.key_id is not None and state.resource_type == 'knowledge_query':
+            principal = Principal(principal.id, principal.username, False, principal.permissions)
         if state.resource_type in {'agent_preview', 'agent_invocation'}:
             application_id = state.dependencies.get('config', {}).get('application_id')
             if application_id:
@@ -436,7 +464,10 @@ class KnowledgePreparation:
                 async with self.database.sessions.begin() as session:
                     await lock_billing_admission(session)
                     await self.authorize(session, state, lock=True)
-                    await self.models.resolve(session, base.binding.model_id)
+                    await self.live_bindings(session, state)
+                    await self.check_dependencies(session, state)
+                    owner = await self.knowledge.identity.principal_for_user(session, state.owner_id)
+                    await self.store.revalidate(session, owner, bases)
                     await self.store.owned(session, state.id, token)
                     request = ModelRequest(
                         binding=base.binding,

@@ -27,6 +27,23 @@ def reserved_cost(rate: RateInfo, tokens: int) -> Decimal:
 async def reserve_limits(
     session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo | None
 ) -> tuple[int, str, Decimal | None]:
+    minute, month, cost = await check_limits(session, key, tokens, rate)
+    bucket = await session.scalar(
+        select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
+    )
+    if bucket is None:
+        bucket = KeyMinuteBucket(key_id=key.id, minute=minute, requests=0, tokens=0)
+        session.add(bucket)
+    bucket.requests += 1
+    bucket.tokens += tokens
+    key.last_used_at = utcnow()
+    return minute, month, cost
+
+
+async def check_limits(
+    session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo | None
+) -> tuple[int, str, Decimal | None]:
+    """The same native quota rules without consuming an invocation or creating a bucket."""
     now = utcnow()
     minute, month = int(now.timestamp()) // 60, now.strftime('%Y-%m')
     cost = reserved_cost(rate, tokens) if rate is not None else None
@@ -37,9 +54,6 @@ async def reserve_limits(
     bucket = await session.scalar(
         select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
     )
-    if bucket is None:
-        bucket = KeyMinuteBucket(key_id=key.id, minute=minute, requests=0, tokens=0)
-        session.add(bucket)
     active = await session.scalar(
         select(func.count())
         .select_from(Invocation)
@@ -53,8 +67,8 @@ async def reserve_limits(
         )
     )
     if (
-        (key.rpm_limit is not None and bucket.requests >= key.rpm_limit)
-        or (key.tpm_limit is not None and bucket.tokens + tokens > key.tpm_limit)
+        (key.rpm_limit is not None and (bucket.requests if bucket else 0) >= key.rpm_limit)
+        or (key.tpm_limit is not None and (bucket.tokens if bucket else 0) + tokens > key.tpm_limit)
         or (key.concurrency_limit is not None and (active or 0) >= key.concurrency_limit)
         or (
             key.monthly_budget is not None
@@ -62,9 +76,6 @@ async def reserve_limits(
         )
     ):
         raise AppError('rate_limit_exceeded', 'API key quota exceeded', 429)
-    bucket.requests += 1
-    bucket.tokens += tokens
-    key.last_used_at = now
     return minute, month, cost
 
 

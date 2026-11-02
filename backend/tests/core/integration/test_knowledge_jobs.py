@@ -193,25 +193,35 @@ async def test_cancelled_paid_step_is_zero_before_provider_and_stale_attempt_can
     assert (await admin.get(endpoint)).json()['active_revision'] == original
 
 
-async def test_admin_upload_preserves_original_owner_and_actual_uploader(
+async def test_personal_upload_rejects_other_admin_and_preserves_owner_and_uploader(
     admin: httpx.AsyncClient,
     app: FastAPI,
     provider: ProviderServer,
 ) -> None:
     model = await embedding_model(admin, provider)
-    actor_id = (await admin.get('/api/auth/me')).json()['id']
     async with member_client(app) as owner:
         owner_id = (await owner.get('/api/auth/me')).json()['id']
         base = (await owner.post('/api/knowledge/bases', json={'name': 'Owned', 'embed_model_id': model})).json()
         users = await owner.get(f'/api/knowledge/bases/{base["id"]}/users')
         assert users.status_code == 200 and all(set(user) == {'id', 'username'} for user in users.json())
         assert (await owner.get('/api/files/users')).status_code == 403
-    uploaded = await admin.post(
-        f'/api/knowledge/bases/{base["id"]}/uploads',
-        params={'filename': 'owned.txt'},
-        content=b'Owned source',
-        headers={'content-type': 'application/octet-stream'},
-    )
-    assert uploaded.status_code == 201, uploaded.text
-    assert uploaded.json()['file']['owner_id'] == owner_id
-    assert uploaded.json()['file']['uploader_id'] == actor_id
+        rejected = await admin.post(
+            f'/api/knowledge/bases/{base["id"]}/uploads',
+            params={'filename': 'owned.txt'},
+            content=b'Owned source',
+            headers={'content-type': 'application/octet-stream'},
+        )
+        assert rejected.status_code == 404, rejected.text
+        from zhiheng.modules.files.orm import FileRecord
+
+        async with app.state.container.database.sessions() as session:
+            assert await session.scalar(select(func.count()).select_from(FileRecord)) == 0
+        uploaded = await owner.post(
+            f'/api/knowledge/bases/{base["id"]}/uploads',
+            params={'filename': 'owned.txt'},
+            content=b'Owned source',
+            headers={'content-type': 'application/octet-stream'},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        assert uploaded.json()['file']['owner_id'] == owner_id
+        assert uploaded.json()['file']['uploader_id'] == owner_id

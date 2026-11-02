@@ -3,7 +3,11 @@ from sqlalchemy import Table
 from zhiheng.infrastructure.database import Base
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
+    ResourceSkillInfo,
+    RevisionContent,
+    RevisionInfo,
     SkillAccess,
+    SkillConfirmation,
     SkillImportAction,
     SkillInfo,
     SkillPage,
@@ -13,6 +17,7 @@ from zhiheng.modules.skills.contracts import (
     SkillStatus,
 )
 from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillLegacyBinding, SkillRevision
+from zhiheng.modules.skills.package import SkillPackageParser
 from zhiheng.modules.skills.service import (
     MAX_SELECTION_BYTES,
     SkillService,
@@ -26,9 +31,14 @@ from zhiheng.modules.skills.service import (
 __all__ = [
     'MAX_SELECTION_BYTES',
     'DraftInfo',
+    'ResourceSkillInfo',
+    'RevisionContent',
+    'RevisionInfo',
     'SkillAccess',
+    'SkillConfirmation',
     'SkillImportAction',
     'SkillInfo',
+    'SkillPackageParser',
     'SkillPage',
     'SkillRevisionValue',
     'SkillSelection',

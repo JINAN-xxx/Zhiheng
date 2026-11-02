@@ -14,6 +14,18 @@ if TYPE_CHECKING:
 
 
 class LegacyMeterPort(Protocol):
+    async def preflight(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: UUID,
+        key_id: UUID,
+        tokens: int,
+        token_limit: int,
+        rate: RateInfo | None,
+        points_enforced: bool,
+    ) -> LegacyReservation: ...
+
     async def reserve(  # noqa: PLR0913 - historical admission boundary
         self,
         session: AsyncSession,
