@@ -19,13 +19,20 @@
         <span>创建时间</span><strong>{{ formatTime(application.createdAt) }}</strong>
       </div>
       <div class="overview-field">
+        <span>原始文件额度</span
+        ><strong
+          >{{ application.sourceFileLimit }} 个 ·
+          {{ (application.sourceByteLimit / 1048576).toFixed(0) }} MiB</strong
+        >
+      </div>
+      <div class="overview-field">
         <span>更新时间</span><strong>{{ formatTime(application.updatedAt) }}</strong>
       </div>
     </div>
     <div class="access-guide">
       <strong>调用入口</strong>
       <p>
-        在模型目录配置费率并发布模型，为访问密钥选择授权模型后即可调用公开接口。停用应用后，已有密钥和调用记录会保留，但接口调用将被拒绝。
+        为访问密钥选择操作能力与模型允许列表，在“资源授权”中关联文件、知识库和个人技能。资源管理请求独立限速，有模型调用的步骤沿用原积分规则。停用应用后，已有密钥和调用记录会保留，但接口调用将被拒绝。
       </p>
     </div>
   </section>

@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from zhiheng.api.routes.chat import ChatRequest
+from zhiheng.api.console.chat import ChatRequest
 from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.modules.chat.contracts import ChatRequestContext
 from zhiheng.modules.models.contracts import ModelBinding, ModelOptions

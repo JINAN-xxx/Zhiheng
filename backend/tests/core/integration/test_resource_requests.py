@@ -352,7 +352,7 @@ async def test_bearer_dependency_is_strict_and_cookie_context_is_frozen(admin: h
 
     from starlette.requests import Request
 
-    from zhiheng.api.resource_auth import resource_caller
+    from zhiheng.api.resources.dependencies import resource_caller
 
     c, _owner_app, key, caller = await setup_access(admin, app)
     dependency = resource_caller('files:read')
@@ -372,7 +372,7 @@ async def test_bearer_dependency_is_strict_and_cookie_context_is_frozen(admin: h
 async def test_rejected_resource_scope_consumes_only_resource_rpm(admin: httpx.AsyncClient, app: FastAPI) -> None:
     from starlette.requests import Request
 
-    from zhiheng.api.resource_auth import resource_caller
+    from zhiheng.api.resources.dependencies import resource_caller
     from zhiheng.modules.developer.orm import KeyMinuteBucket, ResourceMinuteBucket
 
     c, _owner_app, key, _caller = await setup_access(admin, app, ['files:read'])

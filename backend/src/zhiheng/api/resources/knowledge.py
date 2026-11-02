@@ -4,12 +4,21 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
 from zhiheng.api.common.preconditions import expected_version, idempotency_header
-from zhiheng.api.dependencies import ContainerDependency
-from zhiheng.api.resource_auth import resource_caller
+from zhiheng.api.resources.dependencies import resource_caller
+from zhiheng.api.resources.schemas.knowledge import (
+    BasePage,
+    CreateRequest,
+    DocumentPage,
+    FolderPage,
+    FolderPatchRequest,
+    ImportRequest,
+    PatchRequest,
+    QueryBody,
+)
 from zhiheng.application.access import CallerContext
 from zhiheng.application.operations.contracts import OperationInfo
 from zhiheng.modules.knowledge.public import (
@@ -18,7 +27,6 @@ from zhiheng.modules.knowledge.public import (
     BasePatch,
     BuildSelection,
     ChunkParameters,
-    DocumentInfo,
     FolderCreate,
     FolderInfo,
     FolderPatch,
@@ -35,63 +43,14 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Cursor = Annotated[str | None, Query(max_length=1024)]
 
 
-class CreateRequest(ChunkParameters):
-    name: str = Field(min_length=1, max_length=100)
-    description: str = Field(default='', max_length=2000)
-    embed_model_id: UUID
-    _text = field_validator('name', 'description')(BaseCreate.text)
-
-
-class PatchRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=2000)
-    _text = field_validator('name', 'description')(BasePatch.text)
-
-
-class FolderPatchRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    name: str = Field(min_length=1, max_length=100)
-    _name = field_validator('name')(FolderCreate._valid_name)
-
-
-class ImportRequest(ChunkParameters):
-    file_ids: list[UUID] = Field(min_length=1, max_length=20)
-    folder_id: UUID | None = None
-
-
-class QueryBody(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    query: str = Field(min_length=1, max_length=8000)
-    top_k: int = Field(default=8, strict=True, ge=1, le=8)
-    similarity_threshold: float = Field(default=0, ge=-1, le=1, allow_inf_nan=False)
-    _text = field_validator('query')(QueryRequest.text)
-
-
-class BasePage(BaseModel):
-    items: list[BaseInfo]
-    next_cursor: str | None
-    has_more: bool
-
-
-class FolderPage(BaseModel):
-    items: list[FolderInfo]
-    next_cursor: str | None
-    has_more: bool
-
-
-class DocumentPage(BaseModel):
-    items: list[DocumentInfo]
-    next_cursor: str | None
-    has_more: bool
-
-
 def accepted(response: Response, operation: OperationInfo) -> OperationInfo:
     response.headers['Location'] = f'/api/v1/operations/{operation.id}'
     return operation
 
 
-@router.post('', status_code=201, openapi_extra={'x-required-scopes': ['knowledge:write']})
+@router.post(
+    '', status_code=201, openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']}
+)
 async def create(
     body: CreateRequest,
     request: Request,
@@ -122,14 +81,14 @@ async def page(
     )
 
 
-@router.get('/{base_id}', openapi_extra={'x-required-scopes': ['knowledge:read']})
+@router.get('/{base_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:read']})
 async def get(base_id: UUID, response: Response, container: ContainerDependency, caller: ReadCaller) -> BaseInfo:
     info = await container.knowledge_queries.get(caller, base_id)
     response.headers['ETag'] = f'"knowledge-base-{info.version}"'
     return info
 
 
-@router.patch('/{base_id}', openapi_extra={'x-required-scopes': ['knowledge:write']})
+@router.patch('/{base_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']})
 async def patch(
     base_id: UUID,
     body: PatchRequest,
@@ -170,7 +129,11 @@ async def folders(
     )
 
 
-@router.post('/{base_id}/folders', status_code=201, openapi_extra={'x-required-scopes': ['knowledge:write']})
+@router.post(
+    '/{base_id}/folders',
+    status_code=201,
+    openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']},
+)
 async def create_folder(
     base_id: UUID,
     body: FolderCreate,
@@ -187,7 +150,10 @@ async def create_folder(
     return info
 
 
-@router.patch('/{base_id}/folders/{folder_id}', openapi_extra={'x-required-scopes': ['knowledge:write']})
+@router.patch(
+    '/{base_id}/folders/{folder_id}',
+    openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']},
+)
 async def patch_folder(
     base_id: UUID,
     folder_id: UUID,

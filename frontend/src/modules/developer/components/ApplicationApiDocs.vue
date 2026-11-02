@@ -1,75 +1,131 @@
-<!-- Adapted from original ApplicationApiDocs.vue, MIT licensed. -->
 <template>
   <section class="api-docs-page">
-    <WorkspaceToolbar title="API 说明">
-      <template #actions>
-        <a-button aria-label="返回开发接入" @click="$emit('close')"
-          ><LeftOutlined />返回开发接入</a-button
-        >
-        <a-button @click="copyApiBase"><CopyOutlined />复制调用地址</a-button>
-        <a-button :href="swaggerUrl" v-bind="externalLinkProps">Swagger</a-button>
-        <a-button :href="redocUrl" v-bind="externalLinkProps">ReDoc</a-button>
-      </template>
-    </WorkspaceToolbar>
-
-    <section class="api-docs-layout">
-      <!-- GET /v1/models | POST /v1/chat/completions | POST /v1/embeddings | POST /v1/rerank -->
-      <nav class="api-docs-nav" aria-label="接口目录">
-        <div class="api-docs-nav__title">接口目录</div>
+    <WorkspaceToolbar title="API 说明"
+      ><template #actions
+        ><a-button @click="$emit('close')">返回开发接入</a-button></template
+      ></WorkspaceToolbar
+    >
+    <div class="api-docs-layout">
+      <nav class="api-docs-nav" aria-label="API 文档目录">
+        <div class="api-docs-nav__title">接口说明</div>
         <a
-          v-for="item in apiDocNavigation"
+          v-for="item in navigation"
           :key="item.anchor"
-          class="api-docs-nav__item"
-          :class="{ 'is-active': item.anchor === selectedId }"
           :href="`#${item.anchor}`"
-          :aria-current="item.anchor === selectedId ? 'location' : undefined"
+          class="api-docs-nav__item"
+          :class="{ 'is-active': selectedId === item.anchor }"
           @click="selectSection(item.anchor)"
+          >{{ item.label }}</a
         >
-          <span v-if="item.method" class="method" :class="`method--${item.method.toLowerCase()}`">{{
-            item.method
-          }}</span>
-          <span>{{ item.label }}</span>
-        </a>
       </nav>
-
       <div class="api-docs-content">
-        <article id="api-overview" class="api-docs-intro api-doc-anchor">
-          <h2>接入说明</h2>
+        <section id="api-overview" class="api-docs-intro api-doc-anchor">
+          <h2>平台 API</h2>
           <p>
-            调用地址：<code>{{ apiBase }}</code>
+            资源接口管理文件、个人知识库与个人技能；推理接口提供模型和智能体调用。两组均使用 Bearer
+            访问密钥。
           </p>
-          <p>先在开发接入中创建应用和访问密钥，再使用密钥授权范围内的平台模型 ID 调用以下接口。</p>
-        </article>
-
-        <article id="api-auth" class="api-doc-section api-doc-anchor">
-          <h2>鉴权方式</h2>
+          <a-radio-group v-model:value="group" button-style="solid"
+            ><a-radio-button value="resources">资源 API</a-radio-button
+            ><a-radio-button value="inference">推理 API</a-radio-button></a-radio-group
+          >
+          <div class="api-doc-code">
+            <div class="api-doc-code__title">
+              <span>当前调用地址</span><button @click="copy(apiBase)">复制地址</button>
+            </div>
+            <pre>{{ apiBase }}</pre>
+          </div>
+          <p>
+            <a :href="docsUrl" target="_blank" rel="noopener">Swagger 分组文档</a> ·
+            <a :href="schemaUrl" target="_blank" rel="noopener">OpenAPI 3.1 JSON</a>
+          </p>
+          <p>目录、字段和示例由当前服务的实际接口规范加载。OpenAI 资源 SDK 兼容层尚未注册。</p>
+        </section>
+        <section id="api-auth" class="api-doc-section">
+          <h2>鉴权与授权</h2>
           <p class="api-doc-description">
-            所有请求都需要在 <code>Authorization</code> 请求头中携带访问密钥。
+            发送 Authorization: Bearer $API_KEY。Console Cookie 不作为资源或推理鉴权。Key Scope
+            固定；应用资源授权可即时撤销，当前资源 ACL 始终生效。原密钥不会自动获得资源能力。
           </p>
-          <pre><code>Authorization: Bearer &lt;DEVELOPER_API_KEY&gt;</code></pre>
-        </article>
-
-        <article
-          v-for="item in apiDocs"
+          <p class="api-doc-description">
+            资源元数据 Key
+            可不选模型。索引、检索和其他模型步骤仍须允许相应模型，并沿用原积分计量；CRUD
+            与上传独立按资源请求频率限制。知识检索返回的片段不自动授予原文件下载权限。
+          </p>
+        </section>
+        <section id="api-protocol" class="api-doc-section">
+          <h2>版本、幂等与操作</h2>
+          <p class="api-doc-description">
+            创建、导入、确认及计量检索发送单个 UUID
+            Idempotency-Key。重试同一请求复用原键；不同内容返回 409。响应快照保留 24
+            小时，过期重放返回 409 和当前允许的原结果引用；operation GET 可长期读取，仍复核当前
+            Scope 与 ACL。
+          </p>
+          <p class="api-doc-description">
+            资源文件的元数据、内容下载和变更响应使用同一文件强版本 ETag，可原样用于 If-Match；缺少为
+            428，陈旧为 412。 技能不可变原包下载的 ETag 是内容 SHA256，不能用作技能状态版本。202
+            表示已接纳，按 Location 查询 operation，建议至少间隔一秒。cancel_requested
+            只表示取消意图，partially_succeeded 仍须检查失败项。
+          </p>
+          <p class="api-doc-description">
+            列表使用 items / next_cursor / has_more，默认 20、最多 100。资源错误为 error.code /
+            message / details / request_id，响应带 X-Request-ID；429 按 Retry-After 等待。下载支持单
+            Range 与 Content-Range。
+          </p>
+          <pre>{{ resourceError }}</pre>
+        </section>
+        <section id="api-recipes" class="api-doc-section">
+          <h2>资源接入顺序</h2>
+          <p class="api-doc-description">
+            先设置 API_KEY、FILE_PATH 和每次新请求的 REQUEST_ID（UUID）。知识入库：上传文件 →
+            从响应取 FILE_ID → 创建知识库（EMBED_MODEL_ID）→ 从响应取 BASE_ID → 文件入库 → 按
+            Location 轮询 → 检索。每个操作下均提供对应 curl，原始文件须已授权给当前应用。
+          </p>
+          <p class="api-doc-description">
+            个人技能：将 FILE_PATH 设为 SKILL.md 或 ZIP 上传 → 预检 file_id → 检查 action /
+            expected_version → 使用 DRAFT_ID 确认 → 保存 id、current_revision_id 和
+            resource_version。内容版本不可原地覆盖，启停用资源版本 ETag，修订引用使用 revision_id。
+          </p>
+          <pre>
+export API_KEY='你的访问密钥'
+export FILE_PATH='./notes.txt'
+export REQUEST_ID="$(python -c 'import uuid; print(uuid.uuid4())')"
+# 同一请求重试保持 REQUEST_ID；下一步新请求生成新 UUID。
+# If-Match 示例：export ETAG='"file-1"'</pre
+          >
+        </section>
+        <section v-if="group === 'inference'" id="api-streaming" class="api-doc-section">
+          <h2>流式调用</h2>
+          <p class="api-doc-description">
+            对话请求 stream=true 返回 text/event-stream。data 帧包含 choices[].delta，正常完成发送
+            data:
+            [DONE]；流内错误仍使用推理错误形状。客户端断开沿用原取消策略。智能体知识准备可能先返回
+            202，请按准备状态继续。
+          </p>
+        </section>
+        <WorkspaceState v-if="loading" kind="loading" />
+        <WorkspaceState v-else-if="error" kind="error" :message="error" @retry="load" />
+        <section
+          v-for="item in documents"
+          v-else
           :id="`api-${item.id}`"
           :key="item.id"
           class="api-doc-section"
         >
-          <header class="api-doc-section__header">
+          <div class="api-doc-section__header">
             <span class="method" :class="`method--${item.method.toLowerCase()}`">{{
               item.method
-            }}</span>
-            <code>{{ item.path }}</code>
-            <span v-if="item.streaming" class="stream-label">支持流式</span>
-          </header>
+            }}</span
+            ><code>{{ item.path }}</code>
+          </div>
           <h2>{{ item.title }}</h2>
           <p class="api-doc-description">{{ item.description }}</p>
-
-          <table
-            v-if="item.fields?.length"
-            class="api-doc-fields"
-            :aria-label="`${item.title}请求字段`"
-          >
+          <p v-if="item.scopes.length" class="api-doc-description">
+            Scope：{{ item.scopes.join('、')
+            }}<span v-if="item.scopeMode">，按原生操作类型要求：{{ item.scopeMode }}</span>
+          </p>
+          <h3 v-if="item.fields.length" class="api-doc-subtitle">请求字段</h3>
+          <table v-if="item.fields.length" class="api-doc-fields">
             <thead>
               <tr>
                 <th>字段</th>
@@ -89,65 +145,8 @@
               </tr>
             </tbody>
           </table>
-
-          <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">
-            普通响应字段（stream=false）
-          </h3>
-          <table
-            v-if="item.id === 'chat-completions'"
-            class="api-doc-fields"
-            aria-label="普通响应字段"
-          >
-            <thead>
-              <tr>
-                <th>字段</th>
-                <th>类型</th>
-                <th>说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="field in item.normalResponseFields" :key="field.name">
-                <td>
-                  <code>{{ field.name }}</code>
-                </td>
-                <td>{{ field.type }}</td>
-                <td>{{ field.description }}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h3 v-if="item.id === 'chat-completions'" class="api-doc-subtitle">
-            流式响应字段（stream=true）
-          </h3>
-          <table
-            v-if="item.id === 'chat-completions'"
-            class="api-doc-fields"
-            aria-label="流式响应字段"
-          >
-            <thead>
-              <tr>
-                <th>字段</th>
-                <th>类型</th>
-                <th>说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="field in item.streamResponseFields" :key="field.name">
-                <td>
-                  <code>{{ field.name }}</code>
-                </td>
-                <td>{{ field.type }}</td>
-                <td>{{ field.description }}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h3 v-if="item.responseFields?.length" class="api-doc-subtitle">响应字段</h3>
-          <table
-            v-if="item.responseFields?.length"
-            class="api-doc-fields"
-            :aria-label="`${item.title}响应字段`"
-          >
+          <h3 v-if="item.responseFields.length" class="api-doc-subtitle">成功响应字段</h3>
+          <table v-if="item.responseFields.length" class="api-doc-fields">
             <thead>
               <tr>
                 <th>字段</th>
@@ -165,154 +164,113 @@
               </tr>
             </tbody>
           </table>
-
-          <div v-if="item.id === 'chat-completions'" class="api-doc-code">
-            <div class="api-doc-code__title">
-              普通请求示例（stream=false）
-              <button type="button" @click="copyCode(item.normalRequestExample)">
-                <CopyOutlined />复制
-              </button>
-            </div>
-            <pre><code>{{ item.normalRequestExample }}</code></pre>
-          </div>
-          <div v-if="item.id === 'chat-completions'" class="api-doc-code">
-            <div class="api-doc-code__title">普通响应示例</div>
-            <pre><code>{{ item.normalResponseExample }}</code></pre>
-          </div>
-          <div v-if="item.id !== 'chat-completions' && item.requestExample" class="api-doc-code">
-            <div class="api-doc-code__title">
-              请求示例
-              <button type="button" @click="copyCode(item.requestExample)">
-                <CopyOutlined />复制
-              </button>
-            </div>
-            <pre><code>{{ item.requestExample }}</code></pre>
-          </div>
-          <div v-if="item.id !== 'chat-completions'" class="api-doc-code">
-            <div class="api-doc-code__title">响应示例</div>
-            <pre><code>{{ item.responseExample }}</code></pre>
-          </div>
           <div class="api-doc-code">
             <div class="api-doc-code__title">
-              curl
-              <button type="button" @click="copyCode(renderCode(item.curlExample))">
-                <CopyOutlined />复制
-              </button>
+              <span>curl</span><button @click="copy(renderCode(item.curlExample))">复制示例</button>
             </div>
-            <pre><code>{{ renderCode(item.curlExample) }}</code></pre>
+            <pre>{{ renderCode(item.curlExample) }}</pre>
           </div>
-          <div class="api-doc-code">
-            <div class="api-doc-code__title">
-              Python
-              <button type="button" @click="copyCode(renderCode(item.pythonExample))">
-                <CopyOutlined />复制
-              </button>
-            </div>
-            <pre><code>{{ renderCode(item.pythonExample) }}</code></pre>
-          </div>
-        </article>
-
-        <article id="api-streaming" class="api-doc-section api-doc-anchor">
-          <h2>流式调用</h2>
-          <p class="api-doc-description">
-            对话请求设置 <code>stream=true</code> 后返回
-            <code>text/event-stream</code>。依次接收角色帧、内容帧、完成帧，最后收到
-            <code>[DONE]</code>。
-          </p>
-          <div class="api-doc-code">
-            <div class="api-doc-code__title">流式请求示例</div>
-            <pre><code>{{ chatDocs?.streamRequestExample }}</code></pre>
-          </div>
-          <div class="api-doc-code">
-            <div class="api-doc-code__title">SSE 响应顺序</div>
-            <pre><code>{{ chatDocs?.streamResponseExample }}</code></pre>
-          </div>
-        </article>
-
-        <article id="api-errors" class="api-doc-section api-doc-errors">
-          <h2>错误码</h2>
-          <p class="api-doc-description">
-            接口失败时返回统一 JSON 结构，HTTP 状态码用于区分鉴权、参数和服务错误。
-          </p>
-          <table class="api-doc-fields" aria-label="错误码">
-            <thead>
-              <tr>
-                <th>状态码</th>
-                <th>错误码</th>
-                <th>类型</th>
-                <th>说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in publicApiErrors" :key="item.code">
-                <td>{{ item.status }}</td>
-                <td>
-                  <code>{{ item.code }}</code>
-                </td>
-                <td>
-                  <code>{{ item.type }}</code>
-                </td>
-                <td>{{ item.description }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <pre><code>{
-  "error": {
-    "message": "The request is invalid.",
-    "type": "invalid_request_error",
-    "param": null,
-    "code": "invalid_request"
-  }
-}</code></pre>
-        </article>
+          <h3 class="api-doc-subtitle">响应状态与头</h3>
+          <pre>{{ item.responses }}</pre>
+        </section>
       </div>
-    </section>
+    </div>
   </section>
 </template>
-
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Button as AButton, message } from 'ant-design-vue'
-import { CopyOutlined, LeftOutlined } from '@ant-design/icons-vue'
-import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  apiDocNavigation,
-  apiDocs,
-  copyText,
-  parseApiDocAnchor,
-  publicApiErrors
-} from '../apiDocs.ts'
+  Button as AButton,
+  RadioGroup as ARadioGroup,
+  RadioButton as ARadioButton,
+  message
+} from 'ant-design-vue'
+import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { copyText, loadApiDocuments, parseApiDocAnchor } from '../apiDocs.ts'
+import type { ApiDocument } from '../apiDocs.ts'
 defineEmits<{ close: [] }>()
-const externalLinkProps = { target: '_blank', rel: 'noopener' }
-const selectedId = ref(parseApiDocAnchor(window.location.hash))
-const apiBase = computed(() => `${window.location.origin}/v1`)
-const swaggerUrl = `${window.location.origin}/docs`
-const redocUrl = `${window.location.origin}/redoc`
-const chatDocs = apiDocs.find((item) => item.id === 'chat-completions')
-function renderCode(code?: string): string {
-  return (code ?? '').replaceAll('{{API_BASE}}', apiBase.value)
+const group = ref<'resources' | 'inference'>('resources'),
+  documents = ref<ApiDocument[]>([]),
+  loading = ref(false),
+  error = ref(''),
+  selectedId = ref('api-overview')
+const scope = new RequestScope()
+const apiBase = computed(
+  () => `${window.location.origin}${group.value === 'resources' ? '/api/v1' : '/v1'}`
+)
+const schemaUrl = computed(() => `/openapi/${group.value}-v1.json`)
+const docsUrl = computed(() => `/docs/${group.value}`)
+const navigation = computed(() => [
+  { anchor: 'api-overview', label: '接入说明' },
+  { anchor: 'api-auth', label: '鉴权方式' },
+  { anchor: 'api-protocol', label: '版本与错误' },
+  { anchor: 'api-recipes', label: '资源接入顺序' },
+  ...(group.value === 'inference' ? [{ anchor: 'api-streaming', label: '流式调用' }] : []),
+  ...documents.value.map((item) => ({
+    anchor: `api-${item.id}`,
+    label: `${item.method} ${item.title}`
+  }))
+])
+const resourceError = JSON.stringify(
+  {
+    error: {
+      code: 'precondition_failed',
+      message: '资源已变化',
+      details: null,
+      request_id: '服务端请求 UUID'
+    }
+  },
+  null,
+  2
+)
+function renderCode(code: string): string {
+  return code.replaceAll('{{ORIGIN}}', window.location.origin)
 }
 function selectSection(anchor: string): void {
   selectedId.value = anchor
-  if (window.location.hash !== `#${anchor}`) window.location.hash = anchor
 }
-function syncSelectedSection(): void {
-  selectedId.value = parseApiDocAnchor(window.location.hash)
+function syncSection(): void {
+  selectedId.value = parseApiDocAnchor(
+    window.location.hash,
+    navigation.value.map((item) => item.anchor)
+  )
 }
-async function copyWithFeedback(text: string, successMessage: string): Promise<void> {
-  if (await copyText(text)) void message.success(successMessage)
+async function copy(text: string): Promise<void> {
+  if (await copyText(text)) void message.success('已复制')
   else void message.error('复制失败，请手动复制')
 }
-async function copyApiBase(): Promise<void> {
-  await copyWithFeedback(apiBase.value, '调用地址已复制')
+async function load(): Promise<void> {
+  const ticket = scope.replace()
+  loading.value = true
+  error.value = ''
+  documents.value = []
+  try {
+    const result = await loadApiDocuments(group.value, ticket.signal)
+    if (ticket.isCurrent()) {
+      documents.value = result
+      syncSection()
+    }
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) loading.value = false
+  }
 }
-async function copyCode(code?: string): Promise<void> {
-  await copyWithFeedback(code ?? '', '示例已复制')
-}
-onMounted(() => window.addEventListener('hashchange', syncSelectedSection))
-onBeforeUnmount(() => window.removeEventListener('hashchange', syncSelectedSection))
+watch(
+  group,
+  () => {
+    void load()
+  },
+  { immediate: true }
+)
+onMounted(() => window.addEventListener('hashchange', syncSection))
+onBeforeUnmount(() => {
+  scope.dispose()
+  window.removeEventListener('hashchange', syncSection)
+})
 </script>
-
 <style scoped lang="scss">
 .api-docs-page {
   display: flex;

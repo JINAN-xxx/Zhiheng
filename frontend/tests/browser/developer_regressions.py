@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import os
+from pathlib import Path
 import re
 import unittest
 from urllib.parse import parse_qs, urlparse
@@ -41,7 +42,7 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         self.origin = os.environ.get('PLATFORM_BROWSER_URL', 'http://127.0.0.1:15194')
-        self.app = {'id': 'app-1', 'code': 'internal-tools', 'name': '内部工具', 'status': 'active', 'version': 1, 'owner_id': 'user-1', 'created_at': '2026-10-23T00:00:00Z', 'updated_at': '2026-10-23T00:00:00Z', 'deleted_at': None}
+        self.app = {'id': 'app-1', 'code': 'internal-tools', 'name': '内部工具', 'status': 'active', 'version': 1, 'owner_id': 'user-1', 'created_at': '2026-10-23T00:00:00Z', 'updated_at': '2026-10-23T00:00:00Z', 'deleted_at': None, 'source_file_limit': 1000, 'source_byte_limit': 1073741824}
         self.keys = []
         self.key_pages = []
         self.posts = []
@@ -64,6 +65,9 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         status = 200
         if path == '/api/auth/me':
             body = {'id': 'user-1', 'username': 'admin', 'is_admin': True}
+        elif path == '/api/developer/applications/scope-catalog':
+            values = [('models:invoke', '模型调用', True), ('agents:invoke', '智能体调用', True), ('files:read', '读取文件', False), ('files:write', '管理文件', False)]
+            body = json.loads(Path(os.environ['PLATFORM_SCOPE_FIXTURE']).read_text()) if os.environ.get('PLATFORM_SCOPE_FIXTURE') else {'scopes': [item[0] for item in values], 'definitions': [{'scope': scope, 'label': label, 'description': label, 'requires_models': required} for scope, label, required in values], 'caps': {'resource_rpm_min': 1, 'resource_rpm_max': 120}}
         elif path == '/api/models':
             body = [{'id': 'model-1', 'name': '日常助手', 'connection_id': 'connection-1', 'upstream_model': 'upstream-private', 'max_output_tokens': 512, 'model_type': 'chat', 'published': True, 'enabled': True, 'capabilities': ['chat', 'stream']}]
         elif path == '/api/chat/conversations':
@@ -97,7 +101,7 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
             if method == 'POST':
                 payload = route.request.post_data_json
                 self.posts.append(payload)
-                key = {'id': 'key-1', 'application_id': 'app-1', 'name': payload['name'], 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': payload['model_ids'], 'rpm_limit': payload.get('rpm_limit'), 'tpm_limit': payload.get('tpm_limit'), 'concurrency_limit': payload.get('concurrency_limit'), 'monthly_budget': None, 'currency': 'USD', 'created_at': '2026-10-23T00:00:00Z', 'expires_at': None, 'retire_at': None, 'last_used_at': None}
+                key = {'id': 'key-1', 'application_id': 'app-1', 'name': payload['name'], 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': payload['model_ids'], 'scopes': payload.get('scopes', ['models:invoke', 'agents:invoke']), 'resource_rpm_limit': payload.get('resource_rpm_limit', 120), 'rpm_limit': payload.get('rpm_limit'), 'tpm_limit': payload.get('tpm_limit'), 'concurrency_limit': payload.get('concurrency_limit'), 'monthly_budget': None, 'currency': 'USD', 'created_at': '2026-10-23T00:00:00Z', 'expires_at': None, 'retire_at': None, 'last_used_at': None}
                 self.keys.append(key)
                 body = {**key, 'api_key': self.secret}
                 status = 201
@@ -116,6 +120,9 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         else:
             body = {'error': {'code': 'fixture_missing', 'message': path}}
             status = 404
+        for key in self.keys:
+            key.setdefault('scopes', ['models:invoke', 'agents:invoke'])
+            key.setdefault('resource_rpm_limit', 120)
         await route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 
     async def open_details(self):
@@ -181,7 +188,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await self.delayed_edit_navigation('list')
 
     async def test_rotation_response_cannot_reopen_secret_after_tab_change(self):
-        key = {'id': 'key-1', 'application_id': 'app-1', 'name': '客户端', 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': ['model-1'], 'rpm_limit': None, 'tpm_limit': None, 'concurrency_limit': None, 'expires_at': None, 'last_used_at': None}
+        key = {'id': 'key-1', 'application_id': 'app-1', 'name': '客户端', 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': ['model-1'], 'scopes': ['models:invoke', 'agents:invoke'], 'resource_rpm_limit': 120, 'rpm_limit': None, 'tpm_limit': None, 'concurrency_limit': None, 'expires_at': None, 'last_used_at': None}
         self.keys = [key]
         requested, release = asyncio.Event(), asyncio.Event()
         async def rotate(route):
@@ -308,6 +315,8 @@ class DeveloperUIRegressions(DeveloperBoundary):
     async def test_api_docs_use_platform_ids_and_current_public_url(self):
         await self.page.goto(self.origin + '/developer?view=docs')
         await expect(self.page.get_by_role('heading', name='API 说明', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text(self.origin + '/api/v1', exact=True)).to_be_visible()
+        await self.page.get_by_text('推理 API', exact=True).click()
         await expect(self.page.get_by_text(self.origin + '/v1', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('upstream-private', exact=True)).to_have_count(0)
 

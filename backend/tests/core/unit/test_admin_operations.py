@@ -264,9 +264,9 @@ async def test_operation_logs_share_transaction_and_rollback_with_write(
 async def api(session: AsyncSession, admin: Principal) -> AsyncIterator[Api]:
     from types import SimpleNamespace
 
-    from zhiheng.api.dependencies import get_principal, get_session
-    from zhiheng.api.errors import install_error_handlers
-    from zhiheng.api.routes.admin_operations import router
+    from zhiheng.api.common.dependencies import get_principal, get_session
+    from zhiheng.api.common.errors import install_error_handlers
+    from zhiheng.api.console.admin_operations import router
     from zhiheng.modules.operations.public import OperationsService
 
     app = FastAPI()

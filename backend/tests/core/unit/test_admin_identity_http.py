@@ -10,9 +10,9 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from zhiheng.api.dependencies import get_container, get_principal, get_session
-from zhiheng.api.errors import install_error_handlers
-from zhiheng.api.routes.admin_identity import router
+from zhiheng.api.common.dependencies import get_container, get_principal, get_session
+from zhiheng.api.common.errors import install_error_handlers
+from zhiheng.api.console.admin_identity import router
 from zhiheng.application.identity.accounts import AccountService
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables

@@ -173,7 +173,7 @@ async def test_concurrent_runs_single_admission_and_unpublish_guard(admin: httpx
 
 @asynccontextmanager
 async def member_client(app: object) -> AsyncIterator[httpx.AsyncClient]:
-    from zhiheng.api.dependencies import COOKIE_NAME
+    from zhiheng.api.common.dependencies import COOKIE_NAME
 
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
     result = await client.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})

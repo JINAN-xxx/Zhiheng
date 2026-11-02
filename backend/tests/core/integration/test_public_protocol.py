@@ -134,7 +134,7 @@ async def test_disconnect_and_header_failure_cancel_pending_reservation(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
     from tests.core.integration.test_developer import admitted
-    from zhiheng.api.routes.public import LifecycleStream, cancel, snapshots
+    from zhiheng.api.inference.streaming import LifecycleStream, cancel, snapshots
     from zhiheng.modules.developer.orm import UsageAccount
 
     _, key = await provision(admin, model_id)

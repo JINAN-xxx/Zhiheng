@@ -1,6 +1,13 @@
 import { parsePoints } from '../../billing/presentation.ts'
 import { http } from '../../../shared/http.ts'
-import { list, nullableNumber, number, object, string } from '../../../shared/validation.ts'
+import {
+  boolean,
+  list,
+  nullableNumber,
+  number,
+  object,
+  string
+} from '../../../shared/validation.ts'
 
 export interface Application {
   ownerId: string
@@ -11,11 +18,15 @@ export interface Application {
   version: number
   createdAt: string
   updatedAt: string
+  sourceFileLimit: number
+  sourceByteLimit: number
 }
 export interface DeveloperKey {
   keyId: string
   keyName: string
   applicationId: string
+  scopes: string[]
+  resourceRpmLimit: number
   maskedKey: string
   status: 'active' | 'retiring' | 'revoked' | 'expired'
   grants: { modelId: string }[]
@@ -47,6 +58,8 @@ export interface Page<T> {
 }
 export interface KeyInput {
   name: string
+  scopes?: string[]
+  resource_rpm_limit?: number
   model_ids: string[]
   rpm_limit: number | null
   tpm_limit: number | null
@@ -57,7 +70,7 @@ export interface KeyInput {
 const root = '/developer/applications'
 const path = (id: string) => `${root}/${encodeURIComponent(id)}`
 const nullableString = (value: unknown) => (value === null ? null : string(value))
-function parseApplication(value: unknown): Application {
+export function parseApplication(value: unknown): Application {
   const data = object(value)
   if (data.status !== 'active' && data.status !== 'disabled') throw new Error('应用状态无效')
   return {
@@ -68,10 +81,12 @@ function parseApplication(value: unknown): Application {
     status: data.status,
     version: number(data.version),
     createdAt: string(data.created_at),
+    sourceFileLimit: number(data.source_file_limit),
+    sourceByteLimit: number(data.source_byte_limit),
     updatedAt: string(data.updated_at)
   }
 }
-function parseKey(value: unknown): DeveloperKey {
+export function parseKey(value: unknown): DeveloperKey {
   const data = object(value)
   if (
     data.status !== 'active' &&
@@ -85,6 +100,8 @@ function parseKey(value: unknown): DeveloperKey {
     keyName: string(data.name),
     applicationId: string(data.application_id),
     maskedKey: string(data.prefix),
+    scopes: list(string)(data.scopes),
+    resourceRpmLimit: number(data.resource_rpm_limit),
     status: data.status,
     grants: list(string)(data.model_ids).map((modelId) => ({ modelId })),
     quota: {
@@ -198,3 +215,190 @@ export const listApplicationUsage = (
     `${path(id)}/usage?${new URLSearchParams({ page: String(query.page), page_size: String(query.page_size) })}`,
     { signal, decode: page(parseUsage) }
   )
+
+export interface ScopeDefinition {
+  scope: string
+  label: string
+  description: string
+  requiresModels: boolean
+}
+export interface ScopeCatalog {
+  scopes: string[]
+  definitions: ScopeDefinition[]
+  resourceRpmMin: number
+  resourceRpmMax: number
+}
+export function parseScopeCatalog(value: unknown): ScopeCatalog {
+  const data = object(value),
+    caps = object(data.caps)
+  const scopes = list(string)(data.scopes)
+  const definitions = list((value) => {
+    const item = object(value)
+    return {
+      scope: string(item.scope),
+      label: string(item.label),
+      description: string(item.description),
+      requiresModels: boolean(item.requires_models)
+    }
+  })(data.definitions)
+  if (
+    new Set(scopes).size !== scopes.length ||
+    definitions.length !== scopes.length ||
+    new Set(definitions.map((item) => item.scope)).size !== scopes.length ||
+    definitions.some((item) => !scopes.includes(item.scope))
+  )
+    throw new Error('能力目录不完整，请刷新后重试')
+  return {
+    scopes,
+    definitions,
+    resourceRpmMin: number(caps.resource_rpm_min),
+    resourceRpmMax: number(caps.resource_rpm_max)
+  }
+}
+export const getScopeCatalog = (signal: AbortSignal) =>
+  http.request(`${root}/scope-catalog`, { signal, decode: parseScopeCatalog })
+export function keySelectionError(
+  scopes: string[],
+  models: string[],
+  catalog: ScopeCatalog
+): string {
+  if (
+    !scopes.length ||
+    new Set(scopes).size !== scopes.length ||
+    scopes.some((scope) => !catalog.scopes.includes(scope))
+  )
+    return '请选择有效的操作能力'
+  if (
+    !models.length &&
+    catalog.definitions.some((item) => scopes.includes(item.scope) && item.requiresModels)
+  )
+    return '模型或智能体调用至少需要一个允许的模型'
+  return ''
+}
+export function applyResourceVersion(
+  application: Application,
+  version: number,
+  limits?: { sourceFileLimit: number; sourceByteLimit: number },
+  refreshed?: Application
+): Application {
+  return {
+    ...application,
+    ...(refreshed?.applicationId === application.applicationId ? refreshed : {}),
+    ...limits,
+    version
+  }
+}
+export type ResourceKind = 'file' | 'knowledge_base' | 'skill'
+export type ResourceAction = 'read' | 'write' | 'query' | 'delete'
+export interface ResourceCandidate {
+  kind: ResourceKind
+  resourceId: string
+  displayName: string
+  status: string
+  allowedActions: ResourceAction[]
+  owned: boolean
+}
+export interface BoundResource extends ResourceCandidate {
+  actions: ResourceAction[]
+  available: boolean
+}
+export interface ResourceAccess {
+  applicationVersion: number
+  sourceCount: number
+  sourceBytes: number
+  sourceFileLimit: number
+  sourceByteLimit: number
+  canBindResources: boolean
+  canConfigureQuota: boolean
+  items: BoundResource[]
+}
+function resourceKind(value: unknown): ResourceKind {
+  if (value !== 'file' && value !== 'knowledge_base' && value !== 'skill')
+    throw new Error('资源类型无效')
+  return value
+}
+function resourceAction(value: unknown): ResourceAction {
+  if (value !== 'read' && value !== 'write' && value !== 'query' && value !== 'delete')
+    throw new Error('资源动作无效')
+  return value
+}
+export function parseResourceCandidate(value: unknown): ResourceCandidate {
+  const data = object(value)
+  return {
+    kind: resourceKind(data.kind),
+    resourceId: string(data.resource_id),
+    displayName: string(data.display_name),
+    status: string(data.status),
+    allowedActions: list(resourceAction)(data.allowed_actions),
+    owned: boolean(data.owned)
+  }
+}
+export function parseResourceAccess(value: unknown): ResourceAccess {
+  const data = object(value)
+  return {
+    applicationVersion: number(data.application_version),
+    sourceCount: number(data.source_count),
+    sourceBytes: number(data.source_bytes),
+    sourceFileLimit: number(data.source_file_limit),
+    sourceByteLimit: number(data.source_byte_limit),
+    canBindResources: boolean(data.can_bind_resources),
+    canConfigureQuota: boolean(data.can_configure_quota),
+    items: list((value) => {
+      const item = object(value)
+      return {
+        ...parseResourceCandidate(item),
+        actions: list(resourceAction)(item.actions),
+        available: boolean(item.available)
+      }
+    })(data.items)
+  }
+}
+export const getResourceAccess = (id: string, signal: AbortSignal) =>
+  http.request(`${path(id)}/resource-access`, { signal, decode: parseResourceAccess })
+export const getResourceCandidates = (id: string, kind: ResourceKind, signal: AbortSignal) =>
+  http.request(`${path(id)}/resource-candidates?kind=${kind}`, {
+    signal,
+    decode: list(parseResourceCandidate)
+  })
+const resourcePath = (id: string, kind: ResourceKind, resourceId: string) =>
+  `${path(id)}/resources/${kind}/${encodeURIComponent(resourceId)}`
+export const bindResource = (
+  id: string,
+  kind: ResourceKind,
+  resourceId: string,
+  actions: ResourceAction[],
+  version: number,
+  signal: AbortSignal
+) =>
+  http.request(resourcePath(id, kind, resourceId), {
+    method: 'PUT',
+    body: { actions, expected_version: version },
+    signal,
+    decode: (value) => number(object(value).application_version)
+  })
+export const unbindResource = (
+  id: string,
+  kind: ResourceKind,
+  resourceId: string,
+  version: number,
+  signal: AbortSignal
+) =>
+  http.request(resourcePath(id, kind, resourceId), {
+    method: 'DELETE',
+    body: { expected_version: version },
+    signal,
+    decode: (value) => number(object(value).version)
+  })
+export const configureResourceQuota = (
+  id: string,
+  fileLimit: number,
+  byteLimit: number,
+  version: number,
+  signal: AbortSignal
+) =>
+  http.request(`${path(id)}/resource-quota`, {
+    method: 'PATCH',
+    body: { source_file_limit: fileLimit, source_byte_limit: byteLimit, expected_version: version },
+    signal,
+    decode: (value) => number(object(value).version)
+  })

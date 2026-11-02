@@ -2,7 +2,8 @@
 <template>
   <section class="models-panel">
     <div class="models-summary">
-      <span>共 {{ rows.length }} 个授权模型</span>
+      <span>共 {{ rows.length }} 个允许的模型</span
+      ><span>模型允许列表用于调用及知识处理，实际操作还须具有相应 Scope。</span>
     </div>
     <WorkspaceState
       v-if="!canView"

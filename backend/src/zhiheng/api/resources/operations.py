@@ -4,11 +4,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
-from pydantic import BaseModel
 
+from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
-from zhiheng.api.dependencies import ContainerDependency
-from zhiheng.api.resource_auth import resource_caller
+from zhiheng.api.resources.dependencies import resource_caller
+from zhiheng.api.resources.schemas.operations import OperationPage
 from zhiheng.application.access import CallerContext
 from zhiheng.application.operations.contracts import OperationInfo
 
@@ -22,12 +22,6 @@ READ_SCOPES = {
         'knowledge_preparation': ['knowledge:query'],
     },
 }
-
-
-class OperationPage(BaseModel):
-    items: list[OperationInfo]
-    next_cursor: str | None
-    has_more: bool
 
 
 @router.get('', openapi_extra=READ_SCOPES)

@@ -5,12 +5,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, Response, Security, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel
 
+from zhiheng.api.common.dependencies import ContainerDependency, SessionDependency
 from zhiheng.api.common.file_content import file_content_response
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
-from zhiheng.api.dependencies import ContainerDependency, SessionDependency
-from zhiheng.api.resource_auth import resource_bearer, resource_caller
+from zhiheng.api.resources.dependencies import resource_bearer, resource_caller
+from zhiheng.api.resources.schemas.files import ResourceFilePage
 from zhiheng.application.access import CallerContext
 from zhiheng.modules.files.public import FileInfo
 from zhiheng.shared.errors import AppError
@@ -53,12 +53,6 @@ async def download_caller(
 DownloadCaller = Annotated[CallerContext, Depends(download_caller)]
 
 
-class ResourceFilePage(BaseModel):
-    items: list[FileInfo]
-    next_cursor: str | None
-    has_more: bool
-
-
 def etag(info: FileInfo) -> str:
     return f'"file-{info.version}"'
 
@@ -77,7 +71,13 @@ def expected_version(request: Request) -> int:
 
 
 @router.post(
-    '', status_code=201, openapi_extra={'x-transport-policy': 'multipart_file', 'x-required-scopes': ['files:write']}
+    '',
+    status_code=201,
+    openapi_extra={
+        'x-transport-policy': 'multipart_file',
+        'x-response-headers': ['ETag'],
+        'x-required-scopes': ['files:write'],
+    },
 )
 async def upload(
     request: Request,
@@ -125,15 +125,25 @@ async def page(
     return ResourceFilePage(items=items, next_cursor=next_cursor, has_more=has_more)
 
 
-@router.get('/{file_id}', openapi_extra={'x-required-scopes': ['files:read']})
+@router.get('/{file_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['files:read']})
 async def get(file_id: UUID, response: Response, container: ContainerDependency, caller: ReadCaller) -> FileInfo:
     info = await container.file_queries.get(caller, file_id)
     response.headers['ETag'] = etag(info)
     return info
 
 
-@router.get('/{file_id}/content', response_class=Response, openapi_extra={'x-required-scopes': ['files:read']})
-async def content(file_id: UUID, request: Request, container: ContainerDependency, caller: DownloadCaller) -> Response:
+@router.get(
+    '/{file_id}/content',
+    response_class=Response,
+    openapi_extra={'x-supports-range': True, 'x-required-scopes': ['files:read']},
+)
+async def content(
+    file_id: UUID,
+    request: Request,
+    container: ContainerDependency,
+    caller: DownloadCaller,
+    range_header: Annotated[str | None, Header(alias='Range')] = None,
+) -> Response:
     try:
         info, data = await container.file_queries.read(caller.principal, file_id, caller=caller)
         return await file_content_response(request, container, caller.principal, info, data, resource=True)
@@ -151,7 +161,14 @@ async def content(file_id: UUID, request: Request, container: ContainerDependenc
         raise
 
 
-@router.delete('/{file_id}', openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['files:write']})
+@router.delete(
+    '/{file_id}',
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-response-headers': ['ETag'],
+        'x-required-scopes': ['files:write'],
+    },
+)
 async def remove(
     file_id: UUID,
     request: Request,
@@ -166,7 +183,12 @@ async def remove(
 
 
 @router.post(
-    '/{file_id}/restore', openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['files:write']}
+    '/{file_id}/restore',
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-response-headers': ['ETag'],
+        'x-required-scopes': ['files:write'],
+    },
 )
 async def restore(
     file_id: UUID,

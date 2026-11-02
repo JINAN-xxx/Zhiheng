@@ -17,6 +17,11 @@ class PublicRunService:
     def __init__(self, keys: KeyService, models: ModelService, usage: UsageService, runs: RunStore) -> None:
         self._keys, self._models, self._usage, self._runs = keys, models, usage, runs
 
+    async def cancel(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> None:
+        _, release = await self._runs.cancel(session, run_id, owner_id)
+        if release:
+            await self._usage.settle(session, run_id, rejected_before_execution=True)
+
     async def admit(
         self,
         session: AsyncSession,

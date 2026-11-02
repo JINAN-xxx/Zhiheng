@@ -59,6 +59,10 @@ def _rule(source: str, target: str) -> str | None:
     origin = source.split('.')
     destination = target.split('.')
     root = destination[0]
+    if origin[:3] == [PACKAGE, 'api', 'resources'] and (
+        root == 'sqlalchemy' or destination[:2] == [PACKAGE, 'infrastructure']
+    ):
+        return 'resource-protocol-persistence'
     if root in LEGACY_ROOTS or root.startswith('module_'):
         return 'legacy-runtime-import'
     if origin[:2] == [PACKAGE, 'shared']:

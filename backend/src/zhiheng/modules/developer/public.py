@@ -37,7 +37,7 @@ from zhiheng.modules.developer.resource_grants import (
     SourceFileFact,
 )
 from zhiheng.modules.developer.resource_limits import ResourceLimitService
-from zhiheng.modules.developer.scopes import SCOPES, ResourceAction, ResourceKind, Scope, resource_scope
+from zhiheng.modules.developer.scopes import SCOPES, ResourceAction, ResourceKind, Scope, resource_scope, scope_catalog
 from zhiheng.modules.developer.service import UsageService
 
 __all__ = [
@@ -72,6 +72,7 @@ __all__ = [
     'UsageSummary',
     'resource_scope',
     'schema_tables',
+    'scope_catalog',
 ]
 
 

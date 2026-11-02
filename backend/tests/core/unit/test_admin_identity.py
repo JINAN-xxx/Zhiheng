@@ -451,7 +451,7 @@ async def test_password_reset_cannot_take_over_more_powerful_regular_user(
 def test_http_router_is_available() -> None:
     import importlib.util
 
-    assert importlib.util.find_spec('zhiheng.api.routes.admin_identity') is not None
+    assert importlib.util.find_spec('zhiheng.api.console.admin_identity') is not None
 
 
 async def test_principal_refresh_does_not_trust_cached_enabled_user(

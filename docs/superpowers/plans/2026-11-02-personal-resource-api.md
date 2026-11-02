@@ -93,12 +93,14 @@ async def test_skill_owner_isolation(admin, app):
 
 ## 任务五：协议目录、规范与前端
 
-- [ ] 将控制台、资源、推理路由分组，旧HTTP路径和功能字段保持；拆分旧public.py的DTO/SSE/路由，等待和账务用例仍属于application。
-- [ ] 不保留两套写逻辑；其他域只在触及该域时整理。模块跨域只能public，新增api禁止访问私有ORM/SDK。
-- [ ] 从实际APIRoute/DTO生成资源分组OpenAPI3.1和 `/docs/resources`，上传Schema、Bearer/Cookie、Scope、分页、If-Match及202都能被客户端读取。
-- [ ] 开发接入补资源Scope和应用授权列表，Skill/KB默认“我的”过滤；文档元数据来自同一接口目录，示例走契约校验。
-- [ ] 前端核心/type/lint/format及权限/个人/上传/开发接入浏览器回归；真实无Cookie客户端与现有Console读写都验证。
-- [ ] 审查后提交。
+- [x] 将控制台、资源、推理路由分组，旧HTTP路径和功能字段保持；拆分旧public.py的DTO/SSE/路由，等待和账务用例仍属于application。
+- [x] 不保留两套写逻辑；其他域只在触及该域时整理。模块跨域只能public，新增api禁止访问私有ORM/SDK。
+- [x] 从实际APIRoute/DTO生成资源分组OpenAPI3.1和 `/docs/resources`，上传Schema、Bearer/Cookie、Scope、分页、If-Match及202都能被客户端读取。
+- [x] 开发接入补资源Scope和应用授权列表，Skill/KB默认“我的”过滤；文档元数据来自同一接口目录，示例走契约校验。
+- [x] 前端核心/type/lint/format及权限/个人/上传/开发接入浏览器回归；真实无Cookie客户端与现有Console读写都验证。
+- [x] 审查后提交。
+
+阶段五验收：协议目录及真实分组规范、开发接入 Scope/资源授权/额度界面已完成。前端核心 111、浏览器检查点 17 与最后竞态修复相关 10 项通过；独立质量竞态复验 2/2、DTO 9/9；规格差量及 Native 校验语义等价通过。实际部署同一 Python 3.12 镜像 CLI/25 DTO/OpenAPI 检查通过，仅增加解析器而不升级 SDK。301 项后端广泛回归保留为较早检查点，最终全平台验收在任务六执行。
 
 ## 任务六：完整验收与当前实例同步
 

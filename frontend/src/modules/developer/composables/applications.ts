@@ -19,15 +19,28 @@ import {
   listDeveloperKeys,
   revokeDeveloperKey,
   rotateDeveloperKey,
-  updateApplication
+  updateApplication,
+  getScopeCatalog,
+  keySelectionError,
+  applyResourceVersion
 } from '../api/index.ts'
-import type { Application, ApplicationUsage, DeveloperKey, IssuedKey } from '../api/index.ts'
+import type {
+  Application,
+  ApplicationUsage,
+  DeveloperKey,
+  IssuedKey,
+  ScopeCatalog
+} from '../api/index.ts'
 
-type Tab = 'overview' | 'keys' | 'models' | 'usage'
+type Tab = 'overview' | 'keys' | 'models' | 'resources' | 'usage'
 const tabValue = (value: unknown): Tab =>
-  value === 'keys' || value === 'models' || value === 'usage' ? value : 'overview'
+  value === 'keys' || value === 'models' || value === 'resources' || value === 'usage'
+    ? value
+    : 'overview'
 const defaultKeyForm = () => ({
   keyName: '',
+  scopes: [] as string[],
+  resourceRpmLimit: null as number | null,
   monthlyPointsLimit: '',
   modelIds: [] as string[],
   expiresAt: null as string | null,
@@ -55,6 +68,7 @@ export function useApplications() {
   const route = useRoute(),
     router = useRouter()
   const scopes = {
+    catalog: new RequestScope(),
     list: new RequestScope(),
     detail: new RequestScope(),
     keys: new RequestScope(),
@@ -62,6 +76,9 @@ export function useApplications() {
     usage: new RequestScope(),
     mutation: new RequestScope()
   }
+  const scopeCatalog = ref<ScopeCatalog | null>(null),
+    catalogLoading = ref(false),
+    catalogError = ref('')
   const applications = ref<Application[]>([]),
     selectedApplication = ref<Application | null>(null)
   const keys = ref<DeveloperKey[]>([]),
@@ -90,6 +107,8 @@ export function useApplications() {
     keyFormRef = ref<FormInstance>()
   const applicationForm = reactive({ applicationCode: '', applicationName: '' }),
     keyForm = reactive(defaultKeyForm())
+  let keyScopesEdited = false,
+    keyResourceRpmEdited = false
   const editingApplication = ref<Application | null>(null),
     issuedKey = ref<IssuedKey | null>(null),
     pendingIssuedKey = ref<IssuedKey | null>(null)
@@ -110,7 +129,7 @@ export function useApplications() {
   const modelOptions = computed(() =>
     models.value
       .filter((model) => model.enabled && model.published)
-      .map((model) => ({ label: model.name, value: model.id }))
+      .map((model) => ({ label: `${model.name}（${model.model_type}）`, value: model.id }))
   )
   const applicationColumns = [{ title: '应用', key: 'application' }]
   const applicationRules = {
@@ -125,7 +144,37 @@ export function useApplications() {
   }
   const keyRules = {
     keyName: [{ required: true, whitespace: true, message: '密钥名称不能为空' }],
-    modelIds: [{ type: 'array' as const, required: true, min: 1, message: '至少选择一个模型' }]
+    scopes: [
+      {
+        validator: () =>
+          !scopeCatalog.value || !keyForm.scopes.length
+            ? Promise.reject(new Error('请选择操作能力'))
+            : Promise.resolve()
+      }
+    ],
+    modelIds: [
+      {
+        validator: () => {
+          const error = scopeCatalog.value
+            ? keySelectionError(keyForm.scopes, keyForm.modelIds, scopeCatalog.value)
+            : '请先加载能力目录'
+          return error ? Promise.reject(new Error(error)) : Promise.resolve()
+        }
+      }
+    ],
+    resourceRpmLimit: [
+      {
+        validator: () => {
+          const invalid =
+            !scopeCatalog.value ||
+            keyForm.resourceRpmLimit === null ||
+            !Number.isInteger(keyForm.resourceRpmLimit) ||
+            keyForm.resourceRpmLimit < scopeCatalog.value.resourceRpmMin ||
+            keyForm.resourceRpmLimit > scopeCatalog.value.resourceRpmMax
+          return invalid ? Promise.reject(new Error('资源请求数超出允许范围')) : Promise.resolve()
+        }
+      }
+    ]
   }
   function clearIssuedKey(): void {
     issuedKeyOpen.value = false
@@ -155,6 +204,36 @@ export function useApplications() {
     modelError.value = ''
     usageError.value = ''
     usageQuery.pageNum = 1
+  }
+  async function loadScopeCatalog(): Promise<void> {
+    const context = scopes.catalog.replace()
+    catalogLoading.value = true
+    catalogError.value = ''
+    try {
+      const result = await getScopeCatalog(context.signal)
+      if (context.isCurrent()) {
+        scopeCatalog.value = result
+        if (keyFormOpen.value) initializeKeyDefaults(result)
+      }
+    } catch (reason) {
+      if (context.isCurrent() && !isAborted(reason)) catalogError.value = errorMessage(reason)
+    } finally {
+      if (context.isCurrent()) catalogLoading.value = false
+    }
+  }
+  function updateResourceApplication(
+    version: number,
+    limits?: { sourceFileLimit: number; sourceByteLimit: number },
+    refreshed?: Application
+  ): void {
+    const current = selectedApplication.value
+    if (!current) return
+    selectedApplication.value = applyResourceVersion(current, version, limits, refreshed)
+    applications.value = applications.value.map((item) =>
+      item.applicationId === current.applicationId
+        ? applyResourceVersion(item, version, limits, refreshed)
+        : item
+    )
   }
   async function loadApplications(): Promise<Application[] | null> {
     const context = scopes.list.replace()
@@ -291,6 +370,7 @@ export function useApplications() {
   )
   onMounted(() => {
     void loadApplications()
+    void loadScopeCatalog()
   })
   onBeforeUnmount(() => {
     Object.values(scopes).forEach((scope) => scope.dispose())
@@ -418,12 +498,24 @@ export function useApplications() {
       if (context.isCurrent()) saving.value = false
     }
   }
-  async function openKeyForm(): Promise<void> {
+  function initializeKeyDefaults(catalog: ScopeCatalog): void {
+    if (!keyScopesEdited)
+      keyForm.scopes = catalog.definitions
+        .filter((item) => item.requiresModels)
+        .map((item) => item.scope)
+    if (!keyResourceRpmEdited) keyForm.resourceRpmLimit = catalog.resourceRpmMax
+  }
+  function openKeyForm(): void {
     if (selectedApplication.value?.status !== 'active') return
     formError.value = ''
     Object.assign(keyForm, defaultKeyForm())
+    keyScopesEdited = false
+    keyResourceRpmEdited = false
+    if (scopeCatalog.value) initializeKeyDefaults(scopeCatalog.value)
     keyFormOpen.value = true
-    await loadModels()
+    // Model discovery does not own the immutable capability or resource rate inputs.
+    void loadModels()
+    if (!scopeCatalog.value) void loadScopeCatalog()
   }
   function closeKeyForm(): void {
     scopes.mutation.replace()
@@ -434,6 +526,8 @@ export function useApplications() {
     formError.value = ''
   }
   function handleKeyFormClosed(): void {
+    // A previous modal's closing animation cannot reset a reopened form.
+    if (keyFormOpen.value) return
     Object.assign(keyForm, defaultKeyForm())
     const value = pendingIssuedKey.value
     pendingIssuedKey.value = null
@@ -470,6 +564,8 @@ export function useApplications() {
           name: keyForm.keyName.trim(),
           monthly_points_limit: pointLimit,
           model_ids: [...keyForm.modelIds],
+          scopes: [...keyForm.scopes],
+          resource_rpm_limit: keyForm.resourceRpmLimit!,
           rpm_limit: keyForm.rpmLimit,
           tpm_limit: keyForm.tpmLimit,
           concurrency_limit: keyForm.concurrencyLimit,
@@ -532,18 +628,34 @@ export function useApplications() {
   async function closeDocs(): Promise<void> {
     await router.replace({ path: route.path, query: { ...route.query, view: undefined }, hash: '' })
   }
+  function setKeyScopes(value: unknown): void {
+    keyScopesEdited = true
+    keyForm.scopes = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+  }
   function setModelIds(value: unknown): void {
     keyForm.modelIds =
       Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : []
   }
-  function setLimit(field: 'rpmLimit' | 'tpmLimit' | 'concurrencyLimit', value: unknown): void {
+  function setLimit(
+    field: 'rpmLimit' | 'tpmLimit' | 'concurrencyLimit' | 'resourceRpmLimit',
+    value: unknown
+  ): void {
+    if (field === 'resourceRpmLimit') keyResourceRpmEdited = true
     keyForm[field] = typeof value === 'number' && Number.isFinite(value) ? value : null
   }
   function setExpiry(value: unknown): void {
     keyForm.expiresAt = typeof value === 'string' && value ? value : null
   }
   return {
+    scopeCatalog,
+    catalogLoading,
+    catalogError,
+    loadScopeCatalog,
+    updateResourceApplication,
     detailLoading,
+    setKeyScopes,
     setModelIds,
     setLimit,
     setExpiry,

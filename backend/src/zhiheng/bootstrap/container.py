@@ -7,6 +7,7 @@ from zhiheng.application.agent_management import AgentManagementService
 from zhiheng.application.agent_runs import AgentRunService
 from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.application.developer_management import DeveloperManagementService
+from zhiheng.application.developer_resources import DeveloperResourceQueries
 from zhiheng.application.file_inputs import FileInputService
 from zhiheng.application.files.commands import FileCommands
 from zhiheng.application.files.queries import FileQueries
@@ -200,6 +201,7 @@ class Container:
             self.identity, self.keys, self.resource_grants, self.api_requests, self.files, self.knowledge, self.skills
         )
 
+        self.developer_resources = DeveloperResourceQueries(self.applications, self.resource_access)
         self.file_commands = FileCommands(self.database, self.files, self.resource_access)
         self.file_queries = FileQueries(self.database, self.files, self.resource_access)
         self.file_jobs.after_purge = self._release_file_enrollments

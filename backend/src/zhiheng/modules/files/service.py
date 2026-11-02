@@ -1,6 +1,7 @@
 import hashlib
 import re
 from datetime import datetime, timedelta
+from http import HTTPStatus
 from typing import Literal, cast
 from uuid import UUID
 
@@ -345,6 +346,31 @@ class FileService:
             ):
                 raise AppError('file_not_found', '文件不存在', 404)
         return await self.info(session, row), actions
+
+    async def delegable_metadata(self, session: AsyncSession, principal: Principal) -> list[FileInfo]:
+        now = utcnow()
+        shared = select(FileGrant.file_id).where(
+            FileGrant.user_id == principal.id,
+            FileGrant.effect == 'allow',
+            or_(FileGrant.expires_at.is_(None), FileGrant.expires_at > now),
+        )
+        ids = await session.scalars(
+            select(FileRecord.id)
+            .where(
+                FileRecord.status == 'active',
+                or_(FileRecord.owner_id == principal.id, FileRecord.id.in_(shared)),
+            )
+            .order_by(FileRecord.created_at.desc(), FileRecord.id)
+        )
+        result = []
+        for resource_id in ids:
+            try:
+                info, _ = await self.delegable_access(session, principal, resource_id, active=True)
+                result.append(info)
+            except AppError as error:  # noqa: PERF203 -- each current ACL must be checked before exposing metadata
+                if error.status_code != HTTPStatus.NOT_FOUND:
+                    raise
+        return result
 
     async def ownership_stamp(self, session: AsyncSession, file_id: UUID) -> str:
         """Immutable transfer audit facts invalidate prior delegation even after A -> C -> A."""

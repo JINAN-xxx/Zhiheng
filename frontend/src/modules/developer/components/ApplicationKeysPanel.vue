@@ -2,7 +2,7 @@
 <template>
   <section class="keys-panel">
     <div class="subpage-actions">
-      <div><strong>访问密钥</strong><span>每把密钥可独立设置模型授权与调用限额</span></div>
+      <div><strong>访问密钥</strong><span>每把密钥独立设置操作能力、模型允许列表与限额</span></div>
       <a-button v-if="canCreate" type="primary" aria-label="创建密钥" @click="$emit('create')"
         ><template #icon><KeyOutlined /></template>创建密钥</a-button
       >
@@ -36,12 +36,15 @@
           </div>
           <code>{{ item.maskedKey }}</code>
           <small class="key-row__models"
-            >授权模型：{{
-              item.grants.map((grant) => modelName(grant.modelId)).join('、') || '无'
+            >模型允许列表：{{
+              item.grants.map((grant) => modelName(grant.modelId)).join('、') || '无需裸模型调用'
             }}</small
           >
           <small
             >{{ item.grants.length }} 个模型授权 · 最近使用 {{ formatTime(item.lastUsedAt) }}</small
+          >
+          <small class="key-row__models"
+            >操作能力：{{ item.scopes.map(scopeLabel).join('、') }}（签发后固定）</small
           >
           <small>到期时间：{{ item.expiresAt ? formatTime(item.expiresAt) : '无到期时间' }}</small>
           <small v-if="item.status === 'retiring'" class="key-row__retiring"
@@ -49,7 +52,8 @@
           >
         </div>
         <div class="key-row__quota">
-          <span>每分钟请求数 {{ item.quota.rpmLimit ?? '不限' }}</span>
+          <span>资源每分钟请求数 {{ item.resourceRpmLimit }}</span>
+          <span>推理每分钟请求数 {{ item.quota.rpmLimit ?? '不限' }}</span>
           <span>每分钟令牌数 {{ item.quota.tpmLimit ?? '不限' }}</span>
           <span>并发 {{ item.quota.concurrencyLimit ?? '不限' }}</span>
           <span
@@ -82,11 +86,12 @@ import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vu
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import { developerKeyStatusLabel } from '../presentation.ts'
-import type { DeveloperKey } from '../api/index.ts'
+import type { DeveloperKey, ScopeCatalog } from '../api/index.ts'
 import type { ChatModel } from '../../models/public.ts'
 const props = withDefaults(
   defineProps<{
     keys: DeveloperKey[]
+    scopeCatalog?: ScopeCatalog | null
     models?: ChatModel[]
     loading?: boolean
     error?: string
@@ -94,9 +99,19 @@ const props = withDefaults(
     canCreate?: boolean
     actions: MenuAction[]
   }>(),
-  { loading: false, error: '', canList: false, canCreate: false, models: () => [] }
+  {
+    loading: false,
+    error: '',
+    canList: false,
+    canCreate: false,
+    models: () => [],
+    scopeCatalog: null
+  }
 )
 defineEmits<{ create: []; retry: []; command: [command: string, item: DeveloperKey] }>()
+function scopeLabel(scope: string): string {
+  return props.scopeCatalog?.definitions.find((item) => item.scope === scope)?.label ?? scope
+}
 function modelName(id: string): string {
   return props.models.find((model) => model.id === id)?.name ?? id
 }

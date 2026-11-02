@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
@@ -316,6 +317,31 @@ class KnowledgeService:
         if grant is None or grant.effect != 'allow' or (grant.expires_at is not None and grant.expires_at <= utcnow()):
             raise AppError('knowledge_not_found', '知识库不存在', 404)
         return base, frozenset({'read', 'query'})
+
+    async def delegable_metadata(self, session: AsyncSession, principal: Principal) -> list[BaseInfo]:
+        now = utcnow()
+        shared = select(KnowledgeGrant.base_id).where(
+            KnowledgeGrant.user_id == principal.id,
+            KnowledgeGrant.effect == 'allow',
+            or_(KnowledgeGrant.expires_at.is_(None), KnowledgeGrant.expires_at > now),
+        )
+        rows = await session.scalars(
+            select(KnowledgeBase)
+            .where(
+                KnowledgeBase.deleted_at.is_(None),
+                or_(KnowledgeBase.owner_id == principal.id, KnowledgeBase.id.in_(shared)),
+            )
+            .order_by(KnowledgeBase.created_at.desc(), KnowledgeBase.id)
+        )
+        result = []
+        for row in rows:
+            try:
+                await self.delegable_access(session, principal, row.id)
+                result.append(await self.info(session, principal, row))
+            except AppError as error:  # noqa: PERF203 -- each current ACL must be checked before exposing metadata
+                if error.status_code != HTTPStatus.NOT_FOUND:
+                    raise
+        return result
 
     async def detail(self, session: AsyncSession, principal: Principal, base_id: UUID) -> BaseInfo:
         return await self.info(session, principal, await self.require(session, principal, base_id))

@@ -159,6 +159,7 @@
               <a-tab-pane key="overview" tab="概览" />
               <a-tab-pane key="keys" tab="访问密钥" />
               <a-tab-pane key="models" tab="模型授权" />
+              <a-tab-pane key="resources" tab="资源授权" />
               <a-tab-pane key="usage" tab="调用记录" />
             </a-tabs>
 
@@ -169,6 +170,7 @@
             <ApplicationKeysPanel
               v-else-if="activeTab === 'keys'"
               :keys="keys"
+              :scope-catalog="scopeCatalog"
               :models="models"
               :loading="keyLoading"
               :error="keyError"
@@ -187,6 +189,11 @@
               :error="keyError || modelError"
               :can-view="canViewModelAuthorizations"
               @retry="loadModelAuthorizations"
+            />
+            <ApplicationResourcesPanel
+              v-else-if="activeTab === 'resources'"
+              :application="selectedApplication"
+              @version-change="updateResourceApplication"
             />
             <ApplicationUsagePanel
               v-else
@@ -247,27 +254,66 @@
         @cancel="closeKeyForm"
       >
         <a-alert
-          v-if="formError || modelError"
-          :message="formError || modelError"
+          v-if="formError || catalogError || modelError"
+          :message="formError || catalogError || modelError"
           type="error"
           show-icon
         /><a-form ref="keyFormRef" :model="keyForm" :rules="keyRules" layout="vertical">
           <a-form-item label="密钥名称" name="keyName"
             ><a-input v-model:value="keyForm.keyName" :maxlength="100"
           /></a-form-item>
-          <a-form-item label="授权模型" name="modelIds"
+          <a-form-item
+            label="操作能力"
+            name="scopes"
+            extra="签发后能力固定。轮换复制原权限；变更能力需签发新密钥。"
+          >
+            <a-spin :spinning="catalogLoading"
+              ><a-checkbox-group
+                :value="keyForm.scopes"
+                class="scope-choices"
+                @change="setKeyScopes"
+              >
+                <a-checkbox
+                  v-for="item in scopeCatalog?.definitions ?? []"
+                  :key="item.scope"
+                  :value="item.scope"
+                  ><span
+                    >{{ item.label }} <code>{{ item.scope }}</code></span
+                  ><small>{{ item.description }}</small></a-checkbox
+                >
+              </a-checkbox-group></a-spin
+            >
+            <a-button v-if="catalogError" type="link" @click="loadScopeCatalog"
+              >重新加载能力目录</a-button
+            >
+          </a-form-item>
+          <a-form-item
+            label="模型允许列表"
+            name="modelIds"
+            extra="模型或智能体调用须选模型。资源元数据管理可留空；索引和检索仍需允许相应模型。"
             ><a-select
               :value="keyForm.modelIds"
               mode="multiple"
               show-search
               option-filter-prop="label"
               style="width: 100%"
-              placeholder="至少选择一个已发布模型"
+              placeholder="按所选能力选择已发布模型"
               :options="modelOptions"
               @change="setModelIds"
           /></a-form-item>
+          <a-form-item label="资源每分钟请求数" name="resourceRpmLimit">
+            <a-input-number
+              v-if="scopeCatalog"
+              :value="keyForm.resourceRpmLimit ?? ''"
+              :min="scopeCatalog.resourceRpmMin"
+              :max="scopeCatalog.resourceRpmMax"
+              :precision="0"
+              style="width: 100%"
+              @change="(value) => setLimit('resourceRpmLimit', value)"
+            />
+          </a-form-item>
           <div class="quota-grid">
-            <a-form-item label="每分钟请求数"
+            <a-form-item label="推理每分钟请求数"
               ><a-input-number
                 :value="keyForm.rpmLimit ?? ''"
                 :min="1"
@@ -346,6 +392,9 @@
 import {
   Alert as AAlert,
   Button as AButton,
+  Checkbox as ACheckbox,
+  CheckboxGroup as ACheckboxGroup,
+  Spin as ASpin,
   DatePicker as ADatePicker,
   Form as AForm,
   FormItem as AFormItem,
@@ -384,7 +433,13 @@ import ApplicationModelsPanel from '../components/ApplicationModelsPanel.vue'
 import ApplicationOverviewPanel from '../components/ApplicationOverviewPanel.vue'
 import ApplicationUsagePanel from '../components/ApplicationUsagePanel.vue'
 import ApplicationApiDocs from '../components/ApplicationApiDocs.vue'
+import ApplicationResourcesPanel from '../components/ApplicationResourcesPanel.vue'
 const {
+  scopeCatalog,
+  catalogLoading,
+  catalogError,
+  loadScopeCatalog,
+  updateResourceApplication,
   applications,
   selectedApplication,
   keys,
@@ -449,6 +504,7 @@ const {
   clearIssuedKey,
   copyIssuedKey,
   openDocs: openApiDocs,
+  setKeyScopes,
   setModelIds,
   setLimit,
   setExpiry,
@@ -467,6 +523,23 @@ function formatTime(value: string): string {
 </script>
 
 <style scoped lang="scss">
+.scope-choices {
+  display: grid;
+  gap: 10px;
+}
+.scope-choices :deep(.ant-checkbox-wrapper) {
+  margin-inline-start: 0;
+  align-items: flex-start;
+}
+.scope-choices small {
+  display: block;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+.scope-choices code {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
 .developer-api-page {
   display: flex;
   min-width: 0;

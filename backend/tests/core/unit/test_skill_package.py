@@ -241,7 +241,7 @@ def test_chat_skill_slug_contract_rejects_invalid_identifiers(slug: str) -> None
 
     from pydantic import ValidationError
 
-    from zhiheng.api.routes.chat import ChatRequest
+    from zhiheng.api.console.chat import ChatRequest
 
     with pytest.raises(ValidationError):
         ChatRequest(model_id=uuid4(), message='hello', client_request_id=uuid4(), skill_slugs=[slug])

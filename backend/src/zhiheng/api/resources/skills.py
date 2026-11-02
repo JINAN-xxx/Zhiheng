@@ -5,40 +5,18 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
-from pydantic import BaseModel, ConfigDict
 
+from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
 from zhiheng.api.common.preconditions import expected_version, idempotency_header
-from zhiheng.api.dependencies import ContainerDependency
-from zhiheng.api.resource_auth import resource_caller
+from zhiheng.api.resources.dependencies import resource_caller
+from zhiheng.api.resources.schemas.skills import ImportRequest, RevisionPage, SkillPage, StatusRequest
 from zhiheng.application.access import CallerContext
-from zhiheng.modules.skills.public import DraftInfo, ResourceSkillInfo, RevisionInfo, SkillStatus
+from zhiheng.modules.skills.public import DraftInfo, ResourceSkillInfo, RevisionInfo
 
 router = APIRouter(prefix='/api/v1', tags=['resources:skills'])
 ReadCaller = Annotated[CallerContext, Depends(resource_caller('skills:read'))]
 WriteCaller = Annotated[CallerContext, Depends(resource_caller('skills:write'))]
-
-
-class ImportRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    file_id: UUID
-
-
-class StatusRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    status: SkillStatus
-
-
-class SkillPage(BaseModel):
-    items: list[ResourceSkillInfo]
-    next_cursor: str | None
-    has_more: bool
-
-
-class RevisionPage(BaseModel):
-    items: list[RevisionInfo]
-    next_cursor: str | None
-    has_more: bool
 
 
 @router.post('/skill-imports', status_code=201, openapi_extra={'x-required-scopes': ['skills:write', 'files:read']})
@@ -59,7 +37,11 @@ async def prepare(
 @router.post(
     '/skill-imports/{draft_id}/confirm',
     status_code=201,
-    openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['skills:write', 'files:read']},
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-response-headers': ['ETag'],
+        'x-required-scopes': ['skills:write', 'files:read'],
+    },
 )
 async def confirm(
     draft_id: UUID,
@@ -94,7 +76,7 @@ async def page(
     )
 
 
-@router.get('/skills/{skill_id}', openapi_extra={'x-required-scopes': ['skills:read']})
+@router.get('/skills/{skill_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['skills:read']})
 async def get(
     skill_id: UUID, response: Response, container: ContainerDependency, caller: ReadCaller
 ) -> ResourceSkillInfo:
@@ -103,7 +85,9 @@ async def get(
     return info
 
 
-@router.patch('/skills/{skill_id}', openapi_extra={'x-required-scopes': ['skills:write']})
+@router.patch(
+    '/skills/{skill_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['skills:write']}
+)
 async def status(
     skill_id: UUID,
     body: StatusRequest,
@@ -121,7 +105,12 @@ async def status(
 
 
 @router.delete(
-    '/skills/{skill_id}', openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['skills:write']}
+    '/skills/{skill_id}',
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-response-headers': ['ETag'],
+        'x-required-scopes': ['skills:write'],
+    },
 )
 async def remove(
     skill_id: UUID,
@@ -166,6 +155,15 @@ async def revision(
 @router.get(
     '/skills/{skill_id}/versions/{revision_id}/content',
     response_class=Response,
+    responses={
+        200: {
+            'content': {
+                'application/zip': {'schema': {'type': 'string', 'format': 'binary'}},
+                'text/markdown': {'schema': {'type': 'string'}},
+            },
+            'headers': {'ETag': {'schema': {'type': 'string'}, 'description': '当时保存的原始包 SHA256。'}},
+        }
+    },
     openapi_extra={'x-required-scopes': ['skills:read']},
 )
 async def content(skill_id: UUID, revision_id: UUID, container: ContainerDependency, caller: ReadCaller) -> Response:

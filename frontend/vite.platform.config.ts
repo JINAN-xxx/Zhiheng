@@ -8,14 +8,14 @@ const platformFallback: Connect.NextHandleFunction = (request, _response, next) 
     request.headers.accept?.includes('text/html') &&
     pathname &&
     !pathname.startsWith('/api') &&
-    !/^\/(v1|docs|redoc)(\/|$)/.test(pathname) &&
+    !/^\/(v1|docs|redoc|openapi)(\/|$)/.test(pathname) &&
     !pathname.split('/').at(-1)?.includes('.')
   )
     request.url = '/platform.html'
   next()
 }
 const apiProxy = Object.fromEntries(
-  ['/api', '/v1', '/docs', '/redoc', '/openapi.json'].map((path) => [
+  ['/api', '/v1', '/docs', '/redoc', '/openapi.json', '/openapi/'].map((path) => [
     path,
     { target: process.env.PLATFORM_API_TARGET ?? 'http://127.0.0.1:19090', changeOrigin: true }
   ])

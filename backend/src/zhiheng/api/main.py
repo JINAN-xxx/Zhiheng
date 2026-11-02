@@ -8,33 +8,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from zhiheng.api.common.cors import ResourceCORSMiddleware
+from zhiheng.api.common.errors import install_error_handlers
+from zhiheng.api.common.middleware import PublicTransportMiddleware, RequestOriginMiddleware
+from zhiheng.api.common.openapi import install_openapi
 from zhiheng.api.common.resource_protocol import ResourceProtocolMiddleware
-from zhiheng.api.errors import install_error_handlers
-from zhiheng.api.middleware import PublicTransportMiddleware, RequestOriginMiddleware
-from zhiheng.api.resources.files import router as resource_files_router
-from zhiheng.api.resources.knowledge import router as resource_knowledge_router
-from zhiheng.api.resources.operations import router as resource_operations_router
-from zhiheng.api.resources.skills import router as resource_skills_router
-from zhiheng.api.routes.admin_identity import router as admin_identity_router
-from zhiheng.api.routes.admin_monitor import router as admin_monitor_router
-from zhiheng.api.routes.admin_operations import router as admin_operations_router
-from zhiheng.api.routes.agents import router as agents_router
-from zhiheng.api.routes.auth import router as auth_router
-from zhiheng.api.routes.billing import router as billing_router
-from zhiheng.api.routes.chat import router as chat_router
-from zhiheng.api.routes.developer import router as developer_router
-from zhiheng.api.routes.files import router as files_router
-from zhiheng.api.routes.knowledge import router as knowledge_router
-from zhiheng.api.routes.knowledge_graph import router as knowledge_graph_router
-from zhiheng.api.routes.message_actions import public_router as shared_messages_router
-from zhiheng.api.routes.message_actions import router as message_actions_router
-from zhiheng.api.routes.models import router as models_router
-from zhiheng.api.routes.public import router as public_router
-from zhiheng.api.routes.public_agents import router as public_agents_router
-from zhiheng.api.routes.runs import router as runs_router
-from zhiheng.api.routes.skills import router as skills_router
-from zhiheng.api.routes.usage import router as usage_router
-from zhiheng.api.routes.work import router as work_router
+from zhiheng.api.console.router import router as console_router
+from zhiheng.api.inference.router import router as inference_router
+from zhiheng.api.resources.router import router as resources_router
 from zhiheng.bootstrap.container import Container
 from zhiheng.bootstrap.settings import Settings
 
@@ -54,30 +34,9 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title='智衡 AI', version='0.1.0', lifespan=lifespan)
     install_error_handlers(app)
-    app.include_router(auth_router)
-    app.include_router(billing_router)
-    app.include_router(admin_identity_router)
-    app.include_router(admin_operations_router)
-    app.include_router(admin_monitor_router)
-    app.include_router(files_router)
-    app.include_router(resource_files_router)
-    app.include_router(resource_knowledge_router)
-    app.include_router(resource_operations_router)
-    app.include_router(resource_skills_router)
-    app.include_router(knowledge_router)
-    app.include_router(knowledge_graph_router)
-    app.include_router(agents_router)
-    app.include_router(public_agents_router)
-    app.include_router(models_router)
-    app.include_router(skills_router)
-    app.include_router(usage_router)
-    app.include_router(public_router)
-    app.include_router(chat_router)
-    app.include_router(message_actions_router)
-    app.include_router(shared_messages_router)
-    app.include_router(developer_router)
-    app.include_router(runs_router)
-    app.include_router(work_router)
+    app.include_router(console_router)
+    app.include_router(resources_router)
+    app.include_router(inference_router)
 
     app.add_middleware(PublicTransportMiddleware)
     app.add_middleware(RequestOriginMiddleware, allowed_origins=settings.allowed_origins)
@@ -111,6 +70,7 @@ def create_app(settings: Settings) -> FastAPI:
             return JSONResponse({'status': 'unavailable'}, status_code=503)
         return JSONResponse({'status': 'ok'})
 
+    install_openapi(app)
     return app
 
 

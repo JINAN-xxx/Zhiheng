@@ -335,6 +335,19 @@ class SkillService:
             page_size=page_size,
         )
 
+    async def delegable_metadata(self, session: AsyncSession, owner_id: UUID) -> list[ResourceSkillInfo]:
+        # Deleted and disabled personal records can be explicitly rebound for restoration.
+        rows = (
+            await session.execute(
+                select(Skill, SkillRevision)
+                .join(SkillRevision, Skill.revision_id == SkillRevision.id)
+                .options(revision_columns())
+                .where(Skill.owner_id == owner_id)
+                .order_by(Skill.slug, Skill.id)
+            )
+        ).all()
+        return [await self.resource_info(session, owner_id, skill.id, include_deleted=True) for skill, _ in rows]
+
     async def available(self, session: AsyncSession, owner_id: UUID) -> list[SkillInfo]:
         rows = (
             await session.execute(

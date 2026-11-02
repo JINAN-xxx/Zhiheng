@@ -176,3 +176,29 @@ def test_cli_exits_nonzero_and_reports_source_line(source: Callable) -> None:
     assert result.returncode == 1
     assert 'service.py:1' in result.stdout
     assert 'module-private-import' in result.stdout
+
+
+@pytest.mark.parametrize(
+    'statement',
+    [
+        'from sqlalchemy import select',
+        'def query():\n    from sqlalchemy.orm import Session',
+        'import importlib\nprovider = importlib.import_module("openai")',
+        'from zhiheng.infrastructure.database import Base',
+    ],
+)
+def test_resource_protocol_cannot_bypass_application_data_or_provider_boundaries(
+    checker: ModuleType, source: Callable, statement: str
+) -> None:
+    root = source('api/resources/knowledge.py', statement + '\n')
+    assert checker.check_boundaries(root), 'Resource HTTP adapters must not implement persistence or supplier calls'
+
+
+def test_resource_protocol_uses_public_domain_contract_and_application_use_case(
+    checker: ModuleType, source: Callable
+) -> None:
+    root = source(
+        'api/resources/knowledge.py',
+        'from zhiheng.modules.knowledge.public import BaseInfo\nfrom zhiheng.application.access import CallerContext\n',
+    )
+    assert checker.check_boundaries(root) == []

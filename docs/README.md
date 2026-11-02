@@ -59,6 +59,7 @@
 
 - [全平台功能验收与图谱并发修复](superpowers/verification/2026-11-02-full-platform-verification.md)
 
-## 对外资源 API 设计
+## 对外资源 API
 
-- [资源 API 与个人技能归属设计稿](superpowers/specs/2026-11-02-resource-api-design.md)：平台资源 API 优先，预留 OpenAI 适配；包含目标目录、应用授权、个人技能隔离和迁移步骤，尚未实施。
+- [资源 API 接入说明](api/resources-v1.md)：当前真实协议分组、开发接入、个人授权与发布边界。
+- [资源 API 与个人技能归属设计稿](superpowers/specs/2026-11-02-resource-api-design.md)：平台资源 API 优先，预留 OpenAI 适配；包含目标目录、应用授权、个人技能隔离和迁移步骤，已按独立工作树分片实施；完整验收和正常实例同步以发布记录为准。
