@@ -58,3 +58,7 @@
 - [技能包真实上传检查与最小格式兼容](superpowers/verification/2026-10-30-skill-upload.md)
 
 - [全平台功能验收与图谱并发修复](superpowers/verification/2026-11-02-full-platform-verification.md)
+
+## 对外资源 API 设计
+
+- [资源 API 与个人技能归属设计稿](superpowers/specs/2026-11-02-resource-api-design.md)：平台资源 API 优先，预留 OpenAI 适配；包含目标目录、应用授权、个人技能隔离和迁移步骤，尚未实施。
