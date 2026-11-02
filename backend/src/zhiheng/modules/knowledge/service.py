@@ -294,6 +294,17 @@ class KnowledgeService:
         )
         return BaseAccess(base.id, base.owner_id, base.embed_model_id, base.version, base.active_job_id)
 
+    async def delegable_access(
+        self, session: AsyncSession, principal: Principal, base_id: UUID, *, lock: bool = False
+    ) -> tuple[BaseAccess, frozenset[str]]:
+        base = await self.authorize_base(session, principal, base_id, lock=lock)
+        if base.owner_id == principal.id:
+            return base, frozenset({'read', 'write', 'query', 'delete'})
+        grant = await session.get(KnowledgeGrant, (base.id, principal.id), populate_existing=lock)
+        if grant is None or grant.effect != 'allow' or (grant.expires_at is not None and grant.expires_at <= utcnow()):
+            raise AppError('knowledge_not_found', '知识库不存在', 404)
+        return base, frozenset({'read', 'query'})
+
     async def detail(self, session: AsyncSession, principal: Principal, base_id: UUID) -> BaseInfo:
         return await self.info(session, principal, await self.require(session, principal, base_id))
 

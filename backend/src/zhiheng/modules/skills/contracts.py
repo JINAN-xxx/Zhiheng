@@ -12,6 +12,14 @@ SkillStatus = Literal['enabled', 'disabled']
 SkillImportAction = Literal['install', 'update', 'restore', 'unchanged']
 
 
+@dataclass(frozen=True)
+class SkillAccess:
+    id: UUID
+    owner_id: UUID
+    version: int
+    status: str
+
+
 class SkillInfo(BaseModel):
     model_config = ConfigDict(extra='forbid')
     id: UUID

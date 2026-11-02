@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.skills.contracts import (
     DraftInfo,
+    SkillAccess,
     SkillImportAction,
     SkillInfo,
     SkillPage,
@@ -272,7 +273,7 @@ class SkillService:
         if not include_deleted:
             query = query.where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
         if lock:
-            query = query.with_for_update(of=Skill)
+            query = query.with_for_update(of=Skill).execution_options(populate_existing=True)
         skill = await session.scalar(query)
         if skill is None:
             raise AppError('skill_not_found', '技能不存在', 404)
@@ -280,6 +281,11 @@ class SkillService:
         if revision is None:
             raise AppError('skill_not_found', '技能不存在', 404)
         return skill, revision
+
+    async def access(self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, lock: bool = False) -> SkillAccess:
+        skill, _ = await self._row(session, owner_id, skill_id, lock=lock)
+        assert skill.owner_id is not None
+        return SkillAccess(skill.id, skill.owner_id, skill.version, skill.status)
 
     async def get(
         self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, include_deleted: bool = False

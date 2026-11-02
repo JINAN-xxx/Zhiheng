@@ -10,7 +10,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
-from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
+from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, Invocation
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from zhiheng.modules.developer.applications import ApplicationService
+    from zhiheng.modules.developer.scopes import Scope
     from zhiheng.modules.identity.public import IdentityService
     from zhiheng.modules.models.public import ModelService
     from zhiheng.shared.principal import Principal
@@ -54,7 +55,8 @@ class KeyService:
             application_id=application_id,
             prefix=secret[:18],
             digest=hashlib.sha256(secret.encode()).hexdigest(),
-            **body.model_dump(exclude={'model_ids'}),
+            **body.model_dump(exclude={'model_ids', 'scopes'}),
+            scopes=list(body.scopes),
             model_ids=[str(value) for value in body.model_ids],
         )
         session.add(row)
@@ -79,8 +81,8 @@ class KeyService:
     ) -> DeveloperKey:
         query = select(DeveloperKey).where(DeveloperKey.id == key_id, DeveloperKey.application_id == application_id)
         if lock:
-            query = query.with_for_update()
-        row = await session.scalar(query)
+            query = query.with_for_update().execution_options(populate_existing=True)
+        row = await session.scalar(query.execution_options(populate_existing=True))
         # Global lock order is key -> application. Never acquire key while holding application.
         await self._applications.require(session, principal, application_id, lock=lock)
         if row is None:
@@ -99,6 +101,8 @@ class KeyService:
         body = KeyCreate(
             name=row.name,
             model_ids=[UUID(value) for value in row.model_ids],
+            scopes=tuple(row.scopes),
+            resource_rpm_limit=row.resource_rpm_limit,
             rpm_limit=row.rpm_limit,
             tpm_limit=row.tpm_limit,
             concurrency_limit=row.concurrency_limit,
@@ -118,14 +122,14 @@ class KeyService:
     async def authenticate(self, session: AsyncSession, token: str, *, lock: bool = False) -> DeveloperIdentity:
         query = select(DeveloperKey).where(DeveloperKey.digest == hashlib.sha256(token.encode()).hexdigest())
         if lock:
-            query = query.with_for_update()
-        key = await session.scalar(query)
+            query = query.with_for_update().execution_options(populate_existing=True)
+        key = await session.scalar(query.execution_options(populate_existing=True))
         if key is None or not self.usable(key):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         app_query = select(DeveloperApplication).where(DeveloperApplication.id == key.application_id)
         if lock:
-            app_query = app_query.with_for_update()
-        app = await session.scalar(app_query)
+            app_query = app_query.with_for_update().execution_options(populate_existing=True)
+        app = await session.scalar(app_query.execution_options(populate_existing=True))
         if (
             app is None
             or app.deleted_at is not None
@@ -135,18 +139,16 @@ class KeyService:
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         return DeveloperIdentity(app.id, key.id, app.owner_id)
 
-    async def authorize_identity(
-        self, session: AsyncSession, identity: DeveloperIdentity, model_ids: Sequence[UUID], *, lock: bool = False
-    ) -> None:
-        """Revalidate a persisted authenticated identity without retaining its bearer secret."""
+    async def revalidate(self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False) -> KeyInfo:
+        """Current identity validity, independent of the operation's capability or token accounting."""
         query = select(DeveloperKey).where(DeveloperKey.id == identity.key_id)
         if lock:
-            query = query.with_for_update()
-        key = await session.scalar(query)
+            query = query.with_for_update().execution_options(populate_existing=True)
+        key = await session.scalar(query.execution_options(populate_existing=True))
         app_query = select(DeveloperApplication).where(DeveloperApplication.id == identity.application_id)
         if lock:
-            app_query = app_query.with_for_update()
-        app = await session.scalar(app_query)
+            app_query = app_query.with_for_update().execution_options(populate_existing=True)
+        app = await session.scalar(app_query.execution_options(populate_existing=True))
         if (
             key is None
             or not self.usable(key)
@@ -158,14 +160,37 @@ class KeyService:
             or not await self._identity.is_active(session, identity.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
-        if not {str(value) for value in model_ids} <= set(key.model_ids):
+        return self.info(key)
+
+    async def authorize_identity(
+        self,
+        session: AsyncSession,
+        identity: DeveloperIdentity,
+        model_ids: Sequence[UUID],
+        *,
+        scope: Scope,
+        lock: bool = False,
+    ) -> None:
+        """Revalidate a persisted authenticated identity without retaining its bearer secret."""
+        key = await self.revalidate(session, identity, lock=lock)
+        if scope not in key.scopes:
+            raise AppError('insufficient_scope', 'Key lacks the required scope', 403)
+        if not set(model_ids) <= set(key.model_ids):
             raise AppError('model_not_found', 'Model is unavailable', 404)
 
     async def info_for_identity(self, session: AsyncSession, identity: DeveloperIdentity) -> KeyInfo:
-        row = await session.get(DeveloperKey, identity.key_id)
+        row = await session.get(DeveloperKey, identity.key_id, populate_existing=True)
         if row is None:
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         return self.info(row)
+
+    async def authorize_run(self, session: AsyncSession, run_id: UUID, *, scope: Scope) -> None:
+        """Execution guard reads the original reservation identity, never a replaying Key."""
+        invocation = await session.scalar(select(Invocation).where(Invocation.run_id == run_id))
+        if invocation is None or invocation.key_id is None or invocation.application_id is None:
+            raise AppError('invalid_api_key', 'Missing execution identity', 401)
+        identity = DeveloperIdentity(invocation.application_id, invocation.key_id, invocation.user_id)
+        await self.authorize_identity(session, identity, [invocation.model_id], scope=scope, lock=True)
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))

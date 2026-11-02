@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
+from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.modules.knowledge.adapters.lightrag.schema import GRAPH_SCHEMA
@@ -124,11 +125,11 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
 
     def downgrade(connection: object) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0007_knowledge')
+        command.upgrade(config, '0007_knowledge')
 
     async with container.database.engine.begin() as connection:
         credit_snapshots = await _credit_snapshot(connection)
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         snapshots = {
             table: (
                 (

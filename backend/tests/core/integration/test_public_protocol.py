@@ -145,7 +145,7 @@ async def test_disconnect_and_header_failure_cancel_pending_reservation(
         async def is_disconnected(self) -> bool:
             return True
 
-    source = snapshots(container, Disconnected(), run.id, identity.owner_id, key['api_key'])
+    source = snapshots(container, Disconnected(), run.id, identity.owner_id, key['api_key'], scope='models:invoke')
     assert (await anext(source)).status == 'pending'
     with pytest.raises(asyncio.CancelledError):
         await anext(source)

@@ -58,13 +58,15 @@ async def test_skill_owner_isolation(admin, app):
 
 ## 任务二：Key资源能力与接入上下文
 
-- [ ] 先以新测试证明旧Key访问资源401/403、files-only Key可无model_ids、Key无Scope/跨应用/伪造owner被拒绝；缺模型授权的计量请求不接纳。
-- [ ] Key添加不可变Scope和独立resource_rpm_limit；旧Key只迁入原推理Scope，轮换保持相同能力。
-- [ ] 添加应用资源授权及API请求身份表；资源创建绑定应用，已有个人资源由本人显式授权；同Owner不同App也不共享未授权ID。
-- [ ] `CallerContext`从Cookie或Key依赖构建，不从请求owner/admin字段构建；Key Scope、本人权限、应用授权和当前ACL取交集。
-- [ ] UUID Idempotency-Key以应用+操作+键唯一，同内容重放，不同内容409；处理中的请求有明确状态，24小时快照过期也不能变成新执行。
-- [ ] 限额按应用原始文件1000/1GiB、资源请求120每Key每分钟默认，配置与校验同属developer资源策略，Token计量不混用。
-- [ ] 运行 `test_resource_key_scopes.py`、`test_resource_requests.py`，并回归原developer/public/billing/轮换用例；依次审查、提交。
+- [x] 先以新测试证明旧Key访问资源401/403、files-only Key可无model_ids、Key无Scope/跨应用/伪造owner被拒绝；缺模型授权的计量请求不接纳。
+- [x] Key添加不可变Scope和独立resource_rpm_limit；旧Key只迁入原推理Scope，轮换保持相同能力。
+- [x] 添加应用资源授权及API请求身份表；资源创建绑定应用，已有个人资源由本人显式授权；同Owner不同App也不共享未授权ID。
+- [x] `CallerContext`从Cookie或Key依赖构建，不从请求owner/admin字段构建；Key Scope、本人权限、应用授权和当前ACL取交集。
+- [x] UUID Idempotency-Key以应用+操作+键唯一，同内容重放，不同内容409；处理中的请求有明确状态，24小时快照过期也不能变成新执行。
+- [x] 限额按应用原始文件1000/1GiB、资源请求120每Key每分钟默认，配置与校验同属developer资源策略，Token计量不混用。
+- [x] 运行 `test_resource_key_scopes.py`、`test_resource_requests.py`，并回归原developer/public/billing/轮换用例；依次审查、提交。
+
+阶段二验收：当前冻结代码的最终定向 19/19、独立规格 10+1 项与质量 4 项真实 PostgreSQL 验证通过；177 文件类型与架构检查通过。正常备份副本 schema14→15 保留 82 张原表的 1,665 条旧行及旧 Key 原列，新增四表为空；旧 Key 仅保留原推理能力。
 
 ## 任务三：文件资源与应用用例
 

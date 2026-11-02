@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -39,10 +41,10 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
 
     def downgrade(connection: Connection) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0006_files')
+        command.upgrade(config, '0006_files')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         columns = (
             await connection.execute(
                 text(
@@ -61,11 +63,22 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
+            selector = ''
+            if table in {'skills', 'skill_revisions'}:
+                identifiers = [json.loads(row)['id'] for row in snapshots[table]]
+                selector = (
+                    ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
+                    if identifiers
+                    else ' WHERE false'
+                )
+
             names = [column[1] for column in columns if column[0] == table]
             current = (
                 (
                     await connection.execute(
-                        text(f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(names)} FROM {table}) t ORDER BY 1')
+                        text(
+                            f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(names)} FROM {table}{selector}) t ORDER BY 1'
+                        )
                     )
                 )
                 .scalars()

@@ -274,7 +274,7 @@ async def test_menu_paths_and_permission_catalog_are_fixed(context: tuple[AsyncS
     assert {item['group'] for item in ai} == {
         'AI平台 · 模型与凭据',
         'AI平台 · 费率',
-        'AI平台 · 共享技能',
+        'AI平台 · 个人技能',
         'AI平台 · 存储治理',
         'AI平台 · 积分',
     }

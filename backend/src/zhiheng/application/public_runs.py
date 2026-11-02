@@ -30,6 +30,7 @@ class PublicRunService:
     ) -> tuple[RunSnapshot, DeveloperIdentity]:
         await lock_billing_admission(session)
         identity = await self._keys.authenticate(session, token, lock=True)
+        await self._keys.authorize_identity(session, identity, [model_id], scope='models:invoke', lock=True)
         key = await self._keys.info_for_identity(session, identity)
         if key is None or model_id not in key.model_ids:
             raise AppError('model_not_found', 'Model is unavailable', 404)

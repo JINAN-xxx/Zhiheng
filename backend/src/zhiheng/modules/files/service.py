@@ -15,6 +15,7 @@ from zhiheng.modules.files.contracts import (
     AuditInfo,
     BuiltinPermission,
     FileAccess,
+    FileAccountingFact,
     FileAuditPage,
     FileAuditQuery,
     FileInfo,
@@ -260,7 +261,7 @@ class FileService:
         else:
             allowed = self.managed(principal, row)
             if not allowed and row.status == 'active' and (row.expires_at is None or row.expires_at > utcnow()):
-                grant = await session.get(FileGrant, (row.id, principal.id))
+                grant = await session.get(FileGrant, (row.id, principal.id), populate_existing=lock)
                 effective = grant is not None and (grant.expires_at is None or grant.expires_at > utcnow())
                 allowed = not (effective and grant is not None and grant.effect == 'deny') and (
                     row.access == 'public'
@@ -319,6 +320,46 @@ class FileService:
             source_file_id=row.source_file_id,
             parser_version=row.parser_version,
         )
+
+    async def delegable_access(
+        self, session: AsyncSession, principal: Principal, file_id: UUID, *, lock: bool = False, active: bool = False
+    ) -> tuple[FileInfo, frozenset[str]]:
+        """Ownership or explicit current read sharing can be delegated; global admin access cannot."""
+        personal = Principal(principal.id, principal.username, False, principal.permissions)
+        row = await self._require(session, personal, file_id, active=active, lock=lock)
+        actions = (
+            frozenset({'read', 'write', 'delete'})
+            if row.owner_id == personal.id and row.source_file_id is None
+            else frozenset({'read'})
+        )
+        if row.owner_id != personal.id:
+            grant = await session.get(FileGrant, (row.id, personal.id), populate_existing=lock)
+            if (
+                grant is None
+                or grant.effect != 'allow'
+                or (grant.expires_at is not None and grant.expires_at <= utcnow())
+            ):
+                raise AppError('file_not_found', '文件不存在', 404)
+        return await self.info(session, row), actions
+
+    async def ownership_stamp(self, session: AsyncSession, file_id: UUID) -> str:
+        """Immutable transfer audit facts invalidate prior delegation even after A -> C -> A."""
+        count = await session.scalar(
+            select(func.count())
+            .select_from(FileAudit)
+            .where(FileAudit.file_id == file_id, FileAudit.action == 'transferred')
+        )
+        return str(count or 0)
+
+    async def accounting_fact(self, session: AsyncSession, file_id: UUID, *, lock: bool = False) -> FileAccountingFact:
+        """Trusted lifecycle metadata only; never exposes content or supplies user authorization."""
+        query = select(FileRecord).where(FileRecord.id == file_id)
+        if lock:
+            query = query.with_for_update()
+        row = await session.scalar(query.execution_options(populate_existing=True))
+        if row is None:
+            raise AppError('file_not_found', '文件不存在', 404)
+        return FileAccountingFact(row.id, row.owner_id, row.size, row.status, row.source_file_id)
 
     async def get(self, session: AsyncSession, principal: Principal, file_id: UUID) -> FileInfo:
         return await self.info(session, await self._require(session, principal, file_id))

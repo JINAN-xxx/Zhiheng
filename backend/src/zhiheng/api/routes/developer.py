@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 from zhiheng.api.contracts import EmptyRequest
 from zhiheng.api.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.developer.public import (
+    SCOPES,
     ApplicationCreate,
     ApplicationInfo,
     ApplicationPatch,
@@ -13,6 +14,11 @@ from zhiheng.modules.developer.public import (
     KeyCreate,
     KeyInfo,
     KeyRotate,
+    ResourceGrantInfo,
+    ResourceGrantRemove,
+    ResourceGrantRequest,
+    ResourceKind,
+    ResourceQuotaRequest,
 )
 
 router = APIRouter(prefix='/api/developer/applications', tags=['developer'])
@@ -38,6 +44,11 @@ async def create(
 ) -> ApplicationInfo:
     async with session.begin():
         return await container.applications.create(session, principal, body)
+
+
+@router.get('/scope-catalog')
+async def scope_catalog(_principal: PrincipalDependency) -> dict[str, object]:
+    return {'scopes': SCOPES}
 
 
 @router.get('/{application_id}')
@@ -165,3 +176,74 @@ async def usage(
 ) -> dict[str, object]:
     await container.applications.require(session, principal, application_id)
     return await container.usage.application_usage(session, application_id, page, page_size, operation, status)
+
+
+@router.get('/{application_id}/resources')
+async def resource_grants(
+    application_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    kind: ResourceKind | None = None,
+) -> list[ResourceGrantInfo]:
+    return await container.resource_grants.list(session, principal.id, application_id, kind)
+
+
+@router.put('/{application_id}/resources/{kind}/{resource_id}')
+async def bind_resource(
+    application_id: UUID,
+    kind: ResourceKind,
+    resource_id: UUID,
+    body: ResourceGrantRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> ResourceGrantInfo:
+    async with session.begin():
+        return await container.resource_access.bind(
+            session,
+            principal,
+            application_id,
+            kind,
+            resource_id,
+            list(body.actions),
+            expected_version=body.expected_version,
+        )
+
+
+@router.delete('/{application_id}/resources/{kind}/{resource_id}')
+async def unbind_resource(
+    application_id: UUID,
+    kind: ResourceKind,
+    resource_id: UUID,
+    body: ResourceGrantRemove,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> dict[str, int]:
+    async with session.begin():
+        version = await container.resource_access.unbind(
+            session, principal, application_id, kind, resource_id, expected_version=body.expected_version
+        )
+        return {'version': version}
+
+
+@router.patch('/{application_id}/resource-quota')
+async def resource_quota(
+    application_id: UUID,
+    body: ResourceQuotaRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> dict[str, int]:
+    async with session.begin():
+        current = await container.identity.principal_for_user(session, principal.id)
+        version = await container.resource_grants.configure_quota(
+            session,
+            current,
+            application_id,
+            file_limit=body.source_file_limit,
+            byte_limit=body.source_byte_limit,
+            expected_version=body.expected_version,
+        )
+        return {'version': version}

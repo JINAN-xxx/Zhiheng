@@ -33,6 +33,7 @@ async def chat(
         request_id = header_id
     async with container.database.sessions.begin() as session:
         identity = await container.keys.authenticate(session, token, lock=True)
+        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
         principal = Principal(identity.owner_id, '', False)
         try:
             agent = await container.agents.get(session, principal, agent_id)
@@ -43,7 +44,9 @@ async def chat(
             raise AppError('agent_not_found', 'Agent is unavailable', 404)
         if request_id is None:
             await container.models.resolve(session, config.model_id)
-            await container.keys.authorize_identity(session, identity, [config.model_id], lock=True)
+            await container.keys.authorize_identity(
+                session, identity, [config.model_id], scope='agents:invoke', lock=True
+            )
     if config.knowledge_base_ids or request_id is not None:
         if request_id is None:
             raise AppError(
@@ -62,7 +65,9 @@ async def chat(
             model_id = await container.knowledge_preparation.authorize_public_run(
                 session, identity, agent_id, prepared.id
             )
-        return await chat_response(container, request, prepared, identity.owner_id, token, model_id, stream=body.stream)
+        return await chat_response(
+            container, request, prepared, identity.owner_id, token, model_id, stream=body.stream, scope='agents:invoke'
+        )
     async with container.database.sessions.begin() as session:
         run, identity, model_id = await container.agent_runs.public(
             session,
@@ -71,7 +76,9 @@ async def chat(
             PreviewRequest(messages=body.messages, client_request_id=uuid4()),
             container.settings.token_limit,
         )
-    return await chat_response(container, request, run, identity.owner_id, token, model_id, stream=body.stream)
+    return await chat_response(
+        container, request, run, identity.owner_id, token, model_id, stream=body.stream, scope='agents:invoke'
+    )
 
 
 @router.get('/{agent_id}/preparations/{intent_id}')
@@ -81,6 +88,7 @@ async def preparation(
     token = bearer(request)
     async with container.database.sessions() as session:
         identity = await container.keys.authenticate(session, token)
+        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke')
         agent = await container.agents.get(session, Principal(identity.owner_id, '', False), agent_id)
         config = agent.published_config
         if config is None or config.application_id != identity.application_id:
@@ -95,6 +103,7 @@ async def cancel_preparation(
     token = bearer(request)
     async with container.database.sessions.begin() as session:
         identity = await container.keys.authenticate(session, token, lock=True)
+        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke')
         agent = await container.agents.get(session, Principal(identity.owner_id, '', False), agent_id, lock=True)
         config = agent.published_config
         if config is None or config.application_id != identity.application_id:

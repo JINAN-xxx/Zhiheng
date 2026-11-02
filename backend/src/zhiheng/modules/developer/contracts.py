@@ -5,8 +5,9 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from zhiheng.modules.developer.scopes import INVOKE_SCOPES, RESOURCE_RPM_MAX, ResourceAction, Scope
 from zhiheng.shared.time import utcnow
 
 
@@ -82,11 +83,24 @@ class ApplicationInfo(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
+    source_file_limit: int = 1000
+    source_byte_limit: int = 1073741824
 
 
 class KeyCreate(StrictRequest):
     name: str = Field(min_length=1, max_length=80)
-    model_ids: list[UUID] = Field(min_length=1, max_length=256)
+    model_ids: list[UUID] = Field(default_factory=list, max_length=256)
+    scopes: tuple[Scope, ...] = INVOKE_SCOPES
+    resource_rpm_limit: int = Field(default=120, strict=True, ge=1, le=RESOURCE_RPM_MAX)
+
+    @model_validator(mode='after')
+    def capabilities(self) -> 'KeyCreate':
+        if not self.scopes or len(set(self.scopes)) != len(self.scopes):
+            raise ValueError('Nonempty unique scopes are required')
+        if set(self.scopes).intersection(INVOKE_SCOPES) and not self.model_ids:
+            raise ValueError('Invoke scopes require models')
+        return self
+
     rpm_limit: int | None = Field(default=None, strict=True, gt=0)
     tpm_limit: int | None = Field(default=None, strict=True, gt=0)
     concurrency_limit: int | None = Field(default=None, strict=True, gt=0)
@@ -135,6 +149,8 @@ class KeyInfo(BaseModel):
     prefix: str
     status: str
     model_ids: list[UUID]
+    scopes: tuple[Scope, ...]
+    resource_rpm_limit: int
     rpm_limit: int | None
     tpm_limit: int | None
     concurrency_limit: int | None
@@ -175,3 +191,24 @@ class ApplicationUsage(BaseModel):
     rate_card_id: UUID | None
     rate_version: int | None
     created_at: datetime
+
+
+class ResourceGrantRequest(StrictRequest):
+    actions: tuple[ResourceAction, ...] = Field(min_length=1, max_length=4)
+    expected_version: int = Field(strict=True, ge=1)
+
+    @field_validator('actions')
+    @classmethod
+    def unique_actions(cls, value: tuple[ResourceAction, ...]) -> tuple[ResourceAction, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError('Duplicate resource actions')
+        return value
+
+
+class ResourceGrantRemove(StrictRequest):
+    expected_version: int = Field(strict=True, ge=1)
+
+
+class ResourceQuotaRequest(ResourceGrantRemove):
+    source_file_limit: int = Field(strict=True, ge=1)
+    source_byte_limit: int = Field(strict=True, ge=1)

@@ -11,7 +11,7 @@ from zhiheng.application.lifecycle import RunLifecycle
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService
+from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService, Scope
 from zhiheng.modules.knowledge.public import (
     BuildStore,
     Hit,
@@ -112,6 +112,12 @@ class KnowledgePreparation:
         identity: DeveloperIdentity | None = None,
     ) -> PreparationInfo:
         await lock_billing_admission(session)
+        if identity:
+            if body.owner_id != identity.owner_id or principal.id != identity.owner_id:
+                raise AppError('invalid_api_origin', 'Key preparation must use its current owner', 403)
+            await self.keys.authorize_identity(
+                session, identity, [], scope=self.identity_scope(body.resource_type), lock=True
+            )
         owner_id, resource_type, resource_id = body.owner_id, body.resource_type, body.resource_id
         request_id, value, request = body.request_id, body.value, body.request
         base_ids, dependencies, namespace_id = body.base_ids, body.dependencies, body.namespace_id
@@ -131,7 +137,13 @@ class KnowledgePreparation:
             if binding_fingerprint(current) != base.spec.fingerprint:
                 raise AppError('knowledge_reindex_required', 'Embedding绑定已变化，请显式重建索引', 409)
         if identity:
-            await self.keys.authorize_identity(session, identity, [base.binding.model_id for base in bases], lock=True)
+            await self.keys.authorize_identity(
+                session,
+                identity,
+                [base.binding.model_id for base in bases],
+                scope=self.identity_scope(resource_type),
+                lock=True,
+            )
         row = await self.store.create(
             session,
             body=RetrievalAdmission(
@@ -243,6 +255,14 @@ class KnowledgePreparation:
         )
         return self.store.info(row)
 
+    @staticmethod
+    def identity_scope(resource_type: str) -> Scope:
+        if resource_type == 'agent_invocation':
+            return 'agents:invoke'
+        if resource_type == 'knowledge_query':
+            return 'knowledge:query'
+        raise AppError('invalid_api_origin', 'Unsupported Key preparation origin', 403)
+
     async def authorize(self, session: AsyncSession, state: RetrievalState, *, lock: bool = False) -> Principal:
         principal = await self.knowledge.identity.principal_for_user(session, state.owner_id)
         if state.key_id is not None:
@@ -251,7 +271,9 @@ class KnowledgePreparation:
             required = [base.binding.model_id for base in self.store.bases(state)]
             if 'main_request' in state.dependencies:
                 required.append(ModelRequest.model_validate(state.dependencies['main_request']).binding.model_id)
-            await self.keys.authorize_identity(session, identity, required, lock=lock)
+            await self.keys.authorize_identity(
+                session, identity, required, scope=self.identity_scope(state.resource_type), lock=lock
+            )
         if state.resource_type in {'agent_preview', 'agent_invocation'}:
             application_id = state.dependencies.get('config', {}).get('application_id')
             if application_id:
@@ -544,7 +566,7 @@ class KnowledgePreparation:
     ) -> UUID:
         payload = await self.runs.resource_payload(session, run_id, 'agent_invocation', agent_id)
         model_id = ModelRequest.model_validate(payload).binding.model_id
-        await self.keys.authorize_identity(session, identity, [model_id])
+        await self.keys.authorize_identity(session, identity, [model_id], scope='agents:invoke')
         return model_id
 
     async def cancel(self, session: AsyncSession, principal: Principal, intent_id: UUID) -> PreparationInfo:

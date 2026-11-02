@@ -21,7 +21,7 @@ class ApplicationService:
         if not principal.is_admin:
             query = query.where(DeveloperApplication.owner_id == principal.id)
         if lock:
-            query = query.with_for_update()
+            query = query.with_for_update().execution_options(populate_existing=True)
         row = await session.scalar(query)
         if row is None:
             raise AppError('application_not_found', '应用不存在', 404)

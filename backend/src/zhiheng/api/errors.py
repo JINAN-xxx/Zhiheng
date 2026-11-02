@@ -23,7 +23,15 @@ def install_error_handlers(app: FastAPI) -> None:
         payload: dict[str, object] = {'code': error.code, 'message': error.message}
         if error.details is not None:
             payload['details'] = error.details
-        return JSONResponse({'error': payload}, status_code=error.status_code)
+        return JSONResponse(
+            {'error': payload},
+            status_code=error.status_code,
+            headers={'Retry-After': str(error.details['retry_after'])}
+            if error.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            and error.details is not None
+            and 'retry_after' in error.details
+            else None,
+        )
 
     @app.exception_handler(HTTPException)
     async def http_error_handler(request: Request, error: HTTPException) -> JSONResponse:

@@ -12,7 +12,9 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
-async def reconstruct(connection: AsyncConnection, run_upgrade: Callable[[Connection], None]) -> None:
+async def reconstruct(
+    connection: AsyncConnection, run_upgrade: Callable[[Connection], None], *, preserve_personal_skills: bool = False
+) -> None:
     name = await connection.scalar(text('SELECT current_database()'))
     assert isinstance(name, str) and name.startswith('core_test_'), 'Exclusive fixture database required'
     current = MetaData()
@@ -22,7 +24,7 @@ async def reconstruct(connection: AsyncConnection, run_upgrade: Callable[[Connec
         for table in current.sorted_tables
         if table.name != 'alembic_version'
     }
-    if 'skills' in rows:
+    if 'skills' in rows and not preserve_personal_skills:
         rows['skills'] = [row for row in rows['skills'] if row['owner_id'] is None or row['source'] == 'upload']
         retained = {row['id'] for row in rows['skills']}
         rows['skill_revisions'] = [row for row in rows['skill_revisions'] if row['skill_id'] in retained]

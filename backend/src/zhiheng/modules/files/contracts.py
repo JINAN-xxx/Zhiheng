@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -9,6 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 FileStatus = Literal['active', 'deleted', 'purging', 'purged']
 FileAccess = Literal['private', 'public']
 JobKind = Literal['expiry', 'reminders', 'purge', 'reconcile']
+
+
+@dataclass(frozen=True)
+class FileAccountingFact:
+    id: UUID
+    owner_id: UUID
+    size: int
+    status: str
+    source_file_id: UUID | None
 
 
 class FileInfo(BaseModel):

@@ -52,7 +52,7 @@ async def test_upgrade_links_existing_admin_and_preserves_same_code_custom_role(
                 text('INSERT INTO identity_user_roles (user_id,role_id) VALUES (:user_id,:role_id)'),
                 {'user_id': admin_id, 'role_id': ordinary_id},
             )
-        await migrate(settings)
+        await _version(settings, '0011_builtin_admin_role')
         async with engine.connect() as connection:
             system = (
                 await connection.execute(
@@ -77,7 +77,7 @@ async def test_upgrade_links_existing_admin_and_preserves_same_code_custom_role(
                 await connection.scalar(text('SELECT password_hash FROM identity_users WHERE id=:id'), {'id': admin_id})
                 == 'historical-password-hash'
             )
-        await migrate(settings)
+        await _version(settings, '0011_builtin_admin_role')
         async with engine.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT count(*) FROM identity_roles WHERE system_key='super_admin'")) == 1
@@ -90,6 +90,15 @@ async def test_upgrade_links_existing_admin_and_preserves_same_code_custom_role(
                     text('SELECT role_id FROM identity_user_roles WHERE user_id=:id'), {'id': admin_id}
                 )
             ) == [ordinary_id]
+        await migrate(settings)
+        async with engine.connect() as connection:
+            assert (
+                await connection.scalar(text('SELECT password_hash FROM identity_users WHERE id=:id'), {'id': admin_id})
+                == 'historical-password-hash'
+            )
+            assert (
+                await connection.scalar(text("SELECT count(*) FROM identity_roles WHERE system_key='super_admin'")) == 1
+            )
     finally:
         await engine.dispose()
 

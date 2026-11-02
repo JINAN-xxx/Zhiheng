@@ -100,6 +100,7 @@ REQUIRED_MEMBERS = (
             'versions/0012_platform_credits.py',
             'versions/0013_skill_revision_history.py',
             'versions/0014_personal_skill_ownership.py',
+            'versions/0015_resource_api_access.py',
         )
     ),
 )
@@ -169,6 +170,7 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0012_platform_credits.py',
         '0013_skill_revision_history.py',
         '0014_personal_skill_ownership.py',
+        '0015_resource_api_access.py',
     ],
 )
 def test_requires_all_database_migration_revisions(

@@ -110,6 +110,7 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0012_platform_credits.py',
         'versions/0013_skill_revision_history.py',
         'versions/0014_personal_skill_ownership.py',
+        'versions/0015_resource_api_access.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

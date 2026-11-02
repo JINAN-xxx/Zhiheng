@@ -88,6 +88,7 @@ class AgentRunService:
     ) -> tuple[RunSnapshot, DeveloperIdentity, UUID]:
         await lock_billing_admission(session)
         identity = await self._keys.authenticate(session, token, lock=True)
+        await self._keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
         principal = Principal(identity.owner_id, '', False)
         try:
             agent = await self._agents.get(session, principal, agent_id)
@@ -239,7 +240,7 @@ class AgentRunService:
         async with prep.database.sessions.begin() as session:
             await lock_billing_admission(session)
             if identity:
-                await self._keys.authorize_identity(session, identity, [], lock=True)
+                await self._keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
             agent = await self._agents.get(session, principal, agent_id)
             config = (
                 agent.published_config
@@ -260,10 +261,12 @@ class AgentRunService:
             if intent:
                 if identity:
                     original = ModelRequest.model_validate(intent.dependencies['main_request']).binding.model_id
-                    await self._keys.authorize_identity(session, identity, [original], lock=True)
+                    await self._keys.authorize_identity(session, identity, [original], scope='agents:invoke', lock=True)
                 return prep.store.info(intent)
             if identity:
-                await self._keys.authorize_identity(session, identity, [config.model_id], lock=True)
+                await self._keys.authorize_identity(
+                    session, identity, [config.model_id], scope='agents:invoke', lock=True
+                )
             binding = await self._management.validate(session, owner(agent), config, publish=identity is not None)
             selection = (
                 await self._agents.published_selection(session, owner(agent), agent_id, agent.published_version)

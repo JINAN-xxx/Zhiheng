@@ -1,5 +1,6 @@
 from redis.asyncio import Redis
 
+from zhiheng.application.access import ResourceAccessService
 from zhiheng.application.agent_management import AgentManagementService
 from zhiheng.application.agent_runs import AgentRunService
 from zhiheng.application.chat_runs import ChatRunService
@@ -21,7 +22,13 @@ from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.billing.public import CreditService, UsageService
 from zhiheng.modules.chat.public import ChatService, MessageActionService
-from zhiheng.modules.developer.public import ApplicationService, KeyService
+from zhiheng.modules.developer.public import (
+    APIRequestService,
+    ApplicationService,
+    KeyService,
+    ResourceGrantService,
+    ResourceLimitService,
+)
 from zhiheng.modules.developer.public import UsageService as LegacyUsageService
 from zhiheng.modules.files.public import FileJobs, FileService
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
@@ -70,6 +77,7 @@ class Container:
         self.usage = UsageService(self.credits, self.legacy_usage)
         self.applications = ApplicationService()
         self.keys = KeyService(self.applications, self.models, self.identity)
+        self._configure_resource_access()
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()
         self.work_runs = WorkRunService(self.work, self.agents, self.models, self.identity, self.usage, self.runs)
@@ -147,11 +155,27 @@ class Container:
         self.outbox = OutboxStore()
         self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs)
 
+    def _configure_resource_access(self) -> None:
+        self.resource_grants = ResourceGrantService(self.applications)
+        self.api_requests = APIRequestService(self.keys)
+        self.resource_limits = ResourceLimitService(self.keys, platform_rpm=self.settings.resource_rpm_limit)
+        self.resource_access = ResourceAccessService(
+            self.identity, self.keys, self.resource_grants, self.api_requests, self.files, self.knowledge, self.skills
+        )
+
     async def prepare_provider(self, binding: ModelBinding) -> ModelProvider:
         async with self.database.sessions() as session:
             return await self.models.prepare_provider(session, binding)
 
     async def require_model_execution(self, claim: ClaimedRun) -> None:
+        if claim.resource_type in {'public', 'agent_invocation'}:
+            async with self.database.sessions.begin() as session:
+                await self.keys.authorize_run(
+                    session,
+                    claim.id,
+                    scope='agents:invoke' if claim.resource_type == 'agent_invocation' else 'models:invoke',
+                )
+            return
         if claim.resource_type == 'knowledge_graph':
             await self.graph_runs.guard(claim)
             return

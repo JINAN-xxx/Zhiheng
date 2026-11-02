@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     session_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     allowed_origins: tuple[str, ...] = ()
+    resource_rpm_limit: int = Field(default=120, ge=1, le=120)
     token_limit: int = Field(default=100000, ge=1)
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)

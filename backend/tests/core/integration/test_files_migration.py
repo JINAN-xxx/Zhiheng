@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -9,6 +10,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -22,10 +24,10 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
 
     def downgrade(connection: Connection) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0005_work')
+        command.upgrade(config, '0005_work')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         columns = (
             await connection.execute(
                 text(
@@ -42,10 +44,19 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in tables:
+            selector = ''
+            if name in {'skills', 'skill_revisions'}:
+                identifiers = [json.loads(row)['id'] for row in snapshots[name]]
+                selector = (
+                    ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
+                    if identifiers
+                    else ' WHERE false'
+                )
+
             old = [r[1] for r in columns if r[0] == name]
             assert (
                 await connection.execute(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(old)} FROM {name}) t ORDER BY 1')
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(old)} FROM {name}{selector}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[name]
         updated = (

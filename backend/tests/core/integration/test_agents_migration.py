@@ -9,6 +9,7 @@ from tests.core.integration.test_developer import provision
 from tests.core.integration.test_skills import install
 from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.worker.execution import execute_run
 
 
@@ -69,9 +70,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert (
-            await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0014_personal_skill_ownership'
-        )
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
             selector = ''
             if table in {'skills', 'skill_revisions'}:

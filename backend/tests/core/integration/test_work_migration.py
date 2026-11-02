@@ -1,3 +1,5 @@
+import json
+
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
@@ -5,6 +7,7 @@ from alembic.migration import MigrationContext
 from sqlalchemy import text
 
 from tests.core.integration.test_agents import config, provision
+from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -20,10 +23,10 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
 
     def downgrade(connection: object) -> None:
         config_.attributes['connection'] = connection
-        command.downgrade(config_, '0004_agents')
+        command.upgrade(config_, '0004_agents')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         names = (
             (
                 await connection.execute(
@@ -59,9 +62,20 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in names:
+            selector = ''
+            if name in {'skills', 'skill_revisions'}:
+                identifiers = [json.loads(row)['id'] for row in snapshots[name]]
+                selector = (
+                    ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
+                    if identifiers
+                    else ' WHERE false'
+                )
+
             assert (
                 await connection.execute(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[name]} FROM {name}) t ORDER BY 1')
+                    text(
+                        f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[name]} FROM {name}{selector}) t ORDER BY 1'
+                    )
                 )
             ).scalars().all() == snapshots[name]
         assert await connection.run_sync(compare) == []

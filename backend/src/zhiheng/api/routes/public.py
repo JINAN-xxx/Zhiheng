@@ -16,6 +16,7 @@ from starlette.types import Receive, Scope, Send
 from zhiheng.api.dependencies import ContainerDependency
 from zhiheng.api.public_errors import error_payload
 from zhiheng.bootstrap.container import Container
+from zhiheng.modules.developer.public import Scope as KeyScope
 from zhiheng.modules.models.public import ModelMessage
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 from zhiheng.shared.errors import AppError
@@ -115,6 +116,7 @@ async def models(request: Request, container: ContainerDependency) -> dict[str, 
     await container.database.require_schema()
     async with container.database.sessions() as session:
         identity = await container.keys.authenticate(session, token)
+        await container.keys.authorize_identity(session, identity, [], scope='models:invoke')
         key = await container.keys.info_for_identity(session, identity)
         rows = await container.models.list_models(session)
         visible = []
@@ -156,14 +158,15 @@ async def cancel(container: Container, run_id: UUID, owner_id: UUID) -> None:
 
 
 async def snapshots(
-    container: Container, request: Request, run_id: UUID, owner_id: UUID, token: str
+    container: Container, request: Request, run_id: UUID, owner_id: UUID, token: str, *, scope: KeyScope
 ) -> AsyncIterator[RunSnapshot]:
     terminal = False
     deadline = monotonic() + container.settings.provider_timeout_seconds + 30
     try:
         while True:
             async with container.database.sessions() as session:
-                await container.keys.authenticate(session, token)
+                identity = await container.keys.authenticate(session, token)
+                await container.keys.authorize_identity(session, identity, [], scope=scope)
                 snapshot = await container.runs.snapshot(session, run_id, owner_id)
             terminal = snapshot.status in TERMINAL_STATUSES
             yield snapshot
@@ -195,9 +198,9 @@ def known_usage(run: RunSnapshot) -> dict[str, int | None]:
 
 
 async def wait_result(
-    container: Container, request: Request, run: RunSnapshot, owner_id: UUID, token: str
+    container: Container, request: Request, run: RunSnapshot, owner_id: UUID, token: str, *, scope: KeyScope
 ) -> RunSnapshot:
-    async for snapshot in snapshots(container, request, run.id, owner_id, token):
+    async for snapshot in snapshots(container, request, run.id, owner_id, token, scope=scope):
         if snapshot.status in TERMINAL_STATUSES:
             if snapshot.status != 'completed':
                 raise AppError('provider_unavailable', 'Model request did not complete', 502)
@@ -231,7 +234,14 @@ class LifecycleStream(StreamingResponse):
 
 
 async def chat_frames(
-    container: Container, request: Request, run: RunSnapshot, owner_id: UUID, token: str, model: UUID
+    container: Container,
+    request: Request,
+    run: RunSnapshot,
+    owner_id: UUID,
+    token: str,
+    model: UUID,
+    *,
+    scope: KeyScope,
 ) -> AsyncIterator[str]:
     def chunk(delta: dict[str, object], finish: str | None = None) -> dict[str, object]:
         return {
@@ -246,7 +256,7 @@ async def chat_frames(
     sent = ''
     sent_reasoning = ''
     try:
-        async for snapshot in snapshots(container, request, run.id, owner_id, token):
+        async for snapshot in snapshots(container, request, run.id, owner_id, token, scope=scope):
             if snapshot.reasoning != sent_reasoning:
                 if not snapshot.reasoning.startswith(sent_reasoning):
                     raise AppError('provider_unavailable', 'Model request did not complete', 502)
@@ -271,18 +281,28 @@ async def chat(body: ChatBody, request: Request, container: ContainerDependency)
     messages = tuple(ModelMessage(message.role, message.content) for message in body.messages)
     options = body.model_dump(exclude={'model', 'messages', 'stream'}, exclude_none=True)
     run, owner_id, token = await admit(container, request, 'chat', messages, body, options)
-    return await chat_response(container, request, run, owner_id, token, body.model, stream=body.stream)
+    return await chat_response(
+        container, request, run, owner_id, token, body.model, stream=body.stream, scope='models:invoke'
+    )
 
 
 async def chat_response(
-    container: Container, request: Request, run: RunSnapshot, owner_id: UUID, token: str, model: UUID, *, stream: bool
+    container: Container,
+    request: Request,
+    run: RunSnapshot,
+    owner_id: UUID,
+    token: str,
+    model: UUID,
+    *,
+    stream: bool,
+    scope: KeyScope,
 ) -> JSONResponse | StreamingResponse:
     if stream:
         return LifecycleStream(
-            chat_frames(container, request, run, owner_id, token, model),
+            chat_frames(container, request, run, owner_id, token, model, scope=scope),
             lambda: cancel(container, run.id, owner_id),
         )
-    result = await wait_result(container, request, run, owner_id, token)
+    result = await wait_result(container, request, run, owner_id, token, scope=scope)
     return JSONResponse(
         {
             'id': 'chatcmpl-' + run.id.hex,
@@ -316,7 +336,7 @@ async def embeddings(body: EmbeddingBody, request: Request, container: Container
         body,
         body.model_dump(include={'dimensions', 'user'}, exclude_none=True),
     )
-    result = await wait_result(container, request, run, owner_id, token)
+    result = await wait_result(container, request, run, owner_id, token, scope='models:invoke')
     return JSONResponse(
         {'object': 'list', 'model': str(body.model), **(result.result or {}), 'usage': known_usage(result)}
     )
@@ -330,5 +350,5 @@ async def rerank(body: RerankBody, request: Request, container: ContainerDepende
     )
     options = body.model_dump(include={'top_n', 'return_documents'}, exclude_none=True)
     run, owner_id, token = await admit(container, request, 'rerank', messages, body, options)
-    result = await wait_result(container, request, run, owner_id, token)
+    result = await wait_result(container, request, run, owner_id, token, scope='models:invoke')
     return JSONResponse({'id': str(run.id), 'model': str(body.model), **(result.result or {})})
