@@ -149,13 +149,13 @@ class FilesUIRegressions(DeveloperBoundary):
     async def test_members_cannot_enter_storage_using_new_or_old_links(self):
         await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={'id': 'member-1', 'username': 'member', 'is_admin': False}))
         await self.page.goto(self.origin + '/knowledge')
-        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='存储管理', exact=True)).to_have_count(0)
         for path in ['/knowledge/storage', '/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
                 await expect(self.page).to_have_url(self.origin + '/knowledge')
-                await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+                await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
         self.assertEqual(self.file_requests, [])
 
     async def test_mobile_knowledge_storage_round_trip_stays_on_screen(self):

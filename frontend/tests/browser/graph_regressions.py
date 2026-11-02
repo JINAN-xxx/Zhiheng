@@ -561,7 +561,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.goto(self.origin + '/knowledge/base-1/graph')
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
         await self.page.get_by_role('button', name=re.compile('返回知识库$')).click()
-        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
         reads = self.graph_reads['/jobs/graph-job-1']
         await self.page.wait_for_timeout(1800)
         self.assertEqual(self.graph_reads['/jobs/graph-job-1'], reads)

@@ -2,6 +2,8 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import Select
+from sqlalchemy.sql.functions import coalesce, count
 
 from zhiheng.modules.developer.limits import reserve_limits
 from zhiheng.modules.developer.orm import DeveloperKey, KeyMinuteBucket
@@ -12,11 +14,17 @@ class LimitSession:
     def __init__(self, *, requests: int = 0, tokens: int = 0, active: int = 0) -> None:
         self.bucket = KeyMinuteBucket(key_id=uuid4(), minute=1, requests=requests, tokens=tokens)
         self.active = active
-        self.calls = 0
 
     async def scalar(self, query: object) -> object:
-        self.calls += 1
-        return self.bucket if self.calls == 1 else self.active if self.calls == 2 else Decimal(0)
+        assert isinstance(query, Select)
+        selection = query.column_descriptions[0]
+        if selection['entity'] is KeyMinuteBucket:
+            return self.bucket
+        if isinstance(selection['expr'], count):
+            return self.active
+        if isinstance(selection['expr'], coalesce):
+            return Decimal(0)
+        raise AssertionError(f'Unexpected quota query: {query}')
 
 
 def key(**limits: object) -> DeveloperKey:

@@ -154,14 +154,22 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
     async def test_skill_basic_user_can_read_but_has_no_upload_or_mutation_controls(self):
+        # Keep the historical node ID while checking personal management without platform permissions.
         await self.page.goto(self.origin + '/skills?action=upload')
         await expect(self.page.get_by_text('示例技能', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('dialog', name='上传技能', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_be_enabled()
+        dialog = self.page.get_by_role('dialog', name='上传技能', exact=True)
+        await expect(dialog).to_be_visible()
+        await dialog.get_by_role('button', name='Close', exact=True).click()
+        await expect(dialog).not_to_be_visible()
         await self.page.get_by_role('button', name='查看详情', exact=True).click()
         await expect(self.page.get_by_text('技能正文', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='停用技能', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='停用技能', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
+        await self.page.get_by_role('button', name='停用技能', exact=True).click()
+        await expect(self.page.get_by_role('button', name='重新启用', exact=True)).to_be_visible()
+        self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_skill_writer_has_upload_and_status_controls_without_admin_identity(self):
         self.permissions = ['ai:skills:write']

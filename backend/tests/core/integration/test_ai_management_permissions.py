@@ -163,7 +163,8 @@ async def test_rate_read_and_write_do_not_grant_model_configuration_or_testing(
 async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    async with account(admin, app, 'ai:skills:write') as (writer, _, _):
+    # Keep this historical node ID while enforcing the personal-resource contract.
+    async with account(admin, app) as (writer, _, _):
         draft = await writer.post(
             '/api/skills/import/prepare?filename=SKILL.md',
             content=markdown('delegated'),
@@ -181,8 +182,8 @@ async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
                     content=markdown(),
                     headers={'content-type': 'application/octet-stream'},
                 )
-            ).status_code == 403
-            assert (await member.post(confirm_path, json={})).status_code == 403
+            ).status_code == 201
+            assert (await member.post(confirm_path, json={})).status_code == 404
         installed = await writer.post(confirm_path, json={})
         assert installed.status_code == 201, installed.text
         identifier = installed.json()['id']
@@ -191,8 +192,8 @@ async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
                 await member.patch(
                     f'/api/skills/{identifier}/status', json={'status': 'disabled', 'expected_version': 1}
                 )
-            ).status_code == 403
-            assert (await member.delete(f'/api/skills/{identifier}')).status_code == 403
+            ).status_code == 404
+            assert (await member.delete(f'/api/skills/{identifier}')).status_code == 404
         disabled = await writer.patch(
             f'/api/skills/{identifier}/status', json={'status': 'disabled', 'expected_version': 1}
         )
@@ -375,10 +376,6 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
             lambda: container.admission.admit_test(
                 session, principal, model_id=identifier, client_request_id=uuid4(), token_limit=1000
             ),
-            lambda: container.skills.prepare(session, principal, markdown(), filename='SKILL.md'),
-            lambda: container.skills.confirm(session, principal, identifier),
-            lambda: container.skills.set_status(session, principal, identifier, status='disabled', expected_version=1),
-            lambda: container.skills.remove(session, principal, identifier, reference_check=unreferenced),
             lambda: container.files.set_policy(
                 session, principal, PolicyRequest(retention_days=1, reminder_days=1, expected_version=1)
             ),
@@ -410,3 +407,34 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
             with pytest.raises(AppError) as denied:
                 await operation()
             assert denied.value.status_code == 403
+
+    async with account(admin, app) as (_, _, user):
+        owner = Principal(UUID(user['id']), user['username'], False)
+    async with account(admin, app, 'ai:skills:write') as (_, _, user):
+        other = Principal(UUID(user['id']), user['username'], False, frozenset({'ai:skills:write'}))
+    async with container.database.sessions.begin() as session:
+        draft = await container.skills.prepare(session, owner, markdown(), filename='SKILL.md')
+        with pytest.raises(AppError) as foreign_draft:
+            await container.skills.confirm(session, other, draft.draft_id)
+        assert foreign_draft.value.status_code == 404
+        installed = await container.skills.confirm(session, owner, draft.draft_id)
+        assert (await container.skills.get(session, owner.id, installed.id)).id == installed.id
+        for operation in [
+            lambda: container.skills.get(session, other.id, installed.id),
+            lambda: container.skills.set_status(
+                session, other, installed.id, status='disabled', expected_version=installed.version
+            ),
+            lambda: container.skills.remove(session, other, installed.id, reference_check=unreferenced),
+        ]:
+            with pytest.raises(AppError) as foreign_skill:
+                await operation()
+            assert foreign_skill.value.status_code == 404
+        disabled = await container.skills.set_status(
+            session, owner, installed.id, status='disabled', expected_version=installed.version
+        )
+        assert disabled.status == 'disabled' and disabled.version == installed.version + 1
+        removed = await container.skills.remove(session, owner, installed.id, reference_check=unreferenced)
+        assert removed.version == disabled.version + 1
+        with pytest.raises(AppError) as deleted_skill:
+            await container.skills.get(session, owner.id, installed.id)
+        assert deleted_skill.value.status_code == 404

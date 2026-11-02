@@ -27,8 +27,9 @@ REFERENCES = [
 
 class LifecycleSkills(SkillsUIRegressions):
     async def test_member_cannot_delete_builtin_skill(self):
-        self.skill['source'] = 'builtin'
-        await self.test_member_reads_without_administration_controls()
+        # The builtin template copy belongs to this member; retain the historical node ID.
+        self.member = True
+        await self.test_builtin_enabled_skill_deletes_with_one_confirmation()
 
     async def test_builtin_enabled_skill_deletes_with_one_confirmation(self):
         self.skill['source'] = 'builtin'
