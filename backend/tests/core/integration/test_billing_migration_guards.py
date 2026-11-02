@@ -9,13 +9,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.core.integration.test_builtin_role_migration import _version
-from zhiheng.bootstrap.migrations import migrate
 from zhiheng.modules.billing.public import CreditAdjustment, CreditService
 from zhiheng.modules.identity.public import IdentityService
 
 
 async def test_downgrade_rejects_credit_history_and_keeps_all_points(settings: Any) -> None:
-    await migrate(settings)
+    await _version(settings, '0013_skill_revision_history')
     engine = create_async_engine(settings.database_url.get_secret_value())
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -60,7 +59,7 @@ async def test_bigint_counters_preserve_values_and_block_unsafe_narrowing(settin
                 ),
                 {'id': user_id},
             )
-        await migrate(settings)
+        await _version(settings, '0013_skill_revision_history')
         async with engine.begin() as connection:
             columns = (
                 await connection.execute(

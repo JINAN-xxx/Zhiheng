@@ -455,7 +455,14 @@ class WorkService:
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
 
-    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+    async def skill_references(
+        self,
+        session: AsyncSession,
+        slug: str,
+        *,
+        owner_id: UUID,
+        skill_ids: tuple[UUID, ...] = (),
+    ) -> list[ResourceReference]:
         rows = await session.scalars(
             select(WorkTask)
             .join(WorkMember, WorkMember.task_id == WorkTask.id)
@@ -463,6 +470,7 @@ class WorkService:
                 WorkTask.deleted_at.is_(None),
                 WorkTask.status == 'active',
                 WorkMember.removed_at.is_(None),
+                WorkMember.agent_owner_id == owner_id,
                 WorkMember.config['skill_slugs'].contains([slug]),
             )
             .order_by(WorkTask.id)
@@ -474,6 +482,7 @@ class WorkService:
             .where(
                 Run.status.in_(('pending', *ACTIVE_STATUSES)),
                 WorkMessage.role == 'assistant',
+                WorkMessage.audit['agent_owner_id'].astext == str(owner_id),
                 WorkMessage.audit['config']['skill_slugs'].contains([slug]),
             )
             .order_by(Run.id)
@@ -486,8 +495,8 @@ class WorkService:
         )
         return references
 
-    async def references_skill(self, session: AsyncSession, slug: str) -> bool:
-        return bool(await self.skill_references(session, slug))
+    async def references_skill(self, session: AsyncSession, owner_id: UUID, slug: str) -> bool:
+        return bool(await self.skill_references(session, slug, owner_id=owner_id))
 
     async def agent_references(self, session: AsyncSession, agent_id: UUID) -> list[ResourceReference]:
         rows = await session.scalars(

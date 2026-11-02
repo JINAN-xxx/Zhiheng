@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 from uuid import UUID, uuid4
@@ -67,9 +68,20 @@ def binding_fingerprint(binding: ModelBinding) -> str:
     return fingerprint(binding.model_dump(mode='json', exclude={'max_output_tokens', 'vision_enabled'}))
 
 
+PreparationSkillOwner = Callable[[AsyncSession, str, UUID, dict[str, object]], Awaitable[UUID | None]]
+
+
 class KnowledgeService:
-    def __init__(self, files: FileService, identity: IdentityService, models: ModelService) -> None:
+    def __init__(
+        self,
+        files: FileService,
+        identity: IdentityService,
+        models: ModelService,
+        *,
+        preparation_skill_owner: PreparationSkillOwner | None = None,
+    ) -> None:
         self.files, self.identity, self.models = files, identity, models
+        self.preparation_skill_owner = preparation_skill_owner
 
     async def has_active_work(self, session: AsyncSession) -> bool:
         """Pending build/graph/preparation work can spawn model steps later."""
@@ -162,7 +174,14 @@ class KnowledgeService:
         references.extend(self._preparation_reference(row) for row in preparations)
         return references
 
-    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+    async def skill_references(
+        self,
+        session: AsyncSession,
+        slug: str,
+        *,
+        owner_id: UUID,
+        skill_ids: tuple[UUID, ...] = (),
+    ) -> list[ResourceReference]:
         rows = await session.scalars(
             select(RetrievalIntent)
             .where(
@@ -172,11 +191,28 @@ class KnowledgeService:
                     RetrievalIntent.dependencies['member_config']['skill_slugs'].contains([slug]),
                     RetrievalIntent.dependencies['agent_config']['skill_slugs'].contains([slug]),
                     RetrievalIntent.dependencies['member_skills'].contains([{'slug': slug}]),
+                    RetrievalIntent.request['skill_slugs'].contains([slug]),
+                    *(
+                        RetrievalIntent.dependencies['member_skills'].contains([{'skill_id': str(skill_id)}])
+                        for skill_id in skill_ids
+                    ),
                 ),
             )
             .order_by(RetrievalIntent.id)
         )
-        return [self._preparation_reference(row) for row in rows]
+        references = []
+        for row in rows:
+            if row.resource_type in {'work_turn', 'agent_preview', 'agent_invocation'}:
+                if self.preparation_skill_owner is None:
+                    continue
+                skill_owner = await self.preparation_skill_owner(
+                    session, row.resource_type, row.resource_id, row.request
+                )
+            else:
+                skill_owner = row.owner_id
+            if skill_owner == owner_id:
+                references.append(self._preparation_reference(row))
+        return references
 
     async def agent_references(self, session: AsyncSession, agent_id: UUID) -> list[ResourceReference]:
         rows = await session.scalars(
@@ -214,7 +250,7 @@ class KnowledgeService:
 
     @staticmethod
     def manages(principal: Principal, base: KnowledgeBase) -> bool:
-        return principal.is_admin or principal.id == base.owner_id
+        return principal.id == base.owner_id
 
     async def require(
         self,
@@ -343,9 +379,10 @@ class KnowledgeService:
         self, session: AsyncSession, principal: Principal, *, available: bool = False
     ) -> list[BaseInfo]:
         result = []
-        for base in await session.scalars(
-            select(KnowledgeBase).where(KnowledgeBase.deleted_at.is_(None)).order_by(KnowledgeBase.created_at.desc())
-        ):
+        query = select(KnowledgeBase).where(KnowledgeBase.deleted_at.is_(None))
+        if not available:
+            query = query.where(KnowledgeBase.owner_id == principal.id)
+        for base in await session.scalars(query.order_by(KnowledgeBase.created_at.desc())):
             try:
                 await self.require(session, principal, base.id)
             except AppError:
@@ -408,7 +445,7 @@ class KnowledgeService:
             base=await self.info(session, principal, row),
             entries=entries,
             builtin_permissions=[
-                BuiltinPermission(source=source, enabled=True, deny_overridable=False) for source in ('owner', 'admin')
+                BuiltinPermission(source=source, enabled=True, deny_overridable=False) for source in ('owner',)
             ],
         )
 

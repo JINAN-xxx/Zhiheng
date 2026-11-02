@@ -7,11 +7,12 @@ from zhiheng.application.developer_management import DeveloperManagementService
 from zhiheng.application.file_inputs import FileInputService
 from zhiheng.application.graph_jobs import GraphJobs
 from zhiheng.application.graph_runs import GraphRuns
+from zhiheng.application.identity.accounts import AccountService
 from zhiheng.application.knowledge_jobs import KnowledgeJobs
 from zhiheng.application.knowledge_preparation import KnowledgePreparation
 from zhiheng.application.model_management import ModelManagementService
 from zhiheng.application.public_runs import PublicRunService
-from zhiheng.application.skill_management import SkillManagementService
+from zhiheng.application.skill_management import PreparationSkillOwners, SkillManagementService
 from zhiheng.application.work_runs import WorkRunService
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
@@ -50,14 +51,20 @@ class Container:
         self.database = Database(settings.database_url.get_secret_value())
         self.redis = Redis.from_url(settings.redis_url.get_secret_value(), decode_responses=True)
         self.cipher = CredentialCipher(settings.credential_key.get_secret_value())
-        self.identity = IdentityService(settings.session_ttl_seconds)
+        self.identity, self.skills = IdentityService(settings.session_ttl_seconds), SkillService()
         self.admin_identity = IdentityAdminService(self.identity)
         self.operations = OperationsService()
         self.files = FileService(LocalFileStorage(settings.files_root), self.identity)
         self.file_jobs = FileJobs(self.files, self.database.sessions)
         self.file_inputs = FileInputService(self.database, self.files, NativeParser())
         self.models = ModelService(self.cipher, settings.provider_timeout_seconds)
-        self.knowledge = KnowledgeService(self.files, self.identity, self.models)
+        self.agents, self.work = AgentService(), WorkService()
+        self.knowledge = KnowledgeService(
+            self.files,
+            self.identity,
+            self.models,
+            preparation_skill_owner=PreparationSkillOwners(self.agents, self.work).resolve,
+        )
         self.credits = CreditService()
         self.legacy_usage = LegacyUsageService()
         self.usage = UsageService(self.credits, self.legacy_usage)
@@ -65,13 +72,11 @@ class Container:
         self.keys = KeyService(self.applications, self.models, self.identity)
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()
-        self.work = WorkService()
-        self.work_runs = WorkRunService(self.work, AgentService(), self.models, self.identity, self.usage, self.runs)
-        self.agents = AgentService()
+        self.work_runs = WorkRunService(self.work, self.agents, self.models, self.identity, self.usage, self.runs)
         self.model_management = ModelManagementService(
             self.models, self.runs, self.keys, self.agents, knowledge=self.knowledge
         )
-        self.skills = SkillService()
+        self.accounts = AccountService(self.identity, self.skills, self.admin_identity)
         self.agent_management = AgentManagementService(
             self.agents, self.applications, self.models, self.work, self.runs, self.knowledge
         )

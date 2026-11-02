@@ -59,7 +59,7 @@ class SkillsUIRegressions(DeveloperBoundary):
 
     async def open_skills(self):
         await self.page.goto(self.origin + '/skills')
-        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='我的技能', exact=True)).to_be_visible()
 
     async def prepare_upload(self, raw=b'fixture skill'):
         await self.page.get_by_role('button', name='上传技能', exact=True).click()
@@ -97,15 +97,15 @@ class SkillsUIRegressions(DeveloperBoundary):
         await expect(drawer).not_to_be_visible()
         await expect(self.page.locator('.skill-card')).to_have_count(0)
 
-    async def test_member_reads_without_administration_controls(self):
+    async def test_member_manages_own_skills_without_shared_write_permission(self):
         self.member = True
         await self.open_skills()
-        await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='查看详情', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.locator('pre')).to_have_text(self.content)
-        await expect(drawer.get_by_role('button', name='停用技能', exact=True)).to_have_count(0)
-        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_have_count(0)
+        await expect(drawer.get_by_role('button', name='停用技能', exact=True)).to_be_enabled()
+        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
 
     async def test_mobile_skill_cards_fit_the_available_width(self):
         self.items = [{**self.skill, 'id': f'skill-{index}', 'name': f'技能{index}'} for index in range(3)]

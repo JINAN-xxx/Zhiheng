@@ -13,19 +13,36 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from zhiheng.api.dependencies import get_container, get_principal, get_session
 from zhiheng.api.errors import install_error_handlers
 from zhiheng.api.routes.admin_identity import router
+from zhiheng.application.identity.accounts import AccountService
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables
+from zhiheng.modules.skills.public import SkillService
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 
-class Audit:
+class SkillInitializerSpy(SkillService):
     def __init__(self) -> None:
+        self.calls: list[tuple[AsyncSession, UUID]] = []
+
+    async def initialize_owner(self, session: AsyncSession, owner_id: UUID) -> None:
+        assert session.in_transaction(), 'personal resources must share the account transaction'
+        assert await session.get(IdentityUser, owner_id) is not None
+        self.calls.append((session, owner_id))
+
+
+class Audit:
+    def __init__(self, initializer: SkillInitializerSpy) -> None:
+        self.initializer = initializer
         self.calls: list[dict[str, Any]] = []
         self.fail = False
 
     async def record(self, session: AsyncSession, **fields: Any) -> None:
         assert session.in_transaction(), 'audit must share the domain transaction'
+        if fields['action'] == 'users.create':
+            initialized_session, owner_id = self.initializer.calls[-1]
+            assert initialized_session is session
+            assert str(owner_id) == fields['resource_id']
         if self.fail:
             raise AppError('audit_failed', 'audit test failure', 503)
         self.calls.append(fields)
@@ -41,8 +58,15 @@ async def api() -> AsyncIterator[tuple[httpx.AsyncClient, Audit, Any, Any]]:
     identity = IdentityService()
     async with factory.begin() as session:
         principal = await identity.create_user(session, username='root', password='a-long-test-password', is_admin=True)
-    audit = Audit()
-    container = SimpleNamespace(identity=identity, admin_identity=IdentityAdminService(identity), operations=audit)
+    initializer = SkillInitializerSpy()
+    audit = Audit(initializer)
+    admin_identity = IdentityAdminService(identity)
+    container = SimpleNamespace(
+        identity=identity,
+        admin_identity=admin_identity,
+        accounts=AccountService(identity, initializer, admin_identity),
+        operations=audit,
+    )
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router)
@@ -65,6 +89,7 @@ async def test_http_writes_validate_versions_and_log_without_password(api: tuple
     assert created.status_code == 201, created.text
     user = created.json()
     assert user['version'] == 1 and 'password' not in str(user)
+    assert [owner_id for _, owner_id in audit.initializer.calls] == [UUID(user['id'])]
     assert audit.calls[0]['action'] == 'users.create'
     assert 'a-long-test-password' not in str(audit.calls)
     missing = await client.patch(f'/api/admin/users/{user["id"]}', json={'display_name': 'test'})

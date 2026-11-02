@@ -5,6 +5,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
+from tests.core.legacy_schema import reconstruct
+
 
 async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_ledger(
     admin: httpx.AsyncClient, app: object, model_id: str
@@ -44,10 +46,10 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
 
     def downgrade(connection: object) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0002_developer')
+        command.upgrade(config, '0002_developer')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0002_developer'
         original_columns = {
             table: ','.join(
@@ -75,5 +77,5 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
                     text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[table]
-        assert await connection.scalar(text('SELECT COUNT(*) FROM skills')) == 2
+        assert await connection.scalar(text('SELECT COUNT(*) FROM skills WHERE owner_id IS NULL')) == 2
         assert await connection.scalar(text('SELECT skill_snapshots FROM chat_messages LIMIT 1')) == []

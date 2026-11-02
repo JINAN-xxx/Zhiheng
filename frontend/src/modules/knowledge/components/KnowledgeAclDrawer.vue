@@ -260,7 +260,7 @@ defineExpose({ open, close })
           ><DeleteOutlined
         /></a-button>
       </div>
-      <p>拒绝规则优先于公开访问和允许规则；所有者与管理员的内置权限不可被覆盖。</p>
+      <p>拒绝规则优先于公开访问和允许规则；所有者的管理权限不可被覆盖；共享用户仅可读取。</p>
     </template>
     <template #footer
       ><a-button @click="close">取消</a-button

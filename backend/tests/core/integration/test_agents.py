@@ -569,15 +569,17 @@ async def test_stale_agent_cas_precedes_changed_dependency_errors(admin: httpx.A
 
 
 async def switch_current_skill_revision(app: object, skill: dict, replacement: dict) -> None:
-    from zhiheng.modules.skills.orm import Skill
+    from zhiheng.modules.skills.orm import Skill, SkillRevision
 
-    # There is no skill update API and skill_id currently has a unique revision
-    # constraint. Point to a second normally imported immutable revision to model
-    # a future current-revision change without mutating historical revision rows.
-    async with app.state.container.database.sessions.begin() as session:
-        row = await session.scalar(select(Skill).where(Skill.id == UUID(skill['id'])).with_for_update())
-        row.revision_id = UUID(replacement['revision_id'])
-        row.version += 1
+    container = app.state.container
+    async with container.database.sessions.begin() as session:
+        row = await session.get(Skill, UUID(skill['id']))
+        revision = await session.get(SkillRevision, UUID(replacement['revision_id']))
+        owner = await container.identity.principal_for_user(session, row.owner_id)
+        payload = revision.content.replace(f'name: {replacement["slug"]}\n', f'name: {skill["slug"]}\n', 1).encode()
+        draft = await container.skills.prepare(session, owner, payload, filename='SKILL.md')
+        changed = await container.skills.confirm(session, owner, draft.draft_id)
+        replacement.update(changed.model_dump(mode='json'))
 
 
 @pytest.mark.asyncio

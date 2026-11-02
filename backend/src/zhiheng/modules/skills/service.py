@@ -16,7 +16,7 @@ from zhiheng.modules.skills.contracts import (
     SkillSelection,
     SkillStatus,
 )
-from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillRevision
+from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillLegacyBinding, SkillRevision
 from zhiheng.modules.skills.package import ParsedSkillPackage, SkillPackageParser
 from zhiheng.modules.skills.validation import is_valid_slug, validate_search
 from zhiheng.shared.errors import AppError
@@ -29,13 +29,71 @@ MAX_SELECTION_BYTES = 32 * 1024
 
 
 class SkillService:
+    async def initialize_owner(self, session: AsyncSession, owner_id: UUID) -> None:
+        """Copy immutable builtin templates during account creation, in its transaction."""
+        templates = (
+            await session.execute(
+                select(Skill, SkillRevision)
+                .join(SkillRevision, Skill.revision_id == SkillRevision.id)
+                .where(Skill.owner_id.is_(None), Skill.legacy_archive.is_(True), Skill.source == 'builtin')
+                .order_by(Skill.slug)
+            )
+        ).all()
+        for template, revision in templates:
+            await self._lock_slug(session, owner_id, template.slug)
+            if await session.scalar(select(Skill.id).where(Skill.owner_id == owner_id, Skill.slug == template.slug)):
+                continue
+            personal = Skill(owner_id=owner_id, slug=template.slug, source='builtin', revision_id=uuid4())
+            session.add(personal)
+            await session.flush()
+            session.add(
+                SkillRevision(
+                    id=personal.revision_id,
+                    skill_id=personal.id,
+                    **{
+                        column: getattr(revision, column)
+                        for column in (
+                            'name',
+                            'description',
+                            'package_version',
+                            'content',
+                            'content_hash',
+                            'package_sha',
+                            'package_bytes',
+                            'filename',
+                            'file_count',
+                            'total_bytes',
+                        )
+                    },
+                )
+            )
+            session.add(
+                SkillLegacyBinding(
+                    owner_id=owner_id,
+                    legacy_skill_id=template.id,
+                    personal_skill_id=personal.id,
+                )
+            )
+        await session.flush()
+
+    async def reference_ids(self, session: AsyncSession, owner_id: UUID, skill_id: UUID) -> tuple[UUID, ...]:
+        await self._row(session, owner_id, skill_id)
+        legacy = await session.scalars(
+            select(SkillLegacyBinding.legacy_skill_id).where(
+                SkillLegacyBinding.owner_id == owner_id,
+                SkillLegacyBinding.personal_skill_id == skill_id,
+            )
+        )
+        return (skill_id, *legacy)
+
     async def prepare(self, session: AsyncSession, principal: Principal, payload: bytes, *, filename: str) -> DraftInfo:
-        principal.require_permission('ai:skills:write')
         if len(filename) > MAX_FILENAME_LENGTH or '\x00' in filename:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
         parsed = SkillPackageParser().parse(payload, filename=filename)
-        await self._lock_slug(session, parsed.slug)
-        skill = await session.scalar(select(Skill).where(Skill.slug == parsed.slug).with_for_update(read=True))
+        await self._lock_slug(session, principal.id, parsed.slug)
+        skill = await session.scalar(
+            select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update(read=True)
+        )
         current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
         action = self._import_action(skill, current, parsed)
         draft = SkillDraft(
@@ -68,7 +126,6 @@ class SkillService:
         )
 
     async def confirm(self, session: AsyncSession, principal: Principal, draft_id: UUID) -> SkillInfo:
-        principal.require_permission('ai:skills:write')
         draft = await session.scalar(
             select(SkillDraft).where(SkillDraft.id == draft_id, SkillDraft.owner_id == principal.id).with_for_update()
         )
@@ -83,8 +140,10 @@ class SkillService:
         parsed = SkillPackageParser().parse(draft.package_bytes, filename=draft.filename)
         if parsed.parsed_hash != draft.parsed_hash:
             raise AppError('skill_draft_changed', '技能导入草稿校验失败', 409)
-        await self._lock_slug(session, parsed.slug)
-        skill = await session.scalar(select(Skill).where(Skill.slug == parsed.slug).with_for_update())
+        await self._lock_slug(session, principal.id, parsed.slug)
+        skill = await session.scalar(
+            select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update()
+        )
         current = await session.get(SkillRevision, skill.revision_id) if skill is not None else None
         if (
             (skill.id if skill else None) != draft.target_skill_id
@@ -96,7 +155,7 @@ class SkillService:
             return await self._confirm_result(session, draft, skill, current)
         revision_id = uuid4()
         if skill is None:
-            skill = Skill(id=uuid4(), slug=parsed.slug, revision_id=revision_id)
+            skill = Skill(id=uuid4(), owner_id=principal.id, slug=parsed.slug, revision_id=revision_id)
             session.add(skill)
             await session.flush()
         else:
@@ -124,10 +183,10 @@ class SkillService:
         return await self._confirm_result(session, draft, skill, revision)
 
     @staticmethod
-    async def _lock_slug(session: AsyncSession, slug: str) -> None:
+    async def _lock_slug(session: AsyncSession, owner_id: UUID, slug: str) -> None:
         # Row locks cover existing identities; this also serializes first installs.
         await session.execute(
-            text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': f'skill-import:{slug}'}
+            text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': f'skill-import:{owner_id}:{slug}'}
         )
 
     @staticmethod
@@ -156,6 +215,7 @@ class SkillService:
     async def list_skills(
         self,
         session: AsyncSession,
+        owner_id: UUID,
         *,
         page: int = 1,
         page_size: int = 20,
@@ -166,7 +226,7 @@ class SkillService:
         query = (
             select(Skill, SkillRevision)
             .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-            .where(Skill.deleted_at.is_(None))
+            .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
         )
         if status is not None:
             query = query.where(Skill.status == status)
@@ -188,23 +248,29 @@ class SkillService:
             page_size=page_size,
         )
 
-    async def available(self, session: AsyncSession) -> list[SkillInfo]:
+    async def available(self, session: AsyncSession, owner_id: UUID) -> list[SkillInfo]:
         rows = (
             await session.execute(
                 select(Skill, SkillRevision)
                 .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-                .where(Skill.deleted_at.is_(None), Skill.status == 'enabled')
+                .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None), Skill.status == 'enabled')
                 .order_by(Skill.slug)
             )
         ).all()
         return [self._info(skill, revision) for skill, revision in rows]
 
     async def _row(
-        self, session: AsyncSession, skill_id: UUID, *, lock: bool = False, include_deleted: bool = False
+        self,
+        session: AsyncSession,
+        owner_id: UUID,
+        skill_id: UUID,
+        *,
+        lock: bool = False,
+        include_deleted: bool = False,
     ) -> tuple[Skill, SkillRevision]:
-        query = select(Skill).where(Skill.id == skill_id)
+        query = select(Skill).where(Skill.id == skill_id, Skill.owner_id == owner_id)
         if not include_deleted:
-            query = query.where(Skill.deleted_at.is_(None))
+            query = query.where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
         if lock:
             query = query.with_for_update(of=Skill)
         skill = await session.scalar(query)
@@ -215,19 +281,20 @@ class SkillService:
             raise AppError('skill_not_found', '技能不存在', 404)
         return skill, revision
 
-    async def get(self, session: AsyncSession, skill_id: UUID, *, include_deleted: bool = False) -> SkillInfo:
-        skill, revision = await self._row(session, skill_id, include_deleted=include_deleted)
+    async def get(
+        self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, include_deleted: bool = False
+    ) -> SkillInfo:
+        skill, revision = await self._row(session, owner_id, skill_id, include_deleted=include_deleted)
         return self._info(skill, revision)
 
-    async def content(self, session: AsyncSession, skill_id: UUID) -> str:
-        _, revision = await self._row(session, skill_id)
+    async def content(self, session: AsyncSession, owner_id: UUID, skill_id: UUID) -> str:
+        _, revision = await self._row(session, owner_id, skill_id)
         return revision.content
 
     async def set_status(
         self, session: AsyncSession, principal: Principal, skill_id: UUID, *, status: SkillStatus, expected_version: int
     ) -> SkillInfo:
-        principal.require_permission('ai:skills:write')
-        skill, revision = await self._row(session, skill_id, lock=True)
+        skill, revision = await self._row(session, principal.id, skill_id, lock=True)
         if skill.version != expected_version:
             raise AppError('skill_version_conflict', '技能已更新，请刷新后重试', 409)
         skill.status, skill.version, skill.updated_at = status, skill.version + 1, utcnow()
@@ -242,8 +309,7 @@ class SkillService:
         *,
         reference_check: Callable[[AsyncSession, str], Awaitable[bool]],
     ) -> SkillInfo:
-        principal.require_permission('ai:skills:write')
-        skill, revision = await self._row(session, skill_id, lock=True)
+        skill, revision = await self._row(session, principal.id, skill_id, lock=True)
         if await reference_check(session, skill.slug):
             raise AppError('skill_referenced', '技能仍有有效引用或进行中的调用', 409)
         skill.deleted_at = skill.updated_at = utcnow()
@@ -292,17 +358,17 @@ def _validate_slugs(slugs: Sequence[str]) -> None:
         raise AppError('invalid_skill_selection', '技能标识格式无效', 422)
 
 
-async def require_available(session: AsyncSession, slugs: Sequence[str]) -> None:
+async def require_available(session: AsyncSession, owner_id: UUID, slugs: Sequence[str]) -> None:
     """Check current availability under the same locks as status/deletion writers.
 
     A publication owns its frozen content, so a current revision's text or size
     must not affect the published selection's context or reservation.
     """
     _validate_slugs(slugs)
-    await require_available_set(session, slugs)
+    await require_available_set(session, owner_id, slugs)
 
 
-async def require_available_set(session: AsyncSession, slugs: Sequence[str]) -> None:
+async def require_available_set(session: AsyncSession, owner_id: UUID, slugs: Sequence[str]) -> None:
     """Lock a union of independently validated selections in global slug order.
 
     This checks availability only; count/content limits belong to each Agent's
@@ -315,7 +381,9 @@ async def require_available_set(session: AsyncSession, slugs: Sequence[str]) -> 
         return
     ids = await session.scalars(
         select(Skill.id)
-        .where(Skill.slug.in_(unique), Skill.deleted_at.is_(None), Skill.status == 'enabled')
+        .where(
+            Skill.owner_id == owner_id, Skill.slug.in_(unique), Skill.deleted_at.is_(None), Skill.status == 'enabled'
+        )
         .order_by(Skill.slug)
         .with_for_update(read=True)
     )
@@ -323,7 +391,13 @@ async def require_available_set(session: AsyncSession, slugs: Sequence[str]) -> 
         raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)
 
 
-async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> SkillSelection:
+async def require_available_groups(session: AsyncSession, groups: dict[UUID, set[str]]) -> None:
+    """Lock multiple owners in a stable order; a Work union never changes ownership."""
+    for owner_id in sorted(groups, key=str):
+        await require_available_set(session, owner_id, sorted(groups[owner_id]))
+
+
+async def resolve_selection(session: AsyncSession, owner_id: UUID, slugs: Sequence[str]) -> SkillSelection:
     _validate_slugs(slugs)
     if not slugs:
         return SkillSelection()
@@ -331,7 +405,9 @@ async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> Skil
         await session.execute(
             select(Skill, SkillRevision)
             .join(SkillRevision, Skill.revision_id == SkillRevision.id)
-            .where(Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled')
+            .where(
+                Skill.owner_id == owner_id, Skill.slug.in_(slugs), Skill.deleted_at.is_(None), Skill.status == 'enabled'
+            )
             .order_by(Skill.slug)
             .with_for_update(read=True, of=Skill)
         )
@@ -346,3 +422,31 @@ async def resolve_selection(session: AsyncSession, slugs: Sequence[str]) -> Skil
     if sum(len(value.content.encode()) for value in values) > MAX_SELECTION_BYTES:
         raise AppError('skill_context_too_long', '所选技能主文件合计超过32KiB', 422)
     return SkillSelection(values)
+
+
+async def require_frozen_available(session: AsyncSession, owner_id: UUID, selection: SkillSelection) -> None:
+    """Check the actual frozen identity/revision, including explicitly bound legacy archives."""
+    _validate_slugs([value.slug for value in selection.revisions])
+    for value in sorted(selection.revisions, key=lambda item: item.slug):
+        legacy = await session.get(SkillLegacyBinding, (owner_id, value.skill_id))
+        personal_id = legacy.personal_skill_id if legacy else value.skill_id
+        skill = await session.scalar(
+            select(Skill)
+            .where(
+                Skill.id == personal_id,
+                Skill.owner_id == owner_id,
+                Skill.slug == value.slug,
+                Skill.deleted_at.is_(None),
+                Skill.status == 'enabled',
+            )
+            .with_for_update(read=True)
+        )
+        revision = await session.get(SkillRevision, value.revision_id)
+        if (
+            skill is None
+            or revision is None
+            or revision.skill_id != value.skill_id
+            or revision.content_hash != value.content_hash
+            or revision.content != value.content
+        ):
+            raise AppError('skill_unavailable', '所选技能不存在或已停用', 422)

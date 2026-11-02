@@ -9,10 +9,12 @@ from pydantic import ValidationError
 
 from zhiheng.api.main import create_app
 from zhiheng.api.request_logging import uvicorn_log_config
+from zhiheng.application.identity.accounts import AccountService
 from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.identity.public import IdentityService
+from zhiheng.modules.skills.public import SkillService
 from zhiheng.shared.errors import AppError
 from zhiheng.worker.main import run_worker
 
@@ -22,7 +24,7 @@ async def create_admin(settings: Settings, username: str, password: str) -> None
     try:
         await database.require_schema()
         async with database.sessions.begin() as session:
-            await IdentityService().create_user(session, username=username, password=password, is_admin=True)
+            await AccountService(IdentityService(), SkillService()).create_user(session, username=username, password=password, is_admin=True)
     finally:
         await database.close()
 

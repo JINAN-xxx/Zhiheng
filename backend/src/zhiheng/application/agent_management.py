@@ -78,7 +78,7 @@ class AgentManagementService:
 
     async def create(self, session: AsyncSession, principal: Principal, config: AgentConfig) -> AgentInfo:
         await self.validate(session, Principal(principal.id, '', False), config)
-        await resolve_selection(session, config.skill_slugs)
+        await resolve_selection(session, principal.id, config.skill_slugs)
         return await self._agents.create(session, principal, config)
 
     async def update(self, session: AsyncSession, principal: Principal, agent_id: UUID, body: AgentUpdate) -> AgentInfo:
@@ -86,7 +86,7 @@ class AgentManagementService:
         config = AgentConfig.model_validate(body.model_dump(exclude={'expected_version'}))
         await self.validate(session, owner(agent), config)
         await self._agents.get(session, principal, agent_id, lock=True, expected_version=body.expected_version)
-        await resolve_selection(session, config.skill_slugs)
+        await resolve_selection(session, agent.owner_id, config.skill_slugs)
         return await self._agents.update(session, principal, agent_id, config, body.expected_version)
 
     async def publish(
@@ -96,17 +96,17 @@ class AgentManagementService:
         config = AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
         await self.validate(session, owner(agent), config, publish=True)
         await self._agents.get(session, principal, agent_id, lock=True, expected_version=expected_version)
-        selection: SkillSelection = await resolve_selection(session, config.skill_slugs)
+        selection: SkillSelection = await resolve_selection(session, agent.owner_id, config.skill_slugs)
         return await self._agents.publish(session, principal, agent_id, expected_version, selection)
 
     async def available(self, session: AsyncSession, principal: Principal) -> list[AgentSummary]:
         # A directory is a read: do not accumulate row locks across unrelated owners/models.
         models = {row.id: row for row in await self._models.list_models(session) if row.model_type == 'chat'}
-        skills = {row.slug for row in await SkillService().available(session)}
         result = []
         for summary in await self._agents.summaries(session, principal):
             agent = await self._agents.get(session, principal, summary.id)
             config = agent.published_config
+            skills = {row.slug for row in await SkillService().available(session, agent.owner_id)}
             assert config is not None
             if (
                 config.model_id not in models

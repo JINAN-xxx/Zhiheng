@@ -33,6 +33,13 @@ def skill_values(selection: SkillSelection) -> list[dict[str, object]]:
 
 
 class AgentService:
+    async def resource_owner(self, session: AsyncSession, agent_id: UUID) -> UUID | None:
+        """Trusted owner metadata for application composition of persisted dependencies."""
+        owner_id: UUID | None = await session.scalar(
+            select(Agent.owner_id).where(Agent.id == agent_id, Agent.deleted_at.is_(None))
+        )
+        return owner_id
+
     async def _row(self, session: AsyncSession, principal: Principal, agent_id: UUID, *, lock: bool = False) -> Agent:
         query = select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None))
         if not principal.is_admin:
@@ -262,16 +269,27 @@ class AgentService:
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
 
-    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+    async def skill_references(
+        self,
+        session: AsyncSession,
+        slug: str,
+        *,
+        owner_id: UUID,
+        skill_ids: tuple[UUID, ...] = (),
+    ) -> list[ResourceReference]:
         references = await self._configuration_references(
             session,
-            Agent.config['skill_slugs'].contains([slug]),
-            AgentVersion.config['skill_slugs'].contains([slug]),
+            (Agent.owner_id == owner_id) & Agent.config['skill_slugs'].contains([slug]),
+            (Agent.owner_id == owner_id) & AgentVersion.config['skill_slugs'].contains([slug]),
         )
         runs = await session.scalars(
             select(Run)
             .join(AgentRunAudit, AgentRunAudit.run_id == Run.id)
-            .where(Run.status.in_(('pending', *ACTIVE_STATUSES)), AgentRunAudit.config['skill_slugs'].contains([slug]))
+            .where(
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                AgentRunAudit.owner_id == owner_id,
+                AgentRunAudit.config['skill_slugs'].contains([slug]),
+            )
             .order_by(Run.id)
         )
         references.extend(
@@ -280,8 +298,8 @@ class AgentService:
         )
         return references
 
-    async def references_skill(self, session: AsyncSession, slug: str) -> bool:
-        return bool(await self.skill_references(session, slug))
+    async def references_skill(self, session: AsyncSession, owner_id: UUID, slug: str) -> bool:
+        return bool(await self.skill_references(session, slug, owner_id=owner_id))
 
     async def audit(
         self,

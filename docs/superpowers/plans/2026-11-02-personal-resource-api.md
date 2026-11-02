@@ -22,8 +22,8 @@
 
 ## 任务一：个人资源基础
 
-- [ ] 保存正常schema/积分/Key/模型与57文件基线，在独立PG/Redis/Milvus运行原技能/知识用例基线。
-- [ ] 增加 `test_personal_resources.py`：管理员与普通用户分别安装同slug；UUID读取、修改、删除及版本均不得跨人；普通用户可管理本人；管理员普通列表也不默认跨人；私有KB不可被另一管理员通过普通入口管理。
+- [x] 保存正常schema/积分/Key/模型与57文件基线，在独立PG/Redis/Milvus运行原技能/知识用例基线。
+- [x] 增加 `test_personal_resources.py`：管理员与普通用户分别安装同slug；UUID读取、修改、删除及版本均不得跨人；普通用户可管理本人；管理员普通列表也不默认跨人；私有KB不可被另一管理员通过普通入口管理。
 
 关键HTTP红例使用已有 `admin/app/provider` 夹具，不需要新的假调用器：
 
@@ -46,13 +46,15 @@ async def test_skill_owner_isolation(admin, app):
         assert second.status_code == 201 and second.json()['id'] != first.json()['id']
 ```
 
-- [ ] 运行红例确认当前全局查询/权限失败；再实现 owner+slug唯一、个人CRUD、模板副本和所有技能调用上下文。
-- [ ] 草稿/确认按当前owner定位；版本绑定、引用保护、Agent发布、Work冻结成员和旧确认结果保持稳定，不能用全局slug阻挡另一用户。
-- [ ] 知识库默认列表仅本人；可用共享由本人ACL明确表达，管理永远检查归属。列表和详情不得依赖管理员默认跨人分支。
-- [ ] 迁移先审计草稿/审计归属；不确定且有活动引用则升级前停止，不分给默认管理员。内置历史关联保留原快照/哈希；当前用户获得个人副本。
-- [ ] 在CLI与管理员创建用户的应用用例初始化个人副本，禁止通过GET偷偷写初始化数据；更新真实夹具使用同一创建用例。
-- [ ] 个人与跨域回归：`pytest tests/core/integration/test_personal_resources.py tests/core/integration/test_skills.py tests/core/integration/test_skill_lifecycle.py tests/core/integration/test_knowledge_roles.py tests/core/integration/test_agents.py tests/core/integration/test_work.py -q`。
-- [ ] 独立规格/质量审查后提交个人域完整切片，不带未解决隔离问题进入资源开放。
+- [x] 运行红例确认当前全局查询/权限失败；再实现 owner+slug唯一、个人CRUD、模板副本和所有技能调用上下文。
+- [x] 草稿/确认按当前owner定位；版本绑定、引用保护、Agent发布、Work冻结成员和旧确认结果保持稳定，不能用全局slug阻挡另一用户。
+- [x] 知识库默认列表仅本人；可用共享由本人ACL明确表达，管理永远检查归属。列表和详情不得依赖管理员默认跨人分支。
+- [x] 迁移先审计草稿/审计归属；不确定且有活动引用则升级前停止，不分给默认管理员。内置历史关联保留原快照/哈希；当前用户获得个人副本。
+- [x] 在CLI与管理员创建用户的应用用例初始化个人副本，禁止通过GET偷偷写初始化数据；更新真实夹具使用同一创建用例。
+- [x] 个人与跨域回归：`pytest tests/core/integration/test_personal_resources.py tests/core/integration/test_skills.py tests/core/integration/test_skill_lifecycle.py tests/core/integration/test_knowledge_roles.py tests/core/integration/test_agents.py tests/core/integration/test_work.py -q`。
+- [x] 独立规格/质量审查后提交个人域完整切片，不带未解决隔离问题进入资源开放。
+
+阶段一验收：个人归属及历史引用规格复验 12/12、质量并发/事务验证 7/7、管理员 HTTP 复验 11/11；当前 171 文件类型及架构检查通过。正常库 schema13 备份副本升级至 schema14，81 张原表的 1,653 条旧行按原列保持，旧修订及账务不变。整套资源 API 与最终全量回归继续按后续任务执行。
 
 ## 任务二：Key资源能力与接入上下文
 

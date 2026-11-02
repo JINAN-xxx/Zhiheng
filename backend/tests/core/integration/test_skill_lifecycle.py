@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_skills import install, prepare
+from tests.core.legacy_schema import reconstruct
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.skills.orm import Skill, SkillRevision
 from zhiheng.modules.skills.package import SkillPackageParser
@@ -281,6 +282,15 @@ async def test_downgrade_rejects_multiple_revisions_without_losing_history(
         configuration.attributes['connection'] = connection
         command.downgrade(configuration, '0012_platform_credits')
 
+    async with app.state.container.database.engine.begin() as connection:
+
+        def prepare_0013(current: object) -> None:
+            configuration.attributes['connection'] = current
+            command.upgrade(configuration, '0013_skill_revision_history')
+
+        await reconstruct(connection, prepare_0013)
+    await app.state.container.database.engine.dispose()
+
     with pytest.raises(RuntimeError, match='multiple revisions'):
         async with app.state.container.database.engine.begin() as connection:
             await connection.run_sync(downgrade)
@@ -304,6 +314,15 @@ async def test_0012_upgrade_freezes_legacy_confirmation_and_rejects_stale_legacy
 
     container = app.state.container
     original = (await admin.get('/api/skills/available')).json()[0]
+    async with container.database.sessions() as session:
+        from zhiheng.modules.skills.orm import SkillLegacyBinding
+
+        binding = await session.scalar(
+            select(SkillLegacyBinding).where(SkillLegacyBinding.personal_skill_id == UUID(original['id']))
+        )
+        archive = await session.get(Skill, binding.legacy_skill_id)
+        archived_revision = await session.get(SkillRevision, archive.revision_id)
+        original = container.skills._info(archive, archived_revision).model_dump(mode='json')
     async with container.database.sessions.begin() as session:
         principal = await container.identity.authenticate(session, admin.cookies['zhiheng_session'])
         revision = await session.get(SkillRevision, UUID(original['revision_id']))
@@ -313,11 +332,11 @@ async def test_0012_upgrade_freezes_legacy_confirmation_and_rejects_stale_legacy
 
     def downgrade(connection: object) -> None:
         configuration.attributes['connection'] = connection
-        command.downgrade(configuration, '0012_platform_credits')
+        command.upgrade(configuration, '0012_platform_credits')
 
     confirmed_id, preview_id = uuid4(), uuid4()
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         for draft_id, confirmed in [(confirmed_id, original['id']), (preview_id, None)]:
             await connection.execute(
                 text("""INSERT INTO skill_drafts
@@ -338,9 +357,10 @@ async def test_0012_upgrade_freezes_legacy_confirmation_and_rejects_stale_legacy
     async with container.database.sessions.begin() as session:
         frozen = await container.skills.confirm(session, principal, confirmed_id)
         assert frozen.model_dump(mode='json') == original
-        await container.skills.set_status(
-            session, principal, UUID(original['id']), status='disabled', expected_version=1
+        personal = next(
+            row for row in await container.skills.available(session, principal.id) if row.slug == original['slug']
         )
+        await container.skills.set_status(session, principal, personal.id, status='disabled', expected_version=1)
     async with container.database.sessions.begin() as session:
         assert await container.skills.confirm(session, principal, confirmed_id) == frozen
         with pytest.raises(AppError) as error:

@@ -1,7 +1,7 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <template>
   <section class="knowledge-overview">
-    <WorkspaceToolbar title="知识库" subtitle="管理文档、验证检索、构建知识图谱">
+    <WorkspaceToolbar title="我的知识库" subtitle="管理文档、验证检索、构建知识图谱">
       <template #actions>
         <a-button v-if="canManageStorage" aria-label="存储管理" @click="emit('storage')">
           <template #icon><HddOutlined /></template>

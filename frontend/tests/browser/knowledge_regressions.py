@@ -60,7 +60,7 @@ class KnowledgeUIRegressions(DeveloperBoundary):
 
     async def test_original_overview_and_document_navigation(self):
         await self.page.goto(self.origin + '/knowledge')
-        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='管理文档', exact=True).click()
         await expect(self.page.get_by_role('heading', name='业务知识', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='业务说明.txt', exact=True)).to_be_visible()
@@ -156,7 +156,7 @@ class KnowledgeUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='检索', exact=True).click()
         await expect(self.page.locator('.query-passage')).to_contain_text('业务工作时间是九点到十七点。')
         await self.page.get_by_role('button', name=re.compile(r'返回知识库$')).click()
-        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
         await self.page.route('**/api/knowledge/preparations/prep-1', lambda route: route.fulfill(status=403, json={'error': {'code': 'source_forbidden', 'message': '来源权限已撤销'}}))
         await self.page.get_by_role('button', name='测试检索', exact=True).click()
         await expect(self.page.get_by_text('来源权限已撤销', exact=True)).to_be_visible()

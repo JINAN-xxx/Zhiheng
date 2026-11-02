@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from tests.core.integration.test_developer import provision
 from tests.core.integration.test_skills import install
+from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.worker.execution import execute_run
 
@@ -15,7 +16,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
     admin: httpx.AsyncClient, app: object, model_id: str
 ) -> None:
     await provision(admin, model_id)
-    skill = await install(admin, 'before-agents')
+    await install(admin, 'before-agents')
     conversation = (await admin.post('/api/chat/conversations', json={})).json()
     response = await admin.post(
         f'/api/chat/conversations/{conversation["id"]}/runs',
@@ -28,21 +29,15 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
     )
     await execute_run(app.state.container, UUID(response.json()['id']))
     container = app.state.container
-    # This fixture models 0003 data. Its immutable package and chat snapshots
-    # predate the 0013 confirmation envelope, which must block real downgrades.
-    async with container.database.engine.begin() as connection:
-        await connection.execute(
-            text('DELETE FROM skill_drafts WHERE confirmed_skill_id=:id'), {'id': UUID(skill['id'])}
-        )
     config = Config()
     config.set_main_option('script_location', str(migration_directory()))
 
     def downgrade(connection: object) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0003_skills')
+        command.upgrade(config, '0003_skills')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(downgrade)
+        await reconstruct(connection, downgrade)
         tables = (
             (
                 await connection.execute(
@@ -74,12 +69,22 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         }
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0013_skill_revision_history'
+        assert (
+            await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0014_personal_skill_ownership'
+        )
         for table in tables:
+            selector = ''
+            if table in {'skills', 'skill_revisions'}:
+                import json
+
+                identifiers = [json.loads(row)['id'] for row in snapshots[table]]
+                selector = ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
             # Compare every original value; new projection and billing columns are verified below.
             assert (
                 await connection.execute(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
+                    text(
+                        f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}{selector}) t ORDER BY 1'
+                    )
                 )
             ).scalars().all() == snapshots[table]
         assert (
@@ -87,4 +92,6 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         )
         assert await connection.scalar(text("SELECT count(*) FROM runtime_runs WHERE reasoning != ''")) == 0
         assert await connection.scalar(text("SELECT count(*) FROM chat_messages WHERE reasoning != ''")) == 0
-        assert await connection.scalar(text('SELECT count(*) FROM skills')) == 3
+        assert (
+            await connection.scalar(text("SELECT count(*) FROM skills WHERE owner_id IS NULL OR source='upload'")) == 3
+        )

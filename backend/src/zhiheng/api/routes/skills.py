@@ -43,14 +43,16 @@ async def skills(
                 unquote_to_bytes(value.replace(b'+', b' ')).decode('utf-8')
             except UnicodeError as error:
                 raise AppError('invalid_skill_search', '技能搜索条件必须为有效UTF-8', 422) from error
-    return await container.skills.list_skills(session, page=page, page_size=page_size, search=search, status=status)
+    return await container.skills.list_skills(
+        session, principal.id, page=page, page_size=page_size, search=search, status=status
+    )
 
 
 @router.get('/available')
 async def available(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[SkillInfo]:
-    return await container.skills.available(session)
+    return await container.skills.available(session, principal.id)
 
 
 @router.post('/import/prepare', status_code=201)
@@ -61,7 +63,6 @@ async def prepare(
     session: SessionDependency,
     filename: Annotated[str, Query(min_length=1, max_length=255)],
 ) -> DraftInfo:
-    principal.require_permission('ai:skills:write')
     payload = await request.body()
     async with session.begin():
         return await container.skills.prepare(session, principal, payload, filename=filename)
@@ -83,14 +84,14 @@ async def confirm(
 async def get(
     skill_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> SkillInfo:
-    return await container.skills.get(session, skill_id)
+    return await container.skills.get(session, principal.id, skill_id)
 
 
 @router.get('/{skill_id}/content')
 async def content(
     skill_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> ContentInfo:
-    return ContentInfo(content=await container.skills.content(session, skill_id))
+    return ContentInfo(content=await container.skills.content(session, principal.id, skill_id))
 
 
 @router.patch('/{skill_id}/status')

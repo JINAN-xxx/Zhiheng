@@ -1,7 +1,7 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar title="技能">
+    <WorkspaceToolbar title="我的技能">
       <template #actions>
         <a-tooltip title="刷新技能" placement="bottom">
           <a-button :loading="loading" aria-label="刷新技能" @click="load">
@@ -113,7 +113,7 @@ import {
   ThunderboltOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue'
-import { hasAnyPermission, identity } from '../../identity/public.ts'
+import { identity } from '../../identity/public.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
@@ -125,7 +125,7 @@ import SkillDetailDrawer from '../components/SkillDetailDrawer.vue'
 import SkillUploadModal from '../components/SkillUploadModal.vue'
 const route = useRoute(),
   router = useRouter()
-const canManage = computed(() => hasAnyPermission(identity.value, 'ai:skills:write'))
+const canManage = computed(() => identity.value !== null)
 const skills = ref<Skill[]>([]),
   total = ref(0),
   loading = ref(false),

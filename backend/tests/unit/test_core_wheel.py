@@ -23,6 +23,8 @@ REQUIRED_MEMBERS = (
     'zhiheng/modules/billing/gate.py',
     'zhiheng/application/billing_management.py',
     'zhiheng/api/routes/billing.py',
+    'zhiheng/application/identity/__init__.py',
+    'zhiheng/application/identity/accounts.py',
     'zhiheng/modules/skills/public.py',
     'zhiheng/modules/skills/package.py',
     'zhiheng/modules/skills/validation.py',
@@ -97,6 +99,7 @@ REQUIRED_MEMBERS = (
             'versions/0011_builtin_admin_role.py',
             'versions/0012_platform_credits.py',
             'versions/0013_skill_revision_history.py',
+            'versions/0014_personal_skill_ownership.py',
         )
     ),
 )
@@ -165,6 +168,7 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0011_builtin_admin_role.py',
         '0012_platform_credits.py',
         '0013_skill_revision_history.py',
+        '0014_personal_skill_ownership.py',
     ],
 )
 def test_requires_all_database_migration_revisions(

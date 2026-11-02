@@ -180,17 +180,16 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
 async def app(settings: object) -> AsyncIterator[object]:
     from zhiheng.api.main import create_app
     from zhiheng.bootstrap.migrations import migrate
-    from zhiheng.modules.identity.public import IdentityService
 
     await migrate(settings)
     application = create_app(settings)
     async with application.router.lifespan_context(application):
         container = application.state.container
         async with container.database.sessions.begin() as session:
-            await IdentityService().create_user(
+            await container.accounts.create_user(
                 session, username='admin', password='platform-test-password', is_admin=True
             )
-            await IdentityService().create_user(
+            await container.accounts.create_user(
                 session, username='member', password='platform-test-password', is_admin=False
             )
         yield application

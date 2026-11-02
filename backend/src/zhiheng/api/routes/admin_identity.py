@@ -159,7 +159,7 @@ def _resource_router(kind: AdminKind) -> APIRouter:
         session: SessionDependency,
     ) -> dict[str, Any]:
         async with _transaction(session):
-            result = await container.admin_identity.create(session, principal, kind, body)
+            result = await container.accounts.create(session, principal, kind, body)
             await container.operations.record(
                 session,
                 principal=principal,

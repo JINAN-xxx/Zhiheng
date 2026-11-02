@@ -126,18 +126,18 @@ async def test_agent_references_only_live_draft_and_current_publication(
         assert [(r.id, r.name, r.status, r.path) for r in refs] == [
             (agent.id, 'Live agent', 'published', f'/agents/{agent.id}')
         ]
-        assert await container.agents.references_skill(session, 'document-summary')
+        assert await container.agents.references_skill(session, owner_id, 'document-summary')
         agent.published_version = None
         await session.flush()
         assert not await container.agents.references_model(session, model)
-        assert not await container.agents.references_skill(session, 'document-summary')
+        assert not await container.agents.references_skill(session, owner_id, 'document-summary')
         agent.config = live
         await session.flush()
         assert (await container.agents.model_references(session, model))[0].status == 'draft'
         agent.deleted_at = utcnow()
         await session.flush()
         assert not await container.agents.references_model(session, model)
-        assert not await container.agents.references_skill(session, 'document-summary')
+        assert not await container.agents.references_skill(session, owner_id, 'document-summary')
         assert await session.get(AgentVersion, publication.id) is not None
 
 
@@ -174,7 +174,7 @@ async def test_work_releases_historical_member_references(
         await session.flush()
         assert (await container.work.model_references(session, UUID(model_id)))[0].id == task.id
         assert (await container.work.agent_references(session, agent.id))[0].path == f'/work?taskId={task.id}'
-        assert await container.work.references_skill(session, 'document-summary')
+        assert await container.work.references_skill(session, owner_id, 'document-summary')
         if release == 'removed':
             member.removed_at = utcnow()
         elif release == 'deleted':
@@ -183,7 +183,7 @@ async def test_work_releases_historical_member_references(
             task.status = release
         await session.flush()
         assert not await container.work.references_model(session, UUID(model_id))
-        assert not await container.work.references_skill(session, 'document-summary')
+        assert not await container.work.references_skill(session, owner_id, 'document-summary')
         assert await container.work.agent_references(session, agent.id) == []
         assert await session.get(WorkMember, member.id) is not None
 
@@ -305,6 +305,33 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
     async with container.database.sessions.begin() as session:
         binding = await container.models.resolve(session, model)
         config = {'model_id': model_id, 'skill_slugs': ['document-summary']}
+        session.add(Agent(id=agent_id, owner_id=owner_id, config=config))
+        await session.flush()
+        if kind == 'work_turn':
+            session.add(
+                WorkTask(
+                    id=task_id,
+                    owner_id=owner_id,
+                    title='Preparing task',
+                    goal='Goal',
+                    create_active_agent_id=agent_id,
+                    create_client_request_id=uuid4(),
+                    create_fingerprint='preparing',
+                )
+            )
+            await session.flush()
+            session.add(
+                WorkMember(
+                    task_id=task_id,
+                    agent_id=agent_id,
+                    agent_owner_id=owner_id,
+                    agent_name_snapshot='Preparing agent',
+                    published_version=1,
+                    config=config,
+                    skills=[],
+                )
+            )
+            await session.flush()
         dependencies = {
             'bases': [{'binding': binding.model_dump(mode='json')}],
             'config' if kind == 'agent_preview' else 'member_config': config,
@@ -327,15 +354,15 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
         assert [ref.id for ref in await container.knowledge.connection_references(session, binding.connection_id)] == [
             intent.id
         ]
-        assert [ref.id for ref in await container.knowledge.skill_references(session, 'document-summary')] == [
-            intent.id
-        ]
+        assert [
+            ref.id for ref in await container.knowledge.skill_references(session, 'document-summary', owner_id=owner_id)
+        ] == [intent.id]
         assert [ref.id for ref in await container.knowledge.agent_references(session, agent_id)] == [intent.id]
         intent.status = 'cancelled'
         await session.flush()
         assert not await container.knowledge.model_references(session, model)
         assert not await container.knowledge.connection_references(session, binding.connection_id)
-        assert not await container.knowledge.skill_references(session, 'document-summary')
+        assert not await container.knowledge.skill_references(session, 'document-summary', owner_id=owner_id)
         assert not await container.knowledge.agent_references(session, agent_id)
         intent = RetrievalIntent(
             namespace_id=owner_id,

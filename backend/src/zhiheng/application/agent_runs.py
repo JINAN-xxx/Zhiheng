@@ -19,7 +19,7 @@ from zhiheng.modules.developer.public import DeveloperIdentity, KeyService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.knowledge.public import fingerprint as dependency_fingerprint
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
-from zhiheng.modules.skills.public import require_available, resolve_selection
+from zhiheng.modules.skills.public import require_available, require_frozen_available, resolve_selection
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -143,11 +143,12 @@ class AgentRunService:
         binding = await self._management.validate(session, owner(agent), config, publish=identity is not None)
         await self._agents.get(session, owner(agent), agent.id, lock=True, expected_version=agent.version)
         if identity is not None:
-            await require_available(session, config.skill_slugs)
+            await require_available(session, agent.owner_id, config.skill_slugs)
             assert agent.published_version is not None
             selection = await self._agents.published_selection(session, owner(agent), agent.id, agent.published_version)
         else:
-            selection = await resolve_selection(session, config.skill_slugs)
+            selection = await resolve_selection(session, agent.owner_id, config.skill_slugs)
+        await require_frozen_available(session, agent.owner_id, selection)
         rate = await self._usage.money_rate(session, self._models, config.model_id, required=identity is not None)
         binding = binding.model_copy(
             update={'max_output_tokens': config.max_tokens, 'options': ModelOptions(temperature=config.temperature)}
@@ -267,7 +268,7 @@ class AgentRunService:
             selection = (
                 await self._agents.published_selection(session, owner(agent), agent_id, agent.published_version)
                 if identity and agent.published_version
-                else await resolve_selection(session, config.skill_slugs)
+                else await resolve_selection(session, agent.owner_id, config.skill_slugs)
             )
             dependencies = {
                 'agent_version': agent.version,
@@ -334,7 +335,7 @@ class AgentRunService:
         selection = (
             await self._agents.published_selection(session, owner(agent), agent.id, agent.published_version)
             if identity and agent.published_version
-            else await resolve_selection(session, config.skill_slugs)
+            else await resolve_selection(session, agent.owner_id, config.skill_slugs)
         )
         if dependency_fingerprint([asdict(item) for item in selection.revisions]) != state.dependencies['skills_hash']:
             raise AppError('knowledge_preparation_stale', '技能依赖已变化', 409)
@@ -368,7 +369,7 @@ class AgentRunService:
         selection = (
             await self._agents.published_selection(session, principal, agent.id, agent.published_version)
             if state.key_id and agent.published_version
-            else await resolve_selection(session, config.skill_slugs)
+            else await resolve_selection(session, agent.owner_id, config.skill_slugs)
         )
         if dependency_fingerprint([asdict(item) for item in selection.revisions]) != state.dependencies['skills_hash']:
             raise AppError('knowledge_preparation_stale', '技能依赖已变化', 409)

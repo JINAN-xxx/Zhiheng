@@ -59,8 +59,8 @@ async def test_builtins_and_two_phase_owner_cas_and_soft_delete(admin: httpx.Asy
                 content=markdown(),
                 headers={'content-type': 'application/octet-stream'},
             )
-        ).status_code == 403
-        assert (await member.post(f'/api/skills/import/{draft["draft_id"]}/confirm', json={})).status_code == 403
+        ).status_code == 201
+        assert (await member.post(f'/api/skills/import/{draft["draft_id"]}/confirm', json={})).status_code == 404
 
 
 async def test_slug_conflict_and_unknown_actions(admin: httpx.AsyncClient) -> None:
@@ -183,17 +183,17 @@ async def test_selection_byte_limit_and_builtin_disable(admin: httpx.AsyncClient
     await install(admin, 'large', '测' * 11000)
     async with app.state.container.database.sessions.begin() as session:
         with pytest.raises(AppError) as error:
-            await resolve_selection(session, ['large'])
+            await resolve_selection(session, UUID((await admin.get('/api/auth/me')).json()['id']), ['large'])
         assert error.value.code == 'skill_context_too_long'
         with pytest.raises(AppError):
-            await resolve_selection(session, ['missing'] * 6)
+            await resolve_selection(session, UUID((await admin.get('/api/auth/me')).json()['id']), ['missing'] * 6)
     builtin = (await admin.get('/api/skills/available')).json()[0]
     assert (
         await admin.patch(f'/api/skills/{builtin["id"]}/status', json={'status': 'disabled', 'expected_version': 1})
     ).status_code == 200
     async with app.state.container.database.sessions.begin() as session:
         with pytest.raises(AppError) as error:
-            await resolve_selection(session, [builtin['slug']])
+            await resolve_selection(session, UUID((await admin.get('/api/auth/me')).json()['id']), [builtin['slug']])
         assert error.value.code == 'skill_unavailable'
 
 
@@ -368,7 +368,9 @@ async def test_invalid_skill_input_is_422_without_runs_messages_ledger_or_provid
     assert not provider.requests
 
 
-async def test_public_selection_and_search_reject_invalid_text_before_query(app: object) -> None:
+async def test_public_selection_and_search_reject_invalid_text_before_query(
+    app: object, admin: httpx.AsyncClient
+) -> None:
     import pytest
 
     from zhiheng.modules.skills.public import resolve_selection
@@ -377,11 +379,13 @@ async def test_public_selection_and_search_reject_invalid_text_before_query(app:
     async with app.state.container.database.sessions.begin() as session:
         for slug in ['nul\x00slug', '\ud800', 'a' * 256, 'Bad', '中文']:
             with pytest.raises(AppError) as error:
-                await resolve_selection(session, [slug])
+                await resolve_selection(session, UUID((await admin.get('/api/auth/me')).json()['id']), [slug])
             assert error.value.code == 'invalid_skill_selection'
         for search in ['nul\x00query', '\ud800']:
             with pytest.raises(AppError) as error:
-                await app.state.container.skills.list_skills(session, search=search)
+                await app.state.container.skills.list_skills(
+                    session, UUID((await admin.get('/api/auth/me')).json()['id']), search=search
+                )
             assert error.value.code == 'invalid_skill_search'
 
 
@@ -394,7 +398,7 @@ async def test_long_valid_slugs_remain_installable_and_selectable(
         slug = 'a' * length
         skill = await install(admin, slug)
         async with app.state.container.database.sessions.begin() as session:
-            selection = await resolve_selection(session, [slug])
+            selection = await resolve_selection(session, UUID((await admin.get('/api/auth/me')).json()['id']), [slug])
             assert (
                 selection.revisions[0].slug == slug and str(selection.revisions[0].revision_id) == skill['revision_id']
             )

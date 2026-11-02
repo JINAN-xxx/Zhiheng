@@ -32,13 +32,21 @@ MAX_REPLY_GENERATIONS = 100
 
 
 class ChatService:
-    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+    async def skill_references(
+        self,
+        session: AsyncSession,
+        slug: str,
+        *,
+        owner_id: UUID,
+        skill_ids: tuple[UUID, ...] = (),
+    ) -> list[ResourceReference]:
         rows = await session.execute(
             select(Conversation, Run.status)
             .join(ChatMessage, ChatMessage.conversation_id == Conversation.id)
             .join(Run, Run.id == ChatMessage.run_id)
             .where(
                 Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                Conversation.owner_id == owner_id,
                 ChatMessage.skill_snapshots.contains([{'slug': slug}]),
             )
             .distinct()

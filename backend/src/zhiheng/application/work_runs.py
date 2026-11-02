@@ -17,7 +17,14 @@ from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.models.public import ModelBinding, ModelMessage, ModelOptions, ModelRequest, ModelService
-from zhiheng.modules.skills.public import SkillSelection, SkillService, require_available, require_available_set
+from zhiheng.modules.skills.public import (
+    SkillSelection,
+    SkillService,
+    require_available,
+    require_available_groups,
+    require_available_set,
+    require_frozen_available,
+)
 from zhiheng.modules.work.public import (
     CreateTask,
     MemberSnapshot,
@@ -74,11 +81,11 @@ class WorkRunService:
         if task_id:
             principal = await self.owner(session, principal, task_id)
         models = {item.id: item for item in await self.models.list_models(session) if item.model_type == 'chat'}
-        skills = {item.slug for item in await SkillService().available(session)}
         result = []
         for summary in await self.agents.summaries(session, principal):
             agent = await self.agents.get(session, principal, summary.id)
             config = agent.published_config
+            skills = {item.slug for item in await SkillService().available(session, agent.owner_id)}
             if (
                 config is not None
                 and config.model_id in models
@@ -115,7 +122,7 @@ class WorkRunService:
                 member.available = member.removed_at is None and member.agent_id in available
                 if member.available and config is not None:
                     models = {item.id: item for item in await self.models.list_models(session)}
-                    skills = {item.slug for item in await SkillService().available(session)}
+                    skills = {item.slug for item in await SkillService().available(session, agent.owner_id)}
                     member.available = (
                         config.model_id in models
                         and config.max_tokens <= models[config.model_id].max_output_tokens
@@ -161,9 +168,16 @@ class WorkRunService:
         if reopening:
             assert owner is not None
             try:
-                await require_available_set(
-                    session, sorted({slug for config in configs for slug in config.skill_slugs})
-                )
+                groups: dict[UUID, set[str]] = {}
+                for member, config in zip(snapshots, configs, strict=True):
+                    groups.setdefault(member.agent_owner_id, set()).update(config.skill_slugs)
+                await require_available_groups(session, groups)
+                for member in snapshots:
+                    await require_frozen_available(
+                        session,
+                        member.agent_owner_id,
+                        TypeAdapter(SkillSelection).validate_python({'revisions': member.skills}),
+                    )
                 for config in configs:
                     if (
                         config.knowledge_base_ids
@@ -211,8 +225,11 @@ class WorkRunService:
             and not await self.knowledge.can_use(session, principal.id, config.knowledge_base_ids)
         ):
             raise AppError('agent_not_found', '智能体知识范围不可用', 404)
-        await require_available(session, config.skill_slugs)
-        selection = await self.agents.published_selection(session, principal, agent.id, agent.published_version)
+        await require_available(session, agent.owner_id, config.skill_slugs)
+        selection = await self.agents.published_selection(
+            session, Principal(agent.owner_id, '', False), agent.id, agent.published_version
+        )
+        await require_frozen_available(session, agent.owner_id, selection)
         skills = [
             {key: str(value) if isinstance(value, UUID) else value for key, value in asdict(item).items()}
             for item in selection.revisions
@@ -236,18 +253,12 @@ class WorkRunService:
         if existing:
             return await self.detail(session, principal, existing)
         agents, bindings = await self._prepare(session, principal, body.agent_ids)
-        # Take shared skill locks in global slug order before freezing selections.
-        await require_available_set(
-            session,
-            sorted(
-                {
-                    slug
-                    for agent in agents.values()
-                    if agent.published_config
-                    for slug in agent.published_config.skill_slugs
-                }
-            ),
-        )
+        # A task can freeze publications belonging to different owners.
+        groups: dict[UUID, set[str]] = {}
+        for agent in agents.values():
+            if agent.published_config:
+                groups.setdefault(agent.owner_id, set()).update(agent.published_config.skill_slugs)
+        await require_available_groups(session, groups)
         members = []
         for agent_id in body.agent_ids:
             agent = agents[agent_id]
@@ -331,8 +342,11 @@ class WorkRunService:
         self._binding(current, bindings[current.model_id])
         await self.agents.get(session, owner, body.agent_id, lock=True, expected_version=agent.version)
         await self.work.editable(session, principal, task_id, body.expected_version)
-        await require_available_set(session, sorted(set(config.skill_slugs) | set(current.skill_slugs)))
+        await require_available_set(
+            session, member.agent_owner_id, sorted(set(config.skill_slugs) | set(current.skill_slugs))
+        )
         selection = TypeAdapter(SkillSelection).validate_python({'revisions': member.skills})
+        await require_frozen_available(session, member.agent_owner_id, selection)
         messages = await self._messages(session, task, body, config, selection)
         request = ModelRequest(binding=binding, messages=messages)
         if prepared and self.knowledge:

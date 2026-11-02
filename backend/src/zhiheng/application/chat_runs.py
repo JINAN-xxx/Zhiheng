@@ -130,7 +130,7 @@ class ChatRunService:
             raise AppError('invalid_attachments', '附件快照不一致', 422)
         if binding.model_type != 'chat':
             raise AppError('model_unavailable', '当前入口仅支持聊天模型', 422)
-        selection = await resolve_selection(session, skill_slugs)
+        selection = await resolve_selection(session, principal.id, skill_slugs)
         skill_messages = tuple(ModelMessage('system', value.content) for value in selection.revisions)
         snapshots = [
             SkillSnapshot(
@@ -636,7 +636,7 @@ class ChatRunService:
         regeneration_message_id: UUID | None = None,
     ) -> dict[str, object]:
         conversation = await self._chat.require_conversation(session, principal, conversation_id)
-        selection = await resolve_selection(session, skill_slugs)
+        selection = await resolve_selection(session, principal.id, skill_slugs)
         target = (
             await self._chat.regeneration_target(session, principal, conversation_id, regeneration_message_id)
             if regeneration_message_id

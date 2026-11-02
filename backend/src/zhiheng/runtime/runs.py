@@ -53,12 +53,20 @@ class RunStore:
         )
         return [self._reference(row) for row in rows]
 
-    async def skill_references(self, session: AsyncSession, slug: str) -> list[ResourceReference]:
+    async def skill_references(
+        self,
+        session: AsyncSession,
+        slug: str,
+        *,
+        owner_id: UUID,
+        skill_ids: tuple[UUID, ...] = (),
+    ) -> list[ResourceReference]:
         """Runtime payload references; Agent/Work owners also inspect their audit snapshots."""
         rows = await session.scalars(
             select(Run)
             .where(
                 Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                Run.billing_owner_id == owner_id,
                 or_(Run.payload['skill_slugs'].contains([slug]), Run.payload['skills'].contains([{'slug': slug}])),
             )
             .order_by(Run.id)

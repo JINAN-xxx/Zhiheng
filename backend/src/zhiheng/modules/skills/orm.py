@@ -1,7 +1,18 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, LargeBinary, String, Text, Uuid
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,9 +25,18 @@ class Skill(Base):
     __table_args__ = (
         CheckConstraint("status IN ('enabled','disabled')"),
         CheckConstraint("source IN ('builtin','upload')"),
+        UniqueConstraint('owner_id', 'slug', name='uq_skills_owner_slug'),
+        CheckConstraint(
+            '(owner_id IS NOT NULL AND NOT legacy_archive) OR (owner_id IS NULL AND legacy_archive)',
+            name='ck_skills_archive_owner',
+        ),
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(String(255), unique=True)
+    # Null owners are explicitly isolated migration archives, never personal resources.
+    owner_id: Mapped[UUID | None] = mapped_column(ForeignKey('identity_users.id'), index=True)
+    legacy_archive: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    ownership_audit: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    slug: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(16), default='enabled')
     source: Mapped[str] = mapped_column(String(16), default='upload')
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -24,6 +44,13 @@ class Skill(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SkillLegacyBinding(Base):
+    __tablename__ = 'skill_legacy_bindings'
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
+    legacy_skill_id: Mapped[UUID] = mapped_column(ForeignKey('skills.id'), primary_key=True)
+    personal_skill_id: Mapped[UUID] = mapped_column(ForeignKey('skills.id'), index=True)
 
 
 class SkillRevision(Base):
