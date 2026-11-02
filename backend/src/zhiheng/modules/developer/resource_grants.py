@@ -166,6 +166,19 @@ class ResourceGrantService:
         )
         await session.flush()
 
+    async def enrolled_applications(self, session: AsyncSession, file_id: UUID) -> tuple[UUID, ...]:
+        """Trusted accounting discovery, including grants that were subsequently unbound."""
+        return tuple(
+            await session.scalars(
+                select(SourceEnrollment.application_id)
+                .where(
+                    SourceEnrollment.file_id == file_id,
+                    SourceEnrollment.purged_at.is_(None),
+                )
+                .order_by(SourceEnrollment.application_id)
+            )
+        )
+
     async def lock_accounting(self, session: AsyncSession, application_id: UUID) -> None:
         # Trusted lifecycle path also applies after application disable/deletion.
         row = await session.scalar(

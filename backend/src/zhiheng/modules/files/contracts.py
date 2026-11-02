@@ -23,6 +23,7 @@ class FileAccountingFact:
 
 class FileInfo(BaseModel):
     id: UUID
+    purpose: str = 'general'
     original_filename: str
     display_name: str
     size: int

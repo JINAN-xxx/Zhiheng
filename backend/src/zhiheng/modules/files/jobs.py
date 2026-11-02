@@ -2,7 +2,7 @@
 
 import asyncio
 import hashlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -23,12 +23,26 @@ LOCK_ID = 784246993
 
 class FileJobs:
     def __init__(
-        self, files: FileService, sessions: async_sessionmaker[AsyncSession], *, attempt_id: UUID | None = None
+        self,
+        files: FileService,
+        sessions: async_sessionmaker[AsyncSession],
+        *,
+        attempt_id: UUID | None = None,
+        after_purge: Callable[[UUID], Awaitable[None]] | None = None,
     ) -> None:
         self._files, self._sessions = files, sessions
         self._attempt_id = attempt_id
+        self.after_purge = after_purge
 
     async def purge(self, principal: Principal, file_id: UUID, expected_version: int) -> FileInfo:
+        info = await self._purge_native(principal, file_id, expected_version)
+        # Native metadata is committed and every File lock is released before App accounting.
+        # A failed callback is safe to retry, including an already-purged native file.
+        if self.after_purge is not None:
+            await self.after_purge(file_id)
+        return info
+
+    async def _purge_native(self, principal: Principal, file_id: UUID, expected_version: int) -> FileInfo:
         async with self._transaction() as session:
             row = await self._files._require(session, principal, file_id, manage=True, lock=True)
             if row.status == 'purged':
@@ -94,7 +108,7 @@ class FileJobs:
                 # Every read/write transaction uses this very connection. Losing it aborts its transaction;
                 # an automatic reconnect loses the session nonce and fails the explicit attempt check.
                 sessions = async_sessionmaker(connection, expire_on_commit=False)
-                attempt = FileJobs(self._files, sessions, attempt_id=job_id)
+                attempt = FileJobs(self._files, sessions, attempt_id=job_id, after_purge=self.after_purge)
                 return await attempt._execute_attempt(principal, kind, job_id)
             except BaseException as error:
                 code = 'cancelled' if isinstance(error, asyncio.CancelledError) else 'maintenance_failed'
@@ -284,31 +298,14 @@ class FileJobs:
             )
             cursor = previous.cursor if previous else ''
             file_cursor, _, object_cursor = cursor.partition(':')
-            query = select(FileRecord).where(FileRecord.status.not_in(['purged', 'purging']))
+            query = select(FileRecord).where(FileRecord.status != 'purging')
             if file_cursor:
                 query = query.where(FileRecord.id > UUID(file_cursor))
             rows = list(await session.scalars(query.order_by(FileRecord.id).limit(BATCH_SIZE)))
-            candidates = [(r.id, r.storage_key, r.size, r.sha256, r.storage_status) for r in rows]
+            candidates = [(r.id, r.storage_key, r.size, r.sha256, r.status) for r in rows]
         changed = 0
-        for file_id, key, size, sha, _observed_status in candidates:
-            kind = None
-            try:
-                content = await self._files.storage.read(key)
-                if len(content) != size or hashlib.sha256(content).hexdigest() != sha:
-                    kind = 'size_or_hash'
-            except AppError as error:
-                kind = 'invalidkey' if error.code == 'invalid_storage_key' else 'missing'
-            async with self._transaction() as session:
-                row = await session.scalar(select(FileRecord).where(FileRecord.id == file_id).with_for_update())
-                if row is None or row.status in {'purging', 'purged'}:
-                    continue
-                if kind is not None:
-                    await self._issue(session, job_id, key=key, kind=kind, file_id=file_id, size=size)
-                    if row.storage_status != 'quarantined':
-                        row.storage_status = 'missing' if kind == 'missing' else 'invalid'
-                    changed += 1
-                elif row.storage_status != 'quarantined':
-                    row.storage_status = 'normal'
+        for file_id, key, size, sha, observed_status in candidates:
+            changed += await self._reconcile_record(job_id, file_id, key, size, sha, observed_status)
         entries = await self._files.storage.entries(after=object_cursor, limit=BATCH_SIZE)
         for entry in entries:
             if entry.modified_at > utcnow() - timedelta(hours=1):
@@ -325,6 +322,34 @@ class FileJobs:
         next_file = str(candidates[-1][0]) if len(candidates) == BATCH_SIZE else ''
         next_object = entries[-1].key if len(entries) == BATCH_SIZE else ''
         return len(candidates) + len(entries), changed, f'{next_file}:{next_object}'
+
+    async def _reconcile_record(
+        self, job_id: UUID, file_id: UUID, key: str, size: int, sha: str, observed_status: str
+    ) -> int:
+        if observed_status == 'purged':
+            # Existing bounded reconciliation repairs post-commit accounting interruptions.
+            if self.after_purge is not None:
+                await self.after_purge(file_id)
+            return 0
+        kind = None
+        try:
+            content = await self._files.storage.read(key)
+            if len(content) != size or hashlib.sha256(content).hexdigest() != sha:
+                kind = 'size_or_hash'
+        except AppError as error:
+            kind = 'invalidkey' if error.code == 'invalid_storage_key' else 'missing'
+        async with self._transaction() as session:
+            row = await session.scalar(select(FileRecord).where(FileRecord.id == file_id).with_for_update())
+            if row is None or row.status in {'purging', 'purged'}:
+                return 0
+            if kind is not None:
+                await self._issue(session, job_id, key=key, kind=kind, file_id=file_id, size=size)
+                if row.storage_status != 'quarantined':
+                    row.storage_status = 'missing' if kind == 'missing' else 'invalid'
+                return 1
+            if row.storage_status != 'quarantined':
+                row.storage_status = 'normal'
+        return 0
 
     async def issue_action(self, principal: Principal, issue_id: UUID, body: IssueAction) -> ReconcileIssueInfo:
         principal.require_permission('ai:storage:write')

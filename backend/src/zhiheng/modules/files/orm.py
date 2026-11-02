@@ -16,6 +16,7 @@ class FileRecord(Base):
     original_filename: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(255))
     size: Mapped[int] = mapped_column(Integer)
+    purpose: Mapped[str] = mapped_column(String(64), default='general', server_default='general')
     mime: Mapped[str] = mapped_column(String(100))
     sha256: Mapped[str] = mapped_column(String(64))
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)

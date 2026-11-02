@@ -153,7 +153,7 @@ async def rename_folder(
         return await container.knowledge.rename_folder(session, principal, base_id, folder_id, body)
 
 
-@router.post('/bases/{base_id}/uploads', status_code=201)
+@router.post('/bases/{base_id}/uploads', status_code=201, openapi_extra={'x-transport-policy': 'binary_file'})
 async def upload(
     base_id: UUID,
     request: Request,

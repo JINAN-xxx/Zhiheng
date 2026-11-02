@@ -1,12 +1,11 @@
 from typing import Annotated, Literal
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
+from zhiheng.api.common.file_content import file_content_response
 from zhiheng.api.contracts import EmptyRequest
 from zhiheng.api.dependencies import COOKIE_NAME, ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.api.file_download import AuditedFileResponse
 from zhiheng.application.file_inputs import ParsedFile
 from zhiheng.modules.files.public import (
     AclInfo,
@@ -33,7 +32,6 @@ from zhiheng.modules.files.public import (
     RetentionPolicyRequest,
     TransferRequest,
     VersionRequest,
-    validate_filename,
 )
 from zhiheng.modules.identity.public import IdentityInfo
 from zhiheng.shared.errors import AppError
@@ -41,7 +39,7 @@ from zhiheng.shared.errors import AppError
 router = APIRouter(prefix='/api/files', tags=['files'])
 
 
-@router.post('', status_code=201)
+@router.post('', status_code=201, openapi_extra={'x-transport-policy': 'binary_file'})
 async def upload(
     request: Request,
     container: ContainerDependency,
@@ -49,15 +47,7 @@ async def upload(
     session: SessionDependency,
     filename: Annotated[str, Query(min_length=1, max_length=255)],
 ) -> FileInfo:
-    validate_filename(filename)
-    content = await request.body()
-    key = await container.files.storage.put(content)
-    try:
-        async with session.begin():
-            return await container.files.create(session, principal, filename=filename, content=content, storage_key=key)
-    except BaseException:
-        await container.files.storage.delete(key)
-        raise
+    return await container.file_commands.upload(principal, filename=filename, content=await request.body())
 
 
 @router.get('')
@@ -233,7 +223,7 @@ async def download(
     principal = None
     try:
         principal = await container.identity.authenticate(session, request.cookies.get(COOKIE_NAME))
-        info, content = await container.files.read(session, principal, file_id)
+        info, content = await container.file_queries.read(principal, file_id)
     except AppError as error:
         async with container.database.sessions.begin() as audit_session:
             await container.files.record_access(
@@ -246,56 +236,7 @@ async def download(
                 error_code=error.code,
             )
         raise
-    size = len(content)
-    start, end = 0, size - 1
-    status = 200
-    headers = {
-        'ETag': f'"{info.sha256}"',
-        'Accept-Ranges': 'bytes',
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; sandbox",
-        'Cache-Control': 'private, no-store',
-        'Content-Disposition': f"attachment; filename=download; filename*=UTF-8''{quote(info.original_filename, safe='')}",
-    }
-    ranges = request.headers.getlist('range')
-    if ranges:
-        try:
-            if len(ranges) != 1 or not ranges[0].startswith('bytes='):
-                raise ValueError
-            first, last = ranges[0][6:].split('-')
-            if first:
-                start = int(first)
-                end = min(int(last), size - 1) if last else size - 1
-            else:
-                suffix = int(last)
-                if suffix <= 0:
-                    raise ValueError
-                start = max(0, size - suffix)
-            if start < 0 or end < start or start >= size:
-                raise ValueError
-            headers['Content-Range'] = f'bytes {start}-{end}/{size}'
-            status = 206
-        except ValueError:
-            return AuditedFileResponse(
-                b'',
-                status_code=416,
-                headers={**headers, 'Content-Range': f'bytes */{size}'},
-                container=container,
-                principal=principal,
-                file_id=file_id,
-                range_header=request.headers.get('range'),
-            )
-    payload = content[start : end + 1]
-    headers['Content-Length'] = str(len(payload))
-    return AuditedFileResponse(
-        payload,
-        status_code=status,
-        headers=headers,
-        container=container,
-        principal=principal,
-        file_id=file_id,
-        range_header=request.headers.get('range'),
-    )
+    return await file_content_response(request, container, principal, info, content)
 
 
 @router.patch('/{file_id}')
@@ -349,8 +290,7 @@ async def remove(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> FileInfo:
-    async with session.begin():
-        return await container.files.remove(session, principal, file_id, body.expected_version)
+    return await container.file_commands.remove(principal, file_id, body.expected_version)
 
 
 @router.post('/{file_id}/restore')
@@ -361,8 +301,7 @@ async def restore(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> FileInfo:
-    async with session.begin():
-        return await container.files.remove(session, principal, file_id, body.expected_version, restore=True)
+    return await container.file_commands.remove(principal, file_id, body.expected_version, restore=True)
 
 
 @router.post('/{file_id}/purge')

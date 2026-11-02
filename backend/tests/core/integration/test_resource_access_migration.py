@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate, migration_directory
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 
 
 async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
@@ -81,7 +82,7 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
         )
     await migrate(c.settings)
     async with c.database.engine.connect() as connection:
-        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0015_resource_api_access'
+        assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in names:
             projection = ','.join('"' + column + '"' for column in columns[name])
             after = list(

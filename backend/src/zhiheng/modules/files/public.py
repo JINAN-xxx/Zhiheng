@@ -35,6 +35,7 @@ from zhiheng.modules.files.contracts import (
     VersionRequest,
 )
 from zhiheng.modules.files.jobs import FileJobs
+from zhiheng.modules.files.metadata import file_semantics
 from zhiheng.modules.files.orm import (
     FileAudit,
     FileGrant,
@@ -46,6 +47,7 @@ from zhiheng.modules.files.orm import (
     FileReminder,
     FileRetentionPolicy,
 )
+from zhiheng.modules.files.queries import FileBinding, FileReadTicket, resource_page
 from zhiheng.modules.files.service import FileService, validate_filename
 
 __all__ = [
@@ -58,11 +60,13 @@ __all__ = [
     'FileAccountingFact',
     'FileAuditPage',
     'FileAuditQuery',
+    'FileBinding',
     'FileInfo',
     'FileJobs',
     'FilePage',
     'FilePatch',
     'FileQuery',
+    'FileReadTicket',
     'FileService',
     'FileStats',
     'FileStatus',
@@ -82,6 +86,8 @@ __all__ = [
     'SourceSnapshot',
     'TransferRequest',
     'VersionRequest',
+    'file_semantics',
+    'resource_page',
     'schema_tables',
     'validate_filename',
 ]

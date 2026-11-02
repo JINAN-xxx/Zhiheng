@@ -55,7 +55,7 @@ async def available(
     return await container.skills.available(session, principal.id)
 
 
-@router.post('/import/prepare', status_code=201)
+@router.post('/import/prepare', status_code=201, openapi_extra={'x-transport-policy': 'binary_skill'})
 async def prepare(
     request: Request,
     container: ContainerDependency,

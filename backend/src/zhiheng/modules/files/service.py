@@ -48,6 +48,7 @@ from zhiheng.modules.files.orm import (
     FileReminder,
     FileRetentionPolicy,
 )
+from zhiheng.modules.files.queries import FileReadTicket
 from zhiheng.modules.identity.public import IdentityInfo, IdentityService
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -198,6 +199,7 @@ class FileService:
         storage_key: str,
         source_file_id: UUID | None = None,
         parser_version: str | None = None,
+        purpose: str = 'general',
     ) -> FileInfo:
         validate_filename(filename)
         if not content or len(content) > MAX_FILE_BYTES:
@@ -206,6 +208,7 @@ class FileService:
             storage_key=storage_key,
             original_filename=filename,
             display_name=filename,
+            purpose=purpose,
             size=len(content),
             mime=sniff_mime(content, filename),
             sha256=hashlib.sha256(content).hexdigest(),
@@ -300,6 +303,7 @@ class FileService:
             acl_nearest_expire_at=min(expiries) if expiries else None,
             id=row.id,
             original_filename=row.original_filename,
+            purpose=row.purpose,
             display_name=row.display_name,
             size=row.size,
             mime=row.mime,
@@ -364,13 +368,23 @@ class FileService:
     async def get(self, session: AsyncSession, principal: Principal, file_id: UUID) -> FileInfo:
         return await self.info(session, await self._require(session, principal, file_id))
 
-    async def read(self, session: AsyncSession, principal: Principal, file_id: UUID) -> tuple[FileInfo, bytes]:
+    async def object_registered(self, session: AsyncSession, storage_key: str) -> bool:
+        """Trusted cleanup fact; no physical key is accepted from resource clients."""
+        return await session.scalar(select(FileRecord.id).where(FileRecord.storage_key == storage_key)) is not None
+
+    async def read_ticket(self, session: AsyncSession, principal: Principal, file_id: UUID) -> FileReadTicket:
         row = await self._require(session, principal, file_id, active=True)
-        info = await self.info(session, row)
-        content = await self.storage.read(row.storage_key)
-        if len(content) != row.size or hashlib.sha256(content).hexdigest() != row.sha256:
+        return FileReadTicket(await self.info(session, row), row.storage_key)
+
+    async def read_content(self, ticket: FileReadTicket) -> bytes:
+        content = await self.storage.read(ticket.storage_key)
+        if len(content) != ticket.info.size or hashlib.sha256(content).hexdigest() != ticket.info.sha256:
             raise AppError('file_integrity_error', '文件完整性校验失败', 503)
-        return info, content
+        return content
+
+    async def read(self, session: AsyncSession, principal: Principal, file_id: UUID) -> tuple[FileInfo, bytes]:
+        ticket = await self.read_ticket(session, principal, file_id)
+        return ticket.info, await self.read_content(ticket)
 
     async def filtered(
         self, session: AsyncSession, principal: Principal, filters: FileQuery

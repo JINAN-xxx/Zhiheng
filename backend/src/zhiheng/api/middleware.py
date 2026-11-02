@@ -1,8 +1,9 @@
-import re
-
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from zhiheng.api.common.resource_protocol import is_resource, resource_error
+from zhiheng.api.common.transport import TransportPolicy, transport_policy
 
 MAX_LENGTH_HEADER_DIGITS = 20
 
@@ -23,42 +24,42 @@ class RequestOriginMiddleware:
             request = Request(scope)
             origin = request.headers.get('origin')
             allowed = {str(request.base_url).rstrip('/'), *self._allowed_origins}
-            if origin is not None and origin.rstrip('/') not in allowed:
+            if not is_resource(scope) and origin is not None and origin.rstrip('/') not in allowed:
                 response = JSONResponse(
                     {'error': {'code': 'forbidden_origin', 'message': '请求来源不受信任'}}, status_code=403
                 )
                 await response(scope, receive, send)
                 return
-            upload = scope['method'] == 'POST' and (
-                scope['path'] in {'/api/skills/import/prepare', '/api/files'}
-                or re.fullmatch(r'/api/knowledge/bases/[0-9a-fA-F-]{36}/uploads', scope['path']) is not None
-            )
+            policy = transport_policy(scope)
             content_types = request.headers.getlist('content-type')
             content_type = content_types[0].split(';', 1)[0].strip().lower() if len(content_types) == 1 else ''
-            expected = 'application/octet-stream' if upload else 'application/json'
-            if content_type != expected:
-                response = JSONResponse(
-                    {'error': {'code': 'invalid_content_type', 'message': '请使用 JSON 请求'}}, status_code=415
-                )
-                await response(scope, receive, send)
+            if policy.media_type is not None and content_type != policy.media_type:
+                await self._reject(scope, request, receive, send, 415, 'invalid_content_type', '请求内容类型无效')
                 return
-            if upload:
-                await self._upload(scope, request, receive, send)
-                return
+            await self._bounded(scope, request, receive, send, policy)
+            return
         await self._app(scope, receive, send)
 
-    async def _upload(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
-        limit = (10 if scope['path'] == '/api/skills/import/prepare' else 20) * 1024 * 1024
+    @staticmethod
+    async def _reject(
+        scope: Scope, request: Request, receive: Receive, send: Send, status: int, code: str, message: str
+    ) -> None:
+        response = (
+            resource_error(request, code, message, status)
+            if is_resource(scope)
+            else JSONResponse({'error': {'code': code, 'message': message}}, status_code=status)
+        )
+        await response(scope, receive, send)
+
+    async def _bounded(
+        self, scope: Scope, request: Request, receive: Receive, send: Send, policy: TransportPolicy
+    ) -> None:
         lengths = request.headers.getlist('content-length')
         if len(lengths) > 1 or (lengths and (not lengths[0].isascii() or not lengths[0].isdigit())):
-            await JSONResponse(
-                {'error': {'code': 'invalid_content_length', 'message': '无效请求长度'}}, status_code=400
-            )(scope, receive, send)
+            await self._reject(scope, request, receive, send, 400, 'invalid_content_length', '无效请求长度')
             return
-        if lengths and (len(lengths[0]) > MAX_LENGTH_HEADER_DIGITS or int(lengths[0]) > limit):
-            await JSONResponse(
-                {'error': {'code': 'request_too_large', 'message': '上传内容超过大小限制'}}, status_code=413
-            )(scope, receive, send)
+        if lengths and (len(lengths[0]) > MAX_LENGTH_HEADER_DIGITS or int(lengths[0]) > policy.max_bytes):
+            await self._reject(scope, request, receive, send, 413, 'request_too_large', '请求内容超过大小限制')
             return
         body = bytearray()
         while True:
@@ -66,17 +67,13 @@ class RequestOriginMiddleware:
             if message['type'] == 'http.disconnect':
                 return
             body.extend(message.get('body', b''))
-            if len(body) > limit:
-                await JSONResponse(
-                    {'error': {'code': 'request_too_large', 'message': '上传内容超过大小限制'}}, status_code=413
-                )(scope, receive, send)
+            if len(body) > policy.max_bytes:
+                await self._reject(scope, request, receive, send, 413, 'request_too_large', '请求内容超过大小限制')
                 return
             if not message.get('more_body', False):
                 break
         if lengths and int(lengths[0]) != len(body):
-            await JSONResponse(
-                {'error': {'code': 'invalid_content_length', 'message': '请求长度不匹配'}}, status_code=400
-            )(scope, receive, send)
+            await self._reject(scope, request, receive, send, 400, 'invalid_content_length', '请求长度不匹配')
             return
         delivered = False
 

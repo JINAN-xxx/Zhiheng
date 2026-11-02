@@ -255,6 +255,7 @@ operation只是查询/取消适配，状态事实仍在原KnowledgeJob/Preparati
 
 1. `0014_personal_skill_ownership`：技能归属、用户内slug唯一、个人内置副本、旧引用关联及归属审计。新个人技能强制owner；仅历史隔离档案允许空owner且不能进入当前可用列表。先验证现有活动引用和历史快照。
 2. `0015_resource_api_access`：Key Scope及resource_rpm_limit、应用资源授权、应用文件数/原始空间限额和API请求/作业关联。旧Key只有原推理Scope，空资源授权；不回填“全部文件/知识库/技能”，不改旧余额、价格和模型列表。
+3. `0016_file_purpose`：文件领域持久保存上传用途，旧文件默认 `general`；追加迁移，不修改前两次迁移，所有旧行的原有列保持。
 
 授权关系与请求身份归developer模块；技能归属归skills；文件和知识库原ACL继续归各自模块。实际模型预占、费用和对账只在billing，不复制到API请求表。
 

@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 from time import time
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from zhiheng.api.common.cors import ResourceCORSMiddleware
+from zhiheng.api.common.resource_protocol import ResourceProtocolMiddleware
 from zhiheng.api.errors import install_error_handlers
 from zhiheng.api.middleware import PublicTransportMiddleware, RequestOriginMiddleware
+from zhiheng.api.resources.files import router as resource_files_router
 from zhiheng.api.routes.admin_identity import router as admin_identity_router
 from zhiheng.api.routes.admin_monitor import router as admin_monitor_router
 from zhiheng.api.routes.admin_operations import router as admin_operations_router
@@ -55,6 +57,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(admin_operations_router)
     app.include_router(admin_monitor_router)
     app.include_router(files_router)
+    app.include_router(resource_files_router)
     app.include_router(knowledge_router)
     app.include_router(knowledge_graph_router)
     app.include_router(agents_router)
@@ -75,12 +78,15 @@ def create_app(settings: Settings) -> FastAPI:
 
     if settings.allowed_origins:
         app.add_middleware(
-            CORSMiddleware,
+            ResourceCORSMiddleware,
             allow_origins=list(settings.allowed_origins),
             allow_credentials=True,
             allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-            allow_headers=['Content-Type', 'Authorization'],
+            allow_headers=['Content-Type', 'Authorization', 'Idempotency-Key', 'If-Match', 'Range'],
+            expose_headers=['ETag', 'Location', 'Retry-After', 'X-Request-ID', 'Content-Range', 'Accept-Ranges'],
         )
+
+    app.add_middleware(ResourceProtocolMiddleware)
 
     @app.get('/health/live')
     async def live() -> dict[str, str]:

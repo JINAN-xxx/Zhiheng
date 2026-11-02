@@ -70,12 +70,14 @@ async def test_skill_owner_isolation(admin, app):
 
 ## 任务三：文件资源与应用用例
 
-- [ ] 红例以纯Bearer客户端 `POST /api/v1/files` multipart上传；同键只创建一份、跨App404、owner字段422、无Scope403、过大413。
-- [ ] 文件领域仍拥有字节、ACL、引用、回收/恢复；应用用例负责请求登记、授权、文件登记和应用绑定的事务，不用路由直接取ORM。
-- [ ] 持锁事务之外传输/写存储；提交前复核当前Key/容量。失败只回收本次未登记对象，旧对象保持。
-- [ ] 实现列表/详情/Range内容/软删恢复，If-Match映射expected_version；保留Console旧路径并将资源动作接到同一用例。
-- [ ] 只增HTTP multipart解析必要依赖并精确锁定；不得升级模型SDK或改计费单位。现有缓存镜像需加入新依赖时仅构建后端一次，不构建前端。
-- [ ] `pytest tests/core/integration/test_resource_files.py tests/core/test_files.py -q`；规格/质量审查后提交。
+- [x] 红例以纯Bearer客户端 `POST /api/v1/files` multipart上传；同键只创建一份、跨App404、owner字段422、无Scope403、过大413。
+- [x] 文件领域仍拥有字节、ACL、引用、回收/恢复；应用用例负责请求登记、授权、文件登记和应用绑定的事务，不用路由直接取ORM。
+- [x] 持锁事务之外传输/写存储；提交前复核当前Key/容量。失败只回收本次未登记对象，旧对象保持。
+- [x] 实现列表/详情/Range内容/软删恢复，If-Match映射expected_version；保留Console旧路径并将资源动作接到同一用例。
+- [x] 只增HTTP multipart解析必要依赖并精确锁定；不得升级模型SDK或改计费单位。现有缓存镜像需加入新依赖时仅构建后端一次，不构建前端。
+- [x] `pytest tests/core/integration/test_resource_files.py tests/core/test_files.py -q`；规格/质量审查后提交。
+
+阶段三验收：文件目标回归 88/88、清单 28/28，CORS 修正定向 7/7、独立复审 3/3 与质量 PostgreSQL 探针 4/4 通过；当前 187 文件类型及架构检查通过。追加 0016 文件用途迁移，正常备份副本原 86 表、1,665 行的原列保持；依赖仅新增 multipart 两个 Python 版本标记，旧锁文件其余字节不变。完整后端总验收继续任务六。
 
 ## 任务四：个人知识库、技能与异步操作
 
