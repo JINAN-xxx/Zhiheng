@@ -20,6 +20,7 @@ import {
   Menu as AMenu,
   MenuItem as AMenuItem,
   Modal,
+  message as notice,
   Switch as ASwitch
 } from 'ant-design-vue'
 import {
@@ -44,10 +45,9 @@ import ModelRatesDialog from '../components/ModelRatesDialog.vue'
 import ModelActions from '../components/ModelActions.vue'
 import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
+import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import {
-  cancelModelTest,
   createConnection,
   createModel,
   getConnections,
@@ -193,7 +193,10 @@ watch(
 )
 let testIntent: { modelId: string; requestId: string } | null = null
 const testBusy = computed(
-  () => testingModel.value !== '' && (testRun.value === null || !isTerminal(testRun.value))
+  () =>
+    testingModel.value !== '' &&
+    !testDisconnected.value &&
+    (testRun.value === null || !isTerminal(testRun.value))
 )
 const connectionOptions = computed(() =>
   connections.value
@@ -481,8 +484,8 @@ async function saveModel(): Promise<void> {
 async function followTest(
   initial: RunSnapshot,
   context: ReturnType<RequestScope['current']>
-): Promise<void> {
-  await observeModelTest(
+): Promise<RunSnapshot> {
+  return observeModelTest(
     initial,
     (run) => {
       if (context.isCurrent() && acceptSnapshot(testRun.value, run)) testRun.value = run
@@ -499,50 +502,38 @@ async function testModel(model: ChatModel): Promise<void> {
   )
     return
   const context = testScope.replace()
+  const previousRun =
+    testDisconnected.value && testingModel.value === model.id ? testRun.value : null
   testingModel.value = model.id
-  testRun.value = null
+  testRun.value = previousRun
   testDisconnected.value = false
   error.value = ''
   errorDetails.value = undefined
   try {
-    if (!testIntent || testIntent.modelId !== model.id)
-      testIntent = { modelId: model.id, requestId: crypto.randomUUID() }
-    const run = await startModelTest(model.id, testIntent.requestId, context.signal)
+    let run = previousRun
+    if (!run) {
+      const intent =
+        testIntent?.modelId === model.id
+          ? testIntent
+          : { modelId: model.id, requestId: crypto.randomUUID() }
+      testIntent = intent
+      run = await startModelTest(model.id, intent.requestId, context.signal)
+    }
     if (!context.isCurrent()) return
     testIntent = null
     testRun.value = run
-    await followTest(run, context)
+    const result = await followTest(run, context)
+    if (!context.isCurrent()) return
+    if (result.status === 'completed') void notice.success('测试成功')
+    else void notice.error('测试失败')
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      testDisconnected.value = testRun.value !== null
+      testDisconnected.value = testRun.value !== null && !isTerminal(testRun.value)
       if (!testRun.value) testingModel.value = ''
+      void notice.error(
+        testDisconnected.value ? '测试结果获取失败，请再次点击测试查看结果' : '测试失败'
+      )
     }
-  }
-}
-async function resumeTest(): Promise<void> {
-  if (!testRun.value || !canTestModels.value) return
-  const context = testScope.replace()
-  error.value = ''
-  errorDetails.value = undefined
-  testDisconnected.value = false
-  try {
-    await followTest(testRun.value, context)
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      testDisconnected.value = true
-    }
-  }
-}
-async function stopTest(): Promise<void> {
-  if (!testRun.value || !canTestModels.value) return
-  const context = testScope.current()
-  try {
-    const run = await cancelModelTest(testRun.value.id, context.signal)
-    if (context.isCurrent() && acceptSnapshot(testRun.value, run)) testRun.value = run
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   }
 }
 </script>
@@ -872,33 +863,6 @@ async function stopTest(): Promise<void> {
               "
             /></section></ATabPane
       ></ATabs>
-      <section v-if="testRun && canTestModels" class="test-result">
-        <div class="test-result__heading">
-          <h2>
-            连接测试 <ATag>{{ runStatusLabel[testRun.status] }}</ATag>
-          </h2>
-          <div>
-            <AButton v-if="testDisconnected" @click="resumeTest">恢复查看</AButton
-            ><AButton v-if="!isTerminal(testRun)" @click="stopTest">停止测试</AButton>
-          </div>
-        </div>
-        <pre>{{
-          testRun.text ||
-          (testRun.result
-            ? JSON.stringify(testRun.result, null, 2)
-            : isTerminal(testRun)
-              ? '暂无返回内容'
-              : '等待模型响应…')
-        }}</pre>
-        <p v-if="testRun.error" class="run-error">{{ testRun.error.message }}</p>
-        <p class="muted small">
-          连接测试会计入用量。{{
-            testRun.usage.status === 'known'
-              ? `输入 ${testRun.usage.input_tokens ?? '待核对'} · 输出 ${testRun.usage.output_tokens ?? '待核对'} tokens`
-              : '用量待核对'
-          }}
-        </p>
-      </section>
     </section>
   </main>
   <ADrawer
@@ -1321,21 +1285,6 @@ async function stopTest(): Promise<void> {
   font-family: var(--workspace-font-mono);
   font-size: 12px;
 }
-.test-result {
-  background: var(--bg-container);
-}
-.test-result h2 {
-  margin: 0;
-  font-weight: 500;
-}
-.test-result pre {
-  max-height: 300px;
-  overflow: auto;
-  padding: 16px;
-  border-radius: 5px;
-  background: var(--gray-25);
-  line-height: 1.7;
-}
 @media (max-width: 760px) {
   .model-catalog-toolbar {
     gap: 12px;
@@ -1647,23 +1596,5 @@ async function stopTest(): Promise<void> {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-.test-result {
-  margin-top: 20px;
-  padding: 16px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-}
-.test-result__heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.test-result h2 {
-  font-size: 16px;
-}
-.test-result pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 </style>

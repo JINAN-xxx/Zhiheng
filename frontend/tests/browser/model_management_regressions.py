@@ -57,13 +57,17 @@ class ModelManagementRegressions(DeveloperBoundary):
         finally:
             release.set()
 
-    async def test_typed_connection_test_displays_structured_result(self):
+    async def test_typed_connection_test_only_shows_success_or_failure(self):
         snapshot = {'id': 'smoke-run', 'resource_type': 'connection_test', 'resource_id': 'model-1', 'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1, 'revision': 2, 'projection_seq': 1, 'text': '', 'error': None, 'created_at': '2026-10-23T00:00:00Z', 'usage': {'input_tokens': 6, 'output_tokens': 0, 'status': 'known'}, 'result': {'data': [{'index': 0, 'embedding': [0.1, 0.2]}]}}
         await self.page.route('**/api/models/model-1/test', lambda route: route.fulfill(status=201, json=snapshot))
-        await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.test-result pre')).to_contain_text('embedding')
-        await expect(self.page.locator('.test-result pre')).not_to_contain_text('等待模型响应')
+        for status, message in [('completed', '测试成功'), ('failed', '测试失败')]:
+            with self.subTest(status=status):
+                snapshot['status'] = status
+                await self.page.goto(self.origin + '/models')
+                await self.page.get_by_role('button', name='测试连接', exact=True).click()
+                await expect(self.page.locator('.ant-message-notice-content')).to_have_text(message)
+                await expect(self.page.locator('.test-result')).to_have_count(0)
+                await expect(self.page.get_by_text('embedding', exact=True)).to_have_count(0)
 
     async def respond(self, route):
         path = urlparse(route.request.url).path

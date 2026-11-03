@@ -169,7 +169,8 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(card).not_to_contain_text('团队服务')
         await expect(card.get_by_role('button', name='更多操作', exact=True)).to_have_count(0)
         await card.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.test-result pre')).to_have_text('连接成功')
+        await expect(self.page.locator('.ant-message-notice-content')).to_have_text('测试成功')
+        await expect(self.page.locator('.test-result')).to_have_count(0)
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
     async def test_rate_reader_has_only_rate_menu_and_readonly_rate_dialog(self):
