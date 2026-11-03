@@ -21,23 +21,23 @@
 - 调试请求只发送所选历史范围，但完整消息仍在界面显示；失败回复不成为完整历史，重试意图仍保持幂等。
 - 测试放现有 agents 单元、集成、前端 core/browser 文件附近，覆盖默认值、0/1/20、越界/布尔/小数、完整轮选择、保存和发布隔离、实际 Provider 请求、知识/技能保留与重放。
 
-- [ ] 先写测试并运行，确认缺失功能失败。
-- [ ] 实现上述最小变更，运行定向测试。
-- [ ] 文档说明轮数语义，20 轮上限不会限制可见聊天历史，也不会增加智能体自动摘要功能。
-- [ ] 独立规格审查通过后进行代码质量审查，修复具体问题并复验。
+- [x] 先写测试并运行，确认缺失功能失败。
+- [x] 实现上述最小变更，运行定向测试。
+- [x] 文档说明轮数语义，20 轮上限不会限制可见聊天历史，也不会增加智能体自动摘要功能。
+- [x] 独立规格审查通过后进行代码质量审查，修复具体问题并复验。
 
 示例断言：
 
 ```python
 assert AgentConfig(name='助手', model_id=model_id).history_rounds == 20
-assert [m.content for m in select_history(messages, 0)] == ['当前问题']
-assert [m.content for m in select_history(messages, 1)] == ['最近问题', '最近回答', '当前问题']
+assert [m.content for m in select_agent_history(messages, 0)] == ['当前问题']
+assert [m.content for m in select_agent_history(messages, 1)] == ['最近问题', '最近回答', '当前问题']
 ```
 
 验证命令（使用现有 SDK 与私有 PostgreSQL/Redis）：
 
 ```bash
-python -m pytest tests/core/unit/test_agent_context.py tests/core/integration/test_agents.py
+python -m pytest tests/core/unit/test_agent_history.py tests/core/integration/test_agents.py
 node --experimental-strip-types --test tests/core/agentIntent.test.ts
 npm run typecheck
 npm run lint:core
@@ -45,8 +45,8 @@ npm run lint:core
 
 ## 任务 2：运行验证与同步
 
-- [ ] 私有环境实际模型请求验证 0/1/20 轮；不调用正式收费模型。
-- [ ] 浏览器验证保存、重载、调试、发布及历史仍可见。
-- [ ] 定向测试、格式、架构约束通过；不执行前端构建和 SDK 升级。
-- [ ] 将完成的提交快进同步到 VS Code 根目录；核对原有未提交文件保持不变。
-- [ ] 控制重启 API/Worker，检查服务就绪与实际字段，再移除任务自己创建的测试资源。
+- [x] 私有环境实际模型请求验证 0/1/20 轮；不调用正式收费模型。
+- [x] 浏览器验证保存、重载、调试、发布及历史仍可见。
+- [x] 定向测试、格式、架构约束通过；不执行前端构建和 SDK 升级。
+- [x] 将完成的提交快进同步到 VS Code 根目录；核对原有未提交文件保持不变。
+- [x] 控制重启 API/Worker，检查服务就绪与实际字段，再移除任务自己创建的测试资源。
