@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 
 from tests.core.integration.test_chat_runs import admit
 from tests.core.integration.test_knowledge import finish_preparation
@@ -15,6 +15,7 @@ from zhiheng.modules.chat.orm import ChatMessage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.principal import Principal
 from zhiheng.worker.execution import execute_run
+from zhiheng.worker.main import recover_expired
 
 
 async def completed_round(admin: httpx.AsyncClient, app: FastAPI, model_id: str) -> tuple[str, list[dict]]:
@@ -22,6 +23,100 @@ async def completed_round(admin: httpx.AsyncClient, app: FastAPI, model_id: str)
     await execute_run(app.state.container, UUID(run['id']))
     messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
     return conversation_id, messages
+
+
+@pytest.mark.parametrize('terminal_status', ['failed', 'cancelled', 'interrupted'])
+async def test_unanswered_terminal_question_can_regenerate_without_duplicate_question_or_charge(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer, terminal_status: str
+) -> None:
+    if terminal_status == 'failed':
+        assert (await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'rejected'})).status_code == 200
+    conversation_id, original_run = await admit(admin, model_id)
+    if terminal_status == 'failed':
+        await execute_run(app.state.container, UUID(original_run['id']))
+        assert (await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'local-text'})).status_code == 200
+    elif terminal_status == 'cancelled':
+        assert (await admin.post(f'/api/runs/{original_run["id"]}/cancel', json={})).status_code == 200
+    else:
+        async with app.state.container.database.sessions.begin() as session:
+            claim = await app.state.container.runs.claim(session, UUID(original_run['id']), 3)
+            assert claim is not None
+            await session.execute(
+                update(Run).where(Run.id == claim.id).values(lease_until=text("now() - interval '1 second'"))
+            )
+        await recover_expired(app.state.container)
+    failed = (await admin.get(f'/api/runs/{original_run["id"]}')).json()
+    assert failed['status'] == terminal_status and failed['text'] == ''
+    history = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
+    assert len(history) == 1 and history[0]['role'] == 'user'
+    endpoint = f'/api/chat/conversations/{conversation_id}/messages/{history[0]["id"]}/regenerate'
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
+        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+        assert (await member.post(endpoint, json={'client_request_id': str(uuid4())})).status_code == 404
+    key = str(uuid4())
+    accepted = await admin.post(endpoint, json={'client_request_id': key})
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()['id']
+    replay = await admin.post(endpoint, json={'client_request_id': key})
+    assert replay.status_code == 202 and replay.json()['id'] == run_id
+    await execute_run(app.state.container, UUID(run_id))
+    replay = await admin.post(endpoint, json={'client_request_id': key})
+    assert replay.status_code == 202 and replay.json()['id'] == run_id
+    final = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
+    assert [row['role'] for row in final] == ['user', 'assistant']
+    assert final[0]['id'] == history[0]['id'] and final[0]['run_id'] == original_run['id']
+    assert final[1]['reply_to_message_id'] == history[0]['id'] and final[1]['run_id'] == run_id
+    assert final[1]['is_complete'] is True and final[1]['generation_index'] == 2
+    assert len(provider.requests) == (2 if terminal_status == 'failed' else 1)
+    assert [row['role'] for row in provider.requests[-1]['messages']] == ['user']
+    usage = (await admin.get('/api/usage')).json()
+    assert len(usage['records']) == 2 and usage['reserved_tokens'] == 0
+    assert sum(row['charged_tokens'] for row in usage['records']) == 10
+    stale = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
+    assert stale.status_code == 409
+
+
+@pytest.mark.parametrize('same_key', [False, True])
+async def test_parallel_unanswered_regenerations_create_one_reply(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, same_key: bool
+) -> None:
+    conversation_id, run = await admit(admin, model_id)
+    await admin.post(f'/api/runs/{run["id"]}/cancel', json={})
+    question = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()[0]
+    endpoint = f'/api/chat/conversations/{conversation_id}/messages/{question["id"]}/regenerate'
+    key = str(uuid4())
+    responses = await asyncio.gather(
+        *(admin.post(endpoint, json={'client_request_id': key if same_key else str(uuid4())}) for _ in range(2))
+    )
+    assert sorted(response.status_code for response in responses) == ([202, 202] if same_key else [202, 409])
+    rows = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
+    assert [row['role'] for row in rows] == ['user', 'assistant']
+    assert rows[1]['reply_to_message_id'] == question['id']
+
+
+async def test_user_target_cannot_bypass_active_run_latest_round_or_archive(
+    admin: httpx.AsyncClient, model_id: str, provider: ProviderServer
+) -> None:
+    conversation_id, run = await admit(admin, model_id)
+    question = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()[0]
+    endpoint = f'/api/chat/conversations/{conversation_id}/messages/{question["id"]}/regenerate'
+    assert (await admin.post(endpoint, json={'client_request_id': str(uuid4())})).status_code == 409
+    await admin.post(f'/api/runs/{run["id"]}/cancel', json={})
+    next_run = await admin.post(
+        f'/api/chat/conversations/{conversation_id}/runs',
+        json={'model_id': model_id, 'message': 'new question', 'client_request_id': str(uuid4())},
+    )
+    assert next_run.status_code == 202
+    await admin.post(f'/api/runs/{next_run.json()["id"]}/cancel', json={})
+    assert (await admin.post(endpoint, json={'client_request_id': str(uuid4())})).status_code == 409
+    latest = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()[-1]
+    archived = await admin.patch(
+        f'/api/chat/conversations/{conversation_id}', json={'expected_version': 1, 'archived': True}
+    )
+    assert archived.status_code == 200
+    endpoint = f'/api/chat/conversations/{conversation_id}/messages/{latest["id"]}/regenerate'
+    assert (await admin.post(endpoint, json={'client_request_id': str(uuid4())})).status_code == 409
+    assert provider.requests == []
 
 
 async def test_regeneration_keeps_versions_and_admits_one_new_governed_run(

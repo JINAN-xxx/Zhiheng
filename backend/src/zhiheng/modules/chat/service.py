@@ -330,7 +330,7 @@ class ChatService:
             select(ChatMessage).where(
                 ChatMessage.id == message_id,
                 ChatMessage.conversation_id == conversation_id,
-                ChatMessage.role == 'assistant',
+                ChatMessage.role.in_(('assistant', 'user')),
             )
         )
         if target is None:
@@ -343,9 +343,18 @@ class ChatService:
         )
         if (
             latest is None
-            or (target.reply_to_message_id or (latest.id if target.run_id == latest.run_id else None)) != latest.id
+            or (
+                target.id
+                if target.role == 'user'
+                else target.reply_to_message_id or (latest.id if target.run_id == latest.run_id else None)
+            )
+            != latest.id
         ):
             raise AppError('regeneration_not_latest', '只能重新生成最新一轮回复', 409)
+        if target.role == 'user' and not await self._unanswered_terminal_question(
+            session, principal, conversation_id, target
+        ):
+            raise AppError('regeneration_unavailable', '此问题已有回复或仍在运行，请刷新会话后重试', 409)
         versions = await session.scalars(
             select(ChatMessage.generation_index).where(
                 ChatMessage.conversation_id == conversation_id,
@@ -361,6 +370,28 @@ class ChatService:
             question=self._message(latest),
             request_context=latest.request_context,
             next_generation_index=next_generation_index,
+        )
+
+    async def _unanswered_terminal_question(
+        self, session: AsyncSession, principal: Principal, conversation_id: UUID, question: ChatMessage
+    ) -> bool:
+        replies = select(ChatMessage.id).where(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.role == 'assistant',
+            or_(ChatMessage.reply_to_message_id == question.id, ChatMessage.run_id == question.run_id),
+        )
+        return (
+            await session.scalar(
+                select(Run.id).where(
+                    Run.id == question.run_id,
+                    Run.owner_id == principal.id,
+                    Run.resource_type == 'chat',
+                    Run.resource_id == conversation_id,
+                    Run.status.in_(('failed', 'cancelled', 'interrupted')),
+                    ~replies.exists(),
+                )
+            )
+            is not None
         )
 
     async def add_regenerated_reply(

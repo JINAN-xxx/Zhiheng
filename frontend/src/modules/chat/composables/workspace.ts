@@ -27,7 +27,7 @@ import {
   projectPreparation,
   preparationFinished
 } from '../../knowledge/public.ts'
-import type { KnowledgeBase, KnowledgePreparation } from '../../knowledge/public.ts'
+import type { KnowledgePreparation } from '../../knowledge/public.ts'
 import {
   cancelRun,
   createConversation,
@@ -103,7 +103,6 @@ function createChatWorkspace() {
     if (!sending.value && !running.value && !readOnly.value) void queue.retry(id)
   }
   const selectedSkills = ref<Skill[]>([])
-  const selectedKnowledgeBases = ref<KnowledgeBase[]>([])
   const activePreparation = ref<KnowledgePreparation | null>(null)
   const pendingStops = reactive(new Set<string>())
   const stopOperations = new Map<string, Promise<void>>()
@@ -189,7 +188,6 @@ function createChatWorkspace() {
     generationSettings.value = defaultGenerationSettings()
     pendingSend = null
     selectedSkills.value = []
-    selectedKnowledgeBases.value = []
     activePreparation.value = null
     pendingStops.clear()
     stopOperations.clear()
@@ -258,7 +256,6 @@ function createChatWorkspace() {
       queue.clear()
       draft.value = ''
       selectedSkills.value = []
-      selectedKnowledgeBases.value = []
     }
     pendingRegenerations.delete(conversation.id)
     messages.value = await readMessages(conversation.id, context.signal)
@@ -330,7 +327,6 @@ function createChatWorkspace() {
     error.value = ''
     draft.value = ''
     selectedSkills.value = []
-    selectedKnowledgeBases.value = []
     skillPickerOpen.value = false
     canRetry.value = false
     pendingSend = null
@@ -540,8 +536,7 @@ function createChatWorkspace() {
               ...generationRequest(generationSettings.value),
               message,
               skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug),
-              file_ids: queuedFiles.value.map((file) => file.fileId!),
-              knowledge_base_ids: selectedKnowledgeBases.value.map((base) => base.id)
+              file_ids: queuedFiles.value.map((file) => file.fileId!)
             },
             () => crypto.randomUUID()
           )
@@ -887,7 +882,6 @@ function createChatWorkspace() {
     shareReason,
     feedback,
     feedbackBusy,
-    selectedKnowledgeBases,
     activePreparation,
     activeRunSources,
     preparing,

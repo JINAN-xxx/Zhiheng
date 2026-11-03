@@ -83,6 +83,66 @@ class MessageActionsRegressions(DeveloperBoundary):
         await self.select_conversation('操作会话')
         await expect(self.page.get_by_text('原回复', exact=True)).to_be_visible()
 
+    async def open_unanswered_failure(self):
+        self.history = [chat_message('q1', 'user', '原问题', run_id='failed-run')]
+        failed = {**self.run, 'id': 'failed-run', 'status': 'failed', 'text': '',
+                  'reasoning': '已经产生的思考内容',
+                  'error': {'code': 'provider_timeout', 'message': '模型响应超时，请重新生成'}}
+        await self.page.route(self.origin + '/api/runs/failed-run', lambda route: route.fulfill(json=failed))
+        await self.page.goto(self.origin + '/chat')
+        await self.select_conversation('操作会话')
+        await expect(self.page.get_by_text('模型响应超时，请重新生成', exact=True)).to_be_visible()
+
+    async def test_initial_failure_has_clean_status_and_regenerates_without_repeating_question(self):
+        async def retry(route):
+            self.regenerate_calls.append(route.request.post_data_json)
+            self.history.append(chat_message('a2', 'assistant', '新回复', reply_to_message_id='q1', generation_index=2, run_id='regen-run'))
+            await route.fulfill(status=202, json=self.run)
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/q1/regenerate', retry)
+        await self.open_unanswered_failure()
+        reply = self.page.locator('.message-row.assistant')
+        await expect(reply.get_by_role('button', name='重新生成', exact=True)).to_be_visible()
+        await expect(reply.locator('.message-meta .ant-tag')).to_have_count(0)
+        await expect(reply.get_by_text('生成失败', exact=True)).to_be_visible()
+        await expect(reply.get_by_text('本次运行未生成文本', exact=True)).to_have_count(0)
+        await expect(reply.locator('.reasoning-status')).to_have_count(0)
+        await expect(reply.get_by_role('toolbar', name='回复操作').get_by_role('button')).to_have_count(1)
+        await self.page.get_by_role('textbox', name='消息内容').fill('要保留的下一条草稿')
+        await reply.get_by_role('button', name='重新生成', exact=True).click()
+        await expect(self.page.get_by_text('新回复', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('要保留的下一条草稿')
+        await expect(self.page.locator('.message-row.user')).to_have_count(1)
+        self.assertEqual(len(self.regenerate_calls), 1)
+
+    async def test_unanswered_regeneration_uncertainty_reuses_request_and_preserves_draft(self):
+        async def uncertain(route):
+            self.regenerate_calls.append(route.request.post_data_json)
+            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '接纳结果未知'}})
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/q1/regenerate', uncertain)
+        await self.open_unanswered_failure()
+        await self.page.get_by_role('textbox', name='消息内容').fill('下一条草稿')
+        await self.page.get_by_role('button', name='重新生成', exact=True).click()
+        await expect(self.page.get_by_role('button', name='发送消息', exact=True)).to_be_disabled()
+        await self.page.get_by_role('button', name='使用原重新生成请求重试', exact=True).click()
+        await expect(self.page.get_by_text(re.compile('接纳结果未知'))).to_be_visible()
+        self.assertEqual(len(self.regenerate_calls), 2)
+        self.assertEqual(self.regenerate_calls[0], self.regenerate_calls[1])
+        await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('下一条草稿')
+
+    async def test_ordinary_chat_has_no_knowledge_picker_and_sends_no_base_ids(self):
+        requests = []
+        async def admit(route):
+            requests.append(route.request.post_data_json)
+            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '受控接纳失败'}})
+        await self.page.route(self.origin + '/api/chat/conversations/c1/runs', admit)
+        await self.open_chat()
+        await expect(self.page.get_by_role('button', name='选择知识库', exact=True)).to_have_count(0)
+        await self.page.get_by_role('textbox', name='消息内容').fill('普通聊天问题')
+        await self.page.get_by_role('button', name='发送消息', exact=True).click()
+        await expect(self.page.get_by_text('受控接纳失败', exact=True)).to_be_visible()
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].get('knowledge_base_ids', []), [])
+
     async def test_feedback_is_mutually_exclusive_clearable_and_survives_reload(self):
         await self.open_chat()
         up = self.page.get_by_role('button', name='赞同', exact=True)

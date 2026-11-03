@@ -176,7 +176,8 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
         await self.select_conversation('另一会话')
         await expect(
             self.page.get_by_role("button", name="选择知识库", exact=True)
-        ).to_be_enabled()
+        ).to_have_count(0)
+        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_enabled()
         self.release = True
         await self.select_conversation('附件会话')
         await expect(
@@ -659,11 +660,7 @@ class ChatMultiTurnQuality(Evidence, ChatKnowledgePreparation):
         await text.fill("先完成普通对话")
         await self.page.get_by_role("button", name="发送消息", exact=True).click()
         await expect(self.page.get_by_text("上一轮已完成", exact=True)).to_be_visible()
-        await self.page.get_by_role("button", name="选择知识库", exact=True).click()
-        await self.page.get_by_role(
-            "button", name="选择知识库：业务知识", exact=True
-        ).click()
-        await self.page.get_by_role("button", name="完成选择知识库", exact=True).click()
+        await expect(self.page.get_by_role("button", name="选择知识库", exact=True)).to_have_count(0)
         await text.fill("第二轮知识检索")
         await self.page.get_by_role("button", name="发送消息", exact=True).click()
         await expect(self.page.locator(".run-state")).to_have_text("正在检索知识库")

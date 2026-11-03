@@ -29,7 +29,7 @@ import ChatHistoryDialog from '../components/ChatHistoryDialog.vue'
 import ChatGenerationSettingsDialog from '../components/ChatGenerationSettingsDialog.vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { SkillPicker } from '../../skills/public.ts'
-import { KnowledgePicker, KnowledgeSources } from '../../knowledge/public.ts'
+import { KnowledgeSources } from '../../knowledge/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
 import ChatMessageFiles from '../components/ChatMessageFiles.vue'
@@ -50,7 +50,6 @@ const {
   messages,
   draft,
   selectedSkills,
-  selectedKnowledgeBases,
   activeRunSources,
   preparing,
   skillPickerOpen,
@@ -106,6 +105,23 @@ const activeRunRepresented = computed(() =>
   messages.value.some(
     (message) => message.role === 'assistant' && message.run_id === activeRun.value?.id
   )
+)
+const unansweredQuestion = computed(() => {
+  if (
+    !activeRun.value ||
+    activeRunRepresented.value ||
+    !['failed', 'cancelled', 'interrupted'].includes(activeRun.value.status)
+  )
+    return null
+  const question = [...messages.value].reverse().find((message) => message.role === 'user')
+  return question?.run_id === activeRun.value.id ? question : null
+})
+const replyStatus = computed(() =>
+  activeRun.value?.status === 'failed'
+    ? '生成失败'
+    : activeRun.value
+      ? runStatusLabel[activeRun.value.status]
+      : ''
 )
 const shareMessageId = ref<string | null>(null)
 function isActive(message: ChatMessage): boolean {
@@ -229,9 +245,12 @@ onBeforeUnmount(() => {
           <div class="message-body">
             <div class="message-meta">
               {{ row.message.role === 'user' ? '我' : '智衡' }}
-              <ATag v-if="isActive(row.message) && activeRun">{{
-                runStatusLabel[activeRun.status]
-              }}</ATag>
+              <span
+                v-if="isActive(row.message) && activeRun && activeRun.status !== 'completed'"
+                class="message-run-status"
+                :class="`is-${activeRun.status}`"
+                >{{ replyStatus }}</span
+              >
             </div>
             <AiMessage
               v-if="row.message.role === 'assistant'"
@@ -298,17 +317,35 @@ onBeforeUnmount(() => {
           <AAvatar class="message-avatar" :size="30"><RobotOutlined /></AAvatar>
           <div class="message-body">
             <div class="message-meta">
-              智衡 <ATag>{{ runStatusLabel[activeRun.status] }}</ATag>
+              智衡
+              <span
+                v-if="activeRun.status !== 'completed'"
+                class="message-run-status"
+                :class="`is-${activeRun.status}`"
+                >{{ replyStatus }}</span
+              >
             </div>
             <AiMessage
-              :content="activeRun.text || (running ? '' : '本次运行未生成文本')"
+              :content="activeRun.text"
               :reasoning-content="activeRun.reasoning ?? ''"
               :loading="running"
             />
             <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
             <KnowledgeSources :sources="activeRunSources" />
             <span v-if="activeRun.usage.status === 'unknown'" class="muted small">用量待核对</span>
-            <MessageActions :content="activeRun.text" />
+            <p v-if="!running && !activeRun.text && !activeRun.error" class="empty-reply">
+              {{ activeRun.status === 'cancelled' ? '已停止生成' : '本次回复未生成内容' }}
+            </p>
+            <MessageActions
+              v-if="activeRun.text || unansweredQuestion"
+              :content="activeRun.text"
+              :regenerate="Boolean(unansweredQuestion)"
+              :regenerate-reason="unansweredQuestion ? regenerationReason(unansweredQuestion) : ''"
+              @regenerate="
+                unansweredQuestion &&
+                regenerateReply(unansweredQuestion, `reply:${unansweredQuestion.id}`)
+              "
+            />
           </div>
         </article>
       </section>
@@ -339,17 +376,6 @@ onBeforeUnmount(() => {
             :closable="!running && !sending"
             @close="removeSkill(skill.skillSlug)"
             >技能：{{ skill.skillName }}</ATag
-          >
-        </div>
-        <div v-if="selectedKnowledgeBases.length" class="selected-skills">
-          <ATag
-            v-for="base in selectedKnowledgeBases"
-            :key="base.id"
-            :closable="!running && !sending"
-            @close="
-              selectedKnowledgeBases = selectedKnowledgeBases.filter((item) => item.id !== base.id)
-            "
-            >知识库：{{ base.name }}</ATag
           >
         </div>
         <div v-if="readOnly" class="archived-actions">
@@ -427,10 +453,6 @@ onBeforeUnmount(() => {
                 v-model:open="skillPickerOpen"
                 :disabled="running || sending || loading"
                 @selected="handleSkillSelected"
-              />
-              <KnowledgePicker
-                v-model="selectedKnowledgeBases"
-                :disabled="running || sending || loading || readOnly"
               />
               <AButton
                 type="text"
@@ -563,6 +585,34 @@ onBeforeUnmount(() => {
 .composer-hint {
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.message-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-secondary);
+}
+.message-run-status::before {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+.message-run-status.is-failed {
+  color: var(--color-error-700);
+}
+.message-body .run-error,
+.empty-reply {
+  margin: 10px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .chat-workspace {

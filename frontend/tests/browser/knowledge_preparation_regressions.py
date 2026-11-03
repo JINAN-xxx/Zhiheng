@@ -1,4 +1,4 @@
-"""Durable retrieval preparation must not be treated as an already admitted Run."""
+"""Legacy retrieval preparation remains recoverable without a chat knowledge picker."""
 import asyncio
 import json
 import unittest
@@ -52,9 +52,8 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
     async def start_preparation(self, wait_for_phase=True):
         await self.page.goto(self.origin + '/chat')
         await self.select_conversation('附件会话')
-        await self.page.get_by_role('button', name='选择知识库', exact=True).click()
-        await self.page.get_by_role('button', name='选择知识库：业务知识', exact=True).click()
-        await self.page.get_by_role('button', name='完成选择知识库', exact=True).click()
+        await expect(self.page.get_by_role('button', name='选择知识库', exact=True)).to_have_count(0)
+        # The controlled response exercises a legacy admission/preparation, not new KB selection.
         await self.page.get_by_role('textbox', name='消息内容', exact=True).fill('工作时间？')
         await self.page.get_by_role('button', name='发送消息', exact=True).click()
         if wait_for_phase:
@@ -62,8 +61,8 @@ class ChatKnowledgePreparation(ChatFilesUIRegressions):
 
     async def test_preparation_blocks_resend_and_restores_after_reload(self):
         await self.start_preparation()
-        self.assertEqual(self.changes[0]['knowledge_base_ids'], ['base-1'])
-        await expect(self.page.get_by_role('button', name='选择知识库', exact=True)).to_be_disabled()
+        self.assertEqual(self.changes[0]['knowledge_base_ids'], [])
+        await expect(self.page.get_by_role('button', name='选择知识库', exact=True)).to_have_count(0)
         await self.page.reload()
         await self.select_conversation('附件会话')
         await expect(self.page.locator('.run-state')).to_have_text('正在检索知识库')

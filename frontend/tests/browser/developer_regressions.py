@@ -320,6 +320,46 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text(self.origin + '/v1', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('upstream-private', exact=True)).to_have_count(0)
 
+    async def test_api_docs_nested_navigation_preserves_operations_and_deep_links(self):
+        response = await self.context.request.get(self.origin + '/openapi/resources-v1.json')
+        self.assertEqual(response.status, 200)
+        schema = await response.json()
+        operations = [operation for methods in schema['paths'].values()
+                      for method, operation in methods.items()
+                      if method in {'get', 'post', 'put', 'patch', 'delete'}]
+        query = schema['paths']['/api/v1/knowledge-bases/{base_id}/query']['post']
+        anchor = 'api-' + query['operationId']
+        await self.page.goto(self.origin + '/developer?view=docs')
+        nav = self.page.get_by_role('navigation', name='API 文档目录', exact=True)
+        knowledge = nav.locator('summary').filter(has_text='知识库')
+        await expect(knowledge).to_have_count(1)
+        await expect(knowledge).to_have_attribute('aria-expanded', 'false')
+        await knowledge.click()
+        search = nav.locator('summary').filter(has_text='检索与索引')
+        await expect(search).to_be_visible()
+        link = nav.locator(f'a[href="#{anchor}"]')
+        await expect(link).to_be_hidden()
+        await search.click()
+        await link.click()
+        await expect(link).to_have_attribute('aria-current', 'location')
+        await expect(self.page.locator(f'#{anchor} h2')).to_be_in_viewport()
+        self.assertEqual(urlparse(self.page.url).fragment, anchor)
+        await knowledge.click()
+        await expect(link).to_be_hidden()
+        self.assertEqual(urlparse(self.page.url).fragment, anchor)
+        await self.page.reload()
+        await expect(link).to_be_visible()
+        await expect(knowledge).to_have_attribute('aria-expanded', 'true')
+        await expect(search).to_have_attribute('aria-expanded', 'true')
+        await expect(self.page.locator(f'#{anchor} h2')).to_be_in_viewport()
+        hrefs = await nav.locator('a').evaluate_all('(links) => links.map((link) => link.hash)')
+        expected = {'#api-' + operation['operationId'] for operation in operations}
+        self.assertEqual({href for href in hrefs if href in expected}, expected)
+        self.assertEqual(len([href for href in hrefs if href in expected]), len(expected))
+        await self.page.get_by_text('推理 API', exact=True).click()
+        await expect(nav.locator('summary').filter(has_text='模型调用')).to_be_visible()
+        await expect(nav.locator('summary').filter(has_text='知识库')).to_have_count(0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

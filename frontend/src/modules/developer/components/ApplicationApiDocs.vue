@@ -8,15 +8,13 @@
     <div class="api-docs-layout">
       <nav class="api-docs-nav" aria-label="API 文档目录">
         <div class="api-docs-nav__title">接口说明</div>
-        <a
-          v-for="item in navigation"
-          :key="item.anchor"
-          :href="`#${item.anchor}`"
-          class="api-docs-nav__item"
-          :class="{ 'is-active': selectedId === item.anchor }"
-          @click="selectSection(item.anchor)"
-          >{{ item.label }}</a
-        >
+        <ApiDocsNavigation
+          :nodes="navigation"
+          :selected-id="selectedId"
+          :expanded-ids="expandedIds"
+          @select="selectSection"
+          @toggle="toggleFolder"
+        />
       </nav>
       <div class="api-docs-content">
         <section id="api-overview" class="api-docs-intro api-doc-anchor">
@@ -178,7 +176,7 @@ export REQUEST_ID="$(python -c 'import uuid; print(uuid.uuid4())')"
   </section>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Button as AButton,
   RadioGroup as ARadioGroup,
@@ -190,29 +188,35 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { copyText, loadApiDocuments, parseApiDocAnchor } from '../apiDocs.ts'
 import type { ApiDocument } from '../apiDocs.ts'
+import { apiDocAncestorIds, buildApiDocNavigation } from '../apiDocsNavigation.ts'
+import ApiDocsNavigation from './ApiDocsNavigation.vue'
 defineEmits<{ close: [] }>()
 const group = ref<'resources' | 'inference'>('resources'),
   documents = ref<ApiDocument[]>([]),
   loading = ref(false),
   error = ref(''),
-  selectedId = ref('api-overview')
+  selectedId = ref('api-overview'),
+  expandedIds = ref<string[]>(['guide'])
 const scope = new RequestScope()
 const apiBase = computed(
   () => `${window.location.origin}${group.value === 'resources' ? '/api/v1' : '/v1'}`
 )
 const schemaUrl = computed(() => `/openapi/${group.value}-v1.json`)
 const docsUrl = computed(() => `/docs/${group.value}`)
-const navigation = computed(() => [
-  { anchor: 'api-overview', label: '接入说明' },
-  { anchor: 'api-auth', label: '鉴权方式' },
-  { anchor: 'api-protocol', label: '版本与错误' },
-  { anchor: 'api-recipes', label: '资源接入顺序' },
-  ...(group.value === 'inference' ? [{ anchor: 'api-streaming', label: '流式调用' }] : []),
-  ...documents.value.map((item) => ({
-    anchor: `api-${item.id}`,
-    label: `${item.method} ${item.title}`
-  }))
+const navigation = computed(() => buildApiDocNavigation(documents.value, group.value))
+const anchors = computed(() => [
+  'api-overview',
+  'api-auth',
+  'api-protocol',
+  'api-recipes',
+  ...(group.value === 'inference' ? ['api-streaming'] : []),
+  ...documents.value.map((item) => `api-${item.id}`)
 ])
+watch([navigation, selectedId], () => {
+  expandedIds.value = [
+    ...new Set([...expandedIds.value, ...apiDocAncestorIds(navigation.value, selectedId.value)])
+  ]
+})
 const resourceError = JSON.stringify(
   {
     error: {
@@ -231,11 +235,13 @@ function renderCode(code: string): string {
 function selectSection(anchor: string): void {
   selectedId.value = anchor
 }
+function toggleFolder(id: string, open: boolean): void {
+  if (open && !expandedIds.value.includes(id)) expandedIds.value = [...expandedIds.value, id]
+  else if (!open && expandedIds.value.includes(id))
+    expandedIds.value = expandedIds.value.filter((value) => value !== id)
+}
 function syncSection(): void {
-  selectedId.value = parseApiDocAnchor(
-    window.location.hash,
-    navigation.value.map((item) => item.anchor)
-  )
+  selectedId.value = parseApiDocAnchor(window.location.hash, anchors.value)
 }
 async function copy(text: string): Promise<void> {
   if (await copyText(text)) void message.success('已复制')
@@ -255,12 +261,18 @@ async function load(): Promise<void> {
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
-    if (ticket.isCurrent()) loading.value = false
+    if (ticket.isCurrent()) {
+      loading.value = false
+      await nextTick()
+      if (ticket.isCurrent() && !error.value && window.location.hash)
+        document.getElementById(selectedId.value)?.scrollIntoView({ block: 'start' })
+    }
   }
 }
 watch(
   group,
   () => {
+    expandedIds.value = ['guide']
     void load()
   },
   { immediate: true }
@@ -284,13 +296,13 @@ onBeforeUnmount(() => {
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 20px;
   margin: 0 var(--workspace-space-6) var(--workspace-space-6);
 }
 .api-docs-nav {
   overflow-y: auto;
-  padding: 16px 0;
+  padding: 16px 8px;
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   background: var(--bg-container);
@@ -299,21 +311,6 @@ onBeforeUnmount(() => {
   padding: 0 16px 10px;
   color: var(--color-text-secondary);
   font-size: 12px;
-}
-.api-docs-nav__item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 8px 16px;
-  color: var(--color-text);
-  text-decoration: none;
-  font-size: 13px;
-}
-.api-docs-nav__item:hover,
-.api-docs-nav__item.is-active {
-  background: var(--main-50);
-  color: var(--main-700);
 }
 .api-docs-content {
   min-width: 0;
@@ -458,10 +455,6 @@ onBeforeUnmount(() => {
   }
   .api-docs-nav__title {
     display: none;
-  }
-  .api-docs-nav__item {
-    flex: 0 0 auto;
-    padding: 7px 10px;
   }
   .api-docs-content {
     padding: 18px 16px 36px;

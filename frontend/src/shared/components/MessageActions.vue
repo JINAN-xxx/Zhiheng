@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
     role="toolbar"
     :aria-label="role === 'user' ? '提问操作' : '回复操作'"
   >
-    <ATooltip :title="copied ? '已复制' : '复制'">
+    <ATooltip v-if="content" :title="copied ? '已复制' : '复制'">
       <button
         type="button"
         :aria-label="role === 'user' ? '复制提问' : '复制回复'"
@@ -119,13 +119,14 @@ onBeforeUnmount(() => {
         <button
           type="button"
           aria-label="重新生成"
+          :class="{ 'has-label': !content }"
           :aria-disabled="Boolean(regenerateReason)"
           @click="act('regenerate', regenerateReason)"
         >
-          <RedoOutlined />
+          <RedoOutlined /><span v-if="!content">重新生成</span>
         </button>
       </ATooltip>
-      <template v-if="feedbackEnabled">
+      <template v-if="feedbackEnabled && content">
         <ATooltip :title="feedbackReason || (feedbackValue === 'up' ? '取消赞同' : '赞同')">
           <button
             type="button"
@@ -152,6 +153,7 @@ onBeforeUnmount(() => {
         </ATooltip>
       </template>
       <ATooltip
+        v-if="content"
         :title="
           speechState === 'idle' ? '朗读' : speechState === 'starting' ? '取消朗读' : '停止朗读'
         "
@@ -167,7 +169,7 @@ onBeforeUnmount(() => {
           <SoundOutlined v-if="speechState === 'idle'" /><StopOutlined v-else />
         </button>
       </ATooltip>
-      <ATooltip v-if="share" :title="shareReason || '分享'">
+      <ATooltip v-if="share && content" :title="shareReason || '分享'">
         <button
           type="button"
           aria-label="分享"
@@ -209,6 +211,13 @@ onBeforeUnmount(() => {
 .message-actions button:not(:disabled):hover {
   color: var(--gray-700);
   background: var(--gray-50);
+}
+.message-actions button.has-label {
+  width: auto;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
 }
 .message-actions button.active {
   color: var(--main-color);

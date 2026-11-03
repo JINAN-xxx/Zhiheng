@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import {
   AppstoreOutlined,
@@ -11,51 +11,93 @@ import {
   RobotOutlined,
   ThunderboltOutlined,
   TeamOutlined,
+  RightOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined
 } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import BrandMark from '../../shared/components/BrandMark.vue'
-withDefaults(
+import { identity } from '../../modules/identity/public.ts'
+const props = withDefaults(
   defineProps<{ collapsed: boolean; showCollapseControl?: boolean; leaving?: boolean }>(),
   { leaving: false }
 )
 const emit = defineEmits<{ 'toggle-collapse': []; navigate: []; logout: [] }>()
 const route = useRoute()
-const groups = computed(() => [
+const navigationId = useId()
+const groups = [
   {
-    title: '',
+    id: 'applications',
+    title: '应用',
     items: [
-      { path: '/overview', label: '工作台', icon: HomeOutlined },
-      { path: '/chat', label: '对话体验', icon: MessageOutlined }
-    ]
-  },
-  {
-    title: '模型服务',
-    items: [{ path: '/models', label: '模型目录', icon: AppstoreOutlined }]
-  },
-  {
-    title: '应用构建',
-    items: [
+      { path: '/chat', label: '对话体验', icon: MessageOutlined },
       { path: '/agents', label: '智能体', icon: RobotOutlined },
-      { path: '/skills', label: '技能管理', icon: ThunderboltOutlined },
       { path: '/work', label: '工作空间', icon: TeamOutlined }
     ]
   },
   {
-    title: '知识与数据',
-    items: [{ path: '/knowledge', label: '知识库', icon: DatabaseOutlined }]
+    id: 'resources',
+    title: '资源',
+    items: [
+      { path: '/models', label: '模型目录', icon: AppstoreOutlined },
+      { path: '/knowledge', label: '知识库', icon: DatabaseOutlined },
+      { path: '/skills', label: '技能管理', icon: ThunderboltOutlined }
+    ]
   },
   {
+    id: 'development',
     title: '开发与用量',
     items: [
       { path: '/developer', label: '开发接入', icon: ApiOutlined },
       { path: '/usage', label: '用量与调用', icon: BarChartOutlined }
     ]
   }
-])
+]
+type NavigationGroup = (typeof groups)[number]
+const groupIds = new Set(groups.map((group) => group.id))
+const closedGroups = ref<string[]>([])
+const preferenceKey = computed(() =>
+  identity.value ? `zhiheng:primary-navigation:${encodeURIComponent(identity.value.id)}` : null
+)
+watch(
+  preferenceKey,
+  (key) => {
+    closedGroups.value = []
+    if (!key) return
+    try {
+      const stored: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+      if (Array.isArray(stored))
+        closedGroups.value = [
+          ...new Set(
+            stored.filter((id): id is string => typeof id === 'string' && groupIds.has(id))
+          )
+        ]
+    } catch {
+      // 浏览器禁止存储或旧偏好无效时，默认展开，保留导航能力。
+    }
+  },
+  { immediate: true, flush: 'sync' }
+)
 function active(path: string): boolean {
   return route.path === path || route.path.startsWith(path + '/') || route.meta.activeMenu === path
+}
+function isGroupActive(group: NavigationGroup): boolean {
+  return group.items.some((item) => active(item.path))
+}
+function isGroupExpanded(group: NavigationGroup): boolean {
+  return props.collapsed || isGroupActive(group) || !closedGroups.value.includes(group.id)
+}
+function toggleGroup(group: NavigationGroup): void {
+  if (isGroupActive(group)) return
+  closedGroups.value = closedGroups.value.includes(group.id)
+    ? closedGroups.value.filter((id) => id !== group.id)
+    : [...closedGroups.value, group.id]
+  if (!preferenceKey.value) return
+  try {
+    window.localStorage.setItem(preferenceKey.value, JSON.stringify(closedGroups.value))
+  } catch {
+    // 偏好写入失败不影响本次展开、收起操作。
+  }
 }
 </script>
 <template>
@@ -76,27 +118,55 @@ function active(path: string): boolean {
       </button>
     </div>
     <nav class="platform-primary-nav" aria-label="主导航">
-      <template v-for="group in groups" :key="group.title">
-        <div
-          v-if="group.title && group.items.length && !collapsed"
+      <RouterLink
+        to="/overview"
+        class="platform-nav-link"
+        :class="{ 'is-active': active('/overview') }"
+        :aria-current="active('/overview') ? 'page' : undefined"
+        aria-label="工作台"
+        :title="collapsed ? '工作台' : undefined"
+        @click="emit('navigate')"
+        ><HomeOutlined /><span v-if="!collapsed">工作台</span></RouterLink
+      >
+      <div v-for="group in groups" :key="group.id" class="platform-nav-group">
+        <button
+          v-if="!collapsed"
+          type="button"
           class="platform-nav-group-title"
+          :aria-label="group.title"
+          :aria-expanded="isGroupExpanded(group)"
+          :aria-controls="`${navigationId}-${group.id}`"
+          :disabled="isGroupActive(group)"
+          @click="toggleGroup(group)"
         >
-          {{ group.title }}
+          <span>{{ group.title }}</span>
+          <RightOutlined
+            aria-hidden="true"
+            class="platform-nav-group-chevron"
+            :class="{ 'is-expanded': isGroupExpanded(group) }"
+          />
+        </button>
+        <div
+          v-show="isGroupExpanded(group)"
+          :id="`${navigationId}-${group.id}`"
+          role="group"
+          :aria-label="group.title"
+        >
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.path"
+            :to="item.path"
+            class="platform-nav-link"
+            :class="{ 'is-active': active(item.path) }"
+            :aria-current="active(item.path) ? 'page' : undefined"
+            :aria-label="item.label"
+            :title="collapsed ? item.label : undefined"
+            @click="emit('navigate')"
+          >
+            <component :is="item.icon" /><span v-if="!collapsed">{{ item.label }}</span>
+          </RouterLink>
         </div>
-        <RouterLink
-          v-for="item in group.items"
-          :key="item.path"
-          :to="item.path"
-          class="platform-nav-link"
-          :class="{ 'is-active': active(item.path) }"
-          :aria-current="active(item.path) ? 'page' : undefined"
-          :aria-label="item.label"
-          :title="collapsed ? item.label : undefined"
-          @click="emit('navigate')"
-        >
-          <component :is="item.icon" /><span v-if="!collapsed">{{ item.label }}</span>
-        </RouterLink>
-      </template>
+      </div>
     </nav>
     <div class="platform-sidebar__account">
       <PlatformAccountMenu
@@ -156,10 +226,36 @@ function active(path: string): boolean {
   padding: 12px 12px 20px;
   scrollbar-width: thin;
 }
+.platform-nav-group {
+  margin-top: 14px;
+}
 .platform-nav-group-title {
-  padding: 22px 14px 8px;
-  color: var(--color-text-tertiary);
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
   font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.platform-nav-group-title:hover:not(:disabled) {
+  background: var(--gray-50);
+}
+.platform-nav-group-title:disabled {
+  cursor: default;
+}
+.platform-nav-group-chevron {
+  font-size: 10px;
+}
+.platform-nav-group-chevron.is-expanded {
+  transform: rotate(90deg);
 }
 .platform-nav-link {
   display: flex;
@@ -208,10 +304,14 @@ function active(path: string): boolean {
   padding: 0;
   margin: 6px 0;
 }
+.collapsed .platform-nav-group {
+  margin-top: 0;
+}
 .collapsed .platform-sidebar__account {
   padding: 10px 8px;
 }
 .platform-nav-link:focus-visible,
+.platform-nav-group-title:focus-visible,
 .platform-collapse-button:focus-visible {
   outline: 2px solid var(--main-color);
   outline-offset: 2px;

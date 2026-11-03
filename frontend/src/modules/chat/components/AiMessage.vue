@@ -72,7 +72,7 @@ const props = defineProps({
 const isReasoningExpanded = ref(false)
 
 const isThinkingComplete = computed(() => {
-  return !!props.content
+  return !props.loading || !!props.content
 })
 
 function toggleReasoning() {
