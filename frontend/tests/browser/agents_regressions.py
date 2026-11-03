@@ -219,6 +219,40 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(identifier.locator('input, textarea, button')).to_have_count(0)
         self.assertEqual(self.posts, [])
 
+    async def test_history_rounds_save_zero_keeps_display_and_only_sends_current_question(self):
+        self.agent['history_rounds'] = 20
+        self.run.update(status='completed', revision=3, text='完整回答')
+        await self.open_agents()
+        await self.choose_agent_action('配置')
+        editor = self.page.locator('.agent-editor--page')
+        preview = editor.locator('.agent-preview-panel')
+        rounds = editor.get_by_label('上下文轮数', exact=True)
+        await expect(rounds).to_have_value('20')
+        for question in ['第一轮问题', '第二轮问题']:
+            await preview.get_by_role('textbox', name='试聊消息', exact=True).fill(question)
+            await preview.get_by_role('button', name='发送', exact=True).click()
+            await expect(preview.get_by_role('button', name='发送', exact=True)).to_be_visible()
+        await expect(preview.locator('.preview-message--user')).to_have_count(2)
+        await rounds.fill('0')
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        await expect(editor.get_by_text('草稿 v2', exact=True)).to_be_visible()
+        self.assertEqual(self.posts[-1]['history_rounds'], 0)
+        await expect(preview.locator('.preview-message--user')).to_have_count(2)
+        await preview.get_by_role('textbox', name='试聊消息', exact=True).fill('仅当前问题')
+        await preview.get_by_role('button', name='发送', exact=True).click()
+        await expect(preview.get_by_role('button', name='发送', exact=True)).to_be_visible()
+        self.assertEqual(self.previews[-1]['messages'], [{'role': 'user', 'content': '仅当前问题'}])
+        await expect(preview.locator('.preview-message--user')).to_have_count(3)
+
+    async def test_history_rounds_cleared_input_does_not_save_as_zero(self):
+        await self.open_agents()
+        await self.choose_agent_action('配置')
+        editor = self.page.locator('.agent-editor--page')
+        await editor.get_by_label('上下文轮数', exact=True).fill('')
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        await expect(editor.get_by_text('请输入 0–20 的整数', exact=True)).to_be_visible()
+        self.assertEqual(self.posts, [])
+
     async def test_original_editor_creates_saved_draft_with_model_limit(self):
         self.agents = []
         await self.open_agents()

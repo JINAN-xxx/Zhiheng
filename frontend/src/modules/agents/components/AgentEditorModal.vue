@@ -242,6 +242,21 @@
                     @update:value="setMaxTokens"
                 /></a-form-item>
               </div>
+              <a-form-item
+                label="上下文轮数"
+                name="historyRounds"
+                extra="携带最近的历史问答，0 表示仅发送当前问题。保存后用于调试，发布后用于 API 和工作空间。"
+              >
+                <a-input-number
+                  :value="form.historyRounds ?? ''"
+                  :min="0"
+                  :max="20"
+                  :precision="0"
+                  :step="1"
+                  placeholder="20"
+                  @update:value="setHistoryRounds"
+                />
+              </a-form-item>
               <a-form-item label="API 应用" name="applicationId"
                 ><div class="application-field">
                   <a-select
@@ -488,6 +503,9 @@ const applicationOptions = computed(() =>
 const rules = {
   name: [{ required: true, whitespace: true, message: '请输入名称' }],
   modelId: [{ required: true, message: '请选择模型' }],
+  historyRounds: [
+    { required: true, type: 'integer' as const, min: 0, max: 20, message: '请输入 0–20 的整数' }
+  ],
   skillSlugs: [{ type: 'array' as const, max: 5, message: '最多选择 5 个技能' }],
   knowledgeBaseIds: [{ type: 'array' as const, max: 20, message: '最多绑定 20 个知识库' }]
 }
@@ -575,9 +593,12 @@ async function save(): Promise<void> {
     payload.temperature > 2 ||
     !Number.isInteger(payload.max_tokens) ||
     payload.max_tokens < 1 ||
-    payload.max_tokens > 131072
+    payload.max_tokens > 131072 ||
+    !Number.isInteger(payload.history_rounds) ||
+    payload.history_rounds < 0 ||
+    payload.history_rounds > 20
   ) {
-    error.value = '请填写有效温度和输出上限'
+    error.value = '请填写有效温度、输出上限和上下文轮数'
     return
   }
   const model = models.value.find((item) => item.id === payload.model_id)
@@ -757,6 +778,9 @@ function setTemperature(value: unknown): void {
 }
 function setMaxTokens(value: unknown): void {
   form.maxTokens = typeof value === 'number' ? value : null
+}
+function setHistoryRounds(value: unknown): void {
+  form.historyRounds = typeof value === 'number' ? value : null
 }
 function modelChanged(value: unknown): void {
   if (typeof value !== 'string') return

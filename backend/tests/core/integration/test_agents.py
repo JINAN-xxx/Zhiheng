@@ -124,6 +124,10 @@ async def test_public_agent_uses_publication_and_hides_binding(
         {'temperature': float('inf')},
         {'max_tokens': True},
         {'max_tokens': 65},
+        {'history_rounds': True},
+        {'history_rounds': 1.0},
+        {'history_rounds': -1},
+        {'history_rounds': 21},
         {'skill_slugs': ['document-summary'] * 2},
     ],
 )

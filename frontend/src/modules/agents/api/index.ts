@@ -1,6 +1,8 @@
 import { http } from '../../../shared/http.ts'
 import { list, number, object, string } from '../../../shared/validation.ts'
 import { parseRunAdmission } from '../../knowledge/public.ts'
+import { selectPreviewMessages } from '../history.ts'
+import type { PreviewHistoryMessage } from '../history.ts'
 export interface AgentConfig {
   name: string
   description: string
@@ -12,6 +14,7 @@ export interface AgentConfig {
   applicationId: string | null
   temperature: number
   maxTokens: number
+  historyRounds: number
 }
 export interface Agent extends AgentConfig {
   agentId: string
@@ -32,6 +35,7 @@ export interface AgentPayload {
   application_id: string | null
   temperature: number
   max_tokens: number
+  history_rounds: number
 }
 function parseConfig(value: unknown): AgentConfig {
   const data = object(value)
@@ -45,7 +49,8 @@ function parseConfig(value: unknown): AgentConfig {
     knowledgeBaseIds: list(string)(data.knowledge_base_ids),
     applicationId: data.application_id === null ? null : string(data.application_id),
     temperature: number(data.temperature),
-    maxTokens: number(data.max_tokens)
+    maxTokens: number(data.max_tokens),
+    historyRounds: data.history_rounds === undefined ? 20 : number(data.history_rounds)
   }
 }
 function parseAgent(value: unknown): Agent {
@@ -116,22 +121,25 @@ export interface PreviewIntent {
   agentId: string
   messages: PreviewMessage[]
   clientRequestId: string
+  sourceMessages: PreviewHistoryMessage[]
 }
 export function nextPreviewIntent(
   previous: PreviewIntent | null,
   agentId: string,
-  messages: PreviewMessage[],
-  createId: () => string
+  messages: PreviewHistoryMessage[],
+  createId: () => string,
+  historyRounds = 20
 ): PreviewIntent {
   if (
     previous &&
     previous.agentId === agentId &&
-    JSON.stringify(previous.messages) === JSON.stringify(messages)
+    JSON.stringify(previous.sourceMessages) === JSON.stringify(messages)
   )
     return previous
   return {
     agentId,
-    messages: messages.map((message) => ({ ...message })),
+    messages: selectPreviewMessages(messages, historyRounds),
+    sourceMessages: messages.map((message) => ({ ...message })),
     clientRequestId: createId()
   }
 }

@@ -31,6 +31,7 @@ class AgentConfig(BaseModel):
     application_id: UUID | None = None
     temperature: float = Field(default=0.7, strict=True, ge=0, le=2, allow_inf_nan=False)
     max_tokens: int = Field(default=2048, strict=True, ge=1, le=131072)
+    history_rounds: int = Field(default=20, strict=True, ge=0, le=20)
 
     @field_validator('name', 'description', 'system_prompt', 'welcome_message')
     @classmethod

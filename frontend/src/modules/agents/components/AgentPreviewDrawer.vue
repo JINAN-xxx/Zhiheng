@@ -299,10 +299,17 @@ async function send(event?: Event): Promise<void> {
     return
   const priorMessages = messages.value.map((item) => ({ ...item }))
   const conversation: Message[] = [...priorMessages, { role: 'user', content }]
-  const payload = conversation
-    .filter((item) => item.content.trim())
-    .map((item) => ({ role: item.role, content: item.content }))
-  const intent = nextPreviewIntent(pending, agent.agentId, payload, () => crypto.randomUUID())
+  const intent = nextPreviewIntent(
+    pending,
+    agent.agentId,
+    conversation.map((item) => ({
+      role: item.role,
+      content: item.content,
+      ...(item.status === undefined ? {} : { status: item.status })
+    })),
+    () => crypto.randomUUID(),
+    agent.historyRounds
+  )
   pending = intent
   const context = scope.replace()
   cancelPending = null
@@ -470,7 +477,7 @@ async function close(): Promise<void> {
   emit('update:modelValue', false)
 }
 watch(sending, (value) => emit('busy-change', value))
-watch(() => [props.modelValue, props.agent?.agentId, props.agent?.version], reset)
+watch([() => props.modelValue, () => props.agent?.agentId], reset)
 onBeforeUnmount(() => {
   emit('busy-change', false)
   scope.dispose()

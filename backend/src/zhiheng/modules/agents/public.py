@@ -12,6 +12,7 @@ from zhiheng.modules.agents.contracts import (
     PreviewRequest,
     VersionRequest,
 )
+from zhiheng.modules.agents.history import select_agent_history
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AgentVersion
 from zhiheng.modules.agents.service import AgentService
 
@@ -29,6 +30,7 @@ __all__ = [
     'VersionRequest',
     'knowledge_context',
     'schema_tables',
+    'select_agent_history',
 ]
 
 

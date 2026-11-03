@@ -1,7 +1,10 @@
 import type { Agent, AgentConfig, AgentPayload } from './api/index.ts'
-export interface AgentForm extends Omit<AgentConfig, 'temperature' | 'maxTokens'> {
+export { selectPreviewMessages } from './history.ts'
+export interface AgentForm
+  extends Omit<AgentConfig, 'temperature' | 'maxTokens' | 'historyRounds'> {
   temperature: number | null
   maxTokens: number | null
+  historyRounds: number | null
 }
 export function createAgentForm(value?: AgentConfig): AgentForm {
   return value
@@ -16,7 +19,8 @@ export function createAgentForm(value?: AgentConfig): AgentForm {
         knowledgeBaseIds: [],
         applicationId: null,
         temperature: 0.7,
-        maxTokens: 2048
+        maxTokens: 2048,
+        historyRounds: 20
       }
 }
 export function buildAgentPayload(value: AgentConfig | AgentForm): AgentPayload {
@@ -30,7 +34,8 @@ export function buildAgentPayload(value: AgentConfig | AgentForm): AgentPayload 
     knowledge_base_ids: [...value.knowledgeBaseIds],
     application_id: value.applicationId || null,
     temperature: value.temperature ?? Number.NaN,
-    max_tokens: value.maxTokens ?? Number.NaN
+    max_tokens: value.maxTokens ?? Number.NaN,
+    history_rounds: value.historyRounds ?? Number.NaN
   }
 }
 export const hasUnpublishedAgentChanges = (value: Agent): boolean =>

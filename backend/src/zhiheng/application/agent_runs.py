@@ -13,6 +13,7 @@ from zhiheng.modules.agents.public import (
     AgentInfo,
     AgentService,
     PreviewRequest,
+    select_agent_history,
 )
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.developer.public import DeveloperIdentity, KeyService
@@ -158,7 +159,9 @@ class AgentRunService:
         messages = (
             *((ModelMessage('system', config.system_prompt),) if config.system_prompt else ()),
             *skill_messages,
-            *(ModelMessage(item.role, item.content) for item in body.messages),
+            *select_agent_history(
+                tuple(ModelMessage(item.role, item.content) for item in body.messages), config.history_rounds
+            ),
         )
         # Retrieval is not wired in this slice. Never await external retrieval while
         # holding application/model/agent or budget SQL locks. The knowledge owner
