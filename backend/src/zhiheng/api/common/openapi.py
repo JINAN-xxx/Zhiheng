@@ -181,10 +181,10 @@ def describe_protocols(document: dict[str, Any]) -> dict[str, Any]:
 def install_openapi(app: FastAPI) -> None:
     def generate(prefix: str | None = None) -> dict[str, Any]:
         routes = [
-            context.original_route
+            context
             for context in iter_route_contexts(app.routes)
             if isinstance(context.original_route, APIRoute)
-            and (prefix is None or context.original_route.path.startswith(prefix))
+            and (prefix is None or (context.path_format or '').startswith(prefix))
         ]
         result = get_openapi(
             title='智衡资源 API v1' if prefix == '/api/v1/' else '智衡 AI',

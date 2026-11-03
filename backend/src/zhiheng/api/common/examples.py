@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, RouteContext
 from pydantic import BaseModel
 
 MODEL = '00000000-0000-4000-8000-000000000001'
@@ -72,9 +72,16 @@ TITLES = {
 }
 
 
-def add_examples(document: dict[str, Any], routes: list[APIRoute]) -> None:
-    for route in routes:
-        if not route.path.startswith(('/api/v1/', '/v1/')):
+def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
+    for context in routes:
+        route = context.original_route
+        path_template = context.path_format
+        if (
+            not isinstance(route, APIRoute)
+            or not route.include_in_schema
+            or not path_template
+            or not path_template.startswith(('/api/v1/', '/v1/'))
+        ):
             continue
         key = (route.endpoint.__module__.rsplit('.', 1)[-1], route.endpoint.__name__)
         body = EXAMPLE_BODIES.get(key)
@@ -84,10 +91,10 @@ def add_examples(document: dict[str, Any], routes: list[APIRoute]) -> None:
             and issubclass(route.body_field.field_info.annotation, BaseModel)
         ):
             route.body_field.field_info.annotation.model_validate(body)
-        for method in route.methods or set():
-            operation = document['paths'][route.path][method.lower()]
+        for method in context.methods or set():
+            operation = document['paths'][path_template][method.lower()]
             operation['summary'] = TITLES.get(key, operation['summary'])
-            path = route.path
+            path = path_template
             for parameter in operation.get('parameters', []):
                 if parameter['in'] == 'path':
                     name = parameter['name']
