@@ -16,11 +16,14 @@ class ProviderServer(ThreadingHTTPServer):
         self.embedding_zero = False
         self.graph_block = False
         self.graph_parallel = False
+        self.chat_summary_output: str | None = None
+        self.chat_summary_finish = 'stop'
+        self.chat_summary_usage = True
         super().__init__(('127.0.0.1', 0), ProviderHandler)
 
 
 class ProviderHandler(BaseHTTPRequestHandler):
-    def do_POST(self) -> None:
+    def do_POST(self) -> None:  # noqa: PLR0912, PLR0915 - local provider protocol fixture
         server: ProviderServer = self.server
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         server.requests.append(body)
@@ -81,14 +84,21 @@ class ProviderHandler(BaseHTTPRequestHandler):
                     output = '双方持续合作研究。'
                 else:
                     output = '<|COMPLETE|>'
+            is_chat_summary = any(
+                message.get('role') == 'system'
+                and str(message.get('content', '')).startswith('你负责为同一用户的会话整理滚动摘要')
+                for message in body['messages']
+            )
             pieces = (
                 [(output, 'stop', None)] if body['model'] == 'graph' else [('你', None, None), ('好', 'stop', None)]
             )
+            if is_chat_summary and server.chat_summary_output is not None:
+                pieces = [(server.chat_summary_output, server.chat_summary_finish, None)]
             for content, finish, usage in [
                 *pieces,
                 ('', None, {'prompt_tokens': 8, 'completion_tokens': 2, 'total_tokens': 10}),
             ]:
-                if usage and body['model'] == 'no-usage':
+                if usage and (body['model'] == 'no-usage' or (is_chat_summary and not server.chat_summary_usage)):
                     continue
                 chunk = {
                     'id': 'local-provider',

@@ -95,11 +95,22 @@ class ModelBinding(BaseModel):
     connection_id: UUID
     upstream_model: str
     max_output_tokens: int = Field(strict=True, ge=1, le=131072)
+    context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
     version: Literal[1] = 1
     connection_revision_id: UUID | None = None
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)
     options: ModelOptions = Field(default_factory=ModelOptions)
+
+    @model_serializer(mode='wrap')
+    def serialize_compatible_binding(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        raw = handler(self)
+        if not isinstance(raw, dict):
+            raise ValueError('Invalid binding serialization')
+        result: dict[str, object] = dict(raw)
+        if self.context_window_tokens is None:
+            result.pop('context_window_tokens', None)
+        return result
 
     @model_validator(mode='after')
     def supported_vision(self) -> 'ModelBinding':
@@ -156,6 +167,7 @@ class ModelInfo(BaseModel):
     connection_id: UUID
     upstream_model: str
     max_output_tokens: int
+    context_window_tokens: int | None = None
     enabled: bool
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)

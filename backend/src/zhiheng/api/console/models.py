@@ -42,6 +42,7 @@ class ModelRequest(BaseModel):
     connection_id: UUID
     upstream_model: str = Field(min_length=1, max_length=200)
     max_output_tokens: int = Field(default=512, strict=True, ge=1, le=131072)
+    context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)
     published: bool = True
@@ -124,6 +125,7 @@ class ModelPatch(BaseModel):
     connection_id: UUID | None = None
     upstream_model: str | None = Field(default=None, min_length=1, max_length=200)
     max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
+    context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
     enabled: bool | None = None
     vision_enabled: bool | None = Field(default=None, strict=True)
     published: bool | None = None
@@ -176,9 +178,10 @@ async def update_model(
     session: SessionDependency,
 ) -> ModelInfo:
     async with session.begin():
-        return await container.models.update_model(
-            session, principal, model_id, body.model_dump(exclude_unset=True, exclude_none=True)
-        )
+        fields = body.model_dump(exclude_unset=True, exclude_none=True)
+        if 'context_window_tokens' in body.model_fields_set:
+            fields['context_window_tokens'] = body.context_window_tokens
+        return await container.models.update_model(session, principal, model_id, fields)
 
 
 @router.delete('/{model_id}')

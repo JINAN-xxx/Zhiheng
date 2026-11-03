@@ -37,6 +37,7 @@ const columns: TableColumnsType<UsageSummary['records'][number]> = [
 const sourceOptions = [
   { value: 'all', label: '全部类型' },
   { value: 'chat', label: '对话' },
+  { value: 'chat_summary', label: '会话摘要' },
   { value: 'connection_test', label: '连接测试' },
   { value: 'public', label: '开发接入' },
   { value: 'agent_preview', label: '智能体试聊' },
@@ -58,6 +59,7 @@ function setStatus(value: unknown): void {
 const sourceLabel = (source: string): string =>
   ({
     chat: '对话',
+    chat_summary: '会话摘要',
     connection_test: '连接测试',
     public: '开发接入',
     agent_preview: '智能体试聊',

@@ -24,6 +24,7 @@ class RunSnapshot(BaseModel):
     id: UUID
     resource_type: Literal[
         'chat',
+        'chat_summary',
         'connection_test',
         'public',
         'agent_preview',

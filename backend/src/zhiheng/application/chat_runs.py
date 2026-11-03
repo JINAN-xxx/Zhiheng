@@ -19,6 +19,7 @@ from zhiheng.modules.chat.public import (
     ConversationInfo,
     RegenerationTarget,
     SkillSnapshot,
+    source_fingerprint,
 )
 from zhiheng.modules.files.public import FileService, PreparedAttachment
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
@@ -38,6 +39,7 @@ from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 if TYPE_CHECKING:
+    from zhiheng.application.chat_context import ChatContextService
     from zhiheng.application.knowledge_preparation import KnowledgePreparation
 
 MAX_PROMPT_RESERVATION = 64000
@@ -64,8 +66,9 @@ class ChatRunService:
         self._files = files
         self.knowledge: KnowledgePreparation | None = None
         self.file_inputs: FileInputService | None = None
+        self.context: ChatContextService | None = None
 
-    async def admit_chat(  # noqa: PLR0913, PLR0915 - one transaction owns the complete chat admission contract
+    async def admit_chat(  # noqa: PLR0912, PLR0913, PLR0915 - one transaction owns the complete chat admission contract
         self,
         session: AsyncSession,
         principal: Principal,
@@ -108,7 +111,9 @@ class ChatRunService:
         existing = await self._runs.existing_request(session, principal.id, client_request_id, fingerprint)
         if existing is not None:
             return existing
-        await self._chat.require_conversation(session, principal, conversation_id, lock=True)
+        conversation = await self._chat.require_conversation(session, principal, conversation_id, lock=True)
+        if conversation.archived:
+            raise AppError('conversation_archived', '已归档对话不能发送新问题', 409)
         target = (
             await self._chat.regeneration_target(session, principal, conversation_id, regeneration_message_id)
             if regeneration_message_id
@@ -146,8 +151,19 @@ class ChatRunService:
             attachments,
             target=target,
         )
-        context = await self._chat.context(
-            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+        if (
+            target
+            and self.context is not None
+            and [item.model_dump(exclude={'score'}) for item in target.question.knowledge_sources]
+            != [item.model_dump(exclude={'score'}) for item in (knowledge.hits if knowledge else ())]
+        ):
+            raise AppError('regeneration_sources_changed', '原知识来源已变化，请重新发送问题后使用当前资料', 409)
+        context = (
+            await self._chat.context(
+                session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+            )
+            if self.context is None
+            else ()
         )
         extra = ''.join(
             f'\n\n[Attachment: {item.summary.original_filename}]\n{item.text}'
@@ -163,6 +179,26 @@ class ChatRunService:
         messages = knowledge.apply_context(messages) if knowledge else messages
         system_messages = (ModelMessage('system', settings.system_prompt),) if settings.system_prompt else ()
         messages = (*system_messages, *messages)
+        prepared_context = None
+        if self.context is not None:
+            prepared_context = await self.context.prepare(
+                session,
+                principal,
+                conversation_id,
+                binding,
+                required=tuple(messages[:-1]),
+                current=messages[-1],
+                exclude_question_id=target.question.id if target else None,
+                original_run_id=target.question.run_id if target else None,
+            )
+            messages = prepared_context.package.messages
+            if target:
+                snapshots = list(target.question.skill_snapshots)
+                if [item.slug for item in snapshots] != list(skill_slugs):
+                    raise AppError('regeneration_context_unavailable', '原技能选择无法完整恢复，请重新发送问题', 409)
+                await self.context.validate_frozen_skills(session, principal, snapshots, messages)
+        if any(item.images for item in messages) and not binding.vision_enabled:
+            raise AppError('unsupported_capability', '此模型未启用vision能力', 422)
         request = ModelRequest(binding=binding, messages=messages)
         if knowledge and self.knowledge:
             await self.knowledge.check(session, knowledge, principal)
@@ -179,6 +215,15 @@ class ChatRunService:
             request=request,
             token_limit=token_limit,
         )
+        if prepared_context is not None:
+            snapshot = prepared_context.snapshot
+            snapshot.run_id = run.id
+            current_refs: list[dict[str, object]] = [
+                {'file_id': str(item.summary.file_id), 'sha256': item.summary.sha256, 'question_id': 'current'}
+                for item in attachments
+            ]
+            snapshot.file_refs = [*snapshot.file_refs, *current_refs]
+            session.add(snapshot)
         request_context = ChatRequestContext(
             model_id=model_id,
             skill_slugs=list(skill_slugs),
@@ -347,8 +392,15 @@ class ChatRunService:
             (item.file_id, item.sha256) for item in target.question.attachments
         ]:
             raise AppError('file_snapshot_changed', '原问题的附件已变化，无法重新生成', 409)
-        history = await self._chat.attachment_history(
-            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
+        history = (
+            await self._chat.attachment_history(
+                session,
+                principal,
+                conversation_id,
+                exclude_question_id=target.question.id if target else None,
+            )
+            if self.context is None
+            else ()
         )
         if self._files is not None:
             for file_id in sorted({item.summary.file_id for item in (*history, *attachments)}):
@@ -371,6 +423,7 @@ class ChatRunService:
         archived: bool | None = None,
         remove: bool = False,
     ) -> ConversationInfo:
+        await lock_billing_admission(session)
         await self._chat.require_conversation(session, principal, conversation_id, lock=True)
         if self.knowledge:
             await self.knowledge.store.ensure_idle(session, 'chat', conversation_id)
@@ -384,6 +437,8 @@ class ChatRunService:
             await self._files.release_resources(
                 session, resource_type='knowledge_run', resource_ids=run_ids, actor_id=principal.id
             )
+        if self.context is not None and (remove or archived is True):
+            await self.context.cancel_conversation(session, principal, conversation_id)
         return await self._chat.edit_conversation(
             session,
             principal,
@@ -642,9 +697,23 @@ class ChatRunService:
             if regeneration_message_id
             else None
         )
-        context = await self._chat.context(
-            session, principal, conversation_id, exclude_question_id=target.question.id if target else None
-        )
+        if self.context is not None:
+            turns = await self._chat.context_turns(
+                session,
+                principal,
+                conversation_id,
+                exclude_question_id=target.question.id if target else None,
+                load_inputs=False,
+            )
+            context_hash = source_fingerprint(turns)
+        else:
+            context = await self._chat.context(
+                session,
+                principal,
+                conversation_id,
+                exclude_question_id=target.question.id if target else None,
+            )
+            context_hash = dependency_fingerprint([asdict(item) for item in context])
         return {
             'conversation_version': conversation.version,
             'skills': [
@@ -653,7 +722,7 @@ class ChatRunService:
                 ).model_dump(mode='json')
                 for item in selection.revisions
             ],
-            'context_hash': dependency_fingerprint([asdict(item) for item in context]),
+            'context_hash': context_hash,
             'main_request': ModelRequest(binding=binding, messages=()).model_dump(mode='json'),
         }
 

@@ -17,6 +17,19 @@ class ConversationInfo(BaseModel):
     created_at: datetime
 
 
+class ChatContextInfo(BaseModel):
+    status: Literal['full', 'summarizing', 'summarized', 'degraded'] = 'full'
+    summary_version: int = 0
+    covered_rounds: int = 0
+    retained_rounds: int = 0
+    dirty: bool = False
+    truncated: bool = False
+    dropped_rounds: int = 0
+    estimated_input_tokens: int | None = None
+    input_budget: int = 8192
+    reason: str | None = None
+
+
 class SkillSnapshot(BaseModel):
     model_config = ConfigDict(extra='forbid')
     slug: str

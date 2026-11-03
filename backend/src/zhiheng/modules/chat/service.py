@@ -1,3 +1,5 @@
+import hashlib
+import json
 from collections.abc import Sequence
 from typing import Literal, cast
 from uuid import UUID
@@ -5,8 +7,10 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, defer, undefer
 
+from zhiheng.modules.chat.context_policy import ContextTurn
+from zhiheng.modules.chat.context_store import ContextStore
 from zhiheng.modules.chat.contracts import (
     ChatGenerationConfig,
     ChatRequestContext,
@@ -187,6 +191,7 @@ class ChatService:
         conversation_id: UUID,
         *,
         exclude_question_id: UUID | None = None,
+        load_inputs: bool = True,
     ) -> tuple[ChatMessage, ...]:
         question_query = (
             select(ChatMessage.id, ChatMessage.run_id)
@@ -198,7 +203,6 @@ class ChatService:
                 ChatMessage.is_complete.is_(True),
             )
             .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-            .limit(50)
         )
         if exclude_question_id is not None:
             question_query = question_query.where(ChatMessage.id != exclude_question_id)
@@ -210,6 +214,13 @@ class ChatService:
                 reply.conversation_id == conversation_id,
                 reply.role == 'assistant',
                 reply.is_complete.is_(True),
+                select(Run.id)
+                .where(
+                    Run.id == reply.run_id,
+                    Run.status == 'completed',
+                    or_(Run.finish_reason == 'stop', Run.finish_reason.is_(None)),
+                )
+                .exists(),
                 or_(reply.reply_to_message_id == questions.c.id, reply.run_id == questions.c.run_id),
             )
             .order_by(reply.generation_index.desc(), reply.created_at.desc(), reply.id.desc())
@@ -220,6 +231,9 @@ class ChatService:
         rows = list(
             await session.scalars(
                 select(ChatMessage)
+                .options(
+                    defer(ChatMessage.reasoning), *(() if load_inputs else (defer(ChatMessage.attachment_inputs),))
+                )
                 .where(
                     ChatMessage.conversation_id == conversation_id,
                     ChatMessage.is_complete.is_(True),
@@ -247,6 +261,137 @@ class ChatService:
             if row.role == 'user' and row.id != exclude_question_id and row.id in latest:
                 context.extend((row, latest[row.id]))
         return tuple(context)
+
+    @staticmethod
+    def _turn(question: ChatMessage, reply: ChatMessage, *, load_inputs: bool) -> ContextTurn:
+        attachments = [
+            AttachmentSummary.model_validate(value) for row in (question, reply) for value in row.attachments
+        ]
+        # This canonical source digest deliberately uses original message/attachment
+        # metadata in both lightweight and hydrated reads; extracted text/images do
+        # not change its meaning. Files are reauthorized against their frozen SHA.
+        digest = hashlib.sha256(
+            json.dumps(
+                [question.content, reply.content, question.attachments, reply.attachments],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(',', ':'),
+            ).encode()
+        ).hexdigest()
+        return ContextTurn(
+            question_id=question.id,
+            reply_id=reply.id,
+            question=ChatService.context_message(question) if load_inputs else ModelMessage('user', question.content),
+            reply=ChatService.context_message(reply) if load_inputs else ModelMessage('assistant', reply.content),
+            generation_index=reply.generation_index or 1,
+            file_refs=tuple((item.file_id, item.sha256) for item in attachments),
+            source_digest=digest,
+        )
+
+    async def context_turns(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        *,
+        exclude_question_id: UUID | None = None,
+        load_inputs: bool = True,
+    ) -> tuple[ContextTurn, ...]:
+        rows = await self._context_rows(
+            session,
+            principal,
+            conversation_id,
+            exclude_question_id=exclude_question_id,
+            load_inputs=load_inputs,
+        )
+        return tuple(
+            self._turn(question, reply, load_inputs=load_inputs)
+            for question, reply in zip(rows[::2], rows[1::2], strict=True)
+        )
+
+    async def hydrate_turns(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        turns: Sequence[ContextTurn],
+    ) -> tuple[ContextTurn, ...]:
+        if not turns:
+            return ()
+        rows = await session.scalars(
+            select(ChatMessage)
+            .join(Conversation)
+            .where(
+                Conversation.owner_id == principal.id,
+                ChatMessage.conversation_id == conversation_id,
+                ChatMessage.id.in_([item for turn in turns for item in (turn.question_id, turn.reply_id)]),
+            )
+            .options(undefer(ChatMessage.attachment_inputs), defer(ChatMessage.reasoning))
+            .execution_options(populate_existing=True)
+        )
+        by_id = {row.id: row for row in rows}
+        if len(by_id) != len(turns) * 2:
+            raise AppError('chat_context_stale', '会话上下文来源已变化', 409)
+        return tuple(self._turn(by_id[turn.question_id], by_id[turn.reply_id], load_inputs=True) for turn in turns)
+
+    async def legacy_context_turns(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        messages: tuple[ModelMessage, ...],
+    ) -> tuple[ContextTurn, ...]:
+        history = [message for message in messages[:-1] if message.role not in {'system', 'developer'}]
+        if len(history) % 2 or any('会话摘要' in item.content for item in history):
+            raise AppError('regeneration_context_unavailable', '原上下文来源无法完整恢复，请重新发送问题', 409)
+        # Legacy requests have no persisted source IDs. Match their immutable
+        # whole pairs; ambiguity in attachment provenance is rejected explicitly.
+        rows = list(
+            await session.scalars(
+                select(ChatMessage)
+                .join(Conversation)
+                .where(
+                    Conversation.owner_id == principal.id,
+                    ChatMessage.conversation_id == conversation_id,
+                )
+            )
+        )
+        restored: list[ContextTurn] = []
+        for question_message, reply_message in zip(history[::2], history[1::2], strict=True):
+            candidates = [
+                self._turn(question, reply, load_inputs=True)
+                for question in rows
+                if question.role == 'user' and self.context_message(question) == question_message
+                for reply in rows
+                if reply.role == 'assistant'
+                and self.context_message(reply) == reply_message
+                and (reply.reply_to_message_id == question.id or reply.run_id == question.run_id)
+            ]
+            if not candidates or len({item.file_refs for item in candidates}) > 1:
+                raise AppError('regeneration_context_unavailable', '原上下文附件来源无法完整恢复，请重新发送问题', 409)
+            restored.append(candidates[0])
+        return tuple(restored)
+
+    async def regeneration_skill_snapshots(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        run_id: UUID,
+    ) -> list[SkillSnapshot]:
+        raw = await session.scalar(
+            select(ChatMessage.skill_snapshots)
+            .join(Conversation)
+            .where(
+                Conversation.owner_id == principal.id,
+                ChatMessage.conversation_id == conversation_id,
+                ChatMessage.run_id == run_id,
+                ChatMessage.role == 'assistant',
+                ChatMessage.generation_index > 1,
+            )
+            .limit(1)
+        )
+        return [SkillSnapshot.model_validate(item) for item in (raw or [])]
 
     async def add_user_message(
         self,
@@ -284,6 +429,9 @@ class ChatService:
     async def complete(
         self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str, reasoning: str = ''
     ) -> None:
+        owner_id = await session.scalar(select(Conversation.owner_id).where(Conversation.id == conversation_id))
+        if owner_id is not None:
+            await ContextStore().mark_completed(session, conversation_id, owner_id, run_id)
         assistant = await session.scalar(
             select(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.role == 'assistant')
         )

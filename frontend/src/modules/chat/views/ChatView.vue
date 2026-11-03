@@ -38,6 +38,10 @@ import { groupMessageVersions } from '../composables/messageVersions.ts'
 import type { ChatMessage } from '../api/index.ts'
 import { CHAT_FILE_ACCEPT } from '../attachments.ts'
 const {
+  contextInfo,
+  contextNotice,
+  contextRetrying,
+  retryChatContext,
   selectConversation,
   selected,
   queuedFiles,
@@ -206,6 +210,19 @@ onBeforeUnmount(() => {
         </button>
       </header>
       <div v-if="selected" class="chat-session-heading">{{ selected.title }}</div>
+      <div v-if="contextNotice" class="chat-context-notice" role="status">
+        <span>{{ contextNotice }}</span>
+        <AButton
+          v-if="contextInfo?.status === 'degraded' && !readOnly"
+          type="link"
+          size="small"
+          :loading="contextRetrying"
+          title="使用当前模型和积分重新整理较早对话"
+          @click="retryChatContext"
+        >
+          重试整理
+        </AButton>
+      </div>
       <div
         v-if="error || listError || canRetry || canRecover || canRetryRegeneration"
         class="chat-alert"
@@ -1020,5 +1037,13 @@ button.chat-toolbar-action:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
+}
+</style>
+
+<style scoped>
+.chat-context-notice {
+  padding: 2px 24px 8px;
+  color: #64748b;
+  font-size: 12px;
 }
 </style>

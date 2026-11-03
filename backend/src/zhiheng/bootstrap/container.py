@@ -5,6 +5,7 @@ from redis.asyncio import Redis
 from zhiheng.application.access import ResourceAccessService
 from zhiheng.application.agent_management import AgentManagementService
 from zhiheng.application.agent_runs import AgentRunService
+from zhiheng.application.chat_context import ChatContextConfig, ChatContextService
 from zhiheng.application.chat_runs import ChatRunService
 from zhiheng.application.developer_management import DeveloperManagementService
 from zhiheng.application.developer_resources import DeveloperResourceQueries
@@ -65,7 +66,8 @@ from zhiheng.shared.errors import AppError
 
 
 class Container:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings) -> None:  # noqa: PLR0915 - explicit process composition
+
         self.settings = settings
         self.database = Database(settings.database_url.get_secret_value())
         self.redis = Redis.from_url(settings.redis_url.get_secret_value(), decode_responses=True)
@@ -111,6 +113,22 @@ class Container:
             MessageActionService(self.chat, self.identity),
             ChatRunService(self.chat, self.models, self.usage, self.runs, self.files),
         )
+        self.chat_context = ChatContextService(
+            self.database,
+            self.chat,
+            self.models,
+            self.identity,
+            self.files,
+            self.admission,
+            settings.token_limit,
+            config=ChatContextConfig(
+                settings.chat_context_input_tokens,
+                settings.chat_summary_trigger_rounds,
+                settings.chat_summary_keep_rounds,
+                settings.chat_summary_output_tokens,
+            ),
+        )
+        self.admission.context = self.chat_context
         self.vectors = MilvusStore(
             settings.milvus_uri, settings.milvus_token.get_secret_value(), settings.milvus_database
         )
@@ -218,6 +236,9 @@ class Container:
             return await self.models.prepare_provider(session, binding)
 
     async def require_model_execution(self, claim: ClaimedRun) -> None:
+        if claim.resource_type in {'chat', 'chat_summary'}:
+            await self.chat_context.guard(claim)
+            return
         if claim.resource_type in {'public', 'agent_invocation'}:
             async with self.database.sessions.begin() as session:
                 await self.keys.authorize_run(

@@ -55,6 +55,7 @@ export function monthlyPointsLimit(value: string): string | null {
 export const creditSource = (source: string): string =>
   ({
     chat: '对话',
+    chat_summary: '会话摘要',
     connection_test: '连接测试',
     public: '开发接入',
     agent_preview: '智能体试聊',

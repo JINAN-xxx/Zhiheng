@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.application.chat_runs import PreparedChatInputs
-from zhiheng.modules.chat.public import ChatGenerationSettings, ConversationInfo, MessageInfo
+from zhiheng.modules.chat.public import ChatContextInfo, ChatGenerationSettings, ConversationInfo, MessageInfo
 from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
@@ -92,6 +92,29 @@ async def messages(
             session, principal, value.knowledge_sources
         )
     return values
+
+
+@router.get('/{conversation_id}/context')
+async def context_info(
+    conversation_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> ChatContextInfo:
+    async with session.begin():
+        return await container.chat_context.info(session, principal, conversation_id)
+
+
+@router.post('/{conversation_id}/context/retry', status_code=202)
+async def retry_context(
+    conversation_id: UUID,
+    body: RegenerateRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> ChatContextInfo:
+    async with session.begin():
+        return await container.chat_context.retry(session, principal, conversation_id, body.client_request_id)
 
 
 @router.post('/{conversation_id}/runs', status_code=202)

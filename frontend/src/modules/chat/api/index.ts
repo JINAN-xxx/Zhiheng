@@ -1,3 +1,4 @@
+import { parseContextInfo } from '../contextInfo.ts'
 import { generationRequest, parseGenerationConfig } from '../generationSettings.ts'
 import type { ChatGenerationConfig, ChatGenerationRequest } from '../generationSettings.ts'
 import { decodeVoid, http } from '../../../shared/http.ts'
@@ -163,4 +164,17 @@ export const deleteConversation = (conversation: Conversation, signal: AbortSign
     body: { expected_version: conversation.version },
     signal,
     decode: decodeVoid
+  })
+
+export const getContextInfo = (id: string, signal: AbortSignal) =>
+  http.request(`/chat/conversations/${encodeURIComponent(id)}/context`, {
+    signal,
+    decode: parseContextInfo
+  })
+export const retryContext = (id: string, client_request_id: string, signal: AbortSignal) =>
+  http.request(`/chat/conversations/${encodeURIComponent(id)}/context/retry`, {
+    method: 'POST',
+    body: { client_request_id },
+    signal,
+    decode: parseContextInfo
   })

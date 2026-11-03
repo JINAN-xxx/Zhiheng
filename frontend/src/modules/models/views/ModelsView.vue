@@ -165,6 +165,7 @@ const modelForm = reactive<{
   connection_id: string
   upstream_model: string
   max_output_tokens: number | null
+  context_window_tokens: number | null
   model_type: ChatModel['model_type']
   vision_enabled: boolean
 }>({
@@ -172,6 +173,7 @@ const modelForm = reactive<{
   connection_id: '',
   upstream_model: '',
   max_output_tokens: 512,
+  context_window_tokens: null,
   model_type: 'chat',
   vision_enabled: false
 })
@@ -267,6 +269,7 @@ function openModel(model: ChatModel | null = null): void {
         : ''),
     upstream_model: model?.upstream_model ?? '',
     max_output_tokens: model?.max_output_tokens ?? 512,
+    context_window_tokens: model?.context_window_tokens ?? null,
     model_type: model?.model_type ?? 'chat',
     vision_enabled: model?.vision_enabled ?? false
   })
@@ -426,6 +429,14 @@ async function saveModel(): Promise<void> {
     modalError.value = '请填写模型信息，输出上限须为 1–131072 的整数'
     return
   }
+  const windowTokens = modelForm.context_window_tokens
+  if (
+    windowTokens !== null &&
+    (!Number.isInteger(windowTokens) || windowTokens < 256 || windowTokens > 2097152)
+  ) {
+    modalError.value = '上下文窗口须为 256–2097152 的整数，或留空使用平台输入预算'
+    return
+  }
   const context = mutationScope.replace()
   saving.value = true
   modalError.value = ''
@@ -445,6 +456,7 @@ async function saveModel(): Promise<void> {
             connection_id: body.connection_id,
             upstream_model: body.upstream_model,
             max_output_tokens: body.max_output_tokens,
+            context_window_tokens: body.context_window_tokens,
             vision_enabled: body.model_type === 'chat' && body.vision_enabled
           },
           context.signal
@@ -992,6 +1004,19 @@ async function stopTest(): Promise<void> {
               :precision="0"
               class="full-width"
               @update:value="setMaxOutputTokens" /></AFormItem
+          ><AFormItem
+            label="上下文窗口 tokens（可选）"
+            extra="填写模型实际窗口；留空时使用平台输入预算。"
+            ><AInputNumber
+              :value="modelForm.context_window_tokens ?? ''"
+              :min="256"
+              :max="2097152"
+              :precision="0"
+              class="full-width"
+              placeholder="使用平台输入预算"
+              @update:value="
+                modelForm.context_window_tokens = typeof $event === 'number' ? $event : null
+              " /></AFormItem
         ></AForm>
       </section>
     </div>

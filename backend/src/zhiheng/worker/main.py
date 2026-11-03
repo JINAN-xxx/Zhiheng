@@ -97,6 +97,7 @@ async def periodic(context: dict[str, object]) -> None:
     async with container.database.sessions.begin() as session:
         await container.skills.cleanup_expired(session)
     await recover_expired(container)
+    await container.chat_context.reconcile()
     await publish_outbox(container, queue)
     await publish_knowledge(container, queue)
     runner = context.get('graph_runner')

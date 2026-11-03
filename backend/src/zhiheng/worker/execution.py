@@ -16,3 +16,4 @@ async def execute_run(container: Container, run_id: UUID) -> None:
         before_provider=container.require_model_execution,
     )
     await executor.execute(run_id)
+    await container.chat_context.reconcile()

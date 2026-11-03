@@ -15,6 +15,7 @@ export interface ChatModel {
   connection_id: string
   upstream_model: string
   max_output_tokens: number
+  context_window_tokens?: number | null
   enabled: boolean
   model_type: 'chat' | 'embedding' | 'rerank'
   published: boolean
@@ -54,6 +55,8 @@ function parseModel(value: unknown): ChatModel {
     connection_id: string(data.connection_id),
     upstream_model: string(data.upstream_model),
     max_output_tokens: number(data.max_output_tokens),
+    context_window_tokens:
+      data.context_window_tokens == null ? null : number(data.context_window_tokens),
     enabled: boolean(data.enabled),
     model_type: data.model_type,
     published: boolean(data.published),
@@ -78,6 +81,7 @@ export const createModel = (
     connection_id: string
     upstream_model: string
     max_output_tokens: number
+    context_window_tokens?: number | null
     model_type?: 'chat' | 'embedding' | 'rerank'
     published?: boolean
     vision_enabled?: boolean
@@ -116,6 +120,7 @@ export const updateModel = (
     connection_id: string
     upstream_model: string
     max_output_tokens: number
+    context_window_tokens?: number | null
     vision_enabled?: boolean
   },
   signal: AbortSignal

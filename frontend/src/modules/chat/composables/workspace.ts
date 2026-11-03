@@ -1,3 +1,4 @@
+import { useChatContextObservation } from './contextObservation.ts'
 import {
   computed,
   inject,
@@ -125,6 +126,7 @@ function createChatWorkspace() {
   const stopping = ref(false)
   const disconnected = ref(false)
   const activeRun = ref<RunSnapshot | null>(null)
+  const contextObservation = useChatContextObservation(selected, activeRun)
   const stopAcknowledged = computed(() => {
     const preparation = activePreparation.value
     return preparation && !preparationFinished(preparation)
@@ -873,6 +875,7 @@ function createChatWorkspace() {
   })
 
   return {
+    ...contextObservation,
     regenerate,
     retryRegeneration,
     regenerationPending,

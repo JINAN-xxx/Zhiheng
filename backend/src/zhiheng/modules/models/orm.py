@@ -40,6 +40,7 @@ class ModelDefinition(Base):
     name: Mapped[str] = mapped_column(String(80))
     upstream_model: Mapped[str] = mapped_column(String(200))
     max_output_tokens: Mapped[int] = mapped_column(Integer)
+    context_window_tokens: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     model_type: Mapped[str] = mapped_column(String(16), default='chat')
     vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')

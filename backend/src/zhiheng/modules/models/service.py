@@ -122,6 +122,7 @@ class ModelService:
         connection_id: UUID,
         upstream_model: str,
         max_output_tokens: int,
+        context_window_tokens: int | None = None,
         model_type: Literal['chat', 'embedding', 'rerank'] = 'chat',
         published: bool = True,
         vision_enabled: bool = False,
@@ -141,6 +142,7 @@ class ModelService:
             connection_id=connection_id,
             upstream_model=upstream_model,
             max_output_tokens=max_output_tokens,
+            context_window_tokens=context_window_tokens,
             model_type=model_type,
             published=published,
             vision_enabled=vision_enabled,
@@ -284,6 +286,7 @@ class ModelService:
             connection_revision_id=revision.id,
             upstream_model=model.upstream_model,
             max_output_tokens=model.max_output_tokens,
+            context_window_tokens=model.context_window_tokens,
             model_type=cast("Literal['chat', 'embedding', 'rerank']", model.model_type),
         )
 
@@ -342,6 +345,7 @@ class ModelService:
             connection_revision_id=revision.id,
             upstream_model=model.upstream_model,
             max_output_tokens=model.max_output_tokens,
+            context_window_tokens=model.context_window_tokens,
             model_type=cast("Literal['chat', 'embedding', 'rerank']", model.model_type),
             vision_enabled=model.vision_enabled,
         )
@@ -439,6 +443,7 @@ class ModelService:
             connection_id=row.connection_id,
             upstream_model=row.upstream_model,
             max_output_tokens=row.max_output_tokens,
+            context_window_tokens=row.context_window_tokens,
             enabled=row.enabled,
             model_type=kind,
             published=row.published,

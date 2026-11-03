@@ -35,8 +35,8 @@ REQUIRED_FILES = frozenset(
         'zhiheng/api/resources/schemas/operations.py',
         'zhiheng/application/developer_resources.py',
         'zhiheng/application/identity/__init__.py',
-    'zhiheng/application/identity/accounts.py',
-    'zhiheng/modules/skills/public.py',
+        'zhiheng/application/identity/accounts.py',
+        'zhiheng/modules/skills/public.py',
         'zhiheng/modules/skills/package.py',
         'zhiheng/modules/skills/validation.py',
         'zhiheng/api/console/skills.py',
@@ -125,6 +125,7 @@ def verify_core_wheel(directory: Path) -> Path:
         'versions/0014_personal_skill_ownership.py',
         'versions/0015_resource_api_access.py',
         'versions/0016_file_purpose.py',
+        'versions/0017_chat_context_memory.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations
