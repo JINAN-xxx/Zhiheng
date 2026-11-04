@@ -143,3 +143,26 @@ void test('documentation renders every actual operation and resolves DTO fields 
   assert.equal(result[1]?.fields?.[0]?.required, true)
   assert.equal(result[0]?.curlExample, 'curl {{ORIGIN}}/api/v1/skills')
 })
+
+void test('documentation keeps basic and reliable retry samples available', () => {
+  const result = docs.parseOpenApiDocuments({
+    openapi: '3.1.0',
+    paths: {
+      '/api/v1/files': {
+        post: {
+          operationId: 'upload',
+          responses: { '201': { description: 'Created' } },
+          'x-codeSamples': [
+            { lang: 'Shell', label: 'curl', source: 'curl basic' },
+            { lang: 'Shell', label: 'curl · 可靠重试', source: 'curl retry' }
+          ]
+        }
+      }
+    }
+  })
+  assert.deepEqual(result[0]?.codeSamples, [
+    { label: 'curl', source: 'curl basic' },
+    { label: 'curl · 可靠重试', source: 'curl retry' }
+  ])
+  assert.equal(result[0]?.curlExample, 'curl basic')
+})

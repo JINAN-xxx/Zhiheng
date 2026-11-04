@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
-from zhiheng.api.common.preconditions import expected_version, idempotency_header
+from zhiheng.api.common.preconditions import Idempotency, expected_version
 from zhiheng.api.resources.dependencies import resource_caller
 from zhiheng.api.resources.schemas.skills import ImportRequest, RevisionPage, SkillPage, StatusRequest
 from zhiheng.application.access import CallerContext
@@ -22,13 +22,11 @@ WriteCaller = Annotated[CallerContext, Depends(resource_caller('skills:write'))]
 @router.post('/skill-imports', status_code=201, openapi_extra={'x-required-scopes': ['skills:write', 'files:read']})
 async def prepare(
     body: ImportRequest,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: WriteCaller,
-    idempotency_key: Annotated[UUID, Header(alias='Idempotency-Key')],
+    idempotency_key: Idempotency,
 ) -> DraftInfo:
-    idempotency_header(request)
     result = await container.skill_commands.prepare(caller, body.file_id, idempotency_key)
     response.headers['Location'] = f'/api/v1/skill-imports/{result.draft_id}/confirm'
     return result
@@ -45,13 +43,11 @@ async def prepare(
 )
 async def confirm(
     draft_id: UUID,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: WriteCaller,
-    idempotency_key: Annotated[UUID, Header(alias='Idempotency-Key')],
+    idempotency_key: Idempotency,
 ) -> ResourceSkillInfo:
-    idempotency_header(request)
     result = await container.skill_commands.confirm(caller, draft_id, idempotency_key)
     response.headers['Location'] = f'/api/v1/skills/{result.id}'
     response.headers['ETag'] = f'"skill-{result.resource_version}"'

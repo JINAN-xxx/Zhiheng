@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
@@ -19,7 +20,9 @@ from zhiheng.worker.execution import execute_run
 SCOPES = ['files:read', 'files:write', 'knowledge:read', 'knowledge:write', 'knowledge:query']
 
 
-async def setup(admin: httpx.AsyncClient, provider: ProviderServer, app: FastAPI) -> tuple[dict, dict, dict]:
+async def setup(
+    admin: httpx.AsyncClient, provider: ProviderServer, app: FastAPI, *, supplied_key: bool = True
+) -> tuple[dict, dict, dict]:
     model = await embedding_model(admin, provider)
     rate = await admin.post(
         f'/api/models/{model}/rate-cards', json={'billing_mode': 'token', 'input_price': '1', 'output_price': '0'}
@@ -30,7 +33,9 @@ async def setup(admin: httpx.AsyncClient, provider: ProviderServer, app: FastAPI
     c = app.state.container
     c.knowledge_jobs.vectors = c.knowledge_preparation.vectors = VectorFixture()
     created = await admin.post(
-        '/api/v1/knowledge-bases', headers=auth(key, uuid4()), json={'name': 'Personal', 'embed_model_id': model}
+        '/api/v1/knowledge-bases',
+        headers=auth(key, uuid4() if supplied_key else None),
+        json={'name': 'Personal', 'embed_model_id': model},
     )
     assert created.status_code == 201, created.text
     return owner_app, key, created.json()
@@ -76,9 +81,14 @@ async def test_resource_knowledge_native_index_query_operations_and_replay(
     assert len(provider.requests) == 1
     documents = await admin.get(endpoint + '/documents', headers=auth(key))
     assert len(documents.json()['items']) == 1 and documents.json()['has_more'] is False
-    query = await admin.post(endpoint + '/query', headers=auth(key, uuid4()), json={'query': 'four'})
-    assert query.status_code == 202, query.text
-    result = await finish(admin, app, key, query.json())
+    query_key = uuid4()
+    queries = await asyncio.gather(
+        *(admin.post(endpoint + '/query', headers=auth(key, query_key), json={'query': 'four'}) for _ in range(3))
+    )
+    assert {query.status_code for query in queries} == {202}, [query.text for query in queries]
+    assert len({query.json()['id'] for query in queries}) == 1
+    envelope(await admin.post(endpoint + '/query', headers=auth(key, query_key), json={'query': 'changed'}), 409)
+    result = await finish(admin, app, key, queries[0].json())
     assert result['status'] == 'succeeded' and result['result']['hits'][0]['content'] == 'four', result
     assert len(provider.requests) == 2
     second = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=[base['embed_model_id']])
@@ -152,12 +162,15 @@ async def test_resource_native_queued_revocation_cancel_and_deleted_base_history
     assert (await admin.get(endpoint, headers=auth(key))).status_code == 404
 
 
+@pytest.mark.parametrize('supplied_key', [True, False])
 async def test_resource_complete_folder_rechunk_rebuild_document_delete_routes(
-    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, supplied_key: bool
 ) -> None:
-    _owner_app, key, base = await setup(admin, provider, app)
+    _owner_app, key, base = await setup(admin, provider, app, supplied_key=supplied_key)
     endpoint = '/api/v1/knowledge-bases/' + base['id']
-    folder = await admin.post(endpoint + '/folders', headers=auth(key, uuid4()), json={'name': 'Root'})
+    folder = await admin.post(
+        endpoint + '/folders', headers=auth(key, uuid4() if supplied_key else None), json={'name': 'Root'}
+    )
     assert folder.status_code == 201, folder.text
     folder_url = endpoint + '/folders/' + folder.json()['id']
     changed = await admin.patch(
@@ -165,51 +178,79 @@ async def test_resource_complete_folder_rechunk_rebuild_document_delete_routes(
     )
     assert changed.status_code == 200, changed.text
     child = await admin.post(
-        endpoint + '/folders', headers=auth(key, uuid4()), json={'name': 'Child', 'parent_id': folder.json()['id']}
+        endpoint + '/folders',
+        headers=auth(key, uuid4() if supplied_key else None),
+        json={'name': 'Child', 'parent_id': folder.json()['id']},
     )
     file = await post(admin, key)
     bad_duplicate = await admin.post(
-        endpoint + '/documents', headers=auth(key, uuid4()), json={'file_ids': [file.json()['id'], file.json()['id']]}
+        endpoint + '/documents',
+        headers=auth(key, uuid4() if supplied_key else None),
+        json={'file_ids': [file.json()['id'], file.json()['id']]},
     )
     envelope(bad_duplicate, 422)
     imported = await admin.post(
         endpoint + '/documents',
-        headers=auth(key, uuid4()),
+        headers=auth(key, uuid4() if supplied_key else None),
         json={'file_ids': [file.json()['id']], 'folder_id': child.json()['id']},
     )
     assert imported.status_code == 202, imported.text
     assert (await finish(admin, app, key, imported.json()))['status'] == 'succeeded'
+    query = await admin.post(
+        endpoint + '/query', headers=auth(key, uuid4() if supplied_key else None), json={'query': 'four'}
+    )
+    assert query.status_code == 202, query.text
+    assert (await finish(admin, app, key, query.json()))['status'] == 'succeeded'
     document = (await admin.get(endpoint + '/documents', headers=auth(key))).json()['items'][0]
     rechunked = await admin.post(
         endpoint + '/documents/' + document['id'] + '/rechunk',
-        headers={**auth(key, uuid4()), 'If-Match': f'"knowledge-document-{document["version"]}"'},
+        headers={
+            **auth(key, uuid4() if supplied_key else None),
+            'If-Match': f'"knowledge-document-{document["version"]}"',
+        },
         json={'chunk_size': 200, 'chunk_overlap': 20},
     )
     assert rechunked.status_code == 202, rechunked.text
     assert (await finish(admin, app, key, rechunked.json()))['status'] == 'succeeded'
     current = await admin.get(endpoint, headers=auth(key))
     rebuilt = await admin.post(
-        endpoint + '/rebuild', headers={**auth(key, uuid4()), 'If-Match': current.headers['etag']}
+        endpoint + '/rebuild',
+        headers={**auth(key, uuid4() if supplied_key else None), 'If-Match': current.headers['etag']},
     )
     assert rebuilt.status_code == 202, rebuilt.text
     assert (await finish(admin, app, key, rebuilt.json()))['status'] == 'succeeded'
-    removed = await admin.delete(folder_url, headers={**auth(key, uuid4()), 'If-Match': changed.headers['etag']})
+    removed = await admin.delete(
+        folder_url, headers={**auth(key, uuid4() if supplied_key else None), 'If-Match': changed.headers['etag']}
+    )
     assert removed.status_code == 202, removed.text
     assert (await finish(admin, app, key, removed.json()))['status'] == 'succeeded'
     assert (await admin.get(endpoint + '/folders', headers=auth(key))).json()['items'] == []
     assert (await admin.get(endpoint + '/documents', headers=auth(key))).json()['items'] == []
     another = await admin.post(
-        endpoint + '/documents', headers=auth(key, uuid4()), json={'file_ids': [file.json()['id']]}
+        endpoint + '/documents',
+        headers=auth(key, uuid4() if supplied_key else None),
+        json={'file_ids': [file.json()['id']]},
     )
     assert another.status_code == 202, another.text
     assert (await finish(admin, app, key, another.json()))['status'] == 'succeeded'
     document = (await admin.get(endpoint + '/documents', headers=auth(key))).json()['items'][0]
     removed = await admin.delete(
         endpoint + '/documents/' + document['id'],
-        headers={**auth(key, uuid4()), 'If-Match': f'"knowledge-document-{document["version"]}"'},
+        headers={
+            **auth(key, uuid4() if supplied_key else None),
+            'If-Match': f'"knowledge-document-{document["version"]}"',
+        },
     )
     assert removed.status_code == 202, removed.text
     assert (await finish(admin, app, key, removed.json()))['status'] == 'succeeded'
+
+    current = await admin.get(endpoint, headers=auth(key))
+    deleted = await admin.delete(
+        endpoint,
+        headers={**auth(key, uuid4() if supplied_key else None), 'If-Match': current.headers['etag']},
+    )
+    assert deleted.status_code == 202, deleted.text
+    assert (await finish(admin, app, key, deleted.json()))['status'] == 'succeeded'
 
 
 async def test_resource_validation_uses_native_text_constraints(
@@ -232,3 +273,13 @@ async def test_resource_validation_uses_native_text_constraints(
             422,
         )
         envelope(await client.post(endpoint + '/query', headers=auth(key, uuid4()), json={'query': ' '}), 422)
+
+
+async def test_resource_metadata_without_key_keeps_identical_submissions_distinct(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
+) -> None:
+    _owner_app, key, base = await setup(admin, provider, app)
+    body = {'name': 'Another', 'embed_model_id': base['embed_model_id']}
+    responses = [await admin.post('/api/v1/knowledge-bases', headers=auth(key), json=body) for _ in range(2)]
+    assert [response.status_code for response in responses] == [201, 201], [r.text for r in responses]
+    assert responses[0].json()['id'] != responses[1].json()['id']

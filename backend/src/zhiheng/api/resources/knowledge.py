@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 
 from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
-from zhiheng.api.common.preconditions import expected_version, idempotency_header
+from zhiheng.api.common.preconditions import Idempotency, expected_version
 from zhiheng.api.resources.dependencies import resource_caller
 from zhiheng.api.resources.schemas.knowledge import (
     BasePage,
@@ -37,7 +37,6 @@ router = APIRouter(prefix='/api/v1/knowledge-bases', tags=['resources:knowledge'
 ReadCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:read'))]
 WriteCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:write'))]
 QueryCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:query'))]
-Idempotency = Annotated[UUID, Header(alias='Idempotency-Key')]
 IfMatch = Annotated[str | None, Header(alias='If-Match')]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Cursor = Annotated[str | None, Query(max_length=1024)]
@@ -53,13 +52,11 @@ def accepted(response: Response, operation: OperationInfo) -> OperationInfo:
 )
 async def create(
     body: CreateRequest,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: WriteCaller,
     idempotency_key: Idempotency,
 ) -> BaseInfo:
-    idempotency_header(request)
     info = await container.knowledge_commands.create(caller, BaseCreate(**body.model_dump()), idempotency_key)
     response.headers['ETag'] = f'"knowledge-base-{info.version}"'
     response.headers['Location'] = f'/api/v1/knowledge-bases/{info.id}'
@@ -137,13 +134,11 @@ async def folders(
 async def create_folder(
     base_id: UUID,
     body: FolderCreate,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: WriteCaller,
     idempotency_key: Idempotency,
 ) -> FolderInfo:
-    idempotency_header(request)
     info = await container.knowledge_commands.folder_create(caller, base_id, body, idempotency_key)
     response.headers['ETag'] = f'"knowledge-folder-{info.version}"'
     response.headers['Location'] = f'/api/v1/knowledge-bases/{base_id}/folders/{info.id}'
@@ -204,13 +199,11 @@ async def documents(
 async def import_documents(
     base_id: UUID,
     body: ImportRequest,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: WriteCaller,
     idempotency_key: Idempotency,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(
@@ -223,13 +216,11 @@ async def import_documents(
 async def query(
     base_id: UUID,
     body: QueryBody,
-    request: Request,
     response: Response,
     container: ContainerDependency,
     caller: QueryCaller,
     idempotency_key: Idempotency,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.query(
@@ -252,7 +243,6 @@ async def rebuild(
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(
@@ -277,7 +267,6 @@ async def rechunk(
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(
@@ -307,7 +296,6 @@ async def remove_document(
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(
@@ -336,7 +324,6 @@ async def remove_folder(
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(
@@ -364,7 +351,6 @@ async def remove_base(
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
 ) -> OperationInfo:
-    idempotency_header(request)
     return accepted(
         response,
         await container.knowledge_commands.job(

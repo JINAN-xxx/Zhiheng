@@ -460,12 +460,10 @@ async def test_resource_upload_rejects_authority_fields_and_transport_overhead(
     _c, _owner_app, key, _caller = await setup_access(admin, app)
     for name in ('owner_id', 'is_admin', 'storage_key', 'path'):
         envelope(await post(admin, key, data={'purpose': 'knowledge', name: 'forged'}), 422)
-    envelope(
-        await admin.post(
-            '/api/v1/files', headers=auth(key), files={'file': ('a.txt', b'a')}, data={'purpose': 'knowledge'}
-        ),
-        422,
+    without_key = await admin.post(
+        '/api/v1/files', headers=auth(key), files={'file': ('a.txt', b'a')}, data={'purpose': 'knowledge'}
     )
+    assert without_key.status_code == 201, without_key.text
     envelope(
         await post(
             admin, key, files={'file': ('big.txt', b'x' * (20 * 1024 * 1024))}, data={'purpose': 'x' * (64 * 1024 + 1)}
@@ -610,3 +608,34 @@ async def test_rejected_resource_cors_preflight_uses_common_error(
             'Access-Control-Max-Age',
         ):
             assert resource.headers.get(name) == console.headers.get(name), name
+
+
+async def test_resource_file_without_key_is_a_new_submission(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    c, _owner_app, key, _caller = await setup_access(admin, app)
+    responses = [
+        await admin.post(
+            '/api/v1/files',
+            headers={**auth(key), 'X-Request-ID': 'same-client-trace'},
+            files={'file': ('source.txt', b'four', 'text/plain')},
+            data={'purpose': 'knowledge'},
+        )
+        for _ in range(2)
+    ]
+    assert [response.status_code for response in responses] == [201, 201], [r.text for r in responses]
+    assert responses[0].json()['id'] != responses[1].json()['id']
+    async with c.database.sessions() as session:
+        requests = list(await session.scalars(select(APIRequest)))
+        assert len(requests) == 2
+        assert len({row.idempotency_key for row in requests}) == 2
+
+
+@pytest.mark.parametrize('value', ['', 'not-a-uuid'])
+async def test_resource_file_rejects_present_invalid_key(admin: httpx.AsyncClient, app: FastAPI, value: str) -> None:
+    _c, _owner_app, key, _caller = await setup_access(admin, app)
+    response = await admin.post(
+        '/api/v1/files',
+        headers={**auth(key), 'Idempotency-Key': value},
+        files={'file': ('source.txt', b'four', 'text/plain')},
+        data={'purpose': 'knowledge'},
+    )
+    envelope(response, 422)

@@ -450,3 +450,13 @@ async def test_skill_confirmation_requires_source_to_remain_readable(admin: http
     async with app.state.container.database.sessions() as session:
         row = await session.get(SkillDraft, UUID(draft.json()['draft_id']))
         assert row.confirmed_info is None
+
+
+async def test_skill_preview_and_confirm_accept_omitted_keys(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    _owner_app, key = await setup(admin)
+    file = await post(admin, key, files={'file': ('SKILL.md', markdown(), 'text/markdown')}, data={'purpose': 'skill'})
+    draft = await admin.post('/api/v1/skill-imports', headers=auth(key), json={'file_id': file.json()['id']})
+    assert draft.status_code == 201, draft.text
+    installed = await admin.post('/api/v1/skill-imports/' + draft.json()['draft_id'] + '/confirm', headers=auth(key))
+    assert installed.status_code == 201, installed.text
+    assert (await admin.get('/api/v1/skills/' + installed.json()['id'], headers=auth(key))).status_code == 200

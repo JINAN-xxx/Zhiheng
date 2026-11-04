@@ -16,15 +16,24 @@ API 创建的资源归应用真实拥有者并自动关联当前应用。不能�
 
 ## 接入步骤
 
-先设置当前入口与 Key；为每个新的幂等 POST 生成 UUID，同一请求重试保留原键。
+先设置当前入口与 Key，即可直接提交资源操作，无需手动生成请求 UUID。
 
 ```bash
 export ORIGIN='http://127.0.0.1:19080'
 export API_KEY='你的访问密钥'
-export REQUEST_ID="$(python -c 'import uuid; print(uuid.uuid4())')"
 curl --fail-with-body "$ORIGIN/api/v1/files" \
   -H "Authorization: Bearer $API_KEY" \
-  -H "Idempotency-Key: $REQUEST_ID" \
+  -F 'file=@./notes.txt' -F 'purpose=knowledge'
+```
+
+需要在响应丢失等情况可靠重试时，为同一业务操作生成一次键，并仅重复 curl：
+
+```bash
+export IDEMPOTENCY_KEY="$(python -c 'import uuid; print(uuid.uuid4())')"
+# 重试时保留原值；下一次新的业务操作再生成新键。
+curl --fail-with-body "$ORIGIN/api/v1/files" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
   -F 'file=@./notes.txt' -F 'purpose=knowledge'
 ```
 
@@ -36,10 +45,10 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 
 - `Authorization: Bearer …`，资源不回退到 Cookie；HTTP Bearer 的操作能力使用规范中的 `x-required-scopes`，不伪装成 OAuth。Operation 读取根据原生 kind 要求 `knowledge:read` 或 `knowledge:query`。
 - multipart 只接受一个二进制 `file` 与一个 `purpose`；原文件最多 20 MiB，技能包还受 10 MiB/解压 30 MiB、200 文件及主文件 128 KiB 等原领域限制。普通 JSON 请求限额独立。
-- 创建、导入、确认和有计量检索要求 UUID `Idempotency-Key`。相同应用/操作/键和内容返回原结果，内容变化为 409。请求身份永久保留，响应快照 24 小时；过期重放返回 409 及当前允许的原结果引用，不重新执行。Operation GET 无此 24 小时窗口，仍复核当前 Scope、应用与 ACL。
+- 资源创建、导入、确认、检索及相关异步操作的 `Idempotency-Key` 可选，提供时须为单个 UUID；空值、非法值或重复头返回 422。省略时服务端为每次 HTTP 请求生成内部键，按新提交处理，不保证跨请求去重；相同内容也不会自动合并。原生状态、权限和版本约束仍会限制提交。可靠重试需显式提供并复用原键。相同应用/操作/键和内容返回原结果，内容变化为 409。请求身份永久保留，响应快照 24 小时；过期重放返回 409 及当前允许的原结果引用，不重新执行。Operation GET 无此 24 小时窗口，仍复核当前 Scope、应用与 ACL。
 - 列表为 `items/next_cursor/has_more`，默认 20、最多 100；游标绑定应用和过滤条件。可变资源修改发送强版本 `ETag` 作为 `If-Match`，缺少为 428、陈旧为 412。资源文件元数据、内容下载（含 Range）和变更响应使用相同的 `"file-{version}"` 状态版本；技能不可变原包下载的 ETag 则为内容 SHA256，不能作为技能状态版本；领域引用、幂等和在途冲突为 409。
 - 异步接纳为 202 + `Location` + operation。至少隔一秒轮询；保留 `partially_succeeded`、`cancel_requested`、`interrupted`，取消接纳不等于立即停止。只查询既有原生作业，不新增队列、执行器或账本。
-- 资源响应总有 `X-Request-ID`；错误为 `error.code/message/details/request_id`，429 带 `Retry-After`。下载支持单 `Range`、206 和 `Content-Range`。推理仍使用原 OpenAI 错误形状和 SSE `data: [DONE]`。
+- API Key 用于鉴权，返回的资源 `id` 用于后续访问；资源响应总有用于追踪的 `X-Request-ID`，它不能代替幂等键，也不能保证响应丢失后的安全重试；错误为 `error.code/message/details/request_id`，429 带 `Retry-After`。下载支持单 `Range`、206 和 `Content-Range`。推理仍使用原 OpenAI 错误形状和 SSE `data: [DONE]`。
 
 应用默认上限为 1000 个原始文件、1 GiB 逻辑空间，平台管理员可在资源授权页修改。计数来自源文件登记事实；重复绑定不重复计量，回收与解绑不释放空间，实际清理后由原文件生命周期回调释放。派生索引及技能快照纳入平台存储统计，不换算为 Token。
 
@@ -47,4 +56,4 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 
 Vite 与 Nginx 模板均需代理 `/openapi/`，避免分组 JSON 落入 SPA。源码模式的实际 Nginx 配置由外部 `CORE_SOURCE_PROXY_CONFIG` 挂载，更新仓库模板后还需在发布阶段重新生成并重载外部配置；保留共享链接日志脱敏、HMR、SSE 超时与无缓存配置。无需打包前端。
 
-本分支最新迁移为 `0016_file_purpose`。个人技能升级先审计可确认的归属，旧内置模板生成个人副本并保留历史关联；无法唯一归属的活动引用会阻止升级，不能统一分配给管理员。源实例同步、完整备份副本升级与端到端验收由发布任务完成；本接口说明不代表正常实例已经升级。
+本分支最新迁移为 `0017_chat_context_memory`。个人技能升级先审计可确认的归属，旧内置模板生成个人副本并保留历史关联；无法唯一归属的活动引用会阻止升级，不能统一分配给管理员。源实例同步、完整备份副本升级与端到端验收由发布任务完成；本接口说明不代表正常实例已经升级。

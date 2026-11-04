@@ -69,8 +69,11 @@ def _describe_preconditions(operation: dict[str, Any], responses: dict[str, Any]
                     'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ResourceErrorEnvelope'}}},
                 }
         elif param['name'] == 'Idempotency-Key':
+            param['required'] = False
             param['description'] = (
-                '单个 UUID。相同应用、操作及键永久标识一次请求；响应快照保留 24 小时，过期重放返回 409 和当前允许的原结果引用。'
+                '可选的单个 UUID。省略时每次请求按新提交处理，不保证跨请求去重；可靠重试须为同一业务操作生成一次键并复用。'
+                '相同应用、操作及键永久标识一次请求，相同内容返回原结果，不同内容返回 409；'
+                '响应快照保留 24 小时，过期重放返回 409 和当前允许的原结果引用。'
             )
 
 

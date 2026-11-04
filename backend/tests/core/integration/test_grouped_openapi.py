@@ -59,9 +59,11 @@ async def test_grouped_resources_contract_matches_registered_routes(admin: httpx
     }
     assert EXAMPLE_BODIES.keys() <= recipe_routes.keys()
     for operation in (operation for operations in schema['paths'].values() for operation in operations.values()):
-        sample = operation['x-codeSamples'][0]['source']
-        checked = await asyncio.to_thread(subprocess.run, ['bash', '-n'], input=sample, text=True, capture_output=True)
-        assert checked.returncode == 0, checked.stderr
+        for sample in operation['x-codeSamples']:
+            checked = await asyncio.to_thread(
+                subprocess.run, ['bash', '-n'], input=sample['source'], text=True, capture_output=True
+            )
+            assert checked.returncode == 0, checked.stderr
         body = operation.get('requestBody', {}).get('content', {}).get('application/json')
         if body:
             assert 'example' in body

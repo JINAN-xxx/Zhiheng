@@ -17,6 +17,7 @@ export interface ApiDocument {
   fields: ApiField[]
   responseFields: ApiField[]
   curlExample: string
+  codeSamples: { label: string; source: string }[]
   requestExample: string
   responses: string
 }
@@ -81,6 +82,17 @@ export function parseOpenApiDocuments(value: unknown): ApiDocument[] {
           }))
         : []
       const samples = operation['x-codeSamples'] ? list(object)(operation['x-codeSamples']) : []
+      const codeSamples = samples.length
+        ? samples.map((sample) => ({
+            label: typeof sample.label === 'string' ? sample.label : 'curl',
+            source: string(sample.source)
+          }))
+        : [
+            {
+              label: 'curl',
+              source: `curl --fail-with-body -X ${method.toUpperCase()} "{{ORIGIN}}${path}" -H "Authorization: Bearer $API_KEY"`
+            }
+          ]
       result.push({
         id: string(operation.operationId),
         method: method.toUpperCase(),
@@ -95,9 +107,8 @@ export function parseOpenApiDocuments(value: unknown): ApiDocument[] {
         fields: [...parameters, ...fields(body.schema)],
         responseFields: responseMedia ? fields(object(responseMedia).schema) : [],
         requestExample: body.example ? JSON.stringify(body.example, null, 2) : '',
-        curlExample: samples[0]
-          ? string(samples[0].source)
-          : `curl --fail-with-body -X ${method.toUpperCase()} "{{ORIGIN}}${path}" -H "Authorization: Bearer $API_KEY"`,
+        curlExample: codeSamples[0]!.source,
+        codeSamples,
         responses: Object.entries(responses)
           .map(([status, value]) => {
             const response = object(value)

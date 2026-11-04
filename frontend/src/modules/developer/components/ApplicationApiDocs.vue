@@ -54,10 +54,10 @@
         <section id="api-protocol" class="api-doc-section">
           <h2>版本、幂等与操作</h2>
           <p class="api-doc-description">
-            创建、导入、确认及计量检索发送单个 UUID
-            Idempotency-Key。重试同一请求复用原键；不同内容返回 409。响应快照保留 24
-            小时，过期重放返回 409 和当前允许的原结果引用；operation GET 可长期读取，仍复核当前
-            Scope 与 ACL。
+            资源操作可省略 Idempotency-Key，每次按新提交处理，不保证跨请求去重。需要可靠重试时，
+            为同一业务操作生成一次 UUID 并在重试时复用；相同应用、操作和键的内容不同返回 409。
+            请求身份永久保留，响应快照保留 24 小时，过期重放返回 409 和当前允许的原结果引用；
+            operation GET 可长期读取，仍复核当前 Scope 与 ACL。
           </p>
           <p class="api-doc-description">
             资源文件的元数据、内容下载和变更响应使用同一文件强版本 ETag，可原样用于 If-Match；缺少为
@@ -68,16 +68,17 @@
           <p class="api-doc-description">
             列表使用 items / next_cursor / has_more，默认 20、最多 100。资源错误为 error.code /
             message / details / request_id，响应带 X-Request-ID；429 按 Retry-After 等待。下载支持单
-            Range 与 Content-Range。
+            Range 与 Content-Range。X-Request-ID 仅用于追踪，资源 id
+            用于后续访问，均不能代替重试键。
           </p>
           <pre>{{ resourceError }}</pre>
         </section>
         <section id="api-recipes" class="api-doc-section">
           <h2>资源接入顺序</h2>
           <p class="api-doc-description">
-            先设置 API_KEY、FILE_PATH 和每次新请求的 REQUEST_ID（UUID）。知识入库：上传文件 →
-            从响应取 FILE_ID → 创建知识库（EMBED_MODEL_ID）→ 从响应取 BASE_ID → 文件入库 → 按
-            Location 轮询 → 检索。每个操作下均提供对应 curl，原始文件须已授权给当前应用。
+            先设置 API_KEY 和 FILE_PATH，无需手动生成请求 UUID。知识入库：上传文件 → 从响应取
+            FILE_ID → 创建知识库（EMBED_MODEL_ID）→ 从响应取 BASE_ID → 文件入库 → 按 Location 轮询 →
+            检索。每个操作下均提供对应 curl，原始文件须已授权给当前应用。
           </p>
           <p class="api-doc-description">
             个人技能：将 FILE_PATH 设为 SKILL.md 或 ZIP 上传 → 预检 file_id → 检查 action /
@@ -87,8 +88,6 @@
           <pre>
 export API_KEY='你的访问密钥'
 export FILE_PATH='./notes.txt'
-export REQUEST_ID="$(python -c 'import uuid; print(uuid.uuid4())')"
-# 同一请求重试保持 REQUEST_ID；下一步新请求生成新 UUID。
 # If-Match 示例：export ETAG='"file-1"'</pre
           >
         </section>
@@ -162,11 +161,12 @@ export REQUEST_ID="$(python -c 'import uuid; print(uuid.uuid4())')"
               </tr>
             </tbody>
           </table>
-          <div class="api-doc-code">
+          <div v-for="sample in item.codeSamples" :key="sample.label" class="api-doc-code">
             <div class="api-doc-code__title">
-              <span>curl</span><button @click="copy(renderCode(item.curlExample))">复制示例</button>
+              <span>{{ sample.label }}</span
+              ><button @click="copy(renderCode(sample.source))">复制示例</button>
             </div>
-            <pre>{{ renderCode(item.curlExample) }}</pre>
+            <pre>{{ renderCode(sample.source) }}</pre>
           </div>
           <h3 class="api-doc-subtitle">响应状态与头</h3>
           <pre>{{ item.responses }}</pre>

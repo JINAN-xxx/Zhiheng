@@ -1,6 +1,9 @@
-"""Strong version preconditions shared by mutable platform resources."""
+"""Request identity and strong version preconditions shared by resource adapters."""
 
-from fastapi import Request
+from typing import Annotated
+from uuid import UUID, uuid4
+
+from fastapi import Depends, Header, Request
 
 from zhiheng.shared.errors import AppError
 
@@ -20,6 +23,13 @@ def expected_version(request: Request, kind: str) -> int:
     return int(value)
 
 
-def idempotency_header(request: Request) -> None:
-    if len(request.headers.getlist('idempotency-key')) != 1:
-        raise AppError('invalid_idempotency_key', '必须提供单个UUID请求键', 422)
+def idempotency_header(
+    request: Request,
+    idempotency_key: Annotated[UUID | None, Header(alias='Idempotency-Key')] = None,
+) -> UUID:
+    if len(request.headers.getlist('idempotency-key')) > 1:
+        raise AppError('invalid_idempotency_key', '仅允许单个UUID请求键', 422)
+    return idempotency_key if idempotency_key is not None else uuid4()
+
+
+Idempotency = Annotated[UUID, Depends(idempotency_header)]

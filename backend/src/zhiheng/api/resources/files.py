@@ -9,6 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from zhiheng.api.common.dependencies import ContainerDependency, SessionDependency
 from zhiheng.api.common.file_content import file_content_response
 from zhiheng.api.common.pagination import decode_cursor, encode_cursor
+from zhiheng.api.common.preconditions import Idempotency
 from zhiheng.api.resources.dependencies import resource_bearer, resource_caller
 from zhiheng.api.resources.schemas.files import ResourceFilePage
 from zhiheng.application.access import CallerContext
@@ -86,10 +87,8 @@ async def upload(
     caller: WriteCaller,
     file: Annotated[UploadFile, File(json_schema_extra={'format': 'binary'})],
     purpose: Purpose,
-    idempotency_key: Annotated[UUID, Header(alias='Idempotency-Key')],
+    idempotency_key: Idempotency,
 ) -> FileInfo:
-    if len(request.headers.getlist('idempotency-key')) != 1:
-        raise AppError('invalid_idempotency_key', '必须提供单个UUID请求键', 422)
     form = await request.form()
     fields = form.multi_items()
     if len(fields) != MULTIPART_FIELD_COUNT or sorted(name for name, _ in fields) != ['file', 'purpose']:
