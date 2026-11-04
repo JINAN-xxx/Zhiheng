@@ -247,15 +247,19 @@
                 name="historyRounds"
                 extra="携带最近的历史问答，0 表示仅发送当前问题。保存后用于调试，发布后用于 API 和工作空间。"
               >
-                <a-input-number
-                  :value="form.historyRounds ?? ''"
-                  :min="0"
-                  :max="20"
-                  :precision="0"
-                  :step="1"
-                  placeholder="20"
-                  @update:value="setHistoryRounds"
-                />
+                <div class="history-rounds-control">
+                  <a-slider
+                    v-bind="historySliderAccessibility"
+                    :value="form.historyRounds ?? 20"
+                    :min="0"
+                    :max="20"
+                    :step="1"
+                    :marks="{ 0: '0', 5: '5', 10: '10', 15: '15', 20: '20' }"
+                    :disabled="!canEdit || busy"
+                    @update:value="setHistoryRounds"
+                  />
+                  <span class="history-rounds-value">{{ form.historyRounds ?? 20 }} 轮</span>
+                </div>
               </a-form-item>
               <a-form-item label="API 应用" name="applicationId"
                 ><div class="application-field">
@@ -351,6 +355,7 @@ import {
   InputNumber as AInputNumber,
   Modal as AModal,
   Select as ASelect,
+  Slider as ASlider,
   Tag as ATag,
   Textarea as ATextarea,
   Tooltip as ATooltip
@@ -500,6 +505,8 @@ const applicationOptions = computed(() =>
     form.applicationId
   )
 )
+// Slider forwards handle accessibility attributes that its public prop types omit.
+const historySliderAccessibility = { ariaLabelForHandle: '上下文轮数' }
 const rules = {
   name: [{ required: true, whitespace: true, message: '请输入名称' }],
   modelId: [{ required: true, message: '请选择模型' }],
@@ -996,6 +1003,28 @@ onBeforeUnmount(() => {
 }
 .sampling-fields :deep(.ant-input-number) {
   width: 100%;
+}
+.history-rounds-control {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.history-rounds-control :deep(.ant-slider) {
+  min-width: 0;
+  flex: 1;
+  margin: 10px 8px 24px 6px;
+}
+.history-rounds-control :deep(.ant-slider-mark-text) {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.history-rounds-value {
+  min-width: 44px;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .application-field {
   display: flex;
