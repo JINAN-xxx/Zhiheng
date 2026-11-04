@@ -122,13 +122,5 @@ def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
                 if content is not None:
                     content['example'] = body
             operation['x-codeSamples'] = [{'lang': 'Shell', 'label': 'curl', 'source': ' \\\n'.join(lines)}]
-            if path_template.startswith('/api/v1/') and any(p['name'] == 'Idempotency-Key' for p in parameters):
-                retry_lines = [*lines[:2], '  -H "Idempotency-Key: $IDEMPOTENCY_KEY"', *lines[2:]]
-                retry_source = (
-                    '# 每个业务操作只生成一次；响应丢失或重试时保持此值。\n'
-                    'export IDEMPOTENCY_KEY="$(python -c \'import uuid; print(uuid.uuid4())\')"\n'
-                    '# 重试时仅重复下面的 curl，不重新生成键。\n' + ' \\\n'.join(retry_lines)
-                )
-                operation['x-codeSamples'].append({'lang': 'Shell', 'label': 'curl · 可靠重试', 'source': retry_source})
     # A filtered document only needs examples for its own real route group. Full coverage
     # is asserted by the route inventory test, rather than inventing placeholder routes.

@@ -37,7 +37,10 @@
             <a :href="docsUrl" target="_blank" rel="noopener">Swagger 分组文档</a> ·
             <a :href="schemaUrl" target="_blank" rel="noopener">OpenAPI 3.1 JSON</a>
           </p>
-          <p>目录、字段和示例由当前服务的实际接口规范加载。OpenAI 资源 SDK 兼容层尚未注册。</p>
+          <p>
+            目录、字段和唯一调用示例均由当前服务的 OpenAPI 规范加载，资源接口统一使用平台资源 API
+            v1。
+          </p>
         </section>
         <section id="api-auth" class="api-doc-section">
           <h2>鉴权与授权</h2>
@@ -161,12 +164,11 @@ export FILE_PATH='./notes.txt'
               </tr>
             </tbody>
           </table>
-          <div v-for="sample in item.codeSamples" :key="sample.label" class="api-doc-code">
+          <div class="api-doc-code">
             <div class="api-doc-code__title">
-              <span>{{ sample.label }}</span
-              ><button @click="copy(renderCode(sample.source))">复制示例</button>
+              <span>curl</span><button @click="copy(renderCode(item.curlExample))">复制示例</button>
             </div>
-            <pre>{{ renderCode(sample.source) }}</pre>
+            <pre>{{ renderCode(item.curlExample) }}</pre>
           </div>
           <h3 class="api-doc-subtitle">响应状态与头</h3>
           <pre>{{ item.responses }}</pre>

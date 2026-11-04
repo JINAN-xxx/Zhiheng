@@ -145,7 +145,7 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 
 ## 资源协议目录与职责
 
-`api/main.py` 是唯一 HTTP 装配和生命周期入口，聚合 `api/console/router.py`（原 `/api`）、`api/resources/router.py`（`/api/v1`）与 `api/inference/router.py`（原 `/v1`）。共享传输、Cookie/Bearer 解析、错误、上传限制和分组规范放在 `api/common/`；推理 DTO 与 SSE 分离，取消和结算仍调用 application 的原 Run 用例。`api/compat/openai/` 仅记录后续资源兼容边界，不注册资源路由。
+`api/main.py` 是唯一 HTTP 装配和生命周期入口，聚合网页会话 `api/console/router.py`（`/api`）、资源管理 `api/resources/router.py`（`/api/v1`）与模型/智能体推理 `api/inference/router.py`（`/v1`）。共享传输、Cookie/Bearer 解析、错误、上传限制和分组规范放在 `api/common/`；推理 DTO 与 SSE 分离，取消和结算仍调用 application 的原 Run 用例。资源管理的唯一现行标准见[资源 API v1](../api/resources-v1.md)，不设置未实现的协议适配预留目录。
 
 资源 HTTP 适配器不得直接导入 SQLAlchemy、数据库基础设施或供应商 SDK。跨域元数据与委托权限通过领域 public 接口查询，Console 候选资源不能复用管理员全局列表并在前端过滤。当前技能、知识用例仍按实际职责命名；不为目录完整而迁移无关 Worker、SDK 或机械增加空层。
 

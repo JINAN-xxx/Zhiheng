@@ -87,7 +87,7 @@ async def test_grouped_schema_and_curl_samples_keep_nested_router_prefix(prefix:
     assert '{{ORIGIN}}' + expected_path in schema['paths'][expected_path]['get']['x-codeSamples'][0]['source']
 
 
-def test_all_resource_request_keys_are_optional_with_basic_and_retry_samples(platform_app: FastAPI) -> None:
+def test_all_resource_operations_use_one_standard_example_with_optional_request_key(platform_app: FastAPI) -> None:
     schema = platform_app.openapi()
     operations = [
         operation
@@ -101,7 +101,8 @@ def test_all_resource_request_keys_are_optional_with_basic_and_retry_samples(pla
         parameter = next(param for param in operation['parameters'] if param['name'] == 'Idempotency-Key')
         assert parameter['required'] is False
         assert '省略' in parameter['description'] and '24' in parameter['description']
-        basic, retry = operation['x-codeSamples']
-        assert 'Idempotency-Key' not in basic['source']
-        assert 'Idempotency-Key: $IDEMPOTENCY_KEY' in retry['source']
-        assert 'REQUEST_ID' not in retry['source']
+        samples = operation['x-codeSamples']
+        assert len(samples) == 1
+        assert samples[0]['lang'] == 'Shell' and samples[0]['label'] == 'curl'
+        assert 'Idempotency-Key' not in samples[0]['source']
+        assert 'REQUEST_ID' not in samples[0]['source']

@@ -2,11 +2,21 @@
 
 资源协议基址为当前服务入口的 `/api/v1`。本机源码入口为 `http://127.0.0.1:19080`，示例使用同一入口；直接运行 API 时默认端口为 `19090`。控制台前端仍使用 Cookie 调用 `/api`，模型与智能体推理保留 `/v1`。一个 FastAPI 应用和一个 Container 统一装配三组协议。
 
-运行当前源码后，准确目录和 DTO 以 [资源 Swagger](/docs/resources) 和 [OpenAPI 3.1](/openapi/resources-v1.json) 为准；[推理 Swagger](/docs/inference) 与 [推理规范](/openapi/inference-v1.json) 单独分组。开发接入的“API 说明”从这些实际接口加载目录、字段、响应头与 curl 示例，覆盖文件、知识库、技能和原生操作。示例 JSON 在生成时通过相同请求 DTO 校验。OpenAI Files、Vector Stores、Skills 的资源 SDK 兼容层只预留目录，未注册任何兼容资源路由。
+本文件说明平台资源 API v1 的唯一现行标准。接口清单、DTO 与调用示例统一从 [OpenAPI 3.1](/openapi/resources-v1.json) 生成，可通过 [资源 Swagger](/docs/resources) 查看；[推理 Swagger](/docs/inference) 与 [推理规范](/openapi/inference-v1.json) 单独分组。开发接入的“API 说明”使用同一规范，每个操作提供一份完整 curl，示例 JSON 通过相同请求 DTO 校验。前端不根据路径拼接缺失示例，缺少标准元数据时明确报错。
+
+## 唯一标准与职责
+
+| 入口 | 用途 | 鉴权 |
+|---|---|---|
+| `/api` | 网页控制台操作 | 登录会话 Cookie 与角色权限 |
+| `/api/v1` | 文件、个人知识库、个人技能及异步任务 | Bearer API Key、Scope、应用资源授权与当前 ACL |
+| `/v1` | 模型和智能体推理 | Bearer API Key 与模型/智能体授权 |
+
+三个入口是同一平台的职责划分。资源管理以 `/api/v1` 为唯一对外协议，不注册旧资源路由别名、旧字段映射或资源 SDK 适配层。资源和任务 ID 由服务端返回；`Idempotency-Key` 是该标准的可选重试字段，`X-Request-ID` 是服务端生成的追踪编号。历史设计与验收文档记录当时状态，不作为第二份现行规范。
 
 ## 密钥与个人边界
 
-在“开发接入”中创建应用，为访问密钥选择有限操作能力和独立资源 RPM，再在“资源授权”中授权已有文件、知识库与个人技能。能力标签、说明及 RPM 范围来自后端同一注册表。Scope 签发后固定，轮换精确复制原权限；更改能力需签发新密钥。旧调用方省略 Scope 且提供模型时，保留原模型与智能体推理能力，不自动增加资源能力。
+在“开发接入”中创建应用，为访问密钥选择有限操作能力和独立资源 RPM，再在“资源授权”中授权已有文件、知识库与个人技能。能力标签、说明及 RPM 范围来自后端同一注册表。Scope 签发后固定，轮换精确复制原权限；更改能力需签发新密钥。省略 Scope 且提供模型时，默认能力为模型与智能体推理；文件、知识库与技能能力必须显式选择。
 
 每次访问都取当前个人基础权限、Key Scope、应用授权及领域 ACL 的交集。管理员身份不会自动开放其他人的私有资源；共享资源只有明确允许委托的当前读/检索动作，公共可见也不等于可委托。同一个人拥有的两个应用也不会自动共用资源。本人未索引的知识库、已停用或已删除但可恢复的技能可以显式授权。失权或归属变化的旧绑定隐藏名称，只保留通用失效提示和 ID，可取消授权。
 
@@ -26,16 +36,7 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
   -F 'file=@./notes.txt' -F 'purpose=knowledge'
 ```
 
-需要在响应丢失等情况可靠重试时，为同一业务操作生成一次键，并仅重复 curl：
-
-```bash
-export IDEMPOTENCY_KEY="$(python -c 'import uuid; print(uuid.uuid4())')"
-# 重试时保留原值；下一次新的业务操作再生成新键。
-curl --fail-with-body "$ORIGIN/api/v1/files" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
-  -F 'file=@./notes.txt' -F 'purpose=knowledge'
-```
+同一规范允许在需要可靠重试时提供 `Idempotency-Key` 请求头：调用程序为一个业务操作生成一次 UUID，重试保持相同键和业务参数。省略该字段不保证跨请求去重。字段语义统一见下文“传输约定”，各操作仅展示一份标准调用示例。
 
 从响应取 `id` 为 `FILE_ID`。在分组文档按顺序使用“创建知识库”提供 `embed_model_id`，取知识库 `id` 为 `BASE_ID`；“文件入库”提交 `file_ids`，按 202 响应的 `Location` 轮询 operation，完成后调用“知识检索”。不要用知识库原始文档的 ID 替代 file ID。
 

@@ -114,7 +114,9 @@ void test('documentation renders every actual operation and resolves DTO fields 
           summary: '技能列表',
           'x-required-scopes': ['skills:read'],
           responses: { '200': { description: 'OK' } },
-          'x-codeSamples': [{ lang: 'Shell', source: 'curl {{ORIGIN}}/api/v1/skills' }]
+          'x-codeSamples': [
+            { lang: 'Shell', label: 'curl', source: 'curl {{ORIGIN}}/api/v1/skills' }
+          ]
         }
       },
       '/api/v1/knowledge-bases': {
@@ -124,7 +126,8 @@ void test('documentation renders every actual operation and resolves DTO fields 
           requestBody: {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Create' } } }
           },
-          responses: { '201': { description: 'Created' } }
+          responses: { '201': { description: 'Created' } },
+          'x-codeSamples': [{ lang: 'Shell', label: 'curl', source: 'curl create knowledge' }]
         }
       }
     },
@@ -144,25 +147,30 @@ void test('documentation renders every actual operation and resolves DTO fields 
   assert.equal(result[0]?.curlExample, 'curl {{ORIGIN}}/api/v1/skills')
 })
 
-void test('documentation keeps basic and reliable retry samples available', () => {
-  const result = docs.parseOpenApiDocuments({
-    openapi: '3.1.0',
-    paths: {
-      '/api/v1/files': {
-        post: {
-          operationId: 'upload',
-          responses: { '201': { description: 'Created' } },
-          'x-codeSamples': [
-            { lang: 'Shell', label: 'curl', source: 'curl basic' },
-            { lang: 'Shell', label: 'curl · 可靠重试', source: 'curl retry' }
-          ]
+void test('documentation requires one authoritative curl sample and never invents a fallback', () => {
+  for (const samples of [
+    undefined,
+    [],
+    [
+      { lang: 'Shell', label: 'curl', source: 'curl basic' },
+      { lang: 'Shell', label: 'curl · 可靠重试', source: 'curl retry' }
+    ],
+    [{ lang: 'Shell', label: 'curl', source: '' }],
+    [{ lang: 'Python', label: 'python', source: 'print(1)' }]
+  ]) {
+    assert.throws(() =>
+      docs.parseOpenApiDocuments({
+        openapi: '3.1.0',
+        paths: {
+          '/api/v1/files': {
+            post: {
+              operationId: 'upload',
+              responses: { '201': { description: 'Created' } },
+              ...(samples === undefined ? {} : { 'x-codeSamples': samples })
+            }
+          }
         }
-      }
-    }
-  })
-  assert.deepEqual(result[0]?.codeSamples, [
-    { label: 'curl', source: 'curl basic' },
-    { label: 'curl · 可靠重试', source: 'curl retry' }
-  ])
-  assert.equal(result[0]?.curlExample, 'curl basic')
+      })
+    )
+  }
 })
