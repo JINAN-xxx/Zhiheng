@@ -132,12 +132,47 @@ class DeveloperResourceRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('接口规范暂时无法加载，请重试', exact=True)).to_be_visible()
         self.docs_fail = False
         await self.page.get_by_role('button', name='重试', exact=True).click()
-        await expect(self.page.get_by_role('navigation', name='API 文档目录').get_by_text('POST 预检个人技能', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('navigation', name='API 文档目录').get_by_text('POST 创建知识库', exact=True)).to_be_visible()
-        await self.page.locator('.api-doc-code').filter(has_text='curl').first.get_by_role('button', name='复制示例', exact=True).click()
-        copied = await self.page.evaluate('navigator.clipboard.readText()')
-        self.assertIn(self.origin + '/api/v1/', copied)
-        self.assertIn('Bearer $API_KEY', copied)
+        navigation = self.page.get_by_role('navigation', name='API 文档目录')
+        for label in ('个人技能', '导入与确认'):
+            await navigation.locator('summary').filter(has_text=re.compile('^' + label + '$')).click()
+        await expect(navigation.get_by_role('link', name=re.compile(r'^POST\s+预检个人技能$'))).to_be_visible()
+        for label in ('知识库', '库管理'):
+            await navigation.locator('summary').filter(has_text=re.compile('^' + label + '$')).click()
+        await expect(navigation.get_by_role('link', name=re.compile(r'^POST\s+创建知识库$'))).to_be_visible()
+        for label in ('文件资源', '上传与读取'):
+            await navigation.locator('summary').filter(has_text=re.compile('^' + label + '$')).click()
+        await navigation.get_by_role('link', name=re.compile(r'^POST\s+上传单个文件$')).click()
+
+        schema = json.loads((Path(os.environ['PLATFORM_SCHEMA_FIXTURES']) / 'resources-v1.json').read_text())
+        upload = schema['paths']['/api/v1/files']['post']
+        section = self.page.locator('#api-' + upload['operationId'])
+        await expect(section.get_by_role('heading', name='上传单个文件', exact=True)).to_be_visible()
+        key_row = section.get_by_role('row').filter(has=self.page.get_by_role('cell', name='Idempotency-Key', exact=True))
+        await expect(key_row.locator('td').nth(2)).to_have_text('否')
+        samples = section.locator('.api-doc-code')
+        await expect(samples).to_have_count(2)
+        basic, retry = samples.nth(0), samples.nth(1)
+        basic_source = await basic.locator('pre').inner_text()
+        retry_source = await retry.locator('pre').inner_text()
+        self.assertNotIn('Idempotency-Key', basic_source)
+        self.assertNotIn('REQUEST_ID', basic_source)
+        self.assertIn('Idempotency-Key: $IDEMPOTENCY_KEY', retry_source)
+        self.assertNotIn('REQUEST_ID', retry_source)
+        self.assertIn('curl · 可靠重试', await retry.inner_text())
+        for sample, expected in ((basic, basic_source), (retry, retry_source)):
+            await sample.get_by_role('button', name='复制示例', exact=True).click()
+            copied = await self.page.evaluate('navigator.clipboard.readText()')
+            self.assertEqual(copied, expected)
+            self.assertIn(self.origin + '/api/v1/files', copied)
+            self.assertIn('Bearer $API_KEY', copied)
+
+        recipes = self.page.locator('#api-recipes')
+        await expect(recipes).to_contain_text('无需手动生成请求 UUID')
+        setup = await recipes.locator('pre').inner_text()
+        self.assertIn('API_KEY', setup)
+        self.assertIn('FILE_PATH', setup)
+        for manual_key in ('REQUEST_ID', 'IDEMPOTENCY_KEY', 'uuid.uuid4'):
+            self.assertNotIn(manual_key, setup)
         await self.page.screenshot(path=os.environ['PLATFORM_RESOURCE_SCREENSHOTS'] + '/docs-desktop.png')
 
     async def test_conflict_refresh_does_not_restart_discovery_after_leaving_resources(self):
