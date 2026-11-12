@@ -1,0 +1,4 @@
+export type { Conversation } from './api/index.ts'
+export { default as ChatWorkspaceProvider } from './components/ChatWorkspaceProvider.vue'
+export { default as ChatNavigation } from './components/ChatNavigation.vue'
+export { useChatWorkspace } from './composables/workspace.ts'

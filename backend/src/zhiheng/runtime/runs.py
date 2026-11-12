@@ -1,0 +1,316 @@
+import hashlib
+from datetime import timedelta
+from typing import Literal, cast
+from uuid import UUID, uuid4
+
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from zhiheng.runtime.contracts import ActiveRunReference, ClaimedRun, RunError, RunSnapshot, RunStatus, RunUsage
+from zhiheng.runtime.orm import Outbox, Run
+from zhiheng.shared.errors import AppError
+from zhiheng.shared.time import utcnow
+
+ACTIVE_STATUSES = ('running', 'cancel_requested')
+
+
+class RunStore:
+    async def has_active_work(self, session: AsyncSession) -> bool:
+        """Global quiescence check for an explicit platform billing mode switch."""
+        return (
+            await session.scalar(select(Run.id).where(Run.status.in_(('pending', *ACTIVE_STATUSES))).limit(1))
+            is not None
+        )
+
+    async def active_references(
+        self,
+        session: AsyncSession,
+        *,
+        resource_types: tuple[str, ...] = (),
+        resource_id: UUID | None = None,
+        payload_path: tuple[str, ...] | None = None,
+        payload_value: str | None = None,
+    ) -> list[ActiveRunReference]:
+        """Select opaque identities; business field paths and presentation belong to callers."""
+        query = select(Run).where(Run.status.in_(('pending', *ACTIVE_STATUSES)))
+        if resource_types:
+            query = query.where(Run.resource_type.in_(resource_types))
+        if resource_id is not None:
+            query = query.where(Run.resource_id == resource_id)
+        if payload_path is not None:
+            if not payload_path or payload_value is None:
+                raise ValueError('A complete payload reference is required')
+            query = query.where(Run.payload[payload_path].astext == payload_value)
+        rows = await session.scalars(query.order_by(Run.id))
+        return [
+            ActiveRunReference(row.id, row.resource_type, row.resource_id, cast('RunStatus', row.status), row.owner_id)
+            for row in rows
+        ]
+
+    async def lock_request(self, session: AsyncSession, owner_id: UUID, request_id: UUID) -> None:
+        key = int.from_bytes(hashlib.sha256(owner_id.bytes + request_id.bytes).digest()[:8], 'big', signed=True)
+        await session.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': key})
+
+    async def existing_request(
+        self, session: AsyncSession, owner_id: UUID, request_id: UUID, fingerprint: str
+    ) -> RunSnapshot | None:
+        run = await session.scalar(select(Run).where(Run.owner_id == owner_id, Run.client_request_id == request_id))
+        if run is None:
+            return None
+        if run.fingerprint != fingerprint:
+            raise AppError('idempotency_conflict', '请求标识已用于其他内容', 409)
+        return self._snapshot(run)
+
+    async def create(
+        self,
+        session: AsyncSession,
+        *,
+        owner_id: UUID,
+        resource_type: str,
+        resource_id: UUID,
+        request_id: UUID,
+        fingerprint: str,
+        payload: dict[str, object],
+        billing_owner_id: UUID | None = None,
+    ) -> RunSnapshot:
+        run = Run(
+            owner_id=owner_id,
+            billing_owner_id=billing_owner_id or owner_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            client_request_id=request_id,
+            fingerprint=fingerprint,
+            payload=payload,
+        )
+        session.add(run)
+        await session.flush()
+        session.add(Outbox(run_id=run.id))
+        return self._snapshot(run)
+
+    async def has_active(self, session: AsyncSession, resource_id: UUID) -> bool:
+        return (
+            await session.scalar(
+                select(Run.id)
+                .where(
+                    Run.resource_type == 'chat',
+                    Run.resource_id == resource_id,
+                    Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    async def snapshot(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> RunSnapshot:
+        row = await session.scalar(select(Run).where(Run.id == run_id, Run.owner_id == owner_id))
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
+    async def resource_snapshot(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> RunSnapshot:
+        """Trusted application binding after the owning domain authorizes its resource."""
+        row = await session.scalar(
+            select(Run).where(Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id)
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
+    async def resource_snapshot_one_of(
+        self, session: AsyncSession, run_id: UUID, resource_types: tuple[str, ...], resource_id: UUID
+    ) -> RunSnapshot:
+        """在父业务已授权后读取指定类型集合中的子运行。"""
+        row = await session.scalar(
+            select(Run).where(Run.id == run_id, Run.resource_type.in_(resource_types), Run.resource_id == resource_id)
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
+    async def resource_payload(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> dict[str, object]:
+        """Frozen input after application authorization of the owning resource."""
+        row = await session.scalar(
+            select(Run).where(
+                Run.id == run_id,
+                Run.resource_type == resource_type,
+                Run.resource_id == resource_id,
+            )
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return dict(row.payload)
+
+    async def resource_cancel(
+        self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
+    ) -> tuple[RunSnapshot, bool]:
+        row = await session.scalar(
+            select(Run)
+            .where(Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return await self.cancel(session, run_id, row.owner_id)
+
+    async def projection(self, session: AsyncSession, run_id: UUID) -> RunSnapshot:
+        """Application lifecycle only; never an authorization substitute for HTTP reads."""
+        row = await session.get(Run, run_id)
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        return self._snapshot(row)
+
+    async def claim(self, session: AsyncSession, run_id: UUID, lease_seconds: int) -> ClaimedRun | None:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if row is None or row.status != 'pending':
+            return None
+        row.status = 'running'
+        row.attempt_id = uuid4()
+        row.attempt_no += 1
+        row.revision += 1
+        row.lease_until = utcnow() + timedelta(seconds=lease_seconds)
+        return ClaimedRun(
+            row.id, row.resource_type, row.resource_id, row.owner_id, row.attempt_id, row.payload, row.billing_owner_id
+        )
+
+    async def control(
+        self, session: AsyncSession, run_id: UUID, attempt_id: UUID, lease_seconds: int
+    ) -> Literal['active', 'cancel', 'lost']:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if not self._owns(row, attempt_id):
+            return 'lost'
+        assert row is not None
+        if row.status == 'cancel_requested':
+            return 'cancel'
+        row.lease_until = utcnow() + timedelta(seconds=lease_seconds)
+        return 'active'
+
+    async def start_provider(self, session: AsyncSession, run_id: UUID, attempt_id: UUID) -> bool:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if not self._owns(row, attempt_id) or row is None or row.status != 'running':
+            return False
+        row.provider_started = True
+        return True
+
+    async def lock_execution(self, session: AsyncSession, run_id: UUID, attempt_id: UUID) -> None:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if not self._owns(row, attempt_id):
+            raise AppError('execution_lost', '执行权已失效', 409)
+
+    async def project(
+        self, session: AsyncSession, run_id: UUID, attempt_id: UUID, content: str, reasoning: str = ''
+    ) -> bool:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if not self._owns(row, attempt_id) or row is None:
+            return False
+        row.text = content
+        row.reasoning = reasoning
+        row.projection_seq += 1
+        row.revision += 1
+        return True
+
+    async def finish(
+        self,
+        session: AsyncSession,
+        run_id: UUID,
+        attempt_id: UUID,
+        *,
+        status: RunStatus,
+        content: str,
+        usage: RunUsage,
+        error: RunError | None = None,
+        result: dict[str, object] | None = None,
+        finish_reason: str | None = None,
+        reasoning: str = '',
+    ) -> RunSnapshot:
+        row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if not self._owns(row, attempt_id) or row is None:
+            raise AppError('execution_lost', '执行权已失效', 409)
+        row.status = 'cancelled' if row.status == 'cancel_requested' else status
+        if row.status == 'cancelled':
+            error = None
+        row.text = content
+        row.reasoning = reasoning
+        row.result = result
+        row.finish_reason = finish_reason
+        row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
+        row.error_code = error.code if error is not None else None
+        row.error_message = error.message if error is not None else None
+        row.revision += 1
+        row.projection_seq += 1
+        row.lease_until = None
+        return self._snapshot(row)
+
+    async def cancel(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> tuple[RunSnapshot, bool]:
+        row = await session.scalar(select(Run).where(Run.id == run_id, Run.owner_id == owner_id).with_for_update())
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        release = row.status == 'pending'
+        if release:
+            row.status = 'cancelled'
+            row.input_tokens, row.output_tokens, row.usage_status = 0, 0, 'known'
+        elif row.status == 'running':
+            row.status = 'cancel_requested'
+        if release or row.status == 'cancel_requested':
+            row.revision += 1
+        return self._snapshot(row), release
+
+    async def recover_one(self, session: AsyncSession) -> tuple[UUID, bool] | None:
+        """Fence one expired attempt; its caller settles usage in this same transaction."""
+        row = await session.scalar(
+            select(Run)
+            .where(Run.status.in_(ACTIVE_STATUSES), Run.lease_until < utcnow())
+            .order_by(Run.lease_until, Run.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        if row is None:
+            return None
+        row.status = 'interrupted'
+        row.usage_status = 'unknown' if row.provider_started else 'known'
+        row.input_tokens = None if row.provider_started else 0
+        row.output_tokens = None if row.provider_started else 0
+        row.error_code, row.error_message = 'execution_interrupted', '执行进程失联，请核对本次运行'
+        row.revision += 1
+        row.lease_until = None
+        return row.id, row.provider_started
+
+    @staticmethod
+    def _owns(row: Run | None, attempt_id: UUID) -> bool:
+        return (
+            row is not None
+            and row.attempt_id == attempt_id
+            and row.status in ACTIVE_STATUSES
+            and row.lease_until is not None
+            and row.lease_until > utcnow()
+        )
+
+    @staticmethod
+    def _snapshot(row: Run) -> RunSnapshot:
+        return RunSnapshot(
+            id=row.id,
+            resource_type=cast(
+                "Literal['chat', 'connection_test', 'public', 'agent_preview', 'agent_invocation', 'work_turn', 'knowledge_embedding']",
+                row.resource_type,
+            ),
+            resource_id=row.resource_id,
+            status=cast('RunStatus', row.status),
+            attempt_id=row.attempt_id,
+            attempt_no=row.attempt_no,
+            revision=row.revision,
+            projection_seq=row.projection_seq,
+            text=row.text,
+            reasoning=row.reasoning,
+            result=row.result,
+            finish_reason=cast("Literal['stop','length'] | None", row.finish_reason),
+            created_at=row.created_at,
+            error=RunError(code=row.error_code, message=row.error_message or '运行失败') if row.error_code else None,
+            usage=RunUsage(
+                input_tokens=row.input_tokens,
+                output_tokens=row.output_tokens,
+                status=cast("Literal['pending', 'known', 'unknown']", row.usage_status),
+            ),
+        )

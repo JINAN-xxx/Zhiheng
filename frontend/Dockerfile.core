@@ -1,0 +1,16 @@
+ARG NODE_IMAGE=node:24-alpine
+ARG NGINX_IMAGE=nginx:1.28-alpine
+FROM ${NODE_IMAGE} AS build
+WORKDIR /build
+RUN npm install --global npm@11.9.0
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY platform.html vite.platform.config.ts tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build:platform -- --outDir /build/dist
+
+FROM ${NGINX_IMAGE} AS runtime
+RUN rm -rf /usr/share/nginx/html/*
+COPY nginx.core.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /build/dist/ /usr/share/nginx/html/
+EXPOSE 80

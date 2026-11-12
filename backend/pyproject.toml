@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zhiheng-platform"
+version = "0.1.0"
+description = "ZhiHeng built-in AI platform"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+zhiheng = "zhiheng.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements-core.in"]}
+
+[tool.setuptools.package-data]
+zhiheng = ["py.typed", "modules/agents/LICENSE", "modules/knowledge/adapters/lightrag/catalog.json", "modules/knowledge/adapters/lightrag/sdk_hashes.json", "modules/knowledge/adapters/lightrag/LICENSE", "modules/knowledge/adapters/lightrag/TIKTOKEN_LICENSE", "modules/knowledge/adapters/lightrag/tokenizer_spec.json", "modules/knowledge/adapters/lightrag/o200k_base.tiktoken"]
+
+[tool.setuptools.data-files]
+"share/zhiheng/migrations" = ["migrations/env.py"]
+"share/zhiheng/migrations/versions" = ["migrations/versions/*.py"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests/unit", "tests/core"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src/zhiheng", "../tools/check_architecture.py", "../tools/check_core_wheel.py", "../tools/export_source.py"]

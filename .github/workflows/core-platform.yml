@@ -1,0 +1,165 @@
+name: AI Core Platform
+
+on:
+  push:
+    branches: [main, master, 'release/**']
+  pull_request:
+    branches: [main, master, 'release/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: core-ci-test-only
+          POSTGRES_DB: core_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d core_tests"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      ZHIHENG_TEST_DATABASE_URL: postgresql+asyncpg://postgres:core-ci-test-only@127.0.0.1:5432/core_tests
+      ZHIHENG_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+      PLATFORM_BROWSER_URL: http://127.0.0.1:15191
+      PLATFORM_API_TARGET: http://127.0.0.1:19090
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements-core.lock
+            backend/requirements-dev-core.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install the locked backend and browser tools
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements-core.lock
+          python -m pip install -r requirements-dev-core.txt playwright==1.62.0
+          python -m pip install --no-deps --no-build-isolation .
+          python -m playwright install --with-deps chromium
+      - name: Check core integration code
+        working-directory: backend
+        run: |
+          python -m ruff check --config ruff.toml src tests/core
+          python -m ruff format --check --config ruff.toml src tests/core
+      - name: Start an independent vector service for integration tests
+        run: |
+          ./deploy.sh --env-file "$RUNNER_TEMP/core-vector.env" init
+          cat > "$RUNNER_TEMP/core-vector-ports.yml" <<'YAML'
+          services:
+            milvus:
+              ports:
+                - '127.0.0.1::19530'
+          YAML
+          docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors up --detach --wait milvus
+          vector_address="$(docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors port milvus 19530)"
+          echo "ZHIHENG_TEST_MILVUS_URI=http://$vector_address" >> "$GITHUB_ENV"
+      - name: Run PostgreSQL, Redis and local model integration tests
+        working-directory: backend
+        run: python -m pytest tests/core -q
+      - name: Install frontend with npm 11
+        working-directory: frontend
+        run: |
+          npm install --global npm@11.9.0
+          npm ci
+      - name: Check frontend behavior, rules and types
+        working-directory: frontend
+        run: |
+          npm run test:core
+          npm run lint:core
+          npm run format:check
+          npm run typecheck
+      - name: Build the independent platform
+        working-directory: frontend
+        run: npm run build:platform
+      - name: Start the built platform preview
+        working-directory: frontend
+        run: |
+          npm run preview:platform -- --host 127.0.0.1 --port 15191 --strictPort > "$RUNNER_TEMP/core-preview.log" 2>&1 &
+          preview_pid=$!
+          echo "$preview_pid" > "$RUNNER_TEMP/core-preview.pid"
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:15191/platform.html > /dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$preview_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/core-preview.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/core-preview.log"
+          exit 1
+      - name: Exercise the real platform in Chromium
+        working-directory: backend
+        run: python tests/core/e2e/browser_check.py --base-url http://127.0.0.1:15191 --api-port 19090
+      - name: Check controlled HTTP and SSE UI regressions
+        working-directory: frontend
+        run: |
+          python tests/browser/ui_regressions.py
+          python tests/browser/developer_regressions.py
+          python tests/browser/model_management_regressions.py
+          python tests/browser/skills_regressions.py
+          python tests/browser/agents_regressions.py
+          python tests/browser/work_regressions.py
+          python tests/browser/files_regressions.py
+          python tests/browser/chat_files_regressions.py
+          python tests/browser/knowledge_regressions.py
+          python tests/browser/knowledge_background_regressions.py
+          python tests/browser/knowledge_file_ui_regressions.py
+          python tests/browser/knowledge_preparation_regressions.py
+          python tests/browser/knowledge_lifecycle_regressions.py
+          python tests/browser/knowledge_upload_regressions.py
+          python tests/browser/knowledge_folder_regressions.py
+          python tests/browser/graph_regressions.py
+      - name: Stop the preview
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/core-preview.pid" ]]; then
+            preview_pid="$(cat "$RUNNER_TEMP/core-preview.pid")"
+            if kill -0 "$preview_pid" 2>/dev/null; then
+              kill "$preview_pid"
+            fi
+          fi
+      - name: Remove the independent CI vector service
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/core-vector.env" && -f "$RUNNER_TEMP/core-vector-ports.yml" ]]; then
+            docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors down --volumes
+          fi
+      - name: Preserve preview diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-preview-log
+          path: ${{ runner.temp }}/core-preview.log
+          if-no-files-found: ignore

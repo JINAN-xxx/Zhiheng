@@ -1,0 +1,422 @@
+"""Bearer resource transport for native personal knowledge use cases."""
+
+from typing import Annotated
+from urllib.parse import quote
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+
+from zhiheng.api.common.dependencies import ContainerDependency
+from zhiheng.api.common.pagination import decode_cursor, encode_cursor
+from zhiheng.api.common.preconditions import Idempotency, expected_version
+from zhiheng.api.resources.dependencies import resource_caller
+from zhiheng.api.resources.schemas.knowledge import (
+    BasePage,
+    CreateRequest,
+    DocumentPage,
+    FolderPage,
+    FolderPatchRequest,
+    ImportRequest,
+    PatchRequest,
+    QueryBody,
+)
+from zhiheng.application.access import CallerContext
+from zhiheng.application.operations.contracts import OperationInfo
+from zhiheng.modules.knowledge.public import (
+    BaseCreate,
+    BaseInfo,
+    BasePatch,
+    BuildSelection,
+    ChunkParameters,
+    FolderCreate,
+    FolderInfo,
+    FolderPatch,
+    QueryRequest,
+)
+
+router = APIRouter(prefix='/api/v1/knowledge-bases', tags=['resources:knowledge'])
+ReadCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:read'))]
+WriteCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:write'))]
+QueryCaller = Annotated[CallerContext, Depends(resource_caller('knowledge:query'))]
+IfMatch = Annotated[str | None, Header(alias='If-Match')]
+Limit = Annotated[int, Query(ge=1, le=100)]
+Cursor = Annotated[str | None, Query(max_length=1024)]
+
+
+def accepted(response: Response, operation: OperationInfo) -> OperationInfo:
+    response.headers['Location'] = f'/api/v1/operations/{operation.id}'
+    return operation
+
+
+@router.post(
+    '', status_code=201, openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']}
+)
+async def create(
+    body: CreateRequest,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+) -> BaseInfo:
+    info = await container.knowledge_commands.create(caller, BaseCreate(**body.model_dump()), idempotency_key)
+    response.headers['ETag'] = f'"knowledge-base-{info.version}"'
+    response.headers['Location'] = f'/api/v1/knowledge-bases/{info.id}'
+    return info
+
+
+@router.get('', openapi_extra={'x-required-scopes': ['knowledge:read']})
+async def page(
+    container: ContainerDependency, caller: ReadCaller, limit: Limit = 20, cursor: Cursor = None
+) -> BasePage:
+    assert caller.identity is not None
+    binding = f'{caller.identity.application_id}:knowledge-base'
+    found = await container.knowledge_queries.page(caller, decode_cursor(cursor, binding), limit + 1)
+    items, more = found[:limit], len(found) > limit
+    return BasePage(
+        items=items,
+        has_more=more,
+        next_cursor=encode_cursor(binding, items[-1].created_at, items[-1].id) if more else None,
+    )
+
+
+@router.get('/{base_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:read']})
+async def get(base_id: UUID, response: Response, container: ContainerDependency, caller: ReadCaller) -> BaseInfo:
+    info = await container.knowledge_queries.get(caller, base_id)
+    response.headers['ETag'] = f'"knowledge-base-{info.version}"'
+    return info
+
+
+@router.patch('/{base_id}', openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']})
+async def patch(
+    base_id: UUID,
+    body: PatchRequest,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    if_match: IfMatch = None,
+) -> BaseInfo:
+    info = await container.knowledge_commands.patch(
+        caller, base_id, BasePatch(expected_version=expected_version(request, 'knowledge-base'), **body.model_dump())
+    )
+    response.headers['ETag'] = f'"knowledge-base-{info.version}"'
+    return info
+
+
+@router.get('/{base_id}/folders', openapi_extra={'x-required-scopes': ['knowledge:read']})
+async def folders(
+    base_id: UUID, container: ContainerDependency, caller: ReadCaller, limit: Limit = 20, cursor: Cursor = None
+) -> FolderPage:
+    assert caller.identity is not None
+    binding = f'{caller.identity.application_id}:knowledge-base:{base_id}:folder'
+    after = decode_cursor(cursor, binding)
+    found = sorted(
+        (
+            item
+            for item in await container.knowledge_queries.folders(caller, base_id)
+            if after is None or (item.created_at, item.id) < after
+        ),
+        key=lambda item: (item.created_at, item.id),
+        reverse=True,
+    )
+    items, more = found[:limit], len(found) > limit
+    return FolderPage(
+        items=items,
+        has_more=more,
+        next_cursor=encode_cursor(binding, items[-1].created_at, items[-1].id) if more else None,
+    )
+
+
+@router.post(
+    '/{base_id}/folders',
+    status_code=201,
+    openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']},
+)
+async def create_folder(
+    base_id: UUID,
+    body: FolderCreate,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+) -> FolderInfo:
+    info = await container.knowledge_commands.folder_create(caller, base_id, body, idempotency_key)
+    response.headers['ETag'] = f'"knowledge-folder-{info.version}"'
+    response.headers['Location'] = f'/api/v1/knowledge-bases/{base_id}/folders/{info.id}'
+    return info
+
+
+@router.patch(
+    '/{base_id}/folders/{folder_id}',
+    openapi_extra={'x-response-headers': ['ETag'], 'x-required-scopes': ['knowledge:write']},
+)
+async def patch_folder(
+    base_id: UUID,
+    folder_id: UUID,
+    body: FolderPatchRequest,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    if_match: IfMatch = None,
+) -> FolderInfo:
+    info = await container.knowledge_commands.folder_patch(
+        caller,
+        base_id,
+        folder_id,
+        FolderPatch(expected_version=expected_version(request, 'knowledge-folder'), name=body.name),
+    )
+    response.headers['ETag'] = f'"knowledge-folder-{info.version}"'
+    return info
+
+
+@router.get('/{base_id}/documents', openapi_extra={'x-required-scopes': ['knowledge:read']})
+async def documents(
+    base_id: UUID, container: ContainerDependency, caller: ReadCaller, limit: Limit = 20, cursor: Cursor = None
+) -> DocumentPage:
+    assert caller.identity is not None
+    binding = f'{caller.identity.application_id}:knowledge-base:{base_id}:document'
+    after = decode_cursor(cursor, binding)
+    found = sorted(
+        (
+            item
+            for item in await container.knowledge_queries.documents(caller, base_id)
+            if after is None or (item.created_at, item.id) < after
+        ),
+        key=lambda item: (item.created_at, item.id),
+        reverse=True,
+    )
+    items, more = found[:limit], len(found) > limit
+    return DocumentPage(
+        items=items,
+        has_more=more,
+        next_cursor=encode_cursor(binding, items[-1].created_at, items[-1].id) if more else None,
+    )
+
+
+@router.post(
+    '/{base_id}/documents', status_code=202, openapi_extra={'x-required-scopes': ['knowledge:write', 'files:read']}
+)
+async def import_documents(
+    base_id: UUID,
+    body: ImportRequest,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller, base_id, 'import', idempotency_key, selection=BuildSelection(**body.model_dump(exclude_unset=True))
+        ),
+    )
+
+
+@router.post('/{base_id}/query', status_code=202, openapi_extra={'x-required-scopes': ['knowledge:query']})
+async def query(
+    base_id: UUID,
+    body: QueryBody,
+    response: Response,
+    container: ContainerDependency,
+    caller: QueryCaller,
+    idempotency_key: Idempotency,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.query(
+            caller, base_id, QueryRequest(client_request_id=uuid4(), **body.model_dump()), idempotency_key
+        ),
+    )
+
+
+@router.post(
+    '/{base_id}/rebuild',
+    status_code=202,
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-required-scopes': ['knowledge:write'],
+        'description': '新版资料按知识库权限处理；legacy 原文件策略另需 files:read。',
+    },
+)
+async def rebuild(
+    base_id: UUID,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+    if_match: IfMatch = None,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller, base_id, 'rebuild', idempotency_key, expected_version=expected_version(request, 'knowledge-base')
+        ),
+    )
+
+
+@router.post(
+    '/{base_id}/documents/{document_id}/rechunk',
+    status_code=202,
+    openapi_extra={
+        'x-required-scopes': ['knowledge:write'],
+        'description': '新版资料按知识库权限处理；legacy 原文件策略另需 files:read。',
+    },
+)
+async def rechunk(
+    base_id: UUID,
+    document_id: UUID,
+    body: ChunkParameters,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+    if_match: IfMatch = None,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller,
+            base_id,
+            'rechunk',
+            idempotency_key,
+            selection=BuildSelection(**body.model_dump()),
+            expected_version=expected_version(request, 'knowledge-document'),
+            child_id=document_id,
+        ),
+    )
+
+
+@router.delete(
+    '/{base_id}/documents/{document_id}',
+    status_code=202,
+    openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['knowledge:write']},
+)
+async def remove_document(
+    base_id: UUID,
+    document_id: UUID,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+    if_match: IfMatch = None,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller,
+            base_id,
+            'delete_document',
+            idempotency_key,
+            expected_version=expected_version(request, 'knowledge-document'),
+            child_id=document_id,
+        ),
+    )
+
+
+@router.delete(
+    '/{base_id}/folders/{folder_id}',
+    status_code=202,
+    openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['knowledge:write']},
+)
+async def remove_folder(
+    base_id: UUID,
+    folder_id: UUID,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+    if_match: IfMatch = None,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller,
+            base_id,
+            'delete_folder',
+            idempotency_key,
+            expected_version=expected_version(request, 'knowledge-folder'),
+            child_id=folder_id,
+        ),
+    )
+
+
+@router.delete(
+    '/{base_id}',
+    status_code=202,
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-required-scopes': ['knowledge:write'],
+        'description': '删除前仍会检查关联资源；若返回 409 knowledge_referenced，先解除引用，或检查影响后显式设置 confirm_references=true。默认不确认。',
+    },
+)
+async def remove_base(
+    base_id: UUID,
+    request: Request,
+    response: Response,
+    container: ContainerDependency,
+    caller: WriteCaller,
+    idempotency_key: Idempotency,
+    if_match: IfMatch = None,
+    confirm_references: Annotated[
+        bool,
+        Query(description='仍有关联资源时返回 409 knowledge_referenced。请先解除引用；已检查并确认影响时才设置 true。'),
+    ] = False,
+) -> OperationInfo:
+    return accepted(
+        response,
+        await container.knowledge_commands.job(
+            caller,
+            base_id,
+            'delete_base',
+            idempotency_key,
+            selection=BuildSelection(confirm_references=confirm_references),
+            expected_version=expected_version(request, 'knowledge-base'),
+        ),
+    )
+
+
+@router.get(
+    '/{base_id}/documents/{document_id}/download',
+    response_class=Response,
+    responses={
+        200: {
+            'description': '原始文件字节，Content-Type 沿用原文件类型；请按文件保存。',
+            'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}},
+            'headers': {'Content-Disposition': {'description': '下载原文件名。', 'schema': {'type': 'string'}}},
+        }
+    },
+    openapi_extra={
+        'x-required-scopes': ['knowledge:read'],
+        'description': '下载原始文件字节；Content-Type 根据原文件 MIME 返回，成功响应不是 JSON。',
+    },
+)
+async def download(
+    base_id: UUID,
+    document_id: UUID,
+    container: ContainerDependency,
+    caller: ReadCaller,
+) -> Response:
+    file, content = await container.knowledge_queries.download(caller, base_id, document_id)
+    return Response(
+        content,
+        media_type=file.mime,
+        headers={
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(file.original_filename),
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@router.get('/{base_id}/documents/{document_id}/preview', openapi_extra={'x-required-scopes': ['knowledge:read']})
+async def preview(
+    base_id: UUID,
+    document_id: UUID,
+    container: ContainerDependency,
+    caller: ReadCaller,
+) -> dict[str, object]:
+    return await container.knowledge_queries.preview(caller, base_id, document_id)

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "noEmit": true },
+  "include": [
+    "src/app/vue.d.ts",
+    "tests/core/**/*.ts",
+    "vite.platform.config.ts",
+    "src/shared/**/*.ts"
+  ]
+}

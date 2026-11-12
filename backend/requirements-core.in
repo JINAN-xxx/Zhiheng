@@ -1,0 +1,37 @@
+fastapi==0.141.1
+uvicorn[standard]==0.29.0
+SQLAlchemy[asyncio]==2.0.36
+asyncpg==0.31.0
+alembic==1.18.5
+pydantic==2.12.3
+pydantic-settings==2.10.1
+redis>=5,<6
+arq==0.28.0
+langchain==1.4.7
+langchain-openai==1.7.2
+openai==3.37.0
+httpx2>=2.12,<3
+langsmith==0.14.12
+cryptography==44.0.1
+argon2-cffi==25.1.0
+httpx==0.28.1
+PyYAML==6.0.3
+pypdf==6.18.0
+Pillow==12.3.0
+openpyxl==3.1.5
+pymilvus==2.6.17
+grpcio==1.84.1
+# Compatible wheels and stubs across Python 3.10 and 3.13.
+numpy==2.2.6
+pandas==2.3.3
+protobuf==5.29.5
+
+# Built-in graph extraction; base SDK only, no API or offline extras.
+lightrag-hku==1.5.7
+tiktoken==0.14.0
+google-genai==1.73.0
+tenacity==9.1.4
+
+# Multipart transport parser, retaining Python 3.10 support.
+python-multipart==0.0.32 ; python_version < '3.11'
+python-multipart==0.0.33 ; python_version >= '3.11'

@@ -1,0 +1,6 @@
+name: zhiheng-core
+
+include:
+  - path: deploy/core/compose.yaml
+    project_directory: deploy/core
+    env_file: ${CORE_ENV_FILE:-deploy/core/.env.core}

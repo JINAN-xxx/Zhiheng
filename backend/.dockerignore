@@ -1,0 +1,13 @@
+**
+!Dockerfile.core
+!pyproject.toml
+!requirements-core.in
+!requirements-core.lock
+!src/
+!src/**
+!migrations/
+!migrations/**
+**/__pycache__/
+**/*.py[cod]
+**/.env*
+**/tests/

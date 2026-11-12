@@ -1,0 +1,85 @@
+# Private instance configuration
+.env
+.env.*
+!.env.example
+!.env.core.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python environments and generated files
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+build/
+dist/
+wheels/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pytype/
+.pyre/
+.tox/
+.nox/
+.coverage*
+htmlcov/
+coverage/
+*.tsbuildinfo
+
+# Frontend dependencies and caches
+node_modules/
+.vite/
+
+# Runtime data, uploads, backups and logs
+/data/
+/logs/
+/vf_admin/
+/.runtime/
+*.log
+*.pid
+*.db
+*.sqlite*
+*.tar
+*.tar.gz
+*.zip
+/backups/
+/_local_backups/
+.test-artifacts/
+test-results/
+playwright-report/
+
+# Local worktrees, editors and agent configuration
+.worktrees/
+.git-worktrees/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.codex/
+.claude/
+.cursor/
+.agent/
+.codebuddy/
+.opencode/
+.qoder/
+.trae/
+
+# Historical source, design experiments and working documents
+/legacy/
+/frontend/design-previews/
+/docs/superpowers/
+/docs/testing/
+/代码结构说明.md
+
+# Generated instance-specific source proxy
+/deploy/core/.source/
+
+# Generated source archive manifest
+/SOURCE_MANIFEST.json

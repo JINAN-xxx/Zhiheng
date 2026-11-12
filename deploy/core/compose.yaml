@@ -1,0 +1,213 @@
+name: zhiheng-core
+
+x-core-environment: &core-environment
+  ZHIHENG_DATABASE_URL: postgresql+asyncpg://${CORE_DB_USER:-zhiheng_core}:${CORE_DB_PASSWORD:?Set CORE_DB_PASSWORD in the new core env file}@postgres:5432/${CORE_DB_NAME:-zhiheng_core}
+  ZHIHENG_GRAPH_DATABASE_URL: ${CORE_GRAPH_DATABASE_URL:-}
+  ZHIHENG_REDIS_URL: redis://redis:6379/0
+  ZHIHENG_CREDENTIAL_KEY: ${CORE_CREDENTIAL_KEY:?Set a new Fernet CORE_CREDENTIAL_KEY}
+  ZHIHENG_COOKIE_SECURE: ${CORE_COOKIE_SECURE:-true}
+  ZHIHENG_ALLOWED_ORIGINS: ${CORE_ALLOWED_ORIGINS:-[]}
+  ZHIHENG_TOKEN_LIMIT: ${CORE_TOKEN_LIMIT:-100000}
+  ZHIHENG_PROVIDER_TIMEOUT_SECONDS: ${CORE_PROVIDER_TIMEOUT_SECONDS:-60}
+  ZHIHENG_FILES_ROOT: /var/lib/zhiheng/files
+  ZHIHENG_MILVUS_URI: http://milvus:19530
+  ZHIHENG_MILVUS_TOKEN: ${CORE_MILVUS_TOKEN:-}
+  ZHIHENG_MILVUS_DATABASE: ${CORE_MILVUS_DATABASE:-default}
+  ZHIHENG_WORKER_QUEUE: ${CORE_WORKER_QUEUE:-zhiheng:core:queue}
+
+x-core-backend: &core-backend
+  image: ${CORE_BACKEND_IMAGE:-zhiheng-core-api:0.1.0}
+  build:
+    context: ../../backend
+    dockerfile: Dockerfile.core
+    args:
+      PYTHON_IMAGE: ${CORE_PYTHON_IMAGE:-python:3.12-slim}
+      PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
+  environment: *core-environment
+  init: true
+  stop_grace_period: 90s
+
+services:
+  vector-etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    stop_grace_period: 30s
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: '1000'
+      ETCD_QUOTA_BACKEND_BYTES: '4294967296'
+      ETCD_SNAPSHOT_COUNT: '50000'
+    command: [etcd, -advertise-client-urls=http://vector-etcd:2379, -listen-client-urls, 'http://0.0.0.0:2379', --data-dir, /etcd]
+    volumes:
+      - vector-etcd-data:/etcd
+    healthcheck:
+      test: [CMD, etcdctl, endpoint, health]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    restart: unless-stopped
+
+  vector-objects:
+    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
+    stop_grace_period: 30s
+    environment:
+      MINIO_ROOT_USER: ${CORE_VECTOR_ACCESS_KEY:?Create independent CORE_VECTOR_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${CORE_VECTOR_SECRET_KEY:?Create independent CORE_VECTOR_SECRET_KEY}
+    command: [minio, server, /minio_data, --console-address, ':9001']
+    volumes:
+      - vector-objects-data:/minio_data
+    healthcheck:
+      test: [CMD, mc, ready, local]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:v2.6.25
+    stop_grace_period: 60s
+    command: [milvus, run, standalone]
+    security_opt: [seccomp:unconfined]
+    environment:
+      ETCD_ENDPOINTS: vector-etcd:2379
+      MINIO_ADDRESS: vector-objects:9000
+      MINIO_ACCESS_KEY_ID: ${CORE_VECTOR_ACCESS_KEY:?Create independent CORE_VECTOR_ACCESS_KEY}
+      MINIO_SECRET_ACCESS_KEY: ${CORE_VECTOR_SECRET_KEY:?Create independent CORE_VECTOR_SECRET_KEY}
+      MQ_TYPE: woodpecker
+    volumes:
+      - milvus-data:/var/lib/milvus
+    depends_on:
+      vector-etcd:
+        condition: service_healthy
+      vector-objects:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9091/healthz]
+      interval: 5s
+      timeout: 3s
+      start_period: 90s
+      retries: 36
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${CORE_DB_NAME:-zhiheng_core}
+      POSTGRES_USER: ${CORE_DB_USER:-zhiheng_core}
+      POSTGRES_PASSWORD: ${CORE_DB_PASSWORD:?Set CORE_DB_PASSWORD in the new core env file}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  migrator:
+    <<: *core-backend
+    command: [python, -m, zhiheng, migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: 'no'
+
+  worker:
+    <<: *core-backend
+    volumes:
+      - files-data:/var/lib/zhiheng/files
+    command: [python, -m, zhiheng, worker]
+    depends_on:
+      milvus:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os,time; from redis import Redis;
+          client=Redis.from_url(os.environ['ZHIHENG_REDIS_URL']);
+          heartbeat=client.get(os.environ['ZHIHENG_WORKER_QUEUE']+':heartbeat');
+          client.close();
+          raise SystemExit(0 if heartbeat is not None and 0 <= time.time()-float(heartbeat) <= 15 else 1)
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+    restart: unless-stopped
+
+  api:
+    <<: *core-backend
+    volumes:
+      - files-data:/var/lib/zhiheng/files
+    command: [python, -m, zhiheng, serve, --host, 0.0.0.0, --port, '19090']
+    depends_on:
+      milvus:
+        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:19090/health/ready', timeout=2).close()"
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+    restart: unless-stopped
+
+  web:
+    image: ${CORE_FRONTEND_IMAGE:-zhiheng-core-web:0.1.0}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile.core
+      args:
+        NODE_IMAGE: ${CORE_NODE_IMAGE:-node:24-alpine}
+        NGINX_IMAGE: ${CORE_NGINX_IMAGE:-nginx:1.28-alpine}
+    ports:
+      - '${CORE_WEB_BIND:-127.0.0.1}:${CORE_WEB_PORT:-19080}:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/platform.html]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  vector-etcd-data:
+  vector-objects-data:
+  milvus-data:
+  files-data:
+  postgres-data:
+  redis-data:
