@@ -1,10 +1,11 @@
 import { copyText } from '../../../shared/clipboard.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
+import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Modal, message as notice } from 'ant-design-vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import { useWindowSize } from '@vueuse/core'
-import { hasAnyPermission, identity } from '../../identity/public.ts'
+import { hasAnyPermission, identity, canUseCapability } from '../../identity/public.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -12,6 +13,7 @@ import {
   createConnection,
   createModel,
   getConnections,
+  getConnectionOptions,
   getModels,
   getTrialModels,
   observeModelTest,
@@ -21,15 +23,30 @@ import {
   controlConnection,
   controlModel
 } from '../api/index.ts'
-import type { ChatModel, ModelConnection } from '../api/index.ts'
+import type { ChatModel, ModelConnection, ConnectionOption } from '../api/index.ts'
 import { modelTypeLabel } from '../presentation.ts'
 import type { ModelControlAction } from '../presentation.ts'
 
 export function useModelDirectory() {
+  const credentialPage = useRoute().name === 'credentials'
+  const canCreateModels = computed(() => canUseCapability('models', 'create'))
+  const canUpdateModels = computed(() => canUseCapability('models', 'update'))
+  const canDeleteModels = computed(() => canUseCapability('models', 'delete'))
+  const canToggleModels = computed(() => canUseCapability('models', 'toggle'))
+  const canCreateCredentials = computed(() => canUseCapability('credentials', 'create'))
+  const canUpdateCredentials = computed(() => canUseCapability('credentials', 'update'))
+  const canDeleteCredentials = computed(() => canUseCapability('credentials', 'delete'))
+  const canToggleCredentials = computed(() => canUseCapability('credentials', 'toggle'))
   const canReadModels = computed(() =>
     hasAnyPermission(identity.value, 'ai:models:read', 'ai:models:write')
   )
   const canWriteModels = computed(() => hasAnyPermission(identity.value, 'ai:models:write'))
+  const canReadCredentials = computed(() =>
+    hasAnyPermission(identity.value, 'ai:credentials:read', 'ai:credentials:write')
+  )
+  const canWriteCredentials = computed(() =>
+    hasAnyPermission(identity.value, 'ai:credentials:write')
+  )
   const trialDenied = ref(false)
   const canTestModels = computed(
     () => !trialDenied.value && hasAnyPermission(identity.value, 'ai:models:test')
@@ -46,9 +63,10 @@ export function useModelDirectory() {
     () => canWriteModels.value || canTestModels.value || canReadRates.value
   )
   function setActiveTab(value: unknown): void {
-    activeTab.value = value === 'credentials' && canReadModels.value ? 'credentials' : 'platform'
+    activeTab.value =
+      value === 'credentials' && canReadCredentials.value ? 'credentials' : 'platform'
   }
-  const activeTab = ref('platform')
+  const activeTab = ref(credentialPage ? 'credentials' : 'platform')
   const modelSearch = ref('')
   const modelType = ref('all')
   const modelFilters = [
@@ -83,6 +101,10 @@ export function useModelDirectory() {
         )
   )
   const connections = ref<ModelConnection[]>([])
+  const connectionChoices = ref<ConnectionOption[]>([])
+  const connectionData = computed(() =>
+    credentialPage ? connections.value : connectionChoices.value
+  )
   const models = ref<ChatModel[]>([])
   const filteredModels = computed(() => {
     const search = modelSearch.value.trim().toLowerCase()
@@ -96,13 +118,13 @@ export function useModelDirectory() {
     )
   })
   function connectionName(id: string): string {
-    return connections.value.find((connection) => connection.id === id)?.name ?? '连接不可用'
+    return connectionData.value.find((connection) => connection.id === id)?.name ?? '连接不可用'
   }
   function connectionEnabled(id: string): boolean {
-    return connections.value.some((connection) => connection.id === id && connection.enabled)
+    return connectionData.value.some((connection) => connection.id === id && connection.enabled)
   }
   function connectionDisabled(id: string): boolean {
-    return connections.value.find((connection) => connection.id === id)?.enabled === false
+    return connectionData.value.find((connection) => connection.id === id)?.enabled === false
   }
   const loading = ref(false)
   const saving = ref(false)
@@ -165,7 +187,7 @@ export function useModelDirectory() {
       (testRun.value === null || !isTerminal(testRun.value))
   )
   const connectionOptions = computed(() =>
-    connections.value
+    connectionData.value
       .filter((item) => item.enabled)
       .map((item) => ({ value: item.id, label: item.name }))
   )
@@ -184,16 +206,24 @@ export function useModelDirectory() {
     error.value = ''
     errorDetails.value = undefined
     try {
-      const [items, availableModels] = await Promise.all([
-        canReadModels.value ? getConnections(context.signal) : Promise.resolve([]),
-        canReadModels.value
-          ? getModels(context.signal, true)
-          : canTestModels.value
-            ? getTrialModels(context.signal)
-            : getModels(context.signal)
+      const [items, availableModels, options] = await Promise.all([
+        credentialPage && canReadCredentials.value
+          ? getConnections(context.signal)
+          : Promise.resolve([]),
+        credentialPage
+          ? Promise.resolve([])
+          : canReadModels.value
+            ? getModels(context.signal, true)
+            : canTestModels.value
+              ? getTrialModels(context.signal)
+              : getModels(context.signal),
+        canReadModels.value && !credentialPage
+          ? getConnectionOptions(context.signal)
+          : Promise.resolve([])
       ])
       if (context.isCurrent()) {
         connections.value = items
+        connectionChoices.value = options
         models.value = availableModels
         lastSuccessAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
       }
@@ -227,7 +257,7 @@ export function useModelDirectory() {
     }
   }
   function openConnection(connection: ModelConnection | null = null): void {
-    if (!canWriteModels.value) return
+    if (!(connection ? canUpdateCredentials.value : canCreateCredentials.value)) return
     mutationScope.replace()
     saving.value = false
     editingConnection.value = connection
@@ -240,7 +270,11 @@ export function useModelDirectory() {
     modalError.value = ''
   }
   function openModel(model: ChatModel | null = null): void {
-    if (!canWriteModels.value || (model && modelPending[model.id])) return
+    if (
+      !(model ? canUpdateModels.value : canCreateModels.value) ||
+      (model && modelPending[model.id])
+    )
+      return
     mutationScope.replace()
     saving.value = false
     editingModel.value = model
@@ -248,8 +282,8 @@ export function useModelDirectory() {
       name: model?.name ?? '',
       connection_id:
         model?.connection_id ??
-        (connections.value.filter((item) => item.enabled).length === 1
-          ? (connections.value.find((item) => item.enabled)?.id ?? '')
+        (connectionData.value.filter((item) => item.enabled).length === 1
+          ? (connectionData.value.find((item) => item.enabled)?.id ?? '')
           : ''),
       upstream_model: model?.upstream_model ?? '',
       max_output_tokens: model?.max_output_tokens ?? 512,
@@ -268,7 +302,11 @@ export function useModelDirectory() {
     modalError.value = ''
   }
   async function saveConnection(): Promise<void> {
-    if (saving.value || !canWriteModels.value) return
+    if (
+      saving.value ||
+      !(editingConnection.value ? canUpdateCredentials.value : canCreateCredentials.value)
+    )
+      return
     const editing = editingConnection.value
     if (
       !connectionForm.name.trim() ||
@@ -299,7 +337,7 @@ export function useModelDirectory() {
           )
         else connections.value.push(connection)
         connectionOpen.value = false
-        if (!editing) activeTab.value = 'platform'
+        if (!editing) activeTab.value = credentialPage ? 'credentials' : 'platform'
         connectionForm.name = ''
         connectionForm.base_url = ''
         modelForm.connection_id = connection.id
@@ -351,7 +389,13 @@ export function useModelDirectory() {
 
   async function changeModel(model: ChatModel, action: ModelControlAction): Promise<void> {
     const id = model.id
-    if (saving.value || confirmationOpen.value || modelPending[id] || !canWriteModels.value) return
+    if (
+      saving.value ||
+      confirmationOpen.value ||
+      modelPending[id] ||
+      !(action === 'delete' ? canDeleteModels.value : canToggleModels.value)
+    )
+      return
     const operation = modelScopes.get(id) ?? new RequestScope()
     modelScopes.set(id, operation)
     const context = operation.replace()
@@ -366,7 +410,11 @@ export function useModelDirectory() {
         )
         if (!accepted) return
       }
-      if (!context.isCurrent() || !canWriteModels.value) return
+      if (
+        !context.isCurrent() ||
+        !(action === 'delete' ? canDeleteModels.value : canToggleModels.value)
+      )
+        return
       error.value = ''
       errorDetails.value = undefined
       const updated = await controlModel(id, action, context.signal)
@@ -401,7 +449,12 @@ export function useModelDirectory() {
     connection: ModelConnection,
     action: 'enable' | 'disable' | 'delete'
   ): Promise<void> {
-    if (saving.value || confirmationOpen.value || !canWriteModels.value) return
+    if (
+      saving.value ||
+      confirmationOpen.value ||
+      !(action === 'delete' ? canDeleteCredentials.value : canToggleCredentials.value)
+    )
+      return
     const context = mutationScope.replace()
     if (action !== 'enable') {
       const accepted = await confirmOperation(
@@ -411,7 +464,11 @@ export function useModelDirectory() {
       )
       if (!accepted) return
     }
-    if (!context.isCurrent() || !canWriteModels.value) return
+    if (
+      !context.isCurrent() ||
+      !(action === 'delete' ? canDeleteCredentials.value : canToggleCredentials.value)
+    )
+      return
     saving.value = true
     error.value = ''
     errorDetails.value = undefined
@@ -429,7 +486,8 @@ export function useModelDirectory() {
   }
 
   async function saveModel(): Promise<void> {
-    if (saving.value || !canWriteModels.value) return
+    if (saving.value || !(editingModel.value ? canUpdateModels.value : canCreateModels.value))
+      return
     if (!modelForm.upstream_model.trim()) {
       modalError.value = '请填写上游模型标识'
       return
@@ -636,8 +694,24 @@ export function useModelDirectory() {
   }
 
   watch(
-    [canReadModels, canWriteModels, canTestModels, canReadRates],
-    ([read, write, test, rates], previous) => {
+    [
+      credentialPage,
+      canCreateModels,
+      canUpdateModels,
+      canDeleteModels,
+      canToggleModels,
+      canCreateCredentials,
+      canUpdateCredentials,
+      canDeleteCredentials,
+      canToggleCredentials,
+      canReadModels,
+      canWriteModels,
+      canTestModels,
+      canReadRates,
+      canReadCredentials,
+      canWriteCredentials
+    ],
+    ([read, write, test, rates, credentials, credentialWrite], previous) => {
       closeConfirmation?.()
       error.value = ''
       errorDetails.value = undefined
@@ -647,10 +721,12 @@ export function useModelDirectory() {
         mutationScope.replace()
         saving.value = false
         modelOpen.value = false
-        connectionOpen.value = false
-        connectionForm.api_key = ''
         for (const item of modelScopes.values()) item.replace()
         for (const id of Object.keys(modelPending)) modelPending[id] = false
+      }
+      if (!credentialWrite) {
+        connectionOpen.value = false
+        connectionForm.api_key = ''
       }
       if (!test) {
         testScope.replace()
@@ -660,12 +736,13 @@ export function useModelDirectory() {
         testDisconnected.value = false
       }
       if (!rates) rateModel.value = null
-      if (read !== previous[0] || test !== previous[2]) {
+      if (read !== previous[0] || test !== previous[2] || credentials !== previous[4]) {
         scope.replace()
         connections.value = []
+        connectionChoices.value = []
         models.value = []
         closeDetails()
-        activeTab.value = 'platform'
+        activeTab.value = credentialPage ? 'credentials' : 'platform'
         rateModel.value = null
         void load()
       }
@@ -673,8 +750,19 @@ export function useModelDirectory() {
   )
 
   return {
+    credentialPage,
+    canCreateModels,
+    canUpdateModels,
+    canDeleteModels,
+    canToggleModels,
+    canCreateCredentials,
+    canUpdateCredentials,
+    canDeleteCredentials,
+    canToggleCredentials,
     canReadModels,
     canWriteModels,
+    canReadCredentials,
+    canWriteCredentials,
     canTestModels,
     denyTrialAccess,
     canReadRates,

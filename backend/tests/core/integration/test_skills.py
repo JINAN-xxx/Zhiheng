@@ -56,7 +56,7 @@ async def test_builtins_and_two_phase_owner_cas_and_soft_delete(admin: httpx.Asy
     assert (await admin.get(f'/api/skills/{skill["id"]}')).status_code == 404
     assert (
         await admin.delete(f'/api/skills/{builtin[0]["id"]}', headers={'content-type': 'application/json'})
-    ).status_code == 200
+    ).status_code == 403
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert (await member.get('/api/skills')).status_code == 200

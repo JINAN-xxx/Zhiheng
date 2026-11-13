@@ -36,6 +36,7 @@ from zhiheng.modules.models.public import ModelBinding, ModelMessage, ModelReque
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability, require_execution_capabilities
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -117,6 +118,10 @@ class KnowledgePreparation:
         identity: DeveloperIdentity | None = None,
     ) -> PreparationInfo:
         await lock_billing_admission(session)
+        if identity is None:
+            require_execution_capabilities(
+                principal, body.resource_type, knowledge=True, skills=bool(body.request.get('skill_slugs'))
+            )
         if identity:
             if body.owner_id != identity.owner_id or principal.id != identity.owner_id:
                 raise AppError('invalid_api_origin', 'Key preparation must use its current owner', 403)
@@ -135,6 +140,7 @@ class KnowledgePreparation:
         if existing:
             return self.store.info(existing)
         owner = await self.knowledge.identity.principal_for_user(session, owner_id)
+        require_capability(owner, 'knowledge', 'access')
         bases = await self.store.snapshot(session, owner, base_ids)
         bindings = await self.models.resolve_many(session, sorted({base.binding.model_id for base in bases}))
         for base in bases:
@@ -178,6 +184,7 @@ class KnowledgePreparation:
         if state is None:
             return
         owner = await self.knowledge.identity.principal_for_user(session, state.owner_id)
+        require_capability(owner, 'knowledge', 'access')
         for base in self.store.bases(state):
             await self.knowledge.authorize_base(session, owner, base.base_id, lock=True)
 
@@ -304,6 +311,10 @@ class KnowledgePreparation:
 
     async def authorize(self, session: AsyncSession, state: RetrievalState, *, lock: bool = False) -> Principal:
         principal = await self.knowledge.identity.principal_for_user(session, state.owner_id)
+        if state.key_id is None:
+            require_execution_capabilities(
+                principal, state.resource_type, knowledge=True, skills=bool(state.request.get('skill_slugs'))
+            )
         if state.key_id is not None:
             assert state.application_id is not None
             identity = DeveloperIdentity(state.application_id, state.key_id, state.owner_id)
@@ -319,7 +330,7 @@ class KnowledgePreparation:
         if self.resource_guard is not None:
             await self.resource_guard(session, state)
         if state.key_id is not None and state.resource_type == 'knowledge_query':
-            principal = Principal(principal.id, principal.username, False, principal.permissions)
+            principal = principal.personal()
         if state.resource_type in {'agent_preview', 'agent_invocation'}:
             application_id = state.dependencies.get('config', {}).get('application_id')
             if application_id:
@@ -774,7 +785,11 @@ class KnowledgePreparation:
                     await self.store.release(session, state.id, token, 'waiting_models')
                 return None
             if run.status != 'completed':
-                raise AppError('knowledge_embedding_failed', '检索Embedding执行失败或结果不确定', 502)
+                raise AppError(
+                    'knowledge_embedding_failed',
+                    '知识库向量模型调用失败，本次检索已停止。请稍后重试；若持续失败，请检查 Embedding 模型连接。',
+                    502,
+                )
             vectors[binding_key] = validate_vectors(run.result, 1, base.spec.dimension)[0]
         return vectors
 
@@ -783,6 +798,12 @@ class KnowledgePreparation:
         if row.key_id is not None or not self.can_observe(self.store.state(row), principal):
             raise AppError('preparation_not_found', '知识准备不存在', 404)
         state = self.store.state(row)
+        require_capability(
+            principal,
+            {'chat': 'chat', 'agent_chat': 'agents', 'agent_preview': 'agents', 'work_turn': 'work'}.get(
+                state.resource_type, 'knowledge'
+            ),
+        )
         if row.resource_type == 'knowledge_query':
             await self.knowledge.authorize_base(session, principal, row.resource_id)
         if row.hits and row.main_run_id is None:
@@ -870,6 +891,12 @@ class KnowledgePreparation:
         row = await self.store.get(session, intent_id, lock=True)
         if row.key_id is not None or not self.can_observe(self.store.state(row), principal):
             raise AppError('preparation_not_found', '知识准备不存在', 404)
+        require_capability(
+            principal,
+            {'chat': 'chat', 'agent_chat': 'agents', 'agent_preview': 'agents', 'work_turn': 'work'}.get(
+                row.resource_type, 'knowledge'
+            ),
+        )
         result = await self._cancel_authorized(session, intent_id, '知识准备已取消')
         result.hits = await self.owner_visible_hits(session, row.owner_id, result.hits)
         return result

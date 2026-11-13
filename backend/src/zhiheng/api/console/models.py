@@ -7,7 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.models.public import ConnectionInfo, ModelInfo, ModelTrialInput, RateCreate, RateInfo
+from zhiheng.modules.models.public import (
+    ConnectionInfo,
+    ConnectionOption,
+    ModelInfo,
+    ModelTrialInput,
+    RateCreate,
+    RateInfo,
+)
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
@@ -58,6 +65,13 @@ async def connections(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[ConnectionInfo]:
     return await container.models.list_connections(session, principal)
+
+
+@router.get('/connection-options')
+async def connection_options(
+    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> list[ConnectionOption]:
+    return await container.models.connection_options(session, principal)
 
 
 @router.post('/connections', status_code=201)

@@ -1,5 +1,6 @@
 from zhiheng.modules.models.contracts import (
     ConnectionInfo,
+    ConnectionOption,
     ModelBinding,
     ModelConfiguration,
     ModelDelta,
@@ -23,6 +24,7 @@ from zhiheng.modules.models.service import ModelService
 
 __all__ = [
     'ConnectionInfo',
+    'ConnectionOption',
     'ModelBinding',
     'ModelConfiguration',
     'ModelDelta',

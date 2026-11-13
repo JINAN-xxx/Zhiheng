@@ -27,6 +27,7 @@ from zhiheng.modules.knowledge.graph.service import GraphService
 from zhiheng.modules.knowledge.orm import KnowledgeBase
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -153,6 +154,7 @@ class GraphStore:
             raise AppError('graph_cancelled', '图谱作业已取消', 409)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)
         actor = await self.service.knowledge.identity.principal_for_user(session, claim.actor_id)
+        require_capability(actor, 'knowledge', 'rebuild' if claim.operation in {'build', 'preview'} else 'query')
         await self.service.knowledge.require(
             session, actor, claim.base_id, manage=claim.operation in {'build', 'preview'}
         )

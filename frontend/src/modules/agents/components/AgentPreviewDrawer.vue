@@ -18,7 +18,9 @@
     @close="close"
   >
     <header class="preview-heading">
-      <h2><MessageOutlined />{{ embedded ? '对话体验' : `${agent?.name || '智能体'} · 试聊` }}</h2>
+      <h2>
+        <MessageOutlined />{{ embedded ? '草稿调试' : `${agent?.name || '智能助手'} · 调试` }}
+      </h2>
       <a-tooltip title="清空对话"
         ><a-button
           type="text"
@@ -32,15 +34,15 @@
       <a-button
         v-if="!embedded"
         type="text"
-        aria-label="关闭试聊"
+        aria-label="关闭调试"
         :disabled="sending && !currentRun && !currentPreparation"
         @click="close"
         ><CloseOutlined
       /></a-button>
     </header>
     <div class="preview-version">
-      <RobotOutlined /><span>{{ agent ? '已保存草稿' : '保存后可开始试聊' }}</span
-      ><span v-if="disabled && agent" class="preview-save-hint">保存后试聊</span>
+      <RobotOutlined /><span>{{ agent ? '已保存草稿' : '保存后可开始调试' }}</span
+      ><span v-if="disabled && agent" class="preview-save-hint">保存后调试</span>
     </div>
     <div ref="historyRef" class="preview-history" aria-live="polite" :aria-busy="sending">
       <article
@@ -55,8 +57,8 @@
       <WorkspaceState
         v-else-if="!messages.length && !sending"
         kind="empty"
-        :title="agent?.name || '对话体验'"
-        :message="agent ? '发送消息，体验已保存草稿。' : '保存智能体后可开始对话。'"
+        :title="agent?.name || '草稿调试'"
+        :message="agent ? '发送消息，体验已保存草稿。' : '保存智能助手后可开始对话。'"
       />
       <article
         v-for="(item, index) in messages"
@@ -95,7 +97,7 @@
     <div class="preview-composer">
       <a-textarea
         v-model:value="draft"
-        aria-label="试聊消息"
+        aria-label="调试消息"
         placeholder="输入消息"
         :auto-size="{ minRows: 3, maxRows: 7 }"
         :maxlength="32000"
@@ -254,7 +256,7 @@ async function follow(
 }
 function projectPreparation(value: KnowledgePreparation): KnowledgePreparation {
   if (value.resource_type !== 'agent_preview' || value.resource_id !== props.agent?.agentId)
-    throw new Error('知识检索准备与当前智能体不匹配')
+    throw new Error('知识检索准备与当前智能助手不匹配')
   value = mergePreparation(currentPreparation.value, value)
   currentPreparation.value = value
   if (

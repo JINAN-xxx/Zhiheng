@@ -40,8 +40,8 @@ class SkillUploadModalRegressions(DeveloperBoundary):
         }
 
     async def mount_upload(self, slug='example'):
-        await self.page.goto(self.origin + '/skills')
-        await expect(self.page.get_by_role('heading', name='我的技能', exact=True)).to_be_visible()
+        await self.page.goto(self.origin + '/skills?tab=mine')
+        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
         await self.page.evaluate(r"""async (slug) => {
             const source = await (await fetch('/src/modules/skills/components/SkillUploadModal.vue')).text()
             const dependencies = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(match => match[1])

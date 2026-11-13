@@ -27,7 +27,9 @@ async def _transaction(session: AsyncSession) -> AsyncIterator[None]:
 
 @router.get('/permissions')
 async def permissions(principal: PrincipalDependency) -> dict[str, Any]:
-    if not principal.is_admin and not any(code.startswith('system:') for code in principal.permissions):
+    if not principal.is_admin and not any(
+        code.startswith('system:') and code.endswith(':read') for code in principal.permissions
+    ):
         raise AppError('forbidden', '需要后台管理权限', 403)
     return {'items': permission_catalog()}
 
@@ -39,6 +41,13 @@ async def user_options(
     session: SessionDependency,
 ) -> dict[str, Any]:
     return await container.admin_identity.user_options(session, principal)
+
+
+@router.get('/users/{identifier}/effective-permissions')
+async def effective_permissions(
+    identifier: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> dict[str, Any]:
+    return await container.admin_identity.effective_permissions(session, principal, identifier)
 
 
 @router.post('/users/{identifier}/password')

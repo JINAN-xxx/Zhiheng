@@ -32,7 +32,7 @@ import { chartGraph } from '../graphPresentation.ts'
 import KnowledgeAclDrawer from '../components/KnowledgeAclDrawer.vue'
 import ChunkFields from '../components/ChunkFields.vue'
 import { useKnowledgeWorkspace } from '../composables/workspace.ts'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import { downloadDocument } from '../api/index.ts'
 import KnowledgeMigration from '../components/KnowledgeMigration.vue'
 import KnowledgeSettings from '../components/KnowledgeSettings.vue'
@@ -412,7 +412,11 @@ function queueUploadFile(file: File): boolean {
         :available="capabilities?.graph_available === true && graphState?.available === true"
         :build-loading="graphWorkspace.loading.value"
         :starting="graphWorkspace.starting.value"
-        :can-edit="selected.can_manage && graphState?.can_manage === true"
+        :can-edit="
+          (canUseCapability('knowledge', 'update') || canUseCapability('knowledge', 'rebuild')) &&
+          selected.can_manage &&
+          graphState?.can_manage === true
+        "
         :chat-options="chatOptions"
         :config-state="graphState"
         :config-ready="!!graphState"

@@ -1,15 +1,18 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <script setup lang="ts">
-import { ref, useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { FileTextOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { canUseCapability } from '../../identity/public.ts'
 const props = defineProps<{ activeView: string; graphAvailable?: boolean }>()
 const emit = defineEmits<{ navigate: [view: string] }>()
 const root = ref<HTMLElement | null>(null),
   id = useId()
-const items = [
+const items = computed(() => [
   { view: 'documents', label: '资料', icon: FileTextOutlined },
-  { view: 'query', label: '检索测试', icon: SearchOutlined }
-]
+  ...(canUseCapability('knowledge')
+    ? [{ view: 'query', label: '检索测试', icon: SearchOutlined }]
+    : [])
+])
 function select(view: string) {
   if (props.activeView !== view) emit('navigate', view)
 }
@@ -18,15 +21,16 @@ function keydown(event: KeyboardEvent) {
   event.preventDefault()
   const current = Math.max(
     0,
-    items.findIndex((item) => item.view === props.activeView)
+    items.value.findIndex((item) => item.view === props.activeView)
   )
   const index =
     event.key === 'Home'
       ? 0
       : event.key === 'End'
-        ? items.length - 1
-        : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
-  const next = items[index]!
+        ? items.value.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.value.length) %
+          items.value.length
+  const next = items.value[index]!
   root.value?.querySelectorAll<HTMLButtonElement>('button')[index]?.focus()
   select(next.view)
 }

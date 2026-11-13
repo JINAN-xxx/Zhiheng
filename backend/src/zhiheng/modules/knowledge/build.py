@@ -71,6 +71,12 @@ class BuildStore:
     def __init__(self, knowledge: KnowledgeService) -> None:
         self.knowledge = knowledge
 
+    async def operation(self, session: AsyncSession, job_id: UUID) -> str:
+        row = await session.get(KnowledgeJob, job_id)
+        if row is None:
+            raise AppError('knowledge_job_not_found', '知识任务不存在', 404)
+        return row.operation
+
     async def facts(self, session: AsyncSession, job_id: UUID) -> BuildFacts | None:
         job = await session.get(KnowledgeJob, job_id)
         if job is None:

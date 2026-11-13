@@ -3,20 +3,24 @@
   <main class="app-container agent-management-page">
     <WorkspaceToolbar
       class="agent-toolbar"
-      title="智能体"
-      subtitle="创建、配置并发布智能体，支持绑定技能与知识库"
+      title="智能助手"
+      subtitle="创建、配置并发布智能助手，支持绑定技能与知识库"
     >
       <template #actions>
-        <RefreshButton label="刷新智能体" :loading="loading" @click="load" />
-        <a-button type="primary" aria-label="新建智能体" @click="openEditor()"
-          ><template #icon><PlusOutlined /></template>新建智能体</a-button
+        <RefreshButton label="刷新智能助手" :loading="loading" @click="load" />
+        <a-button
+          v-if="canUseCapability('agents', 'create')"
+          type="primary"
+          aria-label="新建智能助手"
+          @click="openEditor()"
+          ><template #icon><PlusOutlined /></template>新建智能助手</a-button
         >
       </template>
     </WorkspaceToolbar>
     <section class="agent-content" :aria-busy="loading">
       <div class="agent-controls">
         <div class="agent-filter-summary">
-          <div class="agent-status-filters" role="group" aria-label="按发布状态筛选智能体">
+          <div class="agent-status-filters" role="group" aria-label="按发布状态筛选智能助手">
             <button
               v-for="item in statusFilters"
               :key="item.value"
@@ -36,8 +40,8 @@
           v-model:value="query.keyword"
           :maxlength="100"
           allow-clear
-          placeholder="搜索智能体"
-          aria-label="搜索智能体"
+          placeholder="搜索智能助手"
+          aria-label="搜索智能助手"
           @search="search"
         />
       </div>
@@ -51,11 +55,13 @@
       <WorkspaceState
         v-else-if="!agents.length"
         kind="empty"
-        :title="statusFilter !== 'all' || query.keyword.trim() ? '没有匹配的智能体' : '暂无智能体'"
+        :title="
+          statusFilter !== 'all' || query.keyword.trim() ? '没有匹配的智能助手' : '暂无智能助手'
+        "
         :message="
           statusFilter !== 'all' || query.keyword.trim()
             ? '调整发布状态或搜索关键词后重试'
-            : '创建一个智能体，配置模型、技能与知识库后即可开始使用'
+            : '创建一个智能助手，配置模型、技能与知识库后即可开始使用'
         "
       />
       <template v-else>
@@ -75,7 +81,7 @@
           >
             <template #icon><AgentIdentityIcon /></template>
             <p class="agent-card__description" :title="agent.description || '暂无描述'">
-              {{ agent.description || '暂无描述，添加一段说明，让团队了解智能体的用途。' }}
+              {{ agent.description || '暂无描述，添加一段说明，让团队了解智能助手的用途。' }}
             </p>
             <div class="agent-card__metadata">
               <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
@@ -89,36 +95,43 @@
             </template>
             <template #actions>
               <a-button
+                v-if="canUseCapability('agents')"
                 size="small"
                 type="text"
                 class="resource-card-primary"
                 :loading="openingId === agent.agentId"
-                aria-label="试聊"
-                @click="openAgentTool(agent, 'preview')"
-                ><MessageOutlined />试聊</a-button
+                aria-label="使用"
+                @click="router.push(`/agents/${encodeURIComponent(agent.agentId)}/chat`)"
+                ><MessageOutlined />使用</a-button
               >
               <a-button
+                v-if="canUseCapability('agents', 'create') || canUseCapability('agents', 'publish')"
                 size="small"
                 type="text"
                 class="agent-card__edit"
-                :aria-label="canEdit(agent) ? '编辑智能体' : '查看智能体配置'"
+                :aria-label="canEdit(agent) ? '编辑智能助手' : '查看智能助手配置'"
                 @click="openEditor(agent)"
                 >{{ canEdit(agent) ? '编辑' : '查看' }}</a-button
               >
               <WorkspaceMoreMenu
+                v-if="agentActions(agent).length"
                 :items="agentActions(agent)"
                 @command="agentCommand($event, agent)"
               />
             </template>
           </ResourceCard>
           <button
-            v-if="displayedQuery.status === 'all' && !displayedQuery.keyword.trim()"
+            v-if="
+              canUseCapability('agents', 'create') &&
+              displayedQuery.status === 'all' &&
+              !displayedQuery.keyword.trim()
+            "
             class="create-agent-card"
             type="button"
             @click="openEditor()"
           >
             <span class="create-agent-card__icon"><PlusOutlined /></span>
-            <span>创建新的智能体</span>
+            <span>创建新的智能助手</span>
             <span class="create-agent-card__hint">配置专属助手，连接技能与知识库</span>
           </button>
         </ResourceCardGrid>
@@ -165,7 +178,7 @@ import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vu
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getAgent, listAgents } from '../api/index.ts'
 import type { Agent } from '../api/index.ts'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability, canUseModule } from '../../identity/public.ts'
 import { hasUnpublishedAgentChanges } from '../presentation.ts'
 import AgentPreviewDrawer from '../components/AgentPreviewDrawer.vue'
 import AgentApiDrawer from '../components/AgentApiDrawer.vue'
@@ -198,7 +211,7 @@ const previewOpen = ref(false),
 const listScope = new RequestScope(),
   toolScope = new RequestScope()
 function canEdit(agent: Agent): boolean {
-  return identity.value?.id === agent.ownerId
+  return canUseCapability('agents', 'update') && identity.value?.id === agent.ownerId
 }
 function formatUpdatedAt(value: string, full = false): string {
   const date = new Date(value)
@@ -209,12 +222,20 @@ function formatUpdatedAt(value: string, full = false): string {
 }
 function agentActions(agent: Agent): MenuAction[] {
   return [
-    { command: 'configure', label: '配置', icon: SettingOutlined },
-    ...(agent.status === 'published' ? [{ command: 'api', label: 'API', icon: ApiOutlined }] : [])
+    ...(canUseCapability('agents', 'read')
+      ? [{ command: 'configure', label: '配置', icon: SettingOutlined }]
+      : []),
+    ...(canUseCapability('agents', 'debug')
+      ? [{ command: 'preview', label: '调试草稿', icon: MessageOutlined }]
+      : []),
+    ...(canUseModule('developer') && agent.status === 'published'
+      ? [{ command: 'api', label: 'API', icon: ApiOutlined }]
+      : [])
   ]
 }
 function agentCommand(command: string, agent: Agent): void {
   if (command === 'configure') openEditor(agent)
+  else if (command === 'preview') void openAgentTool(agent, 'preview')
   else if (command === 'api' && agent.status === 'published') void openAgentTool(agent, 'api')
 }
 async function load(): Promise<void> {
@@ -286,6 +307,12 @@ function search(): void {
   void load()
 }
 function openEditor(agent?: Agent): void {
+  if (!canUseCapability('agents', 'read')) {
+    if (agent && canUseCapability('agents'))
+      void router.push(`/agents/${encodeURIComponent(agent.agentId)}/chat`)
+    return
+  }
+  if (!agent && !canUseCapability('agents', 'create')) return
   toolScope.replace()
   openingId.value = ''
   void router.push(agent ? `/agents/${encodeURIComponent(agent.agentId)}` : '/agents/new')

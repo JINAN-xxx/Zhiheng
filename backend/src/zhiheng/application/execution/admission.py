@@ -9,6 +9,7 @@ from zhiheng.modules.models.public import ModelRequest, ModelService
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability, require_execution_capabilities
 from zhiheng.shared.principal import Principal
 
 MAX_PROMPT_RESERVATION = 64000
@@ -30,6 +31,12 @@ class RunAdmission:
         request: ModelRequest,
         token_limit: int,
     ) -> RunSnapshot:
+        if resource_type in {'chat', 'chat_summary', 'agent_chat', 'agent_preview', 'work_turn'}:
+            require_execution_capabilities(principal, resource_type)
+            for module in request.required_modules:
+                require_capability(
+                    principal, module, 'query' if module == 'knowledge' else 'use' if module == 'skills' else 'read'
+                )
         prompt_bytes = sum(
             len(message.content.encode()) + 16 + sum(image.estimated_tokens for image in message.images)
             for message in request.messages

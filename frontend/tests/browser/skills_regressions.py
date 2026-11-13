@@ -58,8 +58,8 @@ class SkillsUIRegressions(DeveloperBoundary):
             await super().respond(route)
 
     async def open_skills(self):
-        await self.page.goto(self.origin + '/skills')
-        await expect(self.page.get_by_role('heading', name='我的技能', exact=True)).to_be_visible()
+        await self.page.goto(self.origin + '/skills?tab=mine')
+        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
 
     async def open_skill_detail(self, name='示例技能'):
         item = self.page.locator('.skill-item').filter(has_text=name)
@@ -189,7 +189,8 @@ class SkillsUIRegressions(DeveloperBoundary):
         try:
             await self.page.goto(self.origin + '/models')
             await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
-            await self.page.get_by_role('link', name='技能管理', exact=True).click()
+            await self.page.get_by_role('link', name='技能', exact=True).click()
+            await self.page.get_by_role('tab', name='我的', exact=True).click()
             await self.page.get_by_role('button', name='上传技能', exact=True).click()
             dialog = self.page.get_by_role('dialog')
             await dialog.locator('input[type=file]').set_input_files({'name': 'SKILL.md', 'mimeType': 'text/markdown', 'buffer': b'fixture skill'})
@@ -340,7 +341,8 @@ class SkillsUIRegressions(DeveloperBoundary):
         self.skill['status'] = 'disabled'
         await self.page.goto(self.origin + '/models')
         await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
-        await self.page.get_by_role('link', name='技能管理', exact=True).click()
+        await self.page.get_by_role('link', name='技能', exact=True).click()
+        await self.page.get_by_role('tab', name='我的', exact=True).click()
         detail = await self.open_skill_detail()
         await self.open_skill_delete(detail)
         await self.page.go_back()

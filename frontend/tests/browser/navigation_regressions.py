@@ -26,8 +26,8 @@ class PrimaryNavigationRegressions(DeveloperBoundary):
     async def test_groups_remember_collapse_and_keep_current_and_icon_routes_accessible(self):
         nav = await self.open_navigation()
         expected = {
-            '应用': ['对话体验', '智能体', '工作空间'],
-            '资源': ['模型目录', '知识库', '技能管理'],
+            '应用': ['对话体验', '智能助手', '工作空间'],
+            '资源': ['模型目录', '知识库', '技能'],
             '开发与用量': ['开发接入', '用量与调用'],
         }
         for group, labels in expected.items():

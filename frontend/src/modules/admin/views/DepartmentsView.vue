@@ -122,6 +122,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(row: Department): void {
+  if (!hasAdminPermission(identity.value, 'departments', 'delete')) return
   if (!saving.value)
     Modal.confirm({
       title: `删除部门“${row.name}”？`,
@@ -152,7 +153,7 @@ const columns = [
     :page="page"
     :page-size="Math.max(total, 20)"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'departments', 'create')"
     create-label="新建部门"
     @refresh="load"
     @create="edit()"
@@ -172,14 +173,26 @@ const columns = [
         <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
         <AdminRowActions
           v-else-if="column.key === 'actions' && writable"
-          :primary="{ key: 'edit', label: '编辑' }"
+          :primary="{
+            key: 'edit',
+            label: '编辑',
+            disabled:
+              !hasAdminPermission(identity, 'departments', 'update') &&
+              !hasAdminPermission(identity, 'departments', 'toggle')
+          }"
           :more="[
-            { key: 'child', label: '新增下级' },
+            {
+              key: 'child',
+              label: '新增下级',
+              disabled: !hasAdminPermission(identity, 'departments', 'create')
+            },
             {
               key: 'delete',
               label: '删除',
               danger: true,
-              disabled: rows.some((row) => row.parent_id === record.id)
+              disabled:
+                !hasAdminPermission(identity, 'departments', 'delete') ||
+                rows.some((row) => row.parent_id === record.id)
             }
           ]"
           :busy="saving"
@@ -202,6 +215,7 @@ const columns = [
       ><label
         >上级部门<ASelect
           :value="form.parent_id"
+          :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
           aria-label="上级部门"
           show-search
           option-filter-prop="label"
@@ -211,30 +225,47 @@ const columns = [
           ]"
           @update:value="form.parent_id = singleSelection($event)" /></label
       ><label
-        >部门名称<AInput v-model:value="form.name" aria-label="部门名称" :maxlength="100"
+        >部门名称<AInput
+          v-model:value="form.name"
+          :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+          aria-label="部门名称"
+          :maxlength="100"
       /></label>
       <div class="admin-form__grid">
         <label
-          >负责人<AInput v-model:value="form.leader" aria-label="负责人" :maxlength="100" /></label
+          >负责人<AInput
+            v-model:value="form.leader"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+            aria-label="负责人"
+            :maxlength="100" /></label
         ><label
           >排序<AInputNumber
             :value="Number.isFinite(form.sort_order) ? form.sort_order : ''"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
             aria-label="排序"
             :min="0"
             :max="1000000"
             :precision="0"
             @update:value="form.sort_order = numberInput($event)" /></label
         ><label
-          >手机号<AInput v-model:value="form.phone" aria-label="手机号" :maxlength="30" /></label
+          >手机号<AInput
+            v-model:value="form.phone"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+            aria-label="手机号"
+            :maxlength="30" /></label
         ><label
           >电子邮箱<AInput
             v-model:value="form.email"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
             aria-label="电子邮箱"
             type="email"
             :maxlength="254"
         /></label>
       </div>
-      <AdminToggle v-model="form.is_active" label="启用部门"
+      <AdminToggle
+        v-model="form.is_active"
+        :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'toggle')"
+        label="启用部门"
     /></AdminDialog>
   </AdminPage>
 </template>

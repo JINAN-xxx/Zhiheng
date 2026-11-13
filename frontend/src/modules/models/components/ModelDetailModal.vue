@@ -29,6 +29,9 @@ const props = defineProps<{
   error: string
   errorDetails?: unknown
   canWrite: boolean
+  canUpdate?: boolean | undefined
+  canDelete?: boolean | undefined
+  canToggle?: boolean | undefined
   canReadRates: boolean
   canTest: boolean
   canReadConnections: boolean
@@ -52,10 +55,10 @@ const testDisabled = computed(
 )
 
 function toggle(): void {
-  if (props.model && props.canWrite && !props.pending) emit('toggle')
+  if (props.model && (props.canToggle ?? props.canWrite) && !props.pending) emit('toggle')
 }
 function edit(): void {
-  if (props.model && props.canWrite && !props.pending) emit('edit')
+  if (props.model && (props.canUpdate ?? props.canWrite) && !props.pending) emit('edit')
 }
 function rates(): void {
   if (props.model && props.canReadRates && !props.pending) emit('rates')
@@ -67,7 +70,7 @@ function trial(): void {
   if (props.model && props.canTest && !testDisabled.value) emit('trial')
 }
 function control(action: 'delete'): void {
-  if (!props.model || !props.canWrite || props.pending) return
+  if (!props.model || !(props.canDelete ?? props.canWrite) || props.pending) return
   emit('control', action)
 }
 </script>
@@ -89,7 +92,7 @@ function control(action: 'delete'): void {
         <div class="detail-heading">
           <h2 :title="model?.name">{{ model?.name || '模型详情' }}</h2>
           <ASwitch
-            v-if="model && canWrite"
+            v-if="model && (canToggle ?? canWrite)"
             :checked="model.enabled"
             :aria-label="`启用模型“${model.name}”`"
             :loading="pending"
@@ -216,14 +219,14 @@ function control(action: 'delete'): void {
           </AButton>
           <template #overlay>
             <AMenu>
-              <AMenuItem v-if="canWrite" key="edit" :disabled="pending" @click="edit">
+              <AMenuItem v-if="canUpdate ?? canWrite" key="edit" :disabled="pending" @click="edit">
                 <EditOutlined aria-hidden="true" /> 编辑模型
               </AMenuItem>
               <AMenuItem v-if="canReadRates" key="rates" :disabled="pending" @click="rates">
                 费率配置
               </AMenuItem>
               <AMenuItem
-                v-if="canWrite"
+                v-if="canDelete ?? canWrite"
                 key="delete"
                 danger
                 :disabled="pending"

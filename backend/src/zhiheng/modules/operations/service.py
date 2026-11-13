@@ -94,6 +94,10 @@ class OperationsService:
         fields: dict[str, object],
         resource: str,
     ) -> Entity:
+        area = 'configs' if resource == 'config' else 'notices'
+        principal.require_permission(f'system:{area}:create')
+        if resource == 'notice' and fields.get('status') == 'published':
+            principal.require_permission('system:notices:publish')
         row = model()
         for key, value in fields.items():
             setattr(row, key, value)
@@ -119,6 +123,13 @@ class OperationsService:
         *conditions: ColumnElement[bool],
     ) -> Entity:
         changes = body.model_dump(exclude_unset=True, exclude={'expected_version'})
+        previous = await self._row(session, model, identifier, *conditions, lock=True)
+        area = 'configs' if resource == 'config' else 'notices'
+        special = 'is_active' if resource == 'config' else 'status'
+        if special in changes and changes[special] != getattr(previous, special):
+            principal.require_permission(f'system:{area}:' + ('toggle' if special == 'is_active' else 'publish'))
+        if any(value != getattr(previous, key) for key, value in changes.items() if key != special):
+            principal.require_permission(f'system:{area}:update')
         try:
             async with session.begin_nested():
                 changed = await session.scalar(
@@ -151,6 +162,7 @@ class OperationsService:
         resource: str,
         *conditions: ColumnElement[bool],
     ) -> None:
+        principal.require_permission('system:' + ('configs' if resource == 'config' else 'notices') + ':delete')
         if isinstance(expected_version, bool) or expected_version < 1:
             raise AppError('invalid_operations_version', '版本参数无效', 422)
         try:

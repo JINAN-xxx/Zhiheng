@@ -17,6 +17,7 @@ from zhiheng.modules.agents.public import (
 )
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.developer.public import DeveloperIdentity, KeyService
+from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import PreparationInfo, PreparedKnowledge, RetrievalState
 from zhiheng.modules.knowledge.public import fingerprint as dependency_fingerprint
 from zhiheng.modules.models.public import ModelMessage, ModelOptions, ModelRequest, ModelService
@@ -24,6 +25,7 @@ from zhiheng.modules.skills.public import require_available, require_frozen_avai
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 
 if TYPE_CHECKING:
@@ -39,6 +41,7 @@ class AgentRunService:
         models: ModelService,
         usage: UsageService,
         runs: RunStore,
+        identity: IdentityService,
     ) -> None:
         self._agents, self._management, self._keys, self._models, self._usage, self._runs = (
             agents,
@@ -48,6 +51,7 @@ class AgentRunService:
             usage,
             runs,
         )
+        self.identity = identity
         self.knowledge: KnowledgePreparation | None = None
 
     async def preview(
@@ -142,6 +146,12 @@ class AgentRunService:
             else AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
         )
         assert config is not None
+        actor = await self.identity.principal_for_user(session, agent.owner_id)
+        require_capability(actor, 'agents', 'use' if identity else 'debug')
+        if config.knowledge_base_ids:
+            require_capability(actor, 'knowledge', 'access')
+        if config.skill_slugs:
+            require_capability(actor, 'skills', 'access')
         binding = await self._management.validate(session, owner(agent), config, publish=identity is not None)
         await self._agents.get(session, owner(agent), agent.id, lock=True, expected_version=agent.version)
         if identity is not None:
@@ -173,7 +183,18 @@ class AgentRunService:
             await self.knowledge.check(session, prepared, knowledge_owner)
             messages = prepared.apply_context(messages)
         resource_type = 'agent_invocation' if identity else 'agent_preview'
-        request = ModelRequest(binding=binding, messages=messages)
+        request = ModelRequest(
+            binding=binding,
+            messages=messages,
+            required_modules=tuple(
+                module
+                for module, used in [
+                    ('knowledge', bool(config.knowledge_base_ids)),
+                    ('skills', bool(config.skill_slugs)),
+                ]
+                if used
+            ),
+        )
         run = await self._runs.create(
             session,
             owner_id=caller_id,

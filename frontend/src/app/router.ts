@@ -10,6 +10,12 @@ import { agentRoutes } from '../modules/agents/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { knowledgeRoutes } from '../modules/knowledge/public.ts'
 import { adminRoutes, canAccessAdmin } from '../modules/admin/public.ts'
+import {
+  moduleForPath,
+  hasModule,
+  hasCapability,
+  firstModulePath
+} from '../shared/platformAccess.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -42,8 +48,14 @@ export const router = createRouter({
     ...workRoutes,
     ...knowledgeRoutes,
     ...adminRoutes,
-    { path: '/', redirect: '/overview' },
-    { path: '/:pathMatch(.*)*', redirect: '/chat' }
+    {
+      path: '/access',
+      name: 'access',
+      component: () => import('./views/NoAccessView.vue'),
+      meta: { title: '功能访问' }
+    },
+    { path: '/', redirect: () => firstModulePath(identity.value) },
+    { path: '/:pathMatch(.*)*', redirect: () => firstModulePath(identity.value) }
   ]
 })
 router.beforeEach(async (to) => {
@@ -56,8 +68,19 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { reason: errorMessage(error) } }
   }
   if (!user) return '/login'
-  if (to.meta.admin && !user.is_admin) return '/chat'
-  if (to.meta.console && !canAccessAdmin(user)) return '/chat'
+  const module = moduleForPath(to.path)
+  if (module && !to.meta.permission && !hasModule(user, module))
+    return { path: '/access', query: { denied: module } }
+  if (
+    (to.name === 'agent-create' && !hasCapability(user, 'agents', 'create')) ||
+    (to.name === 'agent-editor' && !hasCapability(user, 'agents', 'read')) ||
+    (to.name === 'assistant-chat' && !hasCapability(user, 'agents'))
+  )
+    return { path: '/access', query: { denied: 'agents' } }
+  if (module === 'knowledge' && to.params.view === 'query' && !hasCapability(user, 'knowledge'))
+    return { path: '/access', query: { denied: 'knowledge' } }
+  if (to.meta.admin && !user.is_admin) return firstModulePath(user)
+  if (to.meta.console && !canAccessAdmin(user)) return firstModulePath(user)
   if (to.meta.permission && !user.is_admin && !user.permissions?.includes(to.meta.permission))
     return '/admin'
   return true

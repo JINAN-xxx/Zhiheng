@@ -1,6 +1,8 @@
 """Real target authorization matrix; all provider traffic uses the local test fixture."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -22,20 +24,32 @@ from tests.core.auth_resource_support import (
 )
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import embedding_model
+from tests.core.integration.test_permission_tree import allow
 from tests.core.integration.test_public_protocol import drive
 from tests.core.integration.test_resource_files import auth
 from tests.core.integration.test_resource_files import post as upload_resource
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import finish
 from tests.core.integration.test_resource_skills import preview
-from tests.core.integration.test_work import member_client
+from tests.core.integration.test_work import member_client as unconfigured_member_client
 from tests.core.provider import ProviderServer
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.runtime.orm import Run
+from zhiheng.shared.permission_policy import OPERATIONS
 from zhiheng.shared.time import utcnow
 from zhiheng.worker.execution import execute_run
+
+
+@asynccontextmanager
+async def member_client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    # These cases test target ownership, Scope and application grants. Explicitly
+    # allow domain operations so a missing role cannot mask the intended ACL check.
+    for module in ('developer', 'knowledge', 'skills', 'agents', 'chat', 'work'):
+        await allow(app, module, *OPERATIONS['platform:' + module])
+    async with unconfigured_member_client(app) as client:
+        yield client
 
 
 @dataclass(frozen=True)

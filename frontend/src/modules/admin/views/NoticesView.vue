@@ -68,6 +68,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(row: Notice): void {
+  if (!hasAdminPermission(identity.value, 'notices', 'delete')) return
   if (!saving.value)
     Modal.confirm({
       title: `删除公告“${row.title}”？`,
@@ -96,7 +97,7 @@ const columns = [
     :total="total"
     :page="page"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'notices', 'create')"
     create-label="新建公告"
     @refresh="refreshPage"
     @create="edit()"
@@ -122,8 +123,19 @@ const columns = [
           :more="
             writable
               ? [
-                  { key: 'edit', label: '编辑' },
-                  { key: 'delete', label: '删除', danger: true }
+                  {
+                    key: 'edit',
+                    label: '编辑',
+                    disabled:
+                      !hasAdminPermission(identity, 'notices', 'update') &&
+                      !hasAdminPermission(identity, 'notices', 'publish')
+                  },
+                  {
+                    key: 'delete',
+                    label: '删除',
+                    danger: true,
+                    disabled: !hasAdminPermission(identity, 'notices', 'delete')
+                  }
                 ]
               : []
           "
@@ -145,13 +157,18 @@ const columns = [
       @close="open = false"
       @save="submit"
       ><label
-        >公告标题<AInput v-model:value="form.title" aria-label="公告标题" :maxlength="200"
+        >公告标题<AInput
+          v-model:value="form.title"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
+          aria-label="公告标题"
+          :maxlength="200"
       /></label>
       <div class="admin-form__grid">
         <label
           >类型<ASelect
             :value="form.kind"
             aria-label="类型"
+            :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
             :options="[
               { value: 'notice', label: '通知' },
               { value: 'announcement', label: '公告' }
@@ -163,6 +180,7 @@ const columns = [
           >发布状态<ASelect
             :value="form.status"
             aria-label="发布状态"
+            :disabled="!hasAdminPermission(identity, 'notices', 'publish')"
             :options="[
               { value: 'draft', label: '草稿' },
               { value: 'published', label: '发布' }
@@ -173,12 +191,14 @@ const columns = [
       <label
         >公告正文<ATextarea
           v-model:value="form.content"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
           aria-label="公告正文"
           :rows="10"
           :maxlength="32000" /></label
       ><label
         >备注<ATextarea
           v-model:value="form.remark"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
           aria-label="备注"
           :rows="2"
           :maxlength="1000" /></label></AdminDialog

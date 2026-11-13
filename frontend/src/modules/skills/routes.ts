@@ -5,6 +5,6 @@ export const skillRoutes: RouteRecordRaw[] = [
     alias: '/agent_extension/skill',
     name: 'skills',
     component: () => import('./views/SkillsView.vue'),
-    meta: { title: '技能管理', navigation: true }
+    meta: { title: '技能', navigation: true }
   }
 ]

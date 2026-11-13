@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0029_application_governance'
+SCHEMA_REVISION = '0034_permission_tree'
 
 
 class Base(DeclarativeBase):

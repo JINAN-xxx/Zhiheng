@@ -80,12 +80,12 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
     async def test_workspace_uses_real_counts_and_full_navigation(self):
         await self.page.goto(self.origin + '/overview')
         await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible(timeout=8000)
-        for label, value in [('模型', '1'), ('智能体', '2'), ('知识库', '3'), ('技能', '4')]:
+        for label, value in [('模型', '1'), ('智能助手', '2'), ('知识库', '3'), ('技能', '4')]:
             group = self.page.get_by_role('region', name=label + '资源', exact=True)
             await expect(group.locator('.console-resource-count')).to_have_text(value)
             await expect(group.get_by_role('link', name='查看全部' + label, exact=True)).to_be_visible()
         navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        for label in ['工作台', '对话体验', '模型目录', '智能体', '技能管理', '工作空间', '知识库', '开发接入', '用量与调用']:
+        for label in ['工作台', '对话体验', '模型目录', '智能助手', '技能', '工作空间', '知识库', '开发接入', '用量与调用']:
             await expect(navigation.get_by_role('link', name=label, exact=True)).to_be_visible()
         await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
         await expect(self.page.locator('.platform-search-trigger')).to_have_count(0)

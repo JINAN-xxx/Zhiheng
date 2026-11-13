@@ -1,3 +1,4 @@
+import { grantedPermissions } from './permissionFixture.ts'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 import type { TestContext } from 'node:test'
@@ -57,6 +58,13 @@ class Fixture {
       this.requests.push(url)
       const custom = await this.override?.(url, init)
       if (custom) return custom
+      if (url.pathname === '/api/auth/me')
+        return response({
+          id: 'user-1',
+          username: 'test',
+          is_admin: false,
+          permissions: grantedPermissions('platform:chat:access')
+        })
       if (url.pathname === '/api/models') return response([])
       if (url.pathname === '/api/chat/conversations')
         return response([conversation('recent')], 'next-conversations')
@@ -67,6 +75,9 @@ class Fixture {
     }
   }
   async mount(t: TestContext) {
+    const { restoreIdentity, clearIdentity } = await import('../../src/modules/identity/public.ts')
+    await restoreIdentity(true)
+    t.after(clearIdentity)
     let state!: ReturnType<typeof useChatWorkspace>
     const child = {
       setup() {
@@ -225,7 +236,12 @@ void test('a generation refresh cannot discard an older page loaded while its re
   const latest = [message('recent-message', 30), message('new-message', 31)]
   fixture.override = (url, init) => {
     if (url.pathname === '/api/auth/me')
-      return response({ id: 'user-1', username: 'test', is_admin: false })
+      return response({
+        id: 'user-1',
+        username: 'test',
+        is_admin: false,
+        permissions: grantedPermissions('platform:chat:access')
+      })
     if (url.pathname === '/api/models')
       return response([
         {

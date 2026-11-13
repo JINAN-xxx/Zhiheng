@@ -1,3 +1,4 @@
+import { grantedPermissions } from './permissionFixture.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -10,19 +11,32 @@ void test('admin entry requires a real system permission and preserves super adm
   assert.equal(canAccessAdmin(null), false)
   assert.equal(canAccessAdmin({ is_admin: false }), false)
   assert.equal(
-    canAccessAdmin({ is_admin: false, permissions: ['chat:read', 'system:invented:read'] }),
+    canAccessAdmin({
+      is_admin: false,
+      permissions: grantedPermissions('chat:read', 'system:invented:read')
+    }),
     false
   )
-  assert.equal(canAccessAdmin({ is_admin: false, permissions: ['system:users:read'] }), true)
+  assert.equal(
+    canAccessAdmin({ is_admin: false, permissions: grantedPermissions('system:users:read') }),
+    true
+  )
   assert.equal(canAccessAdmin({ is_admin: true }), true)
   assert.equal(
-    hasAdminPermission({ is_admin: false, permissions: ['system:users:read'] }, 'users', 'write'),
+    hasAdminPermission(
+      { is_admin: false, permissions: grantedPermissions('system:users:read') },
+      'users',
+      'write'
+    ),
     false
   )
 })
 
 void test('fixed navigation follows real permissions and keeps its built-in names and order', () => {
-  const user = { is_admin: false, permissions: ['system:users:read', 'system:departments:read'] }
+  const user = {
+    is_admin: false,
+    permissions: grantedPermissions('system:users:read', 'system:departments:read')
+  }
   assert.deepEqual(
     visibleAdminNavigation(user).map((entry) => [entry.path, entry.label]),
     [
@@ -40,14 +54,14 @@ void test('retired feature permissions do not grant a console entry and retired 
   assert.equal(
     canAccessAdmin({
       is_admin: false,
-      permissions: [
+      permissions: grantedPermissions(
         'system:menus:read',
         'system:menus:write',
         'system:dictionaries:read',
         'system:dictionaries:write',
         'system:posts:read',
         'system:posts:write'
-      ]
+      )
     }),
     false
   )
@@ -60,7 +74,7 @@ void test('retired feature permissions do not grant a console entry and retired 
 })
 
 void test('storage operators enter the admin console through their existing AI permission', () => {
-  const user = { is_admin: false, permissions: ['ai:storage:read'] }
+  const user = { is_admin: false, permissions: grantedPermissions('ai:storage:read') }
   assert.equal(canAccessAdmin(user), true)
   assert.equal(hasAdminPermission(user, 'storage'), true)
   assert.deepEqual(

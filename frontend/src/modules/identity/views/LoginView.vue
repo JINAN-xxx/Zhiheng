@@ -14,8 +14,7 @@ import {
 } from 'ant-design-vue'
 import AuthShell from '../../../shared/components/AuthShell.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { loginDestination } from '../navigation.ts'
-import { identity, login } from '../public.ts'
+import { identity, login, loginDestination } from '../public.ts'
 import { savePasswordInBrowser } from '../browserPasswords.ts'
 const router = useRouter()
 const route = useRoute()

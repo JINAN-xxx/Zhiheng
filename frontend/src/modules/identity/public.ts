@@ -1,7 +1,15 @@
 import { readonly, ref } from 'vue'
+import { hasPermission } from '../../shared/platformAccess.ts'
 import { ApiError, http } from '../../shared/http.ts'
 import { authenticate, endSession, getCurrentUser } from './api/index.ts'
 import type { User } from './api/index.ts'
+import {
+  hasModule,
+  hasCapability,
+  moduleForPath,
+  firstModulePath
+} from '../../shared/platformAccess.ts'
+import { loginDestination as safeDestination } from './navigation.ts'
 export type { User } from './api/index.ts'
 const currentUser = ref<User | null>(null)
 let checkedAt = 0
@@ -13,7 +21,7 @@ export function hasAnyPermission(
   user: Pick<User, 'is_admin' | 'permissions'> | null | undefined,
   ...codes: string[]
 ): boolean {
-  return Boolean(user?.is_admin || codes.some((code) => user?.permissions?.includes(code)))
+  return Boolean(user?.is_admin || codes.some((code) => hasPermission(user, code)))
 }
 export function clearIdentity(): void {
   checkedAt = 0
@@ -68,4 +76,15 @@ export async function logout(): Promise<void> {
   await endSession()
 }
 
-export { loginDestination } from './navigation.ts'
+export function canUseCapability(module: string, action = 'access'): boolean {
+  return hasCapability(identity.value, module, action)
+}
+export function canUseModule(module: string): boolean {
+  return hasModule(identity.value, module)
+}
+export function loginDestination(value: unknown): string {
+  const path = typeof value === 'string' ? safeDestination(value) : firstModulePath(identity.value)
+  const module = moduleForPath(path.split('?')[0] ?? path)
+  return module && !hasModule(identity.value, module) ? firstModulePath(identity.value) : path
+}
+export { hasModule, firstModulePath } from '../../shared/platformAccess.ts'

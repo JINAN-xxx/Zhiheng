@@ -48,7 +48,7 @@ class CompactSkills(DeveloperBoundary):
             await super().respond(route)
 
     async def open_skills(self):
-        await self.page.goto(self.origin + '/skills')
+        await self.page.goto(self.origin + '/skills?tab=mine')
         await expect(self.page.locator('.skill-item')).to_have_count(min(24, len(self.items)), timeout=10000)
 
     def row(self, name='示例技能'):
@@ -172,7 +172,8 @@ class CompactSkills(DeveloperBoundary):
         await self.page.route('**/api/skills/skill-1/status', delayed)
         try:
             await self.page.goto(self.origin + '/models')
-            await self.page.get_by_role('link', name='技能管理', exact=True).click()
+            await self.page.get_by_role('link', name='技能', exact=True).click()
+            await self.page.get_by_role('tab', name='我的', exact=True).click()
             await expect(self.page.locator('.skill-item')).to_have_count(2)
             await self.row().get_by_role('switch').click()
             await asyncio.wait_for(requested.wait(), timeout=10)

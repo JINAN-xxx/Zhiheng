@@ -15,7 +15,6 @@ from zhiheng.modules.identity.admin_orm import (
     IdentityRole,
     IdentityUserRole,
 )
-from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.contracts import (
     IdentityDirectoryEntry,
@@ -26,6 +25,7 @@ from zhiheng.modules.identity.contracts import (
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.permission_policy import effective_permissions
 from zhiheng.shared.principal import Principal
 
 MIN_PASSWORD_LENGTH = 12
@@ -250,7 +250,8 @@ class IdentityService:
                 IdentityRole.system_key.is_(None),
             )
         )
-        granted = frozenset(code for group in permissions for code in group if code in PERMISSION_CODES)
+        # Filter each role before union: another role must never reactivate retained, disabled child settings.
+        granted = frozenset(code for group in permissions for code in effective_permissions(group))
         return Principal(user.id, user.username, user.is_admin, granted)
 
     async def hash_password(self, password: str) -> str:

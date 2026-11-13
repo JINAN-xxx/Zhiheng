@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from tests.core.integration.test_personal_skill_migration import _version
 from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 
 
 async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactivate_suspended_apps(
@@ -101,9 +102,6 @@ async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactiv
                 )
                 is False
             )
-            assert (
-                await connection.scalar(text('SELECT version_num FROM alembic_version'))
-                == '0029_application_governance'
-            )
+            assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
     finally:
         await engine.dispose()

@@ -31,6 +31,7 @@ from zhiheng.modules.models.public import ModelMessage, ModelRequest, ModelServi
 from zhiheng.runtime.contracts import TERMINAL_STATUSES
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 
 if TYPE_CHECKING:
     from zhiheng.application.files.parsing import DocumentParsing
@@ -70,6 +71,19 @@ class KnowledgeJobs:
             return None
         paid = models and not claim.operation.startswith('delete')
         origin = await self.origin_guard.job(session, claim.id, model_ids=(claim.binding.model_id,) if paid else ())
+        if origin is None:
+            actor = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
+            require_capability(
+                actor,
+                'knowledge',
+                'delete'
+                if claim.operation.startswith('delete')
+                else 'import'
+                if claim.operation == 'import'
+                else 'rebuild'
+                if claim.operation == 'rebuild'
+                else 'update',
+            )
         if origin is not None and paid:
             binding = await self.models.resolve(session, claim.binding.model_id)
             if binding_fingerprint(binding) != binding_fingerprint(claim.binding):

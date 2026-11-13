@@ -29,7 +29,7 @@ const loading = ref(false),
   saving = ref(false),
   error = ref('')
 const models = ref<ChatModel[]>([])
-const writable = computed(() => hasAnyPermission(identity.value, 'system:configs:write'))
+const writable = computed(() => hasAnyPermission(identity.value, 'system:configs:update'))
 const form = reactive({
   default_embed_model_id: null as string | null,
   default_rerank_model_id: null as string | null,

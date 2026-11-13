@@ -67,10 +67,9 @@ async def test_retired_codes_cannot_be_granted_to_new_roles(context: tuple[Any, 
 
 async def test_historical_role_codes_do_not_authorize_or_block_valid_edits(context: tuple[Any, ...]) -> None:
     session, identity, service, admin = context
-    role = await service.create(
-        session, admin, 'roles', {'name': 'Legacy reader', 'permissions': ['system:users:read']}
-    )
-    legacy = ['system:users:read', *RETIRED]
+    active = ['system:users:enabled', 'system:users:read']
+    role = await service.create(session, admin, 'roles', {'name': 'Legacy reader', 'permissions': active})
+    legacy = [*active, *RETIRED]
     await session.execute(update(IdentityRole).where(IdentityRole.id == role['id']).values(permissions=legacy))
     user = await service.create(
         session,
@@ -79,22 +78,22 @@ async def test_historical_role_codes_do_not_authorize_or_block_valid_edits(conte
         {'username': 'legacy-reader', 'password': 'a-long-test-password', 'role_ids': [role['id']]},
     )
     principal, token = await identity.login(session, username='legacy-reader', password='a-long-test-password')
-    assert principal.permissions == frozenset({'system:users:read'})
-    assert (await service.get(session, admin, 'roles', role['id']))['permissions'] == ['system:users:read']
+    assert principal.permissions == frozenset(active)
+    assert (await service.get(session, admin, 'roles', role['id']))['permissions'] == active
     assert 'post_ids' not in user
     assert set(await service.user_options(session, admin)) == {'roles', 'departments'}
     assert 'posts' not in (await identity.profile(session, user_id=user['id'])).model_dump()
 
     # Delegated user administration still works when an assigned role contains dormant codes.
-    manager = Principal(admin.id, 'manager', False, frozenset({'system:users:write', 'system:users:read'}))
+    manager = Principal(admin.id, 'manager', False, frozenset({*active, 'system:users:update'}))
     updated = await service.update(
         session, manager, 'users', user['id'], {'display_name': 'Updated'}, expected_version=1
     )
     assert updated['display_name'] == 'Updated'
     # A cached editor may resubmit the old codes that are already on this role.
     changed = await service.update(session, admin, 'roles', role['id'], {'permissions': legacy}, expected_version=1)
-    assert changed['permissions'] == ['system:users:read']
-    assert (await identity.authenticate(session, token)).permissions == frozenset({'system:users:read'})
+    assert changed['permissions'] == active
+    assert (await identity.authenticate(session, token)).permissions == frozenset(active)
     with pytest.raises(AppError):
         await service.update(
             session, admin, 'roles', role['id'], {'permissions': ['system:posts:write']}, expected_version=2

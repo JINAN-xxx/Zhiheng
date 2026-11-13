@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.application.access import ResourceAccessService
 from zhiheng.modules.developer.public import ApplicationService, ResourceAction, ResourceKind
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import has_capability
 from zhiheng.shared.principal import Principal
 
 
@@ -46,6 +47,9 @@ class DeveloperResourceQueries:
         self, session: AsyncSession, principal: Principal, application_id: UUID, kind: ResourceKind
     ) -> list[ResourceCandidate]:
         await self.applications.require_owned(session, principal.id, application_id, lock=False)
+        module = {'knowledge_base': 'knowledge', 'skill': 'skills'}.get(kind)
+        if module is not None and not has_capability(principal, module, 'read'):
+            return []
         personal = self.access.personal(principal)
         metadata: list[tuple[UUID, str, str]]
         if kind == 'file':
@@ -126,7 +130,10 @@ class DeveloperResourceQueries:
             source_bytes=size,
             source_file_limit=app.source_file_limit,
             source_byte_limit=app.source_byte_limit,
-            can_bind_resources=owned and app.status == 'active' and app.platform_enabled,
+            can_bind_resources=owned
+            and has_capability(principal, 'developer', 'grant')
+            and app.status == 'active'
+            and app.platform_enabled,
             can_configure_quota=False,
             items=rows,
         )

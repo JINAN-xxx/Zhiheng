@@ -235,7 +235,7 @@ class CreditService:
     async def adjust(
         self, session: AsyncSession, actor: Principal, user_id: UUID, data: CreditAdjustment
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:adjust')
         # Revalidate even a model_copy/model_construct created by an internal caller.
         points = exact_points(data.points, positive=True)
         if data.kind not in ('grant', 'reclaim'):
@@ -267,7 +267,7 @@ class CreditService:
         user_id: UUID,
         data: CreditAccountStatePatch,
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:configure')
         previous = await self._command(session, actor, 'account_state', str(user_id), data, CreditSummary)
         if previous is not None:
             return previous
@@ -507,7 +507,7 @@ class CreditService:
         run_id: UUID,
         data: CreditReconcile,
     ) -> CreditReservation:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         previous = await self._command(session, actor, 'reconcile', str(run_id), data, CreditReservation)
         if previous is not None:
             return previous

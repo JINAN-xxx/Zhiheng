@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UserPermissionsDialog from '../components/UserPermissionsDialog.vue'
 import AdminRowActions from '../components/AdminRowActions.vue'
 import { singleSelection, multipleSelection } from '../formValues.ts'
 import AdminState from '../components/AdminState.vue'
@@ -25,6 +26,7 @@ import ResourceTable from '../../../shared/components/ResourceTable.vue'
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<AdminUser, UserPayload>('users', decodeUser)
 const writable = computed(() => hasAdminPermission(identity.value, 'users', 'write'))
+const permissionTarget = ref<AdminUser | null>(null)
 const open = ref(false),
   editing = ref<AdminUser | null>(null),
   formError = ref(''),
@@ -56,6 +58,7 @@ function close(): void {
   optionsController?.abort()
 }
 async function edit(user: AdminUser | null = null): Promise<void> {
+  if (!user && !hasAdminPermission(identity.value, 'users', 'create')) return
   if (user && !canManage(user)) return
   editing.value = user
   Object.assign(
@@ -145,6 +148,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(user: AdminUser): void {
+  if (!hasAdminPermission(identity.value, 'users', 'delete')) return
   if (saving.value || !canManage(user) || user.id === identity.value?.id || protectedAdmin(user))
     return
   Modal.confirm({
@@ -167,13 +171,18 @@ function closePassword(): void {
   passwordError.value = ''
 }
 function openPassword(user: AdminUser): void {
-  if (!canManage(user)) return
+  if (!canManage(user) || !hasAdminPermission(identity.value, 'users', 'reset_password')) return
   passwordUser.value = user
   password.value = ''
   passwordError.value = ''
 }
 async function submitPassword(): Promise<void> {
-  if (!passwordUser.value || passwordSaving.value) return
+  if (
+    !passwordUser.value ||
+    passwordSaving.value ||
+    !hasAdminPermission(identity.value, 'users', 'reset_password')
+  )
+    return
   if (password.value.length < 12) {
     passwordError.value = '新密码至少需要 12 位'
     return
@@ -220,7 +229,7 @@ const columns = [
     :total="total"
     :page="page"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'users', 'create')"
     create-label="新建用户"
     @refresh="load"
     @create="edit()"
@@ -252,28 +261,54 @@ const columns = [
         <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
         <AdminRowActions
           v-else-if="column.key === 'actions' && writable"
-          :primary="{ key: 'edit', label: '编辑', disabled: !canManage(record) }"
+          :primary="{
+            key: 'edit',
+            label: '编辑',
+            disabled:
+              !canManage(record) ||
+              !['update', 'toggle', 'assign_roles'].some((action) =>
+                hasAdminPermission(identity, 'users', action)
+              )
+          }"
           :more="[
-            { key: 'password', label: '重置密码', disabled: !canManage(record) },
+            { key: 'permissions', label: '有效权限' },
+            {
+              key: 'password',
+              label: '重置密码',
+              disabled:
+                !canManage(record) || !hasAdminPermission(identity, 'users', 'reset_password')
+            },
             {
               key: 'delete',
               label: '删除',
               danger: true,
-              disabled: !canManage(record) || record.id === identity?.id || protectedAdmin(record)
+              disabled:
+                !canManage(record) ||
+                !hasAdminPermission(identity, 'users', 'delete') ||
+                record.id === identity?.id ||
+                protectedAdmin(record)
             }
           ]"
           :busy="saving"
           @select="
             (key) =>
-              key === 'edit'
-                ? edit(record)
-                : key === 'password'
-                  ? openPassword(record)
-                  : confirmDelete(record)
+              key === 'permissions'
+                ? (permissionTarget = record)
+                : key === 'edit'
+                  ? edit(record)
+                  : key === 'password'
+                    ? openPassword(record)
+                    : confirmDelete(record)
           "
+        />
+        <AdminRowActions
+          v-else-if="column.key === 'actions'"
+          :primary="{ key: 'permissions', label: '有效权限' }"
+          @select="permissionTarget = record"
         />
       </template>
     </ResourceTable>
+    <UserPermissionsDialog :user="permissionTarget" @close="permissionTarget = null" />
     <AdminDialog
       :open="open"
       :title="editing ? '编辑用户' : '新建用户'"
@@ -294,7 +329,11 @@ const columns = [
             autocomplete="off"
             aria-required="true" /></label
         ><label
-          >显示名称<AInput v-model:value="form.display_name" aria-label="显示名称" :maxlength="100"
+          >显示名称<AInput
+            v-model:value="form.display_name"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+            aria-label="显示名称"
+            :maxlength="100"
         /></label>
       </div>
       <label v-if="!editing"
@@ -311,18 +350,25 @@ const columns = [
         <label
           >电子邮箱<AInput
             v-model:value="form.email"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
             aria-label="电子邮箱"
             type="email"
             :maxlength="254" /></label
         ><label
-          >手机号<AInput v-model:value="form.phone" aria-label="手机号" :maxlength="30"
+          >手机号<AInput
+            v-model:value="form.phone"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+            aria-label="手机号"
+            :maxlength="30"
         /></label>
       </div>
       <label
         >所属部门<ASelect
           :value="form.department_id"
           aria-label="所属部门"
-          :disabled="optionsLoading"
+          :disabled="
+            optionsLoading || (!!editing && !hasAdminPermission(identity, 'users', 'update'))
+          "
           show-search
           option-filter-prop="label"
           :options="[
@@ -338,7 +384,7 @@ const columns = [
         >角色<ASelect
           :value="form.role_ids"
           aria-label="角色"
-          :disabled="optionsLoading"
+          :disabled="optionsLoading || !hasAdminPermission(identity, 'users', 'assign_roles')"
           mode="multiple"
           show-search
           option-filter-prop="label"
@@ -356,7 +402,11 @@ const columns = [
       <div class="admin-form__grid">
         <AdminToggle
           v-model="form.is_active"
-          :disabled="ownAccount || Boolean(editing && protectedAdmin(editing))"
+          :disabled="
+            ownAccount ||
+            Boolean(editing && protectedAdmin(editing)) ||
+            (!!editing && !hasAdminPermission(identity, 'users', 'toggle'))
+          "
           label="启用账号"
         />
         <AdminToggle
@@ -367,7 +417,13 @@ const columns = [
         />
       </div>
       <label
-        >备注<ATextarea v-model:value="form.remark" aria-label="备注" :rows="3" :maxlength="1000" />
+        >备注<ATextarea
+          v-model:value="form.remark"
+          :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+          aria-label="备注"
+          :rows="3"
+          :maxlength="1000"
+        />
       </label>
     </AdminDialog>
     <AdminDialog

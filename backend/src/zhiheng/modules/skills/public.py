@@ -11,6 +11,7 @@ from zhiheng.modules.skills.contracts import (
     SkillRevisionValue,
     SkillSelection,
     SkillSlug,
+    SkillSource,
     SkillStatus,
 )
 from zhiheng.modules.skills.package import SkillPackageParser
@@ -40,6 +41,7 @@ __all__ = [
     'SkillSelection',
     'SkillService',
     'SkillSlug',
+    'SkillSource',
     'SkillStatus',
     'require_available',
     'require_available_groups',

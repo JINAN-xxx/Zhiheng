@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.modules.models.contracts import (
     ConnectionInfo,
+    ConnectionOption,
     ModelBinding,
     ModelConfiguration,
     ModelInfo,
@@ -33,7 +34,7 @@ class ModelService:
     async def create_connection(
         self, session: AsyncSession, principal: Principal, *, name: str, base_url: str, api_key: str
     ) -> ConnectionInfo:
-        principal.require_permission('ai:models:write')
+        principal.require_permission('ai:credentials:create')
         connection = ModelConnection(
             name=name, base_url=base_url.rstrip('/'), encrypted_api_key=self._cipher.encrypt(api_key)
         )
@@ -51,19 +52,43 @@ class ModelService:
         return revision
 
     async def list_connections(self, session: AsyncSession, principal: Principal) -> list[ConnectionInfo]:
-        principal.require_any_permission('ai:models:read', 'ai:models:write')
+        principal.require_any_permission('ai:credentials:read', 'ai:credentials:write')
         rows = await session.scalars(
             select(ModelConnection)
             .where(ModelConnection.deleted_at.is_(None))
             .order_by(ModelConnection.name)
             .limit(100)
         )
-        return [self._connection_info(row) for row in rows]
+        counts_result = await session.execute(
+            select(ModelDefinition.connection_id, func.count())
+            .where(ModelDefinition.deleted_at.is_(None))
+            .group_by(ModelDefinition.connection_id)
+        )
+        counts: dict[UUID, int] = dict(counts_result.tuples().all())
+        return [self._connection_info(row).model_copy(update={'model_count': counts.get(row.id, 0)}) for row in rows]
+
+    async def connection_options(self, session: AsyncSession, principal: Principal) -> list[ConnectionOption]:
+        principal.require_any_permission(
+            'platform:models:config_read',
+            'platform:models:create',
+            'platform:models:update',
+            'platform:models:delete',
+            'platform:models:toggle',
+        )
+        rows = await session.scalars(
+            select(ModelConnection)
+            .where(ModelConnection.deleted_at.is_(None))
+            .order_by(ModelConnection.name)
+            .limit(100)
+        )
+        return [ConnectionOption(id=row.id, name=row.name, enabled=row.enabled) for row in rows]
 
     async def update_connection(
         self, session: AsyncSession, principal: Principal, connection_id: UUID, fields: dict[str, object]
     ) -> ConnectionInfo:
-        principal.require_permission('ai:models:write')
+        principal.require_permission('ai:credentials:toggle' if set(fields) == {'enabled'} else 'ai:credentials:update')
+        if 'enabled' in fields and set(fields) != {'enabled'}:
+            principal.require_permission('ai:credentials:toggle')
         row = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -100,7 +125,7 @@ class ModelService:
         *,
         reference_check: Callable[[AsyncSession, UUID], Awaitable[bool]],
     ) -> ConnectionInfo:
-        principal.require_permission('ai:models:write')
+        principal.require_permission('ai:credentials:delete')
         row = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -128,7 +153,19 @@ class ModelService:
     async def prepare_save(
         self, session: AsyncSession, principal: Principal, fields: dict[str, object], model_id: UUID | None = None
     ) -> ModelSaveCheck:
-        principal.require_permission('ai:models:write')
+        actions = (
+            ('create',)
+            if model_id is None
+            else tuple(
+                action
+                for action, needed in [('update', bool(set(fields) - {'enabled'})), ('toggle', 'enabled' in fields)]
+                if needed
+            )
+        )
+        if not actions:
+            actions = ('update',)
+        for action in actions:
+            principal.require_permission('platform:models:' + action)
         previous = None
         values: dict[str, object] = {}
         if model_id is not None:
@@ -170,10 +207,12 @@ class ModelService:
             previous,
             enabled if isinstance(enabled, bool) else None,
             await self.prepare_provider(session, binding),
+            required_actions=actions,
         )
 
     async def save_verified(self, session: AsyncSession, principal: Principal, check: ModelSaveCheck) -> ModelInfo:
-        principal.require_permission('ai:models:write')
+        for action in check.required_actions:
+            principal.require_permission('platform:models:' + action)
         if check.previous is not None:
             row = await session.scalar(
                 select(ModelDefinition)
@@ -204,6 +243,8 @@ class ModelService:
         fields.pop('model_type')
         if check.enabled is not None:
             fields['enabled'] = check.enabled
+        if check.required_actions == ('toggle',):
+            fields = {'enabled': check.enabled}
         return await self.update_model(session, principal, check.previous.id, fields)
 
     async def create_model(
@@ -219,7 +260,7 @@ class ModelService:
         model_type: Literal['chat', 'embedding', 'rerank'] = 'chat',
         vision_enabled: bool = False,
     ) -> ModelInfo:
-        principal.require_permission('ai:models:write')
+        principal.require_permission('platform:models:create')
         connection = await session.scalar(
             select(ModelConnection)
             .where(ModelConnection.id == connection_id, ModelConnection.deleted_at.is_(None))
@@ -257,7 +298,13 @@ class ModelService:
         if include_disabled:
             if principal is None:
                 raise AppError('forbidden', '当前账号没有此操作权限', 403)
-            principal.require_any_permission('ai:models:read', 'ai:models:write')
+            principal.require_any_permission(
+                'platform:models:config_read',
+                'platform:models:create',
+                'platform:models:update',
+                'platform:models:delete',
+                'platform:models:toggle',
+            )
         query = select(ModelDefinition).where(ModelDefinition.deleted_at.is_(None))
         if not include_disabled:
             query = query.join(ModelConnection, ModelConnection.id == ModelDefinition.connection_id).where(
@@ -271,7 +318,10 @@ class ModelService:
     async def update_model(
         self, session: AsyncSession, principal: Principal, model_id: UUID, fields: dict[str, object]
     ) -> ModelInfo:
-        principal.require_permission('ai:models:write')
+        if set(fields) - {'enabled'}:
+            principal.require_permission('platform:models:update')
+        if 'enabled' in fields:
+            principal.require_permission('platform:models:toggle')
         row = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
@@ -301,7 +351,7 @@ class ModelService:
         *,
         reference_check: Callable[[AsyncSession, UUID], Awaitable[bool]],
     ) -> ModelInfo:
-        principal.require_permission('ai:models:write')
+        principal.require_permission('platform:models:delete')
         row = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))
@@ -441,7 +491,7 @@ class ModelService:
         )
 
     async def add_rate(self, session: AsyncSession, principal: Principal, model_id: UUID, body: RateCreate) -> RateInfo:
-        principal.require_permission('ai:rates:write')
+        principal.require_permission('ai:rates:create')
         model = await session.scalar(
             select(ModelDefinition)
             .where(ModelDefinition.id == model_id, ModelDefinition.deleted_at.is_(None))

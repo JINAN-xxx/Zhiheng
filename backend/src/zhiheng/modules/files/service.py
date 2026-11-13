@@ -423,7 +423,7 @@ class FileService:
         self, session: AsyncSession, principal: Principal, file_id: UUID, *, lock: bool = False, active: bool = False
     ) -> tuple[FileInfo, frozenset[str]]:
         """Ownership or explicit current read sharing can be delegated; global admin access cannot."""
-        personal = Principal(principal.id, principal.username, False, principal.permissions)
+        personal = principal.personal()
         row = await self._require(session, personal, file_id, active=active, lock=lock)
         actions = (
             frozenset({'read', 'write', 'delete'})
@@ -847,7 +847,7 @@ class FileService:
         )
 
     async def set_policy(self, session: AsyncSession, principal: Principal, body: PolicyRequest) -> PolicyInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:configure')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FilePolicy, 1)
@@ -931,7 +931,7 @@ class FileService:
         expected_version: int | None = None,
         remove: bool = False,
     ) -> RetentionPolicyInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:configure')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FileRetentionPolicy, body.resource_type)

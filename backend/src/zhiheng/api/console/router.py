@@ -5,6 +5,7 @@ from zhiheng.api.console.admin_identity import router as admin_identity_router
 from zhiheng.api.console.admin_monitor import router as admin_monitor_router
 from zhiheng.api.console.admin_operations import router as admin_operations_router
 from zhiheng.api.console.agents import router as agents_router
+from zhiheng.api.console.assistant_conversations import router as assistant_conversations_router
 from zhiheng.api.console.auth import router as auth_router
 from zhiheng.api.console.billing import router as billing_router
 from zhiheng.api.console.chat import router as chat_router
@@ -24,6 +25,7 @@ from zhiheng.api.console.usage import router as usage_router
 from zhiheng.api.console.work import router as work_router
 
 router = APIRouter()
+router.include_router(assistant_conversations_router)
 router.include_router(admin_applications_router)
 router.include_router(admin_identity_router)
 router.include_router(admin_monitor_router)

@@ -74,7 +74,7 @@ class BillingManagementService:
         user_id: UUID,
         data: CreditAdjustment,
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:adjust')
         await self._identity.directory_user(session, actor, user_id, require_active=data.kind == 'grant', lock=True)
         result = await self._credits.adjust(session, actor, user_id, data)
         await self._record(session, actor, f'billing.{data.kind}', user_id)
@@ -87,7 +87,7 @@ class BillingManagementService:
         user_id: UUID,
         data: CreditAccountStatePatch,
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:configure')
         await self._identity.directory_user(session, actor, user_id, lock=True)
         result = await self._credits.set_account_state(session, actor, user_id, data)
         await self._record(session, actor, 'billing.resume' if data.enabled else 'billing.pause', user_id)
@@ -173,7 +173,7 @@ class BillingManagementService:
         run_id: UUID,
         data: CreditReconcile,
     ) -> CreditReservation:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         try:
             result = await self._usage.reconcile(session, actor, run_id, data)
         except ValueError as exc:

@@ -24,43 +24,43 @@
           type="text"
           class="editor-back"
           :disabled="busy"
-          aria-label="返回智能体列表"
+          aria-label="返回智能助手列表"
           @click="close"
-          ><ArrowLeftOutlined />返回智能体</a-button
+          ><ArrowLeftOutlined />返回智能助手</a-button
         >
-        <h1>{{ saved?.name || '新建智能体' }}</h1>
+        <h1>{{ saved?.name || '新建智能助手' }}</h1>
         <div class="editor-status">
           <a-tag v-if="saved" :color="saved.status === 'published' ? 'green' : 'default'">{{
             agentStatusLabel(saved)
           }}</a-tag>
-          <span v-if="!saved">配置你的智能体</span>
+          <span v-if="!saved">配置你的智能助手</span>
           <span class="editor-save-state">{{
             dirty ? '有未保存更改' : saved ? '所有更改已保存' : ''
           }}</span>
         </div>
       </div>
       <div class="editor-actions">
-        <a-tooltip v-if="saved && canEdit" title="删除智能体">
-          <a-button danger type="text" :disabled="busy" aria-label="删除智能体" @click="remove"
+        <a-tooltip v-if="saved && canUseCapability('agents', 'delete')" title="删除智能助手">
+          <a-button danger type="text" :disabled="busy" aria-label="删除智能助手" @click="remove"
             ><DeleteOutlined
           /></a-button>
         </a-tooltip>
         <a-button
-          v-if="saved?.status === 'published'"
+          v-if="saved?.status === 'published' && canUseModule('developer')"
           :disabled="busy"
           aria-label="API 说明"
           @click="apiOpen = true"
           ><ApiOutlined />API 说明</a-button
         >
         <a-button
-          v-if="saved?.status === 'published' && canEdit"
+          v-if="saved?.status === 'published' && canPublish"
           :disabled="busy"
           aria-label="取消发布"
           @click="unpublish"
           ><StopOutlined />取消发布</a-button
         >
         <a-button
-          v-if="!page && saved && canEdit"
+          v-if="!page && saved && canUseCapability('agents', 'debug')"
           :disabled="busy || dirty"
           aria-label="试聊"
           @click="$emit('preview', saved)"
@@ -74,19 +74,11 @@
           @click="save"
           ><SaveOutlined />保存</a-button
         >
-        <a-tooltip
-          v-if="saved && canEdit"
-          :title="
-            dirty ? '保存后发布' : !saved.applicationId ? '绑定 API 应用后发布' : '发布当前草稿'
-          "
-        >
+        <a-tooltip v-if="saved && canPublish" :title="dirty ? '保存后发布' : '发布当前草稿'">
           <a-button
             type="primary"
             :disabled="
-              busy ||
-              dirty ||
-              !saved.applicationId ||
-              (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
+              busy || dirty || (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
             "
             aria-label="发布"
             @click="publish"
@@ -123,7 +115,7 @@
           v-if="creationUncertain"
           type="warning"
           show-icon
-          message="上次创建结果待确认。再次保存将确认原配置；确认前不会创建第二个智能体。"
+          message="上次创建结果待确认。再次保存将确认原配置；确认前不会创建第二个智能助手。"
           class="editor-alert"
         />
         <div :inert="creationUncertain" style="display: contents">
@@ -141,18 +133,18 @@
                 <h2>基本信息</h2>
               </div>
               <div class="config-fields">
-                <div v-if="saved" class="agent-resource-id" role="group" aria-label="智能体标识">
-                  <span>智能体 ID</span><code>{{ saved.agentId }}</code>
+                <div v-if="saved" class="agent-resource-id" role="group" aria-label="智能助手标识">
+                  <span>智能助手 ID</span><code>{{ saved.agentId }}</code>
                 </div>
-                <a-form-item label="智能体名称" name="name"
-                  ><a-input v-model:value="form.name" :maxlength="100" placeholder="为智能体命名"
+                <a-form-item label="智能助手名称" name="name"
+                  ><a-input v-model:value="form.name" :maxlength="100" placeholder="为智能助手命名"
                 /></a-form-item>
                 <a-form-item label="描述" name="description"
                   ><a-textarea
                     v-model:value="form.description"
                     :rows="2"
                     :maxlength="500"
-                    placeholder="介绍智能体的用途"
+                    placeholder="介绍智能助手的用途"
                 /></a-form-item>
                 <a-form-item label="欢迎语" name="welcomeMessage" extra="开启对话时展示，可留空。"
                   ><a-textarea
@@ -174,7 +166,7 @@
                     v-model:value="form.systemPrompt"
                     :rows="7"
                     :maxlength="32000"
-                    placeholder="描述智能体的角色、任务和回答要求"
+                    placeholder="描述智能助手的角色、任务和回答要求"
                 /></a-form-item>
               </div>
             </section>
@@ -289,7 +281,7 @@
                       :options="applicationOptions"
                       :loading="optionsLoading"
                       :disabled="!canEdit || busy"
-                      placeholder="选择应用"
+                      placeholder="可选，仅外部 API 调用需要"
                       @update:value="setApplicationId"
                     /><a-tooltip v-if="canEdit && canCreateApplication" title="新建 API 应用"
                       ><a-button
@@ -364,6 +356,7 @@
 </template>
 
 <script setup lang="ts">
+import { canUseModule, canUseCapability } from '../../identity/public.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import type { AgentPayload } from '../api/index.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -486,9 +479,18 @@ const busy = computed(
     applicationSaving.value ||
     previewBusy.value
 )
-const canEdit = computed(() => !saved.value || identity.value?.id === saved.value.ownerId)
+const canEdit = computed(
+  () =>
+    canUseCapability('agents', saved.value ? 'update' : 'create') &&
+    (!saved.value || identity.value?.id === saved.value.ownerId)
+)
+const canPublish = computed(
+  () => canUseCapability('agents', 'publish') && saved.value?.ownerId === identity.value?.id
+)
 const canCreateApplication = computed(
-  () => !saved.value || saved.value.ownerId === identity.value?.id
+  () =>
+    canUseCapability('developer', 'create') &&
+    (!saved.value || saved.value.ownerId === identity.value?.id)
 )
 const dirty = computed(
   () =>
@@ -584,9 +586,11 @@ async function load(): Promise<void> {
   const results = await Promise.allSettled([
     props.agentId ? getAgent(props.agentId, context.signal) : Promise.resolve(null),
     getModels(context.signal),
-    listAvailableSkills(context.signal),
-    allApplications(context.signal),
-    availableBases(context.signal, props.agentId || undefined)
+    canUseCapability('skills') ? listAvailableSkills(context.signal) : Promise.resolve([]),
+    canUseModule('developer') ? allApplications(context.signal) : Promise.resolve([]),
+    canUseModule('knowledge')
+      ? availableBases(context.signal, props.agentId || undefined)
+      : Promise.resolve([])
   ])
   if (!context.isCurrent()) return
   const [detail, modelList, skillList, applicationList, knowledgeList] = results
@@ -732,7 +736,7 @@ async function save(): Promise<void> {
 }
 async function publish(): Promise<void> {
   const item = saved.value
-  if (!item || dirty.value || busy.value || !canEdit.value) return
+  if (!item || dirty.value || busy.value || !canPublish.value) return
   errorDetails.value = undefined
   const context = mutationScope.replace()
   actionBusy.value = true
@@ -748,7 +752,7 @@ async function publish(): Promise<void> {
 }
 async function unpublish(): Promise<void> {
   const item = saved.value
-  if (!item || busy.value || !canEdit.value) return
+  if (!item || busy.value || !canPublish.value) return
   errorDetails.value = undefined
   const context = mutationScope.replace()
   if (
@@ -772,11 +776,11 @@ async function unpublish(): Promise<void> {
 }
 async function remove(): Promise<void> {
   const item = saved.value
-  if (!item || busy.value || !canEdit.value) return
+  if (!item || busy.value || !canUseCapability('agents', 'delete')) return
   const context = mutationScope.replace()
   if (
     !(await confirmation.confirm(
-      `删除智能体「${item.name}」？已发布的智能体将自动下线，历史版本和运行记录仍会保留。`
+      `删除智能助手「${item.name}」？已发布的智能助手将自动下线，历史版本和运行记录仍会保留。`
     )) ||
     !context.isCurrent()
   )

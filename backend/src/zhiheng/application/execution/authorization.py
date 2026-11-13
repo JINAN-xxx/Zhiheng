@@ -1,6 +1,7 @@
 """Revalidate execution authority and immutable model/source snapshots before provider use."""
 
 from zhiheng.application.access import ResourceAccessService
+from zhiheng.application.agents.conversations import AssistantConversationService
 from zhiheng.application.chat.context import ChatContextService
 from zhiheng.application.execution.content_access import RunContentAccess
 from zhiheng.application.knowledge.graph.runs import GraphRuns
@@ -15,6 +16,7 @@ from zhiheng.modules.knowledge.public import PREPARATION_TERMINAL, binding_finge
 from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequest, ModelService
 from zhiheng.runtime.contracts import ClaimedRun
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability, require_execution_capabilities
 
 
 class ModelExecutionAuthorization:
@@ -33,7 +35,9 @@ class ModelExecutionAuthorization:
         models: ModelService,
         resource_access: ResourceAccessService,
         files: FileService,
+        assistant_conversations: AssistantConversationService,
     ) -> None:
+        self.assistant_conversations = assistant_conversations
         self.database, self.chat_context, self.keys = database, chat_context, keys
         self.graph_runs, self.knowledge_preparation = graph_runs, knowledge_preparation
         self.run_content = run_content
@@ -62,9 +66,31 @@ class ModelExecutionAuthorization:
                     await self.run_content.require_personal(session, principal, claim.resource_type, claim.resource_id)
                 await self.knowledge_preparation.require_run_bases(session, claim.id, claim.resource_id)
 
-    async def require(self, claim: ClaimedRun) -> None:
+    async def _require_platform(self, claim: ClaimedRun) -> None:
+        if claim.resource_type in {
+            'chat',
+            'chat_summary',
+            'agent_chat',
+            'agent_preview',
+            'agent_invocation',
+            'work_turn',
+        }:
+            async with self.database.sessions() as session:
+                principal = await self.identity.principal_for_user(session, claim.owner_id)
+                if claim.resource_type == 'agent_invocation':
+                    require_capability(principal, 'agents', 'access')
+                else:
+                    require_execution_capabilities(principal, claim.resource_type)
+                for module in ModelRequest.model_validate(claim.payload).required_modules:
+                    require_capability(
+                        principal, module, 'query' if module == 'knowledge' else 'use' if module == 'skills' else 'read'
+                    )
+
+    async def require(self, claim: ClaimedRun) -> None:  # noqa: PLR0912 - explicit policies for distinct execution resources
+        await self._require_platform(claim)
         await self._require_knowledge_run(claim)
         guards = {
+            'agent_chat': self.assistant_conversations.guard,
             'connection_test': self._require_test,
             'chat': self.chat_context.guard,
             'chat_summary': self.chat_context.guard,
@@ -136,6 +162,19 @@ class ModelExecutionAuthorization:
                 )
                 owner = await self.identity.principal_for_user(session, owner_id)
                 binding = await self.models.resolve(session, expected.model_id)
+                if origin is None:
+                    operation = await self.knowledge_jobs.store.operation(session, claim.resource_id)
+                    require_capability(
+                        owner,
+                        'knowledge',
+                        'delete'
+                        if operation.startswith('delete')
+                        else 'import'
+                        if operation == 'import'
+                        else 'rebuild'
+                        if operation == 'rebuild'
+                        else 'update',
+                    )
                 if origin is not None:
                     await self.knowledge_jobs.store.model_guard(session, claim.resource_id, claim.id, lock=True)
                     await self.knowledge_origin.job(

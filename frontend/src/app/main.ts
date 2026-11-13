@@ -4,7 +4,12 @@ import '../shared/styles/console-tokens.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
-import { clearIdentity, identity, restoreIdentity } from '../modules/identity/public.ts'
+import {
+  clearIdentity,
+  identity,
+  restoreIdentity,
+  firstModulePath
+} from '../modules/identity/public.ts'
 import { http } from '../shared/http.ts'
 import { initializeLightTheme } from '../shared/theme.ts'
 import App from './App.vue'
@@ -21,7 +26,7 @@ http.setForbiddenHandler(() => {
   void restoreIdentity(true).catch(() => undefined)
 })
 window.addEventListener('focus', () => {
-  if (identity.value) void restoreIdentity().catch(() => undefined)
+  if (identity.value) void restoreIdentity(true).catch(() => undefined)
 })
 watch(identity, (current, previous) => {
   if (
@@ -30,9 +35,13 @@ watch(identity, (current, previous) => {
     (current.is_admin !== previous.is_admin ||
       JSON.stringify(current.permissions) !== JSON.stringify(previous.permissions))
   ) {
-    void router.replace('/chat')
+    void router.replace(firstModulePath(current))
   }
 })
+window.setInterval(() => {
+  if (identity.value && document.visibilityState === 'visible')
+    void restoreIdentity().catch(() => undefined)
+}, 30000)
 const app = createApp(App)
 app.use(router)
 void router.isReady().then(

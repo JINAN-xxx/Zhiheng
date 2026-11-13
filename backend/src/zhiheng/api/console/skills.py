@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.skills.public import DraftInfo, SkillInfo, SkillPage, SkillStatus
+from zhiheng.modules.skills.public import DraftInfo, SkillInfo, SkillPage, SkillSource, SkillStatus
 from zhiheng.shared.errors import AppError
 
 router = APIRouter(prefix='/api/skills', tags=['skills'])
@@ -34,6 +34,7 @@ async def skills(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str, Query(max_length=500)] = '',
     status: SkillStatus | None = None,
+    source: SkillSource | None = None,
 ) -> SkillPage:
     # QueryParams uses replacement decoding; reject invalid original search bytes first.
     for parameter in request.scope['query_string'].split(b'&'):
@@ -44,7 +45,7 @@ async def skills(
             except UnicodeError as error:
                 raise AppError('invalid_skill_search', '技能搜索条件必须为有效UTF-8', 422) from error
     return await container.skills.list_skills(
-        session, principal.id, page=page, page_size=page_size, search=search, status=status
+        session, principal.id, page=page, page_size=page_size, search=search, status=status, source=source
     )
 
 

@@ -195,7 +195,7 @@ class UsageService:
         run_id: UUID,
         data: CreditReconcile,
     ) -> CreditReservation:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         async with session.begin_nested():
             await self._meter.reconcile(
                 session,

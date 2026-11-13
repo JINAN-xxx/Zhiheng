@@ -1,3 +1,4 @@
+import { canUseCapability } from '../../identity/public.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -418,7 +419,15 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     kind: EditorKind,
     item?: KnowledgeBase | KnowledgeFolder | KnowledgeDocument
   ): void {
-    if (actionBusy.value || uploading.value) return
+    if (
+      !canUseCapability(
+        'knowledge',
+        kind === 'create' || kind === 'createFolder' ? 'create' : 'update'
+      ) ||
+      actionBusy.value ||
+      uploading.value
+    )
+      return
     editorError.value = ''
     uncertain.value = false
     Object.assign(editor, {
@@ -783,7 +792,10 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     api.getCapabilities(initial.signal).then((value) => {
       if (initial.isCurrent()) capabilities.value = value
     }),
-    getModels(initial.signal).then((value) => {
+    (canUseCapability('knowledge') || canUseCapability('knowledge', 'manage')
+      ? getModels(initial.signal)
+      : Promise.resolve([])
+    ).then((value) => {
       if (initial.isCurrent()) models.value = value
     })
   ]).then((results) => {

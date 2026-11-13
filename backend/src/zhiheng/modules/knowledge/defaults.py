@@ -55,7 +55,7 @@ class KnowledgeDefaultsService:
     async def patch(
         self, session: AsyncSession, principal: Principal, body: KnowledgeDefaultsPatch
     ) -> KnowledgeDefaultsInfo:
-        principal.require_permission('system:configs:write')
+        principal.require_permission('system:configs:update')
         await session.execute(insert(KnowledgeDefaults).values(id=1).on_conflict_do_nothing())
         row = await session.get(KnowledgeDefaults, 1, with_for_update=True, populate_existing=True)
         assert row is not None

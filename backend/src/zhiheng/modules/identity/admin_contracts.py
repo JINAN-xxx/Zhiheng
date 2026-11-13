@@ -61,7 +61,7 @@ class RoleCreate(RequestModel):
 
 class RolePatch(PatchRequest):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    permissions: list[str] | None = Field(default=None, max_length=100)
+    permissions: list[str] | None = Field(default=None, max_length=len(PERMISSION_CODES))
     is_active: bool | None = None
     remark: str | None = Field(default=None, max_length=2000)
 

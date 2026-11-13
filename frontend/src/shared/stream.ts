@@ -17,6 +17,7 @@ export interface RunSnapshot {
     | 'connection_test'
     | 'public'
     | 'agent_preview'
+    | 'agent_chat'
     | 'agent_invocation'
     | 'work_turn'
     | 'knowledge_embedding'
@@ -57,6 +58,7 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       resourceType !== 'connection_test' &&
       resourceType !== 'public' &&
       resourceType !== 'agent_preview' &&
+      resourceType !== 'agent_chat' &&
       resourceType !== 'agent_invocation' &&
       resourceType !== 'work_turn' &&
       resourceType !== 'knowledge_embedding' &&

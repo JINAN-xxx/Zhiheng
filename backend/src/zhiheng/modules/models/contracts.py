@@ -237,6 +237,7 @@ class ModelRequest(BaseModel):
     messages: tuple[ModelMessage, ...]
     execution_timeout_seconds: float | None = Field(default=None, ge=0.1, le=600)
     execution_deadline: datetime | None = None
+    required_modules: tuple[str, ...] = ()
 
     @field_validator('messages')
     @classmethod
@@ -263,10 +264,17 @@ class ModelRequest(BaseModel):
         return self
 
 
+class ConnectionOption(BaseModel):
+    id: UUID
+    name: str
+    enabled: bool
+
+
 class ConnectionInfo(BaseModel):
     id: UUID
     name: str
     provider: Literal['openai_compatible'] = 'openai_compatible'
+    model_count: int | None = None
     base_url: str
     has_api_key: bool = True
     enabled: bool = True
@@ -303,6 +311,7 @@ class ModelSaveCheck:
     previous: ModelInfo | None
     enabled: bool | None
     provider: ModelProvider
+    required_actions: tuple[str, ...] = ('update',)
 
 
 class RateCreate(BaseModel):

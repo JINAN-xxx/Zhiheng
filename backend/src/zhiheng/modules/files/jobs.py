@@ -45,7 +45,7 @@ class FileJobs:
     async def _purge_native(self, principal: Principal, file_id: UUID, expected_version: int) -> FileInfo:
         async with self._transaction() as session:
             if self._attempt_id is not None:
-                principal.require_permission('ai:storage:write')
+                principal.require_permission('ai:storage:delete')
                 row = await self._maintenance_source(session, file_id)
             else:
                 row = await self._files._require(session, principal, file_id, manage=True, lock=True)
@@ -94,7 +94,7 @@ class FileJobs:
             return await self._files.info(session, row)
 
     async def run(self, principal: Principal, kind: JobKind) -> JobInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:maintain')
         job_id = uuid4()
         async with self._sessions() as guard:
             connection = await guard.connection()
@@ -367,7 +367,7 @@ class FileJobs:
         return 0
 
     async def issue_action(self, principal: Principal, issue_id: UUID, body: IssueAction) -> ReconcileIssueInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:maintain')
         async with self._transaction() as session:
             await self._lock_issue_maintenance(session)
             issue = await session.scalar(
@@ -454,7 +454,7 @@ class FileJobs:
         return row
 
     async def _maintenance_record(self, session: AsyncSession, principal: Principal, file_id: UUID) -> FileRecord:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:maintain')
         record = await session.get(FileRecord, file_id)
         if record is None:
             raise AppError('file_not_found', '文件不存在', 404)

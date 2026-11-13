@@ -4,7 +4,14 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.execution.references import RunReferences
-from zhiheng.modules.agents.public import AgentConfig, AgentInfo, AgentService, AgentSummary, AgentUpdate
+from zhiheng.modules.agents.public import (
+    AgentConfig,
+    AgentInfo,
+    AgentService,
+    AgentSummary,
+    AgentUpdate,
+    AssistantConversations,
+)
 from zhiheng.modules.developer.public import ApplicationService
 from zhiheng.modules.knowledge.public import KnowledgeService
 from zhiheng.modules.models.public import ModelBinding, ModelService
@@ -45,6 +52,8 @@ class AgentManagementService:
         async def referenced(current: AsyncSession, target: UUID) -> bool:
             references = await self._work.agent_references(current, target)
             references.extend(await self._runs.agent_references(current, target))
+            conversation_ids = await AssistantConversations().conversation_ids(current, target)
+            references.extend(await self._runs.assistant_references(current, target, conversation_ids))
             if self._knowledge_resources is not None:
                 references.extend(await self._knowledge_resources.agent_references(current, target))
             if references:
@@ -64,8 +73,6 @@ class AgentManagementService:
                 await self._applications.require_active_owned(session, principal.id, config.application_id)
             else:
                 await self._applications.require_owned(session, principal.id, config.application_id)
-        elif publish:
-            raise AppError('agent_application_required', '发布智能体前请绑定应用', 422)
         binding = (
             await self.knowledge.binding_for(session, principal, config.model_id, config.knowledge_base_ids)
             if config.knowledge_base_ids and self.knowledge

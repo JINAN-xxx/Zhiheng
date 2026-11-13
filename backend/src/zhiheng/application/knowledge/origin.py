@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.application.access import CallerContext, ResourceAccessService
 from zhiheng.modules.developer.public import APIOrigin, DeveloperIdentity, ResourceAction, ResourceKind
 from zhiheng.modules.knowledge.public import RetrievalState
+from zhiheng.shared.platform_permissions import require_resource_operation
 
 
 class KnowledgeOriginGuard:
@@ -24,6 +25,7 @@ class KnowledgeOriginGuard:
         request = await self.access.requests.get(session, origin.application_id, origin.request_id)
         await self.access.keys.authorize_identity(session, identity, model_ids, scope=request.required_scope, lock=True)
         principal = await self.access.identity.principal_for_user(session, origin.owner_id)
+        require_resource_operation(principal, request.operation)
         caller = CallerContext('key', principal, identity, origin.request_id)
         for resource in sorted(request.resources, key=lambda item: (item['kind'] == 'file', item['id'])):
             await self.access.require(

@@ -19,6 +19,7 @@ from zhiheng.modules.knowledge.public import (
     fingerprint,
 )
 from zhiheng.modules.models.public import ModelBinding, ModelService
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 
 
@@ -27,22 +28,26 @@ class NativeKnowledgeCommands:
         self.knowledge, self.models = knowledge, models
 
     async def create(self, session: AsyncSession, principal: Principal, body: BaseCreate) -> BaseInfo:
+        require_capability(principal, 'knowledge', 'create')
         body = await self.knowledge.creation_parameters(session, body)
         assert body.embed_model_id is not None
         binding = await self.models.resolve(session, body.embed_model_id)
         return await self.knowledge.create(session, principal, body, binding)
 
     async def patch(self, session: AsyncSession, principal: Principal, base_id: UUID, body: BasePatch) -> BaseInfo:
+        require_capability(principal, 'knowledge', 'update')
         return await self.knowledge.patch(session, principal, base_id, body)
 
     async def folder_create(
         self, session: AsyncSession, principal: Principal, base_id: UUID, body: FolderCreate
     ) -> FolderInfo:
+        require_capability(principal, 'knowledge', 'create')
         return await self.knowledge.create_folder(session, principal, base_id, body)
 
     async def folder_patch(
         self, session: AsyncSession, principal: Principal, base_id: UUID, folder_id: UUID, body: FolderPatch
     ) -> FolderInfo:
+        require_capability(principal, 'knowledge', 'update')
         return await self.knowledge.rename_folder(session, principal, base_id, folder_id, body)
 
     async def select(
@@ -98,6 +103,17 @@ class NativeKnowledgeCommands:
         binding: ModelBinding,
         selection: BuildSelection,
     ) -> JobInfo:
+        require_capability(
+            principal,
+            'knowledge',
+            'delete'
+            if operation.startswith('delete')
+            else 'import'
+            if operation == 'import'
+            else 'rebuild'
+            if operation == 'rebuild'
+            else 'update',
+        )
         return await self.knowledge.queue(
             session,
             principal,

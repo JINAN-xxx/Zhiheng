@@ -67,7 +67,7 @@
         ></a-tooltip>
         <template v-if="canManageFile(identity, row)">
           <a-tooltip
-            v-if="row.status === 'active'"
+            v-if="row.status === 'active' && hasAnyPermission(identity, 'ai:storage:delete')"
             :title="row.referenceCount ? '存在业务引用，无法移入回收站' : '移入回收站'"
           >
             <a-button
@@ -79,7 +79,9 @@
               ><DeleteOutlined
             /></a-button>
           </a-tooltip>
-          <a-tooltip v-if="row.status === 'deleted'" title="恢复"
+          <a-tooltip
+            v-if="row.status === 'deleted' && hasAnyPermission(identity, 'ai:storage:maintain')"
+            title="恢复"
             ><a-button
               type="link"
               :aria-label="`恢复文件：${row.displayName}`"
@@ -88,7 +90,10 @@
               ><RollbackOutlined /></a-button
           ></a-tooltip>
           <a-tooltip
-            v-if="['deleted', 'purging'].includes(row.status)"
+            v-if="
+              ['deleted', 'purging'].includes(row.status) &&
+              hasAnyPermission(identity, 'ai:storage:delete')
+            "
             :title="
               row.referenceCount
                 ? '存在业务引用，无法永久清理'
@@ -116,7 +121,7 @@
             <template #overlay>
               <a-menu>
                 <a-menu-item
-                  v-if="row.status === 'active'"
+                  v-if="row.status === 'active' && hasAnyPermission(identity, 'ai:storage:acl')"
                   key="acl"
                   :aria-label="`访问权限：${row.displayName}`"
                   :disabled="immutable(row)"
@@ -124,7 +129,9 @@
                   ><LockOutlined />访问权限</a-menu-item
                 >
                 <a-menu-item
-                  v-if="row.status === 'active'"
+                  v-if="
+                    row.status === 'active' && hasAnyPermission(identity, 'ai:storage:transfer')
+                  "
                   key="transfer"
                   :aria-label="`转移文件：${row.displayName}`"
                   :disabled="immutable(row)"
@@ -179,7 +186,7 @@ import {
   SwapOutlined
 } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import { identity } from '../../identity/public.ts'
+import { identity, hasAnyPermission } from '../../identity/public.ts'
 import { canManageFile } from '../access.ts'
 import { fileTypeLabel, formatFileSize, formatTime, statusLabel } from '../presentation.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'

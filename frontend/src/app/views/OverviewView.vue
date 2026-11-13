@@ -12,7 +12,7 @@ import {
   UploadOutlined,
   RightOutlined
 } from '@ant-design/icons-vue'
-import { identity } from '../../modules/identity/public.ts'
+import { identity, canUseModule, canUseCapability } from '../../modules/identity/public.ts'
 import { RequestScope } from '../../shared/http.ts'
 import WorkspacePage from '../../shared/components/WorkspacePage.vue'
 import RefreshButton from '../../shared/components/RefreshButton.vue'
@@ -48,20 +48,20 @@ onBeforeUnmount(() => scope.dispose())
     <section class="console-shortcuts-section">
       <h2>快捷入口</h2>
       <div class="console-shortcuts">
-        <RouterLink to="/chat"
+        <RouterLink v-if="canUseModule('chat')" to="/chat"
           ><MessageOutlined /><span><strong>开始对话</strong><small>使用模型处理问题</small></span
           ><RightOutlined
         /></RouterLink>
-        <RouterLink to="/agents?action=create"
-          ><PlusOutlined /><span><strong>创建智能体</strong><small>配置专属助手</small></span
+        <RouterLink v-if="canUseCapability('agents', 'create')" to="/agents?action=create"
+          ><PlusOutlined /><span><strong>创建智能助手</strong><small>配置专属助手</small></span
           ><RightOutlined
         /></RouterLink>
-        <RouterLink to="/skills?action=upload"
+        <RouterLink v-if="canUseCapability('skills', 'create')" to="/skills?action=upload"
           ><UploadOutlined /><span
             ><strong>上传技能</strong><small>导入 SKILL.md 或 ZIP 包</small></span
           ><RightOutlined
         /></RouterLink>
-        <RouterLink to="/knowledge?action=create"
+        <RouterLink v-if="canUseCapability('knowledge', 'create')" to="/knowledge?action=create"
           ><DatabaseOutlined /><span
             ><strong>创建知识库</strong><small>管理业务知识与资料</small></span
           ><RightOutlined

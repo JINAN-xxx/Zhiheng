@@ -1,16 +1,32 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar title="我的技能">
+    <WorkspaceToolbar title="技能">
       <template #actions>
         <RefreshButton label="刷新技能" :loading="loading" @click="load" />
-        <a-button v-if="canManage" type="primary" aria-label="上传技能" @click="openUpload()">
+        <a-button
+          v-if="canUpload && activeTab === 'mine'"
+          type="primary"
+          aria-label="上传技能"
+          @click="openUpload()"
+        >
           <template #icon><UploadOutlined /></template>上传技能
         </a-button>
       </template>
     </WorkspaceToolbar>
 
     <section class="skill-content">
+      <ATabs :active-key="activeTab" class="skill-tabs" aria-label="技能分类" @change="changeTab">
+        <ATabPane key="market" tab="市场" />
+        <ATabPane key="mine" tab="我的" />
+      </ATabs>
+      <p class="skill-intro">
+        {{
+          activeTab === 'market'
+            ? '平台预制技能，启用后可用于对话和智能体。'
+            : '上传技能包，管理自己的技能。'
+        }}
+      </p>
       <div class="skill-controls">
         <a-input
           v-model:value="query.keyword"
@@ -41,7 +57,13 @@
       <WorkspaceState
         v-else-if="!skills.length"
         kind="empty"
-        :title="query.status || query.keyword.trim() ? '没有符合条件的技能' : '暂无技能'"
+        :title="
+          query.status || query.keyword.trim()
+            ? '没有符合条件的技能'
+            : activeTab === 'market'
+              ? '暂无预制技能'
+              : '暂无个人技能'
+        "
       />
       <template v-else>
         <a-alert v-if="error" class="stale-notice" type="warning" :message="error" show-icon />
@@ -71,7 +93,7 @@
               :checked="skill.status === 'enabled'"
               :aria-label="`启用技能“${skill.skillName}”`"
               :loading="pending[skill.skillId] ?? false"
-              :disabled="!canManage || pending[skill.skillId] || deleting"
+              :disabled="!canToggleSkill(skill) || pending[skill.skillId] || deleting"
               size="small"
               @change="toggleStatus(skill)"
             />
@@ -106,6 +128,9 @@
       :action-error="actionError"
       :action-details="actionDetails"
       :can-manage="canManage"
+      :can-toggle="!!detail && canToggleSkill(detail)"
+      :can-update="canUseCapability('skills', 'update')"
+      :can-delete="canUseCapability('skills', 'delete')"
       @update:model-value="setDetailOpen"
       @retry="loadDetail"
       @toggle="toggleSelected"
@@ -116,6 +141,7 @@
 </template>
 
 <script setup lang="ts">
+import { canUseCapability } from '../../identity/public.ts'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import {
   Alert as AAlert,
@@ -123,7 +149,9 @@ import {
   Input as AInput,
   Pagination as APagination,
   Select as ASelect,
-  Switch as ASwitch
+  Switch as ASwitch,
+  Tabs as ATabs,
+  TabPane as ATabPane
 } from 'ant-design-vue'
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
@@ -138,12 +166,16 @@ const statusOptions = [
   { label: '已停用', value: 'disabled' }
 ]
 const {
+  activeTab,
+  changeTab,
   skills,
   total,
   loading,
   error,
   query,
   canManage,
+  canUpload,
+  canToggleSkill,
   pending,
   failures,
   detailOpen,
@@ -189,6 +221,14 @@ const {
   flex: 1;
   overflow: auto;
   padding: 24px 28px 32px;
+}
+.skill-tabs {
+  margin-bottom: 8px;
+}
+.skill-intro {
+  margin: 0 0 22px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 .skill-controls {
   display: flex;

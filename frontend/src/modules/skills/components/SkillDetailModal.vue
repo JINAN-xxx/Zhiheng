@@ -16,7 +16,7 @@
         <div class="detail-heading">
           <h2 :title="skill?.skillName">{{ skill?.skillName || '技能详情' }}</h2>
           <a-switch
-            v-if="skill && canManage"
+            v-if="skill && (canToggle ?? canManage)"
             :checked="skill.status === 'enabled'"
             :aria-label="`启用技能“${skill.skillName}”`"
             :loading="saving"
@@ -56,7 +56,14 @@
     </template>
 
     <template #footer>
-      <div v-if="skill && canManage" class="detail-footer">
+      <div
+        v-if="
+          skill &&
+          ((canUpdate ?? canManage) || (canDelete ?? canManage)) &&
+          skill.sourceType === 'upload'
+        "
+        class="detail-footer"
+      >
         <a-dropdown :trigger="['click']" :disabled="operationsDisabled">
           <a-button
             type="text"
@@ -68,10 +75,16 @@
           </a-button>
           <template #overlay>
             <a-menu>
-              <a-menu-item key="update" :disabled="operationsDisabled" @click="emit('update')">
+              <a-menu-item
+                v-if="canUpdate ?? canManage"
+                key="update"
+                :disabled="operationsDisabled"
+                @click="emit('update')"
+              >
                 <UploadOutlined aria-hidden="true" /> 替换技能
               </a-menu-item>
               <a-menu-item
+                v-if="canDelete ?? canManage"
                 key="delete"
                 danger
                 :disabled="operationsDisabled"
@@ -118,6 +131,9 @@ const props = defineProps<{
   actionError: string
   actionDetails?: unknown
   canManage: boolean
+  canUpdate?: boolean | undefined
+  canDelete?: boolean | undefined
+  canToggle?: boolean | undefined
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]

@@ -88,12 +88,15 @@ async function signOut(): Promise<void> {
             />
             <main
               class="platform-page"
-              :class="{ 'is-conversation': ['chat', 'work'].includes(String(route.name)) }"
+              :class="{
+                'is-conversation': ['chat', 'work', 'assistant-chat'].includes(String(route.name))
+              }"
             >
               <AiResourceShell
                 v-if="
                   [
                     'models',
+                    'credentials',
                     'usage',
                     'developer',
                     'skills',

@@ -16,11 +16,13 @@ from zhiheng.modules.identity.admin_orm import (
 )
 from zhiheng.modules.identity.admin_permissions import (
     PERMISSION_CODES,
+    permission_catalog,
     without_retired_permissions,
 )
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.permission_policy import invalid_dependencies, is_granted
 
 if TYPE_CHECKING:
     import builtins
@@ -162,6 +164,8 @@ class IdentityAdminService:
         proposed = frozenset(permissions)
         if not proposed <= PERMISSION_CODES:
             raise _error('unknown_permission', '包含未接通的权限代码')
+        if invalid_dependencies(proposed):
+            raise _error('permission_dependency', '请先授予同一模块的查看权限')
         if not principal.is_admin and not proposed <= principal.permissions:
             raise _error('permission_escalation', '不能授予超出本人范围的权限', 403)
         return sorted(proposed)
@@ -302,6 +306,56 @@ class IdentityAdminService:
             raise _error('version_conflict', '记录已被其他操作修改，请刷新后重试', 409)
         await session.refresh(row)
 
+    async def effective_permissions(self, session: AsyncSession, principal: Principal, user_id: UUID) -> dict[str, Any]:
+        principal.require_permission('system:users:read')
+        user = await self._row(session, 'users', user_id)
+        assert isinstance(user, IdentityUser)
+        roles = list(
+            await session.scalars(
+                select(IdentityRole)
+                .join(IdentityUserRole)
+                .where(
+                    IdentityUserRole.user_id == user_id,
+                    IdentityRole.is_active.is_(True),
+                    IdentityRole.system_key.is_(None),
+                )
+                .order_by(IdentityRole.name, IdentityRole.id)
+            )
+        )
+        items = []
+        if user.is_active:
+            for item in permission_catalog():
+                sources = (
+                    ['超级管理员']
+                    if user.is_admin
+                    else [role.name for role in roles if is_granted(role.permissions, item['code'])]
+                )
+                if sources:
+                    items.append({**item, 'roles': sources})
+        return {'user_id': str(user_id), 'is_active': user.is_active, 'items': items}
+
+    async def _authorize_changes(
+        self, session: AsyncSession, principal: Principal, kind: str, row: AdminRow, values: dict[str, Any]
+    ) -> None:
+        prefix = f'system:{kind}:'
+        if 'is_active' in values and values['is_active'] != row.is_active:
+            principal.require_permission(prefix + 'toggle')
+        if kind == 'users' and 'role_ids' in values:
+            assigned = set(
+                await session.scalars(select(IdentityUserRole.role_id).where(IdentityUserRole.user_id == row.id))
+            )
+            if assigned != set(values['role_ids']):
+                principal.require_permission(prefix + 'assign_roles')
+        if (
+            isinstance(row, IdentityRole)
+            and 'permissions' in values
+            and set(values['permissions']) != set(row.permissions)
+        ):
+            principal.require_permission(prefix + 'grant')
+        excluded = {'is_active', 'role_ids', 'permissions'}
+        if any(getattr(row, key, None) != value for key, value in values.items() if key not in excluded):
+            principal.require_permission(prefix + 'update')
+
     async def create(
         self,
         session: AsyncSession,
@@ -310,15 +364,19 @@ class IdentityAdminService:
         fields: Mapping[str, Any],
     ) -> dict[str, Any]:
         model = self._model(kind)
-        principal.require_permission(f'system:{kind}:write')
+        principal.require_permission(f'system:{kind}:create')
         values = self._validated(kind, fields)
         await self._unique(session, kind, values)
         if kind == 'departments':
             await self._lock_tree(session, kind)
             await self._parent(session, kind, values.get('parent_id'), None)
         if kind == 'roles':
+            if values['permissions']:
+                principal.require_permission('system:roles:grant')
             values['permissions'] = self._grant_permissions(principal, values['permissions'])
         if kind == 'users':
+            if values.get('role_ids'):
+                principal.require_permission('system:users:assign_roles')
             self._manage_user(principal, None, values)
             await self._user_references(session, principal, values)
             password: SecretStr = values.pop('password')
@@ -359,6 +417,7 @@ class IdentityAdminService:
         row = await self._row(session, kind, identifier, lock=True)
         if row.version != expected_version:
             raise _error('version_conflict', '记录已被其他操作修改，请刷新后重试', 409)
+        await self._authorize_changes(session, principal, kind, row, values)
         revoke_sessions = False
         if isinstance(row, IdentityUser):
             self._manage_user(principal, row, values)
@@ -402,7 +461,7 @@ class IdentityAdminService:
         expected_version: int,
     ) -> None:
         model = self._model(kind)
-        principal.require_permission(f'system:{kind}:write')
+        principal.require_permission(f'system:{kind}:delete')
         admins = await self._admin_guard(session) if kind == 'users' else []
         if kind == 'departments':
             await self._lock_tree(session, kind)
@@ -449,7 +508,7 @@ class IdentityAdminService:
         *,
         expected_version: int,
     ) -> dict[str, Any]:
-        principal.require_permission('system:users:write')
+        principal.require_permission('system:users:reset_password')
         try:
             PasswordReset(password=password, expected_version=expected_version)
         except ValidationError as exc:
@@ -546,7 +605,7 @@ class IdentityAdminService:
         current_token: str | None = None,
         expected_version: int,
     ) -> None:
-        principal.require_permission('system:sessions:write')
+        principal.require_permission('system:sessions:revoke')
         row = await session.scalar(select(IdentitySession).where(IdentitySession.id == identifier).with_for_update())
         if row is None:
             raise _error('session_not_found', '会话不存在', 404)

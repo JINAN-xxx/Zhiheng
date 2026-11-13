@@ -1,3 +1,4 @@
+import { canUseCapability } from '../../identity/public.ts'
 import { copyText } from '../../../shared/clipboard.ts'
 import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -122,14 +123,20 @@ export function useApplications() {
     showDocs = computed(() => route.query.view === 'docs'),
     activeTab = computed(() => tabValue(route.query.tab))
   const canListKeys = true,
-    canCreateKey = true,
+    canCreateKey = computed(() => canUseCapability('developer', 'key_create')),
     canViewModelAuthorizations = true,
     canQueryUsage = true
-  const keyActions: MenuAction[] = [
-    { command: 'rotate', label: '轮换密钥', icon: ReloadOutlined },
-    { command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true, divided: true },
-    { command: 'delete', label: '删除密钥', icon: DeleteOutlined, danger: true, divided: true }
-  ]
+  const keyActions = computed<MenuAction[]>(() => [
+    ...(canUseCapability('developer', 'key_rotate')
+      ? [{ command: 'rotate', label: '轮换密钥', icon: ReloadOutlined }]
+      : []),
+    ...(canUseCapability('developer', 'key_revoke')
+      ? [{ command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true }]
+      : []),
+    ...(canUseCapability('developer', 'key_delete')
+      ? [{ command: 'delete', label: '删除密钥', icon: DeleteOutlined, danger: true }]
+      : [])
+  ])
   const modelOptions = computed(() =>
     models.value
       .filter((model) => model.enabled)
@@ -210,6 +217,14 @@ export function useApplications() {
     catalogError.value = ''
     try {
       const result = await getScopeCatalog(context.signal)
+      result.definitions = result.definitions.filter((item) => {
+        const module = item.scope.split(':')[0]
+        return (
+          (module !== 'agents' && module !== 'knowledge' && module !== 'skills') ||
+          canUseCapability(module, item.scope.endsWith(':write') ? 'manage' : 'access')
+        )
+      })
+      result.scopes = result.definitions.map((item) => item.scope)
       if (context.isCurrent()) {
         scopeCatalog.value = result
         if (keyFormOpen.value) initializeKeyDefaults(result)
@@ -407,6 +422,7 @@ export function useApplications() {
     await loadUsage()
   }
   function openApplicationForm(application: Application | null = null): void {
+    if (!canUseCapability('developer', application ? 'update' : 'create')) return
     applicationCreationUncertain.value = false
     scopes.mutation.replace()
     editingApplication.value = application
@@ -422,6 +438,7 @@ export function useApplications() {
     formError.value = ''
   }
   async function saveApplication(): Promise<void> {
+    if (!canUseCapability('developer', editingApplication.value ? 'update' : 'create')) return
     if (
       saving.value ||
       applicationCreationUncertain.value ||
@@ -470,6 +487,7 @@ export function useApplications() {
     }
   }
   async function applicationAction(action: 'enable' | 'disable' | 'delete'): Promise<void> {
+    if (!canUseCapability('developer', action === 'delete' ? 'delete' : 'toggle')) return
     const application = selectedApplication.value
     if (!application || saving.value) return
     const context = scopes.mutation.replace()
@@ -515,6 +533,7 @@ export function useApplications() {
     if (!keyResourceRpmEdited) keyForm.resourceRpmLimit = catalog.resourceRpmMax
   }
   function openKeyForm(): void {
+    if (!canUseCapability('developer', 'key_create')) return
     if (selectedApplication.value?.status !== 'active') return
     formError.value = ''
     Object.assign(keyForm, defaultKeyForm())
@@ -546,6 +565,7 @@ export function useApplications() {
     }
   }
   async function saveKey(): Promise<void> {
+    if (!canUseCapability('developer', 'key_create')) return
     const id = selectedApplication.value?.applicationId
     if (
       !id ||
@@ -593,6 +613,7 @@ export function useApplications() {
     }
   }
   async function handleKeyAction(command: string, item: DeveloperKey): Promise<void> {
+    if (!canUseCapability('developer', 'key_' + command)) return
     const id = selectedApplication.value?.applicationId
     if (
       !id ||

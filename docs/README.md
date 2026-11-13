@@ -4,8 +4,10 @@
 
 ## 使用平台
 
-- [使用与操作](usage.md)：接入模型、知识入库、智能体、工作空间与任务恢复。
-- [后台管理](api/admin-console-ui.md)：账号、角色、公告、存储和系统运维。
+- [使用与操作](usage.md)：接入模型、知识入库、智能助手、工作空间与任务恢复。
+- [私人智能助手与正式对话](api/assistant-conversations.md)。
+- [后台管理](api/admin-console-ui.md)：当前菜单、账号、角色、应用治理、公告、存储和系统运维。
+- [模块与操作权限](api/platform-module-permissions.md)：模块开关、细分操作、凭据隔离及 API 权限边界。
 - [模型试用](api/model-trials.md)及[供应商用量](api/model-provider-usage.md)。
 - [知识库共享](api/knowledge-sharing.md)及[检索重排策略](api/knowledge-retrieval-policy.md)。
 

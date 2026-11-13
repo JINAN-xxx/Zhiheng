@@ -1,3 +1,4 @@
+import { hasPermission } from '../../shared/platformAccess.ts'
 export interface AdminIdentity {
   is_admin: boolean
   permissions?: readonly string[]
@@ -31,25 +32,16 @@ export const adminNavigation: AdminNavigation[] = [
   { path: '/admin/sessions', label: '在线会话', area: 'sessions' },
   { path: '/admin/monitor', label: '系统状态', area: 'monitor' }
 ]
-export function adminPermissionCode(area: AdminArea, action: 'read' | 'write' = 'read'): string {
+export function adminPermissionCode(area: AdminArea, action: string = 'read'): string {
   return `${area === 'storage' ? 'ai' : 'system'}:${area}:${action}`
 }
 export function hasAdminPermission(
   user: AdminIdentity | null,
   area: AdminArea,
-  action: 'read' | 'write' = 'read'
+  action: string = 'read'
 ): boolean {
-  if (area === 'applications') return Boolean(user?.is_admin)
-  if (area === 'storage')
-    return Boolean(
-      user &&
-        (user.is_admin ||
-          user.permissions?.includes(adminPermissionCode(area, action)) ||
-          (action === 'read' && user.permissions?.includes('ai:storage:write')))
-    )
-  return Boolean(
-    user && (user.is_admin || user.permissions?.includes(adminPermissionCode(area, action)))
-  )
+  if (area === 'applications') return !!user?.is_admin
+  return hasPermission(user, adminPermissionCode(area, action))
 }
 export function canAccessAdmin(user: AdminIdentity | null): boolean {
   return Boolean(
@@ -118,5 +110,5 @@ export function adminEntryLabel(entry: AdminNavigation): string {
 }
 
 export function isActiveAdminPermission(code: string): boolean {
-  return !/^system:(menus|dictionaries|posts):/.test(code)
+  return code !== 'ai:skills:write' && !/^system:(menus|dictionaries|posts):/.test(code)
 }

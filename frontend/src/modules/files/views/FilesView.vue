@@ -56,7 +56,6 @@ import { canManageFile } from '../access.ts'
 const canReadStorage = computed(() =>
   hasAnyPermission(identity.value, 'ai:storage:read', 'ai:storage:write')
 )
-const canWriteStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:write'))
 interface StorageReadState {
   query: ReturnType<typeof emptyQuery>
   dates: [string, string] | null
@@ -505,16 +504,16 @@ onBeforeUnmount(() => {
     /><FileRetentionPolicyDrawer
       ref="policy"
       :can-read="canReadStorage"
-      :can-write="canWriteStorage"
+      :can-write="hasAnyPermission(identity, 'ai:storage:configure')"
     /><FileRetentionReminderDrawer
       ref="reminders"
       :users="users"
-      :can-run-jobs="canWriteStorage"
+      :can-run-jobs="hasAnyPermission(identity, 'ai:storage:maintain')"
       @refresh="load"
     /><FileReconcileDrawer
       ref="reconcile"
       :can-read="canReadStorage"
-      :can-write="canWriteStorage"
+      :can-write="hasAnyPermission(identity, 'ai:storage:maintain')"
       @refresh="load"
     />
   </WorkspacePage>

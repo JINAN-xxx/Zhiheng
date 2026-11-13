@@ -21,7 +21,7 @@ import {
   MenuItem as AMenuItem
 } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import type { KnowledgeBase, KnowledgeDocument, KnowledgeFolder } from '../api/index.ts'
 import { folderTrail as getTrail, formatSize, formatTime, documentStatus } from '../presentation.ts'
 const props = defineProps<{
@@ -118,7 +118,7 @@ watch([() => props.database.id, () => props.folderId], () => {
         show-icon
         message="此知识库尚未迁移，继续使用原有资料权限。所有者需预览并确认访问变化后迁移。"
         class="document-alert"
-        ><template v-if="owner" #action
+        ><template v-if="owner && canUseCapability('knowledge', 'update')" #action
           ><a-button :disabled="busy" @click="emit('migration')">预览并迁移</a-button></template
         ></a-alert
       >
@@ -129,7 +129,7 @@ watch([() => props.database.id, () => props.folderId], () => {
         message="向量服务配置已变化，请先修复索引再添加资料。"
         class="document-alert"
       >
-        <template v-if="owner" #action
+        <template v-if="owner && canUseCapability('knowledge', 'update')" #action
           ><a-button :disabled="busy" @click="emit('settings')">修复索引</a-button></template
         >
       </a-alert>
@@ -139,7 +139,11 @@ watch([() => props.database.id, () => props.folderId], () => {
         ></a-input>
         <div class="document-controls__actions">
           <span>{{ visibleFolders.length }} 个文件夹 · {{ visibleDocuments.length }} 份资料</span>
-          <a-button v-if="owner" :disabled="busy" aria-label="新建文件夹" @click="createFolder"
+          <a-button
+            v-if="owner && canUseCapability('knowledge', 'create')"
+            :disabled="busy"
+            aria-label="新建文件夹"
+            @click="createFolder"
             ><FolderAddOutlined />新建文件夹</a-button
           >
         </div>
@@ -228,7 +232,9 @@ watch([() => props.database.id, () => props.folderId], () => {
               >
               <p v-if="record.error" class="document-error">{{ record.error.message }}</p>
               <a-button
-                v-if="record.status === 'failed' && owner"
+                v-if="
+                  record.status === 'failed' && owner && canUseCapability('knowledge', 'import')
+                "
                 type="link"
                 size="small"
                 :disabled="busy"
@@ -258,7 +264,12 @@ watch([() => props.database.id, () => props.folderId], () => {
               @click="emit('download', record)"
               >下载</a-button
             >
-            <a-dropdown v-if="owner" :trigger="['click']"
+            <a-dropdown
+              v-if="
+                owner &&
+                (canUseCapability('knowledge', 'update') || canUseCapability('knowledge', 'delete'))
+              "
+              :trigger="['click']"
               ><a-button
                 type="text"
                 size="small"
@@ -279,6 +290,7 @@ watch([() => props.database.id, () => props.folderId], () => {
                     @click="emit('rechunk', record)"
                     >高级：处理参数</a-menu-item
                   ><a-menu-item
+                    v-if="canUseCapability('knowledge', 'delete')"
                     key="remove"
                     danger
                     :disabled="busy"

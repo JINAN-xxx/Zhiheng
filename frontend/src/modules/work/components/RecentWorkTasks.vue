@@ -171,7 +171,7 @@ const props = defineProps<{
   canOpen: boolean
   canEdit: boolean
   canRemove: boolean
-  canManageTask: (task: WorkSummary) => boolean
+  canManageTask: (task: WorkSummary, action?: 'update' | 'delete') => boolean
   keyword: string
   status: WorkStatus | ''
 }>()
@@ -186,10 +186,15 @@ const keyword = ref(props.keyword),
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const taskActions = (task: WorkSummary): MenuAction[] => {
   const actions: MenuAction[] = []
-  if (!props.canManageTask(task)) return actions
-  if (props.canEdit && task.status === 'active' && !task.currentRunId)
+  if (!props.canManageTask(task, 'update') && !props.canManageTask(task, 'delete')) return actions
+  if (
+    props.canEdit &&
+    props.canManageTask(task, 'update') &&
+    task.status === 'active' &&
+    !task.currentRunId
+  )
     actions.push({ command: 'rename', label: '重命名', icon: EditOutlined })
-  if (props.canRemove && !task.currentRunId)
+  if (props.canRemove && props.canManageTask(task, 'delete') && !task.currentRunId)
     actions.push({
       command: 'delete',
       label: '删除工作',

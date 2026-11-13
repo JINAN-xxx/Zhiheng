@@ -37,6 +37,7 @@ class RunSnapshot(BaseModel):
         'connection_test',
         'public',
         'agent_preview',
+        'agent_chat',
         'agent_invocation',
         'work_turn',
         'knowledge_embedding',

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { canUseCapability } from '../../identity/public.ts'
 import { Button as AButton, Progress as AProgress } from 'ant-design-vue'
 import { ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 import type { KnowledgeDocument, KnowledgeJob } from '../api/index.ts'
@@ -63,7 +64,7 @@ const operations = {
         "
       />
       <a-button
-        v-if="current.cancel_allowed"
+        v-if="current.cancel_allowed && canUseCapability('knowledge', 'import')"
         type="link"
         size="small"
         :disabled="busy"

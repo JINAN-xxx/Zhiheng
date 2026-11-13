@@ -17,7 +17,11 @@
           <a-button type="text" aria-label="API 说明" @click="openApiDocs"
             ><template #icon><FileTextOutlined /></template>API 说明</a-button
           >
-          <a-button type="primary" aria-label="新建应用" @click="openApplicationForm()"
+          <a-button
+            v-if="canUseCapability('developer', 'create')"
+            type="primary"
+            aria-label="新建应用"
+            @click="openApplicationForm()"
             ><template #icon><PlusOutlined /></template>新建应用</a-button
           >
         </template>
@@ -138,11 +142,17 @@
                 />
               </div>
               <div class="detail-actions">
-                <a-button type="text" @click="openApplicationForm(selectedApplication)"
+                <a-button
+                  v-if="canUseCapability('developer', 'update')"
+                  type="text"
+                  @click="openApplicationForm(selectedApplication)"
                   ><EditOutlined />编辑</a-button
                 >
                 <a-button
-                  v-if="selectedApplication.status === 'active'"
+                  v-if="
+                    canUseCapability('developer', 'toggle') &&
+                    selectedApplication.status === 'active'
+                  "
                   type="text"
                   danger
                   @click="disableSelectedApplication"
@@ -150,6 +160,7 @@
                 >
                 <a-button
                   v-if="
+                    canUseCapability('developer', 'toggle') &&
                     selectedApplication.status === 'disabled' &&
                     selectedApplication.platformEnabled !== false
                   "
@@ -158,7 +169,11 @@
                   @click="enableSelectedApplication"
                   ><PlayCircleOutlined />重新启用</a-button
                 >
-                <a-button type="text" danger @click="deleteSelectedApplication"
+                <a-button
+                  v-if="canUseCapability('developer', 'delete')"
+                  type="text"
+                  danger
+                  @click="deleteSelectedApplication"
                   ><DeleteOutlined />删除应用</a-button
                 >
               </div>
@@ -399,6 +414,7 @@
 </template>
 
 <script setup lang="ts">
+import { canUseCapability } from '../../identity/public.ts'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import {
   Alert as AAlert,

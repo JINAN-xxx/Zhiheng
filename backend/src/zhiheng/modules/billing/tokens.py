@@ -66,7 +66,7 @@ class TokenManagementService:
     async def quota(
         self, session: AsyncSession, actor: Principal, user_id: UUID, body: TokenQuotaPatch, *, token_limit: int
     ) -> UsageSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:configure')
         actor_id = actor.id
         value, previous = await self.command(session, actor_id, 'quota', user_id, body)
         if previous:
@@ -96,7 +96,7 @@ class TokenManagementService:
     async def reconcile(
         self, session: AsyncSession, actor: Principal, run_id: UUID, body: TokenReconcile
     ) -> UsageRecord:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         actor_id = actor.id
         value, previous = await self.command(session, actor_id, 'reconcile', run_id, body)
         if previous:

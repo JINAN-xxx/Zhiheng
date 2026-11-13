@@ -1,7 +1,13 @@
 import { http } from '../../../shared/http.ts'
 import { parseRunSnapshot } from '../../../shared/stream.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
+export interface ConnectionOption {
+  id: string
+  name: string
+  enabled: boolean
+}
 export interface ModelConnection {
+  model_count?: number | undefined
   id: string
   name: string
   provider: 'openai_compatible'
@@ -27,6 +33,7 @@ function parseConnection(value: unknown): ModelConnection {
   return {
     id: string(data.id),
     name: string(data.name),
+    model_count: data.model_count == null ? undefined : number(data.model_count),
     provider: data.provider,
     base_url: string(data.base_url),
     has_api_key: boolean(data.has_api_key),
@@ -167,3 +174,12 @@ export {
   cancelRun as cancelModelTest,
   observeRun as observeModelTest
 } from '../../../shared/runs.ts'
+
+export const getConnectionOptions = (signal: AbortSignal) =>
+  http.request('/models/connection-options', {
+    signal,
+    decode: list((value) => {
+      const row = object(value)
+      return { id: string(row.id), name: string(row.name), enabled: boolean(row.enabled) }
+    })
+  })

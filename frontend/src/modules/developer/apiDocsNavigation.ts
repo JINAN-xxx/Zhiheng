@@ -23,7 +23,7 @@ function categories(item: ApiDocument): Category[] {
       ? ['skill-imports', '导入与确认']
       : path.includes('/versions')
         ? ['skill-versions', '版本与原包']
-        : ['skill-management', '技能管理']
+        : ['skill-management', '技能']
     return [['skills', '个人技能'], section]
   }
   if (/^\/api\/v1\/files(?:\/|$)/.test(path))

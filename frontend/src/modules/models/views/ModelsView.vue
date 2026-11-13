@@ -33,8 +33,19 @@ import ModelTrialDialog from '../components/ModelTrialDialog.vue'
 import type { ChatModel } from '../api/index.ts'
 import { useModelDirectory } from '../composables/useModelDirectory.ts'
 const {
+  credentialPage,
+  canCreateModels,
+  canUpdateModels,
+  canDeleteModels,
+  canToggleModels,
+  canCreateCredentials,
+  canUpdateCredentials,
+  canDeleteCredentials,
+  canToggleCredentials,
   canReadModels,
   canWriteModels,
+  canReadCredentials,
+  canWriteCredentials,
   canTestModels,
   denyTrialAccess,
   canReadRates,
@@ -112,17 +123,17 @@ function trialDetails() {
 </script>
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar title="模型目录"
+    <WorkspaceToolbar :title="credentialPage ? '凭据管理' : '模型目录'"
       ><template #actions
         ><RefreshButton label="刷新当前视图" :loading="loading" @click="load" /><AButton
-          v-if="canWriteModels && activeTab === 'platform'"
+          v-if="canCreateModels && activeTab === 'platform'"
           type="primary"
           aria-label="接入模型"
-          :disabled="!connections.length"
+          :disabled="!connectionOptions.length"
           @click="openModel()"
           ><PlusOutlined />接入模型</AButton
         ><AButton
-          v-if="canWriteModels && activeTab === 'credentials'"
+          v-if="canCreateCredentials && activeTab === 'credentials'"
           type="primary"
           aria-label="新增凭据"
           :disabled="saving"
@@ -135,7 +146,7 @@ function trialDetails() {
       <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
       <ResourceReferences :details="errorDetails" />
       <ATabs :active-key="activeTab" class="workspace-tabs" @update:active-key="setActiveTab">
-        <ATabPane key="platform" tab="平台模型"
+        <ATabPane v-if="!credentialPage" key="platform" tab="平台模型"
           ><section class="workspace-panel">
             <div class="model-catalog-toolbar">
               <div class="model-filters" aria-label="模型类型筛选">
@@ -176,7 +187,7 @@ function trialDetails() {
               :connection-labels="connectionLabels"
               :connection-issues="connectionIssues"
               :errors="modelErrorMessages"
-              :can-write="canWriteModels"
+              :can-write="canToggleModels"
               :pending="modelPending"
               @open="openDetails"
               @toggle="toggleModel"
@@ -252,7 +263,10 @@ function trialDetails() {
                     :busy="testBusy"
                     :mutating="modelPending[model.id] ?? false"
                     :testing="testingModel === model.id"
-                    :can-write="canWriteModels"
+                    :can-write="canUpdateModels || canDeleteModels || canToggleModels"
+                    :can-update="canUpdateModels"
+                    :can-delete="canDeleteModels"
+                    :can-toggle="canToggleModels"
                     :can-read-rates="canReadRates"
                     :can-test="canTestModels"
                     :test-disabled="connectionDisabled(model.connection_id)"
@@ -278,13 +292,16 @@ function trialDetails() {
               "
             /></section
         ></ATabPane>
-        <ATabPane v-if="canReadModels" key="credentials" tab="凭据管理">
+        <ATabPane v-if="credentialPage && canReadCredentials" key="credentials" tab="凭据管理">
           <section class="workspace-panel">
             <ModelConnectionCatalog
               :connections="connections"
               :models="models"
               :loading="loading"
-              :can-write="canWriteModels"
+              :can-write="canUpdateCredentials || canDeleteCredentials || canToggleCredentials"
+              :can-update="canUpdateCredentials"
+              :can-delete="canDeleteCredentials"
+              :can-toggle="canToggleCredentials"
               :busy="saving"
               @edit="openConnection"
               @control="changeConnection"
@@ -295,7 +312,7 @@ function trialDetails() {
     </section>
   </main>
   <ADrawer
-    :open="connectionOpen && canWriteModels"
+    :open="connectionOpen && canWriteCredentials"
     :title="editingConnection ? '编辑服务商凭据' : '新建服务商凭据'"
     width="min(620px, 100vw)"
     root-class-name="model-form-drawer"
@@ -434,7 +451,10 @@ function trialDetails() {
     :connection-issue="detailConnectionIssue"
     :error="detailError"
     :error-details="detailErrorDetails"
-    :can-write="canWriteModels"
+    :can-write="canUpdateModels || canDeleteModels || canToggleModels"
+    :can-update="canUpdateModels"
+    :can-delete="canDeleteModels"
+    :can-toggle="canToggleModels"
     :can-read-rates="canReadRates"
     :can-test="canTestModels"
     :can-read-connections="canReadModels"

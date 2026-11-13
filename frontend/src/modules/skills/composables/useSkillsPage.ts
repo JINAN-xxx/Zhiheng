@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Modal } from 'ant-design-vue'
-import { identity } from '../../identity/public.ts'
+import { canUseCapability } from '../../identity/public.ts'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
   deleteSkill,
@@ -10,7 +10,7 @@ import {
   listSkills,
   updateSkillStatus
 } from '../api/index.ts'
-import type { Skill } from '../api/index.ts'
+import type { Skill, SkillListQuery } from '../api/index.ts'
 
 interface ActionFailure {
   message: string
@@ -20,7 +20,21 @@ interface ActionFailure {
 export function useSkillsPage() {
   const route = useRoute(),
     router = useRouter()
-  const canManage = computed(() => identity.value !== null)
+  const canManage = computed(
+    () =>
+      canUseCapability('skills', 'create') ||
+      canUseCapability('skills', 'update') ||
+      canUseCapability('skills', 'delete') ||
+      canUseCapability('skills', 'toggle')
+  )
+  const canUpload = computed(() => canUseCapability('skills', 'create'))
+  const canToggleSkill = (item: Skill): boolean =>
+    item.sourceType === 'builtin'
+      ? canUseCapability('skills')
+      : canUseCapability('skills', 'toggle')
+  const activeTab = ref<'market' | 'mine'>(
+    route.query.tab === 'mine' || route.query.action === 'upload' ? 'mine' : 'market'
+  )
   const skills = ref<Skill[]>([]),
     total = ref(0),
     loading = ref(false),
@@ -35,11 +49,12 @@ export function useSkillsPage() {
   const deletingId = ref('')
   const pending = reactive<Record<string, boolean>>({})
   const failures = reactive<Record<string, ActionFailure | undefined>>({})
-  const query = reactive({
+  const query = reactive<SkillListQuery>({
     keyword: '',
-    status: undefined as string | undefined,
+    status: undefined,
     pageNum: 1,
-    pageSize: 24
+    pageSize: 24,
+    source: activeTab.value === 'market' ? 'builtin' : 'upload'
   })
   const listScope = new RequestScope(),
     detailScope = new RequestScope(),
@@ -71,6 +86,24 @@ export function useSkillsPage() {
     } finally {
       if (context.isCurrent()) loading.value = false
     }
+  }
+
+  function changeTab(value: unknown, updateRoute = true): void {
+    const next = value === 'mine' ? 'mine' : 'market'
+    if (activeTab.value === next) return
+    listScope.replace()
+    setDetailOpen(false)
+    uploadOpen.value = false
+    uploadTarget.value = null
+    activeTab.value = next
+    query.source = next === 'market' ? 'builtin' : 'upload'
+    query.keyword = ''
+    query.status = undefined
+    query.pageNum = 1
+    skills.value = []
+    total.value = 0
+    void load()
+    if (updateRoute) void router.replace({ query: { ...route.query, tab: next } })
   }
 
   function search(): void {
@@ -114,7 +147,7 @@ export function useSkillsPage() {
 
   async function toggleStatus(item: Skill): Promise<void> {
     const id = item.skillId
-    if (!canManage.value || pending[id] || deletingId.value === id) return
+    if (!canToggleSkill(item) || pending[id] || deletingId.value === id) return
     const scope = statusScopes.get(id) ?? new RequestScope()
     statusScopes.set(id, scope)
     const context = scope.replace(),
@@ -186,14 +219,19 @@ export function useSkillsPage() {
   }
 
   function openUpload(target: Skill | null = null): void {
-    if (!canManage.value) return
+    if (
+      !canUseCapability('skills', target ? 'update' : 'create') ||
+      target?.sourceType === 'builtin'
+    )
+      return
+    if (activeTab.value !== 'mine') changeTab('mine')
     uploadTarget.value = target
     setDetailOpen(false)
     uploadOpen.value = true
   }
 
   function updateSelected(): void {
-    if (detail.value) openUpload(detail.value)
+    if (detail.value?.sourceType === 'upload') openUpload(detail.value)
   }
 
   function toggleSelected(): void {
@@ -207,7 +245,14 @@ export function useSkillsPage() {
 
   async function removeSelected(): Promise<void> {
     const item = detail.value
-    if (!item || !canManage.value || deletingId.value || pending[item.skillId]) return
+    if (
+      !item ||
+      item.sourceType !== 'upload' ||
+      !canUseCapability('skills', 'delete') ||
+      deletingId.value ||
+      pending[item.skillId]
+    )
+      return
     const context = deletionScope.replace(),
       startedQuery = requestedQuery
     deletingId.value = item.skillId
@@ -235,7 +280,7 @@ export function useSkillsPage() {
           resolve(false)
         }
       })
-      if (!accepted || !context.isCurrent() || !canManage.value) return
+      if (!accepted || !context.isCurrent() || !canUseCapability('skills', 'delete')) return
       await deleteSkill(item.skillId, context.signal)
       if (context.isCurrent()) {
         afterMutation(startedQuery)
@@ -263,10 +308,16 @@ export function useSkillsPage() {
       if (action !== 'upload' || !allowed) return
       openUpload()
       const updated = { ...route.query }
+      updated.tab = 'mine'
       delete updated.action
       void router.replace({ query: updated })
     },
     { immediate: true }
+  )
+
+  watch(
+    () => route.query.tab,
+    (tab) => changeTab(tab, false)
   )
 
   onMounted(load)
@@ -280,12 +331,16 @@ export function useSkillsPage() {
   })
 
   return {
+    activeTab,
+    changeTab,
     skills,
     total,
     loading,
     error,
     query,
     canManage,
+    canUpload,
+    canToggleSkill,
     pending,
     failures,
     detailOpen,

@@ -23,7 +23,7 @@ import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { useRouter } from 'vue-router'
-import { identity, hasAnyPermission } from '../../identity/public.ts'
+import { identity, hasAnyPermission, canUseCapability } from '../../identity/public.ts'
 import type { KnowledgeBase, KnowledgeBaseListItem } from '../api/index.ts'
 import { knowledgeInvitationPath } from '../invitationLink.ts'
 const props = defineProps<{
@@ -89,7 +89,11 @@ function sharing(base: KnowledgeBase): string {
         <a-button aria-label="加入知识库" @click="openJoin"
           ><LinkOutlined aria-hidden="true" />加入知识库</a-button
         >
-        <a-button type="primary" aria-label="新建知识库" @click="emit('create')"
+        <a-button
+          v-if="canUseCapability('knowledge', 'create')"
+          type="primary"
+          aria-label="新建知识库"
+          @click="emit('create')"
           ><PlusOutlined aria-hidden="true" />新建知识库</a-button
         >
         <a-dropdown v-if="defaultsAccess" :trigger="['click']" placement="bottomRight">
@@ -214,7 +218,13 @@ function sharing(base: KnowledgeBase): string {
                 </div>
               </button>
               <a-dropdown
-                v-if="base.can_manage && base.owner_id === identity?.id"
+                v-if="
+                  base.can_manage &&
+                  base.owner_id === identity?.id &&
+                  (canUseCapability('knowledge', 'update') ||
+                    canUseCapability('knowledge', 'delete') ||
+                    canUseCapability('knowledge', 'share'))
+                "
                 :trigger="['click']"
               >
                 <a-button
@@ -225,9 +235,20 @@ function sharing(base: KnowledgeBase): string {
                 /></a-button>
                 <template #overlay
                   ><a-menu>
-                    <a-menu-item key="share" @click="emit('acl', base)">共享</a-menu-item>
-                    <a-menu-item key="edit" @click="emit('edit', base)">名称与描述</a-menu-item>
                     <a-menu-item
+                      v-if="canUseCapability('knowledge', 'share')"
+                      key="share"
+                      @click="emit('acl', base)"
+                      >共享</a-menu-item
+                    >
+                    <a-menu-item
+                      v-if="canUseCapability('knowledge', 'update')"
+                      key="edit"
+                      @click="emit('edit', base)"
+                      >名称与描述</a-menu-item
+                    >
+                    <a-menu-item
+                      v-if="canUseCapability('knowledge', 'delete')"
                       key="delete"
                       :disabled="!!base.active_job_id"
                       danger

@@ -32,6 +32,7 @@ from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerpr
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.runtime.contracts import RunError
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -628,6 +629,7 @@ class GraphService:
         )
         if row is None:
             raise AppError('graph_job_not_found', '图谱作业不存在', 404)
+        require_capability(principal, 'knowledge', 'query' if row.operation == 'query' else 'rebuild')
         attempt = await session.scalar(
             select(GraphAttempt)
             .where(GraphAttempt.id == row.attempt_id)

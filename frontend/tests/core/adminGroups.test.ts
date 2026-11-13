@@ -1,3 +1,4 @@
+import { grantedPermissions } from './permissionFixture.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { visibleAdminGroups, visibleAdminNavigation } from '../../src/modules/admin/access.ts'
@@ -15,7 +16,10 @@ void test('admin navigation consolidates all existing areas into five functional
 })
 
 void test('a delegated department reader lands on departments without seeing user accounts', () => {
-  const groups = visibleAdminGroups({ is_admin: false, permissions: ['system:departments:read'] })
+  const groups = visibleAdminGroups({
+    is_admin: false,
+    permissions: grantedPermissions('system:departments:read')
+  })
   assert.equal(groups.length, 1)
   assert.equal(groups[0]?.path, '/admin/departments')
   assert.deepEqual(
@@ -27,7 +31,11 @@ void test('a delegated department reader lands on departments without seeing use
 void test('retired post grants cannot add or reorder active organization pages', () => {
   const groups = visibleAdminGroups({
     is_admin: false,
-    permissions: ['system:posts:read', 'system:departments:read', 'system:users:read']
+    permissions: grantedPermissions(
+      'system:posts:read',
+      'system:departments:read',
+      'system:users:read'
+    )
   })
   assert.deepEqual(
     groups[0]?.entries.map((entry) => entry.path),
@@ -36,14 +44,21 @@ void test('retired post grants cannot add or reorder active organization pages',
   assert.deepEqual(
     visibleAdminGroups({
       is_admin: false,
-      permissions: ['system:posts:read', 'system:posts:write', 'system:dictionaries:read']
+      permissions: grantedPermissions(
+        'system:posts:read',
+        'system:posts:write',
+        'system:dictionaries:read'
+      )
     }),
     []
   )
 })
 
 void test('configuration-only readers keep their notice setting entry without notice authority', () => {
-  const groups = visibleAdminGroups({ is_admin: false, permissions: ['system:configs:read'] })
+  const groups = visibleAdminGroups({
+    is_admin: false,
+    permissions: grantedPermissions('system:configs:read')
+  })
   assert.equal(groups[0]?.label, '通知公告')
   assert.equal(groups[0]?.path, '/admin/configs')
   assert.deepEqual(

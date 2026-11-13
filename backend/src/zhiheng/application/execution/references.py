@@ -34,6 +34,24 @@ class RunReferences:
         )
         return [self.project(row) for row in rows]
 
+    async def assistant_references(
+        self, session: AsyncSession, agent_id: UUID, conversation_ids: list[UUID]
+    ) -> list[ResourceReference]:
+        rows = await self.runs.active_references(session, resource_types=('agent_chat',))
+        allowed = set(conversation_ids)
+        return [
+            ResourceReference(
+                'run',
+                row.id,
+                '进行中的助手对话',
+                row.status,
+                row.owner_id,
+                f'/agents/{agent_id}/chat?conversation={row.resource_id}',
+            )
+            for row in rows
+            if row.resource_id in allowed
+        ]
+
     @staticmethod
     def project(row: ActiveRunReference) -> ResourceReference:
         path = None

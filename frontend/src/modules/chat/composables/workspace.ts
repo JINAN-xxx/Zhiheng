@@ -18,7 +18,7 @@ import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared
 import { createRequestId } from '../../../shared/requestId.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseModule, canUseCapability } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
 import type { Skill } from '../../skills/public.ts'
@@ -634,7 +634,7 @@ function createChatWorkspace() {
   watch(
     () => route.name,
     (name) => {
-      if (name === 'chat') void load()
+      if (name === 'chat' && canUseModule('chat')) void load()
     },
     { immediate: true }
   )
@@ -1045,7 +1045,13 @@ function createChatWorkspace() {
     draft.value = draft.value.replace(/(^|\s)@$/, '$1').trimEnd()
   }
   watch(draft, (value) => {
-    if (!sending.value && !running.value && !loading.value && /(^|\s)@$/.test(value))
+    if (
+      canUseCapability('skills') &&
+      !sending.value &&
+      !running.value &&
+      !loading.value &&
+      /(^|\s)@$/.test(value)
+    )
       skillPickerOpen.value = true
   })
 

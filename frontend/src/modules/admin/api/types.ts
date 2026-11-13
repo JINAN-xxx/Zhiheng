@@ -60,6 +60,12 @@ export interface Permission {
   code: string
   label: string
   group: string
+  section?: string | undefined
+  description?: string | undefined
+  module?: string | undefined
+  action?: string | undefined
+  kind?: string | undefined
+  parent?: string | undefined
 }
 export interface Option {
   id: string
@@ -187,7 +193,17 @@ export const decodeNotice: Decoder<Notice> = (value) => {
 }
 export const decodePermission: Decoder<Permission> = (value) => {
   const r = object(value)
-  return { code: string(r.code), label: string(r.label), group: string(r.group) }
+  return {
+    code: string(r.code),
+    label: string(r.label),
+    group: string(r.group),
+    section: r.section === undefined ? undefined : string(r.section),
+    description: r.description === undefined ? undefined : string(r.description),
+    module: r.module === undefined ? undefined : string(r.module),
+    action: r.action === undefined ? undefined : string(r.action),
+    kind: r.kind === undefined ? undefined : string(r.kind),
+    parent: r.parent === undefined ? undefined : string(r.parent)
+  }
 }
 export const decodeUserOptions: Decoder<UserOptions> = (value) => {
   const r = object(value)

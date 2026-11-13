@@ -1,5 +1,6 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
+import { canUseCapability } from '../../identity/public.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useResizeObserver, useScroll } from '@vueuse/core'
 import {
@@ -475,6 +476,7 @@ onBeforeUnmount(() => {
           :class="{ 'is-selecting-skills': skillPickerOpen }"
         >
           <SkillPicker
+            v-if="canUseCapability('skills')"
             ref="skillPicker"
             v-model="selectedSkills"
             v-model:open="skillPickerOpen"
@@ -595,6 +597,7 @@ onBeforeUnmount(() => {
                 ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
               >
               <button
+                v-if="canUseCapability('skills')"
                 type="button"
                 class="composer-skill-trigger"
                 :class="{ 'is-active': skillPickerOpen }"

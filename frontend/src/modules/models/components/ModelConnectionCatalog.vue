@@ -18,6 +18,9 @@ const props = defineProps<{
   models: ChatModel[]
   loading: boolean
   canWrite: boolean
+  canUpdate?: boolean | undefined
+  canDelete?: boolean | undefined
+  canToggle?: boolean | undefined
   busy: boolean
 }>()
 const emit = defineEmits<{
@@ -41,10 +44,16 @@ function status(connection: ModelConnection) {
   return !connection.has_api_key ? '待配置密钥' : connection.enabled ? '已启用' : '已停用'
 }
 function edit(connection: ModelConnection) {
-  if (props.canWrite && !props.busy) emit('edit', connection)
+  if ((props.canUpdate ?? props.canWrite) && !props.busy) emit('edit', connection)
 }
 function control(connection: ModelConnection, action: 'enable' | 'disable' | 'delete') {
-  if (props.canWrite && !props.busy) emit('control', connection, action)
+  if (
+    (action === 'delete'
+      ? (props.canDelete ?? props.canWrite)
+      : (props.canToggle ?? props.canWrite)) &&
+    !props.busy
+  )
+    emit('control', connection, action)
 }
 async function copyAddress(connection: ModelConnection) {
   try {
@@ -103,10 +112,13 @@ async function copyAddress(connection: ModelConnection) {
         </div>
         <footer class="credential-footer">
           <span class="credential-models">{{
-            modelCounts[connection.id] ? modelCounts[connection.id] + ' 个关联模型' : '未关联模型'
+            (connection.model_count ?? modelCounts[connection.id])
+              ? (connection.model_count ?? modelCounts[connection.id]) + ' 个关联模型'
+              : '未关联模型'
           }}</span>
           <div v-if="canWrite" class="credential-actions">
             <AButton
+              v-if="canUpdate ?? canWrite"
               type="text"
               size="small"
               aria-label="编辑凭据"
@@ -114,18 +126,27 @@ async function copyAddress(connection: ModelConnection) {
               @click="edit(connection)"
               >编辑</AButton
             >
-            <ADropdown :trigger="['click']" :disabled="busy">
+            <ADropdown
+              v-if="(canToggle ?? canWrite) || (canDelete ?? canWrite)"
+              :trigger="['click']"
+              :disabled="busy"
+            >
               <AButton type="text" size="small" aria-label="更多凭据操作" :disabled="busy"
                 ><EllipsisOutlined aria-hidden="true"
               /></AButton>
               <template #overlay>
                 <AMenu>
                   <AMenuItem
+                    v-if="canToggle ?? canWrite"
                     :disabled="busy"
                     @click="control(connection, connection.enabled ? 'disable' : 'enable')"
                     >{{ connection.enabled ? '停用' : '启用' }}</AMenuItem
                   >
-                  <AMenuItem :disabled="busy" danger @click="control(connection, 'delete')"
+                  <AMenuItem
+                    v-if="canDelete ?? canWrite"
+                    :disabled="busy"
+                    danger
+                    @click="control(connection, 'delete')"
                     >删除凭据</AMenuItem
                   >
                 </AMenu>

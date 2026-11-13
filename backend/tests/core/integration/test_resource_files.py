@@ -296,6 +296,9 @@ async def test_content_io_has_no_file_locks_and_rechecks_acl(
 
 
 async def test_cursor_acl_revoked_rows_do_not_consume_page_slots(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    from tests.core.integration.test_permission_tree import allow
+
+    await allow(app, 'developer', 'create', 'key_create', 'invoke', 'grant')
     c = app.state.container
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         assert (
@@ -544,6 +547,9 @@ async def test_explicit_artifact_list_get_and_current_source_acl_before_limit(
         },
     )
     assert transferred.status_code == 200, transferred.text
+    from tests.core.integration.test_permission_tree import allow
+
+    await allow(app, 'ai:storage', 'acl')
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as source_owner:
         login = await source_owner.post(
             '/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'}

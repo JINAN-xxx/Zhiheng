@@ -15,7 +15,7 @@ import {
   MenuItem as AMenuItem
 } from 'ant-design-vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import type { KnowledgeBase } from '../api/index.ts'
 const props = defineProps<{
   database: KnowledgeBase
@@ -62,7 +62,7 @@ const sharing = computed(() => (props.database.sharing_scope === 'users' ? '成�
       <div class="knowledge-header-actions">
         <RefreshButton label="刷新资料" :loading="loading" @click="emit('refresh')" />
         <AButton
-          v-if="owner"
+          v-if="owner && canUseCapability('knowledge', 'update')"
           type="text"
           :disabled="busy"
           aria-label="知识库设置"
@@ -70,43 +70,71 @@ const sharing = computed(() => (props.database.sharing_scope === 'users' ? '成�
           ><SettingOutlined /><span>设置</span></AButton
         >
         <AButton
-          v-if="owner && database.document_policy === 'library'"
+          v-if="
+            canUseCapability('knowledge', 'share') &&
+            database.can_manage &&
+            database.owner_id === identity?.id &&
+            database.document_policy === 'library'
+          "
           type="text"
           aria-label="共享"
           @click="emit('acl')"
           ><TeamOutlined /><span>共享</span></AButton
         >
         <AButton
-          v-if="owner"
+          v-if="owner && canUseCapability('knowledge', 'import')"
           type="primary"
           :disabled="busy"
           aria-label="添加资料"
           @click="emit('upload')"
           ><PlusOutlined />添加资料</AButton
         >
-        <ADropdown v-if="owner" :trigger="['click']">
+        <ADropdown
+          v-if="
+            owner &&
+            (canUseCapability('knowledge', 'update') ||
+              canUseCapability('knowledge', 'rebuild') ||
+              canUseCapability('knowledge', 'delete'))
+          "
+          :trigger="['click']"
+        >
           <AButton type="text" class="knowledge-more" aria-label="更多操作"
             ><MoreOutlined
           /></AButton>
           <template #overlay
             ><AMenu>
-              <AMenuItem key="settings" :disabled="busy" @click="emit('settings')"
+              <AMenuItem
+                v-if="canUseCapability('knowledge', 'update')"
+                key="settings"
+                :disabled="busy"
+                @click="emit('settings')"
                 >知识库设置</AMenuItem
               >
-              <AMenuItem key="rebuild" :disabled="busy" @click="emit('rebuild')"
+              <AMenuItem
+                v-if="canUseCapability('knowledge', 'rebuild')"
+                key="rebuild"
+                :disabled="busy"
+                @click="emit('rebuild')"
                 >重新处理全部资料</AMenuItem
               >
               <AMenuItem key="graph" :disabled="!graphAvailable" @click="emit('graph')"
                 >高级：知识图谱</AMenuItem
               >
               <AMenuItem
-                v-if="database.document_policy !== 'library'"
+                v-if="
+                  canUseCapability('knowledge', 'update') && database.document_policy !== 'library'
+                "
                 key="migration"
                 :disabled="busy"
                 @click="emit('migration')"
                 >迁移资料与共享</AMenuItem
               >
-              <AMenuItem key="delete" :disabled="busy" danger @click="emit('remove')"
+              <AMenuItem
+                v-if="canUseCapability('knowledge', 'delete')"
+                key="delete"
+                :disabled="busy"
+                danger
+                @click="emit('remove')"
                 >删除知识库</AMenuItem
               >
             </AMenu></template

@@ -14,12 +14,21 @@ const props = withDefaults(
     busy: boolean
     testing: boolean
     canWrite: boolean
+    canUpdate?: boolean | undefined
+    canDelete?: boolean | undefined
+    canToggle?: boolean | undefined
     canReadRates: boolean
     canTest: boolean
     mutating?: boolean
     testDisabled?: boolean
   }>(),
-  { mutating: false, testDisabled: false }
+  {
+    mutating: false,
+    testDisabled: false,
+    canUpdate: undefined,
+    canDelete: undefined,
+    canToggle: undefined
+  }
 )
 const emit = defineEmits<{
   edit: []
@@ -29,7 +38,7 @@ const emit = defineEmits<{
   control: [action: 'enable' | 'disable' | 'delete']
 }>()
 function edit(): void {
-  if (props.canWrite && !props.mutating) emit('edit')
+  if ((props.canUpdate ?? props.canWrite) && !props.mutating) emit('edit')
 }
 function rates(): void {
   if (props.canReadRates && !props.mutating) emit('rates')
@@ -43,7 +52,13 @@ function trial(): void {
     emit('trial')
 }
 function control(action: 'enable' | 'disable' | 'delete'): void {
-  if (props.canWrite && !props.mutating) emit('control', action)
+  if (
+    (action === 'delete'
+      ? (props.canDelete ?? props.canWrite)
+      : (props.canToggle ?? props.canWrite)) &&
+    !props.mutating
+  )
+    emit('control', action)
 }
 </script>
 
@@ -51,7 +66,7 @@ function control(action: 'enable' | 'disable' | 'delete'): void {
   <div v-if="canWrite || canReadRates || canTest" class="model-actions">
     <div class="desktop-actions">
       <AButton
-        v-if="canWrite"
+        v-if="canUpdate ?? canWrite"
         type="link"
         size="small"
         aria-label="编辑模型"
@@ -83,7 +98,9 @@ function control(action: 'enable' | 'disable' | 'delete'): void {
       <AButton type="text" aria-label="更多操作" :disabled="mutating"><EllipsisOutlined /></AButton>
       <template #overlay>
         <AMenu>
-          <AMenuItem v-if="canWrite" :disabled="mutating" @click="edit">编辑模型</AMenuItem>
+          <AMenuItem v-if="canUpdate ?? canWrite" :disabled="mutating" @click="edit"
+            >编辑模型</AMenuItem
+          >
           <AMenuItem v-if="canReadRates" :disabled="mutating" @click="rates">费率配置</AMenuItem>
           <AMenuItem
             v-if="canTest"
@@ -98,12 +115,16 @@ function control(action: 'enable' | 'disable' | 'delete'): void {
             >试用模型</AMenuItem
           >
           <AMenuItem
-            v-if="canWrite"
+            v-if="canToggle ?? canWrite"
             :disabled="mutating"
             @click="control(model.enabled ? 'disable' : 'enable')"
             >{{ model.enabled ? '停用' : '启用' }}</AMenuItem
           >
-          <AMenuItem v-if="canWrite" danger :disabled="mutating" @click="control('delete')"
+          <AMenuItem
+            v-if="canDelete ?? canWrite"
+            danger
+            :disabled="mutating"
+            @click="control('delete')"
             >删除模型</AMenuItem
           >
         </AMenu>

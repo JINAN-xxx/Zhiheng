@@ -201,7 +201,7 @@ class ChatRunService:
                 await self.context.validate_frozen_skills(session, principal, snapshots, messages)
         if any(item.images for item in messages) and not binding.vision_enabled:
             raise AppError('unsupported_capability', '此模型未启用vision能力', 422)
-        request = ModelRequest(binding=binding, messages=messages)
+        request = ModelRequest(binding=binding, messages=messages, required_modules=('skills',) if skill_slugs else ())
         if knowledge and self.knowledge:
             await self.knowledge.check(session, knowledge, principal)
         image_bytes = sum(len(image.data_url.encode()) for item in request.messages for image in item.images)

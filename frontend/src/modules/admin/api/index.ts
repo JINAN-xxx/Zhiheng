@@ -1,6 +1,6 @@
 import { isActiveAdminPermission } from '../access.ts'
 import { http, decodeVoid } from '../../../shared/http.ts'
-import { list, object } from '../../../shared/validation.ts'
+import { list, object, string } from '../../../shared/validation.ts'
 import { decodePage, decodePermission, decodeUserOptions } from './types.ts'
 import type { Decoder, Entity } from './types.ts'
 export * from './types.ts'
@@ -89,4 +89,19 @@ export const revokeSession = (id: string, version: number) =>
   http.request(`/admin/sessions/${encodeURIComponent(id)}?expected_version=${version}`, {
     method: 'DELETE',
     decode: decodeVoid
+  })
+
+export const getUserPermissions = (id: string, signal: AbortSignal) =>
+  http.request(`/admin/users/${encodeURIComponent(id)}/effective-permissions`, {
+    signal,
+    decode: (value) =>
+      list((value) => {
+        const row = object(value)
+        return {
+          code: string(row.code),
+          label: string(row.label),
+          group: string(row.group),
+          roles: list(string)(row.roles)
+        }
+      })(object(value).items)
   })
