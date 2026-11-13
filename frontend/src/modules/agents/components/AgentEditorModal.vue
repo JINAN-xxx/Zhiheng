@@ -78,7 +78,10 @@
           <a-button
             type="primary"
             :disabled="
-              busy || dirty || (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
+              busy ||
+              dirty ||
+              knowledgePolicyBlocked ||
+              (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
             "
             aria-label="发布"
             @click="publish"
@@ -203,6 +206,40 @@
                     knowledgeBases.length ? '检索同时校验知识库及原文权限。' : '暂无可选知识库'
                   }}</template></a-form-item
                 >
+                <template v-if="form.knowledgeBaseIds.length">
+                  <a-form-item label="重排模型">
+                    <div class="knowledge-policy" aria-live="polite">
+                      <span v-if="knowledgePolicyLoading">正在校验重排模型…</span>
+                      <div
+                        v-else-if="knowledgePolicyError"
+                        class="knowledge-policy-error"
+                        role="alert"
+                      >
+                        <span>{{ knowledgePolicyError }}</span>
+                        <a-button type="link" size="small" @click="refreshKnowledgePolicy"
+                          >重试</a-button
+                        >
+                      </div>
+                      <template v-else-if="knowledgePolicy">
+                        <strong>{{ knowledgeRankerName }}</strong>
+                        <span>{{ knowledgePolicyDescription }}</span>
+                      </template>
+                    </div>
+                  </a-form-item>
+                  <a-form-item
+                    label="最大召回片段数"
+                    name="knowledgeTopK"
+                    extra="多个知识库合并重排后，用于回答的片段总数；有效结果不足时按实际数量返回。"
+                  >
+                    <a-input-number
+                      :value="form.knowledgeTopK ?? ''"
+                      :min="1"
+                      :max="15"
+                      :precision="0"
+                      @update:value="setKnowledgeTopK"
+                    />
+                  </a-form-item>
+                </template>
               </div>
             </section>
             <section id="agent-config-runtime" class="config-section">
@@ -405,11 +442,12 @@ import {
   createAgent,
   deleteAgent,
   getAgent,
+  getAgentKnowledgePolicy,
   publishAgent,
   unpublishAgent,
   updateAgent
 } from '../api/index.ts'
-import type { Agent } from '../api/index.ts'
+import type { Agent, AgentKnowledgePolicy } from '../api/index.ts'
 import { availableBases } from '../../knowledge/public.ts'
 import type { KnowledgeBase } from '../../knowledge/public.ts'
 import {
@@ -461,6 +499,9 @@ const models = ref<ChatModel[]>([]),
   skills = ref<Skill[]>([]),
   applications = ref<Application[]>([])
 const knowledgeBases = ref<KnowledgeBase[]>([])
+const knowledgePolicy = ref<AgentKnowledgePolicy | null>(null),
+  knowledgePolicyLoading = ref(false),
+  knowledgePolicyError = ref('')
 const applicationOpen = ref(false),
   applicationSaving = ref(false),
   applicationUncertain = ref(false),
@@ -468,6 +509,7 @@ const applicationOpen = ref(false),
   applicationFormRef = ref<FormInstance>(),
   applicationForm = reactive({ applicationName: '' })
 const readScope = new RequestScope(),
+  knowledgePolicyScope = new RequestScope(),
   mutationScope = new RequestScope(),
   applicationScope = new RequestScope(),
   confirmation = useConfirmation()
@@ -498,6 +540,27 @@ const dirty = computed(
     JSON.stringify(buildAgentPayload(saved.value ?? createAgentForm()))
 )
 const selectedModel = computed(() => models.value.find((model) => model.id === form.modelId))
+const knowledgePolicyBlocked = computed(
+  () =>
+    form.knowledgeBaseIds.length > 0 &&
+    (knowledgePolicyLoading.value || !!knowledgePolicyError.value || !knowledgePolicy.value)
+)
+const knowledgeRankerName = computed(
+  () =>
+    models.value.find((model) => model.id === knowledgePolicy.value?.modelId)?.name ??
+    knowledgePolicy.value?.modelId ??
+    ''
+)
+const knowledgePolicyDescription = computed(() => {
+  switch (knowledgePolicy.value?.source) {
+    case 'mixed_platform_default':
+      return '知识库重排配置不一致，统一使用平台默认重排模型。'
+    case 'platform_default':
+      return '使用平台默认重排模型。'
+    default:
+      return '沿用所选知识库的重排模型。'
+  }
+})
 const maxTokensError = computed(() => {
   if (form.maxTokens === null) return '请填写最大输出 Token'
   if (!Number.isSafeInteger(form.maxTokens) || form.maxTokens < 1)
@@ -558,6 +621,9 @@ const rules = {
   historyRounds: [
     { required: true, type: 'integer' as const, min: 0, max: 20, message: '请输入 0–20 的整数' }
   ],
+  knowledgeTopK: [
+    { required: true, type: 'integer' as const, min: 1, max: 15, message: '请输入 1–15 的整数' }
+  ],
   skillSlugs: [{ type: 'array' as const, max: 5, message: '最多选择 5 个技能' }],
   knowledgeBaseIds: [{ type: 'array' as const, max: 20, message: '最多绑定 20 个知识库' }]
 }
@@ -607,6 +673,7 @@ async function load(): Promise<void> {
         welcomeMessage: original.welcome_message,
         skillSlugs: [...original.skill_slugs],
         knowledgeBaseIds: [...original.knowledge_base_ids],
+        knowledgeTopK: original.knowledge_top_k ?? 8,
         applicationId: original.application_id,
         temperature: original.temperature,
         maxTokens: original.max_tokens,
@@ -694,9 +761,12 @@ async function save(): Promise<void> {
     payload.max_tokens < 1 ||
     !Number.isInteger(payload.history_rounds) ||
     payload.history_rounds < 0 ||
-    payload.history_rounds > 20
+    payload.history_rounds > 20 ||
+    !Number.isInteger(payload.knowledge_top_k ?? 8) ||
+    (payload.knowledge_top_k ?? 8) < 1 ||
+    (payload.knowledge_top_k ?? 8) > 15
   ) {
-    error.value = '请填写有效温度、输出上限和上下文轮数'
+    error.value = '请填写有效温度、输出上限、上下文轮数和召回片段数'
     return
   }
   const model = models.value.find((item) => item.id === payload.model_id)
@@ -742,6 +812,7 @@ async function publish(): Promise<void> {
   actionBusy.value = true
   error.value = ''
   try {
+    if (!(await refreshKnowledgePolicy()) || !context.isCurrent()) return
     const next = await publishAgent(item.agentId, item.version, context.signal)
     if (context.isCurrent()) acceptAgent(next)
   } catch (reason) {
@@ -882,6 +953,28 @@ function setKnowledgeIds(value: unknown): void {
     ? value.filter((item: unknown): item is string => typeof item === 'string')
     : []
 }
+function setKnowledgeTopK(value: unknown): void {
+  form.knowledgeTopK = typeof value === 'number' ? value : null
+}
+async function refreshKnowledgePolicy(): Promise<boolean> {
+  const context = knowledgePolicyScope.replace()
+  knowledgePolicy.value = null
+  knowledgePolicyError.value = ''
+  knowledgePolicyLoading.value = false
+  if (!props.modelValue || !form.knowledgeBaseIds.length) return true
+  knowledgePolicyLoading.value = true
+  try {
+    const policy = await getAgentKnowledgePolicy([...form.knowledgeBaseIds], context.signal)
+    if (!context.isCurrent()) return false
+    knowledgePolicy.value = policy
+    return true
+  } catch (reason) {
+    if (context.isCurrent() && !isAborted(reason)) knowledgePolicyError.value = errorMessage(reason)
+    return false
+  } finally {
+    if (context.isCurrent()) knowledgePolicyLoading.value = false
+  }
+}
 function setApplicationId(value: unknown): void {
   form.applicationId = typeof value === 'string' ? value : null
 }
@@ -932,15 +1025,37 @@ watch(applicationOpen, (open) => {
     applicationError.value = ''
   }
 })
+watch(
+  () => [props.modelValue, props.agentId, form.knowledgeBaseIds.join(',')],
+  () => void refreshKnowledgePolicy(),
+  { immediate: true }
+)
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', beforeUnload)
   readScope.dispose()
+  knowledgePolicyScope.dispose()
   mutationScope.dispose()
   applicationScope.dispose()
 })
 </script>
 
 <style scoped>
+.knowledge-policy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-secondary);
+}
+.knowledge-policy strong {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.knowledge-policy-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-error, #ff4d4f);
+}
 .agent-editor {
   color: var(--color-text);
   font-size: 14px;

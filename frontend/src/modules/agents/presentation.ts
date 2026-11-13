@@ -1,10 +1,11 @@
 import type { Agent, AgentConfig, AgentPayload } from './api/index.ts'
 export { selectPreviewMessages } from './history.ts'
 export interface AgentForm
-  extends Omit<AgentConfig, 'temperature' | 'maxTokens' | 'historyRounds'> {
+  extends Omit<AgentConfig, 'temperature' | 'maxTokens' | 'historyRounds' | 'knowledgeTopK'> {
   temperature: number | null
   maxTokens: number | null
   historyRounds: number | null
+  knowledgeTopK: number | null
 }
 export function createAgentForm(value?: AgentConfig): AgentForm {
   return value
@@ -17,6 +18,7 @@ export function createAgentForm(value?: AgentConfig): AgentForm {
         welcomeMessage: '',
         skillSlugs: [],
         knowledgeBaseIds: [],
+        knowledgeTopK: 8,
         applicationId: null,
         temperature: 0.7,
         maxTokens: 2048,
@@ -32,6 +34,7 @@ export function buildAgentPayload(value: AgentConfig | AgentForm): AgentPayload 
     welcome_message: value.welcomeMessage,
     skill_slugs: [...value.skillSlugs],
     knowledge_base_ids: [...value.knowledgeBaseIds],
+    knowledge_top_k: value.knowledgeTopK ?? Number.NaN,
     application_id: value.applicationId || null,
     temperature: value.temperature ?? Number.NaN,
     max_tokens: value.maxTokens ?? Number.NaN,

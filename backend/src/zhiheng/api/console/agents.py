@@ -9,13 +9,14 @@ from zhiheng.modules.agents.public import (
     AgentConfig,
     AgentCreate,
     AgentInfo,
+    AgentKnowledgeRequest,
     AgentPage,
     AgentSummary,
     AgentUpdate,
     PreviewRequest,
     VersionRequest,
 )
-from zhiheng.modules.knowledge.public import PreparationInfo
+from zhiheng.modules.knowledge.public import PreparationInfo, RerankPolicy
 from zhiheng.runtime.contracts import RunSnapshot
 
 router = APIRouter(prefix='/api/agents', tags=['agents'])
@@ -41,6 +42,16 @@ async def available(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[AgentSummary]:
     return await container.agent_management.available(session, principal)
+
+
+@router.post('/knowledge-policy')
+async def knowledge_policy(
+    body: AgentKnowledgeRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> RerankPolicy:
+    return await container.agent_management.knowledge_policy(session, principal, body.knowledge_base_ids)
 
 
 @router.post('', status_code=201)

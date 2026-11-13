@@ -32,6 +32,7 @@ from zhiheng.modules.knowledge.contracts import (
     PreparationInfo,
     QueryRequest,
     RechunkRequest,
+    RerankPolicy,
     UnavailableBaseInfo,
     Version,
 )
@@ -79,7 +80,13 @@ from zhiheng.modules.knowledge.parsing_contracts import (
     ParsingSettingsPatch,
     ParsingStatusInfo,
 )
-from zhiheng.modules.knowledge.ranking import FINAL_HITS, PER_BASE_CANDIDATES, balance_candidates, rank_candidates
+from zhiheng.modules.knowledge.ranking import (
+    FINAL_HITS,
+    MAX_FINAL_HITS,
+    PER_BASE_CANDIDATES,
+    balance_candidates,
+    rank_candidates,
+)
 from zhiheng.modules.knowledge.retrieval import (
     PreparedKnowledge,
     RetrievalAdmission,
@@ -104,6 +111,7 @@ from zhiheng.modules.knowledge.vector import VectorPort, VectorSpec
 __all__ = [
     'FINAL_HITS',
     'JOB_TERMINAL',
+    'MAX_FINAL_HITS',
     'NATIVE_FORMATS',
     'PARSER_VERSION',
     'PARSE_TERMINAL',
@@ -191,6 +199,7 @@ __all__ = [
     'PreparedKnowledge',
     'QueryRequest',
     'RechunkRequest',
+    'RerankPolicy',
     'RetrievalAdmission',
     'RetrievalBase',
     'RetrievalState',

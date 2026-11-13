@@ -348,7 +348,18 @@ class WorkRunService:
         selection = TypeAdapter(SkillSelection).validate_python({'revisions': member.skills})
         await require_frozen_available(session, member.agent_owner_id, selection)
         messages = await self._messages(session, task, body, config, selection)
-        request = ModelRequest(binding=binding, messages=messages, required_modules=tuple(module for module, used in [('knowledge', bool(config.knowledge_base_ids)), ('skills', bool(config.skill_slugs))] if used))
+        request = ModelRequest(
+            binding=binding,
+            messages=messages,
+            required_modules=tuple(
+                module
+                for module, used in [
+                    ('knowledge', bool(config.knowledge_base_ids)),
+                    ('skills', bool(config.skill_slugs)),
+                ]
+                if used
+            ),
+        )
         if prepared and self.knowledge:
             await self.knowledge.check(session, prepared, owner)
             request = request.model_copy(update={'messages': prepared.apply_context(messages)})
@@ -484,6 +495,7 @@ class WorkRunService:
                     value=value,
                     request={
                         'query': body.message,
+                        'top_k': config.knowledge_top_k,
                         'body': body.model_dump(mode='json'),
                         'admission_body': admission_body.model_dump(mode='json'),
                     },

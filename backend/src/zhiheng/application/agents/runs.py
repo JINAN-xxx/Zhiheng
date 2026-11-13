@@ -316,6 +316,7 @@ class AgentRunService:
                 )
             request: dict[str, object] = {
                 'query': body.messages[-1].content,
+                'top_k': config.knowledge_top_k,
                 'body': body.model_dump(mode='json'),
                 'runtime_request_id': str(request_id),
                 'runtime_fingerprint': value,

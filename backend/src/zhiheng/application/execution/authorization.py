@@ -128,7 +128,7 @@ class ModelExecutionAuthorization:
                 if claim.resource_type == 'knowledge_rerank':
                     expected = self.knowledge_preparation.rerank_binding(state)
                     request = ModelRequest.model_validate(claim.payload)
-                    top_n = min(8, int(state.request.get('top_k', 8)))
+                    top_n = self.knowledge_preparation.final_hit_limit(state)
                     expected = (
                         expected.model_copy(
                             update={

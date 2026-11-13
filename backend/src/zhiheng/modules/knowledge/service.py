@@ -34,6 +34,7 @@ from zhiheng.modules.knowledge.contracts import (
     JobInfo,
     KnowledgeSettings,
     MigrationRequest,
+    RerankPolicy,
     UnavailableBaseInfo,
 )
 from zhiheng.modules.knowledge.graph.lifecycle import retire_base_graph
@@ -125,12 +126,24 @@ class KnowledgeService:
         return await self._rerank_binding(session, await self.required_rerank_id(session))
 
     async def retrieval_rerank_binding(self, session: AsyncSession, base_ids: list[UUID]) -> ModelBinding:
+        policy = await self._retrieval_rerank_choice(session, base_ids)
+        return await self._rerank_binding(session, policy.model_id)
+
+    async def retrieval_rerank_policy(self, session: AsyncSession, base_ids: list[UUID]) -> RerankPolicy:
+        policy = await self._retrieval_rerank_choice(session, base_ids)
+        await self._rerank_binding(session, policy.model_id)
+        return policy
+
+    async def _retrieval_rerank_choice(self, session: AsyncSession, base_ids: list[UUID]) -> RerankPolicy:
         bases = list(await session.scalars(select(KnowledgeBase).where(KnowledgeBase.id.in_(base_ids))))
         choices = {(base.use_default_rerank, base.rerank_model_id) for base in bases}
         if len(choices) != 1 or next(iter(choices))[0]:
-            return await self.default_rerank_binding(session)
+            return RerankPolicy(
+                model_id=await self.required_rerank_id(session),
+                source='mixed_platform_default' if len(choices) > 1 else 'platform_default',
+            )
         model_id = await self.required_rerank_id(session, use_default=False, model_id=next(iter(choices))[1])
-        return await self._rerank_binding(session, model_id)
+        return RerankPolicy(model_id=model_id, source='knowledge_base')
 
     async def defaults_ready(self, session: AsyncSession) -> bool:
         defaults = await session.get(KnowledgeDefaults, 1)

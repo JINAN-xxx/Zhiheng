@@ -13,12 +13,13 @@ from zhiheng.modules.agents.public import (
     AssistantConversations,
 )
 from zhiheng.modules.developer.public import ApplicationService
-from zhiheng.modules.knowledge.public import KnowledgeService
+from zhiheng.modules.knowledge.public import KnowledgeService, RerankPolicy
 from zhiheng.modules.models.public import ModelBinding, ModelService
 from zhiheng.modules.skills.public import SkillSelection, SkillService, resolve_selection
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.references import reference_conflict
 
@@ -47,6 +48,13 @@ class AgentManagementService:
             knowledge_resources,
         )
         self.knowledge: KnowledgePreparation | None = None
+
+    async def knowledge_policy(self, session: AsyncSession, principal: Principal, base_ids: list[UUID]) -> RerankPolicy:
+        require_capability(principal, 'knowledge', 'read')
+        assert self.knowledge is not None
+        for base_id in sorted(base_ids):
+            await self.knowledge.knowledge.authorize_base(session, principal, base_id)
+        return await self.knowledge.knowledge.retrieval_rerank_policy(session, base_ids)
 
     async def remove(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> AgentInfo:
         async def referenced(current: AsyncSession, target: UUID) -> bool:
@@ -82,6 +90,8 @@ class AgentManagementService:
             raise AppError('model_unavailable', '智能体仅支持聊天模型', 422)
         if config.max_tokens > binding.max_output_tokens:
             raise AppError('agent_token_limit', '输出长度超过所选模型限制', 422)
+        if config.knowledge_base_ids and self.knowledge:
+            await self.knowledge.knowledge.retrieval_rerank_binding(session, config.knowledge_base_ids)
         return binding
 
     async def create(

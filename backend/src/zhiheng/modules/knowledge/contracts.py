@@ -289,6 +289,11 @@ class MigrationRequest(Version):
     client_request_id: UUID
 
 
+class RerankPolicy(BaseModel):
+    model_id: UUID
+    source: Literal['knowledge_base', 'platform_default', 'mixed_platform_default']
+
+
 class QueryRequest(Input):
     query: str = Field(min_length=1, max_length=8000)
     top_k: int = Field(default=8, strict=True, ge=1, le=8)

@@ -363,6 +363,11 @@ class AgentService:
         )
         if row is None:
             return None
-        if row.create_fingerprint != self.create_hash(config):
+        hashes = {self.create_hash(config)}
+        if config.knowledge_top_k == AgentConfig.model_fields['knowledge_top_k'].default:
+            # Pre-limit creation requests implicitly used eight hits; their original retries remain equivalent.
+            legacy = config.model_dump(mode='json', exclude={'knowledge_top_k'})
+            hashes.add(hashlib.sha256(json.dumps(legacy, sort_keys=True).encode()).hexdigest())
+        if row.create_fingerprint not in hashes:
             raise AppError('idempotency_conflict', '原创建标识不能用于不同配置', 409)
         return await self.get(session, principal, row.id)

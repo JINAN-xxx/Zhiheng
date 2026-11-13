@@ -30,6 +30,7 @@ class LocalMinerU:
         self.official_v4 = False
         self.complete = True
         self.file_error: str | None = None
+        self.result_payload: bytes | None = None
         self.calls: list[tuple[str, str, str | None]] = []
         self.uploads = 0
         self.creates = 0
@@ -63,12 +64,15 @@ class LocalMinerU:
                                 'extract_result': [
                                     {
                                         'file_name': 'document.pdf',
-                                        'state': 'done'
+                                        'state': 'failed'
+                                        if owner.file_error
+                                        else 'done'
                                         if owner.uploads and owner.complete
                                         else 'pending'
                                         if owner.uploads
                                         else 'waiting-file',
                                         'full_zip_url': owner.url + '/result',
+                                        'err_msg': 'private-provider-details' if owner.file_error else '',
                                     }
                                 ],
                             },
@@ -77,7 +81,7 @@ class LocalMinerU:
                 elif self.path == '/v1/health':
                     self.respond({'status': 'ok', 'version': '4.2.0'}, 200 if owner.healthy else 503)
                 elif self.path == '/result':
-                    self.respond(result_package())
+                    self.respond(owner.result_payload if owner.result_payload is not None else result_package())
                 else:
                     state = (
                         'failed'
@@ -223,6 +227,8 @@ async def state(app: FastAPI, parent: UUID) -> dict[str, Any]:
             'code': row.error_code,
             'config': row.config,
             'file_id': row.file_id,
+            'history': row.history,
+            'deadline': row.deadline,
         }
 
 
@@ -665,3 +671,164 @@ async def test_partial_settings_update_preserves_endpoints_credentials_and_cloud
     assert saved['local_url'] == local.url and saved['cloud_url'] == cloud.url
     assert saved['cloud_enabled'] and saved['has_local_key'] and saved['has_cloud_key']
     assert saved['tier'] == current['tier'] and saved['timeout_seconds'] == 1200
+
+
+@pytest.mark.parametrize('code', ['parse_failed', 'out_of_memory', 'engine_initialization_failed', 'new_engine_error'])
+async def test_definitive_local_engine_failure_uses_official_cloud(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+    code: str,
+) -> None:
+    local, cloud = miners
+    local.file_error = code
+    cloud.official_v4 = True
+    await configure(admin, local, cloud)
+    parent = await begin(admin, app, provider)
+    result = await finish_parse(app, parent)
+    assert result['phase'] == 'completed' and result['engine'] == 'cloud', result
+    assert local.creates == cloud.creates == cloud.uploads == 1
+    assert [step['engine'] for step in result['history']] == ['local']
+    assert result['history'][0]['reason'] == code and result['history'][0]['task_id'] == 'task-a'
+    assert 'private-provider-details' not in str(result['history'])
+    assert result['artifact_id'] is not None and result['code'] is None
+
+
+async def test_both_remote_failures_publish_native_index_and_keep_fallback_history(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+) -> None:
+    from tests.core.integration.test_knowledge import VectorFixture
+    from zhiheng.runtime.orm import Run
+    from zhiheng.worker.execution import execute_run
+
+    local, cloud = miners
+    local.file_error = 'parse_failed'
+    cloud.file_error = 'engine_failure'
+    cloud.official_v4 = True
+    await configure(admin, local, cloud)
+    c = app.state.container
+    c.knowledge_jobs.vectors = VectorFixture()
+    parent = await begin(admin, app, provider)
+    parsed = await finish_parse(app, parent)
+    assert parsed['phase'] == 'completed' and parsed['engine'] == 'native', parsed
+    assert [(step['engine'], step['reason']) for step in parsed['history']] == [
+        ('local', 'parse_failed'),
+        ('cloud', 'parse_cloud_failed'),
+    ]
+    assert local.creates == cloud.creates == 1
+    for _ in range(20):
+        await c.knowledge_jobs.tick(parent)
+        async with c.database.sessions() as session:
+            runs = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
+        for run_id in runs:
+            await execute_run(c, run_id)
+        job = (await admin.get(f'/api/knowledge/jobs/{parent}')).json()
+        if job['status'] in {'completed', 'partial', 'failed', 'cancelled', 'interrupted'}:
+            break
+    assert job['status'] == 'completed' and job['chunk_count'] > 0, job
+    assert provider.requests and 'Document parsing source' in str(provider.requests)
+
+
+@pytest.mark.parametrize('cloud_enabled', [False, True])
+async def test_invalid_remote_result_falls_back_without_recreating_the_task(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+    cloud_enabled: bool,
+) -> None:
+    local, cloud = miners
+    local.result_payload = b'invalid parser ZIP'
+    await configure(admin, local, cloud, cloud_enabled=cloud_enabled)
+    parent = await begin(admin, app, provider)
+    result = await finish_parse(app, parent)
+    assert result['phase'] == 'completed'
+    assert result['engine'] == ('cloud' if cloud_enabled else 'native')
+    assert result['history'][0]['reason'] == 'parse_result_invalid'
+    assert local.creates == 1 and cloud.creates == int(cloud_enabled)
+
+
+async def test_local_and_cloud_timeout_each_get_a_budget_before_native_fallback(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+) -> None:
+    local, cloud = miners
+    local.complete = cloud.complete = False
+    await configure(admin, local, cloud)
+    parent = await begin(admin, app, provider)
+    for engine in ('local', 'cloud'):
+        for _ in range(4):
+            await due(app)
+            await app.state.container.document_parsing.tick()
+            result = await state(app, parent)
+            if result['engine'] == engine and result['task_id']:
+                break
+        assert result['engine'] == engine and result['task_id'], result
+        async with app.state.container.database.sessions.begin() as session:
+            await session.execute(
+                update(ParsingJob)
+                .where(ParsingJob.parent_id == parent)
+                .values(deadline=utcnow() - timedelta(seconds=1), next_poll_at=utcnow() - timedelta(seconds=1))
+            )
+        await app.state.container.document_parsing.tick()
+        switched = await state(app, parent)
+        assert switched['engine'] == ('cloud' if engine == 'local' else 'native')
+        assert switched['deadline'] > utcnow() and switched['phase'] == 'selecting'
+        assert switched['task_id'] is None and 'upload_target' not in switched['config']
+    result = await finish_parse(app, parent)
+    assert result['phase'] == 'completed' and result['engine'] == 'native'
+    assert [(item['engine'], item['reason']) for item in result['history']] == [
+        ('local', 'parse_timeout'),
+        ('cloud', 'parse_timeout'),
+    ]
+    assert local.creates == cloud.creates == 1
+
+
+async def test_known_local_task_lost_after_service_restart_uses_cloud(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from zhiheng.shared.errors import AppError
+
+    local, cloud = miners
+    await configure(admin, local, cloud)
+    parent = await begin(admin, app, provider)
+    await app.state.container.document_parsing.tick()
+    original = MinerUClient.get
+
+    async def missing(client: MinerUClient, task_id: str) -> dict[str, object]:
+        if client.base == local.url:
+            raise AppError('parse_task_unavailable', '原解析任务失效', 422)
+        return await original(client, task_id)
+
+    monkeypatch.setattr(MinerUClient, 'get', missing)
+    result = await finish_parse(app, parent)
+    assert result['phase'] == 'completed' and result['engine'] == 'cloud'
+    assert result['history'][0]['reason'] == 'parse_task_unavailable'
+    assert local.creates == cloud.creates == 1
+
+
+async def test_both_remote_failures_still_require_ocr_for_scanned_pdf(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    miners: tuple[LocalMinerU, LocalMinerU],
+) -> None:
+    local, cloud = miners
+    local.file_error = cloud.file_error = 'parse_failed'
+    await configure(admin, local, cloud)
+    parent = await begin(admin, app, provider, blank=True)
+    result = await finish_parse(app, parent)
+    assert result['engine'] == 'native' and result['phase'] == 'failed' and result['code'] == 'ocr_required'
+    assert result['artifact_id'] is None and local.creates == cloud.creates == 1
+    assert (await admin.get(f'/api/files/{result["file_id"]}')).status_code == 200
+    assert len(result['history']) == 2 and provider.requests == []

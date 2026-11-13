@@ -11,6 +11,7 @@ export interface AgentConfig {
   welcomeMessage: string
   skillSlugs: string[]
   knowledgeBaseIds: string[]
+  knowledgeTopK: number
   applicationId: string | null
   temperature: number
   maxTokens: number
@@ -34,6 +35,7 @@ export interface AgentPayload {
   welcome_message: string
   skill_slugs: string[]
   knowledge_base_ids: string[]
+  knowledge_top_k: number
   application_id: string | null
   temperature: number
   max_tokens: number
@@ -49,6 +51,7 @@ function parseConfig(value: unknown): AgentConfig {
     welcomeMessage: string(data.welcome_message),
     skillSlugs: list(string)(data.skill_slugs),
     knowledgeBaseIds: list(string)(data.knowledge_base_ids),
+    knowledgeTopK: data.knowledge_top_k === undefined ? 8 : number(data.knowledge_top_k),
     applicationId: data.application_id === null ? null : string(data.application_id),
     temperature: number(data.temperature),
     maxTokens: number(data.max_tokens),
@@ -70,6 +73,29 @@ function parseAgent(value: unknown): Agent {
   }
 }
 const path = (id: string) => `/agents/${encodeURIComponent(id)}`
+export interface AgentKnowledgePolicy {
+  modelId: string
+  source: 'knowledge_base' | 'platform_default' | 'mixed_platform_default'
+}
+export const getAgentKnowledgePolicy = (baseIds: string[], signal: AbortSignal) =>
+  http.request('/agents/knowledge-policy', {
+    method: 'POST',
+    body: { knowledge_base_ids: baseIds },
+    signal,
+    decode: (value): AgentKnowledgePolicy => {
+      const data = object(value)
+      if (
+        data.source !== 'knowledge_base' &&
+        data.source !== 'platform_default' &&
+        data.source !== 'mixed_platform_default'
+      )
+        throw new Error('重排策略无效')
+      return {
+        modelId: string(data.model_id),
+        source: data.source
+      }
+    }
+  })
 export const listAgents = (
   query: { keyword: string; pageNum: number; pageSize: number; status?: Agent['status'] },
   signal: AbortSignal

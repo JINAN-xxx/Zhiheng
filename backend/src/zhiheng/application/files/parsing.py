@@ -38,21 +38,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_UPSTREAM_ID = 256
 REMOTE_FORMATS = frozenset({'pdf', 'docx', 'xlsx', 'png', 'jpg', 'jpeg', 'webp'})
-FALLBACK_ERRORS = frozenset(
-    {
-        'engine_unavailable',
-        'quality_tier_unavailable',
-        'no_engine',
-        'model_unavailable',
-        'out_of_memory',
-        'parse_server_unavailable',
-        'rate_limited',
-        'quota_exceeded',
-        'insufficient_balance',
-        'internal_error',
-        'result_packaging_failed',
-    }
-)
+DOCUMENT_ERRORS = {
+    'encrypted_document': '文档已加密，请上传无密码副本',
+    'invalid_document': '文档损坏或格式无效',
+    'document_too_large': '文档展开内容超过限制',
+}
+REMOTE_RESULT_ERRORS = frozenset({'parse_task_unavailable', 'parse_result_invalid'})
 
 
 class DocumentParsing:
@@ -197,6 +188,17 @@ class DocumentParsing:
             except AppError:
                 logger.warning('Document parse cancellation unconfirmed parse_id=%s engine=%s', claim.id, claim.engine)
 
+    async def _expire(self, claim: ParsingClaim) -> None:
+        await self._cancel(claim)
+        if claim.engine != 'native':
+            await self._fallback(claim, 'parse_timeout')
+        else:
+            await self._update(
+                claim,
+                phase='failed',
+                error=AppError('parse_timeout', '文档解析超时，原文件已保留，可稍后重试', 422),
+            )
+
     async def tick(self) -> bool:  # noqa: PLR0912 - one fenced tick owns failure and cancellation transitions
         async with self.database.sessions.begin() as session:
             claim = await self.store.claim(session)
@@ -216,12 +218,7 @@ class DocumentParsing:
             ):
                 raise AppError('file_snapshot_changed', '文件或访问权限已变化，请重新提交', 409)
             if claim.deadline <= utcnow():
-                await self._cancel(claim)
-                await self._update(
-                    claim,
-                    phase='failed',
-                    error=AppError('parse_timeout', '文档解析超时，原文件已保留，可稍后重试', 422),
-                )
+                await self._expire(claim)
             elif claim.engine == 'native':
                 item = await self.inputs.prepare(principal, claim.file_id)
                 await self._complete(claim, item.summary.artifact_file_id, PARSER_VERSION)
@@ -247,9 +244,12 @@ class DocumentParsing:
                 await self._update(claim, phase='polling', delay=3)
             else:
                 await self._cancel(claim)
-                await self._update(claim, phase='failed', error=error)
+                await self._fallback(claim, error.code)
         except AppError as error:
             if error.code == 'parse_lease_lost':
+                return True
+            if claim.engine != 'native' and error.code in REMOTE_RESULT_ERRORS:
+                await self._fallback(claim, error.code)
                 return True
             await self._cancel(claim)
             cancelled = error.code == 'knowledge_cancelled' or error.status_code in {401, 403, 404}
@@ -427,14 +427,12 @@ class DocumentParsing:
         elif status in {'failed', 'canceled'}:
             detail = entry.get('error')
             code = detail.get('code') if isinstance(detail, dict) else None
-            if isinstance(code, str) and code in FALLBACK_ERRORS:
-                await self._fallback(claim, code)
-            else:
-                messages = {
-                    'encrypted_document': '文档已加密，请上传无密码副本',
-                    'invalid_document': '文档损坏或格式无效',
-                }
-                raise AppError('parse_failed', messages.get(str(code), '文档解析未完成，原文件已保留'), 422)
+            if isinstance(code, str) and code in DOCUMENT_ERRORS:
+                raise AppError(code, DOCUMENT_ERRORS[code], 422)
+            # A definitive remote failure is eligible for the next parser even
+            # when the service hides engine/OOM details behind a generic code.
+            reason = code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,63}', code) else 'parse_failed'
+            await self._fallback(claim, reason)
         elif status in {'waiting-file', 'pending', 'running'}:
             await self._update(claim, phase='polling', delay=2)
         else:

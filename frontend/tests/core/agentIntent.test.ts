@@ -35,6 +35,7 @@ void test('publication sequence does not turn identical saved configuration into
     welcomeMessage: 'hello',
     skillSlugs: ['skill'],
     knowledgeBaseIds: [],
+    knowledgeTopK: 8,
     applicationId: 'app-1',
     temperature: 0.7,
     maxTokens: 512,
@@ -53,6 +54,15 @@ void test('publication sequence does not turn identical saved configuration into
   assert.equal(hasUnpublishedAgentChanges({ ...agent, systemPrompt: 'edited draft' }), true)
   assert.equal(agent.publishedConfig?.systemPrompt, 'system')
   assert.equal(hasUnpublishedAgentChanges({ ...agent, historyRounds: 0 }), true)
+  assert.equal(hasUnpublishedAgentChanges({ ...agent, knowledgeTopK: 15 }), true)
+})
+void test('agent retrieval defaults to eight and keeps a cleared limit invalid', () => {
+  const form = presentation.createAgentForm()
+  assert.equal(form.knowledgeTopK, 8)
+  form.knowledgeTopK = 15
+  assert.equal(presentation.buildAgentPayload(form).knowledge_top_k, 15)
+  form.knowledgeTopK = null
+  assert.equal(Number.isNaN(presentation.buildAgentPayload(form).knowledge_top_k), true)
 })
 void test('agent history defaults to twenty, preserves zero, and keeps cleared input invalid', () => {
   const form = presentation.createAgentForm()

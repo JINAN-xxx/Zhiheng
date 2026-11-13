@@ -246,12 +246,22 @@ class ParsingStore:
 
     async def fallback(self, session: AsyncSession, claim: ParsingClaim, code: str) -> None:
         row = await self.owned(session, claim)
-        row.history = [*row.history, {'engine': row.engine, 'reason': code[:64]}]
+        if row.engine not in {'local', 'cloud'}:
+            raise AppError('invalid_parse_fallback', '基础解析没有后续解析服务', 409)
+        now = utcnow()
+        attempt = {'engine': row.engine, 'reason': code[:64], 'finished_at': now.isoformat()}
+        if row.task_id is not None:
+            attempt['task_id'] = row.task_id
+        row.history = [*row.history, attempt]
         row.config = {key: value for key, value in row.config.items() if key != 'upload_target'}
         row.engine = 'cloud' if row.engine == 'local' else 'native'
         row.phase, row.task_id, row.upstream_file_id = 'selecting', None, None
         row.engine_version, row.parser_version = None, None
-        row.next_poll_at, row.updated_at = utcnow(), utcnow()
+        row.error_code, row.error_message = None, None
+        # Each parser gets its own finite budget. An exhausted local deadline
+        # must not immediately expire cloud/native without attempting them.
+        row.deadline = now + timedelta(seconds=int(str(row.config['timeout_seconds'])))
+        row.next_poll_at, row.updated_at = now, now
         row.token, row.lease_until = None, None
 
     async def local_slot(self, session: AsyncSession, claim: ParsingClaim) -> bool:

@@ -29,6 +29,7 @@ class AgentConfig(BaseModel):
     welcome_message: str = Field(default='', max_length=2000)
     skill_slugs: list[SkillSlug] = Field(default_factory=list, max_length=5)
     knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    knowledge_top_k: int = Field(default=8, strict=True, ge=1, le=15)
     application_id: UUID | None = None
     temperature: float = Field(default=0.7, strict=True, ge=0, le=2, allow_inf_nan=False)
     max_tokens: int = Field(default=2048, strict=True, ge=1, le=MAX_SAFE_INTEGER)
@@ -52,6 +53,18 @@ class AgentConfig(BaseModel):
 
 class AgentCreate(AgentConfig):
     client_request_id: UUID | None = None
+
+
+class AgentKnowledgeRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    knowledge_base_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+    @field_validator('knowledge_base_ids')
+    @classmethod
+    def unique_bases(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError('Knowledge selections must be unique')
+        return value
 
 
 class AgentUpdate(AgentConfig):

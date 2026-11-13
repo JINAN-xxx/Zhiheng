@@ -128,6 +128,10 @@ async def test_public_agent_uses_publication_and_hides_binding(
         {'history_rounds': 1.0},
         {'history_rounds': -1},
         {'history_rounds': 21},
+        {'knowledge_top_k': True},
+        {'knowledge_top_k': 1.0},
+        {'knowledge_top_k': 0},
+        {'knowledge_top_k': 16},
         {'skill_slugs': ['document-summary'] * 2},
     ],
 )

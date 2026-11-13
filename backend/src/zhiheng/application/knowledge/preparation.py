@@ -14,6 +14,7 @@ from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.developer.public import ApplicationService, DeveloperIdentity, KeyService, Scope
 from zhiheng.modules.knowledge.public import (
     FINAL_HITS,
+    MAX_FINAL_HITS,
     PER_BASE_CANDIDATES,
     BuildStore,
     Hit,
@@ -483,7 +484,7 @@ class KnowledgePreparation:
             if size + cost <= MAX_HITS_BYTES:
                 bounded.append(hit)
                 size += cost
-            if len(bounded) >= min(FINAL_HITS, int(state.request.get('top_k', FINAL_HITS))):
+            if len(bounded) >= self.final_hit_limit(state):
                 break
         async with self.database.sessions.begin() as session:
             principal = await self.authorize(session, state, lock=True)
@@ -530,6 +531,10 @@ class KnowledgePreparation:
         return balance_candidates(groups)
 
     @staticmethod
+    def final_hit_limit(state: RetrievalState) -> int:
+        return min(MAX_FINAL_HITS, int(state.request.get('top_k', FINAL_HITS)))
+
+    @staticmethod
     def rerank_binding(state: RetrievalState) -> ModelBinding | None:
         value = state.dependencies.get('rerank_binding')
         return ModelBinding.model_validate(value) if value is not None else None
@@ -567,7 +572,7 @@ class KnowledgePreparation:
             )
         order = {hit.chunk_id: index for index, hit in enumerate(candidates)}
         ranked.sort(key=lambda hit: (-(hit.rerank_score or 0), order[hit.chunk_id]))
-        return ranked[: min(FINAL_HITS, int(state.request.get('top_k', FINAL_HITS)))]
+        return ranked[: self.final_hit_limit(state)]
 
     @staticmethod
     def rerank_batches(state: RetrievalState, candidates: list[Hit]) -> list[list[Hit]]:
@@ -626,7 +631,7 @@ class KnowledgePreparation:
                         update={
                             'options': binding.options.model_copy(
                                 update={
-                                    'top_n': min(FINAL_HITS, int(state.request.get('top_k', FINAL_HITS))),
+                                    'top_n': self.final_hit_limit(state),
                                     'return_documents': False,
                                 }
                             )

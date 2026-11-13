@@ -114,9 +114,7 @@ class AssistantConversationService:
             value = await self.store.require(session, principal, agent_id, conversation_id, lock=True)
             if remove:
                 await self._idle(session, value)
-            await self.store.change(
-                session, principal, conversation_id, expected_version, title=title, remove=remove
-            )
+            await self.store.change(session, principal, conversation_id, expected_version, title=title, remove=remove)
             if remove:
                 return value.info
             return (await self.store.require(session, principal, agent_id, conversation_id)).info
@@ -131,7 +129,9 @@ class AssistantConversationService:
         latest: bool = True,
     ) -> ModelBinding:
         config = value.config
-        require_execution_capabilities(principal, 'agent_chat', knowledge=bool(config.knowledge_base_ids), skills=bool(config.skill_slugs))
+        require_execution_capabilities(
+            principal, 'agent_chat', knowledge=bool(config.knowledge_base_ids), skills=bool(config.skill_slugs)
+        )
         binding = await self.models.resolve(session, config.model_id)
         if binding.model_type != 'chat' or config.max_tokens > binding.max_output_tokens:
             raise AppError('assistant_model_unavailable', '助手所用模型或输出配置已不可用', 409)
@@ -186,6 +186,7 @@ class AssistantConversationService:
                     value=value_hash,
                     request={
                         'query': message,
+                        'top_k': conversation.config.knowledge_top_k,
                         'message': message,
                         'runtime_request_id': str(request_id),
                         'runtime_fingerprint': value_hash,
@@ -243,7 +244,18 @@ class AssistantConversationService:
             resource_id=value.info.id,
             client_request_id=request_id,
             fingerprint=message_fingerprint(value.info.id, message),
-            request=ModelRequest(binding=binding, messages=messages, required_modules=tuple(module for module, used in [('knowledge', bool(value.config.knowledge_base_ids)), ('skills', bool(value.skills.revisions))] if used)),
+            request=ModelRequest(
+                binding=binding,
+                messages=messages,
+                required_modules=tuple(
+                    module
+                    for module, used in [
+                        ('knowledge', bool(value.config.knowledge_base_ids)),
+                        ('skills', bool(value.skills.revisions)),
+                    ]
+                    if used
+                ),
+            ),
             token_limit=self.token_limit,
         )
         await self.store.add_turn(

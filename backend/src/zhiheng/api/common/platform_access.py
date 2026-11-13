@@ -23,6 +23,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
     'agents': {
         'list_agents': 'agents:read',
         'get': 'agents:read',
+        'knowledge_policy': 'agents:read',
         'create': 'agents:create',
         'update': 'agents:update',
         'publish': 'agents:publish',

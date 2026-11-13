@@ -9,6 +9,7 @@ from zhiheng.shared.errors import AppError
 PER_BASE_CANDIDATES = 40
 TOTAL_CANDIDATES = 80
 FINAL_HITS = 8
+MAX_FINAL_HITS = 15
 
 
 def balance_candidates(groups: list[list[Hit]], limit: int = TOTAL_CANDIDATES) -> list[Hit]:
