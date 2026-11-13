@@ -15,7 +15,8 @@ from zhiheng.api.common.errors import install_error_handlers
 from zhiheng.api.console.admin_identity import router
 from zhiheng.application.identity.accounts import AccountService
 from zhiheng.modules.identity.orm import IdentityUser
-from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables
+from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -129,7 +130,7 @@ async def test_identity_router_leaves_operations_paths_available(api: tuple[Any,
     client, _, _, _ = api
     assert (await client.get('/api/admin/dictionaries')).status_code == 404
     response = await client.get('/api/admin/users/options')
-    assert response.status_code == 200 and set(response.json()) == {'roles', 'posts', 'departments'}
+    assert response.status_code == 200 and set(response.json()) == {'roles', 'departments'}
 
 
 async def test_role_codes_are_generated_uniquely_and_remain_stable_after_edit(api: tuple[Any, ...]) -> None:
@@ -180,6 +181,8 @@ async def test_ai_only_permissions_do_not_open_the_system_permission_directory(a
     app.dependency_overrides[get_principal] = lambda: Principal(
         uuid4(), 'ai-operator', False, frozenset({'ai:models:write', 'ai:storage:read'})
     )
-    for path in ('/api/admin/permissions', '/api/admin/menus?navigation=true', '/api/admin/roles'):
+    for path in ('/api/admin/permissions', '/api/admin/roles'):
         response = await client.get(path)
         assert response.status_code == 403, response.text
+    navigation = await client.get('/api/admin/menus?navigation=true')
+    assert navigation.status_code == 404

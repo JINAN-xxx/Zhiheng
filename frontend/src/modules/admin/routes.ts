@@ -1,4 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
+import { fileRoutes } from '../files/public.ts'
 export const adminRoutes: RouteRecordRaw[] = [
   {
     path: '/admin',
@@ -6,6 +7,13 @@ export const adminRoutes: RouteRecordRaw[] = [
     component: () => import('./components/AdminLayout.vue'),
     meta: { title: '后台管理', console: true },
     children: [
+      {
+        path: 'applications',
+        name: 'admin-applications',
+        component: () => import('./views/ApplicationsView.vue'),
+        meta: { title: '应用治理', admin: true }
+      },
+      ...fileRoutes.map((route) => ({ ...route, path: route.path.replace(/^\/admin\//, '') })),
       {
         path: 'users',
         name: 'admin-users',
@@ -26,27 +34,27 @@ export const adminRoutes: RouteRecordRaw[] = [
       },
       {
         path: 'posts',
-        name: 'admin-posts',
-        component: () => import('./views/PostsView.vue'),
-        meta: { title: '岗位管理' }
+        redirect: '/admin'
       },
       {
         path: 'menus',
-        name: 'admin-menus',
-        component: () => import('./views/MenusView.vue'),
-        meta: { title: '菜单管理' }
+        redirect: '/admin'
       },
       {
         path: 'dictionaries',
-        name: 'admin-dictionaries',
-        component: () => import('./views/DictionariesView.vue'),
-        meta: { title: '字典管理' }
+        redirect: '/admin'
       },
       {
         path: 'configs',
         name: 'admin-configs',
         component: () => import('./views/ConfigsView.vue'),
-        meta: { title: '参数管理' }
+        meta: { title: '公告设置' }
+      },
+      {
+        path: 'knowledge-settings',
+        name: 'admin-knowledge-settings',
+        redirect: '/knowledge/settings',
+        meta: { title: '知识服务', permission: 'system:configs:read' }
       },
       {
         path: 'notices',

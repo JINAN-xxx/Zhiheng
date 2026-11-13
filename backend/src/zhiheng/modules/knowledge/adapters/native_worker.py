@@ -19,6 +19,7 @@ from PIL import Image
 from pypdf import PdfReader
 
 from zhiheng.modules.knowledge.contracts import MAX_IMAGE_URL_BYTES, MAX_INPUT_BYTES, MAX_TEXT_BYTES, ParseResult
+from zhiheng.shared.csv_text import decode_csv_text
 
 MAX_EXPANDED = 40 * 1024 * 1024
 MAX_ZIP_MEMBERS = 2000
@@ -157,7 +158,7 @@ def image_result(content: bytes) -> ParseResult:
     return ParseResult(text='[Image attachment]', metadata=metadata, image_data=data)
 
 
-def pdf_result(content: bytes) -> tuple[str, dict[str, str | int]]:
+def pdf_result(content: bytes, *, validate_only: bool = False) -> tuple[str, dict[str, str | int]]:
     if not content.startswith(b'%PDF-'):
         raise DocumentError('invalid_document')
     reader = PdfReader(io.BytesIO(content), strict=True)
@@ -165,18 +166,23 @@ def pdf_result(content: bytes) -> tuple[str, dict[str, str | int]]:
         raise DocumentError('encrypted_document')
     if len(reader.pages) > MAX_PAGES:
         raise DocumentError('document_too_large')
+    if validate_only:
+        return 'Document validated', {'pages': len(reader.pages), 'format': 'pdf'}
     parts = []
     total = 0
+    image_only_pages = 0
     for page in reader.pages:
         part = page.extract_text() or ''
+        if not part.strip() and len(page.images):
+            image_only_pages += 1
         total += len(part.encode())
         if total > MAX_TEXT_BYTES:
             raise DocumentError('document_too_large')
         parts.append(part)
     text = '\n'.join(parts)
-    if not text.strip():
+    if not text.strip() or image_only_pages:
         raise DocumentError('ocr_required')
-    return text, {'pages': len(reader.pages)}
+    return text, {'pages': len(reader.pages), 'image_only_pages': image_only_pages}
 
 
 def check_sheet_bounds(documents: dict[str, Element]) -> int:
@@ -233,7 +239,7 @@ def xlsx_result(content: bytes, documents: dict[str, Element]) -> tuple[str, dic
 
 
 def text_result(content: bytes, extension: str) -> str:
-    text = content.decode('utf-8-sig')
+    text = decode_csv_text(content) if extension == 'csv' else content.decode('utf-8-sig')
     if '\x00' in text:
         raise DocumentError('invalid_document')
     if extension == 'json':
@@ -281,6 +287,24 @@ def parse(content: bytes, filename: str) -> ParseResult:
     return ParseResult(text=text, metadata=metadata)
 
 
+def validate_document(content: bytes, filename: str) -> ParseResult:
+    extension = filename.rpartition('.')[2].lower()
+    metadata: dict[str, str | int] = {'format': extension}
+    if extension == 'pdf':
+        _, metadata = pdf_result(content, validate_only=True)
+    elif extension in {'docx', 'xlsx'}:
+        documents = package_xml(content)
+        if extension == 'docx' and 'word/document.xml' not in documents:
+            raise DocumentError('invalid_document')
+        if extension == 'xlsx':
+            metadata['cells'] = check_sheet_bounds(documents)
+    elif extension in {'png', 'jpg', 'jpeg', 'webp'}:
+        metadata = image_result(content).metadata
+    else:
+        raise DocumentError('unsupported_format')
+    return ParseResult(text='Document validated', metadata=metadata)
+
+
 def main() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
@@ -292,7 +316,7 @@ def main() -> None:
         content = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
         if not content or len(content) > MAX_INPUT_BYTES:
             raise DocumentError('document_too_large')
-        result = parse(content, filename)
+        result = validate_document(content, filename) if '--validate-document' in sys.argv else parse(content, filename)
         reply = {'result': result.model_dump()}
     except DocumentError as error:
         reply = {'error': str(error)}

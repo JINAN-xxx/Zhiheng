@@ -7,8 +7,16 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.models.public import ConnectionInfo, ModelInfo, RateCreate, RateInfo
+from zhiheng.modules.models.public import (
+    ConnectionInfo,
+    ConnectionOption,
+    ModelInfo,
+    ModelTrialInput,
+    RateCreate,
+    RateInfo,
+)
 from zhiheng.runtime.contracts import RunSnapshot
+from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 router = APIRouter(prefix='/api/models', tags=['models'])
 
@@ -41,11 +49,10 @@ class ModelRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     connection_id: UUID
     upstream_model: str = Field(min_length=1, max_length=200)
-    max_output_tokens: int = Field(default=512, strict=True, ge=1, le=131072)
+    max_output_tokens: int = Field(default=512, strict=True, ge=1, le=MAX_SAFE_INTEGER)
     context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)
-    published: bool = True
 
 
 class ModelTestRequest(BaseModel):
@@ -58,6 +65,13 @@ async def connections(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[ConnectionInfo]:
     return await container.models.list_connections(session, principal)
+
+
+@router.get('/connection-options')
+async def connection_options(
+    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> list[ConnectionOption]:
+    return await container.models.connection_options(session, principal)
 
 
 @router.post('/connections', status_code=201)
@@ -76,16 +90,16 @@ async def models(
     principal: PrincipalDependency,
     session: SessionDependency,
     include_disabled: bool = False,
+    trial: bool = False,
 ) -> list[ModelInfo]:
-    return await container.models.list_models(session, principal=principal, include_disabled=include_disabled)
+    return await container.models.list_models(
+        session, principal=principal, include_disabled=include_disabled, for_test=trial
+    )
 
 
 @router.post('', status_code=201)
-async def create_model(
-    body: ModelRequest, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
-) -> ModelInfo:
-    async with session.begin():
-        return await container.models.create_model(session, principal, **body.model_dump())
+async def create_model(body: ModelRequest, container: ContainerDependency, principal: PrincipalDependency) -> ModelInfo:
+    return await container.model_configuration.save(principal, body.model_dump())
 
 
 @router.post('/{model_id}/test', status_code=202)
@@ -103,6 +117,29 @@ async def test_model(
             model_id=model_id,
             client_request_id=body.client_request_id,
             token_limit=container.settings.token_limit,
+        )
+
+
+class ModelTrialRequest(ModelTrialInput):
+    client_request_id: UUID
+
+
+@router.post('/{model_id}/trial', status_code=202)
+async def trial_model(
+    model_id: UUID,
+    body: ModelTrialRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> RunSnapshot:
+    async with session.begin():
+        return await container.admission.admit_test(
+            session,
+            principal,
+            model_id=model_id,
+            client_request_id=body.client_request_id,
+            token_limit=container.settings.token_limit,
+            trial=ModelTrialInput(prompt=body.prompt, documents=body.documents),
         )
 
 
@@ -124,11 +161,10 @@ class ModelPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
     connection_id: UUID | None = None
     upstream_model: str | None = Field(default=None, min_length=1, max_length=200)
-    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
+    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=MAX_SAFE_INTEGER)
     context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
     enabled: bool | None = None
     vision_enabled: bool | None = Field(default=None, strict=True)
-    published: bool | None = None
 
 
 @router.patch('/connections/{connection_id}')
@@ -177,11 +213,13 @@ async def update_model(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> ModelInfo:
-    async with session.begin():
-        fields = body.model_dump(exclude_unset=True, exclude_none=True)
-        if 'context_window_tokens' in body.model_fields_set:
-            fields['context_window_tokens'] = body.context_window_tokens
-        return await container.models.update_model(session, principal, model_id, fields)
+    fields = body.model_dump(exclude_unset=True, exclude_none=True)
+    if 'context_window_tokens' in body.model_fields_set:
+        fields['context_window_tokens'] = body.context_window_tokens
+    if fields == {'enabled': False}:
+        async with session.begin():
+            return await container.models.update_model(session, principal, model_id, fields)
+    return await container.model_configuration.save(principal, fields, model_id)
 
 
 @router.delete('/{model_id}')
@@ -214,14 +252,14 @@ async def create_rate(
 @router.post('/{model_id}/{action}')
 async def model_action(
     model_id: UUID,
-    action: Literal['enable', 'disable', 'publish', 'unpublish'],
+    action: Literal['enable', 'disable'],
     container: ContainerDependency,
     principal: PrincipalDependency,
     session: SessionDependency,
     _body: EmptyRequest | None = None,
 ) -> ModelInfo:
-    fields: dict[str, object] = (
-        {'enabled': action == 'enable'} if action in {'enable', 'disable'} else {'published': action == 'publish'}
-    )
+    fields: dict[str, object] = {'enabled': action == 'enable'}
+    if action == 'enable':
+        return await container.model_configuration.save(principal, fields, model_id)
     async with session.begin():
         return await container.models.update_model(session, principal, model_id, fields)

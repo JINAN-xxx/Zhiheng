@@ -12,7 +12,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.files.public import SourceSnapshot
-from zhiheng.modules.knowledge.adapters.milvus import VectorSpec
 from zhiheng.modules.knowledge.chunks import same_vector
 from zhiheng.modules.knowledge.contracts import PREPARATION_TERMINAL, Hit, PreparationInfo
 from zhiheng.modules.knowledge.orm import (
@@ -23,6 +22,7 @@ from zhiheng.modules.knowledge.orm import (
     RetrievalIntent,
 )
 from zhiheng.modules.knowledge.service import KnowledgeService
+from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.modules.models.public import ModelBinding, ModelMessage
 from zhiheng.runtime.contracts import RunError, RunSnapshot
 from zhiheng.shared.errors import AppError
@@ -141,6 +141,14 @@ class RetrievalStore:
         row = await session.get(RetrievalIntent, intent_id)
         return self.state(self.record(row)) if row is not None else None
 
+    async def state_for_run(self, session: AsyncSession, run_id: UUID, resource_id: UUID) -> RetrievalState | None:
+        row = await session.scalar(
+            select(RetrievalIntent).where(
+                RetrievalIntent.resource_id == resource_id, RetrievalIntent.main_run_id == run_id
+            )
+        )
+        return self.state(self.record(row)) if row is not None else None
+
     async def pending(self, session: AsyncSession) -> list[tuple[UUID, str]]:
         return [
             (row.id, row.updated_at.isoformat())
@@ -199,9 +207,7 @@ class RetrievalStore:
                 if revision is None:
                     continue
                 try:
-                    source = await self.knowledge.files.source_snapshot(
-                        session, principal, row.file_id, artifact_file_id=row.artifact_file_id
-                    )
+                    source = await self.knowledge.document_source_snapshot(session, principal, row)
                 except AppError:
                     continue
                 if source.sha256 != row.source_sha256:
@@ -227,6 +233,7 @@ class RetrievalStore:
                         generation.collection_name,
                         generation.fingerprint,
                         generation.dimension,
+                        generation.retrieval_version,
                     ),
                     binding=ModelBinding.model_validate(generation.binding),
                     sources=sources,
@@ -243,7 +250,10 @@ class RetrievalStore:
         hits: list[Hit] | None = None,
         lock: bool = False,
     ) -> None:
-        for snapshot in sorted(bases, key=lambda value: value.base_id):
+        ordered = sorted(bases, key=lambda value: value.base_id)
+        # Own the complete KB fence set before any source/file row lock. A
+        # legacy source can still be referenced from more than one selected KB.
+        for snapshot in ordered:
             base = await self.knowledge.require(session, principal, snapshot.base_id, lock=lock)
             if (
                 base.active_revision != snapshot.spec.revision
@@ -251,15 +261,14 @@ class RetrievalStore:
                 or base.acl_version != snapshot.acl_version
             ):
                 raise AppError('knowledge_preparation_stale', '知识库依赖已变化，请用新请求重试', 409)
+        for snapshot in ordered:
             for item in sorted(snapshot.sources, key=lambda value: value.source.file_id):
                 if hits is not None and not any(hit.document_id == item.document_id for hit in hits):
                     continue
                 row = await self.knowledge.document(session, snapshot.base_id, item.document_id)
                 if row.status == 'deleting' or row.version != item.document_version:
                     raise AppError('knowledge_preparation_stale', '知识文档已变化', 409)
-                current = await self.knowledge.files.source_snapshot(
-                    session, principal, item.source.file_id, lock=lock, artifact_file_id=item.source.artifact_file_id
-                )
+                current = await self.knowledge.document_source_snapshot(session, principal, row, lock=lock)
                 if current != item.source:
                     raise AppError('knowledge_preparation_stale', '知识来源权限或内容已变化', 409)
 
@@ -417,6 +426,7 @@ class RetrievalStore:
 
     async def provenance(self, session: AsyncSession, base: RetrievalBase, rows: list[dict[str, Any]]) -> list[Hit]:
         result = []
+        seen = set()
         allowed = {item.document_id: item for item in base.sources}
         for hit in rows:
             score = float(hit['distance'])
@@ -431,8 +441,12 @@ class RetrievalStore:
                 or chunk.document_revision != allowed[chunk.document_id].document_revision
                 or chunk.file_id != allowed[chunk.document_id].source.file_id
                 or not same_vector(hit['entity'].get('vector'), chunk.vector)
+                or (base.spec.hybrid and hit['entity'].get('text') != chunk.content)
             ):
                 raise AppError('invalid_knowledge_provenance', '知识检索来源验证失败', 503)
+            if chunk.id in seen:
+                continue
+            seen.add(chunk.id)
             result.append(
                 Hit(
                     chunk_id=chunk.id,
@@ -444,9 +458,27 @@ class RetrievalStore:
                     title=allowed[chunk.document_id].title,
                     content=chunk.content,
                     score=score,
+                    vector_score=score if base.spec.retrieval_version == 1 else None,
+                    fusion_score=score if base.spec.hybrid else None,
                 )
             )
         return result
+
+    async def freeze_candidates(
+        self, session: AsyncSession, intent_id: UUID, token: UUID, hits: list[Hit], diagnostics: dict[str, object]
+    ) -> None:
+        row = await self._owned_row(session, intent_id, token)
+        row.dependencies = {
+            **row.dependencies,
+            'retrieval_candidates': [hit.model_dump(mode='json') for hit in hits],
+            'retrieval_diagnostics': diagnostics,
+        }
+
+    async def diagnostics(
+        self, session: AsyncSession, intent_id: UUID, token: UUID, diagnostics: dict[str, object]
+    ) -> None:
+        row = await self._owned_row(session, intent_id, token)
+        row.dependencies = {**row.dependencies, 'retrieval_diagnostics': diagnostics}
 
     async def completed(self, session: AsyncSession, intent_id: UUID, token: UUID, hits: list[Hit]) -> None:
         row = await self._owned_row(session, intent_id, token)
@@ -473,4 +505,5 @@ class RetrievalStore:
             created_at=row.created_at,
             updated_at=row.updated_at,
             polling_url=f'/v1/agents/{row.resource_id}/preparations/{row.id}' if row.key_id else None,
+            diagnostics=row.dependencies.get('retrieval_diagnostics', {}),
         )

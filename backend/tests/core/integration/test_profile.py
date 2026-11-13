@@ -14,13 +14,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
-from zhiheng.modules.identity.public import (
-    IdentityAdminService,
-    IdentityService,
-    PasswordChange,
-    ProfilePatch,
-    schema_tables,
-)
+from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, PasswordChange, ProfilePatch
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.modules.operations.orm import OperationLog
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -44,7 +39,7 @@ async def test_own_profile_http_lifecycle_and_credential_free_audit(client: http
     first_token = client.cookies.get('zhiheng_session')
     original = (await client.get('/api/auth/profile')).json()
     assert original['username'] == 'member' and original['department_name'] is None
-    assert original['roles'] == [] and original['posts'] == []
+    assert original['roles'] == [] and 'posts' not in original
     changed = await client.patch(
         '/api/auth/profile',
         json={

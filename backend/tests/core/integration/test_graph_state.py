@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select
 
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.provider import ProviderServer
@@ -14,7 +13,7 @@ from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
 
 
-async def test_durable_epoch_queued_cancel_expiry_publish_cas_and_gc_fence(
+async def test_durable_epoch_queued_cancel_expiry_publish_cas_and_gc_fence(  # noqa: PLR0915 - keep successive epochs, durable stop proof and publication/GC fencing in one causal history
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, model_id: str
 ) -> None:
     container = app.state.container

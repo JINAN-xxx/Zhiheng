@@ -8,7 +8,6 @@ from importlib.resources import files
 
 from lightrag import kg  # type: ignore[import-untyped]
 from lightrag.utils import logger as sdk_logger  # type: ignore[import-untyped]
-
 from zhiheng.shared.errors import AppError
 
 _LOCK = threading.Lock()

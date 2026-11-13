@@ -10,14 +10,16 @@
         show-icon
       />
       <div class="resources-heading">
-        <div>
+        <div class="resources-heading__copy">
           <strong>资源授权</strong>
           <p>密钥只能在操作能力与应用授权的交集内访问当前有效的个人或明确共享资源。</p>
         </div>
-        <a-button v-if="snapshot.canBindResources" type="primary" @click="openBinding()"
-          >授权资源</a-button
-        >
-        <a-button :loading="loading" @click="load">刷新</a-button>
+        <div class="resources-heading__actions">
+          <a-button v-if="snapshot.canBindResources" type="primary" @click="openBinding()"
+            >授权资源</a-button
+          >
+          <RefreshButton label="刷新资源授权" :loading="loading" @click="load" />
+        </div>
       </div>
       <div class="resource-quota">
         <span>原始文件 {{ snapshot.sourceCount }} / {{ snapshot.sourceFileLimit }} 个</span>
@@ -170,6 +172,7 @@ import {
   Space as ASpace
 } from 'ant-design-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import type { Application, BoundResource, ResourceAction, ResourceKind } from '../api/index.ts'
 import { useResourceAccess } from '../composables/resourceAccess.ts'
@@ -271,9 +274,15 @@ function bytes(value: number): string {
   padding: 18px 22px;
   border-bottom: 1px solid var(--gray-150);
 }
-.resources-heading > div {
+.resources-heading__copy {
   flex: 1;
-  min-width: 180px;
+  min-width: 0;
+}
+.resources-heading__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
 }
 .resources-heading strong {
   font-size: 16px;
@@ -314,6 +323,13 @@ function bytes(value: number): string {
   .resources-heading,
   .resource-quota {
     padding: 16px;
+  }
+  .resources-heading__copy {
+    flex-basis: 100%;
+  }
+  .resources-heading__actions {
+    justify-content: flex-end;
+    width: 100%;
   }
 }
 </style>

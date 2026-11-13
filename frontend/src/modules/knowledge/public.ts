@@ -25,3 +25,4 @@ export type {
 } from './api/index.ts'
 
 export { listBases } from './api/index.ts'
+export { addChatAttachment } from './api/index.ts'

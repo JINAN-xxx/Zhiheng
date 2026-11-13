@@ -53,7 +53,7 @@ const emit = defineEmits<{ prompt: [value: string] }>()
 .chat-empty-state h2 {
   margin: 0;
   color: var(--color-text);
-  font-size: 26px;
+  font-size: 32px;
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: normal;

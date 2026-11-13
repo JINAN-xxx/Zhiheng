@@ -11,7 +11,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import JSON, Select, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,8 +39,11 @@ from zhiheng.modules.billing.orm import (
     CreditKeyMonth,
     CreditLedger,
     CreditRate,
+    Invocation,
+    UsageAccount,
 )
 from zhiheng.modules.billing.pricing import POINT_QUANTUM, exact_points, points_for_usage
+from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
@@ -71,6 +74,93 @@ def _available(account: CreditAccount) -> Decimal:
 
 
 class CreditService:
+    @staticmethod
+    def _failed_chat_waivers() -> Select[tuple[UUID]]:
+        """Only empty, failed private chats without any confirmed usage qualify."""
+        return (
+            select(CreditHold.run_id)
+            .join(Run, Run.id == CreditHold.run_id)
+            .join(Invocation, Invocation.run_id == CreditHold.run_id)
+            .where(
+                CreditHold.status == 'unknown',
+                CreditHold.source == 'chat',
+                CreditHold.key_id.is_(None),
+                Run.resource_type == 'chat',
+                Run.status == 'failed',
+                Run.owner_id == CreditHold.user_id,
+                Run.billing_owner_id == CreditHold.user_id,
+                Run.text == '',
+                Run.reasoning == '',
+                or_(Run.result.is_(None), Run.result == JSON.NULL),
+                Run.input_tokens.is_(None),
+                Run.output_tokens.is_(None),
+                Run.usage_status == 'unknown',
+                Invocation.user_id == CreditHold.user_id,
+                Invocation.model_id == CreditHold.model_id,
+                Invocation.source == 'chat',
+                Invocation.key_id.is_(None),
+                Invocation.points_enforced.is_(True),
+                Invocation.status == 'unknown',
+                *(
+                    getattr(model, counter).is_(None)
+                    for model in (CreditHold, Invocation)
+                    for counter in USAGE_COUNTERS
+                ),
+            )
+        )
+
+    async def failed_chat_waivers(self, session: AsyncSession, *, limit: int = 100) -> list[UUID]:
+        return list(
+            await session.scalars(
+                self._failed_chat_waivers().order_by(CreditHold.created_at, CreditHold.run_id).limit(limit)
+            )
+        )
+
+    async def waive_failed_chat(self, session: AsyncSession, run_id: UUID) -> bool:
+        # Match the executor's Run -> invocation -> account/hold lock order.
+        # Recheck under all locks: a concurrent reconciliation may have completed.
+        if await session.scalar(select(Run.id).where(Run.id == run_id).with_for_update()) is None:
+            return False
+        invocation = await session.scalar(
+            select(Invocation)
+            .where(Invocation.run_id == run_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if invocation is None:
+            return False
+        if await session.scalar(self._failed_chat_waivers().where(CreditHold.run_id == run_id)) is None:
+            return False
+        tokens = await session.scalar(
+            select(UsageAccount)
+            .where(UsageAccount.user_id == invocation.user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if tokens is None or tokens.reserved_tokens < invocation.reserved_tokens:
+            raise RuntimeError('Failed-chat Token reservation invariant failed')
+        account, row = await self._locked_hold(session, run_id)
+        if await session.scalar(self._failed_chat_waivers().where(CreditHold.run_id == run_id)) is None:
+            return False
+        # This is a commercial waiver, not evidence that the provider used zero
+        # Tokens. Keep Run/invocation counters unknown and retain their estimates.
+        tokens.reserved_tokens -= invocation.reserved_tokens
+        account.reserved_points = _sum(account.reserved_points, row.reserved_points.copy_negate())
+        account.version += 1
+        row.status, row.charged_points, row.version = 'settled', ZERO, row.version + 1
+        self._entry(
+            session,
+            account,
+            kind='failure_waive',
+            amount=ZERO,
+            available_delta=row.reserved_points,
+            reserved_delta=row.reserved_points.copy_negate(),
+            run_id=run_id,
+            reason='聊天请求失败且无正文、推理或已确认用量，本次积分免计并释放预占；供应商用量仍未知。',
+        )
+        await session.flush()
+        return True
+
     async def state(self, session: AsyncSession) -> CreditState:
         row = await session.scalar(
             select(CreditControl).where(CreditControl.id == 1).execution_options(populate_existing=True)
@@ -145,7 +235,7 @@ class CreditService:
     async def adjust(
         self, session: AsyncSession, actor: Principal, user_id: UUID, data: CreditAdjustment
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:adjust')
         # Revalidate even a model_copy/model_construct created by an internal caller.
         points = exact_points(data.points, positive=True)
         if data.kind not in ('grant', 'reclaim'):
@@ -177,7 +267,7 @@ class CreditService:
         user_id: UUID,
         data: CreditAccountStatePatch,
     ) -> CreditSummary:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:configure')
         previous = await self._command(session, actor, 'account_state', str(user_id), data, CreditSummary)
         if previous is not None:
             return previous
@@ -417,7 +507,7 @@ class CreditService:
         run_id: UUID,
         data: CreditReconcile,
     ) -> CreditReservation:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         previous = await self._command(session, actor, 'reconcile', str(run_id), data, CreditReservation)
         if previous is not None:
             return previous
@@ -804,7 +894,16 @@ class CreditService:
     def _reservation(row: CreditHold) -> CreditReservation:
         value = CreditReservation.model_validate(row, from_attributes=True)
         return CreditReservation.model_validate(
-            {**value.model_dump(), 'billing_mode': row.rate_snapshot['billing_mode']}
+            {
+                **value.model_dump(),
+                'billing_mode': row.rate_snapshot['billing_mode'],
+                # Ordinary settlement always has confirmed billing counters;
+                # an empty failed-chat waiver deliberately preserves all nulls.
+                'failure_waived': row.source == 'chat'
+                and row.status == 'settled'
+                and row.charged_points == ZERO
+                and all(getattr(row, counter) is None for counter in USAGE_COUNTERS),
+            }
         )
 
     @staticmethod

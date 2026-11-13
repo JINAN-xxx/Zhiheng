@@ -77,5 +77,6 @@ def test_memory_settings_validate_trigger_above_retention() -> None:
         chat_summary_output_tokens=512,
     )
     assert configured.chat_context_input_tokens == 4096
+    assert Settings(**values).chat_context_input_tokens is None
     with pytest.raises(ValidationError):
         Settings(**values, chat_summary_trigger_rounds=3, chat_summary_keep_rounds=3)

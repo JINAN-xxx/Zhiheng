@@ -24,7 +24,9 @@ async def create_admin(settings: Settings, username: str, password: str) -> None
     try:
         await database.require_schema()
         async with database.sessions.begin() as session:
-            await AccountService(IdentityService(), SkillService()).create_user(session, username=username, password=password, is_admin=True)
+            await AccountService(IdentityService(), SkillService()).create_user(
+                session, username=username, password=password, is_admin=True
+            )
     finally:
         await database.close()
 

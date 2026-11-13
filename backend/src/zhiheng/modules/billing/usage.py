@@ -12,17 +12,16 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from zhiheng.modules.billing.contracts import CreditReconcile, CreditReservation
-    from zhiheng.modules.billing.ports import LegacyMeterPort
+    from zhiheng.modules.billing.contracts import CreditReconcile, CreditReservation, UsageOutcome, UsageSummary
+    from zhiheng.modules.billing.ports import MeterPort
     from zhiheng.modules.billing.service import CreditService
-    from zhiheng.modules.developer.public import UsageOutcome, UsageSummary
     from zhiheng.modules.models.public import ModelService, RateInfo
     from zhiheng.shared.principal import Principal
 
 
 class UsageService:
-    def __init__(self, credit_service: CreditService, legacy: LegacyMeterPort) -> None:
-        self._credits, self._legacy = credit_service, legacy
+    def __init__(self, credit_service: CreditService, meter: MeterPort) -> None:
+        self._credits, self._meter = credit_service, meter
 
     async def points_enabled(self, session: AsyncSession) -> bool:
         await lock_billing_admission(session)
@@ -36,11 +35,11 @@ class UsageService:
         *,
         required: bool = False,
     ) -> RateInfo | None:
-        """Keep historical currency prices optional once points govern admission."""
+        """Optional legacy prices; unbilled admission never freezes or applies them."""
         try:
             return await models.latest_rate(session, model_id)
         except AppError as error:
-            if error.code != 'model_not_found' or (required and not await self.points_enabled(session)):
+            if error.code != 'model_not_found':
                 raise
             return None
 
@@ -64,25 +63,22 @@ class UsageService:
         enabled = await self.points_enabled(session)
         if enabled and estimated_input_tokens is None:
             raise AppError('invalid_usage_estimate', '积分调用需要输入和最大输出用量估算', 422)
-        if not enabled and key_id is not None and rate is None:
-            raise AppError('model_not_found', 'Model is unavailable', 404)
-        # Key -> legacy account -> credit account is shared by admission,
+        # Key -> Token account -> credit account is shared by admission,
         # completion and reconciliation. Failed credit admission also rolls back
         # the old meter and the key's rate-limit reservation.
         async with session.begin_nested():
-            reservation = await self._legacy.reserve(
+            reservation = await self._meter.reserve(
                 session,
                 user_id=user_id,
                 run_id=run_id,
                 model_id=model_id,
                 source=source,
-                tokens=tokens,
+                tokens=tokens if enabled else 0,
                 token_limit=token_limit,
                 key_id=key_id,
-                rate=rate,
+                rate=rate if enabled else None,
                 operation=operation,
                 points_enforced=enabled,
-                enforce_token_limit=not enabled,
             )
             if enabled:
                 await self._credits.reserve(
@@ -101,11 +97,8 @@ class UsageService:
 
     async def require_model_price(self, session: AsyncSession, models: ModelService, model_id: UUID) -> None:
         """Reject unpriced API model steps before accepting durable work; reserve still freezes the actual price."""
-        if await self.points_enabled(session):
-            if await self._credits.quote(session, model_id) is None:
-                raise AppError('credit_rate_missing', '模型尚未配置积分费率', 409)
-        else:
-            await self.money_rate(session, models, model_id, required=True)
+        if await self.points_enabled(session) and await self._credits.quote(session, model_id) is None:
+            raise AppError('credit_rate_missing', '模型尚未配置积分费率', 409)
 
     async def preflight(
         self,
@@ -120,12 +113,12 @@ class UsageService:
     ) -> None:
         await self.require_model_price(session, models, model_id)
         enabled = await self.points_enabled(session)
-        rate = await self.money_rate(session, models, model_id, required=True)
-        reservation = await self._legacy.preflight(
+        rate = await self.money_rate(session, models, model_id, required=True) if enabled else None
+        reservation = await self._meter.preflight(
             session,
             user_id=user_id,
             key_id=key_id,
-            tokens=input_tokens,
+            tokens=input_tokens if enabled else 0,
             token_limit=token_limit,
             rate=rate,
             points_enforced=enabled,
@@ -147,7 +140,7 @@ class UsageService:
         user_id: UUID,
         model_id: UUID,
     ) -> None:
-        reservation = await self._legacy.require_reservation(session, run_id, user_id, model_id)
+        reservation = await self._meter.require_reservation(session, run_id, user_id, model_id)
         if reservation.points_enforced:
             await self._credits.require_reservation(session, run_id, user_id, model_id)
 
@@ -164,7 +157,7 @@ class UsageService:
         reasoning_tokens: int | None = None,
     ) -> UsageOutcome:
         async with session.begin_nested():
-            outcome = await self._legacy.settle(
+            outcome = await self._meter.settle(
                 session,
                 run_id,
                 input_tokens=input_tokens,
@@ -189,6 +182,12 @@ class UsageService:
                 )
             return outcome
 
+    async def failed_chat_waivers(self, session: AsyncSession, *, limit: int = 100) -> list[UUID]:
+        return await self._credits.failed_chat_waivers(session, limit=limit)
+
+    async def waive_failed_chat(self, session: AsyncSession, run_id: UUID) -> bool:
+        return await self._credits.waive_failed_chat(session, run_id)
+
     async def reconcile(
         self,
         session: AsyncSession,
@@ -196,9 +195,9 @@ class UsageService:
         run_id: UUID,
         data: CreditReconcile,
     ) -> CreditReservation:
-        actor.require_permission('ai:credits:write')
+        actor.require_permission('ai:credits:reconcile')
         async with session.begin_nested():
-            await self._legacy.reconcile(
+            await self._meter.reconcile(
                 session,
                 run_id,
                 input_tokens=data.input_tokens,
@@ -210,7 +209,7 @@ class UsageService:
             return await self._credits.reconcile(session, actor, run_id, data)
 
     async def summary(self, session: AsyncSession, user_id: UUID, *, token_limit: int) -> UsageSummary:
-        return await self._legacy.summary(session, user_id, token_limit=token_limit)
+        return await self._meter.summary(session, user_id, token_limit=token_limit)
 
     async def application_usage(
         self,
@@ -221,4 +220,4 @@ class UsageService:
         operation: str | None,
         status: str | None,
     ) -> dict[str, object]:
-        return await self._legacy.application_usage(session, application_id, page, page_size, operation, status)
+        return await self._meter.application_usage(session, application_id, page, page_size, operation, status)

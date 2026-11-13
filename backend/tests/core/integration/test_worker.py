@@ -5,6 +5,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_chat_runs import admit
 from tests.core.provider import ProviderServer
 from zhiheng.runtime.contracts import RunError, RunStatus, RunUsage
@@ -61,6 +62,7 @@ async def test_silent_provider_can_be_cancelled_before_timeout(
     from zhiheng.worker.execution import execute_run
 
     model_id = await named_model(admin, provider, 'silent')
+    await enable_free_billing(admin)
     _conversation, run = await admit(admin, model_id)
     execution = asyncio.create_task(execute_run(app.state.container, UUID(run['id'])))
     try:
@@ -128,8 +130,8 @@ async def test_expired_attempt_is_fenced_and_keeps_unknown_reservation(
     model_id: str,
     app: object,
 ) -> None:
+    await enable_free_billing(admin)
     from zhiheng.shared.errors import AppError
-    from zhiheng.worker.main import recover_expired
 
     container = app.state.container
     _conversation, run = await admit(admin, model_id)
@@ -138,7 +140,7 @@ async def test_expired_attempt_is_fenced_and_keeps_unknown_reservation(
         assert claim is not None
         assert await container.runs.start_provider(session, claim.id, claim.attempt_id)
         await session.execute(text("UPDATE runtime_runs SET lease_until = now() - interval '1 second'"))
-    await recover_expired(container)
+    await container.run_recovery.recover_expired()
     async with container.database.sessions.begin() as session:
         assert await container.runs.project(session, claim.id, claim.attempt_id, 'late text') is False
         with pytest.raises(AppError, match='失效'):
@@ -156,6 +158,7 @@ async def test_success_without_usage_remains_unknown(
     from zhiheng.worker.execution import execute_run
 
     model_id = await named_model(admin, provider, 'no-usage')
+    await enable_free_billing(admin)
     _conversation, run = await admit(admin, model_id)
     await execute_run(app.state.container, UUID(run['id']))
     result = (await admin.get(f'/api/runs/{run["id"]}')).json()
@@ -206,6 +209,7 @@ async def test_premature_eof_does_not_create_complete_message_or_pollute_context
     from zhiheng.worker.execution import execute_run
 
     model_id = await named_model(admin, provider, 'truncated')
+    await enable_free_billing(admin)
     conversation_id, run = await admit(admin, model_id)
     await execute_run(app.state.container, UUID(run['id']))
     result = (await admin.get(f'/api/runs/{run["id"]}')).json()
@@ -214,8 +218,10 @@ async def test_premature_eof_does_not_create_complete_message_or_pollute_context
     assert result['usage']['status'] == 'unknown'
     messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
     assert [message['role'] for message in messages] == ['user']
+    assert result['text'] == 'half answer'
     assert (await admin.get('/api/usage')).json()['reserved_tokens'] > 0
     valid_model = await named_model(admin, provider, 'local-text')
+    await enable_free_billing(admin)
     followup = await admin.post(
         f'/api/chat/conversations/{conversation_id}/runs',
         json={
@@ -280,6 +286,7 @@ async def test_missing_raw_usage_counter_keeps_reservation_unknown(
     from zhiheng.worker.execution import execute_run
 
     model_id = await named_model(admin, provider, upstream)
+    await enable_free_billing(admin)
     _conversation, run = await admit(admin, model_id)
     await execute_run(app.state.container, UUID(run['id']))
     snapshot = (await admin.get(f'/api/runs/{run["id"]}')).json()

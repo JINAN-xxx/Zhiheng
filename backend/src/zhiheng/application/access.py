@@ -25,6 +25,7 @@ from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import KnowledgeService
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability, require_resource_operation
 from zhiheng.shared.principal import Principal
 
 
@@ -76,7 +77,7 @@ class ResourceAccessService:
     @staticmethod
     def personal(principal: Principal) -> Principal:
         # An administrator's global visibility never grants a personal resource.
-        return Principal(principal.id, principal.username, False, principal.permissions)
+        return principal.personal()
 
     async def domain_actions(
         self,
@@ -147,6 +148,20 @@ class ResourceAccessService:
     ) -> ResourceGrantInfo:
         principal = await self.identity.principal_for_user(session, principal.id)
         await self.grants.lock_owned(session, principal.id, application_id, expected_version)
+        if kind in {'knowledge_base', 'skill'}:
+            module = 'knowledge' if kind == 'knowledge_base' else 'skills'
+            if 'delete' in actions:
+                require_capability(principal, module, 'delete')
+            if 'write' in actions:
+                operations = (
+                    ('create', 'update', 'import', 'rebuild')
+                    if kind == 'knowledge_base'
+                    else ('create', 'update', 'toggle')
+                )
+                principal.require_any_permission(*(f'platform:{module}:{operation}' for operation in operations))
+            if 'query' in actions:
+                require_capability(principal, module, 'query')
+            require_capability(principal, module, 'read')
         facts = await self.domain_actions(session, principal, kind, resource_id, lock=True, binding=True)
         if not set(actions) <= facts.actions:
             raise AppError('resource_not_found', '资源不存在', 404)
@@ -229,6 +244,7 @@ class ResourceAccessService:
         self, session: AsyncSession, caller: CallerContext, info: APIRequestInfo, *, lock: bool = True
     ) -> None:
         current = await self.current(session, caller, info.required_scope)
+        require_resource_operation(current.principal, info.operation)
         if current.identity is None or current.identity.application_id != info.application_id:
             raise AppError('request_not_found', '请求不存在', 404)
         for target in sorted(

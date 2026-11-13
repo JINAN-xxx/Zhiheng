@@ -16,7 +16,12 @@
         >
           <HistoryOutlined aria-hidden="true" />工作记录
         </button>
-        <AButton type="text" aria-label="新建工作" title="新建工作" @click="newWork"
+        <AButton
+          v-if="canUseCapability('work', 'create')"
+          type="text"
+          aria-label="新建工作"
+          title="新建工作"
+          @click="newWork"
           ><PlusOutlined aria-hidden="true" />新建工作</AButton
         >
       </header>
@@ -92,7 +97,7 @@ import {
   Result as AResult,
   Spin as ASpin
 } from 'ant-design-vue'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import { errorMessage, isAborted } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { useWorkWorkspace } from '../store.ts'
@@ -113,16 +118,17 @@ async function newWork(): Promise<void> {
 const taskId = computed(() => (typeof route.query.taskId === 'string' ? route.query.taskId : ''))
 const canEdit = computed(
   () =>
+    canUseCapability('work', 'update') &&
     !!identity.value &&
-    (!workStore.currentTask ||
-      workStore.currentTask.ownerId === identity.value.id ||
-      identity.value.is_admin)
+    (!workStore.currentTask || workStore.currentTask.ownerId === identity.value.id)
 )
 const capabilities = computed(() => ({
   edit: canEdit.value,
-  canRun: canEdit.value,
+  canRun:
+    canUseCapability('work') &&
+    (!workStore.currentTask || workStore.currentTask.ownerId === identity.value?.id),
   canManageMembers: canEdit.value,
-  canCreate: !!identity.value
+  canCreate: canUseCapability('work', 'create')
 }))
 const error = ref('')
 let createdNavigationTaskId = ''
@@ -246,12 +252,15 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
 
 <style scoped>
 .work-view {
+  --workspace-font-size-chat: 17px;
+  --workspace-line-height-chat: 1.8;
   min-height: 100%;
   height: 100%;
   display: flex;
   position: relative;
   overflow: hidden;
   background: var(--bg-container);
+  font-family: var(--workspace-font-family);
 }
 .work-view__loading {
   margin: auto;

@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from tests.core.integration.test_developer import provision
-from zhiheng.modules.developer.orm import Invocation
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.worker.execution import execute_run
 
 
@@ -73,13 +73,12 @@ async def test_embedding_and_rerank_use_worker_and_actual_usage(
     application = (
         await admin.post('/api/developer/applications', json={'code': uuid4().hex, 'name': 'Vectors'})
     ).json()
-    for kind, endpoint, payload, expected_cost in [
-        ('embedding', 'embeddings', {'input': ['first', 'second'], 'dimensions': 2}, '0.06'),
+    for kind, endpoint, payload in [
+        ('embedding', 'embeddings', {'input': ['first', 'second'], 'dimensions': 2}),
         (
             'rerank',
             'rerank',
             {'query': 'first', 'documents': ['first', {'text': 'second'}], 'top_n': 1, 'return_documents': True},
-            '0.50',
         ),
     ]:
         model = (
@@ -120,9 +119,7 @@ async def test_embedding_and_rerank_use_worker_and_actual_usage(
         usage = (
             await admin.get(f'/api/developer/applications/{application["id"]}/usage', params={'operation': kind})
         ).json()['items'][0]
-        from decimal import Decimal
-
-        assert Decimal(usage['billable_cost']) == Decimal(expected_cost)
+        assert usage['billable_cost'] is None
         assert usage['status'] == 'known'
     assert provider.requests[-2]['input'] == ['first', 'second']
     assert provider.requests[-2]['dimensions'] == 2
@@ -135,7 +132,7 @@ async def test_disconnect_and_header_failure_cancel_pending_reservation(
 ) -> None:
     from tests.core.integration.test_developer import admitted
     from zhiheng.api.inference.streaming import LifecycleStream, cancel, snapshots
-    from zhiheng.modules.developer.orm import UsageAccount
+    from zhiheng.modules.billing.orm import UsageAccount
 
     _, key = await provision(admin, model_id)
     container = app.state.container
@@ -196,12 +193,12 @@ async def test_connection_smoke_uses_declared_model_type(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('kind', ['embedding', 'rerank'])
-async def test_structured_missing_raw_usage_keeps_reservation(
+async def test_unbilled_structured_missing_usage_stays_unknown_without_reservation_or_price(
     admin: httpx.AsyncClient, model_id: str, app: object, kind: str
 ) -> None:
     from uuid import uuid4
 
-    from zhiheng.modules.developer.orm import UsageAccount
+    from zhiheng.modules.billing.orm import UsageAccount
 
     connection = (await admin.get('/api/models')).json()[0]['connection_id']
     model = (
@@ -238,12 +235,11 @@ async def test_structured_missing_raw_usage_keeps_reservation(
     assert response.status_code == 200, response.text
     usage = (await admin.get(f'/api/developer/applications/{application["id"]}/usage')).json()['items'][0]
     assert usage['status'] == 'unknown'
-    # Search-unit money is known even if the provider omits diagnostic Token usage.
-    assert usage['billable_cost'] == ('0.500000000000' if kind == 'rerank' else None)
+    assert usage['billable_cost'] is None
     assert usage['input_tokens'] is None and usage['output_tokens'] is None
     async with app.state.container.database.sessions() as session:
         account = await session.get(UsageAccount, UUID(application['owner_id']))
-        assert account.reserved_tokens > 0 and account.used_tokens == 0
+        assert account.reserved_tokens == account.used_tokens == 0
 
 
 @pytest.mark.asyncio

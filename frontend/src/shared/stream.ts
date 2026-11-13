@@ -17,8 +17,12 @@ export interface RunSnapshot {
     | 'connection_test'
     | 'public'
     | 'agent_preview'
+    | 'agent_chat'
     | 'agent_invocation'
     | 'work_turn'
+    | 'knowledge_embedding'
+    | 'knowledge_rerank'
+    | 'knowledge_graph'
   resource_id: string
   status: RunStatus
   attempt_id: string | null
@@ -54,8 +58,12 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       resourceType !== 'connection_test' &&
       resourceType !== 'public' &&
       resourceType !== 'agent_preview' &&
+      resourceType !== 'agent_chat' &&
       resourceType !== 'agent_invocation' &&
-      resourceType !== 'work_turn'
+      resourceType !== 'work_turn' &&
+      resourceType !== 'knowledge_embedding' &&
+      resourceType !== 'knowledge_rerank' &&
+      resourceType !== 'knowledge_graph'
     )
       throw new Error('resource_type')
     if (

@@ -1,4 +1,5 @@
 """Control-console integration checks with isolated HTTP boundary fixtures."""
+from browser_clipboard import read_clipboard
 import os
 import asyncio
 import re
@@ -40,6 +41,8 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
         kb = {'id': 'k1', 'name': '核对知识库', 'description': '', 'owner_id': 'u1', 'access': 'private', 'version': 1, 'acl_version': 1, 'embed_model_id': 'e1', 'chunk_size': 800, 'chunk_overlap': 100, 'active_revision': None, 'active_job_id': None, 'index_status': 'empty', 'document_count': 0, 'last_error': None, 'enable_knowledge_graph': False, 'llm_model_id': None, 'graph_status': 'disabled', 'created_at': '2026-10-28T01:00:00Z', 'updated_at': '2026-10-28T01:00:00Z', 'can_manage': True}
         if path == '/api/auth/me':
             body = {'id': 'u1', 'username': 'admin' if self.admin else 'member', 'is_admin': self.admin}
+        elif path == '/api/admin/notices/published':
+            body = []
         elif path == '/api/models':
             body = [{'id': 'm1', 'name': '核对模型', 'connection_id': 'c1', 'upstream_model': 'test', 'max_output_tokens': 512, 'enabled': True, 'model_type': 'chat', 'published': True, 'vision_enabled': False, 'capabilities': ['chat', 'stream']}]
         elif path == '/api/models/connections':
@@ -60,6 +63,10 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
                 {'id': 'q1', 'role': 'user', 'content': '第一行问题\n第二行问题', 'run_id': None, 'created_at': '2026-10-28T01:00:00Z'},
                 {'id': 'a1', 'role': 'assistant', 'content': '**完整回复**\n\n```text\n保留代码与换行\n```', 'reasoning': '不应混入复制正文的推理', 'run_id': None, 'created_at': '2026-10-28T01:00:01Z'}
             ]
+        elif path == '/api/chat/conversations/c1/context':
+            body = {'status': 'full', 'summary_version': 0, 'covered_rounds': 0, 'retained_rounds': 1,
+                    'dirty': False, 'truncated': False, 'dropped_rounds': 0,
+                    'estimated_input_tokens': 100, 'input_budget': 8192, 'reason': None}
         elif path == '/api/work/tasks':
             body = {'items': [], 'total': 0}
         elif path in ['/api/skills/available', '/api/knowledge/available', '/api/work/agents', '/api/work/available-agents', '/api/work/agents/available']:
@@ -73,17 +80,17 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
     async def test_workspace_uses_real_counts_and_full_navigation(self):
         await self.page.goto(self.origin + '/overview')
         await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible(timeout=8000)
-        for label, value in [('模型', '1'), ('智能体', '2'), ('知识库', '3'), ('技能', '4')]:
-            await expect(self.page.get_by_role('link', name=label + '数量', exact=True)).to_contain_text(value)
+        for label, value in [('模型', '1'), ('智能助手', '2'), ('知识库', '3'), ('技能', '4')]:
+            group = self.page.get_by_role('region', name=label + '资源', exact=True)
+            await expect(group.locator('.console-resource-count')).to_have_text(value)
+            await expect(group.get_by_role('link', name='查看全部' + label, exact=True)).to_be_visible()
         navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        for label in ['工作台', '对话体验', '模型目录', '智能体', '技能管理', '工作空间', '知识库', '开发接入', '用量与调用']:
+        for label in ['工作台', '对话体验', '模型目录', '智能助手', '技能', '工作空间', '知识库', '开发接入', '用量与调用']:
             await expect(navigation.get_by_role('link', name=label, exact=True)).to_be_visible()
         await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
-        await self.page.get_by_role('button', name='搜索资源', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='搜索资源', exact=True)
-        await expect(dialog.get_by_role('textbox', name='搜索资源名称', exact=True)).to_be_focused()
-        await expect(dialog.get_by_role('link', name='核对助手', exact=True)).to_be_visible()
-        await expect(dialog.get_by_role('link', name='核对模型', exact=True)).to_be_visible()
+        await expect(self.page.locator('.platform-search-trigger')).to_have_count(0)
+        await self.page.keyboard.press('Control+k')
+        await expect(self.page.get_by_role('dialog', name='功能搜索', exact=True)).to_have_count(0)
         self.assertEqual(self.writes, [])
         self.assertEqual(self.errors, [])
         self.assertEqual(self.unexpected, [])
@@ -93,8 +100,10 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
         self.fail_knowledge = True
         await self.page.goto(self.origin + '/overview')
         await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible(timeout=8000)
-        await expect(self.page.get_by_role('link', name='知识库数量', exact=True)).to_contain_text('暂不可用')
-        await expect(self.page.get_by_role('link', name='智能体数量', exact=True)).to_contain_text('2')
+        knowledge = self.page.get_by_role('region', name='知识库资源', exact=True)
+        await expect(knowledge.locator('.console-resource-count')).to_have_text('暂不可用')
+        await expect(knowledge.get_by_role('alert')).to_contain_text('知识服务暂不可用')
+        await expect(self.page.get_by_role('region', name='智能体资源', exact=True).locator('.console-resource-count')).to_have_text('2')
         navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
         models_link = navigation.get_by_role('link', name='模型目录', exact=True)
         await expect(models_link).to_be_visible()
@@ -109,6 +118,55 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
         self.assertEqual(self.errors, [])
         self.assertEqual(self.unexpected, [])
 
+    async def test_resource_overview_groups_previews_without_spreading_long_lists(self):
+        long_name = '用于验证完整名称保留的业务模型' * 3
+        models = [{'id': f'm{index}', 'name': long_name + str(index), 'connection_id': 'c1',
+                   'upstream_model': 'provider-model-' + str(index), 'max_output_tokens': 512,
+                   'enabled': True, 'model_type': 'chat', 'published': True,
+                   'vision_enabled': False, 'capabilities': ['chat', 'stream']} for index in range(8)]
+        await self.page.route(re.compile(r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(json=models))
+        await self.page.goto(self.origin + '/overview')
+        resources = self.page.get_by_role('region', name='资源总览', exact=True)
+        models_group = resources.get_by_role('region', name='模型资源', exact=True)
+        agents = resources.get_by_role('region', name='智能体资源', exact=True)
+        knowledge = resources.get_by_role('region', name='知识库资源', exact=True)
+        skills = resources.get_by_role('region', name='技能资源', exact=True)
+        await expect(models_group.locator('.console-resource-count')).to_have_text('8')
+        await expect(models_group.locator('.console-resource-row')).to_have_count(3)
+        await expect(models_group.get_by_role('link', name=long_name + '0', exact=True)).to_be_visible()
+        await expect(models_group.get_by_role('link', name=long_name + '3', exact=True)).to_have_count(0)
+        await expect(models_group.get_by_role('link', name='查看全部模型', exact=True)).to_have_attribute('href', '/models')
+        first = await models_group.bounding_box()
+        second = await agents.bounding_box()
+        third = await knowledge.bounding_box()
+        fourth = await skills.bounding_box()
+        self.assertGreater(second['x'], first['x'] + first['width'] - 1)
+        self.assertLessEqual(abs(first['y'] - second['y']), 1)
+        self.assertGreater(third['y'], first['y'])
+        self.assertLessEqual(abs(third['y'] - fourth['y']), 1)
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+        first = await models_group.bounding_box()
+        second = await agents.bounding_box()
+        self.assertLessEqual(abs(first['x'] - second['x']), 1)
+        self.assertGreater(second['y'], first['y'] + first['height'] - 1)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.unexpected, [])
+
+    async def test_basic_user_can_open_model_directory_from_resource_group(self):
+        self.admin = False
+        await self.page.goto(self.origin + '/overview')
+        link = self.page.get_by_role('region', name='模型资源', exact=True).get_by_role('link', name='查看全部模型', exact=True)
+        await expect(link).to_have_attribute('href', '/models')
+        await link.click()
+        await expect(self.page).to_have_url(self.origin + '/models')
+        await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='接入模型', exact=True)).to_have_count(0)
+        self.assertEqual(self.writes, [])
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.unexpected, [])
+
     async def test_chat_messages_keep_both_roles_and_copy_raw_text(self):
         self.chat_history = True
         await self.page.goto(self.origin + '/chat')
@@ -116,12 +174,13 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
         user = self.page.locator('.message-row.user')
         assistant = self.page.locator('.message-row.assistant')
         await expect(self.page.get_by_role('toolbar', name='回复操作', exact=True)).to_be_visible(timeout=8000)
-        ua = await user.locator('.message-avatar').bounding_box()
-        aa = await assistant.locator('.message-avatar').bounding_box()
+        await expect(self.page.locator('.message-avatar')).to_have_count(0)
+        ua = await user.locator('.user-message').bounding_box()
+        aa = await assistant.locator('.message-body').bounding_box()
         self.assertGreater(ua['x'], aa['x'] + 100)
         for label, text in [('复制提问', '第一行问题\n第二行问题'), ('复制回复', '**完整回复**\n\n```text\n保留代码与换行\n```')]:
             await self.page.get_by_role('button', name=label, exact=True).click()
-            self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), text)
+            self.assertEqual(await read_clipboard(self.page), text)
         toolbar = self.page.get_by_role('toolbar', name='回复操作', exact=True)
         await expect(toolbar.get_by_role('button')).to_have_count(6)
         for label in ['重新生成', '赞同', '不赞同', '朗读', '分享']:
@@ -129,7 +188,8 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await expect(self.page.get_by_role('dialog', name='历史记录', exact=True)).to_be_hidden()
         await self.page.get_by_role('button', name='复制回复', exact=True).click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), '**完整回复**\n\n```text\n保留代码与换行\n```')
+        self.assertEqual(await read_clipboard(self.page), '**完整回复**\n\n```text\n保留代码与换行\n```')
+        await self.page.wait_for_function('document.documentElement.scrollWidth <= innerWidth')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         self.assertEqual(self.writes, [])
         self.assertEqual(self.errors, [])

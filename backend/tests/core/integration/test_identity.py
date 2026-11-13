@@ -95,8 +95,9 @@ async def test_ai_role_changes_refresh_existing_http_sessions(admin: httpx.Async
         assert current.status_code == 200
         assert set(current.json()['permissions']) == set(permissions)
         assert current.json()['is_admin'] is False
-        for path in ('/api/admin/permissions', '/api/admin/roles', '/api/admin/menus?navigation=true'):
+        for path in ('/api/admin/permissions', '/api/admin/roles'):
             assert (await operator.get(path)).status_code == 403
+        assert (await operator.get('/api/admin/menus?navigation=true')).status_code == 404
         for version, active in ((2, False), (3, True)):
             changed = await admin.patch(
                 f'/api/admin/roles/{role["id"]}', json={'is_active': active, 'expected_version': version}
@@ -114,7 +115,7 @@ async def test_full_system_and_ai_permission_catalog_can_be_granted_over_http(ad
     response = await admin.get('/api/admin/permissions')
     assert response.status_code == 200
     permissions = sorted(item['code'] for item in response.json()['items'])
-    assert len(permissions) == 30
+    assert len(permissions) == 24
     created = await admin.post('/api/admin/roles', json={'name': 'All permissions', 'permissions': permissions})
     assert created.status_code == 201, created.text
     role = created.json()

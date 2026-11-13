@@ -9,9 +9,11 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
+from tests.core.knowledge_support import knowledge_models, legacy_grant
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
-from zhiheng.modules.knowledge.public import MilvusStore, VectorSpec
+from zhiheng.modules.knowledge.adapters.milvus import MilvusStore
+from zhiheng.modules.knowledge.public import VectorSpec
 from zhiheng.shared.errors import AppError
 
 
@@ -25,11 +27,15 @@ async def real_vectors(app: FastAPI) -> AsyncIterator[MilvusStore]:
     if not uri:
         pytest.skip('Separate Milvus URI required')
     container = app.state.container
+
     class RegisteredStore(MilvusStore):
-        async def build(self,spec: VectorSpec,rows: list[dict[str,object]],**kwargs: Any) -> None:
-            resource('intent','milvus_collection',spec.collection_name,description=spec.description(),database='default')
-            await super().build(spec,rows,**kwargs)
-            resource('created','milvus_collection',spec.collection_name)
+        async def build(self, spec: VectorSpec, rows: list[dict[str, object]], **kwargs: Any) -> None:
+            resource(
+                'intent', 'milvus_collection', spec.collection_name, description=spec.description(), database='default'
+            )
+            await super().build(spec, rows, **kwargs)
+            resource('created', 'milvus_collection', spec.collection_name)
+
     store = RegisteredStore(uri)
     container.knowledge_jobs.vectors = container.knowledge_preparation.vectors = store
     try:
@@ -47,9 +53,10 @@ async def real_vectors(app: FastAPI) -> AsyncIterator[MilvusStore]:
                         generation.collection_name,
                         generation.fingerprint,
                         generation.dimension,
+                        generation.retrieval_version,
                     )
                 )
-                resource('deleted','milvus_collection',generation.collection_name)
+                resource('deleted', 'milvus_collection', generation.collection_name)
 
 
 @pytest_asyncio.fixture
@@ -60,12 +67,19 @@ async def completed_public_knowledge(
     model_id: str,
     real_vectors: MilvusStore,
 ) -> dict[str, Any]:
+    from uuid import UUID
+
     from tests.core.integration.test_knowledge import embedding_model, finish_preparation
     from tests.core.integration.test_knowledge_failures import finish_job, source
     from tests.core.integration.test_work import published
 
     embedding = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Replay', 'embed_model_id': embedding})).json()
+    async with app.state.container.database.sessions.begin() as session:
+        from zhiheng.modules.knowledge.orm import KnowledgeBase
+
+        legacy = await session.get(KnowledgeBase, UUID(base['id']))
+        legacy.document_policy = 'legacy'
     file = await source(admin, 'replay.txt', b'An admitted answer remains recoverable.')
     job = await finish_job(
         admin,
@@ -98,7 +112,7 @@ async def completed_public_knowledge(
             f'/api/developer/applications/{agent["application_id"]}/keys',
             json={
                 'name': 'Recovery',
-                'model_ids': [model_id, embedding],
+                'model_ids': await knowledge_models(admin, model_id, embedding),
             },
         )
     ).json()
@@ -237,7 +251,10 @@ async def test_public_accepted_replay_still_requires_current_authorization(
         key = (
             await admin.post(
                 f'/api/developer/applications/{application}/keys',
-                json={'name': 'Other', 'model_ids': [context['model_id'], context['embedding']]},
+                json={
+                    'name': 'Other',
+                    'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
+                },
             )
         ).json()
         context['headers'] = {'Authorization': 'Bearer ' + key['api_key']}
@@ -276,7 +293,9 @@ async def pending_public_run(
         async with container.database.sessions() as session:
             children = list(
                 await session.scalars(
-                    select(Run.id).where(Run.status == 'pending', Run.resource_type == 'knowledge_embedding')
+                    select(Run.id).where(
+                        Run.status == 'pending', Run.resource_type.in_(['knowledge_embedding', 'knowledge_rerank'])
+                    )
                 )
             )
         for run_id in children:
@@ -298,7 +317,7 @@ async def cancel_failed_preparation_after_library_delete(
     removed = await admin.request(
         'DELETE',
         '/api/knowledge/bases/' + base_id,
-        json={'expected_version': base['version'], 'client_request_id': str(uuid4())},
+        json={'expected_version': base['version'], 'client_request_id': str(uuid4()), 'confirm_references': True},
     )
     assert removed.status_code == 202, removed.text
 
@@ -382,12 +401,7 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
     async with member_client(app) as member:
         member_id = (await member.get('/api/auth/me')).json()['id']
         base_id = hit['knowledge_base_id']
-        assert (
-            await admin.patch(
-                f'/api/knowledge/bases/{base_id}/acl',
-                json={'expected_version': 1, 'access': 'public', 'entries': []},
-            )
-        ).status_code == 200
+        await legacy_grant(app, base_id, member_id)
         file_id = hit['file_id']
         granted = await admin.patch(
             f'/api/files/{file_id}/acl',
@@ -398,7 +412,10 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
         key = (
             await member.post(
                 f'/api/developer/applications/{agent["application_id"]}/keys',
-                json={'name': 'Owner ACL', 'model_ids': [context['model_id'], context['embedding']]},
+                json={
+                    'name': 'Owner ACL',
+                    'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
+                },
             )
         ).json()
         headers = {'Authorization': 'Bearer ' + key['api_key']}
@@ -466,7 +483,9 @@ async def pending_public_run_until_ready(
             saved = await container.knowledge_preparation.store.get(session, UUID(intent['id']))
             children = list(
                 await session.scalars(
-                    select(Run.id).where(Run.status == 'pending', Run.resource_type == 'knowledge_embedding')
+                    select(Run.id).where(
+                        Run.status == 'pending', Run.resource_type.in_(['knowledge_embedding', 'knowledge_rerank'])
+                    )
                 )
             )
         if saved.status == admission:
@@ -534,8 +553,11 @@ async def test_real_single_slot_arq_index_and_retrieval(
                 ).json()
         result = (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).json()
         assert result['status'] == 'completed', str(result)
-        assert result['hits'][0]['file_id'] == file['id']
-        assert len(provider.requests) == 2
+        document = (await admin.get(f'/api/knowledge/bases/{base["id"]}/documents')).json()['items'][0]
+        assert result['hits'][0]['file_id'] == document['file_id']
+        assert document['file_id'] != file['id']
+        assert len(provider.requests) == 3
+        assert provider.requests[-1]['model'] == 'rerank'
     finally:
         async with container.database.sessions() as session:
             generations = list(await session.scalars(select(IndexGeneration)))
@@ -549,6 +571,7 @@ async def test_real_single_slot_arq_index_and_retrieval(
                         generation.collection_name,
                         generation.fingerprint,
                         generation.dimension,
+                        generation.retrieval_version,
                     )
                 )
 
@@ -557,11 +580,15 @@ async def test_real_milvus_explicit_generation_schema_and_precise_cleanup() -> N
     uri = os.getenv('ZHIHENG_TEST_MILVUS_URI')
     if not uri:
         pytest.skip('Separate Milvus URI required')
+
     class RegisteredStore(MilvusStore):
-        async def build(self,spec: VectorSpec,rows: list[dict[str,object]],**kwargs: Any) -> None:
-            resource('intent','milvus_collection',spec.collection_name,description=spec.description(),database='default')
-            await super().build(spec,rows,**kwargs)
-            resource('created','milvus_collection',spec.collection_name)
+        async def build(self, spec: VectorSpec, rows: list[dict[str, object]], **kwargs: Any) -> None:
+            resource(
+                'intent', 'milvus_collection', spec.collection_name, description=spec.description(), database='default'
+            )
+            await super().build(spec, rows, **kwargs)
+            resource('created', 'milvus_collection', spec.collection_name)
+
     store = RegisteredStore(uri)
     base, revision, attempt = uuid4(), uuid4(), uuid4()
     spec = VectorSpec(base, revision, attempt, f'zh_k_{base.hex}_{revision.hex}_{attempt.hex}', 'a' * 64, 2)
@@ -629,6 +656,7 @@ async def test_deleted_generation_tombstone_rechecks_only_its_owned_namespace(
             generation.collection_name,
             generation.fingerprint,
             generation.dimension,
+            generation.retrieval_version,
         )
         rows = [
             {
@@ -636,6 +664,7 @@ async def test_deleted_generation_tombstone_rechecks_only_its_owned_namespace(
                 'document_id': str(row.document_id),
                 'content_hash': row.content_hash,
                 'vector': row.vector,
+                **({'text': row.content} if spec.hybrid else {}),
             }
             for row in chunks
         ]
@@ -672,6 +701,12 @@ async def test_deleted_generation_tombstone_rechecks_only_its_owned_namespace(
     async with container.database.sessions() as session:
         active = await session.get(IndexGeneration, UUID(rebuilt['index_revision']))
         active_spec = VectorSpec(
-            active.base_id, active.id, active.attempt_id, active.collection_name, active.fingerprint, active.dimension
+            active.base_id,
+            active.id,
+            active.attempt_id,
+            active.collection_name,
+            active.fingerprint,
+            active.dimension,
+            active.retrieval_version,
         )
     assert await real_vectors.search(active_spec, rows[0]['vector'], 1, [UUID(rows[0]['document_id'])])

@@ -5,29 +5,35 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from zhiheng.modules.developer.orm import DeveloperKey, Invocation, KeyMinuteBucket
-from zhiheng.runtime.orm import Run
+from zhiheng.modules.billing.public import reserved_cost
+from zhiheng.modules.developer.orm import DeveloperKey, KeyMinuteBucket
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from zhiheng.modules.billing.public import UsageFactsPort
     from zhiheng.modules.models.public import RateInfo
 
 
-def reserved_cost(rate: RateInfo, tokens: int) -> Decimal:
-    if rate.billing_mode == 'search_unit':
-        return rate.search_price
-    return max(rate.input_price, rate.output_price, rate.cache_price) * tokens
-
-
 async def reserve_limits(
-    session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo | None
+    session: AsyncSession,
+    key: DeveloperKey,
+    tokens: int,
+    rate: RateInfo | None,
+    *,
+    facts: UsageFactsPort,
+    enforce_usage_limits: bool = True,
 ) -> tuple[int, str, Decimal | None]:
-    minute, month, cost = await check_limits(session, key, tokens, rate)
+    tokens = tokens if enforce_usage_limits else 0
+    minute, month, cost = await check_limits(
+        session, key, tokens, rate, facts=facts, enforce_usage_limits=enforce_usage_limits
+    )
     bucket = await session.scalar(
         select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
     )
@@ -41,52 +47,55 @@ async def reserve_limits(
 
 
 async def check_limits(
-    session: AsyncSession, key: DeveloperKey, tokens: int, rate: RateInfo | None
+    session: AsyncSession,
+    key: DeveloperKey,
+    tokens: int,
+    rate: RateInfo | None,
+    *,
+    facts: UsageFactsPort,
+    enforce_usage_limits: bool = True,
 ) -> tuple[int, str, Decimal | None]:
     """The same native quota rules without consuming an invocation or creating a bucket."""
     now = utcnow()
     minute, month = int(now.timestamp()) // 60, now.strftime('%Y-%m')
-    cost = reserved_cost(rate, tokens) if rate is not None else None
-    if rate is None and key.monthly_budget is not None:
+    cost = reserved_cost(rate, tokens) if enforce_usage_limits and rate is not None else None
+    if enforce_usage_limits and rate is None and key.monthly_budget is not None:
         raise AppError('money_rate_required', '此密钥设有金额预算，模型必须配置同币种金额费率', 409)
-    if rate is not None and rate.currency != key.currency:
+    if enforce_usage_limits and rate is not None and rate.currency != key.currency:
         raise AppError('currency_mismatch', 'Rate and budget currencies differ', 409)
     bucket = await session.scalar(
         select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
     )
-    active = await session.scalar(
-        select(func.count())
-        .select_from(Invocation)
-        .join(Run, Run.id == Invocation.run_id)
-        .where(Invocation.key_id == key.id, Run.status.in_(('pending', 'running', 'cancel_requested')))
-    )
-    # Unknown invocations retain their exact original reservation. Completed amounts replace it.
-    spent = await session.scalar(
-        select(func.coalesce(func.sum(func.coalesce(Invocation.billable_cost, Invocation.reserved_cost)), 0)).where(
-            Invocation.key_id == key.id, Invocation.quota_month == month, Invocation.currency == key.currency
-        )
-    )
+    usage = await facts.key_usage(session, key.id, month=month, currency=key.currency)
     if (
         (key.rpm_limit is not None and (bucket.requests if bucket else 0) >= key.rpm_limit)
-        or (key.tpm_limit is not None and (bucket.tokens if bucket else 0) + tokens > key.tpm_limit)
-        or (key.concurrency_limit is not None and (active or 0) >= key.concurrency_limit)
         or (
-            key.monthly_budget is not None
-            and (key.monthly_budget == 0 or (spent or Decimal(0)) + (cost or Decimal(0)) > key.monthly_budget)
+            enforce_usage_limits
+            and key.tpm_limit is not None
+            and (bucket.tokens if bucket else 0) + tokens > key.tpm_limit
+        )
+        or (key.concurrency_limit is not None and usage.active >= key.concurrency_limit)
+        or (
+            enforce_usage_limits
+            and key.monthly_budget is not None
+            and (key.monthly_budget == 0 or usage.spent + (cost or Decimal(0)) > key.monthly_budget)
         )
     ):
         raise AppError('rate_limit_exceeded', 'API key quota exceeded', 429)
     return minute, month, cost
 
 
-async def settle_minute(session: AsyncSession, invocation: Invocation, tokens: int) -> None:
-    if invocation.key_id is None:
-        return
+async def settle_minute(
+    session: AsyncSession,
+    *,
+    key_id: UUID,
+    quota_minute: int | None,
+    reserved_tokens: int,
+    tokens: int,
+) -> None:
     bucket = await session.scalar(
-        select(KeyMinuteBucket).where(
-            KeyMinuteBucket.key_id == invocation.key_id, KeyMinuteBucket.minute == invocation.quota_minute
-        )
+        select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key_id, KeyMinuteBucket.minute == quota_minute)
     )
     if bucket is None:
         raise RuntimeError('Quota reservation bucket missing')
-    bucket.tokens += tokens - invocation.reserved_tokens
+    bucket.tokens += tokens - reserved_tokens

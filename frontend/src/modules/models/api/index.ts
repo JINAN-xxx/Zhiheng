@@ -1,7 +1,13 @@
 import { http } from '../../../shared/http.ts'
 import { parseRunSnapshot } from '../../../shared/stream.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
+export interface ConnectionOption {
+  id: string
+  name: string
+  enabled: boolean
+}
 export interface ModelConnection {
+  model_count?: number | undefined
   id: string
   name: string
   provider: 'openai_compatible'
@@ -18,7 +24,6 @@ export interface ChatModel {
   context_window_tokens?: number | null
   enabled: boolean
   model_type: 'chat' | 'embedding' | 'rerank'
-  published: boolean
   vision_enabled: boolean
   capabilities: ('chat' | 'stream' | 'embedding' | 'rerank' | 'vision')[]
 }
@@ -28,6 +33,7 @@ function parseConnection(value: unknown): ModelConnection {
   return {
     id: string(data.id),
     name: string(data.name),
+    model_count: data.model_count == null ? undefined : number(data.model_count),
     provider: data.provider,
     base_url: string(data.base_url),
     has_api_key: boolean(data.has_api_key),
@@ -59,7 +65,6 @@ function parseModel(value: unknown): ChatModel {
       data.context_window_tokens == null ? null : number(data.context_window_tokens),
     enabled: boolean(data.enabled),
     model_type: data.model_type,
-    published: boolean(data.published),
     vision_enabled: data.vision_enabled === undefined ? false : boolean(data.vision_enabled),
     capabilities
   }
@@ -68,6 +73,23 @@ export const getModels = (signal: AbortSignal, includeDisabled = false) =>
   http.request(`/models${includeDisabled ? '?include_disabled=true' : ''}`, {
     signal,
     decode: list(parseModel)
+  })
+export const getTrialModels = (signal: AbortSignal) =>
+  http.request('/models?trial=true', { signal, decode: list(parseModel) })
+export interface ModelTrialPayload {
+  prompt: string
+  documents: string[]
+}
+export const startModelTrial = (
+  id: string,
+  body: ModelTrialPayload & { client_request_id: string },
+  signal: AbortSignal
+) =>
+  http.request(`/models/${encodeURIComponent(id)}/trial`, {
+    method: 'POST',
+    body,
+    signal,
+    decode: parseRunSnapshot
   })
 export const getConnections = (signal: AbortSignal) =>
   http.request('/models/connections', { signal, decode: list(parseConnection) })
@@ -83,7 +105,6 @@ export const createModel = (
     max_output_tokens: number
     context_window_tokens?: number | null
     model_type?: 'chat' | 'embedding' | 'rerank'
-    published?: boolean
     vision_enabled?: boolean
   },
   signal: AbortSignal
@@ -133,7 +154,7 @@ export const updateModel = (
   })
 export const controlModel = (
   id: string,
-  action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete',
+  action: 'enable' | 'disable' | 'delete',
   signal: AbortSignal
 ) =>
   http.request(`/models/${encodeURIComponent(id)}${action === 'delete' ? '' : `/${action}`}`, {
@@ -141,46 +162,6 @@ export const controlModel = (
     ...(action === 'delete' ? {} : { body: {} }),
     signal,
     decode: action === 'delete' ? () => undefined : parseModel
-  })
-export interface RateInput {
-  billing_mode: 'token' | 'search_unit'
-  input_price: string
-  output_price: string
-  cache_price: string
-  search_price: string
-  currency: string
-}
-export interface RateCard extends RateInput {
-  id: string
-  model_id: string
-  version: number
-  created_at: string
-}
-function parseRate(value: unknown): RateCard {
-  const data = object(value)
-  if (data.billing_mode !== 'token' && data.billing_mode !== 'search_unit')
-    throw new Error('费率计费方式无效')
-  return {
-    id: string(data.id),
-    model_id: string(data.model_id),
-    version: number(data.version),
-    created_at: string(data.created_at),
-    billing_mode: data.billing_mode,
-    input_price: string(data.input_price),
-    output_price: string(data.output_price),
-    cache_price: string(data.cache_price),
-    search_price: string(data.search_price),
-    currency: string(data.currency)
-  }
-}
-export const getRateCards = (id: string, signal: AbortSignal) =>
-  http.request(`/models/${encodeURIComponent(id)}/rate-cards`, { signal, decode: list(parseRate) })
-export const createRateCard = (id: string, body: RateInput, signal: AbortSignal) =>
-  http.request(`/models/${encodeURIComponent(id)}/rate-cards`, {
-    method: 'POST',
-    body,
-    signal,
-    decode: parseRate
   })
 export const startModelTest = (id: string, client_request_id: string, signal: AbortSignal) =>
   http.request(`/models/${encodeURIComponent(id)}/test`, {
@@ -193,3 +174,12 @@ export {
   cancelRun as cancelModelTest,
   observeRun as observeModelTest
 } from '../../../shared/runs.ts'
+
+export const getConnectionOptions = (signal: AbortSignal) =>
+  http.request('/models/connection-options', {
+    signal,
+    decode: list((value) => {
+      const row = object(value)
+      return { id: string(row.id), name: string(row.name), enabled: boolean(row.enabled) }
+    })
+  })

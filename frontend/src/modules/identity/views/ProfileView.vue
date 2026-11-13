@@ -35,9 +35,10 @@ const saveError = ref('')
 const passwordError = ref('')
 const conflict = ref(false)
 const disabled = computed(() => busy.value !== null || conflict.value)
-const avatarLetter = computed(() =>
-  [...(profile.value?.display_name || profile.value?.username || '')][0]?.toUpperCase()
+const profileName = computed(
+  () => profile.value?.display_name.trim() || profile.value?.username || ''
 )
+const avatarLetter = computed(() => [...profileName.value][0]?.toUpperCase())
 const createdAt = computed(() => {
   const value = profile.value?.created_at
   if (!value) return '—'
@@ -204,14 +205,11 @@ onBeforeUnmount(() => {
           <div class="profile-identity">
             <AAvatar :size="56">{{ avatarLetter }}</AAvatar>
             <div>
-              <h2>{{ profile.display_name || profile.username }}</h2>
-              <p v-if="profile.display_name && profile.display_name !== profile.username">
-                {{ profile.username }}
-              </p>
+              <h2>{{ profileName }}</h2>
             </div>
           </div>
           <dl class="profile-facts">
-            <div>
+            <div v-if="profileName !== profile.username">
               <dt>账号</dt>
               <dd>{{ profile.username }}</dd>
             </div>
@@ -225,10 +223,6 @@ onBeforeUnmount(() => {
             <div>
               <dt>部门</dt>
               <dd>{{ profile.department_name || '未分配' }}</dd>
-            </div>
-            <div>
-              <dt>岗位</dt>
-              <dd>{{ profile.posts.join('、') || '未分配' }}</dd>
             </div>
             <div>
               <dt>创建时间</dt>
@@ -424,12 +418,6 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
   font-size: 16px;
   font-weight: var(--workspace-font-weight-medium);
-}
-.profile-identity p {
-  margin: 4px 0 0;
-  overflow-wrap: anywhere;
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-helper);
 }
 .profile-facts {
   display: grid;

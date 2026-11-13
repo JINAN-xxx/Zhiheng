@@ -1,51 +1,47 @@
+import { hasPermission } from '../../shared/platformAccess.ts'
 export interface AdminIdentity {
   is_admin: boolean
   permissions?: readonly string[]
 }
 export type AdminArea =
   | 'users'
+  | 'applications'
   | 'roles'
   | 'departments'
-  | 'posts'
-  | 'menus'
-  | 'dictionaries'
   | 'configs'
   | 'notices'
   | 'logs'
   | 'sessions'
   | 'monitor'
-export interface NavigationOverride {
-  path: string
-  name: string
-  sort_order: number
-  is_visible: boolean
-}
+  | 'storage'
 export interface AdminNavigation {
   path: string
   label: string
   area: AdminArea
-  order: number
 }
 export const adminNavigation: AdminNavigation[] = [
-  { path: '/admin/users', label: '用户管理', area: 'users', order: 10 },
-  { path: '/admin/roles', label: '角色权限', area: 'roles', order: 20 },
-  { path: '/admin/departments', label: '部门管理', area: 'departments', order: 30 },
-  { path: '/admin/posts', label: '岗位管理', area: 'posts', order: 40 },
-  { path: '/admin/menus', label: '菜单管理', area: 'menus', order: 50 },
-  { path: '/admin/dictionaries', label: '字典管理', area: 'dictionaries', order: 60 },
-  { path: '/admin/configs', label: '参数管理', area: 'configs', order: 70 },
-  { path: '/admin/notices', label: '通知公告', area: 'notices', order: 80 },
-  { path: '/admin/login-logs', label: '登录日志', area: 'logs', order: 90 },
-  { path: '/admin/operation-logs', label: '操作日志', area: 'logs', order: 100 },
-  { path: '/admin/sessions', label: '在线会话', area: 'sessions', order: 110 },
-  { path: '/admin/monitor', label: '系统状态', area: 'monitor', order: 120 }
+  { path: '/admin/users', label: '用户管理', area: 'users' },
+  { path: '/admin/applications', label: '应用治理', area: 'applications' },
+  { path: '/admin/roles', label: '角色权限', area: 'roles' },
+  { path: '/admin/departments', label: '部门管理', area: 'departments' },
+  { path: '/admin/configs', label: '参数管理', area: 'configs' },
+  { path: '/admin/storage', label: '存储管理', area: 'storage' },
+  { path: '/admin/notices', label: '通知公告', area: 'notices' },
+  { path: '/admin/login-logs', label: '登录日志', area: 'logs' },
+  { path: '/admin/operation-logs', label: '操作日志', area: 'logs' },
+  { path: '/admin/sessions', label: '在线会话', area: 'sessions' },
+  { path: '/admin/monitor', label: '系统状态', area: 'monitor' }
 ]
+export function adminPermissionCode(area: AdminArea, action: string = 'read'): string {
+  return `${area === 'storage' ? 'ai' : 'system'}:${area}:${action}`
+}
 export function hasAdminPermission(
   user: AdminIdentity | null,
   area: AdminArea,
-  action: 'read' | 'write' = 'read'
+  action: string = 'read'
 ): boolean {
-  return Boolean(user && (user.is_admin || user.permissions?.includes(`system:${area}:${action}`)))
+  if (area === 'applications') return !!user?.is_admin
+  return hasPermission(user, adminPermissionCode(area, action))
 }
 export function canAccessAdmin(user: AdminIdentity | null): boolean {
   return Boolean(
@@ -56,22 +52,63 @@ export function canAccessAdmin(user: AdminIdentity | null): boolean {
         ))
   )
 }
-export function visibleAdminNavigation(
-  user: AdminIdentity | null,
-  menus?: NavigationOverride[]
-): AdminNavigation[] {
-  return adminNavigation
-    .filter((entry) => hasAdminPermission(user, entry.area))
-    .flatMap((entry) => {
-      const override = menus?.find((menu) => menu.path === entry.path)
-      if (menus && (!override || !override.is_visible)) return []
-      return [
-        {
-          ...entry,
-          label: override?.name || entry.label,
-          order: override?.sort_order ?? entry.order
-        }
-      ]
+export function visibleAdminNavigation(user: AdminIdentity | null): AdminNavigation[] {
+  return adminNavigation.filter((entry) => hasAdminPermission(user, entry.area))
+}
+
+export interface AdminNavigationGroup {
+  id: string
+  label: string
+  entries: AdminNavigation[]
+  path: string
+  tabs: boolean
+}
+export const adminGroups = [
+  {
+    id: 'users',
+    label: '用户管理',
+    paths: ['/admin/users', '/admin/departments', '/admin/applications'],
+    tabs: true
+  },
+  { id: 'roles', label: '角色权限', paths: ['/admin/roles'], tabs: false },
+  { id: 'notices', label: '通知公告', paths: ['/admin/notices', '/admin/configs'], tabs: false },
+  { id: 'storage', label: '存储管理', paths: ['/admin/storage'], tabs: false },
+  {
+    id: 'operations',
+    label: '系统运维',
+    paths: ['/admin/monitor', '/admin/sessions', '/admin/login-logs', '/admin/operation-logs'],
+    tabs: true
+  }
+] as const
+
+export function visibleAdminGroups(user: AdminIdentity | null): AdminNavigationGroup[] {
+  const visible = visibleAdminNavigation(user)
+  return adminGroups.flatMap((group) => {
+    const entries = group.paths.flatMap((path) => {
+      const entry = visible.find((item) => item.path === path)
+      return entry ? [entry] : []
     })
-    .sort((a, b) => a.order - b.order || a.path.localeCompare(b.path))
+    if (!entries.length) return []
+    return [
+      {
+        id: group.id,
+        label: group.label,
+        entries,
+        path: entries[0]!.path,
+        tabs: group.tabs
+      }
+    ]
+  })
+}
+
+export function adminEntryLabel(entry: AdminNavigation): string {
+  const labels: Record<string, string> = {
+    '/admin/users': '用户',
+    '/admin/departments': '部门'
+  }
+  return labels[entry.path] ?? entry.label
+}
+
+export function isActiveAdminPermission(code: string): boolean {
+  return code !== 'ai:skills:write' && !/^system:(menus|dictionaries|posts):/.test(code)
 }

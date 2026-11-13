@@ -3,21 +3,28 @@
 import json
 import os
 import secrets
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
+import httpx
+from fastapi import FastAPI
 from sqlalchemy.engine import make_url
 
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job, source
+from tests.core.provider import ProviderServer
 from tests.core.resources import resource
+from zhiheng.bootstrap.settings import Settings
 from zhiheng.modules.knowledge.graph.contracts import GraphConfig, GraphFrozen
+from zhiheng.modules.knowledge.orm import KnowledgeBase
 from zhiheng.modules.models.public import ModelBinding
 
 
-def evidence(name, value):
+def evidence(name: str, value: object) -> None:
     directory = os.getenv('ZHIHENG_TEST_EVIDENCE_DIR')
     if directory:
         path = Path(directory)
@@ -26,7 +33,7 @@ def evidence(name, value):
 
 
 @asynccontextmanager
-async def graph_role(settings):
+async def graph_role(settings: Settings) -> AsyncIterator[tuple[asyncpg.Connection, str, str]]:
     url = make_url(settings.database_url.get_secret_value().replace('postgresql+asyncpg:', 'postgresql:'))
     assert url.database.startswith('core_test_')
     pg = await asyncpg.connect(url.render_as_string(hide_password=False))
@@ -47,7 +54,7 @@ async def graph_role(settings):
         await pg.close()
 
 
-def empty_frozen():
+def empty_frozen() -> GraphFrozen:
     binding = ModelBinding(model_id=uuid4(), connection_id=uuid4(), upstream_model='local', max_output_tokens=2048)
     return GraphFrozen(
         base_id=uuid4(),
@@ -66,11 +73,18 @@ def empty_frozen():
     )
 
 
-async def graph_base(admin, app, provider):
+async def graph_base(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, *, legacy: bool = False
+) -> dict[str, Any]:
     embed = await embedding_model(admin, provider)
     response = await admin.post('/api/knowledge/bases', json={'name': 'Ownership', 'embed_model_id': embed})
     assert response.status_code == 201, response.text
     base = response.json()
+    if legacy:
+        async with app.state.container.database.sessions.begin() as session:
+            row = await session.get(KnowledgeBase, UUID(base['id']))
+            assert row is not None
+            row.document_policy = 'legacy'
     file = await source(admin, 'ownership.txt', '甲机构和乙公司合作研究。'.encode())
     response = await admin.post(
         f'/api/knowledge/bases/{base["id"]}/documents',

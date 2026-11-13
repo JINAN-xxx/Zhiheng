@@ -11,12 +11,14 @@ class ChatHistoryLayoutRegressions(DeveloperBoundary):
         path = urlparse(route.request.url).path
         if path == '/api/chat/conversations':
             archived = parse_qs(urlparse(route.request.url).query).get('archived', ['false'])[0] == 'true'
-            await route.fulfill(json=[
+            rows = [
                 {'id': 'c3', 'title': '归档样例', 'archived': True, 'created_at': '2026-10-29T00:00:00Z'},
             ] if archived else [
                 {'id': 'c1', 'title': '历史样例', 'archived': False, 'created_at': '2026-10-29T00:00:00Z'},
                 {'id': 'c2', 'title': '另一条记录', 'archived': False, 'created_at': '2026-10-29T00:00:00Z'},
-            ])
+            ]
+            search = parse_qs(urlparse(route.request.url).query).get('search', [''])[0]
+            await route.fulfill(json=[row for row in rows if search.casefold() in row['title'].casefold()])
         elif path == '/api/chat/conversations/c1/messages':
             await route.fulfill(json=[
                 {'id': 'q1', 'role': 'user', 'content': '保留的历史提问', 'run_id': None, 'created_at': '2026-10-29T00:00:00Z'},

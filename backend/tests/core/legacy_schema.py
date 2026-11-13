@@ -52,3 +52,33 @@ async def reconstruct(
             else:
                 statement = statement.on_conflict_do_nothing()
             await connection.execute(statement)
+
+
+async def insert_historical(session: object, row: object) -> None:
+    """Insert only columns present in the requested historical schema, preserving explicit fixture values."""
+    from sqlalchemy import Table, inspect
+
+    connection = await session.connection()
+    name = await connection.scalar(text('SELECT current_database()'))
+    assert isinstance(name, str) and name.startswith('core_test_'), 'Exclusive fixture database required'
+
+    def insert_row(sync: Connection) -> dict[str, object]:
+        mapper = inspect(type(row))
+        table = Table(mapper.local_table.name, MetaData(), autoload_with=sync)
+        values = {}
+        for column in table.columns:
+            if column.name in row.__dict__:
+                values[column.name] = getattr(row, column.name)
+                continue
+            current = mapper.columns.get(column.name)
+            default = current.default if current is not None else None
+            if default is not None:
+                values[column.name] = default.arg(None) if default.is_callable else default.arg
+            elif column.server_default is None and column.nullable:
+                values[column.name] = None
+        sync.execute(table.insert().values(**values))
+        return values
+
+    values = await connection.run_sync(insert_row)
+    for name, value in values.items():
+        setattr(row, name, value)

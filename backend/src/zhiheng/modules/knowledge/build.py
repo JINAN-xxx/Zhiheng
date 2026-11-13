@@ -10,10 +10,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.files.public import SourceSnapshot
-from zhiheng.modules.knowledge.adapters.milvus import VectorSpec
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
 from zhiheng.modules.knowledge.chunks import TextChunk
 from zhiheng.modules.knowledge.contracts import JOB_TERMINAL
+from zhiheng.modules.knowledge.control import VectorIOControl
 from zhiheng.modules.knowledge.orm import (
     IndexGeneration,
     KnowledgeBase,
@@ -22,7 +21,10 @@ from zhiheng.modules.knowledge.orm import (
     KnowledgeJob,
     KnowledgeStep,
 )
+from zhiheng.modules.knowledge.parsing_contracts import PARSE_TERMINAL
+from zhiheng.modules.knowledge.parsing_orm import ParsingJob
 from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerprint
+from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
@@ -68,6 +70,12 @@ class BuildFacts:
 class BuildStore:
     def __init__(self, knowledge: KnowledgeService) -> None:
         self.knowledge = knowledge
+
+    async def operation(self, session: AsyncSession, job_id: UUID) -> str:
+        row = await session.get(KnowledgeJob, job_id)
+        if row is None:
+            raise AppError('knowledge_job_not_found', '知识任务不存在', 404)
+        return row.operation
 
     async def facts(self, session: AsyncSession, job_id: UUID) -> BuildFacts | None:
         job = await session.get(KnowledgeJob, job_id)
@@ -135,7 +143,15 @@ class BuildStore:
         return [
             (row.id, str(row.version))
             for row in await session.scalars(
-                select(KnowledgeJob).where(KnowledgeJob.status.not_in(JOB_TERMINAL)).limit(100)
+                select(KnowledgeJob)
+                .where(
+                    KnowledgeJob.status.not_in(JOB_TERMINAL),
+                    (KnowledgeJob.status != 'waiting_parse')
+                    | select(ParsingJob.id)
+                    .where(ParsingJob.parent_id == KnowledgeJob.id, ParsingJob.phase.in_(PARSE_TERMINAL))
+                    .exists(),
+                )
+                .limit(100)
             )
         ]
 
@@ -223,7 +239,9 @@ class BuildStore:
             document = await session.get(KnowledgeDocument, UUID(str(entry['document_id'])))
             if document is not None and document.job_id == job.id:
                 document.status = 'deleting' if job.operation.startswith('delete') else 'failed'
-                document.error = job.error
+                document.error = (
+                    cast('dict[str, object]', entry['error']) if isinstance(entry.get('error'), dict) else job.error
+                )
 
     async def fail_claim(self, session: AsyncSession, claim: BuildClaim, status: str, code: str, message: str) -> None:
         await self.lock_base(session, claim.id)
@@ -315,7 +333,7 @@ class BuildStore:
                         KnowledgeChunk.vector.is_(None),
                     )
                     .order_by(KnowledgeChunk.ordinal)
-                    .limit(8)
+                    .limit(4)
                 )
             )
             if rows:
@@ -366,7 +384,7 @@ class BuildStore:
         generation = await session.get(IndexGeneration, claim.revision)
         assert base is not None and generation is not None
         old = await session.get(IndexGeneration, base.active_revision) if base.active_revision else None
-        if old and old.fingerprint != generation.fingerprint and claim.operation != 'rebuild':
+        if old and old.row_count != 0 and old.fingerprint != generation.fingerprint and claim.operation != 'rebuild':
             raise AppError('knowledge_reindex_required', 'Embedding绑定已变化，请显式重建', 409)
         if (
             old
@@ -376,7 +394,7 @@ class BuildStore:
             and old.dimension != generation.dimension
         ):
             raise AppError('invalid_embedding_dimension', 'Embedding向量维度已变化，请显式重建', 409)
-        if old and claim.operation != 'rebuild':
+        if old and claim.operation != 'rebuild' and old.fingerprint == generation.fingerprint:
             replaced = {
                 UUID(str(entry['document_id']))
                 for entry in job.documents
@@ -414,6 +432,7 @@ class BuildStore:
             generation.collection_name,
             generation.fingerprint,
             generation.dimension,
+            generation.retrieval_version,
         )
         return spec, [
             {
@@ -421,6 +440,7 @@ class BuildStore:
                 'document_id': str(row.document_id),
                 'content_hash': row.content_hash,
                 'vector': row.vector,
+                **({'text': row.content} if spec.hybrid else {}),
             }
             for row in rows
         ]
@@ -442,6 +462,8 @@ class BuildStore:
             old.gc_after = utcnow() + timedelta(seconds=GC_DRAIN_GRACE_SECONDS)
         generation.status = 'active'
         base.active_revision, base.active_job_id, base.last_error = generation.id, None, None
+        if claim.operation == 'rebuild':
+            base.embed_model_id = binding.model_id
         base.version, base.updated_at = base.version + 1, utcnow()
         failed = any(entry['status'] == 'failed' for entry in job.documents)
         succeeded = any(entry['status'] == 'ready' for entry in job.documents)

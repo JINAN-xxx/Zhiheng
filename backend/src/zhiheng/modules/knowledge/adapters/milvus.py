@@ -2,49 +2,28 @@
 
 import asyncio
 import json
-import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any, TypeVar
 from uuid import UUID
 
-from pymilvus import DataType, MilvusClient  # type: ignore[import-untyped]
+from pymilvus import (  # type: ignore[import-untyped]
+    AnnSearchRequest,
+    DataType,
+    Function,
+    FunctionType,
+    MilvusClient,
+    WeightedRanker,
+)
 
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl, rpc_channel
+from zhiheng.modules.knowledge.adapters.milvus_rpc import rpc_channel
 from zhiheng.modules.knowledge.chunks import same_vector
+from zhiheng.modules.knowledge.control import VectorIOControl
+from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.shared.errors import AppError
 
 T = TypeVar('T')
 RPC_TIMEOUT = 8
-
-
-@dataclass(frozen=True)
-class VectorSpec:
-    base_id: UUID
-    revision: UUID
-    attempt_id: UUID
-    collection_name: str
-    fingerprint: str
-    dimension: int | None
-
-    def description(self) -> str:
-        expected = f'zh_k_{self.base_id.hex}_{self.revision.hex}_{self.attempt_id.hex}'
-        if (
-            self.collection_name != expected
-            or not re.fullmatch('[a-f0-9]{64}', self.fingerprint)
-            or self.dimension is None
-        ):
-            raise AppError('invalid_index_identity', '索引身份无效', 503)
-        return json.dumps(
-            {
-                'base': str(self.base_id),
-                'revision': str(self.revision),
-                'attempt': str(self.attempt_id),
-                'fingerprint': self.fingerprint,
-                'dimension': self.dimension,
-            },
-            sort_keys=True,
-        )
+CHINESE_ANALYZER = {'tokenizer': 'jieba', 'filter': ['lowercase']}
 
 
 async def drain_thread(operation: Callable[[], T], *, on_cancel: Callable[[], None] | None = None) -> T:
@@ -140,7 +119,10 @@ class MilvusStore:
         if description.get('description') != spec.description() or description.get('enable_dynamic_field'):
             raise AppError('index_spec_mismatch', '索引规格不匹配', 503)
         fields = {field['name']: field for field in description['fields']}
-        if set(fields) != {'id', 'document_id', 'content_hash', 'vector'}:
+        expected_fields = {'id', 'document_id', 'content_hash', 'vector'}
+        if spec.hybrid:
+            expected_fields |= {'text', 'sparse'}
+        if set(fields) != expected_fields:
             raise AppError('index_spec_mismatch', '索引字段不匹配', 503)
         if (
             int(fields['vector']['type']) != int(DataType.FLOAT_VECTOR)
@@ -149,10 +131,31 @@ class MilvusStore:
             or any(int(fields[name]['type']) != int(DataType.VARCHAR) for name in ('id', 'document_id', 'content_hash'))
         ):
             raise AppError('index_spec_mismatch', '索引维度不匹配', 503)
+        if spec.hybrid:
+            params = fields['text'].get('params', {})
+            analyzer = params.get('analyzer_params')
+            if isinstance(analyzer, str):
+                analyzer = json.loads(analyzer)
+            functions = description.get('functions', [])
+            if (
+                int(fields['text']['type']) != int(DataType.VARCHAR)
+                or not params.get('enable_analyzer')
+                or analyzer != CHINESE_ANALYZER
+                or int(fields['sparse']['type']) != int(DataType.SPARSE_FLOAT_VECTOR)
+                or len(functions) != 1
+                or int(functions[0]['type']) != int(FunctionType.BM25)
+                or functions[0].get('input_field_names') != ['text']
+                or functions[0].get('output_field_names') != ['sparse']
+            ):
+                raise AppError('index_spec_mismatch', '索引关键词能力不匹配', 503)
         if loaded:
             index = client.describe_index(spec.collection_name, 'vector_index', timeout=RPC_TIMEOUT)
             if index.get('index_type') != 'HNSW' or index.get('metric_type') != 'COSINE':
                 raise AppError('index_spec_mismatch', '索引参数不匹配', 503)
+            if spec.hybrid:
+                sparse = client.describe_index(spec.collection_name, 'sparse_index', timeout=RPC_TIMEOUT)
+                if sparse.get('index_type') != 'SPARSE_INVERTED_INDEX' or sparse.get('metric_type') != 'BM25':
+                    raise AppError('index_spec_mismatch', '索引关键词参数不匹配', 503)
             state = client.get_load_state(spec.collection_name, timeout=RPC_TIMEOUT)
             if str(state.get('state')).split('.')[-1] != 'Loaded':
                 raise AppError('index_not_loaded', '索引尚未加载', 503)
@@ -171,6 +174,23 @@ class MilvusStore:
                 schema.add_field('document_id', DataType.VARCHAR, max_length=36)
                 schema.add_field('content_hash', DataType.VARCHAR, max_length=64)
                 schema.add_field('vector', DataType.FLOAT_VECTOR, dim=spec.dimension)
+                if spec.hybrid:
+                    schema.add_field(
+                        'text',
+                        DataType.VARCHAR,
+                        max_length=65535,
+                        enable_analyzer=True,
+                        analyzer_params=CHINESE_ANALYZER,
+                    )
+                    schema.add_field('sparse', DataType.SPARSE_FLOAT_VECTOR)
+                    schema.add_function(
+                        Function(
+                            name='text_bm25',
+                            input_field_names=['text'],
+                            output_field_names=['sparse'],
+                            function_type=FunctionType.BM25,
+                        )
+                    )
                 client.create_collection(spec.collection_name, schema=schema, consistency_level='Strong', timeout=60)
             for offset in range(0, len(rows), 128):
                 client.upsert(spec.collection_name, rows[offset : offset + 128], timeout=RPC_TIMEOUT)
@@ -183,6 +203,16 @@ class MilvusStore:
                     index_type='HNSW',
                     metric_type='COSINE',
                     params={'M': 16, 'efConstruction': 256},
+                )
+                client.create_index(spec.collection_name, params, timeout=60)
+            if spec.hybrid and 'sparse_index' not in indexes:
+                params = client.prepare_index_params()
+                params.add_index(
+                    field_name='sparse',
+                    index_name='sparse_index',
+                    index_type='SPARSE_INVERTED_INDEX',
+                    metric_type='BM25',
+                    params={'inverted_index_algo': 'DAAT_MAXSCORE', 'bm25_k1': 1.2, 'bm25_b': 0.75},
                 )
                 client.create_index(spec.collection_name, params, timeout=60)
             client.load_collection(spec.collection_name, timeout=60)
@@ -201,7 +231,7 @@ class MilvusStore:
                 actual = client.get(
                     spec.collection_name,
                     list(expected),
-                    output_fields=['document_id', 'content_hash', 'vector'],
+                    output_fields=['document_id', 'content_hash', 'vector'] + (['text'] if spec.hybrid else []),
                     consistency_level='Strong',
                     timeout=RPC_TIMEOUT,
                 )
@@ -210,6 +240,7 @@ class MilvusStore:
                     or row['content_hash'] != expected[str(row['id'])]['content_hash']
                     or row['document_id'] != expected[str(row['id'])]['document_id']
                     or not same_vector(row.get('vector'), expected[str(row['id'])]['vector'])
+                    or (spec.hybrid and row.get('text') != expected[str(row['id'])].get('text'))
                     for row in actual
                 ):
                     raise AppError('index_verification_failed', '索引内容验证失败', 503)
@@ -237,6 +268,53 @@ class MilvusStore:
                 limit=limit,
                 search_params={'metric_type': 'COSINE', 'params': {'ef': 64}},
                 output_fields=['document_id', 'content_hash', 'vector'],
+                consistency_level='Strong',
+                timeout=RPC_TIMEOUT,
+            )
+            return list(result[0])
+
+        return await self._call(read, timeout_seconds=timeout_seconds)
+
+    async def hybrid_search(
+        self,
+        spec: VectorSpec,
+        vector: list[float],
+        query: str,
+        limit: int,
+        document_ids: list[UUID],
+        *,
+        timeout_seconds: float = RPC_TIMEOUT,
+    ) -> list[dict[str, Any]]:
+        if not spec.hybrid:
+            raise AppError('knowledge_basic_retrieval', '该索引仅支持基础检索，请先完成索引升级', 409)
+
+        def read(client: Any) -> list[dict[str, Any]]:
+            self._validate(client, spec, loaded=True)
+            if not document_ids:
+                return []
+            expression = 'document_id in ' + json.dumps([str(value) for value in document_ids])
+            requests = [
+                AnnSearchRequest(
+                    data=[vector],
+                    anns_field='vector',
+                    param={'metric_type': 'COSINE', 'params': {'ef': 64}},
+                    limit=40,
+                    expr=expression,
+                ),
+                AnnSearchRequest(
+                    data=[query],
+                    anns_field='sparse',
+                    param={'metric_type': 'BM25', 'params': {}},
+                    limit=40,
+                    expr=expression,
+                ),
+            ]
+            result = client.hybrid_search(
+                spec.collection_name,
+                requests,
+                ranker=WeightedRanker(0.7, 0.3),
+                limit=min(40, limit),
+                output_fields=['document_id', 'content_hash', 'vector', 'text'],
                 consistency_level='Strong',
                 timeout=RPC_TIMEOUT,
             )

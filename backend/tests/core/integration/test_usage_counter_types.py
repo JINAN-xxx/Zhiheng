@@ -8,9 +8,11 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_public_protocol import drive
 from tests.core.provider import ProviderHandler
-from zhiheng.modules.developer.orm import Invocation, KeyMinuteBucket, UsageAccount
+from zhiheng.modules.billing.orm import Invocation, UsageAccount
+from zhiheng.modules.developer.orm import KeyMinuteBucket
 
 
 @pytest.mark.asyncio
@@ -79,6 +81,7 @@ async def test_raw_counter_types_cannot_release_unknown_reservations(
         else {'billing_mode': 'token', 'input_price': '0.01', 'output_price': '0.02'}
     )
     assert (await admin.post(f'/api/models/{model["id"]}/rate-cards', json=rate)).status_code == 201
+    await enable_free_billing(admin)
     application = (
         await admin.post('/api/developer/applications', json={'code': uuid4().hex, 'name': 'Raw counters'})
     ).json()

@@ -5,6 +5,7 @@ from fastapi import Depends, Request, Security
 from fastapi.security import APIKeyCookie
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.api.common.platform_access import authorize_console_route
 from zhiheng.bootstrap.container import Container
 from zhiheng.shared.principal import Principal
 
@@ -32,7 +33,9 @@ async def get_principal(
 ) -> Principal:
     await container.database.require_schema()
     async with container.database.sessions() as session:
-        return await container.identity.authenticate(session, request.cookies.get(COOKIE_NAME))
+        principal = await container.identity.authenticate(session, request.cookies.get(COOKIE_NAME))
+        authorize_console_route(request, principal)
+        return principal
 
 
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]

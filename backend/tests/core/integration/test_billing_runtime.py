@@ -18,8 +18,8 @@ from tests.core.integration.test_knowledge_failures import source as upload_sour
 from tests.core.integration.test_public_protocol import drive
 from tests.core.integration.test_work import member_client, published, task, turn
 from zhiheng.modules.billing.contracts import CreditAdjustment, CreditRateCreate, CreditReconcile, CreditStatePatch
-from zhiheng.modules.billing.orm import CreditHold
-from zhiheng.modules.developer.orm import Invocation, KeyMinuteBucket, UsageAccount
+from zhiheng.modules.billing.orm import CreditHold, Invocation, UsageAccount
+from zhiheng.modules.developer.orm import KeyMinuteBucket
 from zhiheng.modules.models.public import ModelMessage, ModelRequest
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -369,6 +369,12 @@ async def test_points_index_embedding_and_retrieval_embedding_are_both_metered(
 ) -> None:
     model = await embedding_model(admin, provider)
     actor = await prepare(admin, app, model)
+    ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
+    price = await admin.post(
+        '/api/billing/models/' + ranker + '/rates',
+        json={'billing_mode': 'search_unit', 'is_free': True, 'client_request_id': str(uuid4())},
+    )
+    assert price.status_code == 201, price.text
     container = app.state.container
     container.knowledge_jobs.vectors = container.knowledge_preparation.vectors = VectorFixture()
     created = await admin.post('/api/knowledge/bases', json={'name': 'Points index', 'embed_model_id': model})
@@ -397,16 +403,16 @@ async def test_points_index_embedding_and_retrieval_embedding_are_both_metered(
     async with container.database.sessions() as session:
         holds = list(await session.scalars(select(CreditHold)))
         assert {hold.source for hold in holds} == {'knowledge_embedding', 'knowledge_retrieval'}
-        assert len(holds) == 2 and all(hold.status == 'settled' for hold in holds)
+        assert len(holds) == 3 and all(hold.status == 'settled' for hold in holds)
         assert (await container.credits.summary(session, actor.id)).used_points == Decimal('0.0012')
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 3
 
 
 async def test_points_graph_callbacks_keep_real_ownership_and_each_model_step_reservation(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
     from tests.core.graph_fixtures import graph_base
-    from zhiheng.application.graph_runs import GraphModelCall
+    from zhiheng.application.knowledge.graph.runs import GraphModelCall
     from zhiheng.modules.knowledge.public import GraphBuildRequest
 
     container = app.state.container
@@ -561,27 +567,30 @@ async def test_admin_work_turn_keeps_original_owners_wallet_and_resource_authori
     model_id: str,
 ) -> None:
     container = app.state.container
+    actor = await prepare(admin, app, model_id)
     async with member_client(app) as member:
         agent = await published(member, model_id)
         work = await task(member, agent)
-    actor = await prepare(admin, app, model_id)
-    member_id = UUID(work['owner_id'])
-    async with container.database.sessions.begin() as session:
-        await container.credits.adjust(
-            session,
-            actor,
-            member_id,
-            CreditAdjustment(
-                kind='grant', points='1', reason='Original owner allocation', client_request_id=uuid4().hex
-            ),
-        )
-    response = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
-    assert response.status_code == 202, response.text
-    await execute_run(container, UUID(response.json()['id']))
-    async with container.database.sessions() as session:
-        hold = await session.get(CreditHold, UUID(response.json()['id']))
-        assert hold.user_id == member_id and hold.charged_points == Decimal('0.0018')
-        assert (await container.credits.summary(session, actor.id)).used_points == 0
+        member_id = UUID(work['owner_id'])
+        async with container.database.sessions.begin() as session:
+            await container.credits.adjust(
+                session,
+                actor,
+                member_id,
+                CreditAdjustment(kind='grant', points='1', reason='Owner allocation', client_request_id=uuid4().hex),
+            )
+            before = await container.credits.summary(session, member_id)
+        denied = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        assert denied.status_code == 404, denied.text
+        async with container.database.sessions() as session:
+            assert await container.credits.summary(session, member_id) == before
+        response = await member.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        assert response.status_code == 202, response.text
+        await execute_run(container, UUID(response.json()['id']))
+        async with container.database.sessions() as session:
+            hold = await session.get(CreditHold, UUID(response.json()['id']))
+            assert hold.user_id == member_id and hold.charged_points == Decimal('0.0018')
+            assert (await container.credits.summary(session, actor.id)).used_points == 0
 
 
 async def test_rerank_search_units_settle_points_and_money_without_fabricating_tokens(

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from zhiheng.modules.files.public import AclEntry, BuiltinPermission
 from zhiheng.runtime.contracts import RunError, RunSnapshot
 
-PARSER_VERSION = 'native-1'
+PARSER_VERSION = 'native-2'
 MAX_INPUT_BYTES = 20 * 1024 * 1024
 MAX_TEXT_BYTES = 2_000_000
 MAX_IMAGE_URL_BYTES = 2_000_000
@@ -66,8 +66,8 @@ class ChunkParameters(Input):
 class BaseCreate(ChunkParameters):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=2000)
-    embed_model_id: UUID
-    access: Literal['private', 'public'] = 'private'
+    embed_model_id: UUID | None = None
+    access: Literal['private'] = 'private'
     enable_knowledge_graph: bool = Field(default=False, strict=True)
     llm_model_id: UUID | None = None
 
@@ -101,7 +101,31 @@ class BasePatch(Version):
         return value.strip()
 
 
+class KnowledgeSettings(BasePatch, ChunkParameters):
+    expected_version: int = Field(strict=True, ge=1)
+    embed_model_id: UUID
+    rerank_model_id: UUID | None = None
+    use_default_rerank: bool = True
+    confirm_rebuild: bool = False
+    client_request_id: UUID
+
+    @model_validator(mode='after')
+    def required_reranker(self) -> 'KnowledgeSettings':
+        if not self.use_default_rerank and self.rerank_model_id is None:
+            raise ValueError('必须指定重排模型，或使用默认重排模型')
+        if self.use_default_rerank and self.rerank_model_id is not None:
+            raise ValueError('使用默认重排时无需填写单库模型')
+        return self
+
+
 class BaseInfo(BaseCreate):
+    availability: Literal['available'] = 'available'
+    rerank_model_id: UUID | None = None
+    use_default_rerank: bool = True
+    embed_model_id: UUID
+    document_policy: Literal['legacy', 'library'] = 'legacy'
+    sharing_scope: Literal['private', 'users'] = 'private'
+    owner_name: str = ''
     id: UUID
     owner_id: UUID
     version: int
@@ -117,9 +141,19 @@ class BaseInfo(BaseCreate):
     can_manage: bool
 
 
+class UnavailableBaseInfo(BaseModel):
+    """Only existing members can see the unavailable library's historical identity."""
+
+    id: UUID
+    name: str
+    owner_id: UUID
+    owner_name: str
+    availability: Literal['owner_disabled', 'owner_deleted']
+
+
 class BaseAcl(Input):
     expected_version: int = Field(strict=True, ge=1)
-    access: Literal['private', 'public']
+    access: Literal['private']
     entries: list[AclEntry] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode='after')
@@ -172,6 +206,7 @@ class DocumentImport(ChunkParameters):
 
 class JobRequest(Version):
     client_request_id: UUID
+    confirm_references: bool = False
 
 
 class RechunkRequest(ChunkParameters, JobRequest):
@@ -179,6 +214,7 @@ class RechunkRequest(ChunkParameters, JobRequest):
 
 
 class DocumentInfo(BaseModel):
+    parsing_engine: str | None = None
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     base_id: UUID
@@ -235,6 +271,24 @@ class JobInfo(BaseModel):
     cancel_allowed: bool
 
 
+class AttachmentImport(Input):
+    file_id: UUID
+    client_request_id: UUID
+    folder_id: UUID | None = None
+
+
+class AttachmentImportInfo(BaseModel):
+    document: DocumentInfo
+    job: JobInfo
+    already_exists: bool = False
+
+
+class MigrationRequest(Version):
+    expected_acl_version: int = Field(strict=True, ge=1)
+    confirm_shared_access: bool = Field(strict=True)
+    client_request_id: UUID
+
+
 class QueryRequest(Input):
     query: str = Field(min_length=1, max_length=8000)
     top_k: int = Field(default=8, strict=True, ge=1, le=8)
@@ -261,10 +315,14 @@ class Hit(BaseModel):
     title: str
     content: str
     score: float = Field(allow_inf_nan=False)
+    vector_score: float | None = Field(default=None, allow_inf_nan=False)
+    fusion_score: float | None = Field(default=None, allow_inf_nan=False)
+    rerank_score: float | None = Field(default=None, allow_inf_nan=False)
 
 
 class PreparationInfo(BaseModel):
     kind: Literal['knowledge_preparation'] = 'knowledge_preparation'
+    diagnostics: dict[str, object] = Field(default_factory=dict)
     id: UUID
     resource_type: str
     resource_id: UUID

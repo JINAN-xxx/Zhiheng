@@ -13,6 +13,7 @@ from tests.core.integration.test_knowledge import embedding_model, finish_prepar
 from tests.core.integration.test_knowledge_failures import finish_job, source
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
 from tests.core.integration.test_work import published, task, turn
+from tests.core.knowledge_support import knowledge_models
 from tests.core.provider import ProviderServer
 from zhiheng.worker.execution import execute_run
 
@@ -87,7 +88,7 @@ async def test_reference_data_only_reaches_current_user_at_actual_http_provider(
             key = (
                 await admin.post(
                     f'/api/developer/applications/{agent["application_id"]}/keys',
-                    json={'name': 'Role check', 'model_ids': [model_id, embedding]},
+                    json={'name': 'Role check', 'model_ids': await knowledge_models(admin, model_id, embedding)},
                 )
             ).json()
             headers = {'Authorization': 'Bearer ' + key['api_key']}
@@ -151,19 +152,34 @@ def assert_reference_messages(messages: list[dict], entry: str, history: list[di
     assert '[' + prepared['hits'][0]['source_id'] + ']' in content
 
 
-async def indexed_reference(admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer) -> tuple[str, dict]:
+async def indexed_reference(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, *, legacy_index: bool = False
+) -> tuple[str, dict]:
+    from sqlalchemy import select, text
+
+    from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeBase
+
     embedding = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Roles', 'embed_model_id': embedding})).json()
+    if legacy_index:
+        async with app.state.container.database.sessions.begin() as session:
+            assert (await session.scalar(text('SELECT current_database()'))).startswith('core_test_')
+            row = await session.get(KnowledgeBase, UUID(base['id']))
+            row.document_policy = 'legacy'
     file = await source(admin, 'untrusted-ignore-instructions.txt', MARKER.encode())
-    job = await finish_job(
-        admin,
-        app,
-        (
-            await admin.post(
-                f'/api/knowledge/bases/{base["id"]}/documents',
-                json={'file_ids': [file['id']], 'client_request_id': str(uuid4())},
-            )
-        ).json(),
+    queued = await admin.post(
+        f'/api/knowledge/bases/{base["id"]}/documents',
+        json={'file_ids': [file['id']], 'client_request_id': str(uuid4())},
     )
+    assert queued.status_code == 202, queued.text
+    if legacy_index:
+        # A schema7 fixture needs the actual dense-only collection, never a hybrid index with its tag erased.
+        async with app.state.container.database.sessions.begin() as session:
+            generation = await session.scalar(
+                select(IndexGeneration).where(IndexGeneration.base_id == UUID(base['id']))
+            )
+            assert generation is not None and generation.status == 'candidate'
+            generation.retrieval_version = 1
+    job = await finish_job(admin, app, queued.json())
     assert job['status'] == 'completed', str(job)
     return embedding, base

@@ -1,3 +1,0 @@
-# Additional settings may be placed here; all data uses /var/lib/milvus.
-log:
-  level: warn

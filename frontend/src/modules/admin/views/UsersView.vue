@@ -1,6 +1,19 @@
 <script setup lang="ts">
+import UserPermissionsDialog from '../components/UserPermissionsDialog.vue'
+import AdminRowActions from '../components/AdminRowActions.vue'
+import { singleSelection, multipleSelection } from '../formValues.ts'
+import AdminState from '../components/AdminState.vue'
+import AdminToggle from '../components/AdminToggle.vue'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
-import { Button as AButton, Modal, Tag as ATag, message } from 'ant-design-vue'
+import {
+  Modal,
+  Tag as ATag,
+  message,
+  Input as AInput,
+  InputPassword as AInputPassword,
+  Textarea as ATextarea,
+  Select as ASelect
+} from 'ant-design-vue'
 import { identity } from '../../identity/public.ts'
 import { hasAdminPermission } from '../access.ts'
 import { decodeUser, getUserOptions, resetPassword } from '../api/index.ts'
@@ -9,22 +22,22 @@ import { adminError, useCollection } from '../composables/useCollection.ts'
 import AdminPage from '../components/AdminPage.vue'
 import AdminDialog from '../components/AdminDialog.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import { activeLabel } from '../presentation.ts'
+
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<AdminUser, UserPayload>('users', decodeUser)
 const writable = computed(() => hasAdminPermission(identity.value, 'users', 'write'))
+const permissionTarget = ref<AdminUser | null>(null)
 const open = ref(false),
   editing = ref<AdminUser | null>(null),
   formError = ref(''),
   optionsLoading = ref(false)
-const options = ref<UserOptions>({ departments: [], posts: [], roles: [] })
+const options = ref<UserOptions>({ departments: [], roles: [] })
 const form = reactive({
   username: '',
   display_name: '',
   email: '',
   phone: '',
   department_id: '',
-  post_ids: [] as string[],
   role_ids: [] as string[],
   is_active: true,
   is_admin: false,
@@ -45,15 +58,21 @@ function close(): void {
   optionsController?.abort()
 }
 async function edit(user: AdminUser | null = null): Promise<void> {
+  if (!user && !hasAdminPermission(identity.value, 'users', 'create')) return
   if (user && !canManage(user)) return
   editing.value = user
   Object.assign(
     form,
     user
       ? {
-          ...user,
+          username: user.username,
+          display_name: user.display_name,
+          email: user.email,
+          phone: user.phone,
+          is_active: user.is_active,
+          is_admin: user.is_admin,
+          remark: user.remark,
           department_id: user.department_id ?? '',
-          post_ids: [...user.post_ids],
           role_ids: [...user.role_ids],
           password: ''
         }
@@ -63,7 +82,6 @@ async function edit(user: AdminUser | null = null): Promise<void> {
           email: '',
           phone: '',
           department_id: '',
-          post_ids: [],
           role_ids: [],
           is_active: true,
           is_admin: false,
@@ -113,7 +131,6 @@ async function submit(): Promise<void> {
     email: form.email.trim(),
     phone: form.phone.trim(),
     department_id: form.department_id || null,
-    post_ids: [...form.post_ids],
     role_ids: [...form.role_ids],
     is_active: form.is_active,
     remark: form.remark,
@@ -131,6 +148,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(user: AdminUser): void {
+  if (!hasAdminPermission(identity.value, 'users', 'delete')) return
   if (saving.value || !canManage(user) || user.id === identity.value?.id || protectedAdmin(user))
     return
   Modal.confirm({
@@ -153,13 +171,18 @@ function closePassword(): void {
   passwordError.value = ''
 }
 function openPassword(user: AdminUser): void {
-  if (!canManage(user)) return
+  if (!canManage(user) || !hasAdminPermission(identity.value, 'users', 'reset_password')) return
   passwordUser.value = user
   password.value = ''
   passwordError.value = ''
 }
 async function submitPassword(): Promise<void> {
-  if (!passwordUser.value || passwordSaving.value) return
+  if (
+    !passwordUser.value ||
+    passwordSaving.value ||
+    !hasAdminPermission(identity.value, 'users', 'reset_password')
+  )
+    return
   if (password.value.length < 12) {
     passwordError.value = '新密码至少需要 12 位'
     return
@@ -183,66 +206,114 @@ onBeforeUnmount(() => {
   form.password = ''
   password.value = ''
 })
+function roleLabel(user: AdminUser): string {
+  const names = user.is_admin ? ['超级管理员', ...user.role_names] : user.role_names
+  return [...new Set(names)].join('、') || '未分配'
+}
 const columns = [
-  { title: '用户', key: 'user', width: 190 },
+  { title: '用户', key: 'user', width: 170 },
   { title: '联系方式', key: 'contact', width: 200 },
-  { title: '状态', key: 'status', width: 130 },
-  { title: '备注', dataIndex: 'remark', key: 'remark', width: 180 },
-  { title: '操作', key: 'actions', width: 220 }
+  { title: '角色', key: 'roles', width: 165 },
+  { title: '状态', key: 'status', width: 80 },
+  { title: '备注', dataIndex: 'remark', key: 'remark', width: 145 },
+  { title: '操作', key: 'actions', width: 90 }
 ]
 </script>
 <template>
   <AdminPage
     title="用户管理"
     subtitle="维护平台账号、组织归属与角色授权"
+    search-placeholder="搜索用户名或显示名称"
     :loading="loading"
     :error="error"
     :total="total"
     :page="page"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'users', 'create')"
     create-label="新建用户"
     @refresh="load"
     @create="edit()"
     @search="find"
     @page="changePage"
   >
-    <ResourceTable :columns="columns" :rows="rows" :loading="loading" empty-text="暂无用户">
+    <ResourceTable
+      :loading-delay="150"
+      :columns="columns"
+      :rows="rows"
+      :loading="loading"
+      empty-text="暂无用户"
+    >
       <template #bodyCell="{ column, record }">
-        <div v-if="column.key === 'user'" class="admin-primary">
-          <strong>{{ record.display_name || record.username }}</strong
-          ><small>{{ record.username }}{{ record.id === identity?.id ? '（本人）' : '' }}</small>
+        <div v-if="column.key === 'user'" class="user-name">
+          <strong :title="record.username">{{
+            record.display_name.trim() || record.username
+          }}</strong>
+          <small v-if="record.id === identity?.id">（本人）</small>
         </div>
-        <div v-else-if="column.key === 'contact'" class="admin-primary">
-          <span>{{ record.email || '—' }}</span
-          ><small>{{ record.phone || '—' }}</small>
+        <div v-else-if="column.key === 'contact'" class="admin-primary user-contact">
+          <span>{{ record.email || record.phone || '—' }}</span>
+          <small v-if="record.email && record.phone">{{ record.phone }}</small>
         </div>
-        <template v-else-if="column.key === 'status'"
-          ><ATag :color="record.is_active ? 'green' : 'default'">{{
-            activeLabel(record.is_active)
-          }}</ATag
-          ><ATag v-if="record.is_admin" color="purple">超级管理员</ATag></template
-        >
-        <div v-else-if="column.key === 'actions' && writable" class="admin-actions">
-          <AButton type="link" :disabled="!canManage(record)" @click="edit(record)">编辑</AButton
-          ><AButton type="link" :disabled="!canManage(record)" @click="openPassword(record)"
-            >重置密码</AButton
-          ><AButton
-            type="link"
-            danger
-            :disabled="
-              saving || !canManage(record) || record.id === identity?.id || protectedAdmin(record)
-            "
-            @click="confirmDelete(record)"
-            >删除</AButton
-          >
+        <div v-else-if="column.key === 'roles'" class="user-roles" :title="roleLabel(record)">
+          <ATag v-if="record.is_admin" color="purple">{{ roleLabel(record) }}</ATag>
+          <span v-else>{{ roleLabel(record) }}</span>
         </div>
+        <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
+        <AdminRowActions
+          v-else-if="column.key === 'actions' && writable"
+          :primary="{
+            key: 'edit',
+            label: '编辑',
+            disabled:
+              !canManage(record) ||
+              !['update', 'toggle', 'assign_roles'].some((action) =>
+                hasAdminPermission(identity, 'users', action)
+              )
+          }"
+          :more="[
+            { key: 'permissions', label: '有效权限' },
+            {
+              key: 'password',
+              label: '重置密码',
+              disabled:
+                !canManage(record) || !hasAdminPermission(identity, 'users', 'reset_password')
+            },
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              disabled:
+                !canManage(record) ||
+                !hasAdminPermission(identity, 'users', 'delete') ||
+                record.id === identity?.id ||
+                protectedAdmin(record)
+            }
+          ]"
+          :busy="saving"
+          @select="
+            (key) =>
+              key === 'permissions'
+                ? (permissionTarget = record)
+                : key === 'edit'
+                  ? edit(record)
+                  : key === 'password'
+                    ? openPassword(record)
+                    : confirmDelete(record)
+          "
+        />
+        <AdminRowActions
+          v-else-if="column.key === 'actions'"
+          :primary="{ key: 'permissions', label: '有效权限' }"
+          @select="permissionTarget = record"
+        />
       </template>
     </ResourceTable>
+    <UserPermissionsDialog :user="permissionTarget" @close="permissionTarget = null" />
     <AdminDialog
       :open="open"
       :title="editing ? '编辑用户' : '新建用户'"
-      :saving="saving || optionsLoading"
+      :saving="saving"
+      :loading="optionsLoading"
       :error="formError"
       :width="640"
       @close="close"
@@ -250,93 +321,109 @@ const columns = [
     >
       <div class="admin-form__grid">
         <label
-          >用户名<input
-            v-model="form.username"
+          >用户名<AInput
+            v-model:value="form.username"
             aria-label="用户名"
             :disabled="Boolean(editing)"
-            maxlength="100"
+            :maxlength="100"
             autocomplete="off"
-            required /></label
+            aria-required="true" /></label
         ><label
-          >显示名称<input v-model="form.display_name" aria-label="显示名称" maxlength="100"
+          >显示名称<AInput
+            v-model:value="form.display_name"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+            aria-label="显示名称"
+            :maxlength="100"
         /></label>
       </div>
       <label v-if="!editing"
-        >初始密码<input
-          v-model="form.password"
+        >初始密码<AInputPassword
+          v-model:value="form.password"
           aria-label="初始密码"
-          type="password"
-          minlength="12"
-          maxlength="128"
+          :maxlength="128"
           autocomplete="new-password"
           placeholder="至少 12 位"
-          required
+          aria-required="true"
         /><small>密码只用于本次设置，不会再次显示。</small></label
       >
       <div class="admin-form__grid">
         <label
-          >电子邮箱<input
-            v-model="form.email"
+          >电子邮箱<AInput
+            v-model:value="form.email"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
             aria-label="电子邮箱"
             type="email"
-            maxlength="254" /></label
-        ><label>手机号<input v-model="form.phone" aria-label="手机号" maxlength="30" /></label>
+            :maxlength="254" /></label
+        ><label
+          >手机号<AInput
+            v-model:value="form.phone"
+            :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+            aria-label="手机号"
+            :maxlength="30"
+        /></label>
       </div>
       <label
-        >所属部门<select v-model="form.department_id" aria-label="所属部门">
-          <option value="">未分配</option>
-          <option
-            v-for="item in withExisting(
+        >所属部门<ASelect
+          :value="form.department_id"
+          aria-label="所属部门"
+          :disabled="
+            optionsLoading || (!!editing && !hasAdminPermission(identity, 'users', 'update'))
+          "
+          show-search
+          option-filter-prop="label"
+          :options="[
+            { value: '', label: '未分配' },
+            ...withExisting(
               options.departments,
               form.department_id ? [form.department_id] : []
-            )"
-            :key="item.id"
-            :value="item.id"
-          >
-            {{ item.name }}
-          </option>
-        </select></label
+            ).map((item) => ({ value: item.id, label: item.name }))
+          ]"
+          @update:value="form.department_id = singleSelection($event)"
+      /></label>
+      <label
+        >角色<ASelect
+          :value="form.role_ids"
+          aria-label="角色"
+          :disabled="optionsLoading || !hasAdminPermission(identity, 'users', 'assign_roles')"
+          mode="multiple"
+          show-search
+          option-filter-prop="label"
+          placeholder="选择角色"
+          :options="
+            withExisting(options.roles, form.role_ids).map((item) => ({
+              value: item.id,
+              label: item.name + (item.system_key ? '（系统内置）' : ''),
+              disabled: !!item.system_key
+            }))
+          "
+          @update:value="form.role_ids = multipleSelection($event)"
+        /><small>系统内置角色由“超级管理员”开关管理。</small></label
       >
       <div class="admin-form__grid">
-        <label
-          >岗位<select v-model="form.post_ids" aria-label="岗位" multiple>
-            <option
-              v-for="item in withExisting(options.posts, form.post_ids)"
-              :key="item.id"
-              :value="item.id"
-            >
-              {{ item.name }}
-            </option>
-          </select></label
-        ><label
-          >角色<select v-model="form.role_ids" aria-label="角色" multiple>
-            <option
-              v-for="item in withExisting(options.roles, form.role_ids)"
-              :key="item.id"
-              :value="item.id"
-              :disabled="Boolean(item.system_key)"
-            >
-              {{ item.name }}{{ item.system_key ? '（系统内置）' : '' }}
-            </option></select
-          ><small>系统内置角色由“超级管理员”开关管理。</small></label
-        >
-      </div>
-      <label class="admin-check"
-        ><input
+        <AdminToggle
           v-model="form.is_active"
-          type="checkbox"
-          :disabled="ownAccount || Boolean(editing && protectedAdmin(editing))"
-        />启用账号</label
-      >
-      <label v-if="identity?.is_admin" class="admin-check"
-        ><input
+          :disabled="
+            ownAccount ||
+            Boolean(editing && protectedAdmin(editing)) ||
+            (!!editing && !hasAdminPermission(identity, 'users', 'toggle'))
+          "
+          label="启用账号"
+        />
+        <AdminToggle
+          v-if="identity?.is_admin"
           v-model="form.is_admin"
-          type="checkbox"
           :disabled="ownAccount || Boolean(editing && protectedAdmin(editing))"
-        />超级管理员</label
-      >
+          label="超级管理员"
+        />
+      </div>
       <label
-        >备注<textarea v-model="form.remark" aria-label="备注" rows="3" maxlength="1000" />
+        >备注<ATextarea
+          v-model:value="form.remark"
+          :disabled="!!editing && !hasAdminPermission(identity, 'users', 'update')"
+          aria-label="备注"
+          :rows="3"
+          :maxlength="1000"
+        />
       </label>
     </AdminDialog>
     <AdminDialog
@@ -348,12 +435,10 @@ const columns = [
       @close="closePassword"
       @save="submitPassword"
       ><label
-        >新密码<input
-          v-model="password"
+        >新密码<AInputPassword
+          v-model:value="password"
           aria-label="新密码"
-          type="password"
-          minlength="12"
-          maxlength="128"
+          :maxlength="128"
           autocomplete="new-password"
           placeholder="至少 12 位"
         /><small>重置后该用户已有会话会失效。</small></label
@@ -361,3 +446,35 @@ const columns = [
     >
   </AdminPage>
 </template>
+
+<style scoped>
+.user-name {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.user-name strong,
+.user-roles,
+.user-roles :deep(.ant-tag) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-name strong {
+  min-width: 0;
+  font-weight: 500;
+}
+.user-name small {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+.user-contact {
+  overflow-wrap: anywhere;
+}
+.user-roles :deep(.ant-tag) {
+  display: inline-block;
+  max-width: 100%;
+  margin-inline-end: 0;
+  vertical-align: middle;
+}
+</style>

@@ -6,12 +6,12 @@ import httpx
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from tests.core.legacy_schema import reconstruct
+from tests.core.schema_support import active_migration_context
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -87,7 +87,7 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
             assert current == snapshots[table]
 
         def compare(sync: Connection) -> list[Any]:
-            return compare_metadata(MigrationContext.configure(sync), schema_metadata())
+            return compare_metadata(active_migration_context(sync), schema_metadata())
 
         assert await connection.run_sync(compare) == []
     await execute_run(container, UUID(admitted['id']))

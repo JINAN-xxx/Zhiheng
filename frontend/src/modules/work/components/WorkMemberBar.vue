@@ -7,9 +7,7 @@
           <RobotOutlined />
           <span>{{ member.agentNameSnapshot }}</span>
         </div>
-        <a-tag :color="member.available ? 'blue' : 'error'"
-          >v{{ member.publishedVersion }}{{ member.available ? '' : ' · 不可用' }}</a-tag
-        >
+        <a-tag v-if="!member.available" color="error">不可用</a-tag>
         <a-tooltip
           v-if="canManage && (member.latestPublishedVersion ?? 0) > member.publishedVersion"
           title="确认后升级冻结版本"

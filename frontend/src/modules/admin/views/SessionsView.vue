@@ -48,6 +48,7 @@ const columns = [
 </script>
 <template>
   <AdminPage
+    search-placeholder="搜索登录账号"
     title="在线会话"
     subtitle="查看有效登录会话并撤销异常访问"
     :loading="loading"
@@ -59,6 +60,7 @@ const columns = [
     @search="find"
     @page="changePage"
     ><ResourceTable
+      :loading-delay="150"
       :columns="columns"
       :rows="rows"
       row-key="session_id"

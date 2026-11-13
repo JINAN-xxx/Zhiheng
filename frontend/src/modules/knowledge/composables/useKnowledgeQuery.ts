@@ -1,3 +1,4 @@
+import { createRequestId } from '../../../shared/requestId.ts'
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -5,7 +6,12 @@ import { object, string } from '../../../shared/validation.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/index.ts'
 import { projectPreparation } from '../preparation.ts'
-import type { KnowledgeBase, KnowledgeHit, KnowledgePreparation } from '../api/index.ts'
+import type {
+  KnowledgeBase,
+  KnowledgeHit,
+  KnowledgePreparation,
+  RetrievalDiagnostics
+} from '../api/index.ts'
 import { useGraphQuery } from './useGraphQuery.ts'
 import type { GraphQueryMode } from './useGraphQuery.ts'
 
@@ -52,7 +58,10 @@ export function useKnowledgeQuery(
   const queryBusy = ref(false),
     queryRecoverable = ref(false),
     queryError = ref('')
-  const queryResult = ref<{ items: KnowledgeHit[] } | null>(null),
+  const queryResult = ref<{
+      items: KnowledgeHit[]
+      diagnostics?: RetrievalDiagnostics | null
+    } | null>(null),
     preparation = ref<KnowledgePreparation | null>(null),
     elapsed = ref(0)
   const queryScope = new RequestScope()
@@ -95,7 +104,8 @@ export function useKnowledgeQuery(
       )
       if (!ticket.isCurrent() || id !== baseId.value) return
       elapsed.value = Math.round(performance.now() - started)
-      if (final.status === 'completed') queryResult.value = { items: final.hits }
+      if (final.status === 'completed')
+        queryResult.value = { items: final.hits, diagnostics: final.diagnostics ?? null }
       else
         queryError.value =
           final.error?.message ?? (final.status === 'cancelled' ? '检索已取消' : '检索未完成')
@@ -113,7 +123,7 @@ export function useKnowledgeQuery(
     const id = baseId.value,
       ticket = queryScope.replace()
     if (!queryIntent || queryIntent.baseId !== id || queryIntent.query !== text)
-      queryIntent = { baseId: id, query: text, client_request_id: crypto.randomUUID() }
+      queryIntent = { baseId: id, query: text, client_request_id: createRequestId() }
     queryBusy.value = true
     queryError.value = ''
     queryResult.value = null

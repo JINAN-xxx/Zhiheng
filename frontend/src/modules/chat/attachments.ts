@@ -4,6 +4,7 @@ const IMAGES = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
 const DOCUMENTS = new Set(['pdf', 'docx', 'xlsx', 'txt', 'md', 'csv', 'json', 'html', 'htm'])
 export const CHAT_FILE_ACCEPT =
   '.png,.jpg,.jpeg,.gif,.webp,.pdf,.docx,.xlsx,.txt,.md,.csv,.json,.html,.htm'
+export const CHAT_ATTACHMENTS_MAX_BYTES = 50 * 1024 * 1024
 export interface QueuedFile {
   id: string
   kind: 'image' | 'attachment'
@@ -101,10 +102,10 @@ export function createChatFileQueue(options: {
     ): { rejected: { fileName: string; error: string }[]; uploads: Promise<void[]> } {
       const accepted: Entry[] = [],
         rejected: { fileName: string; error: string }[] = []
+      let totalBytes = entries.reduce((total, entry) => total + entry.sizeBytes, 0)
       for (const file of files) {
         const extension = file.name.split('.').pop()?.toLowerCase() ?? '',
           kind = IMAGES.has(extension) ? 'image' : DOCUMENTS.has(extension) ? 'attachment' : null
-        const limit = kind === 'image' ? 10 : 5
         const error = !kind
           ? '不支持此文件类型'
           : kind === 'image' && !vision
@@ -113,8 +114,8 @@ export function createChatFileQueue(options: {
               ? '不能上传空文件'
               : file.size > 20 * 1024 * 1024
                 ? '单个文件不能超过20MiB'
-                : entries.filter((item) => item.kind === kind).length >= limit
-                  ? `每条消息最多添加${limit}${kind === 'image' ? '张图片' : '个文档'}`
+                : totalBytes + file.size > CHAT_ATTACHMENTS_MAX_BYTES
+                  ? '每条消息附件合计不能超过50MB'
                   : ''
         if (error || !kind) {
           rejected.push({ fileName: file.name, error })
@@ -133,6 +134,7 @@ export function createChatFileQueue(options: {
           controller: new AbortController()
         }
         entries.push(entry)
+        totalBytes += file.size
         accepted.push(entry)
       }
       publish()

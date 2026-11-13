@@ -35,4 +35,4 @@ testpaths = ["tests/unit", "tests/core"]
 python_version = "3.10"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["src/zhiheng", "../tools/check_architecture.py", "../tools/check_core_wheel.py"]
+files = ["src/zhiheng", "../tools/check_architecture.py", "../tools/check_core_wheel.py", "../tools/export_source.py"]

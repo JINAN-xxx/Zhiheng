@@ -2,9 +2,9 @@ name: AI Core Foundation
 
 on:
   push:
-    branches: [master, 'release/**', 'refactor/**']
+    branches: [main, master, 'release/**']
   pull_request:
-    branches: [master, 'release/**', 'refactor/**']
+    branches: [main, master, 'release/**']
 
 permissions:
   contents: read
@@ -37,8 +37,8 @@ jobs:
           python -m pip install -r requirements-dev-core.txt
       - name: Check new core rules and format
         run: |
-          python -m ruff check --config ruff.toml src tests/unit ../tools/check_architecture.py ../tools/check_core_wheel.py
-          python -m ruff format --check --config ruff.toml src tests/unit ../tools/check_architecture.py ../tools/check_core_wheel.py
+          python -m ruff check --config ruff.toml src tests/unit ../tools
+          python -m ruff format --check --config ruff.toml src tests/unit ../tools
       - name: Check core typing and dependency directions
         run: |
           python -m mypy --config-file pyproject.toml

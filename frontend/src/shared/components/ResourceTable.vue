@@ -6,6 +6,7 @@ defineProps<{
   columns: TableColumnsType<T>
   rows: T[]
   loading?: boolean
+  loadingDelay?: number
   scrollX?: number | string
   rowKey?: string | ((record: T) => string)
   pagination?: false | TablePaginationConfig
@@ -21,9 +22,13 @@ defineSlots<{
     <ATable
       :columns="columns"
       :data-source="rows"
-      :loading="loading ?? false"
+      :loading="loading ? { delay: loadingDelay ?? 0 } : false"
       :pagination="pagination ?? false"
-      v-bind="emptyText ? { locale: { emptyText } } : {}"
+      v-bind="
+        emptyText
+          ? { locale: { emptyText: loading && loadingDelay ? '正在读取…' : emptyText } }
+          : {}
+      "
       :row-key="rowKey ?? 'id'"
       :scroll="{ x: scrollX ?? 850 }"
       size="middle"

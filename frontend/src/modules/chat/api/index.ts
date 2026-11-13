@@ -1,4 +1,5 @@
 import { parseContextInfo } from '../contextInfo.ts'
+import { parseManagedFile } from '../../files/public.ts'
 import { generationRequest, parseGenerationConfig } from '../generationSettings.ts'
 import type { ChatGenerationConfig, ChatGenerationRequest } from '../generationSettings.ts'
 import { decodeVoid, http } from '../../../shared/http.ts'
@@ -6,6 +7,7 @@ import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
 import type { KnowledgeHit } from '../../knowledge/public.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
 export interface Conversation {
+  last_activity_at?: string
   preparation_id: string | null
   version: number
   archived: boolean
@@ -15,6 +17,7 @@ export interface Conversation {
 }
 export interface ChatAttachment {
   file_id: string
+  owner_id?: string | null
   original_filename: string
   mime: string
   size: number
@@ -45,6 +48,8 @@ function parseConversation(value: unknown): Conversation {
     id: string(data.id),
     title: string(data.title),
     created_at: string(data.created_at),
+    last_activity_at:
+      typeof data.last_activity_at === 'string' ? data.last_activity_at : string(data.created_at),
     version: data.version === undefined ? 1 : number(data.version),
     archived: data.archived === undefined ? false : boolean(data.archived)
   }
@@ -73,6 +78,7 @@ export function parseMessage(value: unknown): ChatMessage {
             const item = object(value)
             return {
               file_id: string(item.file_id),
+              owner_id: item.owner_id == null ? null : string(item.owner_id),
               original_filename: string(item.original_filename),
               mime: string(item.mime),
               size: number(item.size),
@@ -102,6 +108,42 @@ export function parseMessage(value: unknown): ChatMessage {
           })(data.skill_snapshots)
   }
 }
+export interface HistoryPage<T> {
+  items: T[]
+  nextCursor: string | null
+}
+async function historyPage<T>(
+  path: string,
+  decode: (value: unknown) => T,
+  signal: AbortSignal
+): Promise<HistoryPage<T>> {
+  return http.request(path, {
+    signal,
+    decode: (value, response) => ({
+      items: list(decode)(value),
+      nextCursor: response.headers.get('X-Next-Cursor') || null
+    })
+  })
+}
+export const getConversationPage = (
+  signal: AbortSignal,
+  archived = false,
+  search = '',
+  cursor?: string | null
+) => {
+  const params = new URLSearchParams({ limit: '30', archived: String(archived), search })
+  if (cursor) params.set('cursor', cursor)
+  return historyPage(`/chat/conversations?${params}`, parseConversation, signal)
+}
+export const getMessagePage = (id: string, signal: AbortSignal, cursor?: string | null) => {
+  const params = new URLSearchParams({ limit: '30' })
+  if (cursor) params.set('cursor', cursor)
+  return historyPage(
+    `/chat/conversations/${encodeURIComponent(id)}/messages?${params}`,
+    parseMessage,
+    signal
+  )
+}
 export const getConversations = (signal: AbortSignal, archived = false) =>
   http.request(`/chat/conversations${archived ? '?archived=true' : ''}`, {
     signal,
@@ -113,6 +155,13 @@ export const createConversation = (signal: AbortSignal) =>
     body: {},
     signal,
     decode: parseConversation
+  })
+export const uploadChatAttachment = (file: File, signal: AbortSignal) =>
+  http.request(`/chat/attachments?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    body: file,
+    signal,
+    decode: parseManagedFile
   })
 export const getMessages = (id: string, signal: AbortSignal) =>
   http.request(`/chat/conversations/${encodeURIComponent(id)}/messages`, {

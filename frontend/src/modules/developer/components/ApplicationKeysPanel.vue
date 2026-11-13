@@ -27,7 +27,9 @@
       message="为当前应用创建第一把访问密钥。"
     />
     <div v-else class="key-list">
-      <div v-if="error" class="stale-notice">刷新失败，当前访问密钥列表可能已过期。</div>
+      <div v-if="error" class="stale-notice">
+        {{ error }} 当前访问密钥列表可能已过期，请刷新后重试。
+      </div>
       <article v-for="item in keys" :key="item.keyId" class="key-row">
         <div class="key-row__identity">
           <div class="key-row__title">
@@ -52,23 +54,37 @@
           >
         </div>
         <div class="key-row__quota">
-          <span>资源每分钟请求数 {{ item.resourceRpmLimit }}</span>
-          <span>推理每分钟请求数 {{ item.quota.rpmLimit ?? '不限' }}</span>
-          <span>每分钟令牌数 {{ item.quota.tpmLimit ?? '不限' }}</span>
-          <span>并发 {{ item.quota.concurrencyLimit ?? '不限' }}</span>
+          <span
+            >资源每分钟请求数 <strong>{{ item.resourceRpmLimit }}</strong></span
+          >
+          <span
+            >推理每分钟请求数 <strong>{{ item.quota.rpmLimit ?? '不限' }}</strong></span
+          >
+          <span
+            >每分钟令牌数 <strong>{{ item.quota.tpmLimit ?? '不限' }}</strong></span
+          >
+          <span
+            >并发 <strong>{{ item.quota.concurrencyLimit ?? '不限' }}</strong></span
+          >
           <span
             >月积分上限
-            {{
+            <strong>{{
               item.monthlyPointsLimit === null
                 ? '仅受父账户约束'
                 : formatPoints(item.monthlyPointsLimit)
-            }}</span
+            }}</strong></span
           >
         </div>
         <WorkspaceMoreMenu
-          v-if="(item.status === 'active' || item.status === 'retiring') && actions.length"
+          v-if="actions.length"
           :items="
-            actions.filter((action) => item.status === 'active' || action.command === 'revoke')
+            actions.filter(
+              (action) =>
+                action.command === 'delete' ||
+                (action.command === 'rotate' && item.status === 'active') ||
+                (action.command === 'revoke' &&
+                  (item.status === 'active' || item.status === 'retiring'))
+            )
           "
           @command="$emit('command', $event, item)"
         />
@@ -78,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { formatPoints } from '../../billing/presentation.ts'
+import { formatPoints } from '../../billing/public.ts'
 import { Button as AButton } from 'ant-design-vue'
 import { KeyOutlined } from '@ant-design/icons-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
@@ -162,11 +178,11 @@ function formatTime(value: string | null): string {
 
 .key-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto 32px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px) 28px;
   align-items: start;
-  gap: 20px;
+  gap: 18px;
   min-height: 112px;
-  padding: 22px;
+  padding: 20px;
   border-bottom: 1px solid var(--gray-150);
 }
 
@@ -184,7 +200,12 @@ function formatTime(value: string | null): string {
   white-space: nowrap;
 }
 .key-row__title strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 500;
+}
+.key-row__title :deep(.workspace-status) {
+  flex-shrink: 0;
 }
 .key-row__models {
   line-height: 1.7;
@@ -192,8 +213,23 @@ function formatTime(value: string | null): string {
 }
 .key-row__quota {
   display: grid;
-  gap: 8px;
-  padding-top: 3px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--gray-25);
+}
+.key-row__quota > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.key-row__quota strong {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .key-row__retiring {
   color: var(--color-warning-900);
@@ -218,9 +254,8 @@ function formatTime(value: string | null): string {
   .key-row__quota {
     grid-row: 2;
     grid-column: 1 / -1;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
   }
   .key-row > :deep(.ant-dropdown-trigger) {
     grid-column: 2;
@@ -228,6 +263,9 @@ function formatTime(value: string | null): string {
   }
   .key-row__title {
     flex-wrap: wrap;
+  }
+  .key-row__quota > span:last-child {
+    grid-column: 1 / -1;
   }
 }
 

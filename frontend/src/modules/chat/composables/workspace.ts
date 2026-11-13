@@ -12,11 +12,13 @@ import {
 } from 'vue'
 import type { InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
+import { message as toast } from 'ant-design-vue'
 
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { createRequestId } from '../../../shared/requestId.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseModule, canUseCapability } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
 import type { Skill } from '../../skills/public.ts'
@@ -32,15 +34,16 @@ import type { KnowledgePreparation } from '../../knowledge/public.ts'
 import {
   cancelRun,
   createConversation,
-  getConversations,
+  getConversationPage,
   getConversation,
   updateConversation,
   deleteConversation,
-  getMessages,
+  getMessagePage,
   getRun,
   observeRun,
   sendMessage
 } from '../api/index.ts'
+import { uploadChatAttachment } from '../api/index.ts'
 import type { ChatMessage, Conversation } from '../api/index.ts'
 import { nextSendIntent } from '../api/sendIntent.ts'
 import type { SendIntent } from '../api/sendIntent.ts'
@@ -54,12 +57,23 @@ import { regenerateMessage, setMessageFeedback } from '../api/messageActions.ts'
 import type { FeedbackValue } from '../api/messageActions.ts'
 import { groupMessageVersions, nextRegenerationIntent } from './messageVersions.ts'
 import type { RegenerationIntent } from './messageVersions.ts'
-import { uploadFile } from '../../files/public.ts'
 import { createChatFileQueue } from '../attachments.ts'
 import type { QueuedFile } from '../attachments.ts'
+import { inputIssueFrom } from '../inputIssue.ts'
+import type { ChatInputIssue } from '../inputIssue.ts'
 
 function createChatWorkspace() {
   const conversations = ref<Conversation[]>([])
+  const historySearch = ref(''),
+    conversationCursor = ref<string | null>(null),
+    moreConversationsLoading = ref(false)
+  const olderCursor = ref<string | null>(null),
+    olderLoading = ref(false),
+    olderError = ref('')
+  const listMoreScope = new RequestScope(),
+    olderScope = new RequestScope()
+  let searchTimer: ReturnType<typeof setTimeout> | undefined
+
   const models = ref<ChatModel[]>([])
   const selected = ref<Conversation | null>(null)
   const modelId = ref<string>()
@@ -72,7 +86,7 @@ function createChatWorkspace() {
   const draft = ref('')
   const queuedFiles = ref<QueuedFile[]>([])
   const queue = createChatFileQueue({
-    upload: uploadFile,
+    upload: uploadChatAttachment,
     onChange: (files) => (queuedFiles.value = files)
   })
   const archivedFilter = ref(false),
@@ -95,7 +109,11 @@ function createChatWorkspace() {
     if (sending.value || running.value || readOnly.value) return
     const result = queue.add(files, supportsVision.value)
     if (result.rejected.length)
-      error.value = result.rejected.map((item) => `${item.fileName}：${item.error}`).join('；')
+      void toast.warning({
+        key: 'chat-file-validation',
+        content: [...new Set(result.rejected.map((item) => item.error))].join('；'),
+        duration: 3
+      })
   }
   function removeFile(id: string): void {
     if (!sending.value && !running.value) queue.remove(id)
@@ -118,6 +136,20 @@ function createChatWorkspace() {
   })
   const skillPickerOpen = ref(false)
   const error = ref('')
+  const inputIssue = ref<ChatInputIssue | null>(null)
+  const dismissInputIssue = () => {
+    inputIssue.value = null
+  }
+  watch(
+    [
+      draft,
+      modelId,
+      generationSettings,
+      () => queuedFiles.value.map((file) => file.fileId ?? file.id).join(','),
+      () => selectedSkills.value.map((skill) => skill.skillSlug).join(',')
+    ],
+    dismissInputIssue
+  )
   const listError = ref('')
   const loading = ref(false)
   const listLoading = ref(false)
@@ -166,7 +198,7 @@ function createChatWorkspace() {
   )
   const modelOptions = computed(() =>
     models.value
-      .filter((model) => model.enabled && model.published && model.capabilities.includes('chat'))
+      .filter((model) => model.enabled && model.capabilities.includes('chat'))
       .map((model) => ({ value: model.id, label: model.name }))
   )
   const visibleMessages = computed(() =>
@@ -177,6 +209,10 @@ function createChatWorkspace() {
   let pendingSend: SendIntent | null = null
   const canRetry = ref(false)
   onBeforeUnmount(() => {
+    dismissInputIssue()
+    clearTimeout(searchTimer)
+    listMoreScope.dispose()
+    olderScope.dispose()
     metadataScope.dispose()
     queue.clear()
     pageScope.dispose()
@@ -195,20 +231,74 @@ function createChatWorkspace() {
     stopOperations.clear()
     skillPickerOpen.value = false
   })
-  async function scroll(): Promise<void> {
+  async function scroll(force = false): Promise<void> {
+    const element = messagesElement.value
+    const follow =
+      force || !element || element.scrollHeight - element.scrollTop - element.clientHeight < 180
     await nextTick()
-    messagesElement.value?.scrollTo({ top: messagesElement.value.scrollHeight, behavior: 'smooth' })
+    if (follow)
+      messagesElement.value?.scrollTo({
+        top: messagesElement.value.scrollHeight,
+        behavior: 'smooth'
+      })
+  }
+  function mergeMessages(previous: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+    const byId = new Map(previous.map((item) => [item.id, item]))
+    for (const item of incoming) byId.set(item.id, item)
+    return [...byId.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
   }
   async function readMessages(conversationId: string, signal: AbortSignal): Promise<ChatMessage[]> {
     const requestedRevision = feedbackRevision
-    const history = await getMessages(conversationId, signal)
-    return history.map((message) => {
+    const previous = messages.value
+    const known = new Set(previous.map((item) => item.id))
+    let page = await getMessagePage(conversationId, signal)
+    let history = page.items
+    while (previous.length && page.nextCursor && !page.items.some((item) => known.has(item.id))) {
+      page = await getMessagePage(conversationId, signal, page.nextCursor)
+      history = mergeMessages(page.items, history)
+    }
+    signal.throwIfAborted()
+    if (!previous.length) olderCursor.value = page.nextCursor
+    return mergeMessages(messages.value, history).map((message) => {
       const confirmed = confirmedFeedback.get(message.id)
       // A history read started before this PUT response cannot erase the confirmed value.
       return confirmed && confirmed.revision > requestedRevision
         ? { ...message, feedback: confirmed.value }
         : message
     })
+  }
+  async function loadOlderMessages(): Promise<void> {
+    const id = selected.value?.id,
+      cursor = olderCursor.value
+    if (!id || !cursor || olderLoading.value || loading.value) return
+    const ticket = olderScope.replace(),
+      context = conversationScope.current()
+    const signal = AbortSignal.any([ticket.signal, context.signal])
+    olderLoading.value = true
+    olderError.value = ''
+    try {
+      const page = await getMessagePage(id, signal, cursor)
+      if (!ticket.isCurrent() || !context.isCurrent() || selected.value?.id !== id) return
+      const element = messagesElement.value,
+        height = element?.scrollHeight ?? 0,
+        top = element?.scrollTop ?? 0
+      messages.value = mergeMessages(page.items, messages.value)
+      olderCursor.value = page.nextCursor
+      await nextTick()
+      if (element && ticket.isCurrent() && selected.value?.id === id)
+        element.scrollTop = top + element.scrollHeight - height
+    } catch (reason) {
+      if (ticket.isCurrent() && context.isCurrent() && !isAborted(reason)) {
+        olderError.value = errorMessage(reason)
+        if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
+          messages.value = []
+          olderCursor.value = null
+          historyReady.value = false
+        }
+      }
+    } finally {
+      if (ticket.isCurrent()) olderLoading.value = false
+    }
   }
   function updateRun(run: RunSnapshot): void {
     if (acceptSnapshot(activeRun.value, run)) {
@@ -260,10 +350,11 @@ function createChatWorkspace() {
       selectedSkills.value = []
     }
     pendingRegenerations.delete(conversation.id)
+    promoteConversation(conversation.id, run.created_at)
     messages.value = await readMessages(conversation.id, context.signal)
     if (!context.isCurrent()) return
     sending.value = false
-    await scroll()
+    await scroll(clearComposer)
     if (activeRun.value?.id === run.id) run = activeRun.value
     await follow(run, context)
   }
@@ -314,10 +405,15 @@ function createChatWorkspace() {
     else error.value = value.error?.message ?? '知识检索未完成，请检查知识库后重试'
   }
   async function selectConversation(conversation: Conversation | null): Promise<void> {
+    dismissInputIssue()
     const context = conversationScope.replace()
     messageActionScope.replace()
     feedbackBusy.clear()
     confirmedFeedback.clear()
+    olderScope.replace()
+    olderCursor.value = null
+    olderLoading.value = false
+    olderError.value = ''
     selected.value = conversation
     if (modelNeedsSelection) modelId.value = modelOptions.value[0]?.value
     modelNeedsSelection = false
@@ -390,7 +486,7 @@ function createChatWorkspace() {
       } else {
         historyReady.value = true
       }
-      if (context.isCurrent()) await scroll()
+      if (context.isCurrent()) await scroll(true)
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
@@ -401,16 +497,21 @@ function createChatWorkspace() {
     }
   }
   async function load(): Promise<void> {
+    clearTimeout(searchTimer)
     const context = pageScope.replace()
+    listMoreScope.replace()
+    moreConversationsLoading.value = false
     listLoading.value = true
     listError.value = ''
     try {
-      const [availableModels, items] = await Promise.all([
+      const [availableModels, page] = await Promise.all([
         getModels(context.signal),
-        getConversations(context.signal, archivedFilter.value)
+        getConversationPage(context.signal, archivedFilter.value, historySearch.value.trim())
       ])
       if (!context.isCurrent()) return
       models.value = availableModels
+      const items = page.items
+      conversationCursor.value = page.nextCursor
       conversations.value = items
       const current = selected.value
       const listed = current ? items.find((item) => item.id === current.id) : undefined
@@ -452,6 +553,52 @@ function createChatWorkspace() {
       if (context.isCurrent()) listLoading.value = false
     }
   }
+  function setHistorySearch(value: string): void {
+    historySearch.value = value
+    pageScope.replace()
+    listMoreScope.replace()
+    conversations.value = []
+    conversationCursor.value = null
+    moreConversationsLoading.value = false
+    listLoading.value = true
+    clearTimeout(searchTimer)
+    searchTimer = setTimeout(() => void load(), 250)
+  }
+  async function loadMoreConversations(): Promise<void> {
+    const cursor = conversationCursor.value
+    if (!cursor || listLoading.value || moreConversationsLoading.value) return
+    const ticket = listMoreScope.replace(),
+      context = pageScope.current()
+    moreConversationsLoading.value = true
+    listError.value = ''
+    try {
+      const page = await getConversationPage(
+        AbortSignal.any([ticket.signal, context.signal]),
+        archivedFilter.value,
+        historySearch.value.trim(),
+        cursor
+      )
+      if (!ticket.isCurrent() || !context.isCurrent()) return
+      const ids = new Set(conversations.value.map((item) => item.id))
+      conversations.value.push(...page.items.filter((item) => !ids.has(item.id)))
+      conversationCursor.value = page.nextCursor
+    } catch (reason) {
+      if (ticket.isCurrent() && context.isCurrent() && !isAborted(reason))
+        listError.value = errorMessage(reason)
+    } finally {
+      if (ticket.isCurrent()) moreConversationsLoading.value = false
+    }
+  }
+  function promoteConversation(id: string, activity: string): void {
+    const current = conversations.value.find((item) => item.id === id) ?? selected.value
+    if (!current || current.id !== id || current.archived !== archivedFilter.value) return
+    if (!current.title.toLocaleLowerCase().includes(historySearch.value.trim().toLocaleLowerCase()))
+      return
+    conversations.value = [
+      { ...current, last_activity_at: activity },
+      ...conversations.value.filter((item) => item.id !== id)
+    ]
+  }
   async function restorePreparation(conversationId: string, preparationId: string): Promise<void> {
     const previous = conversationScope.current()
     const operation = stopOperations.get(conversationId)
@@ -487,7 +634,7 @@ function createChatWorkspace() {
   watch(
     () => route.name,
     (name) => {
-      if (name === 'chat') void load()
+      if (name === 'chat' && canUseModule('chat')) void load()
     },
     { immediate: true }
   )
@@ -540,7 +687,7 @@ function createChatWorkspace() {
               skill_slugs: selectedSkills.value.map((skill) => skill.skillSlug),
               file_ids: queuedFiles.value.map((file) => file.fileId!)
             },
-            () => crypto.randomUUID()
+            createRequestId
           )
         : null
     if (!request) return
@@ -548,6 +695,7 @@ function createChatWorkspace() {
     sending.value = true
     skillPickerOpen.value = false
     error.value = ''
+    dismissInputIssue()
     canRetry.value = false
     try {
       let conversationId = request.conversationId
@@ -557,7 +705,13 @@ function createChatWorkspace() {
         pageScope.replace()
         listLoading.value = false
         selected.value = conversation
-        conversations.value.unshift(conversation)
+        if (
+          !archivedFilter.value &&
+          conversation.title
+            .toLocaleLowerCase()
+            .includes(historySearch.value.trim().toLocaleLowerCase())
+        )
+          conversations.value.unshift(conversation)
         conversationId = conversation.id
         pendingSend = { ...request, conversationId }
       }
@@ -582,8 +736,16 @@ function createChatWorkspace() {
       } else await acceptMainRun(admission, context)
     } catch (reason) {
       if (isCurrent() && !isAborted(reason)) {
-        error.value = errorMessage(reason)
-        canRetry.value = pendingSend !== null
+        const issue = inputIssueFrom(reason)
+        if (issue) {
+          inputIssue.value = issue
+          pendingSend = null
+          canRetry.value = false
+          error.value = ''
+        } else {
+          error.value = errorMessage(reason)
+          canRetry.value = pendingSend !== null
+        }
         disconnected.value = running.value
       }
     } finally {
@@ -641,7 +803,7 @@ function createChatWorkspace() {
         reply_to_message_id: versions?.questionId ?? message.reply_to_message_id,
         generation_index: highestGeneration
       },
-      () => crypto.randomUUID()
+      createRequestId
     )
     pendingRegenerations.set(conversation.id, intent)
     const context = conversationScope.replace()
@@ -792,6 +954,8 @@ function createChatWorkspace() {
   }
   function setArchivedFilter(value: boolean): void {
     archivedFilter.value = value
+    conversations.value = []
+    conversationCursor.value = null
     void load()
   }
   function conversationLocked(id: string): boolean {
@@ -823,8 +987,19 @@ function createChatWorkspace() {
       pageScope.replace()
       listLoading.value = false
       if (result) {
+        result.last_activity_at = target.last_activity_at ?? target.created_at
         conversations.value = conversations.value.filter((item) => item.id !== target.id)
-        if (result.archived === archivedFilter.value) conversations.value.unshift(result)
+        if (
+          result.archived === archivedFilter.value &&
+          result.title.toLocaleLowerCase().includes(historySearch.value.trim().toLocaleLowerCase())
+        ) {
+          conversations.value.push(result)
+          conversations.value.sort(
+            (a, b) =>
+              Date.parse(b.last_activity_at ?? b.created_at) -
+                Date.parse(a.last_activity_at ?? a.created_at) || b.id.localeCompare(a.id)
+          )
+        }
         if (selected.value?.id === target.id) selected.value = result
       } else {
         conversations.value = conversations.value.filter((item) => item.id !== target.id)
@@ -870,12 +1045,27 @@ function createChatWorkspace() {
     draft.value = draft.value.replace(/(^|\s)@$/, '$1').trimEnd()
   }
   watch(draft, (value) => {
-    if (!sending.value && !running.value && !loading.value && /(^|\s)@$/.test(value))
+    if (
+      canUseCapability('skills') &&
+      !sending.value &&
+      !running.value &&
+      !loading.value &&
+      /(^|\s)@$/.test(value)
+    )
       skillPickerOpen.value = true
   })
 
   return {
     ...contextObservation,
+    historySearch,
+    setHistorySearch,
+    conversationCursor,
+    moreConversationsLoading,
+    loadMoreConversations,
+    olderCursor,
+    olderLoading,
+    olderError,
+    loadOlderMessages,
     regenerate,
     retryRegeneration,
     regenerationPending,
@@ -912,6 +1102,8 @@ function createChatWorkspace() {
     removeSkill,
     handleSkillSelected,
     error,
+    inputIssue,
+    dismissInputIssue,
     listError,
     loading,
     listLoading,
@@ -949,6 +1141,11 @@ export function useChatNavigation() {
   const state = useChatWorkspace()
   return {
     conversations: readonly(state.conversations),
+    search: readonly(state.historySearch),
+    setSearch: state.setHistorySearch,
+    more: readonly(state.conversationCursor),
+    moreLoading: readonly(state.moreConversationsLoading),
+    loadMore: state.loadMoreConversations,
     selected: readonly(state.selected),
     loading: readonly(state.listLoading),
     error: readonly(state.listError),

@@ -123,8 +123,10 @@ class ProfileRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page).to_have_url(self.origin + '/profile')
         await expect(self.page.get_by_role('textbox', name='显示名称', exact=True)).to_have_value('资料成员')
         facts = self.page.locator('.profile-facts')
-        for value in ('member', '普通成员', '产品研发部', '产品经理', '2026'):
+        for value in ('member', '普通成员', '产品研发部', '2026'):
             await expect(facts).to_contain_text(value)
+        await expect(facts).not_to_contain_text('产品经理')
+        await expect(facts.get_by_text('岗位',exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('textbox', name='账号', exact=True)).to_have_count(0)
 
     async def test_admin_entry_remains_permission_based_in_account_menu(self):

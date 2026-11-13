@@ -1,5 +1,6 @@
 """Original developer UI with controlled new-core HTTP boundaries."""
 
+from browser_clipboard import read_clipboard
 import asyncio
 import contextlib
 import json
@@ -132,6 +133,41 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
 
 
 class DeveloperUIRegressions(DeveloperBoundary):
+    async def test_application_search_resets_pagination_and_clear_restores_list(self):
+        items = [self.app] + [
+            {**self.app, 'id': f'app-{index}', 'code': f'tool-{index}', 'name': f'工具 {index}'}
+            for index in range(2, 13)
+        ]
+        reads = []
+
+        async def applications(route):
+            query = parse_qs(urlparse(route.request.url).query)
+            page = int(query.get('page', ['1'])[0])
+            size = int(query.get('page_size', ['10'])[0])
+            search = query.get('search', [''])[0]
+            reads.append((page, search))
+            matches = [item for item in items if search in item['name'] or search in item['code']]
+            await route.fulfill(json={
+                'items': matches[(page - 1) * size:page * size],
+                'total': len(matches), 'page': page, 'page_size': size,
+            })
+
+        await self.page.route('**/api/developer/applications?*', applications)
+        await self.page.goto(self.origin + '/developer')
+        await expect(self.page.locator('.application-row')).to_have_count(10)
+        await self.page.locator('.ant-pagination-next button').click()
+        await expect(self.page.locator('.application-row')).to_have_count(2)
+        search = self.page.get_by_role('textbox', name='搜索应用', exact=True)
+        await search.fill('internal-tools')
+        await search.press('Enter')
+        await expect(self.page.locator('.application-row')).to_have_count(1)
+        await expect(self.page.locator('.application-total')).to_have_text('共 1 个')
+        self.assertEqual(reads[-1], (1, 'internal-tools'))
+        await self.page.locator('.application-tools .ant-input-clear-icon').click()
+        await expect(self.page.locator('.application-row')).to_have_count(10)
+        await expect(self.page.locator('.application-total')).to_have_text('共 12 个')
+        self.assertEqual(reads[-1], (1, ''))
+
     async def test_key_pages_are_loaded_for_list_and_model_grants(self):
         self.keys = [{'id': f'key-{index}', 'application_id': 'app-1', 'name': f'客户端{index}', 'prefix': f'sk-zh_fixture-{index}', 'status': 'active', 'model_ids': ['last-page-model'] if index == 120 else ['model-1'], 'rpm_limit': None, 'tpm_limit': None, 'concurrency_limit': None, 'expires_at': None, 'last_used_at': None} for index in range(121)]
         await self.open_details()
@@ -277,11 +313,44 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('heading', name='开发接入', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='新建应用', exact=True).click()
         dialog = self.page.get_by_role('dialog')
-        await dialog.get_by_placeholder('例如 internal-tools').fill('team-tools')
+        await expect(dialog.get_by_label('应用编码', exact=True)).to_have_count(0)
         await dialog.get_by_placeholder('例如内部智能工具').fill('团队工具')
         await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).not_to_be_visible()
-        self.assertIn({'code': 'team-tools', 'name': '团队工具'}, self.posts)
+        self.assertIn({'name': '团队工具'}, self.posts)
+        self.assertNotIn('code', self.posts[-1])
+
+    async def test_application_codes_are_not_presented_in_list_or_details(self):
+        await self.page.goto(self.origin + '/developer')
+        row = self.page.get_by_role('button', name='管理应用“内部工具”', exact=True)
+        await expect(row).to_be_visible()
+        await expect(row).not_to_contain_text('internal-tools')
+        self.assertNotIn('application-code', await row.get_attribute('aria-describedby'))
+        await row.click()
+        await expect(self.page.get_by_role('heading', name='内部工具', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('应用编码', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('internal-tools', exact=True)).to_have_count(0)
+        self.assertEqual(self.posts, [])
+        self.assertEqual(self.app['code'], 'internal-tools')
+
+    async def test_unconfirmed_application_creation_blocks_accidental_retry(self):
+        submissions = []
+        async def unavailable(route):
+            if route.request.method != 'POST':
+                await self.respond(route)
+                return
+            submissions.append(route.request.post_data_json)
+            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': 'unknown'}})
+        await self.page.route(self.origin + '/api/developer/applications', unavailable)
+        await self.page.goto(self.origin + '/developer')
+        await self.page.get_by_role('button', name='新建应用', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='新建应用', exact=True)
+        await dialog.get_by_placeholder('例如内部智能工具').fill('团队应用')
+        save = dialog.get_by_role('button', name=re.compile(r'^保\s*存$'))
+        await save.click()
+        await expect(dialog.get_by_text('创建结果暂未确认，请先刷新应用列表核对，避免重复创建。', exact=True)).to_be_visible()
+        await expect(save).to_be_disabled()
+        self.assertEqual(submissions, [{'name': '团队应用'}])
 
     async def test_key_is_shown_once_copied_and_never_persisted(self):
         await self.open_details()
@@ -295,7 +364,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
         issued = self.page.get_by_role('dialog').filter(has_text='访问密钥已生成')
         await expect(issued.get_by_text(self.secret, exact=True)).to_be_visible()
         await issued.get_by_role('button', name='复制访问密钥', exact=True).click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.secret)
+        self.assertEqual(await read_clipboard(self.page), self.secret)
         await issued.get_by_role('button', name='我已保存', exact=True).click()
         await expect(self.page.get_by_text(self.secret, exact=True)).to_have_count(0)
         storage = await self.page.evaluate('JSON.stringify({local: {...localStorage}, session: {...sessionStorage}, cookie: document.cookie})')
@@ -321,15 +390,19 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('upstream-private', exact=True)).to_have_count(0)
 
     async def test_api_docs_nested_navigation_preserves_operations_and_deep_links(self):
-        response = await self.context.request.get(self.origin + '/openapi/resources-v1.json')
-        self.assertEqual(response.status, 200)
-        schema = await response.json()
+        await self.page.goto(self.origin + '/developer?view=docs')
+        # The browser uses the same DNS mapping and origin as the documentation UI.
+        response = await self.page.evaluate('''async () => {
+            const response = await fetch('/openapi/resources-v1.json')
+            return {status: response.status, schema: await response.json()}
+        }''')
+        self.assertEqual(response['status'], 200)
+        schema = response['schema']
         operations = [operation for methods in schema['paths'].values()
                       for method, operation in methods.items()
                       if method in {'get', 'post', 'put', 'patch', 'delete'}]
         query = schema['paths']['/api/v1/knowledge-bases/{base_id}/query']['post']
         anchor = 'api-' + query['operationId']
-        await self.page.goto(self.origin + '/developer?view=docs')
         nav = self.page.get_by_role('navigation', name='API 文档目录', exact=True)
         knowledge = nav.locator('summary').filter(has_text='知识库')
         await expect(knowledge).to_have_count(1)

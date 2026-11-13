@@ -14,10 +14,11 @@ from tests.core.integration.test_resource_files import auth, envelope, post
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import SCOPES, finish, setup
 from tests.core.integration.test_work import member_client
+from tests.core.knowledge_support import knowledge_models, legacy_grant
 from tests.core.provider import ProviderServer
 from zhiheng.bootstrap.container import Container
-from zhiheng.modules.developer.orm import Invocation
-from zhiheng.modules.knowledge.orm import KnowledgeJob
+from zhiheng.modules.billing.orm import Invocation
+from zhiheng.modules.knowledge.orm import KnowledgeBase, KnowledgeJob
 from zhiheng.modules.knowledge.public import BuildClaim
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.runtime.orm import Run
@@ -29,6 +30,14 @@ async def revoke(admin: httpx.AsyncClient, owner_app: dict, key: dict) -> None:
         '/api/developer/applications/' + owner_app['id'] + '/keys/' + key['id'] + '/revoke', json={}
     )
     assert result.status_code == 200, result.text
+
+
+async def set_legacy_policy(app: FastAPI, base_id: str) -> None:
+    # Construct pre-v2 bases before importing any source whose current file ACL remains authoritative.
+    async with app.state.container.database.sessions.begin() as session:
+        row = await session.get(KnowledgeBase, UUID(base_id))
+        assert row is not None
+        row.document_policy = 'legacy'
 
 
 @pytest.mark.parametrize('at_model', [False, True])
@@ -64,7 +73,7 @@ async def test_original_execution_key_revoked_while_other_key_can_observe(
 
 
 @pytest.mark.parametrize('change', ['no_rate', 'currency', 'zero_budget'])
-async def test_native_model_policy_is_rejected_before_acceptance(
+async def test_unbilled_native_model_steps_do_not_require_price_or_usage_budget(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, change: str
 ) -> None:
     from sqlalchemy import delete
@@ -89,12 +98,9 @@ async def test_native_model_policy_is_rejected_before_acceptance(
         headers=auth(key, uuid4()),
         json={'file_ids': [file.json()['id']]},
     )
-    envelope(response, 404 if change == 'no_rate' else 409 if change == 'currency' else 429)
-    if change == 'zero_budget':
-        assert response.headers.get('Retry-After') is not None
-        assert int(response.headers['Retry-After']) > 0
+    assert response.status_code == 202, response.text
     async with app.state.container.database.sessions() as session:
-        assert await session.scalar(select(func.count()).select_from(KnowledgeJob)) == 0
+        assert await session.scalar(select(func.count()).select_from(KnowledgeJob)) == 1
         assert await session.scalar(select(func.count()).select_from(Invocation)) == 0
 
 
@@ -127,7 +133,10 @@ async def test_metadata_only_key_can_cancel_and_delete_with_source_unbound_and_m
     await c.knowledge_jobs.tick(UUID(operation.json()['native_id']))
     await admin.patch('/api/models/' + base['embed_model_id'], json={'enabled': False})
     current = await admin.get(endpoint, headers=auth(metadata))
-    deleted = await admin.delete(endpoint, headers={**auth(metadata, uuid4()), 'If-Match': current.headers['etag']})
+    deleted = await admin.delete(
+        endpoint + '?confirm_references=true',
+        headers={**auth(metadata, uuid4()), 'If-Match': current.headers['etag']},
+    )
     assert deleted.status_code == 202, deleted.text
     assert (await finish(admin, app, metadata, deleted.json()))['status'] == 'succeeded'
     async with c.database.sessions() as session:
@@ -147,6 +156,7 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
     real_store = app.state.container.knowledge_jobs.vectors
     _owner_app, key, base = await setup(admin, provider, app)
     c = app.state.container
+    await set_legacy_policy(app, base['id'])
     c.knowledge_jobs.vectors = c.knowledge_preparation.vectors = real_store
     endpoint = '/api/v1/knowledge-bases/' + base['id']
     # A client can close immediately after durable admission; the native Worker continues.
@@ -163,16 +173,7 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
     envelope(await admin.get('/api/v1/files/' + file.json()['id'] + '/content', headers=auth(readonly)), 403)
     async with member_client(app) as member:
         member_id = (await member.get('/api/auth/me')).json()['id']
-        assert (
-            await admin.patch(
-                '/api/knowledge/bases/' + base['id'] + '/acl',
-                json={
-                    'expected_version': 1,
-                    'access': 'private',
-                    'entries': [{'user_id': member_id, 'effect': 'allow'}],
-                },
-            )
-        ).status_code == 200
+        await legacy_grant(app, base['id'], member_id)
         assert (
             await admin.patch(
                 '/api/files/' + file.json()['id'] + '/acl',
@@ -185,7 +186,10 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
         ).status_code == 200
         member_app = await application(member)
         member_key = await issue(
-            member, member_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id']]
+            member,
+            member_app['id'],
+            scopes=['knowledge:query'],
+            model_ids=await knowledge_models(admin, base['embed_model_id']),
         )
         async with c.database.sessions.begin() as session:
             principal = await c.identity.principal_for_user(session, UUID(member_id))
@@ -207,7 +211,7 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
         assert (await member.get('/api/v1/operations?limit=1', headers=auth(member_key))).json()['items'][0][
             'id'
         ] == queried['id']
-        assert len(provider.requests) == 2
+        assert len(provider.requests) == 3
         assert (
             await admin.patch(
                 '/api/files/' + file.json()['id'] + '/acl',
@@ -225,7 +229,7 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
             await member.post(endpoint + '/query', headers=auth(member_key, external), json={'query': 'four'}), 409
         )
         assert (await member.get('/api/v1/operations/' + queried['id'], headers=auth(member_key))).status_code == 200
-        assert len(provider.requests) == 2
+        assert len(provider.requests) == 3
 
 
 async def test_partial_result_and_cancel_preserve_native_projection(
@@ -234,7 +238,9 @@ async def test_partial_result_and_cancel_preserve_native_projection(
     _owner_app, key, base = await setup(admin, provider, app)
     endpoint = '/api/v1/knowledge-bases/' + base['id']
     good = await post(admin, key)
-    bad = await post(admin, key, files={'file': ('bad.doc', b'unsupported', 'application/octet-stream')})
+    bad = await post(
+        admin, key, files={'file': ('broken.pdf', b'%PDF-1.7\ntruncated document', 'application/octet-stream')}
+    )
     accepted = await admin.post(
         endpoint + '/documents', headers=auth(key, uuid4()), json={'file_ids': [good.json()['id'], bad.json()['id']]}
     )
@@ -242,6 +248,8 @@ async def test_partial_result_and_cancel_preserve_native_projection(
     partial = await finish(admin, app, key, accepted.json())
     assert partial['status'] == 'partially_succeeded' and partial['progress']['failed'] == 1, str(partial)
     assert partial['result']['status'] == 'partial'
+    failed_document = next(row for row in partial['result']['document_results'] if row['status'] == 'failed')
+    assert failed_document['error']['code'] == 'invalid_document'
     stopped = await admin.post('/api/v1/operations/' + partial['id'] + '/cancel', headers=auth(key))
     assert stopped.status_code == 202 and stopped.json()['status'] == 'partially_succeeded'
 
@@ -333,6 +341,7 @@ async def test_original_source_acl_revoked_while_waiting_for_model_stops_provide
 ) -> None:
     owner_app, key, base = await setup(admin, provider, app)
     c = app.state.container
+    await set_legacy_policy(app, base['id'])
     actor = (await admin.get('/api/auth/me')).json()['id']
     async with member_client(app) as owner:
         uploaded = await owner.post(
@@ -408,19 +417,19 @@ async def test_cancel_own_shared_query_needs_write_scope_and_current_query_grant
     assert (await finish(admin, app, key, indexed.json()))['status'] == 'succeeded'
     async with member_client(app) as member:
         member_id = (await member.get('/api/auth/me')).json()['id']
-        assert (
-            await admin.patch(
-                '/api/knowledge/bases/' + base['id'] + '/acl',
-                json={
-                    'expected_version': 1,
-                    'access': 'private',
-                    'entries': [{'user_id': member_id, 'effect': 'allow'}],
-                },
-            )
-        ).status_code == 200
+        sharing_path = '/api/knowledge/bases/' + base['id']
+        acl = (await admin.get(sharing_path + '/acl')).json()
+        invitation = await admin.post(
+            sharing_path + '/invitations',
+            json={'expected_acl_version': acl['base']['acl_version'], 'client_request_id': str(uuid4())},
+        )
+        assert invitation.status_code == 201, invitation.text
+        accepted = await member.post('/api/knowledge/invitations/accept', json={'token': invitation.json()['token']})
+        assert accepted.status_code == 200, accepted.text
+        ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
         member_app = await application(member)
         query_key = await issue(
-            member, member_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id']]
+            member, member_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id'], ranker]
         )
         cancellation_key = await issue(member, member_app['id'], scopes=['knowledge:write'])
         async with c.database.sessions.begin() as session:
@@ -500,6 +509,7 @@ async def test_admin_query_implicit_foreign_source_checks_current_acl_and_filter
 
     owner_app, key, base = await setup(admin, provider, app)
     c = app.state.container
+    await set_legacy_policy(app, base['id'])
     actor = (await admin.get('/api/auth/me')).json()['id']
     async with member_client(app) as owner:
         uploaded = await owner.post(
@@ -539,7 +549,10 @@ async def test_admin_query_implicit_foreign_source_checks_current_acl_and_filter
         )
         assert admitted.status_code == 202, admitted.text
         assert (await finish(admin, app, key, admitted.json()))['status'] == 'succeeded'
-        query_only = await issue(admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id']])
+        ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
+        query_only = await issue(
+            admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id'], ranker]
+        )
         query = await admin.post(endpoint + '/query', headers=auth(query_only, uuid4()), json={'query': 'private'})
         assert query.status_code == 202, query.text
         completed = await finish(admin, app, query_only, query.json())
@@ -555,4 +568,4 @@ async def test_admin_query_implicit_foreign_source_checks_current_acl_and_filter
         assert filtered.status_code == 200 and filtered.json()['result']['hits'] == [], filtered.text
         failed = await finish(admin, app, query_only, queued.json())
         assert failed['status'] == 'failed' and failed['result']['hits'] == [], str(failed)
-        assert len(provider.requests) == 2
+        assert len(provider.requests) == 3

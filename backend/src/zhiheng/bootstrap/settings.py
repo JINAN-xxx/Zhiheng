@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     allowed_origins: tuple[str, ...] = ()
     resource_rpm_limit: int = Field(default=120, ge=1, le=120)
     token_limit: int = Field(default=100000, ge=1)
-    chat_context_input_tokens: int = Field(default=8192, ge=256, le=65536)
+    chat_context_input_tokens: int | None = Field(default=None, ge=256, le=2097152)
     chat_summary_trigger_rounds: int = Field(default=30, ge=2, le=1000)
     chat_summary_keep_rounds: int = Field(default=15, ge=1, le=999)
     chat_summary_output_tokens: int = Field(default=1024, ge=64, le=4096)
@@ -78,3 +78,23 @@ class Settings(BaseSettings):
     @property
     def worker_health_key(self) -> str:
         return f'{self.worker_queue}:heartbeat'
+
+    @property
+    def worker_short_queue(self) -> str:
+        return f'{self.worker_queue}:short'
+
+    @property
+    def worker_knowledge_queue(self) -> str:
+        return f'{self.worker_queue}:knowledge'
+
+    @property
+    def worker_retrieval_queue(self) -> str:
+        return f'{self.worker_queue}:retrieval'
+
+    @property
+    def worker_queues(self) -> tuple[str, ...]:
+        return (self.worker_queue, self.worker_short_queue, self.worker_knowledge_queue, self.worker_retrieval_queue)
+
+    @property
+    def worker_arq_health_keys(self) -> tuple[str, ...]:
+        return tuple(f'{queue}:arq-health' for queue in self.worker_queues)

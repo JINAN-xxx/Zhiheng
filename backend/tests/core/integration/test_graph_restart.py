@@ -5,6 +5,7 @@ import secrets
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -17,13 +18,13 @@ from sqlalchemy.engine import make_url
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
-from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphGeneration
+from zhiheng.modules.knowledge.public import GraphVectorManifest
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.main import build_worker
 
 
-async def test_actual_worker_kill_interruption_and_explicit_retry_use_new_namespace(
+async def test_actual_worker_kill_interruption_and_explicit_retry_use_new_namespace(  # noqa: PLR0912, PLR0915 - preserve the actual worker kill, recovery and retry sequence
     admin: httpx.AsyncClient,
     app: FastAPI,
     provider: ProviderServer,
@@ -70,7 +71,7 @@ async def test_actual_worker_kill_interruption_and_explicit_retry_use_new_namesp
     stream = None
     client = MilvusClient(uri=uri, timeout=5)
 
-    async def manifest_for(job):
+    async def manifest_for(job: dict[str, Any]) -> GraphVectorManifest:
         async with container.database.sessions() as session:
             attempt = await session.get(GraphAttempt, UUID(job['attempt_id']))
             generation = await session.get(GraphGeneration, UUID(job['graph_revision']))
@@ -112,17 +113,18 @@ async def test_actual_worker_kill_interruption_and_explicit_retry_use_new_namesp
         with os.fdopen(descriptor, 'w') as output:
             json.dump(configuration, output)
         resource('created', 'private_config', str(config_path))
-        log_path = (
-            Path(os.environ['ZHIHENG_TEST_RESOURCE_LOG']).parent / 'evidence' / ('worker-kill-' + uuid4().hex + '.log')
-        )
+        journal = os.getenv('ZHIHENG_TEST_RESOURCE_LOG')
+        evidence = Path(journal).parent / 'evidence' if journal else tmp_path / 'evidence'
+        evidence.mkdir(parents=True, exist_ok=True)
+        log_path = evidence / ('worker-kill-' + uuid4().hex + '.log')
         stream = os.fdopen(os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb')
         provider.graph_block = True
         provider.release.clear()
         before = len(provider.requests)
         resource('intent', 'worker_process', container.settings.worker_queue)
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # noqa: ASYNC220 - capture the real child handle before any cancellation point in the kill/recovery probe
             [sys.executable, '-B', '-m', 'tests.core.graph_worker_process', str(config_path)],
-            cwd=Path(__file__).resolve().parents[3],
+            cwd=Path(__file__).resolve().parents[3],  # noqa: ASYNC240 - resolve only this fixture's local worker directory
             env=os.environ.copy(),
             stdout=stream,
             stderr=subprocess.STDOUT,

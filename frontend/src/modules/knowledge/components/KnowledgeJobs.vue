@@ -1,15 +1,34 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Button as AButton, Progress as AProgress, Tag as ATag } from 'ant-design-vue'
+import { canUseCapability } from '../../identity/public.ts'
+import { Button as AButton, Progress as AProgress } from 'ant-design-vue'
+import { ExclamationCircleOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 import type { KnowledgeDocument, KnowledgeJob } from '../api/index.ts'
-import { formatTime, jobStatus } from '../presentation.ts'
+import { jobStatus } from '../presentation.ts'
 const props = defineProps<{ jobs: KnowledgeJob[]; documents: KnowledgeDocument[]; busy: boolean }>()
-const current = computed(
-  () =>
-    props.jobs.find(
-      (job) => !['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(job.status)
-    ) ?? props.jobs[0]
-)
+const needsAttention = (job: KnowledgeJob) =>
+  ['partial', 'failed', 'interrupted'].includes(job.status)
+const current = computed(() => {
+  const active = props.jobs.find(
+    (job) => !['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(job.status)
+  )
+  const latest = props.jobs[0]
+  return active ?? (latest && needsAttention(latest) ? latest : undefined)
+})
+const failed = computed(() => !!current.value && needsAttention(current.value))
+const failedDocuments = computed(() => {
+  const job = current.value
+  if (!job) return []
+  return job.document_results.flatMap((result) => {
+    const document = props.documents.find(
+      (doc) => doc.id === result.document_id && doc.job_id === job.id
+    )
+    const error = result.error ?? document?.error
+    return error || result.status === 'failed' || document?.status === 'failed'
+      ? [{ ...result, error: error ?? job.error }]
+      : []
+  })
+})
 const emit = defineEmits<{ cancel: [job: KnowledgeJob] }>()
 const operations = {
   import: '导入文档',
@@ -22,186 +41,94 @@ const operations = {
 }
 </script>
 <template>
-  <section v-if="current" class="knowledge-jobs" aria-label="索引任务">
-    <article class="knowledge-job-current" aria-label="当前索引任务">
-      <div class="knowledge-job__heading">
-        <h3>{{ operations[current.operation] }}</h3>
-        <a-tag
-          :color="
-            current.status === 'failed'
-              ? 'error'
-              : current.status === 'completed'
-                ? 'success'
-                : 'default'
-          "
-          >{{ jobStatus(current.status) }}</a-tag
+  <section v-if="current" class="knowledge-jobs" aria-label="当前索引任务">
+    <div class="knowledge-job__heading" role="status">
+      <ExclamationCircleOutlined v-if="failed" class="knowledge-job__warning" />
+      <LoadingOutlined v-else spin />
+      <strong>{{ operations[current.operation] }}</strong>
+      <span>{{ jobStatus(current.status) }}</span>
+      <span v-if="current.total_documents > 0" class="knowledge-job__count">
+        {{ current.completed_documents }}/{{ current.total_documents }} 个文档<span
+          v-if="current.failed_documents"
         >
-        <span
-          >{{ current.completed_documents }}/{{ current.total_documents }} 个文档<span
-            v-if="current.failed_documents"
-          >
-            · {{ current.failed_documents }} 个失败</span
-          ></span
+          · {{ current.failed_documents }} 个失败</span
         >
-        <a-button
-          v-if="current.cancel_allowed"
-          size="small"
-          :disabled="busy"
-          @click="emit('cancel', current)"
-          >取消任务</a-button
-        >
-      </div>
+      </span>
       <a-progress
-        v-if="current.total_documents > 0"
+        v-if="!failed && current.total_documents > 0"
+        class="knowledge-job__progress"
         size="small"
-        :percent="Math.round((current.completed_documents / current.total_documents) * 100)"
-        :status="
-          current.status === 'failed'
-            ? 'exception'
-            : current.status === 'completed'
-              ? 'success'
-              : 'normal'
+        :show-info="false"
+        :percent="
+          Math.min(100, Math.round((current.completed_documents / current.total_documents) * 100))
         "
       />
-      <p v-if="current.error" class="knowledge-job__error">{{ current.error.message }}</p>
-    </article>
-    <details class="knowledge-job-history" aria-label="索引任务历史">
-      <summary>
-        索引任务历史 <span>{{ jobs.length }}</span>
-      </summary>
-      <article v-for="job in jobs" :key="job.id" class="knowledge-job">
-        <div class="knowledge-job__heading">
-          <h3>{{ operations[job.operation] }}</h3>
-          <a-tag
-            :color="
-              job.status === 'failed' ? 'error' : job.status === 'completed' ? 'success' : 'default'
-            "
-            >{{ jobStatus(job.status) }}</a-tag
-          >
-          <a-button
-            v-if="job.cancel_allowed && job.id !== current.id"
-            size="small"
-            :disabled="busy"
-            @click="emit('cancel', job)"
-            >取消任务</a-button
-          >
-        </div>
-        <p>
-          {{ job.completed_documents }}/{{ job.total_documents }} 个文档<span
-            v-if="job.failed_documents"
-          >
-            · {{ job.failed_documents }} 个失败</span
-          ><span v-if="job.chunk_count !== null"> · {{ job.chunk_count }} 个切片</span>
-        </p>
-        <a-progress
-          v-if="job.total_documents > 0"
-          size="small"
-          :percent="Math.round((job.completed_documents / job.total_documents) * 100)"
-          :status="
-            job.status === 'failed'
-              ? 'exception'
-              : job.status === 'completed'
-                ? 'success'
-                : 'normal'
-          "
-        />
-        <p class="knowledge-job__time">
-          {{ formatTime(job.created_at)
-          }}<span v-if="job.finished_at"> · 完成于 {{ formatTime(job.finished_at) }}</span>
-        </p>
-        <p v-if="job.error" class="knowledge-job__error">
-          {{ job.error.code }} · {{ job.error.message }}
-        </p>
-        <details v-if="job.document_results.length" class="knowledge-job__results">
-          <summary>文档结果 · {{ job.document_results.length }}</summary>
-          <p
-            v-for="result in job.document_results"
-            :key="result.document_id"
-            :class="{ 'knowledge-job__error': result.error }"
-          >
-            {{
-              documents.find((doc) => doc.id === result.document_id)?.file_name ??
-              result.document_id
-            }}
-            · {{ jobStatus(result.status) }} · {{ result.chunk_count ?? '—' }} 个切片<span
-              v-if="result.error"
-            >
-              · {{ result.error.message }}</span
-            >
-          </p>
-        </details>
-        <details class="knowledge-job__identity">
-          <summary>任务标识</summary>
-          <p>{{ job.id }}</p>
-          <p>阶段：{{ job.phase }} · 索引版本：{{ job.index_revision ?? '尚未发布' }}</p>
-        </details>
-      </article>
+      <a-button
+        v-if="current.cancel_allowed && canUseCapability('knowledge', 'import')"
+        type="link"
+        size="small"
+        :disabled="busy"
+        @click="emit('cancel', current)"
+        >取消任务</a-button
+      >
+    </div>
+    <p v-if="failed && current.error" class="knowledge-job__error">{{ current.error.message }}</p>
+    <details
+      v-if="failed && failedDocuments.length"
+      :key="current.id"
+      class="knowledge-job__results"
+    >
+      <summary>查看失败文档（{{ failedDocuments.length }}）</summary>
+      <p v-for="result in failedDocuments" :key="result.document_id">
+        {{ documents.find((doc) => doc.id === result.document_id)?.file_name ?? '文档已移除' }} ·
+        {{ result.error?.message || jobStatus(result.status) }}
+      </p>
     </details>
   </section>
 </template>
 <style scoped>
 .knowledge-jobs {
-  margin-top: 18px;
-  padding: 18px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
   border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-}
-.knowledge-job-current {
-  font-size: 13px;
-}
-.knowledge-job-history {
-  margin-top: 12px;
-}
-summary {
+  border-radius: 10px;
   color: var(--color-text-secondary);
   font-size: 13px;
-  cursor: pointer;
-}
-.knowledge-job-history > summary {
-  color: var(--color-text);
-  font-size: 16px;
-  font-weight: 500;
-}
-.knowledge-job-history > summary span {
-  margin-left: 8px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: 400;
-}
-.knowledge-job {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--gray-150);
-}
-.knowledge-job:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
 }
 .knowledge-job__heading {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
-h3 {
-  margin: 0;
-  font-size: 14px;
+.knowledge-job__heading strong {
+  color: var(--color-text);
   font-weight: 500;
+}
+.knowledge-job__heading :deep(.anticon-loading) {
+  color: var(--main-color);
+}
+.knowledge-job__progress {
+  flex: 0 1 160px;
+  margin: 0 0 0 auto;
 }
 .knowledge-job__heading :deep(.ant-btn) {
   margin-left: auto;
 }
-p {
-  margin: 8px 0;
-  overflow-wrap: anywhere;
-}
-.knowledge-job__time,
-.knowledge-job__identity,
-.knowledge-job__results {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
+.knowledge-job__warning,
 .knowledge-job__error {
   color: var(--color-error);
+}
+.knowledge-job__error,
+.knowledge-job__results {
+  margin: 6px 0 0 24px;
+  overflow-wrap: anywhere;
+}
+.knowledge-job__results summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.knowledge-job__results p {
+  margin: 8px 0 0;
 }
 </style>

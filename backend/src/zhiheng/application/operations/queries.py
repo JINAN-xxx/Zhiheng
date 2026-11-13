@@ -8,11 +8,12 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.access import CallerContext, ResourceAccessService
-from zhiheng.application.knowledge_preparation import KnowledgePreparation
+from zhiheng.application.knowledge.preparation import KnowledgePreparation
 from zhiheng.application.operations.contracts import OperationInfo, OperationStatus
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.developer.public import APIRequestInfo, ResourceAction, ResourceKind, Scope
 from zhiheng.modules.knowledge.public import JOB_TERMINAL, PREPARATION_TERMINAL, KnowledgeService
+from zhiheng.modules.models.public import ModelRequest
 from zhiheng.runtime.contracts import TERMINAL_STATUSES
 from zhiheng.shared.errors import AppError
 
@@ -57,6 +58,18 @@ class OperationQueries:
                 lock=False,
                 include_deleted=request.operation == 'knowledge.delete_base',
                 operation_scope=scope if cancel else None,
+            )
+        if query and not cancel and request.result_id is not None:
+            row = await self.preparation.store.get(session, request.result_id)
+            state = self.preparation.store.state(row)
+            model_ids = {base.binding.model_id for base in self.preparation.store.bases(state)}
+            rerank = self.preparation.rerank_binding(state)
+            if rerank is not None:
+                model_ids.add(rerank.model_id)
+            if 'main_request' in state.dependencies:
+                model_ids.add(ModelRequest.model_validate(state.dependencies['main_request']).binding.model_id)
+            await self.access.keys.authorize_identity(
+                session, caller.identity, sorted(model_ids), scope=scope, lock=False
             )
 
     async def project(self, session: AsyncSession, caller: CallerContext, request: APIRequestInfo) -> OperationInfo:
@@ -110,6 +123,12 @@ class OperationQueries:
         if request.result_kind == 'knowledge_preparation':
             row = await self.preparation.store.get(session, request.result_id)
             result = self.preparation.store.info(row)
+            viewer = self.access.personal(caller.principal)
+            for base in self.preparation.store.bases(self.preparation.store.state(row)):
+                current = await self.knowledge.require(session, viewer, base.base_id)
+                if not self.knowledge.manages(viewer, current):
+                    result.diagnostics = {}
+                    break
             result.hits = await self.preparation.visible_hits(
                 session, self.access.personal(caller.principal), result.hits
             )
@@ -117,6 +136,7 @@ class OperationQueries:
                 key = await self.access.keys.info_for_identity(session, caller.identity)
                 if 'knowledge:query' not in key.scopes:
                     result.hits = []
+                    result.diagnostics = {}
             status = 'succeeded' if row.status in {'completed', 'admitted'} else row.status
             status = await self.cancel_status(session, row.id, status)
             if status not in {
@@ -148,7 +168,9 @@ class OperationQueries:
         if status != 'cancelled':
             return status
         for child_id in await self.preparation.steps.children(session, native_id):
-            child = await self.preparation.runs.resource_snapshot(session, child_id, 'knowledge_embedding', native_id)
+            child = await self.preparation.runs.resource_snapshot_one_of(
+                session, child_id, ('knowledge_embedding', 'knowledge_rerank'), native_id
+            )
             if child.status not in TERMINAL_STATUSES:
                 return 'cancel_requested'
         return status

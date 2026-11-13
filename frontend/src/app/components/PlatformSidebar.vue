@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import BrandMark from '../../shared/components/BrandMark.vue'
-import { identity } from '../../modules/identity/public.ts'
+import { identity, canUseModule } from '../../modules/identity/public.ts'
 const props = withDefaults(
   defineProps<{ collapsed: boolean; showCollapseControl?: boolean; leaving?: boolean }>(),
   { leaving: false }
@@ -25,13 +25,13 @@ const props = withDefaults(
 const emit = defineEmits<{ 'toggle-collapse': []; navigate: []; logout: [] }>()
 const route = useRoute()
 const navigationId = useId()
-const groups = [
+const allGroups = [
   {
     id: 'applications',
     title: '应用',
     items: [
       { path: '/chat', label: '对话体验', icon: MessageOutlined },
-      { path: '/agents', label: '智能体', icon: RobotOutlined },
+      { path: '/agents', label: '智能助手', icon: RobotOutlined },
       { path: '/work', label: '工作空间', icon: TeamOutlined }
     ]
   },
@@ -40,8 +40,9 @@ const groups = [
     title: '资源',
     items: [
       { path: '/models', label: '模型目录', icon: AppstoreOutlined },
+      { path: '/credentials', label: '凭据管理', icon: ApiOutlined },
       { path: '/knowledge', label: '知识库', icon: DatabaseOutlined },
-      { path: '/skills', label: '技能管理', icon: ThunderboltOutlined }
+      { path: '/skills', label: '技能', icon: ThunderboltOutlined }
     ]
   },
   {
@@ -53,8 +54,16 @@ const groups = [
     ]
   }
 ]
-type NavigationGroup = (typeof groups)[number]
-const groupIds = new Set(groups.map((group) => group.id))
+const groups = computed(() =>
+  allGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => canUseModule(item.path.slice(1)))
+    }))
+    .filter((group) => group.items.length)
+)
+type NavigationGroup = (typeof allGroups)[number]
+const groupIds = new Set(allGroups.map((group) => group.id))
 const closedGroups = ref<string[]>([])
 const preferenceKey = computed(() =>
   identity.value ? `zhiheng:primary-navigation:${encodeURIComponent(identity.value.id)}` : null
@@ -78,8 +87,13 @@ watch(
   },
   { immediate: true, flush: 'sync' }
 )
+const canonicalPath = computed(() => route.matched.at(-1)?.aliasOf?.path ?? route.path)
 function active(path: string): boolean {
-  return route.path === path || route.path.startsWith(path + '/') || route.meta.activeMenu === path
+  return (
+    canonicalPath.value === path ||
+    canonicalPath.value.startsWith(path + '/') ||
+    route.meta.activeMenu === path
+  )
 }
 function isGroupActive(group: NavigationGroup): boolean {
   return group.items.some((item) => active(item.path))
@@ -119,6 +133,7 @@ function toggleGroup(group: NavigationGroup): void {
     </div>
     <nav class="platform-primary-nav" aria-label="主导航">
       <RouterLink
+        v-if="canUseModule('overview')"
         to="/overview"
         class="platform-nav-link"
         :class="{ 'is-active': active('/overview') }"
@@ -224,7 +239,10 @@ function toggleGroup(group: NavigationGroup): void {
   min-height: 0;
   overflow-y: auto;
   padding: 12px 12px 20px;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.platform-primary-nav::-webkit-scrollbar {
+  display: none;
 }
 .platform-nav-group {
   margin-top: 14px;

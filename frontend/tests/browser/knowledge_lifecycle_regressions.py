@@ -145,9 +145,9 @@ class ChatQuality(Evidence, ChatKnowledgePreparation):
         async def list_conversations(route):
             await route.fulfill(json=[self.conversation, other])
 
-        await self.page.route(self.origin + "/api/chat/conversations", list_conversations)
+        await self.page.route(re.compile(re.escape(self.origin + "/api/chat/conversations") + r'(?:\?.*)?$'), list_conversations)
         await self.page.route(
-            self.origin + "/api/chat/conversations/c2/messages", lambda r: r.fulfill(json=[])
+            re.compile(re.escape(self.origin + "/api/chat/conversations/c2/messages") + r'(?:\?.*)?$'), lambda r: r.fulfill(json=[])
         )
         first_cancel = asyncio.Event()
 
@@ -208,11 +208,9 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
 
         await self.page.route(self.origin + "/api/knowledge/bases", unavailable)
         await self.page.goto(self.origin + "/knowledge")
-        await self.page.get_by_role("button", name="创建知识库", exact=True).click()
+        await self.page.get_by_role("button", name="新建知识库", exact=True).click()
         dialog = self.page.get_by_role("dialog")
         await dialog.get_by_label("知识库名称", exact=True).fill("待核对知识库")
-        await dialog.get_by_role("combobox", name=re.compile(r"向量模型$")).click()
-        await self.page.get_by_text("业务向量模型", exact=True).click()
         save = dialog.get_by_role("button", name=re.compile(r"^保\s*存$"))
         await save.click()
         await expect(dialog.get_by_text("创建结果未知", exact=True)).to_be_visible()
@@ -222,89 +220,32 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
         await expect(dialog).not_to_be_visible()
         self.assertEqual(len(requests), 1)
 
-    async def test_source_acl_click_waits_for_lazy_drawer_chunk(self):
-        requested, release, file_read = (
-            asyncio.Event(),
-            asyncio.Event(),
-            asyncio.Event(),
-        )
-        chunk_urls = []
-
-        async def delayed_chunk(route):
-            chunk_urls.append(route.request.url)
+    async def test_sharing_dialog_stays_open_while_permissions_load(self):
+        requested, release = asyncio.Event(), asyncio.Event()
+        acl_reads, file_acl_reads = [], []
+        async def delayed_acl(route):
+            acl_reads.append(route.request.url)
             requested.set()
             await release.wait()
             with contextlib.suppress(Exception):
-                await route.continue_()
-
-        async def file(route):
-            file_read.set()
-            await route.fulfill(json=FILE)
-
-        await self.page.route(
-            re.compile(re.escape(self.origin) + r"/(?:assets/FileAclDrawer-[^/?]+\.js|src/modules/files/components/FileAclDrawer\.vue)(?:\?.*)?$"),
-            delayed_chunk,
-        )
-        await self.page.route(self.origin + "/api/files/file-1", file)
-        await self.page.route(
-            self.origin + "/api/files/file-1/acl",
-            lambda r: r.fulfill(
-                json={
-                    "file": FILE,
-                    "entries": [],
-                    "builtin_permissions": [
-                        {"source": "owner", "enabled": True, "deny_overridable": False}
-                    ],
-                }
-            ),
-        )
+                await route.fulfill(json={'base': self.base, 'entries': [],
+                    'builtin_permissions': [{'source': 'owner', 'enabled': True, 'deny_overridable': False}]})
+        async def source_acl(route):
+            file_acl_reads.append(route.request.url)
+            await route.fulfill(status=403, json={'error': {'code': 'forbidden', 'message': '不允许更改原文权限'}})
+        await self.page.route(self.origin + '/api/knowledge/bases/base-1/acl', delayed_acl)
+        await self.page.route(self.origin + '/api/files/file-1/acl', source_acl)
         try:
-            await self.page.goto(self.origin + "/knowledge/base-1/documents")
+            await self.page.goto(self.origin + '/knowledge/base-1/documents')
+            await self.page.get_by_role('button', name='共享', exact=True).click()
             await asyncio.wait_for(requested.wait(), 4)
-            button = self.page.get_by_role(
-                "button", name="原文权限：业务说明.txt", exact=True
-            )
-            disabled = await button.is_disabled()
-            if not disabled:
-                await button.click()
-            await self.page.wait_for_timeout(150)
-            self.observations.update(
-                chunk_requested=requested.is_set(),
-                file_read_before_chunk=file_read.is_set(),
-                button_disabled_before_chunk=disabled,
-                chunk_urls=chunk_urls,
-            )
-            async with self.page.expect_response(
-                lambda r: r.url in chunk_urls
-            ) as loaded:
-                release.set()
-            self.observations["chunk_status"] = (await loaded.value).status
-            if disabled:
-                await expect(button).to_be_enabled()
-                await button.click()
-            await self.page.wait_for_timeout(800)
-            drawer = self.page.locator(".ant-drawer-open .ant-drawer-content")
-            first_count = await drawer.count()
-            self.observations.update(
-                drawer_count_after_chunk_load=first_count,
-                acl_get_count_after_first_click=sum(
-                    "/api/files/file-1/acl" in r["url"] for r in self.traffic
-                ),
-            )
-            if first_count == 0:
-                await button.click()
-                await expect(drawer).to_be_visible()
-                self.observations.update(
-                    drawer_count_after_second_click=await drawer.count(),
-                    acl_get_count_after_second_click=sum(
-                        "/api/files/file-1/acl" in r["url"] for r in self.traffic
-                    ),
-                )
-            self.assertEqual(
-                first_count,
-                1,
-                "The real ACL click fetched FileID but was silently lost while the public async drawer ref was null",
-            )
+            modal = self.page.get_by_role('dialog', name='共享', exact=False)
+            await expect(modal).to_be_visible()
+            release.set()
+            await expect(modal.get_by_role('button', name='生成一次性邀请链接', exact=True)).to_be_enabled()
+            self.assertEqual(len(acl_reads), 1)
+            self.assertEqual(file_acl_reads, [])
+            await expect(self.page.get_by_role('dialog')).to_have_count(1)
         finally:
             release.set()
 
@@ -353,27 +294,12 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             release.set()
 
     async def test_unavailable_graph_stays_disabled_for_retained_graph_settings(self):
-        self.base.update(
-            enable_knowledge_graph=True,
-            graph_status="pending",
-            llm_model_id="graph-model",
-        )
-        await self.page.goto(self.origin + "/knowledge")
-        graph = self.page.get_by_role("button", name="查看图谱", exact=True)
-        self.observations["graph_button_enabled"] = await graph.is_enabled()
-        if self.observations["graph_button_enabled"]:
-            await graph.click()
-            await expect(
-                self.page.get_by_role("heading", name="业务知识", exact=True)
-            ).to_be_visible()
-            self.observations["graph_click_url"] = self.page.url
-            self.observations["document_toolbar_visible"] = await self.page.get_by_role(
-                "button", name="上传文档", exact=True
-            ).is_visible()
-        self.assertFalse(
-            self.observations["graph_button_enabled"],
-            "graph_available=false must disable graph even if a retained base flag is true",
-        )
+        self.base.update(enable_knowledge_graph=True, graph_status='pending', llm_model_id='graph-model')
+        await self.page.goto(self.origin + '/knowledge/base-1/documents')
+        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        graph = self.page.get_by_role('menuitem', name='高级：知识图谱', exact=True)
+        await expect(graph).to_have_attribute('aria-disabled', 'true')
+        self.assertTrue(self.page.url.endswith('/documents'))
 
     async def test_query_graph_choice_stays_disabled_when_capability_unavailable(self):
         self.base.update(
@@ -382,6 +308,7 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             llm_model_id="graph-model",
         )
         await self.page.goto(self.origin + "/knowledge/base-1/query")
+        await self.page.get_by_role("button", name="高级诊断", exact=True).click()
         await self.page.locator(".query-controls .ant-select").first.click()
         option = self.page.locator(".ant-select-item-option").filter(
             has_text="知识图谱"
@@ -449,9 +376,7 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             )
             await self.page.get_by_role("button", name="返回知识库", exact=True).click()
             await (
-                self.page.locator(".knowledge-card")
-                .filter(has_text="另一知识库")
-                .get_by_role("button", name="管理文档", exact=True)
+                self.page.get_by_role("button", name="打开知识库：另一知识库", exact=True)
                 .click()
             )
             release.set()
@@ -651,7 +576,7 @@ class ChatMultiTurnQuality(Evidence, ChatKnowledgePreparation):
             self.preparation.update(status="cancel_requested", phase="cancel_requested")
             await route.fulfill(json=self.preparation)
 
-        await self.page.route(self.origin + "/api/chat/conversations/c1/messages", messages)
+        await self.page.route(re.compile(re.escape(self.origin + "/api/chat/conversations/c1/messages") + r'(?:\?.*)?$'), messages)
         await self.page.route(self.origin + "/api/chat/conversations/c1/runs", admit)
         await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
         await self.page.goto(self.origin + "/chat")
@@ -739,7 +664,7 @@ class WorkMultiTurnQuality(Evidence, WorkKnowledgePreparation):
 
 
 CASES = [
-    (KnowledgeQuality, "test_source_acl_click_waits_for_lazy_drawer_chunk"),
+    (KnowledgeQuality, "test_sharing_dialog_stays_open_while_permissions_load"),
     (KnowledgeQuality, "test_query_cancellation_invalidates_a_delayed_old_get"),
     (WorkQuality, "test_cancel_requested_is_observed_without_reposting_stop"),
     (WorkQuality, "test_confirmed_cancel_replaces_old_observation_scope"),

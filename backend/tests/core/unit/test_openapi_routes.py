@@ -37,7 +37,7 @@ def test_global_schema_uses_effective_paths_for_all_registered_operations(platfo
     }
     schema = platform_app.openapi()
     assert documented_operations(schema) == expected
-    for resource in ('users', 'roles', 'departments', 'posts', 'menus'):
+    for resource in ('users', 'roles', 'departments'):
         assert f'/api/admin/{resource}' in schema['paths']
         assert f'/api/admin/{resource}/{{identifier}}' in schema['paths']
         assert f'/{resource}' not in schema['paths']
@@ -106,3 +106,35 @@ def test_all_resource_operations_use_one_standard_example_with_optional_request_
         assert samples[0]['lang'] == 'Shell' and samples[0]['label'] == 'curl'
         assert 'Idempotency-Key' not in samples[0]['source']
         assert 'REQUEST_ID' not in samples[0]['source']
+
+
+def test_knowledge_download_documents_binary_file_with_original_media_type(platform_app: FastAPI) -> None:
+    operation = platform_app.openapi()['paths']['/api/v1/knowledge-bases/{base_id}/documents/{document_id}/download'][
+        'get'
+    ]
+    response = operation['responses']['200']
+    assert 'application/json' not in response['content']
+    assert response['content']['application/octet-stream']['schema']['format'] == 'binary'
+    assert 'Content-Disposition' in response['headers']
+    assert 'MIME' in operation['description'] or 'Content-Type' in operation['description']
+
+
+def test_knowledge_agent_example_preserves_request_uuid_and_documents_continuation(platform_app: FastAPI) -> None:
+    operation = platform_app.openapi()['paths']['/v1/agents/{agent_id}/chat/completions']['post']
+    parameter = next(p for p in operation['parameters'] if p['name'] == 'Idempotency-Key')
+    assert parameter['in'] == 'header' and parameter['required'] is False
+    assert 'client_request_id' in parameter['description']
+    assert 'polling_url' in operation['description'] and 'admitted' in operation['description']
+    example = operation['x-codeSamples'][0]['source']
+    assert 'REQUEST_ID=${REQUEST_ID:-' in example
+    assert 'Idempotency-Key: $REQUEST_ID' in example
+    assert 'uuid.uuid4()' in example
+
+
+def test_delete_knowledge_library_explicitly_documents_reference_confirmation(platform_app: FastAPI) -> None:
+    operation = platform_app.openapi()['paths']['/api/v1/knowledge-bases/{base_id}']['delete']
+    parameter = next(p for p in operation['parameters'] if p['name'] == 'confirm_references')
+    assert parameter['schema']['default'] is False
+    assert 'knowledge_referenced' in parameter['description']
+    assert 'confirm_references=true' in operation['description']
+    assert 'confirm_references=true' not in operation['x-codeSamples'][0]['source']

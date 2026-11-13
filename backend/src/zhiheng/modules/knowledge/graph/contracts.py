@@ -1,18 +1,23 @@
 """Strict, public graph values; physical storage identities never cross HTTP."""
 
 import hashlib
+import json
+import re
 from base64 import b32encode
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from zhiheng.modules.models.public import ModelMessage
 from zhiheng.runtime.contracts import RunError
+from zhiheng.shared.errors import AppError
 
 GraphOperation = Literal['build', 'preview', 'query', 'gc']
-GraphModelRole = Literal['extract', 'keyword', 'query', 'vlm', 'embedding']
-GraphModelOperation = Literal['generation', 'keyword', 'embedding']
+GraphModelRole = Literal['extract', 'keyword', 'query', 'vlm', 'embedding', 'rerank']
+GraphModelOperation = Literal['generation', 'keyword', 'embedding', 'rerank']
 GraphStatus = Literal[
     'pending', 'running', 'waiting_model', 'draining', 'completed', 'failed', 'cancelled', 'interrupted'
 ]
@@ -132,6 +137,7 @@ class GraphQueryResult(GraphValue):
     entities: list[GraphNode]
     relationships: list[GraphEdge]
     sources: list[GraphSource]
+    diagnostics: dict[str, object] = Field(default_factory=dict)
 
     @field_validator('context')
     @classmethod
@@ -237,3 +243,83 @@ def sdk_document_id(document_id: UUID) -> str:
 
 def sdk_chunk_id(document_id: UUID, chunk_id: UUID) -> str:
     return sdk_document_id(document_id) + '-c' + b32encode(chunk_id.bytes).decode('ascii').rstrip('=').lower()
+
+
+VectorRole = Literal['entities', 'relationships', 'chunks']
+MAX_GRAPH_DIMENSION = 65536
+
+
+@dataclass(frozen=True)
+class GraphVectorManifest:
+    base_id: UUID
+    revision: UUID
+    attempt_id: UUID
+    fingerprint: str
+    dimension: int
+    workspace: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.workspace != 'g_' + self.attempt_id.hex
+            or not re.fullmatch('[a-f0-9]{64}', self.fingerprint)
+            or not 1 <= self.dimension <= MAX_GRAPH_DIMENSION
+        ):
+            raise AppError('graph_manifest_invalid', '图谱版本完整身份无效', 503)
+
+    def dump(self) -> dict[str, object]:
+        return {
+            'base_id': str(self.base_id),
+            'revision': str(self.revision),
+            'attempt_id': str(self.attempt_id),
+            'fingerprint': self.fingerprint,
+            'dimension': self.dimension,
+            'workspace': self.workspace,
+        }
+
+    @classmethod
+    def load(cls, value: dict[str, object]) -> 'GraphVectorManifest':
+        dimension = value['dimension']
+        if type(dimension) is not int:
+            raise AppError('graph_manifest_invalid', '图谱版本身份无效', 503)
+        return cls(
+            UUID(str(value['base_id'])),
+            UUID(str(value['revision'])),
+            UUID(str(value['attempt_id'])),
+            str(value['fingerprint']),
+            dimension,
+            str(value['workspace']),
+        )
+
+    def collection(self, role: VectorRole) -> str:
+        return 'zh_g_' + hashlib.sha256((self.description(role)).encode()).hexdigest()
+
+    def description(self, role: VectorRole) -> str:
+        return json.dumps(
+            {
+                'sdk': '1.5.7',
+                'base': str(self.base_id),
+                'revision': str(self.revision),
+                'attempt': str(self.attempt_id),
+                'fingerprint': self.fingerprint,
+                'dimension': self.dimension,
+                'workspace': self.workspace,
+                'role': role,
+            },
+            sort_keys=True,
+        )
+
+
+@dataclass(frozen=True)
+class GraphSDKCall:
+    role: GraphModelRole
+    operation: GraphModelOperation
+    messages: tuple[ModelMessage, ...]
+    output_tokens: int | None = None
+    json_object: bool = False
+
+
+@dataclass(frozen=True)
+class GraphSDKOutcome:
+    result: dict[str, object]
+    manifest: dict[str, object]
+    stopped: bool

@@ -47,6 +47,14 @@ class GraphRegressions(KnowledgeUIRegressions):
                 await self.page.screenshot(path=str(destination / (self._testMethodName + '.png')))
         await super().asyncTearDown()
 
+    async def open_query_diagnostics(self):
+        expand = self.page.get_by_role('button', name='高级诊断', exact=True)
+        collapse = self.page.get_by_role('button', name='收起高级诊断', exact=True)
+        await expect(expand.or_(collapse)).to_be_visible()
+        if await expand.is_visible():
+            await expand.click()
+        await expect(collapse).to_be_visible()
+
     async def respond(self,route):
         path,method=urlparse(route.request.url).path,route.request.method
         if path=='/api/knowledge/capabilities':
@@ -134,6 +142,7 @@ class GraphRegressions(KnowledgeUIRegressions):
             await route.fulfill(status=202,json=result)
         await self.page.route('**/api/knowledge/bases/base-1/graph/query',submit)
         await self.page.goto(self.origin+'/knowledge/base-1/query')
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click()
         await self.page.get_by_text('知识图谱',exact=True).last.click()
         await self.page.locator('.ant-select[aria-label="检索模式"]').click()
@@ -187,6 +196,7 @@ class GraphRegressions(KnowledgeUIRegressions):
                 await route.fulfill(status=202,json=result)
         await self.page.route('**/api/knowledge/bases/base-1/graph/query',submit)
         await self.page.goto(self.origin+'/knowledge/base-1/query')
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click()
         await self.page.get_by_text('知识图谱',exact=True).last.click()
         await self.page.locator('.ant-select[aria-label="检索模式"]').click()
@@ -196,6 +206,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_role('button',name='恢复查看',exact=True)).to_be_visible()
         await self.page.reload()
         await expect(self.page.get_by_role('button',name='恢复查看',exact=True)).to_be_visible()
+        await self.open_query_diagnostics()
         await expect(self.page.locator('.ant-select[aria-label="检索目标"]')).to_contain_text('知识图谱')
         await expect(self.page.locator('.ant-select[aria-label="检索模式"]')).to_contain_text('关联检索')
         self.assertEqual(len(requests),1)
@@ -217,6 +228,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/graph/query',query)
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs/graph-job-1',observe)
         await self.page.goto(self.origin+'/knowledge/base-1/query')
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click();await self.page.get_by_text('知识图谱',exact=True).last.click()
         await self.page.get_by_role('textbox',name='检索问题',exact=True).fill('查询')
         await self.page.get_by_role('button',name='检索',exact=True).click()
@@ -243,7 +255,9 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.base.update(enable_knowledge_graph=False,llm_model_id=None,graph_status='disabled')
         self.config=None
         await self.page.goto(self.origin+'/knowledge')
-        await self.page.get_by_role('button',name='查看图谱',exact=True).click()
+        await self.page.get_by_role('button',name='打开知识库：业务知识',exact=True).click()
+        await self.page.get_by_role('button',name='更多操作',exact=True).click()
+        await self.page.get_by_role('menuitem',name='高级：知识图谱',exact=True).click()
         await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('heading',name='图谱试构建',exact=True)).to_be_visible()
 
@@ -293,6 +307,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/graph/query',prepare)
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs/graph-job-1',fail_read)
         await self.page.goto(self.origin+'/knowledge/base-1/query')
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click();await self.page.get_by_text('知识图谱',exact=True).last.click()
         await self.page.get_by_role('textbox',name='检索问题',exact=True).fill('原查询')
         await self.page.get_by_role('button',name='检索',exact=True).click()
@@ -305,6 +320,7 @@ class GraphRegressions(KnowledgeUIRegressions):
             await self.page.reload();await asyncio.wait_for(entered.wait(),4)
             await expect(self.page.get_by_role('textbox',name='检索问题',exact=True)).to_be_disabled()
             await expect(self.page.get_by_role('button',name='检索中',exact=True)).to_be_disabled()
+            await self.open_query_diagnostics()
             await expect(self.page.locator('.ant-select[aria-label="检索目标"]')).to_have_class(__import__('re').compile('ant-select-disabled'))
         finally:release.set()
 
@@ -384,6 +400,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.assertNotIn('0%', text, 'Unknown server progress must not be projected as 0%')
 
     async def graph_query(self, text='独立图谱查询'):
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click()
         await self.page.get_by_text('知识图谱', exact=True).last.click()
         await self.page.get_by_role('textbox', name='检索问题', exact=True).fill(text)
@@ -407,6 +424,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.goto(self.origin + '/knowledge/base-1/query')
         await self.graph_query()
         await expect(self.page.get_by_text('旧图谱上下文', exact=True)).to_be_visible()
+        await self.open_query_diagnostics()
         await self.page.locator('.ant-select[aria-label="检索目标"]').click()
         await self.page.locator('.ant-select-item-option-content').get_by_text('知识库', exact=True).click()
         await self.page.get_by_role('textbox', name='检索问题', exact=True).fill('最新向量问题')
@@ -417,6 +435,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_role('textbox', name='检索问题', exact=True)).to_be_visible()
         await self.page.wait_for_timeout(300)
         await expect(self.page.locator('.query-passage')).to_contain_text('业务工作时间是九点到十七点。', timeout=1500)
+        await self.open_query_diagnostics()
         await expect(self.page.locator('.ant-select[aria-label="检索目标"]')).to_contain_text('知识库')
 
 
@@ -561,7 +580,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.goto(self.origin + '/knowledge/base-1/graph')
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
         await self.page.get_by_role('button', name=re.compile('返回知识库$')).click()
-        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
         reads = self.graph_reads['/jobs/graph-job-1']
         await self.page.wait_for_timeout(1800)
         self.assertEqual(self.graph_reads['/jobs/graph-job-1'], reads)
@@ -614,8 +633,10 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_text('此来源已撤权',exact=True)).to_be_visible()
         await expect(self.page.locator('.query-answer')).to_have_count(0)
         await self.page.get_by_role('button',name='Close',exact=True).click()
+        await self.open_query_diagnostics()
         await expect(self.page.locator('.ant-select[aria-label="检索目标"]')).not_to_have_class(__import__('re').compile('ant-select-disabled'))
         await self.page.reload()
+        await self.open_query_diagnostics()
         await expect(self.page.locator('.ant-select[aria-label="检索目标"]')).to_contain_text('知识库')
         self.assertEqual(len(posts),1)
 

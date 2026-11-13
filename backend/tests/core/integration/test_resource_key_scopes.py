@@ -172,7 +172,7 @@ async def test_resource_key_cannot_invoke_public_agent_with_or_without_request_i
 async def test_key_preparation_rejects_a_foreign_owner_before_admission(admin: httpx.AsyncClient, app: FastAPI) -> None:
     from sqlalchemy import select
 
-    from zhiheng.application.knowledge_preparation import PreparationStart
+    from zhiheng.application.knowledge.preparation import PreparationStart
     from zhiheng.modules.identity.orm import IdentityUser
 
     owner_app = await application(admin)

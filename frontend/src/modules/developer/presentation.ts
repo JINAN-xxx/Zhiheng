@@ -1,7 +1,7 @@
 import type { DeveloperKey } from './api/index.ts'
 import type { ChatModel } from '../models/public.ts'
-export const applicationStatusLabel = (status: string) =>
-  status === 'active' ? '已启用' : '已停用'
+export const applicationStatusLabel = (status: string, platformEnabled = true) =>
+  !platformEnabled ? '平台停用' : status === 'active' ? '已启用' : '已停用'
 export const developerKeyStatusLabel = (status: string) =>
   ({ active: '有效', retiring: '轮换宽限期', revoked: '已撤销', expired: '已过期' })[status] ??
   status
@@ -15,7 +15,7 @@ export function aggregateGrantedModels(keys: DeveloperKey[], models: ChatModel[]
       modelId: id,
       modelName: model?.name ?? '当前不可用的模型',
       modelCode: id,
-      available: model?.enabled === true && model.published,
+      available: model?.enabled === true,
       keyCount: authorized.length,
       activeKeyCount: authorized.filter(
         (key) =>

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from uuid import UUID
 
-from zhiheng.application.graph_jobs import GraphJobs
+from zhiheng.application.knowledge.graph.jobs import GraphJobs
 from zhiheng.shared.errors import AppError
 
 

@@ -3,11 +3,11 @@ import json
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from sqlalchemy import text
 
 from tests.core.integration.test_agents import config, provision
 from tests.core.legacy_schema import reconstruct
+from tests.core.schema_support import active_migration_context
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -57,7 +57,7 @@ async def test_0004_upgrade_preserves_data_and_matches_metadata(admin: object, m
     await migrate(container.settings)
 
     def compare(connection: object) -> list:
-        return compare_metadata(MigrationContext.configure(connection), schema_metadata())
+        return compare_metadata(active_migration_context(connection), schema_metadata())
 
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
@@ -8,10 +9,19 @@ from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.shared.time import utcnow
 
 
+@dataclass(frozen=True)
+class OutboxDelivery:
+    id: UUID
+    run_id: UUID
+    hint: object
+
+
 class OutboxStore:
-    async def pending(self, session: AsyncSession) -> list[tuple[UUID, UUID]]:
+    async def pending(self, session: AsyncSession, *, payload_path: tuple[str, ...]) -> list[OutboxDelivery]:
+        if not payload_path:
+            raise ValueError('A delivery hint path is required')
         rows = await session.execute(
-            select(Outbox.id, Outbox.run_id)
+            select(Outbox.id, Outbox.run_id, Run.payload[payload_path])
             .join(Run)
             .where(
                 Run.status == 'pending',
@@ -19,7 +29,7 @@ class OutboxStore:
             )
             .limit(100)
         )
-        return [(row[0], row[1]) for row in rows]
+        return [OutboxDelivery(row[0], row[1], row[2]) for row in rows]
 
     async def mark_sent(self, session: AsyncSession, outbox_id: UUID) -> None:
         await session.execute(update(Outbox).where(Outbox.id == outbox_id).values(sent_at=utcnow()))

@@ -18,8 +18,8 @@ export interface AdminUser extends Entity {
   email: string
   phone: string
   department_id: string | null
-  post_ids: string[]
   role_ids: string[]
+  role_names: string[]
   is_active: boolean
   is_admin: boolean
   remark: string
@@ -42,34 +42,6 @@ export interface Department extends Entity {
   email: string
   is_active: boolean
 }
-export interface Post extends Entity {
-  code: string
-  name: string
-  sort_order: number
-  is_active: boolean
-  remark: string
-}
-export interface Menu extends Entity {
-  parent_id: string | null
-  name: string
-  path: string
-  permission: string
-  sort_order: number
-  is_visible: boolean
-}
-export interface Dictionary extends Entity {
-  code: string
-  name: string
-  is_active: boolean
-  remark: string
-}
-export interface DictionaryItem extends Entity {
-  label: string
-  value: string
-  sort_order: number
-  is_active: boolean
-  remark: string
-}
 export interface Config extends Entity {
   key: string
   name: string
@@ -88,6 +60,12 @@ export interface Permission {
   code: string
   label: string
   group: string
+  section?: string | undefined
+  description?: string | undefined
+  module?: string | undefined
+  action?: string | undefined
+  kind?: string | undefined
+  parent?: string | undefined
 }
 export interface Option {
   id: string
@@ -98,15 +76,7 @@ export interface RoleOption extends Option {
 }
 export interface UserOptions {
   departments: Option[]
-  posts: Option[]
   roles: RoleOption[]
-}
-export interface NavigationEntry {
-  name: string
-  path: string
-  permission: string
-  sort_order: number
-  is_visible: boolean
 }
 export interface Session {
   version: number
@@ -162,8 +132,8 @@ export const decodeUser: Decoder<AdminUser> = (value) => {
     email: string(r.email),
     phone: string(r.phone),
     department_id: nullableString(r.department_id),
-    post_ids: list(string)(r.post_ids),
     role_ids: list(string)(r.role_ids),
+    role_names: r.role_names === undefined ? [] : list(string)(r.role_names),
     is_active: boolean(r.is_active),
     is_admin: boolean(r.is_admin),
     remark: string(r.remark)
@@ -195,50 +165,6 @@ export const decodeDepartment: Decoder<Department> = (value) => {
     is_active: boolean(r.is_active)
   }
 }
-export const decodePost: Decoder<Post> = (value) => {
-  const r = object(value)
-  return {
-    ...base(r),
-    code: string(r.code),
-    name: string(r.name),
-    sort_order: number(r.sort_order),
-    is_active: boolean(r.is_active),
-    remark: string(r.remark)
-  }
-}
-export const decodeMenu: Decoder<Menu> = (value) => {
-  const r = object(value)
-  return {
-    ...base(r),
-    parent_id: nullableString(r.parent_id),
-    name: string(r.name),
-    path: string(r.path),
-    permission: string(r.permission),
-    sort_order: number(r.sort_order),
-    is_visible: boolean(r.is_visible)
-  }
-}
-export const decodeDictionary: Decoder<Dictionary> = (value) => {
-  const r = object(value)
-  return {
-    ...base(r),
-    code: string(r.code),
-    name: string(r.name),
-    is_active: boolean(r.is_active),
-    remark: string(r.remark)
-  }
-}
-export const decodeDictionaryItem: Decoder<DictionaryItem> = (value) => {
-  const r = object(value)
-  return {
-    ...base(r),
-    label: string(r.label),
-    value: string(r.value),
-    sort_order: number(r.sort_order),
-    is_active: boolean(r.is_active),
-    remark: string(r.remark)
-  }
-}
 export const decodeConfig: Decoder<Config> = (value) => {
   const r = object(value)
   return {
@@ -267,7 +193,17 @@ export const decodeNotice: Decoder<Notice> = (value) => {
 }
 export const decodePermission: Decoder<Permission> = (value) => {
   const r = object(value)
-  return { code: string(r.code), label: string(r.label), group: string(r.group) }
+  return {
+    code: string(r.code),
+    label: string(r.label),
+    group: string(r.group),
+    section: r.section === undefined ? undefined : string(r.section),
+    description: r.description === undefined ? undefined : string(r.description),
+    module: r.module === undefined ? undefined : string(r.module),
+    action: r.action === undefined ? undefined : string(r.action),
+    kind: r.kind === undefined ? undefined : string(r.kind),
+    parent: r.parent === undefined ? undefined : string(r.parent)
+  }
 }
 export const decodeUserOptions: Decoder<UserOptions> = (value) => {
   const r = object(value)
@@ -277,7 +213,6 @@ export const decodeUserOptions: Decoder<UserOptions> = (value) => {
   }
   return {
     departments: list(option)(r.departments),
-    posts: list(option)(r.posts),
     roles: list((value): RoleOption => {
       const r = object(value)
       return {
@@ -285,16 +220,6 @@ export const decodeUserOptions: Decoder<UserOptions> = (value) => {
         system_key: r.system_key === undefined ? null : nullableString(r.system_key)
       }
     })(r.roles)
-  }
-}
-export const decodeNavigation: Decoder<NavigationEntry> = (value) => {
-  const r = object(value)
-  return {
-    name: string(r.name),
-    path: string(r.path),
-    permission: string(r.permission),
-    sort_order: number(r.sort_order),
-    is_visible: boolean(r.is_visible)
   }
 }
 export const decodeSession: Decoder<Session> = (value) => {
@@ -328,7 +253,7 @@ export const decodeLog: Decoder<AdminLog> = (value) => {
   }
 }
 
-export type UserPayload = Omit<AdminUser, keyof Entity | 'username' | 'is_admin'> & {
+export type UserPayload = Omit<AdminUser, keyof Entity | 'username' | 'is_admin' | 'role_names'> & {
   username?: string
   password?: string
   is_admin?: boolean
@@ -337,9 +262,5 @@ export type RolePayload = Omit<Role, keyof Entity | 'code' | 'system_key' | 'mem
   code?: string
 }
 export type DepartmentPayload = Omit<Department, keyof Entity>
-export type PostPayload = Omit<Post, keyof Entity | 'code'> & { code?: string }
-export type MenuPayload = Omit<Menu, keyof Entity>
-export type DictionaryPayload = Omit<Dictionary, keyof Entity>
-export type DictionaryItemPayload = Omit<DictionaryItem, keyof Entity>
 export type ConfigPayload = Omit<Config, keyof Entity>
 export type NoticePayload = Omit<Notice, keyof Entity>

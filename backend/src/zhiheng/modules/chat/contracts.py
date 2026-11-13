@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from zhiheng.modules.files.public import AttachmentSummary
 from zhiheng.modules.knowledge.public import Hit
+from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 
 class ConversationInfo(BaseModel):
@@ -15,6 +16,7 @@ class ConversationInfo(BaseModel):
     archived: bool = False
     preparation_id: UUID | None = None
     created_at: datetime
+    last_activity_at: datetime | None = None
 
 
 class ChatContextInfo(BaseModel):
@@ -26,7 +28,7 @@ class ChatContextInfo(BaseModel):
     truncated: bool = False
     dropped_rounds: int = 0
     estimated_input_tokens: int | None = None
-    input_budget: int = 8192
+    input_budget: int | None = None
     reason: str | None = None
 
 
@@ -48,7 +50,7 @@ class ChatGenerationSettings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     system_prompt: str = Field(default='', strict=True, max_length=32000)
     temperature: float | None = Field(default=None, strict=True, ge=0, le=2, allow_inf_nan=False)
-    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=131072)
+    max_output_tokens: int | None = Field(default=None, strict=True, ge=1, le=MAX_SAFE_INTEGER)
 
     @field_validator('system_prompt')
     @classmethod
@@ -85,6 +87,11 @@ class MessageInfo(BaseModel):
     feedback: Literal['up', 'down'] | None = None
     generation_config: ChatGenerationConfig | None = None
     created_at: datetime
+
+
+class MessageHistory(BaseModel):
+    items: list[MessageInfo]
+    next_before: tuple[datetime, UUID] | None = None
 
 
 class ChatRequestContext(ChatGenerationConfig):

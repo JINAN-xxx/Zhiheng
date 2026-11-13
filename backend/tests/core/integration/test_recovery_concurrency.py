@@ -9,13 +9,14 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_developer import admitted, provision
+from zhiheng.modules.billing.orm import Invocation, UsageAccount
 from zhiheng.modules.billing.public import UsageOutcome, UsageService
-from zhiheng.modules.developer.orm import DeveloperKey, Invocation, UsageAccount
+from zhiheng.modules.developer.orm import DeveloperKey
 from zhiheng.runtime.contracts import ClaimedRun, RunUsage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
-from zhiheng.worker.main import recover_expired
 
 
 async def recovery_state(
@@ -65,6 +66,7 @@ async def assert_recovered_attempts_fenced(
 async def test_recovery_other_key_completion_unknown_and_repeat(
     admin: httpx.AsyncClient, model_id: str, app: object, monkeypatch: pytest.MonkeyPatch, provider_started: bool
 ) -> None:
+    await enable_free_billing(admin)
     container = app.state.container
     _, key_a = await provision(admin, model_id)
     _, key_b = await provision(admin, model_id)
@@ -86,8 +88,7 @@ async def test_recovery_other_key_completion_unknown_and_repeat(
             text("UPDATE runtime_runs SET lease_until=now()-interval '1 second' WHERE id IN (:a,:b)"),
             {'a': recovered_a.id, 'b': recovered_b.id},
         )
-    first_settled = asyncio.Event()
-    live_key_locked = asyncio.Event()
+    first_settled, live_key_locked = asyncio.Event(), asyncio.Event()
     first_id: list[UUID] = []
     settlement_counts: dict[UUID, int] = {}
     original_settle = UsageService.settle
@@ -125,13 +126,13 @@ async def test_recovery_other_key_completion_unknown_and_repeat(
             )
 
     results = await asyncio.wait_for(
-        asyncio.gather(recover_expired(container), live_finish(), return_exceptions=True), 8
+        asyncio.gather(container.run_recovery.recover_expired(), live_finish(), return_exceptions=True), 8
     )
     assert not [result for result in results if isinstance(result, BaseException)], results
 
     before = await recovery_state(container, identity.owner_id, recovered_ids, finished_id[0], provider_started)
-    await recover_expired(container)
-    await recover_expired(container)
+    await container.run_recovery.recover_expired()
+    await container.run_recovery.recover_expired()
     assert await recovery_state(container, identity.owner_id, recovered_ids, finished_id[0], provider_started) == before
     assert all(settlement_counts[run_id] == 1 for run_id in recovered_ids)
     await assert_recovered_attempts_fenced(container, recovered_ids, claims)
@@ -163,7 +164,7 @@ async def test_recovery_commits_each_run_atomically_and_rolls_back_failed_settle
     with monkeypatch.context() as patched:
         patched.setattr(UsageService, 'settle', fail_second)
         with pytest.raises(RuntimeError, match='settlement commit failed'):
-            await recover_expired(container)
+            await container.run_recovery.recover_expired()
     async with container.database.sessions() as session:
         committed = await session.get(Run, order[0])
         rolled_back = await session.get(Run, order[1])
@@ -173,8 +174,8 @@ async def test_recovery_commits_each_run_atomically_and_rolls_back_failed_settle
         assert committed.status == 'interrupted' and inv_committed.status == 'known'
         assert rolled_back.status == 'running' and inv_rolled_back.status == 'pending'
         assert account.reserved_tokens == inv_rolled_back.reserved_tokens and account.used_tokens == 0
-    await recover_expired(container)
-    await recover_expired(container)
+    await container.run_recovery.recover_expired()
+    await container.run_recovery.recover_expired()
     async with container.database.sessions() as session:
         account = await session.get(UsageAccount, identity.owner_id)
         assert account.reserved_tokens == 0 and account.used_tokens == 0

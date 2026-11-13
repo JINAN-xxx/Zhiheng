@@ -186,7 +186,7 @@ async def member_client(app: object) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.mark.asyncio
-async def test_owner_hidden404_admin_uses_original_owner_and_work_bound_runs(
+async def test_personal_work_is_private_for_admin_and_native_runs_stay_bound(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
     a = await published(admin, model_id)
@@ -210,15 +210,17 @@ async def test_owner_hidden404_admin_uses_original_owner_and_work_bound_runs(
         url = '/api/work/tasks/' + own_task['id']
         denied = await admin.post(url + '/members', json={'agent_id': a['id'], 'expected_version': 1})
         assert denied.status_code == 404, denied.text
-        directory = (await admin.get('/api/work/agents/available', params={'task_id': own_task['id']})).json()
+        assert (await admin.get('/api/work/agents/available', params={'task_id': own_task['id']})).status_code == 404
+        directory = (await member.get('/api/work/agents/available', params={'task_id': own_task['id']})).json()
         assert [entry['id'] for entry in directory] == [own['id']]
-        # Admin's own Task may use an agent owned by another user.
+        # Owning a Task does not grant another user's private Agent.
         allowed = await admin.post(
             '/api/work/tasks/' + admin_task['id'] + '/members', json={'agent_id': own['id'], 'expected_version': 1}
         )
-        assert allowed.status_code == 200, allowed.text
-        run = (await admin.post(url + '/runs', json=turn(own_task, own))).json()
-        assert (await member.get('/api/runs/' + run['id'])).status_code == 404
+        assert allowed.status_code == 404, allowed.text
+        run = (await member.post(url + '/runs', json=turn(own_task, own))).json()
+        assert (await admin.get('/api/runs/' + run['id'])).status_code == 404
+        assert (await member.get('/api/runs/' + run['id'])).status_code == 200
         assert (await member.get(url + '/runs/' + run['id'])).status_code == 200
         assert (await member.get(url + '/runs/' + str(uuid4()))).status_code == 404
         other_run = await admin.post(
@@ -230,7 +232,7 @@ async def test_owner_hidden404_admin_uses_original_owner_and_work_bound_runs(
         assert stopped.json()['status'] == 'cancelled'
         async with app.state.container.database.sessions() as session:
             row = await session.get(Run, UUID(run['id']))
-            assert str(row.owner_id) == admin_task['owner_id']
+            assert str(row.owner_id) == own_task['owner_id']
             assert str(row.billing_owner_id) == own_task['owner_id']
 
 
@@ -285,10 +287,9 @@ async def test_partial_reasoning_terminal_cancel_recovery_and_fencing(  # noqa: 
     from collections.abc import AsyncIterator
     from datetime import timedelta
 
-    from zhiheng.application.inference import InferenceExecutor
+    from zhiheng.application.execution.executor import InferenceExecutor
     from zhiheng.modules.models.public import ModelBinding, ModelDelta, ModelMessage, ProviderError
     from zhiheng.shared.time import utcnow
-    from zhiheng.worker.main import recover_expired
 
     container = app.state.container
     a = await published(admin, model_id)
@@ -303,8 +304,8 @@ async def test_partial_reasoning_terminal_cancel_recovery_and_fencing(  # noqa: 
             await container.runs.project(session, run_id, claim.attempt_id, 'partial', '思考')
             row = await session.get(Run, run_id)
             row.lease_until = utcnow() - timedelta(seconds=1)
-        await recover_expired(container)
-        await recover_expired(container)
+        await container.run_recovery.recover_expired()
+        await container.run_recovery.recover_expired()
         async with container.database.sessions.begin() as session:
             assert not await container.runs.project(session, run_id, claim.attempt_id, 'OLD', 'OLD')
     else:
@@ -496,8 +497,8 @@ async def test_latest_publication_unavailable_cannot_be_bypassed_by_frozen_membe
 async def test_finish_account_wait_does_not_block_busy_admission(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
-    from zhiheng.application.inference import InferenceExecutor, InferenceProgress
-    from zhiheng.modules.developer.orm import UsageAccount
+    from zhiheng.application.execution.executor import InferenceExecutor, InferenceProgress
+    from zhiheng.modules.billing.orm import UsageAccount
 
     container = app.state.container
     a = await published(admin, model_id)
@@ -513,7 +514,7 @@ async def test_finish_account_wait_does_not_block_busy_admission(
         runs=container.runs,
         usage=container.usage,
         chat=container.chat,
-        provider_factory=container.prepare_provider,
+        provider_factory=container.execution_authorization.prepare_provider,
         lease_seconds=3,
         timeout_seconds=2,
     )
@@ -589,7 +590,7 @@ async def test_bounded_context_preserves_last_user_and_full_audit_history(
 async def test_identical_key_reserves_once_and_generic_cancel_projects_work(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
-    from zhiheng.modules.developer.orm import Invocation
+    from zhiheng.modules.billing.orm import Invocation
 
     a = await published(admin, model_id)
     t = await task(admin, a)
@@ -732,14 +733,14 @@ async def test_frozen_and_latest_publication_skill_sets_have_independent_limits(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('delegated', [False, True])
-async def test_work_runtime_key_collision_returns_conflict_without_partial_admission(
+async def test_work_runtime_key_collision_preserves_authorization_and_admission(
     admin: httpx.AsyncClient, model_id: str, app: object, provider: object, delegated: bool
 ) -> None:
     from uuid import uuid5
 
     from sqlalchemy import func
 
-    from zhiheng.modules.developer.orm import Invocation
+    from zhiheng.modules.billing.orm import Invocation
     from zhiheng.runtime.orm import Outbox
 
     async with member_client(app) as member:
@@ -756,21 +757,25 @@ async def test_work_runtime_key_collision_returns_conflict_without_partial_admis
         cookies=admin.cookies,
     ) as observer:
         response = await observer.post(url + '/runs', json=turn(t, a))
-    assert response.status_code == 409, response.text
-    assert response.json()['error']['code'] == 'idempotency_conflict'
-    current = (await admin.get(url)).json()
+    expected_status = 404 if delegated else 409
+    assert response.status_code == expected_status, response.text
+    if not delegated:
+        assert response.json()['error']['code'] == 'idempotency_conflict'
+    async with member_client(app) as member:
+        creator = member if delegated else admin
+        current = (await creator.get(url)).json()
     assert current['version'] == 1 and current['current_run_id'] is None and len(current['messages']) == 1
     assert provider.requests == []
-    # Conflicts are resolved before model admission, even if the model is disabled later.
+    # Ownership and request conflicts are checked before model admission.
     await admin.patch('/api/models/' + model_id, json={'enabled': False})
-    assert (await admin.post(url + '/runs', json=turn(t, a))).status_code == 409
+    assert (await admin.post(url + '/runs', json=turn(t, a))).status_code == expected_status
     async with app.state.container.database.sessions() as session:
         for row in (Run, Invocation, Outbox):
             assert await session.scalar(select(func.count()).select_from(row)) == 1
 
 
 @pytest.mark.asyncio
-async def test_cross_caller_work_replay_precedes_caller_runtime_key_conflict(
+async def test_cross_caller_cannot_replay_work_despite_matching_runtime_key(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
     from uuid import uuid5
@@ -785,56 +790,25 @@ async def test_cross_caller_work_replay_precedes_caller_runtime_key_conflict(
         generic = await admin.post('/api/models/' + model_id + '/test', json={'client_request_id': runtime_key})
         assert generic.status_code == 202, generic.text
         replay = await admin.post(url + '/runs', json=turn(t, a))
-        assert replay.status_code == 202 and replay.json()['id'] == admitted.json()['id'], replay.text
-        assert replay.json()['id'] != generic.json()['id']
+        assert replay.status_code == 404, replay.text
+        own_replay = await member.post(url + '/runs', json=turn(t, a))
+        assert own_replay.status_code == 202 and own_replay.json()['id'] == admitted.json()['id'], own_replay.text
+        assert own_replay.json()['id'] != generic.json()['id']
 
 
 @pytest.mark.asyncio
-async def test_delegated_work_locks_caller_runtime_key_before_model_admission(
+async def test_foreign_work_is_denied_before_request_lock_or_model_admission(
     admin: httpx.AsyncClient, model_id: str, app: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from uuid import uuid5
-
     async with member_client(app) as member:
-        a = await published(member, model_id)
-        t = await task(member, a)
-    c = app.state.container
-    runtime_key = uuid5(UUID(t['id']), t['create_client_request_id'])
-    domain_locked, model_entered = asyncio.Event(), asyncio.Event()
-    original_lock, original_models = c.runs.lock_request, c.models.resolve_many
+        agent = await published(member, model_id)
+        owned = await task(member, agent)
+    container = app.state.container
 
-    async def observed_lock(session: object, owner_id: UUID, request_id: UUID) -> None:
-        await original_lock(session, owner_id, request_id)
-        if owner_id == UUID(t['owner_id']):
-            domain_locked.set()
+    async def must_not_enter(*args: object, **kwargs: object) -> None:
+        pytest.fail('A denied caller reached Work request locking or model admission')
 
-    async def observed_models(session: object, model_ids: list[UUID]) -> object:
-        model_entered.set()
-        return await original_models(session, model_ids)
-
-    monkeypatch.setattr(c.runs, 'lock_request', observed_lock)
-    monkeypatch.setattr(c.models, 'resolve_many', observed_models)
-    admission = None
-    try:
-        async with c.database.sessions.begin() as session:
-            principal = await c.identity.authenticate(session, admin.cookies['zhiheng_session'])
-            await c.runs.lock_request(session, principal.id, runtime_key)
-            admission = asyncio.create_task(admin.post('/api/work/tasks/' + t['id'] + '/runs', json=turn(t, a)))
-            await asyncio.wait_for(domain_locked.wait(), 2)
-            await asyncio.sleep(0.05)
-            assert not model_entered.is_set(), 'Work must wait for caller request lock before taking model locks'
-            assert not admission.done()
-            generic = await c.admission.admit_test(
-                session,
-                principal,
-                model_id=UUID(model_id),
-                client_request_id=runtime_key,
-                token_limit=c.settings.token_limit,
-            )
-        response = await asyncio.wait_for(admission, 2)
-        assert response.status_code == 409, response.text
-        assert (await admin.get('/api/runs/' + str(generic.id))).status_code == 200
-    finally:
-        if admission is not None and not admission.done():
-            admission.cancel()
-            await asyncio.gather(admission, return_exceptions=True)
+    monkeypatch.setattr(container.runs, 'lock_request', must_not_enter)
+    monkeypatch.setattr(container.models, 'resolve_many', must_not_enter)
+    response = await admin.post('/api/work/tasks/' + owned['id'] + '/runs', json=turn(owned, agent))
+    assert response.status_code == 404, response.text

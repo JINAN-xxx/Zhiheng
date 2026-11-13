@@ -145,10 +145,13 @@ class ChatContextMemoryRegressions(DeveloperBoundary):
 
     async def test_model_window_field_roundtrips_and_can_restore_platform_budget(self):
         await self.page.goto(self.origin + '/models')
-        card = self.page.locator('.model-card').first
-        await expect(card).to_be_visible()
+        item = self.page.locator('.model-item').first
+        await expect(item).to_be_visible()
         async def edit():
-            await card.get_by_role('button', name='更多操作', exact=True).click()
+            detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+            if not await detail.is_visible():
+                await item.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+            await detail.get_by_role('button', name='更多模型操作', exact=True).click()
             await self.page.get_by_role('menuitem', name='编辑模型', exact=True).click()
             drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
             await expect(drawer).to_contain_text('上下文窗口 tokens（可选）')

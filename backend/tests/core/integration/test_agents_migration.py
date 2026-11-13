@@ -92,5 +92,5 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
         assert await connection.scalar(text("SELECT count(*) FROM runtime_runs WHERE reasoning != ''")) == 0
         assert await connection.scalar(text("SELECT count(*) FROM chat_messages WHERE reasoning != ''")) == 0
         assert (
-            await connection.scalar(text("SELECT count(*) FROM skills WHERE owner_id IS NULL OR source='upload'")) == 3
+            await connection.scalar(text("SELECT count(*) FROM skills WHERE owner_id IS NULL OR source='upload'")) == 6
         )

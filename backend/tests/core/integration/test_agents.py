@@ -151,9 +151,11 @@ async def test_knowledge_fails_explicitly_and_owner_is_hidden(admin: httpx.Async
 
 
 @pytest.mark.asyncio
-async def test_model_restores_131072_boundary(admin: httpx.AsyncClient, model_id: str) -> None:
+async def test_model_output_can_exceed_131072_and_still_requires_an_integer(
+    admin: httpx.AsyncClient, model_id: str
+) -> None:
     assert (await admin.patch(f'/api/models/{model_id}', json={'max_output_tokens': 131072})).status_code == 200
-    assert (await admin.patch(f'/api/models/{model_id}', json={'max_output_tokens': 131073})).status_code == 422
+    assert (await admin.patch(f'/api/models/{model_id}', json={'max_output_tokens': 131073})).status_code == 200
     assert (await admin.patch(f'/api/models/{model_id}', json={'max_output_tokens': True})).status_code == 422
 
 
@@ -185,11 +187,11 @@ async def test_reasoning_projects_before_content_and_survives_cancel(
 
 
 @pytest.mark.asyncio
-async def test_admin_uses_original_owner_for_application_and_preview_billing(
+async def test_admin_cannot_manage_foreign_agent_and_owner_preview_keeps_own_billing(
     admin: httpx.AsyncClient, model_id: str, app: object, provider: object
 ) -> None:
     from zhiheng.modules.agents.orm import AgentRunAudit
-    from zhiheng.modules.developer.orm import Invocation
+    from zhiheng.modules.billing.orm import Invocation
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
@@ -203,20 +205,24 @@ async def test_admin_uses_original_owner_for_application_and_preview_billing(
                 f'/api/agents/{agent["id"]}', json=config(model_id, application_id=admin_app, expected_version=1)
             )
         ).status_code == 404
-        assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 200
+        assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 404
+        assert (
+            await member.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+        ).status_code == 200
         request = {'client_request_id': str(uuid4()), 'messages': [{'role': 'user', 'content': 'admin preview'}]}
-        preview = await admin.post(f'/api/agents/{agent["id"]}/preview', json=request)
+        assert (await admin.post(f'/api/agents/{agent["id"]}/preview', json=request)).status_code == 404
+        preview = await member.post(f'/api/agents/{agent["id"]}/preview', json=request)
         assert preview.status_code == 202, preview.text
         await execute_run(app.state.container, UUID(preview.json()['id']))
-        result = (await admin.get(f'/api/runs/{preview.json()["id"]}')).json()
+        result = (await member.get(f'/api/runs/{preview.json()["id"]}')).json()
         assert result['status'] == 'completed', result
-        assert (await member.get(f'/api/runs/{preview.json()["id"]}')).status_code == 404
+        assert (await admin.get(f'/api/runs/{preview.json()["id"]}')).status_code == 404
         async with app.state.container.database.sessions() as session:
             invocation = await session.scalar(select(Invocation).where(Invocation.run_id == UUID(preview.json()['id'])))
             run = await session.get(Run, UUID(preview.json()['id']))
             audit = await session.get(AgentRunAudit, UUID(preview.json()['id']))
             assert str(invocation.user_id) == agent['owner_id'] == str(audit.owner_id) == str(run.billing_owner_id)
-            assert run.owner_id != invocation.user_id
+            assert run.owner_id == invocation.user_id
 
 
 @pytest.mark.asyncio
@@ -355,7 +361,7 @@ async def test_reasoning_partial_terminal_results_keep_bounded_utf8(
     from collections.abc import AsyncIterator
     from datetime import timedelta
 
-    from zhiheng.application.inference import InferenceExecutor
+    from zhiheng.application.execution.executor import InferenceExecutor
     from zhiheng.modules.models.public import ModelBinding, ModelDelta, ModelMessage, ProviderError
     from zhiheng.shared.time import utcnow
 
@@ -375,9 +381,8 @@ async def test_reasoning_partial_terminal_results_keep_bounded_utf8(
             await container.runs.project(session, run_id, claim.attempt_id, 'partial', '思考')
             run = await session.get(Run, run_id)
             run.lease_until = utcnow() - timedelta(seconds=1)
-        from zhiheng.worker.main import recover_expired
 
-        await recover_expired(container)
+        await container.run_recovery.recover_expired()
     else:
 
         class Provider:
@@ -430,9 +435,16 @@ async def test_public_governance_precedes_knowledge_context(
     limited = (
         await admin.post(
             f'/api/developer/applications/{application}/keys',
-            json={'name': 'zero budget', 'model_ids': [model_id], 'monthly_budget': '0'},
+            json={'name': 'request limit', 'model_ids': [model_id], 'rpm_limit': 1},
         )
     ).json()
+    from zhiheng.modules.developer.orm import KeyMinuteBucket
+    from zhiheng.shared.time import utcnow
+
+    async with app.state.container.database.sessions.begin() as session:
+        session.add(
+            KeyMinuteBucket(key_id=UUID(limited['id']), minute=int(utcnow().timestamp()) // 60, requests=1, tokens=0)
+        )
     plain = (await admin.post('/api/agents', json=config(model_id, application_id=application))).json()
     await admin.post(f'/api/agents/{plain["id"]}/publish', json={'expected_version': 1})
     quota = await admin.post(

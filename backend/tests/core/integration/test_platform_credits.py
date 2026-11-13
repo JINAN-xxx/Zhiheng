@@ -16,8 +16,19 @@ from sqlalchemy import Column, MetaData, Table, Uuid, text
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from zhiheng.modules.billing.orm import (
+    CreditAccount,
+    CreditCommand,
+    CreditControl,
+    CreditHold,
+    CreditKeyMonth,
+    CreditLedger,
+    CreditRate,
+)
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+
+CREDIT_MODELS = (CreditAccount, CreditControl, CreditRate, CreditCommand, CreditKeyMonth, CreditHold, CreditLedger)
 
 
 @pytest_asyncio.fixture
@@ -34,7 +45,6 @@ async def credit_env() -> AsyncIterator[tuple[Any, ...]]:
     engine = create_async_engine(make_url(url).set(database=database))
     factory = async_sessionmaker(engine, expire_on_commit=False)
     service_module = import_module('zhiheng.modules.billing.service')
-    orm = import_module('zhiheng.modules.billing.orm')
     for owner in ('identity', 'models', 'developer'):
         import_module(f'zhiheng.modules.{owner}.orm')
     c = import_module('zhiheng.modules.billing.contracts')
@@ -46,8 +56,8 @@ async def credit_env() -> AsyncIterator[tuple[Any, ...]]:
             for name in ('identity_users', 'models', 'developer_keys'):
                 Table(name, parents, Column('id', Uuid, primary_key=True))
             await connection.run_sync(parents.create_all)
-            for table in orm.schema_tables():
-                await connection.run_sync(table.create)
+            for model in CREDIT_MODELS:
+                await connection.run_sync(model.__table__.create)
             await connection.execute(
                 text('INSERT INTO identity_users(id) VALUES (:u),(:a)'), {'u': user_id, 'a': actor.id}
             )
@@ -385,7 +395,6 @@ async def test_migration_adds_zero_default_credit_scheme_without_changing_old_un
     from alembic.operations import Operations
 
     factory, _, _, _, _user, _, key_a, _ = credit_env
-    orm = import_module('zhiheng.modules.billing.orm')
     migration_file = Path(__file__).parents[3] / 'migrations/versions/0012_platform_credits.py'
     assert migration_file.is_file(), 'The additive platform credit migration is not implemented'
     module_spec = spec_from_file_location('platform_credits_migration', migration_file)
@@ -393,8 +402,8 @@ async def test_migration_adds_zero_default_credit_scheme_without_changing_old_un
     module_spec.loader.exec_module(module)
     async with factory.begin() as session:
         connection = await session.connection()
-        for table in reversed(orm.schema_tables()):
-            await connection.run_sync(table.drop)
+        for model in reversed(CREDIT_MODELS):
+            await connection.run_sync(model.__table__.drop)
         await session.execute(text('ALTER TABLE developer_keys ADD COLUMN monthly_budget NUMERIC(30,12)'))
         await session.execute(text('UPDATE developer_keys SET monthly_budget=12.345 WHERE id=:id'), {'id': key_a})
         await session.execute(

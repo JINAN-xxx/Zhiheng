@@ -7,6 +7,7 @@ from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.agents.public import (
     AgentConfig,
+    AgentCreate,
     AgentInfo,
     AgentPage,
     AgentSummary,
@@ -44,10 +45,15 @@ async def available(
 
 @router.post('', status_code=201)
 async def create(
-    body: AgentConfig, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+    body: AgentCreate, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> AgentInfo:
     async with session.begin():
-        return await container.agent_management.create(session, principal, body)
+        return await container.agent_management.create(
+            session,
+            principal,
+            AgentConfig.model_validate(body.model_dump(exclude={'client_request_id'})),
+            body.client_request_id,
+        )
 
 
 @router.get('/{agent_id}')
@@ -119,3 +125,10 @@ async def preview(
         return await container.agent_runs.prepare_knowledge_agent(principal, agent_id, body)
     async with session.begin():
         return await container.agent_runs.preview(session, principal, agent_id, body, container.settings.token_limit)
+
+
+@router.get('/{agent_id}/api-access')
+async def api_access(
+    agent_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> dict[str, object]:
+    return await container.agent_management.api_access(session, principal, agent_id)

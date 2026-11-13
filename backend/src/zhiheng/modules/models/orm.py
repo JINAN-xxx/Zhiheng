@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -39,11 +40,12 @@ class ModelDefinition(Base):
     connection_id: Mapped[UUID] = mapped_column(ForeignKey('model_connections.id'))
     name: Mapped[str] = mapped_column(String(80))
     upstream_model: Mapped[str] = mapped_column(String(200))
-    max_output_tokens: Mapped[int] = mapped_column(Integer)
+    max_output_tokens: Mapped[int] = mapped_column(BigInteger)
     context_window_tokens: Mapped[int | None] = mapped_column(Integer)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     model_type: Mapped[str] = mapped_column(String(16), default='chat')
     vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    # Legacy storage only; model availability is governed by enabled and its connection.
     published: Mapped[bool] = mapped_column(Boolean, default=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

@@ -32,6 +32,7 @@ from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerpr
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.runtime.contracts import RunError
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -94,9 +95,7 @@ class GraphService:
         if document.deleted_at is not None or document.active_revision is None or document.base_id != base_id:
             raise AppError('graph_source_stale', '图谱来源已变化', 409)
         for actor in (owner,) if owner.id == principal.id else (owner, principal):
-            source = await self.knowledge.files.source_snapshot(
-                session, actor, document.file_id, lock=True, artifact_file_id=document.artifact_file_id
-            )
+            source = await self.knowledge.document_source_snapshot(session, actor, document, lock=True)
         if source.sha256 != document.source_sha256:
             raise AppError('graph_source_stale', '图谱来源已变化', 409)
         if document.artifact_file_id is None:
@@ -117,10 +116,17 @@ class GraphService:
             **source.model_dump(),
         )
 
-    async def lock_models(self, session: AsyncSession, frozen: GraphFrozen) -> None:
+    async def lock_models(self, session: AsyncSession, frozen: GraphFrozen, rerank: ModelBinding | None = None) -> None:
         """Lock the original model set; stopped-writer proof needs no live model."""
         await self.knowledge.models.lock_many(
-            session, sorted({frozen.config.llm_model_id, UUID(str(frozen.embedding_binding['model_id']))})
+            session,
+            sorted(
+                {
+                    frozen.config.llm_model_id,
+                    UUID(str(frozen.embedding_binding['model_id'])),
+                    *([rerank.model_id] if rerank is not None else []),
+                }
+            ),
         )
 
     async def _lock_dependencies(
@@ -432,6 +438,19 @@ class GraphService:
         total_chunks = len(selected) if operation != 'query' else None
         return total_documents, total_chunks
 
+    async def _request(
+        self,
+        session: AsyncSession,
+        body: GraphBuildRequest | GraphPreviewRequest | GraphQueryRequest,
+        operation: GraphOperation,
+        base_id: UUID,
+    ) -> dict[str, object]:
+        request = body.model_dump(mode='json')
+        if operation == 'query':
+            binding = await self.knowledge.retrieval_rerank_binding(session, [base_id])
+            request['_rerank_binding'] = binding.model_dump(mode='json')
+        return request
+
     async def admit(
         self,
         session: AsyncSession,
@@ -485,6 +504,7 @@ class GraphService:
             if reused is not None:
                 return reused
         total_documents, total_chunks = self._selection_counts(body, frozen, operation)
+        request = await self._request(session, body, operation, base_id)
         attempt_id, job_id = uuid4(), uuid4()
         job = GraphJob(
             id=job_id,
@@ -497,7 +517,7 @@ class GraphService:
             attempt_id=attempt_id,
             graph_revision=revision,
             frozen=frozen.model_dump(mode='json'),
-            request=body.model_dump(mode='json'),
+            request=request,
             total_documents=total_documents,
             processed_documents=0 if operation != 'query' else None,
             progress=GraphProgress(total_chunks=total_chunks).model_dump(),
@@ -556,15 +576,18 @@ class GraphService:
                 raise AppError('graph_source_changed', '历史图谱解析来源已变化', 409)
 
     async def job(self, session: AsyncSession, principal: Principal, base_id: UUID, job_id: UUID) -> GraphJobInfo:
-        await self.knowledge.require(session, principal, base_id)
+        base = await self.knowledge.require(session, principal, base_id)
         row = await session.get(GraphJob, job_id)
         if row is None or row.base_id != base_id or (row.operation == 'query' and row.actor_id != principal.id):
             raise AppError('graph_job_not_found', '图谱作业不存在', 404)
         await self.authorize_history(session, principal, base_id, GraphFrozen.model_validate(row.frozen))
-        return self._info(row)
+        info = self._info(row)
+        if isinstance(info.result, GraphQueryResult) and not self.knowledge.manages(principal, base):
+            info = info.model_copy(update={'result': info.result.model_copy(update={'diagnostics': {}})})
+        return info
 
     async def jobs(self, session: AsyncSession, principal: Principal, base_id: UUID) -> list[GraphJobInfo]:
-        await self.knowledge.require(session, principal, base_id)
+        base = await self.knowledge.require(session, principal, base_id)
         rows = list(
             await session.scalars(
                 select(GraphJob)
@@ -583,7 +606,10 @@ class GraphService:
                 if error.status_code in {403, 404, 409}:
                     continue
                 raise
-            result.append(self._info(row))
+            info = self._info(row)
+            if isinstance(info.result, GraphQueryResult) and not self.knowledge.manages(principal, base):
+                info = info.model_copy(update={'result': info.result.model_copy(update={'diagnostics': {}})})
+            result.append(info)
         return result
 
     async def cancel(self, session: AsyncSession, principal: Principal, base_id: UUID, job_id: UUID) -> GraphJobInfo:
@@ -603,6 +629,7 @@ class GraphService:
         )
         if row is None:
             raise AppError('graph_job_not_found', '图谱作业不存在', 404)
+        require_capability(principal, 'knowledge', 'query' if row.operation == 'query' else 'rebuild')
         attempt = await session.scalar(
             select(GraphAttempt)
             .where(GraphAttempt.id == row.attempt_id)

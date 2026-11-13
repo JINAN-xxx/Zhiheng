@@ -77,5 +77,5 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
                     text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
                 )
             ).scalars().all() == snapshots[table]
-        assert await connection.scalar(text('SELECT COUNT(*) FROM skills WHERE owner_id IS NULL')) == 2
+        assert await connection.scalar(text('SELECT COUNT(*) FROM skills WHERE owner_id IS NULL')) == 5
         assert await connection.scalar(text('SELECT skill_snapshots FROM chat_messages LIMIT 1')) == []

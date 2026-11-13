@@ -1,21 +1,23 @@
 """One registration and lifecycle transaction for Console and resource adapters."""
 
-import logging
 from uuid import UUID
 
 from zhiheng.application.access import CallerContext, ResourceAccessService
+from zhiheng.application.files.objects import FileObjects
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.files.public import FileInfo, FileService, file_semantics, validate_filename
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
-logger = logging.getLogger(__name__)
 MAX_FILE_BYTES = 20 * 1024 * 1024
 
 
 class FileCommands:
-    def __init__(self, database: Database, files: FileService, access: ResourceAccessService) -> None:
+    def __init__(
+        self, database: Database, files: FileService, access: ResourceAccessService, objects: FileObjects
+    ) -> None:
         self.database, self.files, self.access = database, files, access
+        self.objects = objects
 
     async def upload(
         self,
@@ -27,6 +29,10 @@ class FileCommands:
         caller: CallerContext | None = None,
         idempotency_key: UUID | None = None,
     ) -> FileInfo:
+        if purpose in {'knowledge_document', 'knowledge_material', 'knowledge_upload'} or (
+            caller is not None and purpose == 'chat_attachment'
+        ):
+            raise AppError('reserved_file_purpose', '业务资料只能通过对应业务入口添加', 422)
         validate_filename(filename)
         if len(content) > MAX_FILE_BYTES:
             raise AppError('request_too_large', '文件超过20MiB', 413)
@@ -35,36 +41,25 @@ class FileCommands:
         # The native detector, rather than the untrusted multipart MIME header, defines effective MIME.
         semantics = file_semantics(filename, content, purpose)
         storage_key = await self.files.storage.put(content)
-        registered = False
-        try:
-            async with self.database.sessions() as session, session.begin():
-                admission = None
-                if caller is not None:
-                    if idempotency_key is None:
-                        raise AppError('invalid_idempotency_key', 'UUID请求键为必填', 422)
-                    caller = await self.access.current(session, caller, 'files:write')
-                    principal = self.access.personal(caller.principal)
-                    admission = await self.access.begin_request(
-                        session,
-                        caller,
-                        'files.create',
-                        idempotency_key,
-                        semantics,
-                        scope='files:write',
-                    )
-                    if admission.replayed:
-                        if admission.snapshot is None:
-                            raise AppError('request_pending', '原请求尚未登记完成', 409)
-                        result = FileInfo.model_validate(admission.snapshot)
-                    else:
-                        result = await self.files.create(
-                            session,
-                            principal,
-                            filename=filename,
-                            content=content,
-                            storage_key=storage_key,
-                            purpose=purpose,
-                        )
+        async with self.objects.registration(storage_key) as session:
+            admission = None
+            if caller is not None:
+                if idempotency_key is None:
+                    raise AppError('invalid_idempotency_key', 'UUID请求键为必填', 422)
+                caller = await self.access.current(session, caller, 'files:write')
+                principal = self.access.personal(caller.principal)
+                admission = await self.access.begin_request(
+                    session,
+                    caller,
+                    'files.create',
+                    idempotency_key,
+                    semantics,
+                    scope='files:write',
+                )
+                if admission.replayed:
+                    if admission.snapshot is None:
+                        raise AppError('request_pending', '原请求尚未登记完成', 409)
+                    result = FileInfo.model_validate(admission.snapshot)
                 else:
                     result = await self.files.create(
                         session,
@@ -74,34 +69,27 @@ class FileCommands:
                         storage_key=storage_key,
                         purpose=purpose,
                     )
-                if admission is not None and not admission.replayed:
-                    assert caller is not None
-                    await self.access.autobind(session, caller, 'file', result.id)
-                    await self.access.requests.complete(
-                        session,
-                        admission.id,
-                        result_kind='file',
-                        result_id=result.id,
-                        snapshot=result.model_dump(mode='json'),
-                        resources=({'kind': 'file', 'id': str(result.id), 'action': 'write'},),
-                    )
-            registered = admission is None or not admission.replayed
-            return result
-        finally:
-            if not registered:
-                # Every put owns a fresh object key. A replay can only discard this attempt's object.
-                await self._discard_unregistered(storage_key)
-
-    async def _discard_unregistered(self, storage_key: str) -> None:
-        try:
-            async with self.database.sessions() as session:
-                registered = await self.files.object_registered(session, storage_key)
-            if not registered:
-                await self.files.storage.delete(storage_key)
-        except Exception as error:
-            # Ambiguous commit/cleanup failures leave the object to native reconciliation.
-            # Never guess that a failed acknowledgement means registration rolled back.
-            logger.warning('Deferred file object cleanup (%s)', type(error).__name__)
+            else:
+                result = await self.files.create(
+                    session,
+                    principal,
+                    filename=filename,
+                    content=content,
+                    storage_key=storage_key,
+                    purpose=purpose,
+                )
+            if admission is not None and not admission.replayed:
+                assert caller is not None
+                await self.access.autobind(session, caller, 'file', result.id)
+                await self.access.requests.complete(
+                    session,
+                    admission.id,
+                    result_kind='file',
+                    result_id=result.id,
+                    snapshot=result.model_dump(mode='json'),
+                    resources=({'kind': 'file', 'id': str(result.id), 'action': 'write'},),
+                )
+        return result
 
     async def remove(
         self,

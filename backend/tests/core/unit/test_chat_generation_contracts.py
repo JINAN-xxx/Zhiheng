@@ -6,10 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from zhiheng.api.console.chat import ChatRequest
-from zhiheng.application.chat_runs import ChatRunService
+from zhiheng.application.chat.runs import ChatRunService
 from zhiheng.modules.chat.contracts import ChatRequestContext
 from zhiheng.modules.models.contracts import ModelBinding, ModelOptions
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 
 def test_generation_settings_are_accepted_and_stored_without_changing_legacy_context() -> None:
@@ -40,7 +41,7 @@ def test_generation_settings_are_accepted_and_stored_without_changing_legacy_con
         {'max_output_tokens': '12'},
         {'max_output_tokens': 1.2},
         {'max_output_tokens': 0},
-        {'max_output_tokens': 131073},
+        {'max_output_tokens': MAX_SAFE_INTEGER + 1},
     ],
 )
 def test_generation_settings_reject_invalid_values(settings: dict) -> None:
@@ -76,7 +77,14 @@ def test_generation_binding_preserves_other_options_and_enforces_catalog_limit()
     assert selected.max_output_tokens == 24 and selected.options.temperature == 0
     assert selected.options.top_p == 0.8 and selected.options.stop == ('END',)
     assert selected.options.reasoning_effort == 'low'
-    assert ChatRunService.generation_binding(binding, ChatRequestContext(model_id=binding.model_id)) == binding
+    default = ChatRunService.generation_binding(binding, ChatRequestContext(model_id=binding.model_id))
+    assert default.output_limit_tokens is None
+    assert default.options.provider_output_default
+    assert default.output_reservation_tokens == 64
+    assert not binding.options.provider_output_default
+    assert 'provider_output_default' not in binding.model_dump()['options']
+    large = default.model_copy(update={'max_output_tokens': 131072})
+    assert large.output_reservation_tokens == 4096
     with pytest.raises(AppError) as failure:
         ChatRunService.generation_binding(binding, ChatRequestContext(model_id=binding.model_id, max_output_tokens=65))
     assert failure.value.status_code == 422

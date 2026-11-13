@@ -1,415 +1,507 @@
-<!-- Adapted from original usage ledger, MIT licensed. -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Alert as AAlert, Button as AButton, Select as ASelect, Tag as ATag } from 'ant-design-vue'
-import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
+import { createRequestId } from '../../../shared/requestId.ts'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import {
+  Alert as AAlert,
+  Button as AButton,
+  Checkbox as ACheckbox,
+  Form as AForm,
+  FormItem as AFormItem,
+  Input as AInput,
+  InputNumber as AInputNumber,
+  Modal as AModal,
+  Pagination as APagination,
+  Select as ASelect,
+  Tag as ATag
+} from 'ant-design-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import type { TableColumnsType } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
-import { useWindowSize } from '@vueuse/core'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { getUsage } from '../api/index.ts'
-import type { UsageSummary } from '../api/index.ts'
-const summary = ref<UsageSummary | null>(null)
-const { width } = useWindowSize()
-const isMobile = computed(() => width.value < 768)
-const error = ref('')
-const loading = ref(false)
-const scope = new RequestScope()
-const selectedSource = ref<string>('all')
-const selectedStatus = ref<string>('all')
-const rows = computed(() =>
-  (summary.value?.records ?? []).filter(
-    (record) =>
-      (selectedSource.value === 'all' || record.source === selectedSource.value) &&
-      (selectedStatus.value === 'all' || record.status === selectedStatus.value)
-  )
-)
-const columns: TableColumnsType<UsageSummary['records'][number]> = [
-  { title: '开始时间', key: 'created_at', width: 180 },
-  { title: '类型', key: 'source', width: 120 },
-  { title: '运行', dataIndex: 'run_id', key: 'run_id', width: 180, ellipsis: true },
-  { title: '令牌（输入 / 输出）', key: 'tokens', width: 170 },
-  { title: '计入用量', key: 'charged', width: 120 },
-  { title: '状态', key: 'status', width: 110 }
-]
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
+import { identity, hasAnyPermission } from '../../identity/public.ts'
+import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { getUsage, reconcileTokenUsage } from '../api/index.ts'
+import type { UsageRecord, UsageSummary, TokenReconciliation } from '../api/index.ts'
+const props = defineProps<{ accountId?: string | undefined; accountName?: string | undefined }>()
+const canWrite = computed(() => hasAnyPermission(identity.value, 'ai:credits:write'))
+const summary = ref<UsageSummary | null>(null),
+  error = ref(''),
+  loading = ref(false),
+  page = ref(1)
+const source = ref(''),
+  status = ref('')
+const scope = new RequestScope(),
+  writes = new RequestScope()
+const sourceNames: Record<string, string> = {
+  chat: '对话',
+  chat_summary: '会话摘要',
+  connection_test: '模型测试',
+  public: '开发接入',
+  agent_preview: '助手调试',
+  agent_chat: '助手对话',
+  agent_invocation: '智能体 API',
+  work_turn: '工作执行',
+  knowledge_embedding: '知识索引',
+  knowledge_retrieval: '知识检索',
+  knowledge_graph: '知识图谱'
+}
 const sourceOptions = [
-  { value: 'all', label: '全部类型' },
-  { value: 'chat', label: '对话' },
-  { value: 'chat_summary', label: '会话摘要' },
-  { value: 'connection_test', label: '连接测试' },
-  { value: 'public', label: '开发接入' },
-  { value: 'agent_preview', label: '智能体试聊' },
-  { value: 'agent_invocation', label: '智能体 API' },
-  { value: 'work_turn', label: '工作执行' }
+  { value: '', label: '全部类型' },
+  ...Object.entries(sourceNames).map(([value, label]) => ({ value, label }))
 ]
+const statusNames: Record<string, string> = {
+  known: '已核算',
+  unknown: '待核对',
+  pending: '待核算'
+}
 const statusOptions = [
-  { value: 'all', label: '全部状态' },
-  { value: 'known', label: '已核算' },
-  { value: 'pending', label: '待核算' },
-  { value: 'unknown', label: '待核对' }
+  { value: '', label: '全部状态' },
+  ...Object.entries(statusNames).map(([value, label]) => ({ value, label }))
 ]
-function setSource(value: unknown): void {
-  selectedSource.value = typeof value === 'string' ? value : 'all'
-}
-function setStatus(value: unknown): void {
-  selectedStatus.value = typeof value === 'string' ? value : 'all'
-}
-const sourceLabel = (source: string): string =>
-  ({
-    chat: '对话',
-    chat_summary: '会话摘要',
-    connection_test: '连接测试',
-    public: '开发接入',
-    agent_preview: '智能体试聊',
-    agent_invocation: '智能体 API',
-    work_turn: '工作执行'
-  })[source] ?? source
-const tokens = (value: number | null): string =>
-  value === null ? '待核对' : value.toLocaleString()
-const recordStatus = (status: string): string =>
-  ({ known: '已核算', unknown: '待核对', pending: '待核算' })[status] ?? status
-onBeforeUnmount(() => {
-  scope.dispose()
-})
-onMounted(() => {
-  void load()
-})
-async function load(): Promise<void> {
-  const context = scope.replace()
+const columns = [
+  { title: '时间', key: 'created_at', width: 180 },
+  { title: '调用类型', key: 'source', width: 120 },
+  { title: '运行', key: 'run', width: 170 },
+  { title: '输入 / 输出 Token', key: 'tokens' },
+  { title: '状态', key: 'status', width: 100 },
+  { title: '操作', key: 'actions', width: 100 }
+]
+const count = (value: number | null) => (value === null ? '待核对' : value.toLocaleString())
+async function load() {
+  const ticket = scope.replace()
   loading.value = true
   error.value = ''
   try {
-    const result = await getUsage(context.signal)
-    if (context.isCurrent()) summary.value = result
+    const value = await getUsage(ticket.signal, {
+      page: page.value,
+      pageSize: 20,
+      source: source.value,
+      status: status.value,
+      userId: props.accountId
+    })
+    if (ticket.isCurrent()) summary.value = value
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
-    if (context.isCurrent()) loading.value = false
+    if (ticket.isCurrent()) loading.value = false
   }
 }
+watch(
+  () => [props.accountId, identity.value?.id],
+  () => {
+    summary.value = null
+    page.value = 1
+    void load()
+  },
+  { immediate: true }
+)
+watch([source, status], () => {
+  page.value = 1
+  void load()
+})
+function changePage(value: number) {
+  page.value = value
+  void load()
+}
+const dialog = ref<'reconcile' | null>(null),
+  current = ref<UsageRecord | null>(null),
+  saving = ref(false),
+  formError = ref('')
+const form = reactive({
+  reason: '',
+  input: null as number | null,
+  output: null as number | null,
+  cache: null as number | null,
+  search: null as number | null,
+  rejected: false
+})
+let retrySignature = '',
+  retryBody: TokenReconciliation | null = null
+watch(
+  () => [props.accountId, identity.value],
+  () => {
+    writes.replace()
+    dialog.value = null
+    current.value = null
+    saving.value = false
+    retryBody = null
+  }
+)
+function openReconcile(row: UsageRecord) {
+  if (!canWrite.value || row.points_enforced || row.status !== 'unknown' || saving.value) return
+  Object.assign(form, {
+    reason: '',
+    input: row.input_tokens,
+    output: row.output_tokens,
+    cache: null,
+    search: null,
+    rejected: false
+  })
+  current.value = row
+  formError.value = ''
+  retryBody = null
+  dialog.value = 'reconcile'
+}
+async function submit() {
+  if (!canWrite.value || saving.value || !summary.value || !dialog.value) return
+  formError.value = ''
+  const reason = form.reason.trim()
+  if (!reason) {
+    formError.value = '请填写核对依据'
+    return
+  }
+  const record = current.value
+  if (
+    dialog.value === 'reconcile' &&
+    !form.rejected &&
+    (!Number.isSafeInteger(form.input) ||
+      !Number.isSafeInteger(form.output) ||
+      form.input! < 0 ||
+      form.output! < 0)
+  ) {
+    formError.value = '请输入完整的实际输入、输出 Token'
+    return
+  }
+  const payload = {
+    expected_version: record!.version,
+    reason,
+    rejected_before_execution: form.rejected,
+    input_tokens: form.rejected ? null : form.input,
+    output_tokens: form.rejected ? null : form.output,
+    cache_tokens: form.rejected ? null : form.cache,
+    search_units: form.rejected ? null : form.search
+  }
+  const signature = JSON.stringify([dialog.value, props.accountId, record?.run_id, payload])
+  if (!retryBody || signature !== retrySignature) {
+    retrySignature = signature
+    retryBody = { ...payload, client_request_id: createRequestId() }
+  }
+  const ticket = writes.replace()
+  saving.value = true
+  try {
+    await reconcileTokenUsage(record!.run_id, retryBody, ticket.signal)
+    if (ticket.isCurrent()) {
+      dialog.value = null
+      retryBody = null
+      await load()
+    }
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) {
+      formError.value = errorMessage(reason)
+      if (reason instanceof ApiError && reason.status === 409) await load()
+    }
+  } finally {
+    if (ticket.isCurrent()) saving.value = false
+  }
+}
+onBeforeUnmount(() => {
+  scope.dispose()
+  writes.dispose()
+})
 </script>
 <template>
-  <section class="usage-ledger-page" aria-label="用量记录">
-    <WorkspaceToolbar title="用量记录"
-      ><template #actions
-        ><AButton :loading="loading" aria-label="刷新用量记录" @click="load"
-          ><ReloadOutlined />刷新</AButton
-        ></template
-      ></WorkspaceToolbar
-    >
-    <section class="usage-content">
-      <section v-if="summary" class="usage-quota" aria-label="Token 额度">
-        <div>
-          <span>已使用</span><strong>{{ tokens(summary.used_tokens) }}</strong
-          ><small>Token</small>
-        </div>
-        <div>
-          <span>预留中</span><strong>{{ tokens(summary.reserved_tokens) }}</strong
-          ><small>Token</small>
-        </div>
-        <div>
-          <span>配额上限</span><strong>{{ tokens(summary.limit_tokens) }}</strong
-          ><small>Token</small>
-        </div>
-      </section>
-      <section class="usage-controls" aria-label="用量筛选">
-        <label class="usage-filter"
-          ><span>调用类型</span
-          ><ASelect
-            :value="selectedSource"
-            :options="sourceOptions"
-            aria-label="调用类型"
-            @update:value="setSource" /></label
-        ><label class="usage-filter"
-          ><span>调用状态</span
-          ><ASelect
-            :value="selectedStatus"
-            :options="statusOptions"
-            aria-label="调用状态"
-            @update:value="setStatus" /></label
-        ><span class="usage-total">共 {{ rows.length }} 条</span>
-      </section>
-      <AAlert
-        v-if="error && summary"
-        :message="error"
-        type="warning"
-        show-icon
-        class="space-bottom"
-      />
-      <WorkspaceState v-if="loading && !summary" kind="loading" />
-      <WorkspaceState v-else-if="error && !summary" kind="error" :message="error" @retry="load" />
-      <WorkspaceState
-        v-else-if="!rows.length"
-        title="暂无用量记录"
-        message="对话与连接测试调用后会在这里形成台账。"
-      />
-      <section v-else class="usage-table-wrap">
-        <div v-if="isMobile" class="usage-mobile-list">
-          <article v-for="row in rows" :key="row.id" class="usage-mobile-item">
-            <div class="usage-mobile-item__header">
-              <strong>{{
-                new Date(row.created_at).toLocaleString('zh-CN', { hour12: false })
-              }}</strong
-              ><ATag>{{ recordStatus(row.status) }}</ATag>
-            </div>
-            <div class="usage-mobile-item__model" :title="row.run_id">{{ row.run_id }}</div>
-            <div class="usage-mobile-item__meta">
-              <ATag>{{ sourceLabel(row.source) }}</ATag
-              ><span>令牌 {{ tokens(row.input_tokens) }} / {{ tokens(row.output_tokens) }}</span
-              ><span
-                >计入用量
-                {{ row.status === 'unknown' ? '待核对' : tokens(row.charged_tokens) }}</span
-              >
-            </div>
-          </article>
-        </div>
-        <ResourceTable v-else class="usage-table" :columns="columns" :rows="rows" :loading="loading"
-          ><template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'created_at'">{{
-              new Date(record.created_at).toLocaleString('zh-CN', { hour12: false })
-            }}</template>
-            <template v-else-if="column.key === 'source'"
-              ><ATag>{{ sourceLabel(record.source) }}</ATag></template
-            >
-            <template v-else-if="column.key === 'tokens'"
-              >{{ tokens(record.input_tokens) }} / {{ tokens(record.output_tokens) }}</template
-            >
-            <template v-else-if="column.key === 'charged'">{{
-              record.status === 'unknown' ? '待核对' : tokens(record.charged_tokens)
-            }}</template>
-            <template v-else-if="column.key === 'status'"
-              ><ATag :color="record.status === 'known' ? 'success' : 'warning'">{{
-                recordStatus(record.status)
-              }}</ATag></template
-            >
-          </template></ResourceTable
+  <section class="token-ledger" aria-label="Token 用量记录">
+    <header class="ledger-heading">
+      <div class="ledger-title">
+        <h2>
+          {{
+            accountName
+              ? `${accountName}的 Token 用量`
+              : accountId
+                ? '用户 Token 用量'
+                : '我的 Token 用量'
+          }}
+        </h2>
+        <section v-if="summary" class="token-summary" aria-label="Token 用量统计">
+          <div class="token-total">
+            <span>累计使用 Token</span>
+            <strong>{{ count(summary.used_tokens) }}</strong>
+          </div>
+        </section>
+      </div>
+      <div class="ledger-actions">
+        <RefreshButton label="刷新用量记录" :loading="loading" @click="load" />
+      </div>
+    </header>
+    <div class="ledger-filters">
+      <ASelect
+        :value="source"
+        :options="sourceOptions"
+        aria-label="调用类型"
+        @update:value="source = typeof $event === 'string' ? $event : ''"
+      /><ASelect
+        :value="status"
+        :options="statusOptions"
+        aria-label="调用状态"
+        @update:value="status = typeof $event === 'string' ? $event : ''"
+      /><span>共 {{ summary?.total ?? 0 }} 条</span>
+    </div>
+    <AAlert v-if="error && summary" :message="error" type="warning" show-icon />
+    <WorkspaceState v-if="loading && !summary" kind="loading" />
+    <WorkspaceState v-else-if="error && !summary" kind="error" :message="error" @retry="load" />
+    <template v-else>
+      <div class="token-desktop-records">
+        <ResourceTable
+          :columns="columns"
+          :rows="summary?.records ?? []"
+          row-key="id"
+          :loading="loading"
+          empty-text="暂无符合条件的调用记录"
         >
-      </section>
-      <p v-if="summary" class="muted small">预留用量会在运行完成后结算；未知用量将显示为待核对。</p>
-    </section>
+          <template #bodyCell="{ column, record }">
+            <span v-if="column.key === 'created_at'">{{
+              new Date(record.created_at).toLocaleString('zh-CN')
+            }}</span>
+            <span v-else-if="column.key === 'source'">{{
+              sourceNames[record.source] ?? record.source
+            }}</span>
+            <code v-else-if="column.key === 'run'" class="token-run-id" :title="record.run_id">{{
+              record.run_id
+            }}</code>
+            <span v-else-if="column.key === 'tokens'" :title="record.run_id"
+              >{{ count(record.input_tokens) }} / {{ count(record.output_tokens) }}</span
+            >
+            <ATag v-else-if="column.key === 'status'">{{
+              statusNames[record.status] ?? record.status
+            }}</ATag>
+            <AButton
+              v-else-if="
+                column.key === 'actions' &&
+                canWrite &&
+                record.status === 'unknown' &&
+                !record.points_enforced
+              "
+              type="link"
+              @click="openReconcile(record)"
+              >核对用量</AButton
+            >
+          </template>
+        </ResourceTable>
+      </div>
+      <div class="token-mobile-records">
+        <article v-for="record in summary?.records ?? []" :key="record.id">
+          <header>
+            <time>{{ new Date(record.created_at).toLocaleString('zh-CN') }}</time
+            ><ATag>{{ statusNames[record.status] ?? record.status }}</ATag>
+          </header>
+          <strong>{{ sourceNames[record.source] ?? record.source }}</strong>
+          <code class="token-run-id" :title="record.run_id">{{ record.run_id }}</code>
+          <p>
+            输入 {{ count(record.input_tokens) }} / 输出 {{ count(record.output_tokens) }} Token
+          </p>
+          <AButton
+            v-if="canWrite && record.status === 'unknown' && !record.points_enforced"
+            type="link"
+            @click="openReconcile(record)"
+            >核对用量</AButton
+          >
+        </article>
+        <WorkspaceState
+          v-if="!loading && !summary?.records.length"
+          kind="empty"
+          title="暂无符合条件的调用记录"
+        />
+      </div>
+      <APagination
+        v-if="summary && summary.total > 20"
+        :current="page"
+        :page-size="20"
+        :total="summary.total"
+        :show-size-changer="false"
+        @change="changePage"
+      />
+    </template>
+    <AModal
+      :open="dialog !== null"
+      title="核对未知 Token 用量"
+      :confirm-loading="saving"
+      :mask-closable="!saving"
+      :closable="!saving"
+      :cancel-button-props="{ disabled: saving }"
+      @cancel="dialog = null"
+      @ok="submit"
+    >
+      <AAlert v-if="formError" :message="formError" type="error" show-icon />
+      <AForm layout="vertical">
+        <AFormItem
+          ><ACheckbox v-model:checked="form.rejected" :disabled="saving"
+            >已核实在执行前被拒绝，没有发生消耗</ACheckbox
+          ></AFormItem
+        >
+        <template v-if="!form.rejected">
+          <AFormItem label="实际输入 Token"
+            ><AInputNumber
+              aria-label="实际输入 Token"
+              :value="form.input ?? ''"
+              :min="0"
+              :precision="0"
+              :disabled="saving || current?.input_tokens !== null"
+              @update:value="form.input = typeof $event === 'number' ? $event : null"
+          /></AFormItem>
+          <AFormItem label="实际输出 Token"
+            ><AInputNumber
+              aria-label="实际输出 Token"
+              :value="form.output ?? ''"
+              :min="0"
+              :precision="0"
+              :disabled="saving || current?.output_tokens !== null"
+              @update:value="form.output = typeof $event === 'number' ? $event : null"
+          /></AFormItem>
+          <AFormItem label="缓存 Token（如有）"
+            ><AInputNumber
+              aria-label="缓存 Token"
+              :value="form.cache ?? ''"
+              :min="0"
+              :precision="0"
+              :disabled="saving"
+              @update:value="form.cache = typeof $event === 'number' ? $event : null"
+          /></AFormItem>
+          <AFormItem label="检索单元（重排调用需填写）"
+            ><AInputNumber
+              aria-label="检索单元"
+              :value="form.search ?? ''"
+              :min="0"
+              :precision="0"
+              :disabled="saving"
+              @update:value="form.search = typeof $event === 'number' ? $event : null"
+          /></AFormItem>
+        </template>
+        <AFormItem label="依据" required
+          ><AInput.TextArea
+            v-model:value="form.reason"
+            aria-label="核对依据"
+            :maxlength="1000"
+            :disabled="saving"
+        /></AFormItem>
+      </AForm>
+    </AModal>
   </section>
 </template>
-<style scoped lang="scss">
-.usage-ledger-page {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  flex-direction: column;
-  color: var(--color-text);
-  background: var(--workspace-bg-page, #f7f8fc);
-  font-family: var(--workspace-font-family);
-}
-.usage-content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  flex-direction: column;
-  overflow: auto;
-  padding: 20px 24px 28px;
-}
-.usage-controls {
-  display: flex;
-  flex-wrap: wrap;
-  flex: 0 0 auto;
-  min-height: 34px;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 20px;
-  padding: 0;
-}
-.usage-controls :deep(.ant-select) {
-  width: 132px;
-  min-width: 0;
-}
-.usage-controls :deep(.ant-select:first-child) {
-  width: min(360px, 42%);
-}
-.usage-total {
-  margin-left: auto;
-  white-space: nowrap;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-.usage-controls :deep(.ant-select-selector),
-.usage-controls :deep(.ant-select-selection-item) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.usage-stale {
-  margin: 0 0 10px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  color: var(--color-warning-900);
-  background: var(--color-warning-50);
-  font-size: 12px;
-}
-.usage-table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-}
-.usage-table-wrap :deep(.ant-table-thead > tr > th) {
-  border-bottom-color: var(--gray-150);
-  background: var(--gray-10);
-  color: var(--color-text-secondary);
-}
-.usage-table-wrap :deep(.ant-table-tbody > tr > td) {
-  border-bottom-color: var(--gray-150);
-  background: var(--bg-container);
-  color: var(--color-text);
-}
-.usage-mobile-list {
+<style scoped>
+.token-ledger {
+  padding: 0 28px 28px;
   display: grid;
-  gap: 14px;
-}
-.usage-mobile-item {
+  gap: 20px;
   min-width: 0;
-  padding: 17px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
 }
-.usage-mobile-item__header {
+.ledger-heading,
+.ledger-actions,
+.ledger-filters {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
 }
-.usage-mobile-item__header strong {
-  font-size: 13px;
-}
-.usage-mobile-item__model {
-  margin-top: 8px;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-family: var(--workspace-font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.usage-mobile-item__meta {
+.ledger-title {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
-  margin-top: 10px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.usage-table-wrap :deep(.ant-pagination) {
-  display: flex;
-  justify-content: flex-end;
-  margin: 18px 16px;
-}
-@media (min-width: 992px) {
-  .usage-content {
-    padding: 0 var(--workspace-space-6) var(--workspace-space-6);
-  }
-}
-
-@media (max-width: 760px) {
-  .usage-controls :deep(.ant-select:first-child) {
-    width: 100%;
-    flex: 1 1 100%;
-  }
-  .usage-controls :deep(.ant-select) {
-    flex: 1;
-  }
-  .usage-total {
-    flex: 1 1 100%;
-    text-align: right;
-  }
-  .usage-table-wrap {
-    border: 0;
-    border-radius: 0;
-  }
-  .usage-table-wrap :deep(.ant-pagination) {
-    justify-content: center;
-  }
-  .usage-table-wrap :deep(.ant-pagination-options) {
-    display: none;
-  }
-}
-@media (max-width: 640px) {
-  .usage-content {
-    padding: 16px;
-  }
-}
-</style>
-
-<style scoped>
-.usage-quota {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-bottom: 24px;
-}
-.usage-quota > div {
+  flex-wrap: wrap;
+  gap: 12px 28px;
   min-width: 0;
-  padding: 22px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
 }
-.usage-quota span {
-  display: block;
-  margin-bottom: 12px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-.usage-quota strong {
-  font-size: 25px;
-  font-weight: 500;
+.ledger-heading h2 {
+  font-size: 19px;
+  margin: 0;
   overflow-wrap: anywhere;
 }
-.usage-quota small {
-  display: block;
-  margin-top: 5px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.usage-filter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.ledger-filters > span,
+.token-total > span {
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.usage-filter :deep(.ant-select) {
-  width: 132px;
+.token-total {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
 }
-.usage-table-wrap {
-  flex: 0 0 auto;
+.token-total strong {
+  min-width: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
-@media (max-width: 760px) {
-  .usage-quota {
-    gap: 8px;
-    margin-bottom: 18px;
+.ledger-filters {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+.ledger-filters :deep(.ant-select) {
+  min-width: 150px;
+}
+.ledger-filters > span {
+  margin-left: auto;
+}
+.ant-pagination {
+  justify-self: end;
+}
+@media (max-width: 680px) {
+  .token-ledger {
+    padding: 0 16px 20px;
   }
-  .usage-quota > div {
-    padding: 14px 10px;
+  .ledger-heading {
+    align-items: flex-start;
   }
-  .usage-quota strong {
-    font-size: 19px;
-  }
-  .usage-filter {
+  .ledger-title {
     flex: 1;
-    min-width: 0;
-    flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
   }
-  .usage-filter :deep(.ant-select) {
-    width: 100%;
-    flex: 1 1 100%;
+  .ledger-actions {
+    flex-shrink: 0;
+  }
+}
+
+.token-mobile-records {
+  display: none;
+}
+.token-run-id {
+  display: block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+@media (max-width: 680px) {
+  .token-desktop-records {
+    display: none;
+  }
+  .token-mobile-records {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+  .token-mobile-records article {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    border: 1px solid var(--gray-150);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .token-mobile-records header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .token-mobile-records strong {
+    font-weight: 500;
+  }
+  .token-mobile-records p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+  .token-mobile-records .ant-btn {
+    justify-self: start;
+    padding-left: 0;
+  }
+  .token-mobile-records .token-run-id {
+    max-width: 100%;
   }
 }
 </style>

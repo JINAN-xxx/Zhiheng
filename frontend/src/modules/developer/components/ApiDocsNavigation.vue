@@ -69,13 +69,13 @@ defineEmits<{ select: [anchor: string]; toggle: [id: string, open: boolean] }>()
   border-radius: 5px;
   color: var(--color-text);
   text-decoration: none;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--workspace-font-size-body);
+  line-height: var(--workspace-line-height);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
 .api-docs-tree summary {
-  font-weight: 500;
+  font-weight: var(--workspace-font-weight-medium);
   list-style: none;
 }
 .api-docs-tree summary::-webkit-details-marker {
@@ -84,7 +84,7 @@ defineEmits<{ select: [anchor: string]; toggle: [id: string, open: boolean] }>()
 .api-docs-tree__chevron {
   flex: 0 0 auto;
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: var(--workspace-font-size-caption);
 }
 details[open] > summary .api-docs-tree__chevron {
   transform: rotate(90deg);
@@ -102,7 +102,7 @@ details[open] > summary .api-docs-tree__chevron {
   flex: 0 0 auto;
   color: var(--color-text-tertiary);
   font-family: var(--workspace-font-mono);
-  font-size: 10px;
+  font-size: var(--workspace-font-size-caption);
 }
 .api-docs-tree :focus-visible {
   outline: 2px solid var(--main-500);

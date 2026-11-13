@@ -1,313 +1,423 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { copyText } from '../../../shared/clipboard.ts'
+import { createRequestId } from '../../../shared/requestId.ts'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
-  DatePicker as ADatePicker,
-  RadioGroup as ARadioGroup,
-  Select as ASelect,
-  Space as ASpace,
-  Tag as ATag
+  Checkbox as ACheckbox,
+  Input as AInput,
+  Modal as AModal,
+  Tag as ATag,
+  message
 } from 'ant-design-vue'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue'
-import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
+import { LinkOutlined, CopyOutlined } from '@ant-design/icons-vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { findKnowledgeUsers, getBaseAcl, saveBaseAcl } from '../api/index.ts'
-import type { KnowledgeAcl, KnowledgeBase, KnowledgeUser } from '../api/index.ts'
+import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
+import { identity } from '../../identity/public.ts'
+import {
+  getBaseAcl,
+  cleanupKnowledgeSharing,
+  listKnowledgeMembers,
+  listKnowledgeInvitations,
+  createKnowledgeInvitation,
+  getKnowledgeInvitationLink,
+  revokeKnowledgeInvitation,
+  removeKnowledgeMember
+} from '../api/index.ts'
+import type {
+  KnowledgeAcl,
+  KnowledgeBase,
+  KnowledgeInvitation,
+  KnowledgeMember
+} from '../api/index.ts'
+import { formatTime } from '../presentation.ts'
 const emit = defineEmits<{ refresh: [] }>()
-interface Entry {
-  key: string
-  userId: string | undefined
-  effect: 'allow' | 'deny'
-  expiresAt: string
-  users: KnowledgeUser[]
-  loading: boolean
-}
 const visible = ref(false),
   loading = ref(false),
-  saving = ref(false),
-  uncertain = ref(false),
-  error = ref('')
-const access = ref<'private' | 'public'>('private'),
-  acl = ref<KnowledgeAcl | null>(null),
-  entries = ref<Entry[]>([])
-const scope = new RequestScope(),
-  writeScope = new RequestScope(),
-  searches = new Map<string, RequestScope>()
-function close(): void {
-  scope.replace()
-  writeScope.replace()
-  for (const search of searches.values()) search.dispose()
-  searches.clear()
-  visible.value = false
-  loading.value = false
-  saving.value = false
-  entries.value = []
-  acl.value = null
+  busy = ref(false),
+  error = ref(''),
+  cleanup = ref(false)
+const acl = ref<KnowledgeAcl | null>(null)
+const members = ref<KnowledgeMember[]>([]),
+  invitations = ref<KnowledgeInvitation[]>([]),
+  issuedLink = ref('')
+const uncertain = ref(false)
+const read = new RequestScope(),
+  write = new RequestScope(),
+  confirmation = useConfirmation()
+let baseId = '',
+  pending: { expected_acl_version: number; client_request_id: string } | null = null
+const storageKey = () => `zhiheng:knowledge-invite-create:${identity.value?.id ?? ''}:${baseId}`
+const restricted = computed(
+  () => acl.value?.entries.filter((entry) => entry.effect === 'deny' || entry.expires_at) ?? []
+)
+const canInvite = computed(
+  () => acl.value?.base.document_policy === 'library' && !restricted.value.length
+)
+const statuses: Record<KnowledgeInvitation['status'], string> = {
+  active: '待接受',
+  used: '已使用',
+  expired: '已过期',
+  revoked: '已失效'
 }
-function localDate(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`
-}
-async function open(base: KnowledgeBase): Promise<void> {
-  close()
-  visible.value = true
-  loading.value = true
-  uncertain.value = false
-  error.value = ''
-  const ticket = scope.replace()
+async function reload(silent = false) {
+  const ticket = read.replace(),
+    id = baseId
+  if (!silent) loading.value = true
   try {
-    const value = await getBaseAcl(base.id, ticket.signal)
-    if (!ticket.isCurrent()) return
+    const [value, people, links] = await Promise.all([
+      getBaseAcl(id, ticket.signal),
+      listKnowledgeMembers(id, ticket.signal),
+      listKnowledgeInvitations(id, ticket.signal)
+    ])
+    if (!ticket.isCurrent() || baseId !== id) return
     acl.value = value
-    access.value = value.base.access
-    entries.value = value.entries.map((entry) => ({
-      key: crypto.randomUUID(),
-      userId: entry.user_id,
-      effect: entry.effect,
-      expiresAt: localDate(entry.expires_at),
-      users: [],
-      loading: false
-    }))
+    members.value = people
+    invitations.value = links
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
     if (ticket.isCurrent()) loading.value = false
   }
 }
-function addEntry(): void {
-  entries.value.push({
-    key: crypto.randomUUID(),
-    userId: undefined,
-    effect: 'allow',
-    expiresAt: '',
-    users: [],
-    loading: false
-  })
+function selectLink(event: FocusEvent) {
+  if (event.target instanceof HTMLInputElement) event.target.select()
 }
-function removeEntry(row: Entry): void {
-  searches.get(row.key)?.dispose()
-  searches.delete(row.key)
-  entries.value = entries.value.filter((entry) => entry.key !== row.key)
+function close() {
+  if (busy.value) return
+  visible.value = false
+  read.replace()
+  write.replace()
+  issuedLink.value = ''
+  error.value = ''
+  acl.value = null
+  members.value = []
+  invitations.value = []
+  confirmation.cancel()
 }
-function options(row: Entry) {
-  const users = new Map(row.users.map((user) => [user.id, user.username]))
-  if (row.userId && !users.has(row.userId)) users.set(row.userId, row.userId)
-  return [...users].map(([value, label]) => ({ value, label }))
-}
-function setUser(row: Entry, value: unknown): void {
-  row.userId = typeof value === 'string' ? value : undefined
-}
-async function searchUsers(row: Entry, search: string): Promise<void> {
-  if (!acl.value) return
-  let owner = searches.get(row.key)
-  if (!owner) {
-    owner = new RequestScope()
-    searches.set(row.key, owner)
-  }
-  const ticket = owner.replace(),
-    id = acl.value.base.id
-  row.loading = true
+async function open(base: KnowledgeBase) {
+  if (busy.value || base.owner_id !== identity.value?.id || !base.can_manage) return
+  close()
+  baseId = base.id
+  visible.value = true
+  cleanup.value = false
+  uncertain.value = false
+  pending = null
   try {
-    const users = await findKnowledgeUsers(id, search, ticket.signal)
-    if (ticket.isCurrent() && visible.value) row.users = users
+    const saved = sessionStorage.getItem(storageKey())
+    if (saved) {
+      const d: unknown = JSON.parse(saved)
+      if (
+        typeof d === 'object' &&
+        d !== null &&
+        'expected_acl_version' in d &&
+        typeof d.expected_acl_version === 'number' &&
+        'client_request_id' in d &&
+        typeof d.client_request_id === 'string'
+      ) {
+        pending = {
+          expected_acl_version: d.expected_acl_version,
+          client_request_id: d.client_request_id
+        }
+        uncertain.value = true
+      }
+    }
+  } catch {
+    error.value = '无法恢复上次生成请求，请先核对邀请记录'
+  }
+  await reload()
+}
+function remember(body: NonNullable<typeof pending>) {
+  sessionStorage.setItem(storageKey(), JSON.stringify(body))
+  pending = body
+}
+function forget() {
+  sessionStorage.removeItem(storageKey())
+  pending = null
+  uncertain.value = false
+}
+function showLink(token: string) {
+  issuedLink.value = `${window.location.origin}/knowledge/join#${token}`
+}
+async function generate() {
+  if (!acl.value || !canInvite.value || busy.value || loading.value) return
+  const body = pending ?? {
+    expected_acl_version: acl.value.base.acl_version,
+    client_request_id: createRequestId()
+  }
+  try {
+    remember(body)
+  } catch {
+    error.value = '无法保留生成请求，请恢复浏览器会话存储后重试'
+    return
+  }
+  const ticket = write.replace()
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await createKnowledgeInvitation(baseId, body, ticket.signal)
+    if (!ticket.isCurrent()) return
+    forget()
+    invitations.value = [
+      result.invitation,
+      ...invitations.value.filter((item) => item.id !== result.invitation.id)
+    ]
+    if (result.invitation.status === 'active') showLink(result.token)
+    else error.value = '原邀请已失效，请重新生成'
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) {
+      uncertain.value = !(reason instanceof ApiError) || reason.status >= 500
+      if (!uncertain.value) forget()
+      error.value = errorMessage(reason)
+    }
+  } finally {
+    if (ticket.isCurrent()) busy.value = false
+  }
+}
+async function copy() {
+  if (!issuedLink.value) return
+  try {
+    await copyText(issuedLink.value)
+    message.success('邀请链接已复制')
+  } catch {
+    message.info('请选中邀请链接后复制')
+  }
+}
+async function copyExisting(invitation: KnowledgeInvitation) {
+  if (busy.value) return
+  const ticket = write.replace()
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await getKnowledgeInvitationLink(baseId, invitation.id, ticket.signal)
+    if (ticket.isCurrent()) {
+      showLink(result.token)
+      await copy()
+    }
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
-    if (ticket.isCurrent()) row.loading = false
+    if (ticket.isCurrent()) busy.value = false
   }
 }
-async function save(): Promise<void> {
-  if (!acl.value || saving.value || loading.value || uncertain.value) return
-  if (
-    entries.value.some((row) => !row.userId) ||
-    new Set(entries.value.map((row) => row.userId)).size !== entries.value.length
-  ) {
-    error.value = '请选择完整且不重复的授权用户'
+async function revoke(invitation: KnowledgeInvitation) {
+  if (busy.value || !(await confirmation.confirm('使这个邀请链接立即失效？已加入成员需单独移除。')))
     return
-  }
-  let body
-  try {
-    body = {
-      expected_version: acl.value.base.acl_version,
-      access: access.value,
-      entries: entries.value.map((row) => ({
-        user_id: row.userId!,
-        effect: row.effect,
-        expires_at: row.expiresAt ? new Date(row.expiresAt.replace(' ', 'T')).toISOString() : null
-      }))
-    }
-  } catch {
-    error.value = '有效期格式无效'
-    return
-  }
-  const ticket = writeScope.replace(),
-    id = acl.value.base.id
-  saving.value = true
+  const ticket = write.replace()
+  busy.value = true
   error.value = ''
   try {
-    const value = await saveBaseAcl(id, body, ticket.signal)
+    await revokeKnowledgeInvitation(baseId, invitation.id, ticket.signal)
     if (ticket.isCurrent()) {
-      acl.value = value
+      issuedLink.value = ''
+      await reload(true)
+    }
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) busy.value = false
+  }
+}
+async function remove(member: KnowledgeMember) {
+  if (
+    !acl.value ||
+    busy.value ||
+    !(await confirmation.confirm(`移除“${member.name}”的成员授权？移除后将不能再读取本库。`))
+  )
+    return
+  const ticket = write.replace()
+  busy.value = true
+  error.value = ''
+  try {
+    await removeKnowledgeMember(baseId, member.id, acl.value.base.acl_version, ticket.signal)
+    if (ticket.isCurrent()) {
+      issuedLink.value = ''
+      await reload(true)
+      emit('refresh')
+    }
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) busy.value = false
+  }
+}
+async function save() {
+  if (
+    !acl.value ||
+    loading.value ||
+    busy.value ||
+    uncertain.value ||
+    (restricted.value.length && !cleanup.value)
+  )
+    return
+  if (!restricted.value.length) {
+    close()
+    return
+  }
+  const ticket = write.replace()
+  busy.value = true
+  error.value = ''
+  try {
+    await cleanupKnowledgeSharing(baseId, acl.value.base.acl_version, ticket.signal)
+    if (ticket.isCurrent()) {
+      busy.value = false
       emit('refresh')
       close()
     }
   } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) {
-      error.value = errorMessage(reason)
-      uncertain.value = !(reason instanceof ApiError) || reason.status >= 500
-    }
+    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
-    if (ticket.isCurrent()) saving.value = false
+    if (ticket.isCurrent()) busy.value = false
   }
 }
 onBeforeUnmount(() => {
-  scope.dispose()
-  writeScope.dispose()
-  for (const search of searches.values()) search.dispose()
+  read.dispose()
+  write.dispose()
+  issuedLink.value = ''
 })
 defineExpose({ open, close })
 </script>
 <template>
-  <ResourceDrawer
+  <AModal
     :open="visible"
-    :title="'知识库权限 - ' + (acl?.base.name ?? '')"
-    :width="900"
-    @close="close"
+    :title="'共享 · ' + (acl?.base.name ?? '')"
+    centered
+    :width="640"
+    :mask-closable="false"
+    :closable="!busy"
+    :confirm-loading="busy"
+    :ok-text="restricted.length ? '整理旧规则' : '完成'"
+    cancel-text="关闭"
+    :ok-button-props="{
+      disabled: loading || !acl || uncertain || (!!restricted.length && !cleanup)
+    }"
+    @cancel="close"
+    @ok="save"
   >
-    <a-alert v-if="error" class="acl-alert" type="error" :message="error" show-icon />
-    <a-alert
-      class="acl-alert"
-      type="info"
-      message="原文权限与知识库权限分别生效。允许访问知识库的用户，仍需具备各原文的读取权限才能检索和查看对应内容。"
-      show-icon
-    />
-    <a-alert
+    <AAlert v-if="error" :message="error" type="error" show-icon class="share-alert" />
+    <AAlert
       v-if="uncertain"
-      class="acl-alert"
+      message="生成结果待确认，继续操作将沿用原请求。"
       type="warning"
-      message="结果尚未确认，请重新打开权限面板核对后再修改。"
       show-icon
+      class="share-alert"
     />
-    <template v-if="acl">
-      <h3>访问范围</h3>
-      <a-radio-group
-        v-model:value="access"
-        :disabled="saving || uncertain"
-        :options="[
-          { label: '私有', value: 'private' },
-          { label: '已登录用户可读', value: 'public' }
-        ]"
+    <p class="share-help">共享成员可检索、查看和下载本库全部资料，权限固定为只读。</p>
+    <p class="share-help">
+      通过邀请链接添加成员，没有成员时只有自己可以访问。
+      <AButton type="link" size="small" :disabled="busy" @click="reload()">刷新共享</AButton>
+    </p>
+    <section class="share-section">
+      <h3>邀请链接</h3>
+      <p class="share-help">
+        对方登录后确认接受。链接 24
+        小时有效，由首位登录并接受的用户领取；关闭页面不会撤销已生成的邀请。
+      </p>
+      <AAlert
+        v-if="acl?.base.document_policy !== 'library'"
+        type="warning"
+        message="旧库请先预览并确认资料迁移，再生成邀请。"
+        show-icon
       />
-      <h3>内置权限</h3>
-      <a-space wrap
-        ><a-tag v-for="rule in acl.builtin_permissions" :key="rule.source"
-          >{{
-            rule.source === 'admin'
-              ? '平台管理员'
-              : rule.source === 'owner'
-                ? '知识库所有者'
-                : rule.source
-          }}
-          · {{ rule.enabled ? '允许' : '停用' }} ·
-          {{ rule.deny_overridable ? '可覆盖' : '不可覆盖' }}</a-tag
-        ></a-space
+      <AButton :disabled="!canInvite || busy || loading" @click="generate"
+        ><LinkOutlined aria-hidden="true" />{{
+          uncertain ? '确认原生成请求' : '生成一次性邀请链接'
+        }}</AButton
       >
-      <div class="acl-header">
-        <h3>用户授权</h3>
-        <a-button :disabled="saving || uncertain" @click="addEntry"
-          ><PlusOutlined />添加授权</a-button
+      <div v-if="issuedLink" class="share-issued">
+        <AInput :value="issuedLink" readonly aria-label="邀请链接" @focus="selectLink" /><AButton
+          @click="copy"
+          ><CopyOutlined aria-hidden="true" />复制</AButton
         >
       </div>
-      <div v-for="row in entries" :key="row.key" class="acl-entry">
-        <a-select
-          :value="row.userId"
-          aria-label="授权用户"
-          show-search
-          :filter-option="false"
-          :loading="row.loading"
-          :options="options(row)"
-          :disabled="saving || uncertain"
-          placeholder="搜索用户"
-          @search="searchUsers(row, $event)"
-          @update:value="setUser(row, $event)"
-        />
-        <a-select
-          :value="row.effect"
-          aria-label="授权规则"
-          :disabled="saving || uncertain"
-          :options="[
-            { label: '允许访问', value: 'allow' },
-            { label: '拒绝访问', value: 'deny' }
-          ]"
-          @update:value="row.effect = $event === 'deny' ? 'deny' : 'allow'"
-        />
-        <a-date-picker
-          :value="row.expiresAt"
-          aria-label="有效期至"
-          show-time
-          value-format="YYYY-MM-DD HH:mm:ss"
-          placeholder="永久有效"
-          :disabled="saving || uncertain"
-          @update:value="row.expiresAt = typeof $event === 'string' ? $event : ''"
-        />
-        <a-button
-          danger
-          :disabled="saving || uncertain"
-          aria-label="移除授权"
-          @click="removeEntry(row)"
-          ><DeleteOutlined
-        /></a-button>
+      <div v-for="link in invitations" :key="link.id" class="share-row">
+        <div>
+          <ATag :color="link.status === 'active' ? 'processing' : 'default'">{{
+            statuses[link.status]
+          }}</ATag
+          ><span class="share-date">有效至 {{ formatTime(link.expires_at) }}</span>
+        </div>
+        <span v-if="link.status === 'active'"
+          ><AButton type="link" size="small" :disabled="busy" @click="copyExisting(link)"
+            >复制链接</AButton
+          ><AButton type="text" size="small" :disabled="busy" @click="revoke(link)"
+            >撤销邀请</AButton
+          ></span
+        >
       </div>
-      <p>拒绝规则优先于公开访问和允许规则；所有者的管理权限不可被覆盖；共享用户仅可读取。</p>
-    </template>
-    <template #footer
-      ><a-button @click="close">取消</a-button
-      ><a-button
-        type="primary"
-        :loading="saving"
-        :disabled="!acl || loading || uncertain"
-        @click="save"
-        >保存</a-button
-      ></template
-    >
-  </ResourceDrawer>
+    </section>
+    <section class="share-section">
+      <h3>
+        已授权成员 <span>{{ members.length }}</span>
+      </h3>
+      <p v-if="!members.length" class="share-help">暂无成员，生成邀请链接并发给对方即可。</p>
+      <div v-for="member in members" :key="member.id" class="share-row">
+        <span>{{ member.name }} <ATag v-if="!member.active">已停用</ATag></span
+        ><span
+          ><span class="share-date">只读</span
+          ><AButton type="link" size="small" danger :disabled="busy" @click="remove(member)"
+            >移除成员</AButton
+          ></span
+        >
+      </div>
+    </section>
+    <div v-if="restricted.length" class="share-section">
+      <AAlert
+        type="warning"
+        message="整理将移除以下旧规则，仅保留无到期时间的已有成员授权。"
+        show-icon
+      />
+      <p v-for="entry in restricted" :key="entry.user_id" class="share-help">
+        {{ entry.user_id }} · {{ entry.effect === 'deny' ? '拒绝访问' : '到期授权' }}
+      </p>
+      <ACheckbox v-model:checked="cleanup"
+        >确认移除所列历史拒绝和到期授权；需要共享的用户请重新通过链接加入</ACheckbox
+      >
+    </div>
+  </AModal>
 </template>
 <style scoped>
-.acl-alert {
+.share-help {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.share-alert {
   margin-bottom: 16px;
 }
-.acl-header {
+.share-section {
+  margin-top: 20px;
+  border-top: 1px solid var(--gray-150);
+  padding-top: 16px;
+}
+h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+h3 span {
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+.share-issued {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+.share-issued :deep(input) {
+  font-size: 12px;
+}
+.share-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 16px;
+  gap: 12px;
+  padding: 10px 0;
+  flex-wrap: wrap;
 }
-.acl-entry {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) 120px minmax(190px, 1fr) 36px;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-p {
+.share-date {
+  font-size: 12px;
   color: var(--color-text-secondary);
-  font-size: 13px;
-}
-@media (max-width: 600px) {
-  .acl-entry {
-    grid-template-columns: minmax(0, 1fr) 36px;
-  }
-  .acl-entry > :nth-child(1),
-  .acl-entry > :nth-child(3) {
-    grid-column: 1;
-  }
-  .acl-entry > :nth-child(2) {
-    grid-column: 1;
-  }
-  .acl-entry > :nth-child(4) {
-    grid-column: 2;
-    grid-row: 1;
-  }
 }
 </style>

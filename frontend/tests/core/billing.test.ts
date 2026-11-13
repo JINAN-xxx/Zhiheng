@@ -1,3 +1,4 @@
+import { parsePoints } from '../../src/modules/billing/contracts.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -10,9 +11,9 @@ void test('points preserve exact decimal precision and reject numeric API amount
   )
   assert.equal(rules.formatPoints('-0.000000000000000001'), '-0.000000000000000001')
   assert.equal(rules.formatPoints('100.000000000000000000'), '100')
-  assert.equal(rules.parsePoints('1.000000000000000001'), '1.000000000000000001')
-  assert.throws(() => rules.parsePoints(1))
-  assert.throws(() => rules.parsePoints('NaN'))
+  assert.equal(parsePoints('1.000000000000000001'), '1.000000000000000001')
+  assert.throws(() => parsePoints(1))
+  assert.throws(() => parsePoints('NaN'))
   assert.equal(rules.validPoints('0', true), false)
   assert.equal(rules.validPoints('0.000000000000000001', true), true)
   assert.equal(rules.validPoints('1e3'), false)
@@ -66,6 +67,27 @@ void test('billing summaries reject floating JSON values at the API boundary', a
   }
   assert.equal(api.parseCreditSummary(summary).available_points, summary.available_points)
   assert.throws(() => api.parseCreditSummary({ ...summary, available_points: 99.8 }))
+})
+
+void test('current price edits compare exact decimals without creating changes for formatting', async () => {
+  const { normalizeCreditPrices, sameCreditPrices } = await import(
+    '../../src/modules/billing/presentation.ts'
+  )
+  const price = {
+    billing_mode: 'token' as const,
+    is_free: false,
+    input_points: '9007199254740993.000000000000000001',
+    output_points: '0.000000000000000001',
+    cache_points: '1.000000000000000000',
+    search_points: '0'
+  }
+  const normalized = normalizeCreditPrices(price)
+  assert.equal(normalized.input_points, price.input_points)
+  assert.equal(normalized.output_points, price.output_points)
+  assert.equal(normalized.cache_points, '1')
+  assert.equal(sameCreditPrices(price, { ...price, cache_points: '1.0' }), true)
+  assert.equal(sameCreditPrices(price, { ...price, output_points: '0.000000000000000002' }), false)
+  assert.equal(sameCreditPrices(price, { ...price, is_free: true }), false)
 })
 
 void test('key monthly point limits are optional exact decimals with zero blocking calls', async () => {

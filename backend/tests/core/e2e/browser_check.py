@@ -129,9 +129,7 @@ def usage_and_logout(page: Page, base_url: str, artifacts: Path) -> None:
     page.screenshot(path=str(artifacts / 'usage.png'), full_page=True)
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='打开主菜单').click()
-    page.locator('.ant-drawer-open .ant-drawer-content').get_by_role(
-        'link', name='对话体验', exact=True
-    ).click()
+    page.locator('.ant-drawer-open .ant-drawer-content').get_by_role('link', name='对话体验', exact=True).click()
     expect(page.get_by_role('textbox', name='消息内容')).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     page.screenshot(path=str(artifacts / 'chat-mobile.png'), full_page=True)

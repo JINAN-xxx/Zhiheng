@@ -23,8 +23,10 @@ export interface Agent extends AgentConfig {
   status: 'draft' | 'published'
   publishedVersion: number | null
   publishedConfig: AgentConfig | null
+  updatedAt?: string
 }
 export interface AgentPayload {
+  client_request_id?: string
   name: string
   description: string
   model_id: string
@@ -63,16 +65,17 @@ function parseAgent(value: unknown): Agent {
     version: number(data.version),
     status: data.status,
     publishedVersion: data.published_version === null ? null : number(data.published_version),
-    publishedConfig: data.published_config === null ? null : parseConfig(data.published_config)
+    publishedConfig: data.published_config === null ? null : parseConfig(data.published_config),
+    ...(data.updated_at === undefined ? {} : { updatedAt: string(data.updated_at) })
   }
 }
 const path = (id: string) => `/agents/${encodeURIComponent(id)}`
 export const listAgents = (
-  query: { keyword: string; pageNum: number; pageSize: number },
+  query: { keyword: string; pageNum: number; pageSize: number; status?: Agent['status'] },
   signal: AbortSignal
 ) =>
   http.request(
-    `/agents?${new URLSearchParams({ search: query.keyword, page: String(query.pageNum), page_size: String(query.pageSize) })}`,
+    `/agents?${new URLSearchParams({ search: query.keyword, page: String(query.pageNum), page_size: String(query.pageSize), ...(query.status ? { status: query.status } : {}) })}`,
     {
       signal,
       decode: (value) => {
@@ -145,3 +148,16 @@ export function nextPreviewIntent(
 }
 
 export { getRun, cancelRun, observeRun } from '../../../shared/runs.ts'
+
+export const getAgentApiAccess = (id: string, signal: AbortSignal) =>
+  http.request(`/agents/${encodeURIComponent(id)}/api-access`, {
+    signal,
+    decode: (value) => {
+      const data = object(value)
+      return {
+        applicationId: string(data.application_id),
+        publishedVersion: number(data.published_version),
+        modelIds: list(string)(data.model_ids)
+      }
+    }
+  })

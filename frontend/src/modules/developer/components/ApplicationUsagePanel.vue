@@ -35,10 +35,13 @@
           >
           <span>检索单元：{{ row.searchUnits ?? '待核对' }}</span>
           <span>
-            费用：{{ row.usageStatus === 'unknown' ? '待核对' : formatCost(row.billableCost) }}
-            <template v-if="row.usageStatus !== 'unknown' && row.billableCost !== null">{{
-              row.currency
-            }}</template>
+            计费：{{ costLabel(row) }}
+            <template
+              v-if="
+                !row.pointsEnforced && row.usageStatus !== 'unknown' && row.billableCost !== null
+              "
+              >{{ row.currency }}</template
+            >
             · {{ usageStatusLabel(row.usageStatus) }}
           </span>
         </article>
@@ -62,10 +65,13 @@
             row.searchUnits ?? '待核对'
           }}</template>
           <template v-else-if="column.key === 'billableCost'"
-            >{{ row.usageStatus === 'unknown' ? '待核对' : formatCost(row.billableCost) }}
-            <template v-if="row.usageStatus !== 'unknown' && row.billableCost !== null">{{
-              row.currency
-            }}</template></template
+            >{{ costLabel(row) }}
+            <template
+              v-if="
+                !row.pointsEnforced && row.usageStatus !== 'unknown' && row.billableCost !== null
+              "
+              >{{ row.currency }}</template
+            ></template
           >
           <template v-else-if="column.key === 'usageStatus'"
             ><a-tag :color="row.usageStatus === 'known' ? 'success' : 'warning'">{{
@@ -115,7 +121,7 @@ const columns = [
   { title: '模型', dataIndex: 'modelCode', key: 'modelCode', width: 150, ellipsis: true },
   { title: '输入 / 输出 Token', key: 'tokens', width: 160 },
   { title: '检索单元', key: 'searchUnits', width: 110 },
-  { title: '结算成本', key: 'billableCost', width: 130 },
+  { title: '计费 / 成本', key: 'billableCost', width: 130 },
   { title: '运行状态', key: 'status', width: 90 },
   { title: '核算状态', key: 'usageStatus', width: 100 }
 ]
@@ -136,6 +142,11 @@ const usageStatusLabel = (value: string) =>
 const usageRowKey = (row: ApplicationUsage) => row.id
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN')
 const formatCost = (value: string | null) => (value === null ? '待核对' : value)
+const costLabel = (row: ApplicationUsage): string => {
+  if (row.pointsEnforced) return '按积分计费'
+  if (row.currency === null && row.billableCost === null) return '仅统计用量'
+  return row.usageStatus === 'unknown' ? '待核对' : formatCost(row.billableCost)
+}
 </script>
 
 <style scoped lang="scss">

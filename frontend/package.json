@@ -14,8 +14,8 @@
     "preview:platform": "vite preview --config vite.platform.config.ts --host 127.0.0.1 --port 15190",
     "test:core": "node --experimental-strip-types --test tests/core/*.test.ts",
     "test:browser": "python tests/browser/ui_regressions.py",
-    "lint:core": "eslint --max-warnings 0 eslint.config.js src/vite-env.d.ts 'src/{app,shared,modules}/**/*.{ts,vue}' tests/core/*.test.ts vite.platform.config.ts",
-    "format:check": "prettier --check 'src/**/*.{ts,vue,css,scss}' tests/core/*.test.ts eslint.config.js vite.platform.config.ts .prettierrc.json tsconfig*.json package.json platform.html",
+    "lint:core": "eslint --max-warnings 0 eslint.config.js 'tools/**/*.js' src/vite-env.d.ts 'src/{app,shared,modules}/**/*.{ts,vue}' tests/core/*.test.ts vite.platform.config.ts",
+    "format:check": "prettier --check 'src/**/*.{ts,vue,css,scss}' tests/core/*.test.ts eslint.config.js 'tools/**/*.{js,ts}' vite.platform.config.ts .prettierrc.json tsconfig*.json package.json platform.html",
     "typecheck": "vue-tsc --noEmit --project tsconfig.json && tsc --noEmit --project tsconfig.tests.json"
   },
   "dependencies": {

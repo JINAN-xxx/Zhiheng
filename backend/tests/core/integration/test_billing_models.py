@@ -1,4 +1,4 @@
-"""Billing mode preparation checks the full published model inventory."""
+"""Billing mode preparation checks the full enabled model inventory."""
 
 from uuid import UUID
 
@@ -22,8 +22,9 @@ async def test_billing_model_inventory_has_no_catalog_page_limit_and_keeps_visib
         await session.flush()
         assert len(await container.models.list_models(session)) == 1000
         inventory = await container.models.billing_models(session)
-        assert len(inventory) == 1001
-        assert all(row.enabled and row.published for row in inventory)
+        assert len(inventory) == 1002
+        assert all(row.enabled for row in inventory)
+        assert 'Unpublished model' in {row.name for row in inventory}
         connection = await session.scalar(select(ModelConnection).where(ModelConnection.id == original.connection_id))
         connection.enabled = False
         await session.flush()

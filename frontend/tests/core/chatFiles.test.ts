@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createChatFileQueue, imagePreviewBlob } from '../../src/modules/chat/attachments.ts'
+import {
+  CHAT_ATTACHMENTS_MAX_BYTES,
+  createChatFileQueue,
+  imagePreviewBlob
+} from '../../src/modules/chat/attachments.ts'
 import type { ManagedFile } from '../../src/modules/files/public.ts'
-void test('pending slots count toward upload limits; removing an entry rejects late success', async () => {
+void test('small files have no count cap; removing an entry rejects late success', async () => {
   const released: string[] = []
   let complete: ((file: ManagedFile) => void) | undefined
   const queue = createChatFileQueue({
@@ -13,15 +17,15 @@ void test('pending slots count toward upload limits; removing an entry rejects l
     createObjectURL: () => 'blob:test',
     revokeObjectURL: (url) => released.push(url)
   })
-  const files = Array.from({ length: 6 }, (_, index) => new File(['hello'], `${index}.txt`))
+  const files = Array.from({ length: 16 }, (_, index) => new File(['hello'], `${index}.txt`))
   const first = queue.add(files, false)
-  assert.equal(first.rejected.length, 1)
-  assert.equal(queue.items.length, 5)
+  assert.equal(first.rejected.length, 0)
+  assert.equal(queue.items.length, 16)
   const pending = queue.items.at(-1)!
   queue.remove(pending.id)
   complete!({ fileId: 'late', originalName: 'late.txt' } as ManagedFile)
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.equal(queue.items.length, 4)
+  assert.equal(queue.items.length, 15)
   assert.equal(
     queue.items.some((item) => item.fileId === 'late'),
     false
@@ -30,6 +34,43 @@ void test('pending slots count toward upload limits; removing an entry rejects l
   assert.equal(queue.items.length, 0)
   assert.deepEqual(released, [])
 })
+void test('the total size includes pending and failed uploads and removal frees capacity', async () => {
+  const sizedFile = (name: string, size: number): File => {
+    const file = new File(['data'], name)
+    Object.defineProperty(file, 'size', { value: size })
+    return file
+  }
+  const mib = 1024 * 1024
+  let rejectUpload: ((reason: Error) => void) | undefined
+  const queue = createChatFileQueue({
+    upload: () =>
+      new Promise((_resolve, reject) => {
+        rejectUpload = reject
+      })
+  })
+  const batch = queue.add(
+    [sizedFile('a.txt', 20 * mib), sizedFile('b.txt', 20 * mib), sizedFile('c.txt', 10 * mib)],
+    false
+  )
+  assert.equal(batch.rejected.length, 0)
+  assert.equal(
+    queue.items.reduce((total, file) => total + file.sizeBytes, 0),
+    CHAT_ATTACHMENTS_MAX_BYTES
+  )
+  assert.match(queue.add([sizedFile('over.txt', 1)], false).rejected[0]!.error, /50MB/)
+  rejectUpload!(new Error('upload failed'))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(queue.items.at(-1)!.status, 'failed')
+  assert.match(queue.add([sizedFile('still-over.txt', 1)], false).rejected[0]!.error, /50MB/)
+  queue.remove(queue.items.at(-1)!.id)
+  assert.equal(queue.add([sizedFile('replacement.txt', 10 * mib)], false).rejected.length, 0)
+  assert.match(
+    queue.add([sizedFile('single-too-large.txt', 21 * mib)], false).rejected[0]!.error,
+    /20MiB/
+  )
+  queue.clear()
+})
+
 void test('image uploads require model vision; supported raster signatures control previews', async () => {
   let uploaded = 0
   const queue = createChatFileQueue({

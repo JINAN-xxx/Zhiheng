@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from zhiheng.modules.identity import public
 from zhiheng.modules.identity.admin_contracts import RoleCreate
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -44,7 +45,7 @@ async def context() -> AsyncIterator[tuple[AsyncSession, object, object, Princip
     assert hasattr(public, 'IdentityAdminService'), 'identity admin service is not implemented'
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     async with engine.begin() as connection:
-        for table in public.schema_tables():
+        for table in schema_tables():
             await connection.run_sync(table.create)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     identity = public.IdentityService()
@@ -193,7 +194,6 @@ async def test_department_cycles_and_occupied_resources_are_protected(
         )
     with pytest.raises(AppError):
         await admin.delete(session, root, 'departments', department['id'], expected_version=1)
-    post = await admin.create(session, root, 'posts', {'code': 'engineer', 'name': '工程师'})
     await admin.create(
         session,
         root,
@@ -202,10 +202,9 @@ async def test_department_cycles_and_occupied_resources_are_protected(
             'username': 'employee',
             'password': 'a-long-test-password',
             'department_id': child['id'],
-            'post_ids': [post['id']],
         },
     )
-    for kind, identifier in [('departments', child['id']), ('posts', post['id'])]:
+    for kind, identifier in [('departments', child['id'])]:
         with pytest.raises(AppError) as occupied:
             await admin.delete(session, root, kind, identifier, expected_version=1)
         assert occupied.value.status_code == 409
@@ -245,31 +244,20 @@ async def test_sessions_expose_only_public_ids_and_current_session_cannot_be_kic
         await identity.authenticate(session, other_token)
 
 
-async def test_menu_paths_and_permission_catalog_are_fixed(context: tuple[AsyncSession, Any, Any, Principal]) -> None:
+async def test_retired_resources_and_permission_catalog(context: tuple[AsyncSession, Any, Any, Principal]) -> None:
     session, _, admin, root = context
+    for kind in ['posts', 'menus']:
+        with pytest.raises(AppError) as retired:
+            await admin.create(session, root, kind, {'name': 'retired'})
+        assert retired.value.status_code == 404
     with pytest.raises(AppError):
-        await admin.create(session, root, 'menus', {'name': 'unsafe', 'path': 'https://evil.example'})
-    with pytest.raises(AppError):
-        await admin.create(session, root, 'menus', {'name': 'unknown', 'path': '/does-not-exist'})
-    with pytest.raises(AppError):
-        await admin.create(session, root, 'roles', {'code': 'bad', 'name': 'bad', 'permissions': ['system:root:write']})
-    menu = await admin.create(
-        session,
-        root,
-        'menus',
-        {
-            'name': '用户',
-            'path': '/admin/users',
-            'permission': 'system:users:read',
-        },
-    )
-    assert menu['path'] == '/admin/users'
+        await admin.create(session, root, 'roles', {'name': 'bad', 'permissions': ['system:root:write']})
     catalog = public.permission_catalog()
     system = [item for item in catalog if item['code'].startswith('system:')]
     ai = [item for item in catalog if item['code'].startswith('ai:')]
-    assert len(system) == 20
+    assert len(system) == 14
     assert {item['code'] for item in ai} == AI_PERMISSION_CODES
-    assert len(catalog) == len({item['code'] for item in catalog}) == 30
+    assert len(catalog) == len({item['code'] for item in catalog}) == 24
     assert all(item['group'].startswith('系统管理 · ') for item in system)
     assert {item['group'] for item in ai} == {
         'AI平台 · 模型与凭据',
@@ -386,9 +374,6 @@ async def test_ai_permissions_cannot_access_system_administration(
 ) -> None:
     session, _, admin, root = context
     operator = Principal(root.id, 'ai-operator', False, AI_PERMISSION_CODES)
-    with pytest.raises(AppError) as navigation:
-        await admin.navigation(session, operator)
-    assert navigation.value.status_code == 403
     with pytest.raises(AppError) as listing:
         await admin.list(session, operator, 'roles')
     assert listing.value.status_code == 403
@@ -404,7 +389,7 @@ async def test_read_permission_is_required_independently_from_write(
     assert forbidden.value.status_code == 403
 
 
-async def test_navigation_is_filtered_by_fixed_permissions_and_options_prevent_escalation(
+async def test_user_options_prevent_role_escalation(
     context: tuple[AsyncSession, Any, Any, Principal],
 ) -> None:
     session, _, admin, root = context
@@ -412,8 +397,6 @@ async def test_navigation_is_filtered_by_fixed_permissions_and_options_prevent_e
         session, root, 'roles', {'code': 'powerful', 'name': '高权', 'permissions': ['system:roles:write']}
     )
     member = Principal(root.id, root.username, False, frozenset({'system:users:read'}))
-    menus = await admin.navigation(session, member)
-    assert {row['path'] for row in menus['items']} == {'/admin/users'}
     options = await admin.user_options(session, member)
     assert options['roles'] == []
 
@@ -542,9 +525,8 @@ async def test_user_updates_can_retain_existing_inactive_assignments(
 ) -> None:
     session, _, admin, root = context
     department = await admin.create(session, root, 'departments', {'name': 'Legacy department'})
-    post = await admin.create(session, root, 'posts', {'code': 'legacy', 'name': 'Legacy post'})
     role = await admin.create(session, root, 'roles', {'code': 'legacy', 'name': 'Legacy role'})
-    assignments = {'department_id': department['id'], 'post_ids': [post['id']], 'role_ids': [role['id']]}
+    assignments = {'department_id': department['id'], 'role_ids': [role['id']]}
     user = await admin.create(
         session,
         root,
@@ -555,7 +537,7 @@ async def test_user_updates_can_retain_existing_inactive_assignments(
             **assignments,
         },
     )
-    for kind, item in [('departments', department), ('posts', post), ('roles', role)]:
+    for kind, item in [('departments', department), ('roles', role)]:
         await admin.update(session, root, kind, item['id'], {'is_active': False}, expected_version=1)
     fields = {'is_active': False} if deactivate_user else {'display_name': 'updated profile'}
     updated = await admin.update(
@@ -574,7 +556,7 @@ async def test_user_updates_can_retain_existing_inactive_assignments(
     assert all(updated[key] == value for key, value in fields.items())
 
 
-@pytest.mark.parametrize('kind,field', [('departments', 'department_id'), ('posts', 'post_ids'), ('roles', 'role_ids')])
+@pytest.mark.parametrize('kind,field', [('departments', 'department_id'), ('roles', 'role_ids')])
 @pytest.mark.parametrize('create_user', [False, True])
 async def test_new_assignments_to_inactive_resources_are_rejected(
     context: tuple[AsyncSession, Any, Any, Principal],
@@ -646,21 +628,3 @@ async def test_retaining_inactive_role_cannot_bypass_operator_permission_scope(
             expected_version=1,
         )
     assert forbidden.value.status_code == 403
-
-
-@pytest.mark.parametrize('path', ['/overview', '/chat', '/admin'])
-@pytest.mark.parametrize('action', ['create', 'update'])
-async def test_menu_configuration_rejects_paths_outside_admin_navigation(
-    context: tuple[AsyncSession, Any, Any, Principal],
-    path: str,
-    action: str,
-) -> None:
-    session, _, admin, root = context
-    if action == 'create':
-        with pytest.raises(AppError) as invalid:
-            await admin.create(session, root, 'menus', {'name': 'Unsupported', 'path': path})
-    else:
-        menu = await admin.create(session, root, 'menus', {'name': 'Users', 'path': '/admin/users'})
-        with pytest.raises(AppError) as invalid:
-            await admin.update(session, root, 'menus', menu['id'], {'path': path}, expected_version=1)
-    assert invalid.value.code == 'invalid_menu_path'

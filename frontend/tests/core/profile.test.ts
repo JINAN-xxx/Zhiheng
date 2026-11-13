@@ -16,20 +16,19 @@ const profile = {
   is_admin: false,
   department_name: null,
   roles: ['成员'],
-  posts: [],
   created_at: null,
   version: 1
 }
 
 void test('profile contract accepts nullable metadata and rejects invalid field types', () => {
   assert.deepEqual(parseProfile(profile), profile)
+  assert.deepEqual(parseProfile({ ...profile, posts: ['历史岗位'] }), profile)
   for (const invalid of [
     { ...profile, id: 1 },
     { ...profile, display_name: null },
     { ...profile, is_admin: 'false' },
     { ...profile, department_name: 1 },
     { ...profile, roles: [1] },
-    { ...profile, posts: '成员' },
     { ...profile, created_at: 1 },
     { ...profile, version: 1.5 },
     { ...profile, version: -1 }

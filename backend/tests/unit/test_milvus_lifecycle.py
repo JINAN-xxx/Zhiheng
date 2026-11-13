@@ -136,7 +136,8 @@ def delayed_milvus_transport(
 
 @pytest.mark.parametrize('style', ['__call__', 'future', 'with_call'])
 async def test_actual_rpc_call_styles_obey_absolute_deadline(style: str) -> None:
-    from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl, rpc_channel
+    from zhiheng.modules.knowledge.adapters.milvus_rpc import rpc_channel
+    from zhiheng.modules.knowledge.public import VectorIOControl
 
     with delayed_milvus_transport(0.3, {'GetVersion'}) as (uri, records, _):
         control = VectorIOControl(timeout_seconds=0.1)
@@ -166,7 +167,8 @@ async def test_constructor_and_nested_sdk_rpc_share_one_deadline() -> None:
 
 @pytest.mark.parametrize('stop', ['cancel', 'lease'])
 async def test_in_flight_rpc_is_cancelled_and_drained_when_control_stops(stop: str) -> None:
-    from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl, rpc_channel
+    from zhiheng.modules.knowledge.adapters.milvus_rpc import rpc_channel
+    from zhiheng.modules.knowledge.public import VectorIOControl
 
     with delayed_milvus_transport(0.8, {'GetVersion'}) as (uri, records, entered):
         control = VectorIOControl(

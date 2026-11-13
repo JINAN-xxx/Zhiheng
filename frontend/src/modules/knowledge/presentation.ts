@@ -6,10 +6,10 @@ export function formatTime(value: string): string {
 export { formatFileSize as formatSize } from '../files/public.ts'
 export const documentStatus = (status: string): string =>
   ({
-    ready: '已索引',
-    pending: '等待处理',
+    ready: '可用',
+    pending: '处理中',
     processing: '处理中',
-    failed: '失败',
+    failed: '处理失败',
     deleting: '正在删除'
   })[status] ?? status
 export const jobStatus = (status: string): string =>
@@ -17,6 +17,7 @@ export const jobStatus = (status: string): string =>
     pending: '等待处理',
     running: '处理中',
     waiting_model: '等待模型',
+    waiting_parse: '正在解析文档',
     publishing: '正在发布',
     completed: '已完成',
     partial: '部分完成',

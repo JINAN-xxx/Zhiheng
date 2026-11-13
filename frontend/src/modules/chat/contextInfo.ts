@@ -1,4 +1,5 @@
 import { boolean, nullableNumber, number, object, string } from '../../shared/validation.ts'
+import { createRequestId } from '../../shared/requestId.ts'
 
 export interface ChatContextInfo {
   status: 'full' | 'summarizing' | 'summarized' | 'degraded'
@@ -9,7 +10,7 @@ export interface ChatContextInfo {
   truncated: boolean
   dropped_rounds: number
   estimated_input_tokens: number | null
-  input_budget: number
+  input_budget: number | null
   reason: string | null
 }
 export function parseContextInfo(value: unknown): ChatContextInfo {
@@ -25,7 +26,7 @@ export function parseContextInfo(value: unknown): ChatContextInfo {
     truncated: boolean(data.truncated),
     dropped_rounds: number(data.dropped_rounds),
     estimated_input_tokens: nullableNumber(data.estimated_input_tokens),
-    input_budget: number(data.input_budget),
+    input_budget: nullableNumber(data.input_budget),
     reason: data.reason == null ? null : string(data.reason)
   }
 }
@@ -45,7 +46,7 @@ export function nextContextRetryIntent(
   previous: ContextRetryIntent | null,
   ownerId: string,
   conversationId: string,
-  createId: () => string = () => crypto.randomUUID()
+  createId: () => string = createRequestId
 ): ContextRetryIntent {
   if (previous?.ownerId === ownerId && previous.conversationId === conversationId) return previous
   return { ownerId, conversationId, requestId: createId() }

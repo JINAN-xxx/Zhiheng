@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.unit.test_skill_package import markdown
 
 
@@ -26,9 +27,15 @@ async def install(admin: httpx.AsyncClient, slug: str = 'sample', body: str = 'I
 
 async def test_builtins_and_two_phase_owner_cas_and_soft_delete(admin: httpx.AsyncClient, app: object) -> None:
     builtin = (await admin.get('/api/skills/available')).json()
-    assert {item['slug'] for item in builtin} == {'deep-research', 'document-summary'}
+    assert {item['slug'] for item in builtin} == {
+        'deep-research',
+        'document-summary',
+        'meeting-minutes',
+        'requirements-clarification',
+        'writing-polish',
+    }
     draft = await prepare(admin)
-    assert (await admin.get('/api/skills')).json()['total'] == 2
+    assert (await admin.get('/api/skills')).json()['total'] == len(builtin)
     results = await asyncio.gather(
         *(admin.post(f'/api/skills/import/{draft["draft_id"]}/confirm', json={}) for _ in range(2))
     )
@@ -49,7 +56,7 @@ async def test_builtins_and_two_phase_owner_cas_and_soft_delete(admin: httpx.Asy
     assert (await admin.get(f'/api/skills/{skill["id"]}')).status_code == 404
     assert (
         await admin.delete(f'/api/skills/{builtin[0]["id"]}', headers={'content-type': 'application/json'})
-    ).status_code == 200
+    ).status_code == 403
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert (await member.get('/api/skills')).status_code == 200
@@ -78,6 +85,7 @@ async def test_slug_conflict_and_unknown_actions(admin: httpx.AsyncClient) -> No
 async def test_chat_selection_freezes_order_content_and_retries_after_disable(
     admin: httpx.AsyncClient, app: object, model_id: str, provider: object
 ) -> None:
+    await enable_free_billing(admin)
     from zhiheng.worker.execution import execute_run
 
     one = await install(admin, 'one', 'FIRST FULL INSTRUCTION')
@@ -340,8 +348,8 @@ async def test_invalid_skill_input_is_422_without_runs_messages_ledger_or_provid
 
     from sqlalchemy import func, select
 
+    from zhiheng.modules.billing.orm import Invocation
     from zhiheng.modules.chat.orm import ChatMessage
-    from zhiheng.modules.developer.orm import Invocation
     from zhiheng.runtime.orm import Run
 
     conversation = (await admin.post('/api/chat/conversations', json={})).json()['id']

@@ -1,21 +1,32 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar title="我的技能">
+    <WorkspaceToolbar title="技能">
       <template #actions>
-        <a-tooltip title="刷新技能" placement="bottom">
-          <a-button :loading="loading" aria-label="刷新技能" @click="load">
-            <template #icon><ReloadOutlined /></template>
-          </a-button>
-        </a-tooltip>
-        <a-button v-if="canManage" type="primary" aria-label="上传技能" @click="uploadOpen = true">
-          <template #icon><UploadOutlined /></template>
-          上传技能
+        <RefreshButton label="刷新技能" :loading="loading" @click="load" />
+        <a-button
+          v-if="canUpload && activeTab === 'mine'"
+          type="primary"
+          aria-label="上传技能"
+          @click="openUpload()"
+        >
+          <template #icon><UploadOutlined /></template>上传技能
         </a-button>
       </template>
     </WorkspaceToolbar>
 
     <section class="skill-content">
+      <ATabs :active-key="activeTab" class="skill-tabs" aria-label="技能分类" @change="changeTab">
+        <ATabPane key="market" tab="市场" />
+        <ATabPane key="mine" tab="我的" />
+      </ATabs>
+      <p class="skill-intro">
+        {{
+          activeTab === 'market'
+            ? '平台预制技能，启用后可用于对话和智能体。'
+            : '上传技能包，管理自己的技能。'
+        }}
+      </p>
       <div class="skill-controls">
         <a-input
           v-model:value="query.keyword"
@@ -27,11 +38,11 @@
         </a-input>
         <a-select
           :value="query.status"
+          aria-label="筛选技能状态"
           :options="statusOptions"
           placeholder="全部状态"
           allow-clear
-          @update:value="changeStatus"
-          @change="search"
+          @change="changeStatus"
         />
         <span class="skill-total">共 {{ total }} 个</span>
       </div>
@@ -43,34 +54,49 @@
         :message="error"
         @retry="load"
       />
-      <WorkspaceState v-else-if="!skills.length" kind="empty" title="暂无技能" />
+      <WorkspaceState
+        v-else-if="!skills.length"
+        kind="empty"
+        :title="
+          query.status || query.keyword.trim()
+            ? '没有符合条件的技能'
+            : activeTab === 'market'
+              ? '暂无预制技能'
+              : '暂无个人技能'
+        "
+      />
       <template v-else>
-        <a-alert
-          v-if="error"
-          class="stale-notice"
-          type="warning"
-          message="刷新失败，当前技能可能已过期"
-          show-icon
-        />
+        <a-alert v-if="error" class="stale-notice" type="warning" :message="error" show-icon />
         <div class="skill-grid">
-          <article v-for="skill in skills" :key="skill.skillId" class="skill-card">
-            <div class="skill-card__header">
-              <span class="skill-card__icon"><ThunderboltOutlined /></span>
-              <strong :title="skill.skillName">{{ skill.skillName }}</strong>
-              <WorkspaceStatus
-                :status="skill.status === 'enabled' ? 'active' : 'warning'"
-                :label="skillStatusLabel(skill.status)"
-              />
-            </div>
-            <p>{{ skill.description || '暂无说明' }}</p>
-            <div class="skill-card__tags">
-              <span>{{ skill.sourceType === 'builtin' ? '平台内置' : '上传技能' }}</span
-              ><span>v{{ skill.version }}</span>
-            </div>
-            <div class="skill-card__footer">
-              <span>{{ skill.fileCount }} 个文件 · {{ formatSkillBytes(skill.totalBytes) }}</span>
-              <a-button type="link" size="small" @click="openDetail(skill)">查看详情</a-button>
-            </div>
+          <article v-for="skill in skills" :key="skill.skillId" class="skill-item">
+            <button
+              type="button"
+              class="skill-item__open"
+              :aria-label="skill.skillName"
+              :aria-describedby="`skill-description-${skill.skillId}`"
+              @click="openDetail(skill)"
+            >
+              <SkillIdentityIcon :slug="skill.skillSlug" />
+              <span class="skill-item__text">
+                <strong :title="skill.skillName">{{ skill.skillName }}</strong>
+                <span
+                  :id="`skill-description-${skill.skillId}`"
+                  class="skill-item__description"
+                  :class="{ 'skill-item__error': failures[skill.skillId] }"
+                  :role="failures[skill.skillId] ? 'alert' : undefined"
+                  :title="failures[skill.skillId]?.message || skill.description"
+                  >{{ failures[skill.skillId]?.message || skill.description || '暂无说明' }}</span
+                >
+              </span>
+            </button>
+            <a-switch
+              :checked="skill.status === 'enabled'"
+              :aria-label="`启用技能“${skill.skillName}”`"
+              :loading="pending[skill.skillId] ?? false"
+              :disabled="!canToggleSkill(skill) || pending[skill.skillId] || deleting"
+              size="small"
+              @change="toggleStatus(skill)"
+            />
           </article>
         </div>
         <a-pagination
@@ -85,115 +111,97 @@
       </template>
     </section>
 
-    <SkillUploadModal v-model="uploadOpen" :can-manage="canManage" @installed="handleInstalled" />
-    <SkillDetailDrawer
-      v-model="detailOpen"
-      :skill-id="selectedSkillId"
+    <SkillUploadModal
+      v-model="uploadOpen"
       :can-manage="canManage"
-      @changed="handleChanged"
-      @deleted="handleDeleted"
+      :target="uploadTarget"
+      @installed="installed"
+    />
+    <SkillDetailModal
+      :model-value="detailOpen"
+      :skill="detail"
+      :content="content"
+      :loading="detailLoading"
+      :error="detailError"
+      :saving="saving"
+      :deleting="deleting"
+      :action-error="actionError"
+      :action-details="actionDetails"
+      :can-manage="canManage"
+      :can-toggle="!!detail && canToggleSkill(detail)"
+      :can-update="canUseCapability('skills', 'update')"
+      :can-delete="canUseCapability('skills', 'delete')"
+      @update:model-value="setDetailOpen"
+      @retry="loadDetail"
+      @toggle="toggleSelected"
+      @update="updateSelected"
+      @delete="removeSelected"
     />
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { canUseCapability } from '../../identity/public.ts'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import {
   Alert as AAlert,
   Button as AButton,
   Input as AInput,
   Pagination as APagination,
   Select as ASelect,
-  Tooltip as ATooltip
+  Switch as ASwitch,
+  Tabs as ATabs,
+  TabPane as ATabPane
 } from 'ant-design-vue'
-import {
-  ReloadOutlined,
-  SearchOutlined,
-  ThunderboltOutlined,
-  UploadOutlined
-} from '@ant-design/icons-vue'
-import { identity } from '../../identity/public.ts'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { SearchOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
-import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
-import { listSkills } from '../api/index.ts'
-import type { Skill } from '../api/index.ts'
-import { formatSkillBytes, skillStatusLabel } from '../presentation.ts'
-import SkillDetailDrawer from '../components/SkillDetailDrawer.vue'
+import SkillIdentityIcon from '../components/SkillIdentityIcon.vue'
+import SkillDetailModal from '../components/SkillDetailModal.vue'
 import SkillUploadModal from '../components/SkillUploadModal.vue'
-const route = useRoute(),
-  router = useRouter()
-const canManage = computed(() => identity.value !== null)
-const skills = ref<Skill[]>([]),
-  total = ref(0),
-  loading = ref(false),
-  error = ref('')
-const uploadOpen = ref(false),
-  detailOpen = ref(false),
-  selectedSkillId = ref('')
-const query = reactive({
-  keyword: '',
-  status: undefined as string | undefined,
-  pageNum: 1,
-  pageSize: 12
-})
+import { useSkillsPage } from '../composables/useSkillsPage.ts'
+
 const statusOptions = [
   { label: '已启用', value: 'enabled' },
   { label: '已停用', value: 'disabled' }
 ]
-const scope = new RequestScope()
-async function load(): Promise<void> {
-  const context = scope.replace()
-  loading.value = true
-  error.value = ''
-  try {
-    const page = await listSkills(query, context.signal)
-    if (context.isCurrent()) {
-      skills.value = page.rows
-      total.value = page.total
-    }
-  } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
-  } finally {
-    if (context.isCurrent()) loading.value = false
-  }
-}
-function search(): void {
-  query.pageNum = 1
-  void load()
-}
-function changeStatus(value: unknown): void {
-  query.status = value === 'enabled' || value === 'disabled' ? value : undefined
-}
-function openDetail(skill: Skill): void {
-  selectedSkillId.value = skill.skillId
-  detailOpen.value = true
-}
-function handleInstalled(): void {
-  query.pageNum = 1
-  void load()
-}
-function handleChanged(changed: Skill): void {
-  skills.value = skills.value.map((skill) => (skill.skillId === changed.skillId ? changed : skill))
-}
-function handleDeleted(): void {
-  void load()
-}
-watch(
-  [() => route.query.action, canManage],
-  ([action, allowed]) => {
-    if (action !== 'upload' || !allowed) return
-    uploadOpen.value = true
-    const query = { ...route.query }
-    delete query.action
-    void router.replace({ query })
-  },
-  { immediate: true }
-)
-onMounted(load)
-onBeforeUnmount(() => scope.dispose())
+const {
+  activeTab,
+  changeTab,
+  skills,
+  total,
+  loading,
+  error,
+  query,
+  canManage,
+  canUpload,
+  canToggleSkill,
+  pending,
+  failures,
+  detailOpen,
+  detail,
+  content,
+  detailLoading,
+  detailError,
+  saving,
+  deleting,
+  actionError,
+  actionDetails,
+  uploadOpen,
+  uploadTarget,
+  load,
+  search,
+  changeStatus,
+  openDetail,
+  setDetailOpen,
+  toggleStatus,
+  toggleSelected,
+  openUpload,
+  updateSelected,
+  installed,
+  loadDetail,
+  removeSelected
+} = useSkillsPage()
 </script>
 
 <style scoped lang="scss">
@@ -208,17 +216,26 @@ onBeforeUnmount(() => scope.dispose())
   font-family: var(--workspace-font-family);
 }
 .skill-content {
+  container-type: inline-size;
   min-height: 0;
   flex: 1;
   overflow: auto;
   padding: 24px 28px 32px;
 }
+.skill-tabs {
+  margin-bottom: 8px;
+}
+.skill-intro {
+  margin: 0 0 22px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
 .skill-controls {
   display: flex;
   min-height: 40px;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 22px;
+  gap: 12px;
+  margin-bottom: 26px;
 }
 .skill-controls :deep(.ant-input-affix-wrapper) {
   width: min(360px, 42%);
@@ -233,104 +250,21 @@ onBeforeUnmount(() => scope.dispose())
 }
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(230px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 28px;
+  align-content: start;
 }
-.skill-card {
-  display: flex;
-  min-height: 225px;
-  flex-direction: column;
-  padding: 22px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-}
-.skill-card:hover {
-  border-color: var(--main-300);
-}
-.skill-card__header {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-.skill-card__header strong {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--color-text);
-  font-size: 16px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skill-card__icon {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  border-radius: 7px;
-  color: var(--main-700);
-  background: var(--main-50);
-  font-size: 17px;
-}
-.skill-card p {
-  display: -webkit-box;
-  min-height: 42px;
-  margin: 14px 0 10px;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.skill-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: auto;
-  padding-top: 8px;
-  border-top: 1px solid var(--gray-100);
-}
-.skill-card__tags {
-  display: flex;
-  gap: 7px;
-  margin-bottom: 18px;
-}
-.skill-card__tags span {
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--gray-50);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.skill-card__tags span:first-child {
-  background: var(--main-50);
-  color: var(--main-700);
-}
-.skill-card__footer > span {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.stale-notice {
-  margin-top: 12px;
-}
-:deep(.ant-pagination) {
-  justify-content: flex-end;
-  margin-top: 18px;
-}
-@media (max-width: 1080px) {
+@container (min-width: 1360px) {
   .skill-grid {
-    grid-template-columns: repeat(2, minmax(230px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
-@media (max-width: 600px) {
-  .skill-content {
-    padding: 14px 12px;
+@container (max-width: 960px) {
+  .skill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+@container (max-width: 560px) {
   .skill-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -341,7 +275,72 @@ onBeforeUnmount(() => scope.dispose())
     width: 100%;
   }
 }
-:deep(.ant-btn-link) {
-  color: var(--main-700);
+.skill-item {
+  display: flex;
+  min-width: 0;
+  min-height: 88px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.skill-item:hover {
+  background: var(--gray-25);
+}
+.skill-item__open {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.skill-item__open:focus-visible {
+  outline: 2px solid var(--main-400);
+  outline-offset: 4px;
+}
+.skill-item__text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-item__text strong,
+.skill-item__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-item__text strong {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+.skill-item__description {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.skill-item__error {
+  color: var(--color-error);
+}
+.skill-item :deep(.ant-switch) {
+  flex-shrink: 0;
+}
+.stale-notice {
+  margin-bottom: 16px;
+}
+:deep(.ant-pagination) {
+  justify-content: flex-end;
+  margin-top: 24px;
 }
 </style>

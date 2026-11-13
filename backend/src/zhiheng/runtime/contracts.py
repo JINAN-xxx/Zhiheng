@@ -9,6 +9,15 @@ RunStatus = Literal['pending', 'running', 'cancel_requested', 'completed', 'fail
 TERMINAL_STATUSES = frozenset({'completed', 'failed', 'cancelled', 'interrupted'})
 
 
+@dataclass(frozen=True)
+class ActiveRunReference:
+    id: UUID
+    resource_type: str
+    resource_id: UUID
+    status: RunStatus
+    owner_id: UUID
+
+
 class RunUsage(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -28,9 +37,11 @@ class RunSnapshot(BaseModel):
         'connection_test',
         'public',
         'agent_preview',
+        'agent_chat',
         'agent_invocation',
         'work_turn',
         'knowledge_embedding',
+        'knowledge_rerank',
         'knowledge_graph',
     ]
     resource_id: UUID

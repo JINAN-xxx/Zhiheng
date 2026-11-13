@@ -1,10 +1,11 @@
 <template>
   <section class="api-docs-page">
-    <WorkspaceToolbar title="API 说明"
-      ><template #actions
-        ><a-button @click="$emit('close')">返回开发接入</a-button></template
-      ></WorkspaceToolbar
-    >
+    <WorkspaceToolbar title="API 说明">
+      <template #actions>
+        <a-button :href="docsUrl" target="_blank">在线调试</a-button>
+        <a-button @click="$emit('close')">返回开发接入</a-button>
+      </template>
+    </WorkspaceToolbar>
     <div class="api-docs-layout">
       <nav class="api-docs-nav" aria-label="API 文档目录">
         <div class="api-docs-nav__title">接口说明</div>
@@ -33,10 +34,6 @@
             </div>
             <pre>{{ apiBase }}</pre>
           </div>
-          <p>
-            <a :href="docsUrl" target="_blank" rel="noopener">Swagger 分组文档</a> ·
-            <a :href="schemaUrl" target="_blank" rel="noopener">OpenAPI 3.1 JSON</a>
-          </p>
           <p>
             目录、字段和唯一调用示例均由当前服务的 OpenAPI 规范加载，资源接口统一使用平台资源 API
             v1。
@@ -74,6 +71,17 @@
             Range 与 Content-Range。X-Request-ID 仅用于追踪，资源 id
             用于后续访问，均不能代替重试键。
           </p>
+          <p class="api-doc-description">
+            异步结果以 operation 或运行的终态为准。资源 API 接纳的知识任务继续使用所属 Key
+            查询返回的 operation 地址，控制台 Cookie 和原生任务 ID 不能替代该入口。
+          </p>
+          <p class="api-doc-description">
+            运行错误 execution_conflict / execution_unavailable
+            表示执行阶段的数据库问题，execution_failed
+            表示模型调用前的内部准备异常，inference_failed
+            表示模型调用开始后未正常完成。请结合具体消息和 运行／用量状态判断是否重试；用量为
+            unknown 时保留预占，先核对原结果，避免直接重发模型请求。
+          </p>
           <pre>{{ resourceError }}</pre>
         </section>
         <section id="api-recipes" class="api-doc-section">
@@ -82,6 +90,11 @@
             先设置 API_KEY 和 FILE_PATH，无需手动生成请求 UUID。知识入库：上传文件 → 从响应取
             FILE_ID → 创建知识库（EMBED_MODEL_ID）→ 从响应取 BASE_ID → 文件入库 → 按 Location 轮询 →
             检索。每个操作下均提供对应 curl，原始文件须已授权给当前应用。
+          </p>
+          <p class="api-doc-description">
+            知识文档下载返回原文件字节，请按文件保存；Content-Type 随原文件类型变化。
+            删除知识库若返回 409 knowledge_referenced，先解除关联；确认影响后才使用
+            confirm_references=true，默认请求不会跳过引用保护。
           </p>
           <p class="api-doc-description">
             个人技能：将 FILE_PATH 设为 SKILL.md 或 ZIP 上传 → 预检 file_id → 检查 action /
@@ -98,9 +111,13 @@ export FILE_PATH='./notes.txt'
           <h2>流式调用</h2>
           <p class="api-doc-description">
             对话请求 stream=true 返回 text/event-stream。data 帧包含 choices[].delta，正常完成发送
-            data:
-            [DONE]；流内错误仍使用推理错误形状。客户端断开沿用原取消策略。智能体知识准备可能先返回
-            202，请按准备状态继续。
+            data: [DONE]；流内错误仍使用推理错误形状。客户端断开沿用原取消策略。
+          </p>
+          <p class="api-doc-description">
+            知识型智能体必须提供 Idempotency-Key 或 client_request_id（UUID）。示例会在 REQUEST_ID
+            未设置时生成 UUID；同一问题、重试及准备后的续调须保留该值，新问题则先生成新 UUID。 收到
+            202 后，使用同一 Key 按 polling_url 轮询；status 为 admitted 时，以原请求体和相同 UUID
+            再次调用智能体接口，获得 JSON 或 SSE 最终回答。
           </p>
         </section>
         <WorkspaceState v-if="loading" kind="loading" />
@@ -203,7 +220,6 @@ const scope = new RequestScope()
 const apiBase = computed(
   () => `${window.location.origin}${group.value === 'resources' ? '/api/v1' : '/v1'}`
 )
-const schemaUrl = computed(() => `/openapi/${group.value}-v1.json`)
 const docsUrl = computed(() => `/docs/${group.value}`)
 const navigation = computed(() => buildApiDocNavigation(documents.value, group.value))
 const anchors = computed(() => [
@@ -293,6 +309,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   color: var(--color-text);
   font-family: var(--workspace-font-family);
+  font-size: var(--workspace-font-size-body);
+  font-weight: var(--workspace-font-weight-regular);
+  line-height: var(--workspace-line-height);
 }
 .api-docs-layout {
   display: grid;
@@ -312,7 +331,7 @@ onBeforeUnmount(() => {
 .api-docs-nav__title {
   padding: 0 16px 10px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--workspace-font-size-caption);
 }
 .api-docs-content {
   min-width: 0;
@@ -327,13 +346,14 @@ onBeforeUnmount(() => {
   padding-bottom: 18px;
   border-bottom: 1px solid var(--gray-150);
   color: var(--color-text-secondary);
-  line-height: 1.7;
+  line-height: var(--workspace-line-height);
 }
 .api-docs-intro h2 {
   margin: 0 0 8px;
   color: var(--color-text);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: var(--workspace-font-size-section);
+  line-height: var(--workspace-line-height);
+  font-weight: var(--workspace-font-weight-medium);
 }
 .api-doc-anchor {
   scroll-margin-top: 16px;
@@ -343,16 +363,19 @@ onBeforeUnmount(() => {
 }
 .api-docs-content code {
   font-family: var(--workspace-font-mono);
-  font-size: 12px;
+  font-size: var(--workspace-font-size-helper);
 }
 .api-docs-content pre {
+  font-family: var(--workspace-font-mono);
+  font-size: var(--workspace-font-size-helper);
+  font-weight: var(--workspace-font-weight-regular);
   margin: 8px 0 0;
   overflow: auto;
   padding: 12px 14px;
   border: 1px solid var(--gray-150);
   background: var(--gray-10);
   color: var(--color-text);
-  line-height: 1.6;
+  line-height: var(--workspace-line-height);
   white-space: pre-wrap;
 }
 .api-doc-section {
@@ -369,18 +392,19 @@ onBeforeUnmount(() => {
 }
 .api-doc-section h2 {
   margin: 12px 0 4px;
-  font-size: 16px;
-  font-weight: 500;
+  font-size: var(--workspace-font-size-section);
+  line-height: var(--workspace-line-height);
+  font-weight: var(--workspace-font-weight-medium);
 }
 .api-doc-description {
   margin: 0 0 14px;
   color: var(--color-text-secondary);
-  line-height: 1.7;
+  line-height: var(--workspace-line-height);
 }
 .api-doc-subtitle {
   margin: 18px 0 8px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--workspace-font-size-helper);
+  font-weight: var(--workspace-font-weight-semibold);
 }
 .method {
   display: inline-flex;
@@ -390,7 +414,7 @@ onBeforeUnmount(() => {
   border-radius: 3px;
   font-family: var(--workspace-font-mono);
   font-size: var(--workspace-font-size-caption);
-  font-weight: 600;
+  font-weight: var(--workspace-font-weight-semibold);
 }
 .method--get {
   background: var(--color-success-50);
@@ -402,12 +426,14 @@ onBeforeUnmount(() => {
 }
 .stream-label {
   color: var(--color-success-700);
-  font-size: 12px;
+  font-size: var(--workspace-font-size-caption);
 }
 .api-doc-fields {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-family: inherit;
+  font-size: var(--workspace-font-size-body);
+  line-height: var(--workspace-line-height);
 }
 .api-doc-fields th,
 .api-doc-fields td {
@@ -419,7 +445,7 @@ onBeforeUnmount(() => {
 .api-doc-fields th {
   background: var(--gray-10);
   color: var(--color-text-secondary);
-  font-weight: 500;
+  font-weight: var(--workspace-font-weight-medium);
 }
 .api-doc-code {
   margin-top: 16px;
@@ -429,7 +455,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--workspace-font-size-caption);
 }
 .api-doc-code__title button {
   display: inline-flex;

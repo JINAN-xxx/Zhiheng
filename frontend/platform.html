@@ -15,7 +15,64 @@
         color: var(--color-text-secondary, #7a7f8e);
         font: 14px var(--workspace-font-family, system-ui);
       }
+      .startup-recovery {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        padding: 24px;
+        text-align: center;
+      }
+      .startup-recovery p {
+        margin: 0;
+      }
+      .startup-recovery button {
+        padding: 8px 20px;
+        border: 1px solid #4f46e5;
+        border-radius: 8px;
+        background: #4f46e5;
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      .startup-recovery button:focus-visible {
+        outline: 2px solid #4f46e5;
+        outline-offset: 3px;
+      }
     </style>
+    <script>
+      ;(() => {
+        function showStartupFailure() {
+          const loading = document.querySelector('#app > .startup-loading')
+          if (!loading) {
+            if (document.readyState === 'loading')
+              document.addEventListener('DOMContentLoaded', showStartupFailure, { once: true })
+            return
+          }
+          if (loading.querySelector('.startup-recovery')) return
+          const panel = document.createElement('div')
+          panel.className = 'startup-recovery'
+          const message = document.createElement('p')
+          message.textContent = '页面加载失败，请检查网络后重试'
+          const retry = document.createElement('button')
+          retry.type = 'button'
+          retry.textContent = '重新加载'
+          retry.addEventListener('click', () => location.reload())
+          panel.append(message, retry)
+          loading.replaceChildren(panel)
+        }
+        window.addEventListener(
+          'error',
+          (event) => {
+            if (event.target instanceof HTMLScriptElement || event instanceof ErrorEvent)
+              showStartupFailure()
+          },
+          true
+        )
+        window.addEventListener('unhandledrejection', showStartupFailure)
+        window.addEventListener('platform:startup-failure', showStartupFailure)
+      })()
+    </script>
   </head>
   <body>
     <div id="app"><div class="startup-loading" role="status">正在加载…</div></div>

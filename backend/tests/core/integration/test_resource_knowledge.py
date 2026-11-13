@@ -11,8 +11,9 @@ from sqlalchemy import func, select
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.integration.test_resource_files import auth, envelope, post
 from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.knowledge_support import knowledge_models
 from tests.core.provider import ProviderServer
-from zhiheng.modules.developer.orm import Invocation
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.knowledge.orm import KnowledgeJob
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
@@ -29,7 +30,7 @@ async def setup(
     )
     assert rate.status_code == 201, rate.text
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=[model])
+    key = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=await knowledge_models(admin, model))
     c = app.state.container
     c.knowledge_jobs.vectors = c.knowledge_preparation.vectors = VectorFixture()
     created = await admin.post(
@@ -90,7 +91,8 @@ async def test_resource_knowledge_native_index_query_operations_and_replay(
     envelope(await admin.post(endpoint + '/query', headers=auth(key, query_key), json={'query': 'changed'}), 409)
     result = await finish(admin, app, key, queries[0].json())
     assert result['status'] == 'succeeded' and result['result']['hits'][0]['content'] == 'four', result
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 3
+    assert provider.requests[-1]['model'] == 'rerank'
     second = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=[base['embed_model_id']])
     await admin.patch('/api/models/' + base['embed_model_id'], json={'enabled': False})
     replay = await admin.post(endpoint + '/documents', headers=auth(second, external), json=body)
@@ -99,7 +101,7 @@ async def test_resource_knowledge_native_index_query_operations_and_replay(
     async with app.state.container.database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(KnowledgeJob)) == 1
         invocations = list(await session.scalars(select(Invocation)))
-        assert len(invocations) == 2 and all(row.key_id == UUID(key['id']) for row in invocations)
+        assert len(invocations) == 3 and all(row.key_id == UUID(key['id']) for row in invocations)
     other_app = await application(admin)
     other = await issue(admin, other_app['id'], scopes=SCOPES)
     envelope(await admin.get(endpoint, headers=auth(other)), 404)
@@ -154,7 +156,9 @@ async def test_resource_native_queued_revocation_cancel_and_deleted_base_history
     terminal = await finish(admin, app, key, cancelled.json())
     assert terminal['status'] == 'cancelled' and provider.requests == []
     current = await admin.get(endpoint, headers=auth(key))
-    deleted = await admin.delete(endpoint, headers={**auth(key, uuid4()), 'If-Match': current.headers['etag']})
+    deleted = await admin.delete(
+        endpoint + '?confirm_references=true', headers={**auth(key, uuid4()), 'If-Match': current.headers['etag']}
+    )
     assert deleted.status_code == 202, deleted.text
     complete = await finish(admin, app, key, deleted.json())
     assert complete['status'] == 'succeeded', complete
@@ -246,7 +250,7 @@ async def test_resource_complete_folder_rechunk_rebuild_document_delete_routes(
 
     current = await admin.get(endpoint, headers=auth(key))
     deleted = await admin.delete(
-        endpoint,
+        endpoint + '?confirm_references=true',
         headers={**auth(key, uuid4() if supplied_key else None), 'If-Match': current.headers['etag']},
     )
     assert deleted.status_code == 202, deleted.text

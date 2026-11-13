@@ -13,6 +13,7 @@ from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.work.public import AddMember, CreateTask, TaskDetail, TaskPage, UpdateTask, UpgradeMember, WorkTurn
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 
 router = APIRouter(prefix='/api/work', tags=['work'])
 SSE_HEARTBEAT_SECONDS = 10
@@ -190,9 +191,10 @@ async def events(
                     current = await container.identity.authenticate(
                         session, request.cookies.get(COOKIE_NAME), lock=True
                     )
+                    require_capability(current, 'work', 'read')
                     value = await container.work_runs.snapshot(session, current, task_id, run_id)
             except AppError as error:
-                if error.code == 'unauthenticated':
+                if error.code == 'unauthenticated' or error.status_code in {403, 404}:
                     return
                 raise
             if value.revision != revision:

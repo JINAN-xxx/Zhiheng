@@ -19,6 +19,7 @@ import {
 } from 'ant-design-vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import { ReloadOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -176,9 +177,9 @@ function setStatus(value: unknown): void {
 }
 function actions(issue: ReconcileIssue): Action[] {
   if (!props.canWrite || readDenied.value) return []
-  if (issue.status === 'quarantined' && issue.fileId) return ['repair']
+  if (issue.status === 'quarantined' && issue.fileId && issue.kind !== 'orphan') return ['repair']
   if (issue.status !== 'open') return []
-  if (issue.kind === 'orphan') return ['ignore', 'quarantine', 'register']
+  if (issue.kind === 'orphan') return ['ignore', 'quarantine']
   if (issue.fileId) return ['ignore', 'quarantine', 'repair']
   return ['ignore']
 }
@@ -291,7 +292,7 @@ defineExpose({ open })
           :loading="busy || running"
           @click="scan"
           ><ReloadOutlined />开始对账</a-button
-        ><a-button :loading="loading" @click="refresh()">刷新</a-button>
+        ><RefreshButton label="刷新对账记录" :loading="loading" @click="refresh()" />
       </div>
     </div>
     <a-tabs :active-key="activeTab" @update:active-key="(value) => (activeTab = String(value))">

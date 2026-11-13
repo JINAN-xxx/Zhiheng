@@ -1,11 +1,11 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.application.developer_resources import ResourceAccessInfo, ResourceCandidate
+from zhiheng.application.developer.resources import ResourceAccessInfo, ResourceCandidate
 from zhiheng.modules.developer.public import (
     ApplicationCreate,
     ApplicationInfo,
@@ -164,6 +164,21 @@ async def revoke(
 ) -> KeyInfo:
     async with session.begin():
         return await container.keys.revoke(session, principal, application_id, key_id)
+
+
+@router.delete('/{application_id}/keys/{key_id}', status_code=204)
+async def delete_key(
+    application_id: UUID,
+    key_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    _body: EmptyRequest | None = None,
+) -> Response:
+    """Revoke and hide a key while retaining historical billing and task references."""
+    async with session.begin():
+        await container.keys.delete(session, principal, application_id, key_id)
+    return Response(status_code=204)
 
 
 @router.get('/{application_id}/usage')

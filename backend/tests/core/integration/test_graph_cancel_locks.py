@@ -2,20 +2,34 @@ import asyncio
 from contextvars import ContextVar
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.core.graph_fixtures import evidence, graph_base, graph_role
-from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
-from zhiheng.shared.errors import AppError
+from tests.core.integration.test_knowledge_milvus import (
+    real_vectors as real_vectors,  # noqa: PLC0414 - explicitly export the value-bearing pytest fixture under its original name
+)
+from tests.core.provider import ProviderServer
+from zhiheng.modules.knowledge.adapters.milvus import MilvusStore
+from zhiheng.modules.knowledge.graph.contracts import GraphFrozen
+from zhiheng.modules.knowledge.orm import KnowledgeBase
+from zhiheng.shared.principal import Principal
 
 MODE = ContextVar('graph_lock_test_mode', default='')
 
 
 @pytest.mark.parametrize('cancel_first', [False, True])
-async def test_public_cancel_and_renew_lock_base_before_sources(
-    admin, app, provider, real_vectors, monkeypatch, cancel_first
-):
+async def test_public_cancel_and_renew_lock_base_before_sources(  # noqa: PLR0915 - retain the real lock holder, contender and post-release ownership assertions in one scenario
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    real_vectors: MilvusStore,
+    monkeypatch: pytest.MonkeyPatch,
+    cancel_first: bool,
+) -> None:
     container = app.state.container
     base = await graph_base(admin, app, provider)
     path = f'/api/knowledge/bases/{base["id"]}/graph'
@@ -34,7 +48,9 @@ async def test_public_cancel_and_renew_lock_base_before_sources(
             container.knowledge.require,
         )
 
-        async def observe_require(session, principal, base_id, **kwargs):
+        async def observe_require(
+            session: AsyncSession, principal: Principal, base_id: UUID, **kwargs: bool
+        ) -> KnowledgeBase:
             mode = MODE.get()
             if mode in {'renew', 'cancel'} and mode not in pids:
                 pids[mode] = await session.scalar(text('SELECT pg_backend_pid()'))
@@ -44,13 +60,17 @@ async def test_public_cancel_and_renew_lock_base_before_sources(
                 base_calls.append(bool(kwargs.get('lock')))
             return await require(session, principal, base_id, **kwargs)
 
-        async def pause_authorize(session, principal, base_id, frozen):
+        async def pause_authorize(
+            session: AsyncSession, principal: Principal, base_id: UUID, frozen: GraphFrozen
+        ) -> None:
             if not cancel_first and MODE.get() == 'renew' and not paused.is_set():
                 paused.set()
                 await release.wait()
             return await authorize(session, principal, base_id, frozen)
 
-        async def observe_history(session, principal, base_id, frozen):
+        async def observe_history(
+            session: AsyncSession, principal: Principal, base_id: UUID, frozen: GraphFrozen
+        ) -> None:
             if cancel_first and MODE.get() == 'cancel' and not paused.is_set():
                 paused.set()
                 await release.wait()
@@ -63,7 +83,7 @@ async def test_public_cancel_and_renew_lock_base_before_sources(
         monkeypatch.setattr(container.graph, 'authorize', pause_authorize)
         monkeypatch.setattr(container.graph, 'authorize_history', observe_history)
 
-        async def execute(mode):
+        async def execute(mode: str) -> dict[str, object]:
             token = MODE.set(mode)
             try:
                 if mode == 'cancel':

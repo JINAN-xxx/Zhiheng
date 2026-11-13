@@ -68,16 +68,21 @@ function parsePrepared(value: unknown): PreparedSkill {
       data.current_package_version == null ? null : string(data.current_package_version)
   }
 }
-export const listSkills = (
-  query: { keyword: string; status: string | undefined; pageNum: number; pageSize: number },
-  signal: AbortSignal
-) => {
+export interface SkillListQuery {
+  keyword: string
+  status: string | undefined
+  pageNum: number
+  pageSize: number
+  source?: Skill['sourceType']
+}
+export const listSkills = (query: SkillListQuery, signal: AbortSignal) => {
   const params = new URLSearchParams({
     page: String(query.pageNum),
     page_size: String(query.pageSize),
     search: query.keyword
   })
   if (query.status) params.set('status', query.status)
+  if (query.source) params.set('source', query.source)
   return http.request(`/skills?${params}`, {
     signal,
     decode: (value) => {

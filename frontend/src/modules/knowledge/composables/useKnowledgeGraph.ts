@@ -1,3 +1,4 @@
+import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
@@ -324,7 +325,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
       baseId: baseId.value,
       operation,
       body: {
-        client_request_id: crypto.randomUUID(),
+        client_request_id: createRequestId(),
         expected_version: state.value.config?.version ?? 0,
         ...extra
       }
@@ -489,6 +490,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     busy,
     load,
     loadGraph,
+    denyProtectedResults: hideProtectedResults,
     save,
     start,
     cancel,

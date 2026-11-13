@@ -97,9 +97,9 @@ def test_model_window_deducts_output_and_margin_before_history() -> None:
     assert result.estimated_tokens <= 68
 
 
-def test_missing_model_window_uses_platform_cap_not_max_output_as_window() -> None:
+def test_missing_model_window_does_not_invent_an_input_limit() -> None:
     result = policy().build_context(turns(2), required=(), current=ModelMessage('user', '当前'), max_output_tokens=1024)
-    assert result.input_budget == 8192
+    assert result.input_budget is None
 
 
 def test_summary_is_untrusted_user_data_and_preserves_latest_15_rounds() -> None:
@@ -149,11 +149,24 @@ def test_summary_threshold_and_retention_are_configurable() -> None:
     assert plan.covered_turns == history[:5] and plan.retained_turns == history[5:]
 
 
-def test_unknown_window_keeps_platform_input_cap_for_models_with_long_outputs() -> None:
+def test_unknown_window_has_no_implicit_cap_even_for_long_outputs() -> None:
     result = policy().build_context(
         turns(2), required=(), current=ModelMessage('user', '当前'), max_output_tokens=32768
     )
-    assert result.input_budget == 8192
+    assert result.input_budget is None
+
+
+def test_large_attachment_text_is_preserved_when_no_capacity_is_configured() -> None:
+    content = '附件正文' * 10000
+    result = policy().build_context(turns(2), required=(), current=ModelMessage('user', content))
+    assert result.input_budget is None
+    assert result.messages[-1].content == content
+
+
+def test_an_explicit_platform_input_cap_is_still_respected() -> None:
+    with pytest.raises(AppError) as error:
+        policy().build_context((), required=(), current=ModelMessage('user', '中' * 5000), input_budget=8192)
+    assert error.value.details == {'estimated_input_tokens': 10016, 'input_budget': 8192}
 
 
 def test_partial_summary_retains_original_target_until_all_batches_publish() -> None:

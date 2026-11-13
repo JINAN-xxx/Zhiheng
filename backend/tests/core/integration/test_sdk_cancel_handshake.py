@@ -4,23 +4,27 @@ import asyncio
 import gc
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Awaitable, Callable, Coroutine
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+from typing import Any, NoReturn
 from uuid import uuid4
 
 import pytest
 
 from tests.core.graph_fixtures import empty_frozen, evidence, graph_role
 from zhiheng.bootstrap.migrations import migrate
-from zhiheng.modules.knowledge.adapters.lightrag.owned_loop import OwnedSDKLoop, _CURRENT_TASKS
+from zhiheng.bootstrap.settings import Settings
+from zhiheng.modules.knowledge.adapters.lightrag.owned_loop import _CURRENT_TASKS, OwnedSDKLoop
 from zhiheng.modules.knowledge.adapters.lightrag.postgres import CURRENT_STORAGE, PostgresContext
 from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK
 from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-from zhiheng.modules.knowledge.adapters.lightrag.vector import CURRENT_VECTOR, GraphVectorManifest
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.modules.knowledge.adapters.lightrag.vector import CURRENT_VECTOR
+from zhiheng.modules.knowledge.public import GraphSDKCall, GraphVectorManifest, VectorIOControl
 from zhiheng.shared.errors import AppError
 
 
-def awaiting(task):
+def awaiting(task: asyncio.Task[Any]) -> list[dict[str, object]]:
     current, chain, seen = task.get_coro(), [], set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
@@ -35,9 +39,9 @@ def awaiting(task):
 
 
 @pytest.mark.parametrize('stage,cancels', [('ready', 2), ('ready', 5), ('not-ready', 3)])
-async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
-    settings, tmp_path, monkeypatch, stage, cancels
-):
+async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(  # noqa: PLR0915 - retain the original executor, handshake and drain scheduling barriers together
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str, cancels: int
+) -> None:
     await migrate(settings)
     main = asyncio.get_running_loop()
     frozen = empty_frozen()
@@ -52,43 +56,45 @@ async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
     driver = None
 
     class ObservedExecutor(ThreadPoolExecutor):
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__(max_workers=1, thread_name_prefix='sdk-handshake-test')
             self.actual_futures = []
 
-        def submit(self, fn, /, *args, **kwargs):
+        def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
             future = super().submit(fn, *args, **kwargs)
             self.actual_futures.append(future)
             if len(self.actual_futures) == 2:
                 main.call_soon_threadsafe(handshake_posted.set)
             return future
 
-    def occupy_executor():
+    def occupy_executor() -> None:
         main.call_soon_threadsafe(executor_entered.set)
         release_executor.wait()
 
     original_context, original_close = PostgresContext.__init__, PostgresContext.close
     original_rpc, original_submit = GraphVectorRPC.__init__, GraphVectorRPC._submit
 
-    def context_init(owner, *args, **kwargs):
+    def context_init(owner: PostgresContext, *args: Any, **kwargs: Any) -> None:
         original_context(owner, *args, **kwargs)
         contexts.append(owner)
 
-    def rpc_init(owner, *args, **kwargs):
+    def rpc_init(owner: GraphVectorRPC, *args: Any, **kwargs: Any) -> None:
         original_rpc(owner, *args, **kwargs)
         rpcs.append(owner)
 
-    def rpc_submit(owner, name, args, kwargs):
+    def rpc_submit(
+        owner: GraphVectorRPC, name: str, args: tuple[object, ...], kwargs: dict[str, object]
+    ) -> Future[Any]:
         submissions.append(name)
         return original_submit(owner, name, args, kwargs)
 
-    async def hold_real_close(context):
+    async def hold_real_close(context: PostgresContext) -> None:
         if context.db.pool is not None:
             main.call_soon_threadsafe(close_entered.set)
             await asyncio.to_thread(release_close.wait)
         await original_close(context)
 
-    async def no_model(call):
+    async def no_model(call: GraphSDKCall) -> NoReturn:
         raise AssertionError('Failed initialization cannot enter a model')
 
     monkeypatch.setattr(PostgresContext, '__init__', context_init)
@@ -109,7 +115,7 @@ async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
         sdk_loop = sdk.owned_loop.loop
         create, schedule, run = sdk_loop.create_task, sdk_loop.call_soon_threadsafe, sdk.owned_loop.run
 
-        def observe_create(coroutine, *args, **kwargs):
+        def observe_create(coroutine: Coroutine[Any, Any, Any], *args: Any, **kwargs: Any) -> asyncio.Task[Any]:
             is_root = getattr(getattr(coroutine, 'cr_code', None), 'co_name', None) == 'root'
             if is_root and stage == 'not-ready':
                 main.call_soon_threadsafe(create_entered.set)
@@ -119,21 +125,21 @@ async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
                 roots.append(task)
             return task
 
-        def observe_schedule(callback, *args, **kwargs):
+        def observe_schedule(callback: Callable[..., object], *args: Any, **kwargs: Any) -> asyncio.Handle:
             if getattr(callback, '__name__', '') == 'cancel' and getattr(callback, '__self__', None) in roots:
                 root_cancels.append(True)
                 main.call_soon_threadsafe(root_cancel_posted.set)
             return schedule(callback, *args, **kwargs)
 
-        async def observe_run(program):
-            async def actual():
+        async def observe_run(program: Callable[[], Awaitable[Any]]) -> Any:
+            async def actual() -> Any:
                 executions.append(True)
                 before = (CURRENT_STORAGE.get(None), CURRENT_VECTOR.get(None), _CURRENT_TASKS.get())
                 try:
                     return await program()
                 finally:
                     after = (CURRENT_STORAGE.get(None), CURRENT_VECTOR.get(None), _CURRENT_TASKS.get())
-                    tokens.append([a is b for a, b in zip(before, after)])
+                    tokens.append([a is b for a, b in zip(before, after, strict=True)])
                     main.call_soon_threadsafe(program_done.set)
 
             return await run(actual)
@@ -235,25 +241,31 @@ async def test_direct_sdk_repeated_cancel_retains_handshake_and_original_drain(
 
 @pytest.mark.parametrize('outcome', ['value', 'exception'])
 @pytest.mark.parametrize('cancel_at_result', [False, True])
-async def test_owned_root_result_boundary_preserves_result_and_cancel_priority(monkeypatch, outcome, cancel_at_result):
+async def test_owned_root_result_boundary_preserves_result_and_cancel_priority(
+    monkeypatch: pytest.MonkeyPatch, outcome: str, cancel_at_result: bool
+) -> None:
     loop, owned = asyncio.get_running_loop(), OwnedSDKLoop()
     runs, unconsumed, roots = [], [], []
     driver = None
     original_wrap, handler = asyncio.wrap_future, loop.get_exception_handler()
 
-    def exception_handler(_loop, context):
+    def exception_handler(_loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
         if getattr(context.get('exception'), 'code', '') == 'test_root_result':
             unconsumed.append(context.get('message'))
         elif handler is not None:
             handler(_loop, context)
 
-    def wrapped(source, *args, **kwargs):
+    def wrapped(source: Future[Any], *args: Any, **kwargs: Any) -> asyncio.Future[Any]:
         if cancel_at_result and not roots:
             roots.append(source)
-            source.add_done_callback(lambda _: loop.call_soon_threadsafe(driver.cancel))
+            # wrap_future runs in the caller task; bind its real cancel method
+            # before the post-result GC check deliberately deletes driver.
+            target = asyncio.current_task()
+            assert target is not None
+            source.add_done_callback(lambda _, cancel=target.cancel: loop.call_soon_threadsafe(cancel))
         return original_wrap(source, *args, **kwargs)
 
-    async def program():
+    async def program() -> int:
         runs.append(True)
         if outcome == 'exception':
             raise AppError('test_root_result', 'Original root exception', 503)

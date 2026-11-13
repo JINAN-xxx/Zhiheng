@@ -270,8 +270,11 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='重新打开', exact=True).click()
         await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='归档', exact=True).click()
-        await expect(self.page.get_by_text('此工作已归档，只能查看历史内容。', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='重新打开', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('此工作已归档。可先修复不可用成员，再重新打开继续执行。', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='重新打开', exact=True).click()
+        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_visible()
+        self.assertEqual(self.task['status'], 'active')
 
     async def test_work_and_chat_use_independent_navigation_without_mode_switch(self):
         await self.page.goto(self.origin + '/chat')
@@ -404,10 +407,10 @@ class WorkUIRegressions(DeveloperBoundary):
     async def test_member_upgrade_is_explicit_and_removed_history_is_preserved(self):
         self.task['members'][0]['latest_published_version'] = 3
         await self.open_task()
-        await expect(self.page.locator('.work-member').first).to_contain_text('v1')
-        await self.page.get_by_role('button', name='升级', exact=True).click()
+        upgrade = self.page.get_by_role('button', name='升级', exact=True)
+        await upgrade.click()
         await self.page.get_by_role('dialog').filter(has_text='确认将“研究助手”').get_by_role('button', name=re.compile(r'^确\s*定$')).click()
-        await expect(self.page.locator('.work-member').first).to_contain_text('v3')
+        await expect(upgrade).to_have_count(0)
         self.assertEqual(self.memberships[0][2], {'expected_version': 1, 'expected_published_version': 3})
         await self.page.get_by_role('button', name='移除智能体', exact=True).first.click()
         await self.page.get_by_role('dialog').filter(has_text='确定移除“研究助手”').get_by_role('button', name=re.compile(r'^确\s*定$')).click()

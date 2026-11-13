@@ -4,6 +4,7 @@ import json
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
 
 
 class ProviderServer(ThreadingHTTPServer):
@@ -12,6 +13,12 @@ class ProviderServer(ThreadingHTTPServer):
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
         self.request_headers: list[dict[str, str]] = []
+        self.catalog_requests: list[dict[str, str]] = []
+        self.catalog_status = 200
+        self.catalog_models: list[str] | None = None
+        self.catalog_wait = False
+        self.catalog_started = threading.Event()
+        self.catalog_release = threading.Event()
         self.release = threading.Event()
         self.embedding_zero = False
         self.graph_block = False
@@ -23,6 +30,29 @@ class ProviderServer(ThreadingHTTPServer):
 
 
 class ProviderHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        server: ProviderServer = self.server
+        server.catalog_requests.append({'path': self.path, 'authorization': self.headers.get('Authorization', '')})
+        server.catalog_started.set()
+        if server.catalog_wait:
+            server.catalog_release.wait(timeout=5)
+        status = server.catalog_status
+        if self.path.endswith('/models'):
+            if server.catalog_models is None and status == 200:
+                status = 404
+            payload = {'data': [{'id': name} for name in server.catalog_models or []]}
+        else:
+            payload = {'id': unquote(self.path.partition('/models/')[2])}
+        if status != 200:
+            payload = {'error': {'message': 'private-provider-details must never be exposed'}}
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        try:
+            self.wfile.write(json.dumps(payload).encode())
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_POST(self) -> None:  # noqa: PLR0912, PLR0915 - local provider protocol fixture
         server: ProviderServer = self.server
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))

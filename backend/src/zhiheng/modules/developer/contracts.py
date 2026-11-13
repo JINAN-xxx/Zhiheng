@@ -2,7 +2,6 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
@@ -11,47 +10,16 @@ from zhiheng.modules.developer.scopes import INVOKE_SCOPES, RESOURCE_RPM_MAX, Re
 from zhiheng.shared.time import utcnow
 
 
-class UsageOutcome(BaseModel):
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    status: Literal['pending', 'known', 'unknown'] = 'pending'
-    points_enforced: bool = False
-
-
-@dataclass(frozen=True)
-class LegacyReservation:
-    """Admission metadata exposed to the unified usage facade without exposing ORM rows."""
-
-    points_enforced: bool
-    key_id: UUID | None = None
-    key_limit: Decimal | None = None
-
-
-class UsageRecord(BaseModel):
-    id: UUID
-    run_id: UUID
-    model_id: UUID
-    source: str
-    status: str
-    input_tokens: int | None
-    output_tokens: int | None
-    charged_tokens: int | None
-    created_at: datetime
-
-
-class UsageSummary(BaseModel):
-    limit_tokens: int
-    used_tokens: int
-    reserved_tokens: int
-    records: list[UsageRecord]
-
-
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
 class ApplicationCreate(StrictRequest):
-    code: str = Field(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$')
+    code: str | None = Field(
+        default=None,
+        pattern=r'^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$',
+        description='省略时由系统生成；保留已有调用方的编码兼容。',
+    )
     name: str = Field(min_length=1, max_length=80)
 
     @field_validator('name')
@@ -83,6 +51,7 @@ class ApplicationInfo(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
+    platform_enabled: bool = True
     source_file_limit: int = 1000
     source_byte_limit: int = 1073741824
 
@@ -173,26 +142,6 @@ class IssuedKey(KeyInfo):
     api_key: str = Field(repr=False)
 
 
-class ApplicationUsage(BaseModel):
-    id: UUID
-    run_id: UUID
-    application_id: UUID | None
-    key_id: UUID | None
-    model_id: UUID
-    operation: str
-    status: str
-    input_tokens: int | None
-    output_tokens: int | None
-    search_units: int | None
-    cache_tokens: int | None
-    reasoning_tokens: int | None
-    billable_cost: Decimal | None
-    currency: str | None
-    rate_card_id: UUID | None
-    rate_version: int | None
-    created_at: datetime
-
-
 class ResourceGrantRequest(StrictRequest):
     actions: tuple[ResourceAction, ...] = Field(min_length=1, max_length=4)
     expected_version: int = Field(strict=True, ge=1)
@@ -210,5 +159,42 @@ class ResourceGrantRemove(StrictRequest):
 
 
 class ResourceQuotaRequest(ResourceGrantRemove):
-    source_file_limit: int = Field(strict=True, ge=1)
-    source_byte_limit: int = Field(strict=True, ge=1)
+    source_file_limit: int = Field(strict=True, ge=1, le=2147483647)
+    source_byte_limit: int = Field(strict=True, ge=1, le=9007199254740991)
+
+
+@dataclass(frozen=True)
+class KeyMeteringReservation:
+    """Key policy decision returned to billing without exposing access-policy storage."""
+
+    key_id: UUID
+    application_id: UUID
+    key_limit: Decimal | None
+    quota_minute: int | None = None
+    quota_month: str | None = None
+    reserved_cost: Decimal | None = None
+
+
+class ApplicationGovernanceInfo(BaseModel):
+    id: UUID
+    name: str
+    owner_id: UUID
+    owner_enabled: bool
+    platform_enabled: bool
+    version: int
+    source_file_limit: int
+    source_byte_limit: int
+    source_count: int
+    source_bytes: int
+
+
+class ApplicationGovernancePage(BaseModel):
+    items: list[ApplicationGovernanceInfo]
+    total: int
+    page: int
+    page_size: int
+
+
+class ApplicationGovernanceState(StrictRequest):
+    enabled: bool = Field(strict=True)
+    expected_version: int = Field(strict=True, ge=1)

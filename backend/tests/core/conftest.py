@@ -1,8 +1,9 @@
-import os
 import json
+import os
 import threading
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import httpx
@@ -15,6 +16,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from zhiheng.bootstrap.settings import Settings
 
 
 @pytest.fixture
@@ -55,8 +61,60 @@ async def model_id(admin: httpx.AsyncClient, provider: ProviderServer) -> str:
     return result.json()['id']
 
 
+@pytest_asyncio.fixture(scope='session', loop_scope='session')
+async def schema_template(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[str | None]:
+    """Opt-in schema reuse; every app still receives its own independently mutable database."""
+    database_url = os.getenv('ZHIHENG_TEST_DATABASE_URL')
+    redis_url = os.getenv('ZHIHENG_TEST_REDIS_URL')
+    if os.getenv('ZHIHENG_TEST_SCHEMA_TEMPLATE') != '1' or not database_url or not redis_url:
+        yield None
+        return
+    from zhiheng.bootstrap.migrations import migrate
+    from zhiheng.bootstrap.settings import Settings
+
+    name = f'core_test_schema_{uuid4().hex}'
+    resource('intent', 'postgres_database', name)
+    admin = create_async_engine(database_url, isolation_level='AUTOCOMMIT')
+    created = False
+    try:
+        async with admin.connect() as connection:
+            await connection.execute(text(f'CREATE DATABASE "{name}"'))
+        created = True
+        resource('created', 'postgres_database', name)
+        url = make_url(database_url).set(database=name).render_as_string(hide_password=False)
+        temporary = tmp_path_factory.mktemp('core-schema-template')
+        await migrate(
+            Settings(
+                files_root=temporary / 'files',
+                graph_working_root=temporary / 'graph-sdk',
+                database_url=url,
+                redis_url=redis_url,
+                credential_key=Fernet.generate_key().decode(),
+                worker_queue=f'core:schema:{uuid4().hex}',
+                cookie_secure=False,
+            )
+        )
+        # A template contains migrations and default catalog data, never test accounts or requests.
+        async with admin.connect() as connection:
+            await connection.execute(text(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false'))
+        yield name
+    finally:
+        try:
+            if created:
+                async with admin.connect() as connection:
+                    await connection.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
+                resource('deleted', 'postgres_database', name)
+        finally:
+            await admin.dispose()
+
+
 @pytest_asyncio.fixture
-async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[object]:
+async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and exact resource cleanup in the same fixture lifecycle
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+    schema_template: str | None,
+) -> AsyncIterator['Settings']:
     from zhiheng.bootstrap.settings import Settings
 
     database_url = os.getenv('ZHIHENG_TEST_DATABASE_URL')
@@ -67,12 +125,16 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
     resource('intent', 'postgres_database', database_name)
     admin = create_async_engine(database_url, isolation_level='AUTOCOMMIT')
     async with admin.connect() as connection:
-        await connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        # Migration-specific settings-only cases retain an empty database.
+        template = f' TEMPLATE "{schema_template}"' if schema_template and 'app' in request.fixturenames else ''
+        await connection.execute(text(f'CREATE DATABASE "{database_name}"{template}'))
     resource('created', 'postgres_database', database_name)
     url = make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
     from arq.connections import ArqRedis
+    from arq.jobs import Job
     from redis.asyncio import Redis
     from sqlalchemy import event
+
     from zhiheng.runtime.orm import Outbox
 
     instance = Settings(
@@ -86,7 +148,7 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
         provider_timeout_seconds=2,
         lease_seconds=3,
     )
-    exact_keys = {instance.worker_queue, instance.worker_health_key, instance.worker_queue + ':arq-health'}
+    exact_keys = {*instance.worker_queues, instance.worker_health_key, *instance.worker_arq_health_keys}
     for key in exact_keys:
         resource('intent', 'redis_key', key)
 
@@ -105,7 +167,7 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
     event.listen(Outbox, 'before_insert', register_outbox)
     original = ArqRedis.enqueue_job
 
-    async def register_enqueue(queue: ArqRedis, *args: object, **kwargs: object):
+    async def register_enqueue(queue: ArqRedis, *args: object, **kwargs: object) -> Job | None:
         job_id = kwargs.get('_job_id')
         if isinstance(job_id, str):
             register_job(job_id)
@@ -116,7 +178,9 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
 
     original_rpc = GraphVectorRPC._invoke
 
-    def register_graph_rpc(owner, name, args, kwargs):
+    def register_graph_rpc(
+        owner: GraphVectorRPC, name: str, args: tuple[object, ...], kwargs: dict[str, object]
+    ) -> Any:
         if name == 'create_collection':
             collection = args[0] if args else kwargs.get('collection_name')
             schema = kwargs.get('schema')
@@ -136,8 +200,8 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
     finally:
         event.remove(Outbox, 'before_insert', register_outbox)
         journal = os.getenv('ZHIHENG_TEST_RESOURCE_LOG')
-        if journal and Path(journal).exists():
-            events = [json.loads(line) for line in Path(journal).read_text().splitlines() if line]
+        if journal and Path(journal).exists():  # noqa: ASYNC240 - inspect the local ownership journal without adding a teardown scheduling point
+            events = [json.loads(line) for line in Path(journal).read_text().splitlines() if line]  # noqa: ASYNC240 - preserve the synchronous journal snapshot before child/key cleanup
             children = {
                 int(row['name'])
                 for row in events
@@ -148,7 +212,7 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
             }
             for child in children:
                 command = Path(f'/proc/{child}/cmdline')
-                if command.exists() and b'tests.core.graph_worker_process' in command.read_bytes():
+                if command.exists() and b'tests.core.graph_worker_process' in command.read_bytes():  # noqa: ASYNC240 - keep the local procfs ownership check contiguous before deleting resources
                     raise AssertionError('Owned child worker must stop before fixture cleanup')
             for row in events:
                 if row['kind'] == 'redis_key' and row.get('process_id') in children:
@@ -177,7 +241,7 @@ async def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIter
 
 
 @pytest_asyncio.fixture
-async def app(settings: object) -> AsyncIterator[object]:
+async def app(settings: 'Settings') -> AsyncIterator['FastAPI']:
     from zhiheng.api.main import create_app
     from zhiheng.bootstrap.migrations import migrate
 
@@ -196,7 +260,7 @@ async def app(settings: object) -> AsyncIterator[object]:
 
 
 @pytest_asyncio.fixture
-async def client(app: object) -> AsyncIterator[httpx.AsyncClient]:
+async def client(app: 'FastAPI') -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url='http://test') as value:
         yield value

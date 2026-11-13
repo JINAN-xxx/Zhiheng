@@ -1,19 +1,27 @@
-"""Public historical-meter boundary injected by the composition root."""
+"""Public metering, read-only usage facts, and Key access-policy boundaries."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from decimal import Decimal
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from zhiheng.modules.developer.public import LegacyReservation, UsageOutcome, UsageSummary
+    from zhiheng.modules.billing.contracts import (
+        InvocationIdentity,
+        KeyUsageFacts,
+        MeterReservation,
+        UsageOutcome,
+        UsageSummary,
+    )
+    from zhiheng.modules.developer.public import KeyMeteringReservation
     from zhiheng.modules.models.public import RateInfo
 
 
-class LegacyMeterPort(Protocol):
+class MeterPort(Protocol):
     async def preflight(
         self,
         session: AsyncSession,
@@ -24,9 +32,9 @@ class LegacyMeterPort(Protocol):
         token_limit: int,
         rate: RateInfo | None,
         points_enforced: bool,
-    ) -> LegacyReservation: ...
+    ) -> MeterReservation: ...
 
-    async def reserve(  # noqa: PLR0913 - historical admission boundary
+    async def reserve(  # noqa: PLR0913 - metering admission boundary
         self,
         session: AsyncSession,
         *,
@@ -40,8 +48,7 @@ class LegacyMeterPort(Protocol):
         rate: RateInfo | None = None,
         operation: str = 'chat',
         points_enforced: bool = False,
-        enforce_token_limit: bool = True,
-    ) -> LegacyReservation: ...
+    ) -> MeterReservation: ...
 
     async def require_reservation(
         self,
@@ -49,7 +56,7 @@ class LegacyMeterPort(Protocol):
         run_id: UUID,
         user_id: UUID,
         model_id: UUID,
-    ) -> LegacyReservation: ...
+    ) -> MeterReservation: ...
 
     async def settle(
         self,
@@ -87,3 +94,58 @@ class LegacyMeterPort(Protocol):
         operation: str | None,
         status: str | None,
     ) -> dict[str, object]: ...
+
+
+class UsageFactsPort(Protocol):
+    async def key_usage(
+        self,
+        session: AsyncSession,
+        key_id: UUID,
+        *,
+        month: str,
+        currency: str,
+    ) -> KeyUsageFacts: ...
+
+    async def invocation_identity(self, session: AsyncSession, run_id: UUID) -> InvocationIdentity | None: ...
+
+
+class KeyMeteringPolicyPort(Protocol):
+    async def preflight(
+        self,
+        session: AsyncSession,
+        key_id: UUID,
+        tokens: int,
+        rate: RateInfo | None,
+        *,
+        enforce_usage_limits: bool = True,
+    ) -> KeyMeteringReservation: ...
+
+    async def reserve(
+        self,
+        session: AsyncSession,
+        key_id: UUID,
+        tokens: int,
+        rate: RateInfo | None,
+        *,
+        enforce_usage_limits: bool = True,
+    ) -> KeyMeteringReservation: ...
+
+    async def require_reservation(
+        self,
+        session: AsyncSession,
+        key_id: UUID,
+        application_id: UUID | None,
+        model_id: UUID,
+    ) -> Decimal | None: ...
+
+    async def lock(self, session: AsyncSession, key_id: UUID) -> None: ...
+
+    async def settle_minute(
+        self,
+        session: AsyncSession,
+        *,
+        key_id: UUID,
+        quota_minute: int | None,
+        reserved_tokens: int,
+        tokens: int,
+    ) -> None: ...

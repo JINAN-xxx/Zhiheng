@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer
 
@@ -23,12 +24,22 @@ router = APIRouter(prefix='/v1/agents', tags=['public agents'], dependencies=[De
     openapi_extra={'x-required-scopes': ['agents:invoke'], 'x-streaming': True},
 )
 async def chat(
-    agent_id: UUID, body: AgentPublicRequest, request: Request, container: ContainerDependency
+    agent_id: UUID,
+    body: AgentPublicRequest,
+    request: Request,
+    container: ContainerDependency,
+    idempotency_key: Annotated[
+        str | None,
+        Header(
+            alias='Idempotency-Key',
+            description='稳定的请求 UUID。同一问题的准备、轮询后续调及重试须复用；关联知识库时必须提供本头或 client_request_id。',
+        ),
+    ] = None,
 ) -> JSONResponse | StreamingResponse:
     token = bearer(request)
     await container.database.require_schema()
     request_id = body.client_request_id
-    header = request.headers.get('Idempotency-Key')
+    header = idempotency_key
     if header:
         try:
             header_id = UUID(header)
@@ -91,44 +102,11 @@ async def chat(
 async def preparation(
     agent_id: UUID, intent_id: UUID, request: Request, container: ContainerDependency
 ) -> PreparationInfo:
-    token = bearer(request)
-    async with container.database.sessions() as session:
-        identity = await container.keys.authenticate(session, token)
-        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke')
-        agent = await container.agents.get(session, Principal(identity.owner_id, '', False), agent_id)
-        config = agent.published_config
-        if config is None or config.application_id != identity.application_id:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404)
-        return await container.knowledge_preparation.public_info(session, identity, agent_id, intent_id)
+    return await container.agent_preparations.get(bearer(request), agent_id, intent_id)
 
 
 @router.post('/{agent_id}/preparations/{intent_id}/cancel', openapi_extra={'x-required-scopes': ['agents:invoke']})
 async def cancel_preparation(
     agent_id: UUID, intent_id: UUID, request: Request, body: EmptyRequest, container: ContainerDependency
 ) -> PreparationInfo:
-    token = bearer(request)
-    async with container.database.sessions.begin() as session:
-        identity = await container.keys.authenticate(session, token, lock=True)
-        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke')
-        agent = await container.agents.get(session, Principal(identity.owner_id, '', False), agent_id, lock=True)
-        config = agent.published_config
-        if config is None or config.application_id != identity.application_id:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404)
-        row = await container.knowledge_preparation.store.get(session, intent_id, lock=True)
-        if (
-            row.key_id != identity.key_id
-            or row.application_id != identity.application_id
-            or row.resource_id != agent_id
-        ):
-            raise AppError('preparation_not_found', 'Preparation is unavailable', 404)
-        await container.knowledge_preparation.public_info(session, identity, agent_id, intent_id)
-        if row.main_run_id:
-            result = await container.knowledge_preparation.cancel_main(session, intent_id)
-        else:
-            await container.knowledge_preparation.store.fail(
-                session, row, 'cancelled', 'knowledge_cancelled', 'Knowledge preparation cancelled'
-            )
-            row = await container.knowledge_preparation.store.get(session, intent_id)
-            result = container.knowledge_preparation.store.info(row)
-    await container.knowledge_preparation.cancel_children_if_terminal(intent_id)
-    return result
+    return await container.agent_preparations.cancel(bearer(request), agent_id, intent_id)

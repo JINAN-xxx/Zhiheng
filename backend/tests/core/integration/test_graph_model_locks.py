@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 
 from tests.core.graph_fixtures import evidence, graph_base
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
+from tests.core.knowledge_support import legacy_grant, remove_library_member, share_library
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.graph.contracts import GraphBuildRequest, GraphConfigPatch
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphConfiguration
@@ -403,20 +404,16 @@ async def test_freeze_refreshes_cached_base_grant_after_waiting_for_models(
     from zhiheng.modules.knowledge.orm import KnowledgeGrant
 
     container = app.state.container
-    base = await graph_base(admin, app, provider)
+    base = await graph_base(admin, app, provider, legacy=revocation == 'deny')
     base_id = UUID(base['id'])
     async with member_client(app) as member:
         member_id = UUID((await member.get('/api/auth/me')).json()['id'])
         endpoint = f'/api/knowledge/bases/{base_id}'
-        grant = await admin.patch(
-            endpoint + '/acl',
-            json={
-                'expected_version': 1,
-                'access': 'private',
-                'entries': [{'user_id': str(member_id), 'effect': 'allow'}],
-            },
+        await (
+            legacy_grant(app, base['id'], str(member_id))
+            if revocation == 'deny'
+            else share_library(admin, member, base['id'])
         )
-        assert grant.status_code == 200, grant.text
         document = (await admin.get(endpoint + '/documents')).json()['items'][0]
         allowed = await admin.patch(
             f'/api/files/{document["file_id"]}/acl',
@@ -465,11 +462,11 @@ async def test_freeze_refreshes_cached_base_grant_after_waiting_for_models(
                         break
                     await asyncio.sleep(0.01)
                 assert blocked
-                entries = [{'user_id': str(member_id), 'effect': 'deny'}] if revocation == 'deny' else []
-                revoked = await admin.patch(
-                    endpoint + '/acl', json={'expected_version': 2, 'access': 'private', 'entries': entries}
+                await (
+                    legacy_grant(app, base['id'], str(member_id), effect='deny')
+                    if revocation == 'deny'
+                    else remove_library_member(admin, member, base['id'])
                 )
-                assert revoked.status_code == 200, revoked.text
                 await holder.rollback()
                 with pytest.raises(AppError) as rejected:
                     await asyncio.wait_for(task, timeout=5)

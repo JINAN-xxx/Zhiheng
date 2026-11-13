@@ -25,7 +25,9 @@ from zhiheng.modules.knowledge.graph.orm import (
 )
 from zhiheng.modules.knowledge.graph.service import GraphService
 from zhiheng.modules.knowledge.orm import KnowledgeBase
+from zhiheng.modules.models.public import ModelBinding
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -51,6 +53,11 @@ class GraphClaim:
 class GraphStore:
     def __init__(self, service: GraphService) -> None:
         self.service = service
+
+    async def has_active_work(self, session: AsyncSession) -> bool:
+        if await session.scalar(select(GraphJob.id).where(GraphJob.status.not_in(GRAPH_TERMINAL)).limit(1)) is not None:
+            return True
+        return bool(await self.gc_candidates(session))
 
     async def pending(self, session: AsyncSession) -> list[UUID]:
         return list(
@@ -105,7 +112,16 @@ class GraphStore:
         )
 
     async def _owned(self, session: AsyncSession, claim: GraphClaim) -> tuple[GraphJob, GraphAttempt]:
-        await self.service.lock_models(session, claim.frozen)
+        rerank = self._rerank_binding(claim)
+        if claim.operation == 'query' and rerank is None:
+            raise AppError('knowledge_rerank_required', '图谱检索必须配置重排模型', 409)
+        # Lock every frozen model and connection before taking the KB fence.
+        # This same check guards terminal callback consumption and final publish.
+        await self.service.lock_models(session, claim.frozen, rerank)
+        if rerank is not None:
+            current = await self.service.knowledge.models.resolve(session, rerank.model_id, lock=False)
+            if current != rerank:
+                raise AppError('graph_rerank_stale', '图谱重排模型绑定已变化', 409)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)
         await self.service.knowledge.require(session, owner, claim.base_id, lock=True)
         job = await session.scalar(
@@ -128,6 +144,7 @@ class GraphStore:
             or attempt.epoch != claim.epoch
             or attempt.status != 'running'
             or job.status in GRAPH_TERMINAL
+            or job.request != claim.request
             or attempt.lease_until is None
             or attempt.lease_until <= utcnow()
             or attempt.deadline <= utcnow()
@@ -137,6 +154,7 @@ class GraphStore:
             raise AppError('graph_cancelled', '图谱作业已取消', 409)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)
         actor = await self.service.knowledge.identity.principal_for_user(session, claim.actor_id)
+        require_capability(actor, 'knowledge', 'rebuild' if claim.operation in {'build', 'preview'} else 'query')
         await self.service.knowledge.require(
             session, actor, claim.base_id, manage=claim.operation in {'build', 'preview'}
         )
@@ -144,6 +162,16 @@ class GraphStore:
         if actor.id != owner.id:
             await self.service.authorize(session, actor, claim.base_id, claim.frozen)
         return job, attempt
+
+    @staticmethod
+    def _rerank_binding(claim: GraphClaim) -> ModelBinding | None:
+        value = claim.request.get('_rerank_binding')
+        if value is None:
+            return None
+        binding = ModelBinding.model_validate(value)
+        if binding.model_type != 'rerank' or claim.operation != 'query':
+            raise AppError('graph_rerank_stale', '图谱重排模型绑定无效', 409)
+        return binding
 
     async def require_owned(self, session: AsyncSession, claim: GraphClaim) -> None:
         await self._owned(session, claim)
@@ -231,7 +259,7 @@ class GraphStore:
         stopped: bool,
     ) -> None:
         if status == 'completed':
-            await self.service.lock_models(session, claim.frozen)
+            await self.service.lock_models(session, claim.frozen, self._rerank_binding(claim))
         await session.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == claim.base_id).with_for_update())
         job = await session.scalar(select(GraphJob).where(GraphJob.id == claim.job_id).with_for_update())
         attempt = await session.scalar(

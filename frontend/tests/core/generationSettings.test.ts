@@ -138,3 +138,15 @@ void test('generation validation respects Unicode prompt length and the current 
   assert.match(generationSettingsError({ ...settings, system_prompt: '\ud800' }, 512), /无效字符/)
   assert.match(generationSettingsError({ ...settings, max_output_tokens: 513 }, 512), /1–512/)
 })
+
+void test('large output budgets follow the selected model instead of a platform cap', async () => {
+  const { generationSettingsError } = await import('../../src/modules/chat/generationSettings.ts')
+  const settings = { system_prompt: '', temperature: null, max_output_tokens: 262144 }
+  assert.equal(generationSettingsError(settings, 524288), '')
+  assert.equal(generationSettingsError(settings), '')
+  assert.notEqual(generationSettingsError(settings, 131072), '')
+  assert.notEqual(
+    generationSettingsError({ ...settings, max_output_tokens: Number.MAX_SAFE_INTEGER + 1 }),
+    ''
+  )
+})

@@ -1,6 +1,7 @@
 """Bearer resource transport for native personal knowledge use cases."""
 
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
@@ -207,7 +208,7 @@ async def import_documents(
     return accepted(
         response,
         await container.knowledge_commands.job(
-            caller, base_id, 'import', idempotency_key, selection=BuildSelection(**body.model_dump())
+            caller, base_id, 'import', idempotency_key, selection=BuildSelection(**body.model_dump(exclude_unset=True))
         ),
     )
 
@@ -232,7 +233,11 @@ async def query(
 @router.post(
     '/{base_id}/rebuild',
     status_code=202,
-    openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['knowledge:write']},
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-required-scopes': ['knowledge:write'],
+        'description': '新版资料按知识库权限处理；legacy 原文件策略另需 files:read。',
+    },
 )
 async def rebuild(
     base_id: UUID,
@@ -254,7 +259,10 @@ async def rebuild(
 @router.post(
     '/{base_id}/documents/{document_id}/rechunk',
     status_code=202,
-    openapi_extra={'x-required-scopes': ['knowledge:write']},
+    openapi_extra={
+        'x-required-scopes': ['knowledge:write'],
+        'description': '新版资料按知识库权限处理；legacy 原文件策略另需 files:read。',
+    },
 )
 async def rechunk(
     base_id: UUID,
@@ -340,7 +348,11 @@ async def remove_folder(
 @router.delete(
     '/{base_id}',
     status_code=202,
-    openapi_extra={'x-transport-policy': 'bodyless', 'x-required-scopes': ['knowledge:write']},
+    openapi_extra={
+        'x-transport-policy': 'bodyless',
+        'x-required-scopes': ['knowledge:write'],
+        'description': '删除前仍会检查关联资源；若返回 409 knowledge_referenced，先解除引用，或检查影响后显式设置 confirm_references=true。默认不确认。',
+    },
 )
 async def remove_base(
     base_id: UUID,
@@ -350,6 +362,10 @@ async def remove_base(
     caller: WriteCaller,
     idempotency_key: Idempotency,
     if_match: IfMatch = None,
+    confirm_references: Annotated[
+        bool,
+        Query(description='仍有关联资源时返回 409 knowledge_referenced。请先解除引用；已检查并确认影响时才设置 true。'),
+    ] = False,
 ) -> OperationInfo:
     return accepted(
         response,
@@ -358,6 +374,49 @@ async def remove_base(
             base_id,
             'delete_base',
             idempotency_key,
+            selection=BuildSelection(confirm_references=confirm_references),
             expected_version=expected_version(request, 'knowledge-base'),
         ),
     )
+
+
+@router.get(
+    '/{base_id}/documents/{document_id}/download',
+    response_class=Response,
+    responses={
+        200: {
+            'description': '原始文件字节，Content-Type 沿用原文件类型；请按文件保存。',
+            'content': {'application/octet-stream': {'schema': {'type': 'string', 'format': 'binary'}}},
+            'headers': {'Content-Disposition': {'description': '下载原文件名。', 'schema': {'type': 'string'}}},
+        }
+    },
+    openapi_extra={
+        'x-required-scopes': ['knowledge:read'],
+        'description': '下载原始文件字节；Content-Type 根据原文件 MIME 返回，成功响应不是 JSON。',
+    },
+)
+async def download(
+    base_id: UUID,
+    document_id: UUID,
+    container: ContainerDependency,
+    caller: ReadCaller,
+) -> Response:
+    file, content = await container.knowledge_queries.download(caller, base_id, document_id)
+    return Response(
+        content,
+        media_type=file.mime,
+        headers={
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(file.original_filename),
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@router.get('/{base_id}/documents/{document_id}/preview', openapi_extra={'x-required-scopes': ['knowledge:read']})
+async def preview(
+    base_id: UUID,
+    document_id: UUID,
+    container: ContainerDependency,
+    caller: ReadCaller,
+) -> dict[str, object]:
+    return await container.knowledge_queries.preview(caller, base_id, document_id)

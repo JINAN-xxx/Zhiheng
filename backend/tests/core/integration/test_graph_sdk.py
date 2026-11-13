@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import secrets
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -11,17 +12,17 @@ from sqlalchemy.engine import make_url
 
 from tests.core.resources import resource
 from zhiheng.bootstrap.migrations import migrate
-from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK, SDKCall
-from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.bootstrap.settings import Settings
+from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK
 from zhiheng.modules.knowledge.graph.contracts import GraphChunk, GraphConfig, GraphFrozen, sdk_chunk_id
+from zhiheng.modules.knowledge.public import GraphSDKCall, GraphVectorManifest, VectorIOControl
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.shared.errors import AppError
 
 
 @pytest.mark.parametrize('concurrency', [1, 4])
-async def test_real_sdk_registry_managed_provenance_and_three_collections(
-    settings: object, tmp_path: object, monkeypatch: pytest.MonkeyPatch, concurrency: int
+async def test_real_sdk_registry_managed_provenance_and_three_collections(  # noqa: PLR0912, PLR0915 - registry, namespace and neighboring cancellation checks share real SDK resources
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, concurrency: int
 ) -> None:
     from pymilvus import MilvusClient
 
@@ -107,7 +108,7 @@ async def test_real_sdk_registry_managed_provenance_and_three_collections(
         parallel_max = 0
         summaries = 0
 
-        async def model(call: SDKCall) -> object:
+        async def model(call: GraphSDKCall) -> object:
             nonlocal parallel_active, parallel_max, summaries
             calls.append(call)
             parallel_active += 1
@@ -205,7 +206,7 @@ async def test_real_sdk_registry_managed_provenance_and_three_collections(
                     collections[name] = description
                     resource('intent', 'milvus_collection', name, description=description, database='default')
 
-            async def blocked(call: SDKCall) -> object:
+            async def blocked(call: GraphSDKCall) -> object:
                 entered.set()
                 await release.wait()
                 return await model(call)

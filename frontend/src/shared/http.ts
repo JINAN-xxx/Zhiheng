@@ -52,10 +52,11 @@ interface OpenOptions {
   signal?: AbortSignal
 }
 interface RequestOptions<T> extends OpenOptions {
-  decode: (value: unknown) => T
+  decode: (value: unknown, response: Response) => T
 }
 export function createHttpClient(options: HttpOptions = {}) {
   let controller = new AbortController()
+  let forbidden: (() => void) | undefined
   let unauthorized = options.onUnauthorized
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
   function invalidate(): void {
@@ -99,6 +100,7 @@ export function createHttpClient(options: HttpOptions = {}) {
         /* Invalid error bodies use the status fallback. */
       }
       if (response.status === 401 && session === controller && !signal.aborted) unauthorized?.()
+      if (response.status === 403 && session === controller && !signal.aborted) forbidden?.()
       throw new ApiError(code, message, response.status, details)
     }
     signal.throwIfAborted()
@@ -107,16 +109,19 @@ export function createHttpClient(options: HttpOptions = {}) {
   async function request<T>(path: string, init: RequestOptions<T>): Promise<T> {
     const session = controller
     const response = await open(path, init)
-    if (response.status === 204) return init.decode(undefined)
+    if (response.status === 204) return init.decode(undefined, response)
     const payload: unknown = await response.json()
     session.signal.throwIfAborted()
     init.signal?.throwIfAborted()
-    return init.decode(payload)
+    return init.decode(payload, response)
   }
   return {
     open,
     request,
     invalidate,
+    setForbiddenHandler(handler: () => void) {
+      forbidden = handler
+    },
     setUnauthorizedHandler(handler: () => void) {
       unauthorized = handler
     }

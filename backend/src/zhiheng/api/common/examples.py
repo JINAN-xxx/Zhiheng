@@ -49,6 +49,8 @@ TITLES = {
     ('knowledge', 'rebuild'): '重建知识索引',
     ('knowledge', 'rechunk'): '重新切片文档',
     ('knowledge', 'remove_document'): '删除知识文档',
+    ('knowledge', 'download'): '下载知识文档原文件',
+    ('knowledge', 'preview'): '预览知识文档',
     ('knowledge', 'remove_folder'): '删除知识目录',
     ('skills', 'prepare'): '预检个人技能',
     ('skills', 'confirm'): '确认技能版本',
@@ -70,6 +72,14 @@ TITLES = {
     ('agents', 'preparation'): '智能体准备状态',
     ('agents', 'cancel_preparation'): '取消智能体准备',
 }
+
+
+def _agent_request_example(sample: str) -> str:
+    sample = (
+        '# 同一请求及续调复用 REQUEST_ID；新问题须生成新 UUID。\n'
+        "REQUEST_ID=${REQUEST_ID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}\n" + sample
+    )
+    return sample
 
 
 def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
@@ -104,6 +114,8 @@ def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
                 '  -H "Authorization: Bearer $API_KEY"',
             ]
             parameters = operation.get('parameters', [])
+            if key == ('agents', 'chat'):
+                lines.append('  -H "Idempotency-Key: $REQUEST_ID"')
             if any(p['name'] == 'If-Match' for p in parameters):
                 lines.append('  -H "If-Match: $ETAG"')
             if any(p['name'] == 'Range' for p in parameters):
@@ -121,6 +133,8 @@ def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
                 content = operation.get('requestBody', {}).get('content', {}).get('application/json')
                 if content is not None:
                     content['example'] = body
-            operation['x-codeSamples'] = [{'lang': 'Shell', 'label': 'curl', 'source': ' \\\n'.join(lines)}]
+            sample = ' \\\n'.join(lines)
+            sample = _agent_request_example(sample) if key == ('agents', 'chat') else sample
+            operation['x-codeSamples'] = [{'lang': 'Shell', 'label': 'curl', 'source': sample}]
     # A filtered document only needs examples for its own real route group. Full coverage
     # is asserted by the route inventory test, rather than inventing placeholder routes.

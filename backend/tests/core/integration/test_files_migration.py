@@ -5,12 +5,12 @@ import httpx
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
-from alembic.migration import MigrationContext
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from tests.core.legacy_schema import reconstruct
+from tests.core.schema_support import active_migration_context
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -69,6 +69,7 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
         # 0012 intentionally widens token counters; every value and nullability
         # still survives, and all other existing column types remain unchanged.
         widened = {
+            ('models', 'max_output_tokens'),
             ('developer_accounts', 'limit_tokens'),
             ('developer_accounts', 'used_tokens'),
             ('developer_accounts', 'reserved_tokens'),
@@ -79,6 +80,6 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
             assert (table, name, expected_type, nullable) in updated
 
         def compare(sync: Connection) -> list[Any]:
-            return compare_metadata(MigrationContext.configure(sync), schema_metadata())
+            return compare_metadata(active_migration_context(sync), schema_metadata())
 
         assert await connection.run_sync(compare) == []

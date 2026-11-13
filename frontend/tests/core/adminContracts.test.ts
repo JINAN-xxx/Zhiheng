@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  decodeNavigation,
   decodePage,
   decodeRole,
   decodeSession,
@@ -55,26 +54,6 @@ void test('user role options retain system identity and support historical respo
       roles: [{ id: 'role', name: '角色', system_key: 1 }]
     })
   )
-})
-
-void test('navigation projection has its own contract and needs no entity identifier', () => {
-  assert.deepEqual(
-    decodeNavigation({
-      name: '用户',
-      path: '/admin/users',
-      permission: 'system:users:read',
-      sort_order: 0,
-      is_visible: true
-    }),
-    {
-      name: '用户',
-      path: '/admin/users',
-      permission: 'system:users:read',
-      sort_order: 0,
-      is_visible: true
-    }
-  )
-  assert.throws(() => decodeNavigation({ path: '/admin/users', is_visible: 'true' }))
 })
 
 void test('historical users and sessions accept missing dates while retaining real CAS versions', () => {

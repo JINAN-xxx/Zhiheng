@@ -7,7 +7,6 @@ from uuid import UUID
 
 from lightrag.operate import extract_entities, merge_nodes_and_edges  # type: ignore[import-untyped]
 from lightrag.utils import TokenLimitTruncationTally  # type: ignore[import-untyped]
-
 from zhiheng.modules.knowledge.graph.contracts import GraphChunk, sdk_document_id
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow

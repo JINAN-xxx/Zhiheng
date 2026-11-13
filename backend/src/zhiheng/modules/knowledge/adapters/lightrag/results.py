@@ -49,7 +49,13 @@ class _Data(BaseModel):
     chunks: list[_Chunk] = Field(default_factory=list)
 
 
-def query_result(raw: object, frozen: GraphFrozen) -> GraphQueryResult:
+def query_result(
+    raw: object,
+    frozen: GraphFrozen,
+    *,
+    selected_contents: list[str] | None = None,
+    diagnostics: dict[str, object] | None = None,
+) -> GraphQueryResult:
     if not isinstance(raw, dict) or raw.get('status') != 'success':
         raise AppError('graph_query_empty', '图谱查询没有得到可用上下文', 409)
     data = _Data.model_validate(raw.get('data'))
@@ -59,6 +65,16 @@ def query_result(raw: object, frozen: GraphFrozen) -> GraphQueryResult:
         requested.update(part for part in source_id.split('<SEP>') if part)
     if not requested <= chunks.keys():
         raise AppError('graph_provenance_invalid', '图谱结果引用未授权来源', 503)
+    if any(row.content != chunks[row.chunk_id].content for row in data.chunks):
+        raise AppError('graph_provenance_invalid', '图谱结果正文与来源不匹配', 503)
+    ordered = list(dict.fromkeys(row.chunk_id for row in data.chunks))
+    if selected_contents is not None:
+        selected = set(selected_contents)
+        ordered = [key for key in ordered if chunks[key].content in selected]
+        ordered.sort(key=lambda key: selected_contents.index(chunks[key].content))
+    elif not ordered:
+        ordered = sorted(requested)
+    ordered = ordered[:8]
     entities = [
         GraphNode(
             id=row.entity_name, entity_name=row.entity_name, entity_type=row.entity_type, description=row.description
@@ -83,7 +99,7 @@ def query_result(raw: object, frozen: GraphFrozen) -> GraphQueryResult:
             content_hash=chunks[key].content_hash,
             content=chunks[key].content,
         )
-        for key in sorted(requested)
+        for key in ordered
     ]
     context = json.dumps(
         {
@@ -99,7 +115,9 @@ def query_result(raw: object, frozen: GraphFrozen) -> GraphQueryResult:
     encoded = context.encode('utf-8')
     if len(encoded) > CONTEXT_MAX_BYTES:
         context = encoded[:CONTEXT_MAX_BYTES].decode('utf-8', errors='ignore')
-    return GraphQueryResult(context=context, entities=entities, relationships=relations, sources=sources)
+    return GraphQueryResult(
+        context=context, entities=entities, relationships=relations, sources=sources, diagnostics=diagnostics or {}
+    )
 
 
 def subgraph_result(raw: Any, revision: UUID) -> GraphSubgraph:

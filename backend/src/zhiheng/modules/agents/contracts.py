@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zhiheng.modules.skills.public import SkillSlug
+from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 MAX_HISTORY_BYTES = 64 * 1024
 
@@ -30,7 +31,7 @@ class AgentConfig(BaseModel):
     knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
     application_id: UUID | None = None
     temperature: float = Field(default=0.7, strict=True, ge=0, le=2, allow_inf_nan=False)
-    max_tokens: int = Field(default=2048, strict=True, ge=1, le=131072)
+    max_tokens: int = Field(default=2048, strict=True, ge=1, le=MAX_SAFE_INTEGER)
     history_rounds: int = Field(default=20, strict=True, ge=0, le=20)
 
     @field_validator('name', 'description', 'system_prompt', 'welcome_message')
@@ -47,6 +48,10 @@ class AgentConfig(BaseModel):
         ):
             raise ValueError('Name and unique selections are required')
         return self
+
+
+class AgentCreate(AgentConfig):
+    client_request_id: UUID | None = None
 
 
 class AgentUpdate(AgentConfig):

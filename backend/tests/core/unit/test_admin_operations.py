@@ -24,11 +24,9 @@ Api = tuple[FastAPI, httpx.AsyncClient]
 
 def test_operations_module_exposes_explicit_schema_inventory() -> None:
     assert find_spec('zhiheng.modules.operations') is not None, 'operations domain must be implemented'
-    from zhiheng.modules.operations.public import schema_tables
+    from zhiheng.modules.operations.schema import schema_tables
 
     assert {table.name for table in schema_tables()} == {
-        'operations_dictionaries',
-        'operations_dictionary_items',
         'operations_configs',
         'operations_notices',
         'operations_logs',
@@ -37,7 +35,7 @@ def test_operations_module_exposes_explicit_schema_inventory() -> None:
 
 @pytest_asyncio.fixture
 async def session(tmp_path: Path) -> AsyncIterator[AsyncSession]:
-    from zhiheng.modules.operations.public import schema_tables
+    from zhiheng.modules.operations.schema import schema_tables
 
     engine = create_async_engine(f'sqlite+aiosqlite:///{tmp_path / "operations.db"}')
 
@@ -64,64 +62,6 @@ async def session(tmp_path: Path) -> AsyncIterator[AsyncSession]:
 @pytest.fixture
 def admin() -> Principal:
     return Principal(uuid4(), 'admin', True)
-
-
-async def test_dictionary_item_crud_versions_and_delete_dependency(session: AsyncSession, admin: Principal) -> None:
-    from zhiheng.modules.operations.public import (
-        CreateDictionary,
-        CreateDictionaryItem,
-        OperationsService,
-        PatchDictionaryItem,
-    )
-
-    service = OperationsService()
-    dictionary = await service.create_dictionary(session, admin, CreateDictionary(code='priority', name='优先级'))
-    item = await service.create_dictionary_item(
-        session, admin, dictionary.id, CreateDictionaryItem(label='紧急', value='urgent', sort_order=3)
-    )
-    assert item.version == 1 and item.dictionary_id == dictionary.id
-    with pytest.raises(AppError, match='数据') as dependency:
-        await service.delete_dictionary(session, admin, dictionary.id, expected_version=1)
-    assert dependency.value.status_code == 409
-    updated = await service.update_dictionary_item(
-        session, admin, dictionary.id, item.id, PatchDictionaryItem(expected_version=1, label='高')
-    )
-    assert updated.label == '高' and updated.version == 2
-    with pytest.raises(AppError) as stale:
-        await service.delete_dictionary_item(session, admin, dictionary.id, item.id, expected_version=1)
-    assert stale.value.status_code == 409
-    page = await service.list_dictionary_items(session, admin, dictionary.id, search='高', page=1, page_size=1)
-    assert page.total == 1 and page.items[0].id == item.id
-    other = await service.create_dictionary(session, admin, CreateDictionary(code='other', name='其他'))
-    with pytest.raises(AppError) as wrong_parent:
-        await service.get_dictionary_item(session, admin, other.id, item.id)
-    assert wrong_parent.value.status_code == 404
-    await service.delete_dictionary_item(session, admin, dictionary.id, item.id, expected_version=2)
-    await service.delete_dictionary(session, admin, dictionary.id, expected_version=1)
-    with pytest.raises(AppError) as missing:
-        await service.get_dictionary(session, admin, dictionary.id)
-    assert missing.value.status_code == 404
-
-
-async def test_dictionary_unique_code_search_status_and_atomic_update(session: AsyncSession, admin: Principal) -> None:
-    from zhiheng.modules.operations.public import CreateDictionary, OperationsService, PatchDictionary
-
-    service = OperationsService()
-    row = await service.create_dictionary(session, admin, CreateDictionary(code='status', name='100% 状态'))
-    await service.create_dictionary(
-        session, admin, CreateDictionary(code='inactive', name='1000 状态', is_active=False)
-    )
-    with pytest.raises(AppError) as duplicate:
-        await service.create_dictionary(session, admin, CreateDictionary(code='status', name='重复'))
-    assert duplicate.value.status_code == 409
-    page = await service.list_dictionaries(session, admin, search='%', is_active=True, page=1, page_size=20)
-    assert page.total == 1 and page.items[0].id == row.id
-    fresh = await service.update_dictionary(session, admin, row.id, PatchDictionary(expected_version=1, name='更新'))
-    assert fresh.version == 2
-    with pytest.raises(AppError) as stale:
-        await service.update_dictionary(session, admin, row.id, PatchDictionary(expected_version=1, name='旧值'))
-    assert stale.value.status_code == 409
-    assert (await service.get_dictionary(session, admin, row.id)).name == '更新'
 
 
 async def test_configs_validate_actual_public_parameter_and_control_member_notices(
@@ -196,7 +136,6 @@ async def test_permissions_enforced_for_every_operations_area(session: AsyncSess
     service = OperationsService()
     member = Principal(uuid4(), 'member', False)
     for operation in (
-        service.list_dictionaries(session, member),
         service.list_configs(session, member),
         service.list_notices(session, member),
         service.list_logs(session, member),
@@ -291,37 +230,6 @@ async def api(session: AsyncSession, admin: Principal) -> AsyncIterator[Api]:
         yield app, client
 
 
-async def test_http_dictionary_crud_and_expected_version_required(api: Api) -> None:
-    _app, client = api
-    result = await client.post('/api/admin/dictionaries', json={'code': 'status', 'name': '状态'})
-    assert result.status_code == 201, result.text
-    row = result.json()
-    detail = await client.get(f'/api/admin/dictionaries/{row["id"]}')
-    assert detail.status_code == 200 and detail.json()['version'] == 1
-    item = await client.post(f'/api/admin/dictionaries/{row["id"]}/items', json={'label': '启用', 'value': 'enabled'})
-    assert item.status_code == 201, item.text
-    item_id = item.json()['id']
-    assert (await client.get(f'/api/admin/dictionaries/{row["id"]}/items')).json()['total'] == 1
-    assert (await client.delete(f'/api/admin/dictionaries/{row["id"]}')).status_code == 422
-    assert (
-        await client.delete(f'/api/admin/dictionaries/{row["id"]}', params={'expected_version': 1})
-    ).status_code == 409
-    assert (await client.patch(f'/api/admin/dictionaries/{row["id"]}', json={'name': '缺版本'})).status_code == 422
-    changed = await client.patch(
-        f'/api/admin/dictionaries/{row["id"]}', json={'expected_version': 1, 'name': '状态类型'}
-    )
-    assert changed.status_code == 200 and changed.json()['version'] == 2
-    assert (
-        await client.patch(f'/api/admin/dictionaries/{row["id"]}', json={'expected_version': 1, 'name': '旧值'})
-    ).status_code == 409
-    assert (
-        await client.delete(f'/api/admin/dictionaries/{row["id"]}/items/{item_id}', params={'expected_version': 1})
-    ).status_code == 204
-    assert (
-        await client.delete(f'/api/admin/dictionaries/{row["id"]}', params={'expected_version': 2})
-    ).status_code == 204
-
-
 async def test_http_published_requires_login_and_obeys_switch_without_admin_permission(api: Api) -> None:
     app, client = api
     notice = await client.post(
@@ -334,7 +242,7 @@ async def test_http_published_requires_login_and_obeys_switch_without_admin_perm
     assert config.status_code == 201, config.text
     app.state.principal = Principal(uuid4(), 'member', False)
     assert (await client.get('/api/admin/notices/published')).json()['total'] == 0
-    for path in ('/notices', '/configs', '/dictionaries', '/logs'):
+    for path in ('/notices', '/configs', '/logs'):
         assert (await client.get('/api/admin' + path)).status_code == 403
     app.state.principal = Principal(uuid4(), 'admin', True)
     updated = await client.patch(
@@ -417,7 +325,7 @@ async def test_http_notice_detail_filter_update_and_delete_cas(api: Api) -> None
 
 
 def test_patch_contracts_require_version_nonnull_and_plain_text_limits() -> None:
-    from zhiheng.modules.operations.public import CreateNotice, PatchDictionary, PatchNotice
+    from zhiheng.modules.operations.public import CreateNotice, PatchConfig, PatchNotice
 
     for body in (
         {'name': '缺版本'},
@@ -426,7 +334,7 @@ def test_patch_contracts_require_version_nonnull_and_plain_text_limits() -> None
         {'expected_version': 1, 'name': None},
     ):
         with pytest.raises(ValidationError):
-            PatchDictionary.model_validate(body)
+            PatchConfig.model_validate(body)
     with pytest.raises(ValidationError):
         CreateNotice(title=' ', content='正文')
     with pytest.raises(ValidationError):

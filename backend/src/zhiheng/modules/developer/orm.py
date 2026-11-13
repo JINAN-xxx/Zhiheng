@@ -21,47 +21,6 @@ from zhiheng.infrastructure.database import Base
 from zhiheng.shared.time import utcnow
 
 
-class UsageAccount(Base):
-    __tablename__ = 'developer_accounts'
-    __table_args__ = (CheckConstraint('used_tokens >= 0 AND reserved_tokens >= 0 AND limit_tokens > 0'),)
-
-    user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
-    limit_tokens: Mapped[int] = mapped_column(BigInteger)
-    used_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
-    reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
-
-
-class Invocation(Base):
-    __tablename__ = 'developer_invocations'
-
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    run_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
-    model_id: Mapped[UUID] = mapped_column(ForeignKey('models.id'))
-    source: Mapped[str] = mapped_column(String(24))
-    status: Mapped[str] = mapped_column(String(16), default='pending')
-    reserved_tokens: Mapped[int] = mapped_column(Integer)
-    input_tokens: Mapped[int | None] = mapped_column(Integer)
-    output_tokens: Mapped[int | None] = mapped_column(Integer)
-    charged_tokens: Mapped[int | None] = mapped_column(Integer)
-    application_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_applications.id'), index=True)
-    key_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_keys.id'), index=True)
-    operation: Mapped[str] = mapped_column(String(16), default='chat')
-    points_enforced: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
-    rate_card_id: Mapped[UUID | None] = mapped_column(ForeignKey('model_rate_cards.id'))
-    rate_version: Mapped[int | None] = mapped_column(Integer)
-    rate_snapshot: Mapped[dict[str, str] | None] = mapped_column(JSONB)
-    currency: Mapped[str | None] = mapped_column(String(3))
-    reserved_cost: Mapped[Decimal | None] = mapped_column(Numeric(30, 12))
-    billable_cost: Mapped[Decimal | None] = mapped_column(Numeric(30, 12))
-    search_units: Mapped[int | None] = mapped_column(Integer)
-    cache_tokens: Mapped[int | None] = mapped_column(Integer)
-    reasoning_tokens: Mapped[int | None] = mapped_column(Integer)
-    quota_minute: Mapped[int | None] = mapped_column(Integer)
-    quota_month: Mapped[str | None] = mapped_column(String(7))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
 class DeveloperApplication(Base):
     __tablename__ = 'developer_applications'
     __table_args__ = (
@@ -73,6 +32,7 @@ class DeveloperApplication(Base):
     name: Mapped[str] = mapped_column(String(80))
     owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
     status: Mapped[str] = mapped_column(String(16), default='active')
+    platform_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true')
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -115,6 +75,7 @@ class DeveloperKey(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class KeyMinuteBucket(Base):

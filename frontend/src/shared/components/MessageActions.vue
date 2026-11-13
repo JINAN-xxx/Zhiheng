@@ -12,6 +12,7 @@ import {
   ShareAltOutlined
 } from '@ant-design/icons-vue'
 import { speechPlayback } from '../speechPlayback.ts'
+import { copyText } from '../clipboard.ts'
 import type { SpeechState } from '../speechPlayback.ts'
 const props = withDefaults(
   defineProps<{
@@ -46,8 +47,7 @@ let timer: ReturnType<typeof setTimeout> | undefined
 async function copy(): Promise<void> {
   if (!props.content) return
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('当前浏览器无法直接复制，请选中文本后复制')
-    await navigator.clipboard.writeText(props.content)
+    await copyText(props.content)
     copied.value = true
     clearTimeout(timer)
     timer = setTimeout(() => {

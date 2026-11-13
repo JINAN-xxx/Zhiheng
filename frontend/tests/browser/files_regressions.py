@@ -120,52 +120,57 @@ class FilesUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name=f'更多操作：{filename}', exact=True).click()
         return self.page.get_by_role('menuitem', name=f'{label}：{filename}', exact=True)
 
-    async def test_storage_is_reached_from_knowledge_and_returns_there(self):
-        await self.page.goto(self.origin + '/knowledge')
-        await self.page.get_by_role('button', name='存储管理', exact=True).click()
-        await expect(self.page).to_have_url(self.origin + '/knowledge/storage')
+    async def test_storage_is_reached_from_admin_and_returns_to_knowledge(self):
+        await self.page.route(self.origin + '/api/admin/users?*', lambda route:route.fulfill(json={'items': [], 'total': 0, 'page': 1, 'page_size': 20}))
+        await self.page.goto(self.origin + '/admin')
+        await self.page.get_by_role('navigation', name='后台管理导航', exact=True).get_by_role('link', name='存储管理', exact=True).click()
+        await expect(self.page).to_have_url(self.origin + '/admin/storage')
+        await expect(self.page.get_by_role('navigation', name='后台管理导航', exact=True).get_by_role('link', name='存储管理', exact=True)).to_have_attribute('aria-current', 'page')
         await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
         navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        await expect(navigation.get_by_role('link', name='知识库', exact=True)).to_have_attribute('aria-current', 'page')
         await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_text('管理知识文档与对话附件的存储、权限及保留规则', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('管理可访问文件与平台保留规则', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('region', name='当前查询概览', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='高级管理', exact=True)).to_be_visible()
         await expect(self.page.locator('input[type="file"]')).to_have_count(0)
         await expect(self.page.get_by_role('button', name='上传', exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='返回知识库', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/knowledge')
-        await expect(self.page.get_by_role('button', name='创建知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='新建知识库', exact=True)).to_be_visible()
 
     async def test_old_file_links_keep_storage_tools_and_knowledge_selection(self):
         for path in ['/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
                 await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
-                navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-                await expect(navigation.get_by_role('link', name='知识库', exact=True)).to_have_attribute('aria-current', 'page')
+                await expect(self.page).to_have_url(re.compile(r'/(?:admin/storage|system/file|files)$'))
+                navigation = self.page.get_by_role('navigation', name='后台管理导航', exact=True)
+                await expect(navigation.get_by_role('link', name='存储管理', exact=True)).to_have_attribute('aria-current', 'page')
                 await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()
 
     async def test_members_cannot_enter_storage_using_new_or_old_links(self):
         await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={'id': 'member-1', 'username': 'member', 'is_admin': False}))
         await self.page.goto(self.origin + '/knowledge')
-        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='存储管理', exact=True)).to_have_count(0)
         for path in ['/knowledge/storage', '/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
-                await expect(self.page).to_have_url(self.origin + '/knowledge')
-                await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
+                await expect(self.page).to_have_url(re.compile(r'/(?:knowledge|chat)$'))
+                await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_have_count(0)
         self.assertEqual(self.file_requests, [])
 
     async def test_mobile_knowledge_storage_round_trip_stays_on_screen(self):
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await self.page.goto(self.origin + '/knowledge')
-        await self.page.get_by_role('button', name='存储管理', exact=True).click()
+        await self.page.get_by_role('button', name='打开主菜单', exact=True).click()
+        await self.page.get_by_role('button', name='用户菜单', exact=True).click()
+        await self.page.get_by_role('link', name='后台管理', exact=True).click()
+        await self.page.get_by_role('navigation', name='后台管理导航', exact=True).get_by_role('link', name='存储管理', exact=True).click()
         await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         await self.page.get_by_role('button', name='返回知识库', exact=True).click()
-        await expect(self.page.get_by_role('button', name='创建知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='新建知识库', exact=True)).to_be_visible()
 
     async def test_original_acl_has_deny_expiry_and_real_builtin_rules(self):
         await self.page.goto(self.origin + '/files')

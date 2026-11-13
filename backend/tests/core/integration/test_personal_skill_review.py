@@ -27,7 +27,8 @@ async def test_legacy_builtin_preparation_owner_precedes_shared_global_id(
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         theirs = next(row for row in (await member.get('/api/skills/available')).json() if row['slug'] == mine['slug'])
         agent = await published(member, model_id, skill_slugs=[mine['slug']])
-        work = await task(admin, agent)
+        work = await task(member, agent)
+        assert (await admin.get('/api/work/tasks/' + work['id'])).status_code == 404
         async with container.database.sessions.begin() as session:
             my_owner = await container.identity.authenticate(session, admin.cookies['zhiheng_session'])
             their_owner = await container.identity.authenticate(session, member.cookies['zhiheng_session'])
@@ -116,7 +117,7 @@ async def test_old_work_preparation_without_owner_dependency_recovers(
         await container.knowledge_preparation.finalize(intent_id, token)
         async with container.database.sessions() as session:
             restored = await session.scalar(select(RetrievalIntent).where(RetrievalIntent.id == intent_id))
-            assert restored.status == 'admitted' and restored.main_run_id is not None
+            assert restored.status == 'admitted' and restored.main_run_id is not None, restored.error
             run_id = restored.main_run_id
         await execute_run(container, run_id)
         assert (await admin.get(f'/api/runs/{run_id}')).json()['status'] == 'completed'

@@ -40,7 +40,13 @@ assert tokenizer.decode(tokenizer.encode('离线真实BPE。'))=='离线真实BP
 assert deepcopy(tokenizer) is tokenizer
 """
     result = subprocess.run(
-        [sys.executable, '-B', '-c', script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30
+        [sys.executable, '-B', '-c', script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert list(cache.iterdir()) == []

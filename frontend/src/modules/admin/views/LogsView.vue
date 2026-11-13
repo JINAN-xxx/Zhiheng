@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { singleSelection } from '../formValues.ts'
 import { reactive } from 'vue'
-import { Tag as ATag } from 'ant-design-vue'
+import { Tag as ATag, Select as ASelect } from 'ant-design-vue'
 import { decodeLog } from '../api/index.ts'
 import { useReadCollection } from '../composables/useReadCollection.ts'
 import AdminPage from '../components/AdminPage.vue'
@@ -17,6 +18,10 @@ function filter(): void {
   page.value = 1
   void load()
 }
+function changeOutcome(value: unknown): void {
+  filters.outcome = singleSelection(value)
+  filter()
+}
 const columns = [
   { title: '时间', key: 'time', width: 180 },
   { title: '账号', dataIndex: 'username', key: 'username', width: 140 },
@@ -28,6 +33,7 @@ const columns = [
 </script>
 <template>
   <AdminPage
+    search-placeholder="搜索账号或操作"
     :title="kind === 'login' ? '登录日志' : '操作日志'"
     subtitle="查看账号访问和管理操作的审计记录"
     :loading="loading"
@@ -39,17 +45,22 @@ const columns = [
     @search="find"
     @page="changePage"
     ><template #filters
-      ><select
-        v-model="filters.outcome"
+      ><ASelect
+        :value="filters.outcome"
         class="admin-filter"
         aria-label="操作结果"
-        @change="filter"
-      >
-        <option value="">全部结果</option>
-        <option value="success">成功</option>
-        <option value="failed">失败</option>
-      </select></template
-    ><ResourceTable :columns="columns" :rows="rows" :loading="loading" empty-text="暂无日志"
+        :options="[
+          { value: '', label: '全部结果' },
+          { value: 'success', label: '成功' },
+          { value: 'failed', label: '失败' }
+        ]"
+        @update:value="changeOutcome" /></template
+    ><ResourceTable
+      :loading-delay="150"
+      :columns="columns"
+      :rows="rows"
+      :loading="loading"
+      empty-text="暂无日志"
       ><template #bodyCell="{ column, record }"
         ><span v-if="column.key === 'time'">{{ formatAdminTime(record.created_at) }}</span>
         <div v-else-if="column.key === 'resource'" class="admin-primary">

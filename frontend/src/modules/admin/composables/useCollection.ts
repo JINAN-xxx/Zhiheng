@@ -1,6 +1,7 @@
-import { onBeforeUnmount, ref } from 'vue'
+import { inject, onBeforeUnmount, ref } from 'vue'
 import { createEntity, deleteEntity, updateEntity } from '../api/index.ts'
 import type { CollectionQuery, Decoder, Entity } from '../api/index.ts'
+import { adminReadCacheKey } from '../readCache.ts'
 import { adminError } from './errors.ts'
 import { useReadCollection } from './useReadCollection.ts'
 export { adminError } from './errors.ts'
@@ -10,11 +11,13 @@ export function useCollection<T extends Entity, Payload extends object>(
   initial: CollectionQuery = {},
   all = false
 ) {
+  const cache = inject(adminReadCacheKey, null)
   const collection = useReadCollection(endpoint, decode, initial, all)
   const saving = ref(false)
   let alive = true
   async function save(entity: T | null, body: Payload): Promise<boolean> {
     if (saving.value) return false
+    cache?.invalidate()
     saving.value = true
     try {
       if (entity) await updateEntity(endpoint, entity, body, decode)
@@ -27,6 +30,7 @@ export function useCollection<T extends Entity, Payload extends object>(
   }
   async function remove(entity: T): Promise<void> {
     if (saving.value) return
+    cache?.invalidate()
     saving.value = true
     try {
       await deleteEntity(endpoint, entity)

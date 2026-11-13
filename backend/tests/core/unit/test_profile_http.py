@@ -15,13 +15,12 @@ from zhiheng.api.common.errors import install_error_handlers
 from zhiheng.api.console.auth import router
 from zhiheng.modules.identity.admin_orm import (
     IdentityDepartment,
-    IdentityPost,
     IdentityRole,
-    IdentityUserPost,
     IdentityUserRole,
 )
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
-from zhiheng.modules.identity.public import IdentityService, schema_tables
+from zhiheng.modules.identity.public import IdentityService
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -61,9 +60,8 @@ async def api() -> AsyncIterator[ProfileApi]:
         await identity.create_user(session, username='admin', password=PASSWORD, is_admin=True)
         member = await identity.create_user(session, username='member', password=PASSWORD)
         department = IdentityDepartment(name='研发部')
-        post = IdentityPost(code='engineer', name='工程师')
         role = IdentityRole(code='reader', name='审阅员', permissions=[])
-        session.add_all([department, post, role])
+        session.add_all([department, role])
         await session.flush()
         user = await session.get(IdentityUser, member.id)
         assert user is not None
@@ -71,7 +69,6 @@ async def api() -> AsyncIterator[ProfileApi]:
         session.add_all(
             [
                 IdentityUserRole(user_id=member.id, role_id=role.id),
-                IdentityUserPost(user_id=member.id, post_id=post.id),
             ]
         )
     audit = Audit()
@@ -121,18 +118,18 @@ async def test_profile_returns_only_current_user_and_association_names(api: Prof
         'is_admin',
         'department_name',
         'roles',
-        'posts',
         'created_at',
         'version',
     }
     assert profile['id'] == str(api.member.id)
     assert profile['username'] == 'member' and profile['is_admin'] is False
     assert profile['department_name'] == '研发部'
-    assert profile['roles'] == ['审阅员'] and profile['posts'] == ['工程师']
+    assert profile['roles'] == ['审阅员']
+    assert 'posts' not in profile
     assert profile['created_at'] is not None and profile['version'] == 1
     await login(api.client, 'admin')
     admin = (await api.client.get('/api/auth/profile')).json()
-    assert admin['department_name'] is None and admin['posts'] == []
+    assert admin['department_name'] is None and 'posts' not in admin
     assert admin['roles'] == ['超级管理员']
 
 

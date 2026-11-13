@@ -14,54 +14,73 @@ const props = withDefaults(
     busy: boolean
     testing: boolean
     canWrite: boolean
+    canUpdate?: boolean | undefined
+    canDelete?: boolean | undefined
+    canToggle?: boolean | undefined
     canReadRates: boolean
     canTest: boolean
-    presentation?: 'list' | 'card'
+    mutating?: boolean
     testDisabled?: boolean
   }>(),
-  { presentation: 'list', testDisabled: false }
+  {
+    mutating: false,
+    testDisabled: false,
+    canUpdate: undefined,
+    canDelete: undefined,
+    canToggle: undefined
+  }
 )
 const emit = defineEmits<{
   edit: []
   rates: []
   test: []
-  control: [action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete']
+  trial: []
+  control: [action: 'enable' | 'disable' | 'delete']
 }>()
 function edit(): void {
-  if (props.canWrite) emit('edit')
+  if ((props.canUpdate ?? props.canWrite) && !props.mutating) emit('edit')
 }
 function rates(): void {
-  if (props.canReadRates) emit('rates')
+  if (props.canReadRates && !props.mutating) emit('rates')
 }
 function test(): void {
-  if (props.canTest && !props.busy && props.model.enabled && !props.testDisabled) emit('test')
+  if (props.canTest && !props.busy && !props.mutating && props.model.enabled && !props.testDisabled)
+    emit('test')
 }
-function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delete'): void {
-  if (props.canWrite) emit('control', action)
+function trial(): void {
+  if (props.canTest && !props.busy && !props.mutating && props.model.enabled && !props.testDisabled)
+    emit('trial')
+}
+function control(action: 'enable' | 'disable' | 'delete'): void {
+  if (
+    (action === 'delete'
+      ? (props.canDelete ?? props.canWrite)
+      : (props.canToggle ?? props.canWrite)) &&
+    !props.mutating
+  )
+    emit('control', action)
 }
 </script>
 
 <template>
-  <div
-    v-if="canWrite || canReadRates || canTest"
-    class="model-actions"
-    :class="{ 'model-actions--card': presentation === 'card' }"
-  >
-    <AButton
-      v-if="presentation === 'card' && canTest"
-      type="link"
-      size="small"
-      aria-label="测试连接"
-      :loading="testing && busy"
-      :disabled="busy || !model.enabled || testDisabled"
-      @click="test"
-      >测试</AButton
-    >
-    <div v-if="presentation === 'list'" class="desktop-actions">
-      <AButton v-if="canWrite" type="link" size="small" aria-label="编辑模型" @click="edit"
+  <div v-if="canWrite || canReadRates || canTest" class="model-actions">
+    <div class="desktop-actions">
+      <AButton
+        v-if="canUpdate ?? canWrite"
+        type="link"
+        size="small"
+        aria-label="编辑模型"
+        :disabled="mutating"
+        @click="edit"
         >编辑</AButton
       >
-      <AButton v-if="canReadRates" type="link" size="small" aria-label="费率配置" @click="rates"
+      <AButton
+        v-if="canReadRates"
+        type="link"
+        size="small"
+        aria-label="费率配置"
+        :disabled="mutating"
+        @click="rates"
         >费率</AButton
       >
       <AButton
@@ -70,32 +89,44 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
         size="small"
         aria-label="测试连接"
         :loading="testing && busy"
-        :disabled="busy || !model.enabled || testDisabled"
+        :disabled="busy || mutating || !model.enabled || testDisabled"
         @click="test"
         >测试</AButton
       >
     </div>
-    <ADropdown v-if="presentation === 'list' || canWrite || canReadRates" :trigger="['click']">
-      <AButton type="text" aria-label="更多操作"><EllipsisOutlined /></AButton>
+    <ADropdown :trigger="['click']" :disabled="mutating">
+      <AButton type="text" aria-label="更多操作" :disabled="mutating"><EllipsisOutlined /></AButton>
       <template #overlay>
         <AMenu>
-          <AMenuItem v-if="canWrite" @click="edit">编辑模型</AMenuItem>
-          <AMenuItem v-if="canReadRates" @click="rates">费率配置</AMenuItem>
+          <AMenuItem v-if="canUpdate ?? canWrite" :disabled="mutating" @click="edit"
+            >编辑模型</AMenuItem
+          >
+          <AMenuItem v-if="canReadRates" :disabled="mutating" @click="rates">费率配置</AMenuItem>
           <AMenuItem
-            v-if="presentation === 'list' && canTest"
-            :disabled="busy || !model.enabled || testDisabled"
+            v-if="canTest"
+            :disabled="busy || mutating || !model.enabled || testDisabled"
             @click="test"
             >测试连接</AMenuItem
           >
-          <AMenuItem v-if="canWrite" @click="control(model.enabled ? 'disable' : 'enable')">{{
-            model.enabled ? '停用' : '启用'
-          }}</AMenuItem>
           <AMenuItem
-            v-if="canWrite && model.enabled"
-            @click="control(model.published ? 'unpublish' : 'publish')"
-            >{{ model.published ? '取消发布' : '发布' }}</AMenuItem
+            v-if="canTest"
+            :disabled="busy || mutating || !model.enabled || testDisabled"
+            @click="trial"
+            >试用模型</AMenuItem
           >
-          <AMenuItem v-if="canWrite" danger @click="control('delete')">删除模型</AMenuItem>
+          <AMenuItem
+            v-if="canToggle ?? canWrite"
+            :disabled="mutating"
+            @click="control(model.enabled ? 'disable' : 'enable')"
+            >{{ model.enabled ? '停用' : '启用' }}</AMenuItem
+          >
+          <AMenuItem
+            v-if="canDelete ?? canWrite"
+            danger
+            :disabled="mutating"
+            @click="control('delete')"
+            >删除模型</AMenuItem
+          >
         </AMenu>
       </template>
     </ADropdown>
@@ -113,15 +144,6 @@ function control(action: 'enable' | 'disable' | 'publish' | 'unpublish' | 'delet
 .desktop-actions :deep(.ant-btn) {
   height: 28px;
   padding-inline: 5px;
-  font-size: 13px;
-}
-.model-actions--card {
-  flex-shrink: 0;
-  gap: 6px;
-}
-.model-actions--card > :deep(.ant-btn) {
-  height: 28px;
-  padding-inline: 6px;
   font-size: 13px;
 }
 @media (max-width: 760px) {

@@ -12,7 +12,7 @@ from zhiheng.api.common.dependencies import (
     console_cookie,
 )
 from zhiheng.api.common.file_content import file_content_response
-from zhiheng.application.file_inputs import ParsedFile
+from zhiheng.application.files.inputs import ParsedFile
 from zhiheng.modules.files.public import (
     AclInfo,
     AclRequest,

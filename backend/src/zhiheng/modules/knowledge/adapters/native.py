@@ -25,7 +25,7 @@ class NativeParser:
         self._timeout = timeout_seconds
         self._slots = asyncio.Semaphore(2)
 
-    async def parse(self, content: bytes, *, filename: str) -> ParseResult:
+    async def parse(self, content: bytes, *, filename: str, preflight: bool = False) -> ParseResult:
         if (
             not content
             or len(content) > MAX_INPUT_BYTES
@@ -38,6 +38,7 @@ class NativeParser:
                 sys.executable,
                 '-m',
                 'zhiheng.modules.knowledge.adapters.native_worker',
+                *(['--validate-document'] if preflight else []),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -79,3 +80,7 @@ class NativeParser:
                 }
                 raise AppError(code, messages.get(code, '文档损坏或格式无效'), 422)
             return reply.result
+
+
+async def validate_document_source(content: bytes, *, filename: str) -> None:
+    await NativeParser().parse(content, filename=filename, preflight=True)

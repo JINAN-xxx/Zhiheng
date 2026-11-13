@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import TypeAdapter
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 
 from zhiheng.modules.agents.contracts import AgentConfig, AgentInfo, AgentPage, AgentSummary, safe_text
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AgentVersion
@@ -42,8 +44,7 @@ class AgentService:
 
     async def _row(self, session: AsyncSession, principal: Principal, agent_id: UUID, *, lock: bool = False) -> Agent:
         query = select(Agent).where(Agent.id == agent_id, Agent.deleted_at.is_(None))
-        if not principal.is_admin:
-            query = query.where(Agent.owner_id == principal.id)
+        query = query.where(Agent.owner_id == principal.id)
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
         row = await session.scalar(query)
@@ -86,8 +87,15 @@ class AgentService:
             }
         )
 
-    async def create(self, session: AsyncSession, principal: Principal, config: AgentConfig) -> AgentInfo:
-        row = Agent(owner_id=principal.id, config=config.model_dump(mode='json'))
+    async def create(
+        self, session: AsyncSession, principal: Principal, config: AgentConfig, *, client_request_id: UUID | None = None
+    ) -> AgentInfo:
+        row = Agent(
+            owner_id=principal.id,
+            config=config.model_dump(mode='json'),
+            create_client_request_id=client_request_id,
+            create_fingerprint=self.create_hash(config),
+        )
         session.add(row)
         await session.flush()
         return await self.get(session, principal, row.id)
@@ -192,8 +200,7 @@ class AgentService:
         except ValueError as error:
             raise AppError('invalid_agent_search', '搜索条件无效', 422) from error
         query = select(Agent.id).where(Agent.deleted_at.is_(None))
-        if not principal.is_admin:
-            query = query.where(Agent.owner_id == principal.id)
+        query = query.where(Agent.owner_id == principal.id)
         if search:
             pattern = '%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
             query = query.where(
@@ -269,6 +276,14 @@ class AgentService:
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
 
+    async def knowledge_references(self, session: AsyncSession, base_id: UUID) -> list[ResourceReference]:
+        """返回草稿及发布配置对知识库的实际引用。"""
+        return await self._configuration_references(
+            session,
+            Agent.config['knowledge_base_ids'].contains([str(base_id)]),
+            AgentVersion.config['knowledge_base_ids'].contains([str(base_id)]),
+        )
+
     async def skill_references(
         self,
         session: AsyncSession,
@@ -333,3 +348,21 @@ class AgentService:
                 knowledge=knowledge,
             )
         )
+
+    @staticmethod
+    def create_hash(config: AgentConfig) -> str:
+        return hashlib.sha256(json.dumps(config.model_dump(mode='json'), sort_keys=True).encode()).hexdigest()
+
+    async def existing_create(
+        self, session: AsyncSession, principal: Principal, request_id: UUID, config: AgentConfig
+    ) -> AgentInfo | None:
+        key = f'agent-create:{principal.id}:{request_id}'
+        await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'), {'key': key})
+        row = await session.scalar(
+            select(Agent).where(Agent.owner_id == principal.id, Agent.create_client_request_id == request_id)
+        )
+        if row is None:
+            return None
+        if row.create_fingerprint != self.create_hash(config):
+            raise AppError('idempotency_conflict', '原创建标识不能用于不同配置', 409)
+        return await self.get(session, principal, row.id)

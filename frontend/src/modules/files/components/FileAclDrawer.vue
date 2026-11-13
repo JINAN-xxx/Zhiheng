@@ -1,5 +1,6 @@
 <!-- Adapted from original FileAclDrawer, MIT licensed. -->
 <script setup lang="ts">
+import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Alert as AAlert,
@@ -99,7 +100,7 @@ async function open(files: ManagedFile[]): Promise<void> {
     entries.value =
       loaded.length === 1
         ? loaded[0]!.entries.map((entry) => ({
-            key: crypto.randomUUID(),
+            key: createRequestId(),
             userId: entry.user_id,
             effect: entry.effect,
             expiresAt: localDateTime(entry.expires_at) ?? '',
@@ -115,7 +116,7 @@ async function open(files: ManagedFile[]): Promise<void> {
 }
 function addEntry(): void {
   entries.value.push({
-    key: crypto.randomUUID(),
+    key: createRequestId(),
     userId: undefined,
     effect: 'allow',
     expiresAt: '',
@@ -231,7 +232,7 @@ defineExpose({ open, close })
       :message="
         batch
           ? '批量操作仅覆盖所选文件的显式授权；内置权限仍按各文件规则生效。'
-          : '管理员和所有者不可被拒绝；显式拒绝可覆盖公开、显式允许和上传人下载权限。'
+          : '所有者不可被拒绝；显式拒绝可覆盖公开、显式允许和上传人下载权限。'
       "
       type="info"
       show-icon

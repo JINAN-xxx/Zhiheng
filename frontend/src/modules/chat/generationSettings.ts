@@ -18,7 +18,7 @@ export function defaultGenerationSettings(): ChatGenerationSettings {
 }
 export function generationSettingsError(
   settings: ChatGenerationSettings,
-  maxOutputTokens = 131072
+  maxOutputTokens = Number.MAX_SAFE_INTEGER
 ): string {
   if (
     typeof settings.system_prompt !== 'string' ||
@@ -38,10 +38,10 @@ export function generationSettingsError(
       settings.temperature > 2)
   )
     return '温度须为 0–2 的有限数值，留空使用模型默认值'
-  const limit = Math.min(131072, maxOutputTokens)
+  const limit = maxOutputTokens
   if (
     settings.max_output_tokens !== null &&
-    (!Number.isInteger(settings.max_output_tokens) ||
+    (!Number.isSafeInteger(settings.max_output_tokens) ||
       settings.max_output_tokens < 1 ||
       settings.max_output_tokens > limit)
   )

@@ -7,17 +7,12 @@
           <template #icon><ArrowLeftOutlined /></template>
           返回知识库
         </a-button>
-        <a-tooltip title="刷新知识图谱">
-          <a-button
-            shape="circle"
-            :loading="loading || buildLoading"
-            :disabled="starting || configSaving || starting"
-            aria-label="刷新知识图谱"
-            @click="emit('refresh')"
-          >
-            <template #icon><ReloadOutlined /></template>
-          </a-button>
-        </a-tooltip>
+        <RefreshButton
+          label="刷新知识图谱"
+          :loading="loading || buildLoading"
+          :disabled="starting || configSaving"
+          @click="emit('refresh')"
+        />
       </template>
     </WorkspaceToolbar>
 
@@ -71,13 +66,13 @@
                   :options="modelOptions"
                   show-search
                   option-filter-prop="label"
-                  placeholder="选择已发布的对话模型"
+                  placeholder="选择已启用的对话模型"
                   :disabled="controlsDisabled"
                   @update:value="configForm.llm_model_id = typeof $event === 'string' ? $event : ''"
                 />
               </a-form-item>
               <p v-if="canEdit && available && !buildLoading && !chatOptions.length">
-                暂无已发布的对话模型，请联系管理员配置。
+                暂无已启用的对话模型，请联系管理员配置。
               </p>
               <a-collapse ghost class="graph-advanced">
                 <a-collapse-panel key="advanced" header="高级选项">
@@ -398,7 +393,8 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
@@ -411,7 +407,6 @@ import {
   Progress as AProgress,
   Select as ASelect,
   Spin as ASpin,
-  Tooltip as ATooltip,
   Tag as ATag
 } from 'ant-design-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'

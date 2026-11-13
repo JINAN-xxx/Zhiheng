@@ -1,8 +1,14 @@
 """Credit arithmetic: per-million token prices and per-search-unit prices."""
 
-from decimal import Decimal, InvalidOperation, localcontext
+from __future__ import annotations
 
-from zhiheng.modules.billing.contracts import CreditPrices
+from decimal import Decimal, InvalidOperation, localcontext
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from zhiheng.modules.billing.contracts import CreditPrices
+    from zhiheng.modules.models.public import RateInfo
+
 
 POINT_QUANTUM = Decimal('0.000000000000000001')
 MAX_POINTS = Decimal('100000000000000000000')
@@ -52,3 +58,9 @@ def points_for_usage(
             / MILLION
         )
         return charge.quantize(POINT_QUANTUM)
+
+
+def reserved_cost(rate: RateInfo, tokens: int) -> Decimal:
+    if rate.billing_mode == 'search_unit':
+        return rate.search_price
+    return max(rate.input_price, rate.output_price, rate.cache_price) * tokens

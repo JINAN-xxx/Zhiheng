@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.access import CallerContext, ResourceAccessService
 from zhiheng.application.files.queries import FileQueries
-from zhiheng.application.skill_management import SkillManagementService
+from zhiheng.application.skills.management import SkillManagementService
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.developer.public import APIRequestInfo
 from zhiheng.modules.skills.public import (
@@ -18,6 +18,7 @@ from zhiheng.modules.skills.public import (
     SkillStatus,
 )
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 
 
@@ -160,6 +161,8 @@ class SkillCommands:
     async def status(
         self, session: AsyncSession, principal: Principal, skill_id: UUID, status: SkillStatus, expected_version: int
     ) -> SkillInfo:
+        skill = await self.skills.get(session, principal.id, skill_id)
+        require_capability(principal, 'skills', 'use' if skill.source == 'builtin' else 'toggle')
         return await self.skills.set_status(
             session, principal, skill_id, status=status, expected_version=expected_version
         )

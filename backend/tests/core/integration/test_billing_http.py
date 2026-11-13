@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import event, text
 
 from tests.core.integration.test_ai_management_permissions import account
-from zhiheng.application.billing_management import BillingManagementService
+from zhiheng.application.billing.management import BillingManagementService
 from zhiheng.shared.errors import AppError
 
 
@@ -51,7 +51,9 @@ async def test_credit_roles_load_from_catalog_and_revoke_existing_session(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
     catalog = await admin.get('/api/admin/permissions')
-    assert len(catalog.json()['items']) == 30
+    codes = [row['code'] for row in catalog.json()['items']]
+    assert len(codes) == len(set(codes))
+    assert not any(code.startswith(('system:posts:', 'system:menus:', 'system:dictionaries:')) for code in codes)
     assert {'ai:credits:read', 'ai:credits:write'} <= {item['code'] for item in catalog.json()['items']}
     all_permissions = [item['code'] for item in catalog.json()['items']]
     async with account(admin, app, *all_permissions) as (full_role, _, _):
@@ -128,7 +130,7 @@ async def test_point_rate_history_quote_scope_and_model_type(
     async with account(admin, app) as (member, _, _):
         assert (await member.get(f'/api/billing/models/{model_id}/quote')).json() == created.json()
         assert (await member.get(f'/api/billing/models/{model_id}/rates')).status_code == 403
-        assert (await admin.post(f'/api/models/{model_id}/unpublish', json={})).status_code == 200
+        assert (await admin.post(f'/api/models/{model_id}/disable', json={})).status_code == 200
         assert (await member.get(f'/api/billing/models/{model_id}/quote')).status_code == 404
     async with account(admin, app, 'ai:models:read') as (reader, _, _):
         assert (await reader.get(f'/api/billing/models/{model_id}/quote')).status_code == 200
@@ -194,7 +196,6 @@ async def test_mode_switch_optional_note_keeps_audit_and_disabling_needs_no_pric
             'connection_id': model['connection_id'],
             'upstream_model': 'new-unpriced',
             'max_output_tokens': 64,
-            'published': True,
         },
     )
     assert unpriced.status_code == 201, unpriced.text
@@ -535,6 +536,27 @@ async def test_mode_switch_serializes_with_real_knowledge_parent_job_admission(
     )
     assert embedding.status_code == 201, embedding.text
     await point_rate(admin, embedding.json()['id'])
+    ranker = await admin.post(
+        '/api/models',
+        json={
+            'name': 'Billing ranker',
+            'connection_id': connection_id,
+            'upstream_model': 'local-ranker',
+            'model_type': 'rerank',
+        },
+    )
+    assert ranker.status_code == 201, ranker.text
+    price = await admin.post(
+        '/api/billing/models/' + ranker.json()['id'] + '/rates',
+        json={'billing_mode': 'search_unit', 'is_free': True, 'client_request_id': str(uuid4())},
+    )
+    assert price.status_code == 201, price.text
+    current = (await admin.get('/api/knowledge/settings')).json()
+    configured = await admin.patch(
+        '/api/knowledge/settings',
+        json={'expected_version': current['version'], 'default_rerank_model_id': ranker.json()['id']},
+    )
+    assert configured.status_code == 200, configured.text
     base = await admin.post(
         '/api/knowledge/bases', json={'name': 'Billing switch parent', 'embed_model_id': embedding.json()['id']}
     )

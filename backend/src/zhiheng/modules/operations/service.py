@@ -11,11 +11,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from zhiheng.modules.operations.contracts import (
     ConfigInfo,
     CreateConfig,
-    CreateDictionary,
-    CreateDictionaryItem,
     CreateNotice,
-    DictionaryInfo,
-    DictionaryItemInfo,
     LogInfo,
     LogKind,
     LogOutcome,
@@ -25,11 +21,9 @@ from zhiheng.modules.operations.contracts import (
     Page,
     Patch,
     PatchConfig,
-    PatchDictionary,
-    PatchDictionaryItem,
     PatchNotice,
 )
-from zhiheng.modules.operations.orm import Config, Dictionary, DictionaryItem, Notice, OperationLog, Versioned
+from zhiheng.modules.operations.orm import Config, Notice, OperationLog, Versioned
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
@@ -100,6 +94,10 @@ class OperationsService:
         fields: dict[str, object],
         resource: str,
     ) -> Entity:
+        area = 'configs' if resource == 'config' else 'notices'
+        principal.require_permission(f'system:{area}:create')
+        if resource == 'notice' and fields.get('status') == 'published':
+            principal.require_permission('system:notices:publish')
         row = model()
         for key, value in fields.items():
             setattr(row, key, value)
@@ -125,6 +123,13 @@ class OperationsService:
         *conditions: ColumnElement[bool],
     ) -> Entity:
         changes = body.model_dump(exclude_unset=True, exclude={'expected_version'})
+        previous = await self._row(session, model, identifier, *conditions, lock=True)
+        area = 'configs' if resource == 'config' else 'notices'
+        special = 'is_active' if resource == 'config' else 'status'
+        if special in changes and changes[special] != getattr(previous, special):
+            principal.require_permission(f'system:{area}:' + ('toggle' if special == 'is_active' else 'publish'))
+        if any(value != getattr(previous, key) for key, value in changes.items() if key != special):
+            principal.require_permission(f'system:{area}:update')
         try:
             async with session.begin_nested():
                 changed = await session.scalar(
@@ -157,6 +162,7 @@ class OperationsService:
         resource: str,
         *conditions: ColumnElement[bool],
     ) -> None:
+        principal.require_permission('system:' + ('configs' if resource == 'config' else 'notices') + ':delete')
         if isinstance(expected_version, bool) or expected_version < 1:
             raise AppError('invalid_operations_version', '版本参数无效', 422)
         try:
@@ -177,146 +183,6 @@ class OperationsService:
             action=f'{resource}.delete',
             resource_type=resource,
             resource_id=str(identifier),
-        )
-
-    async def list_dictionaries(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        *,
-        search: str = '',
-        is_active: bool | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> Page[DictionaryInfo]:
-        self._permission(principal, 'dictionaries')
-        pattern = self._pattern(search)
-        query = select(Dictionary).where(
-            or_(Dictionary.code.ilike(pattern, escape='\\'), Dictionary.name.ilike(pattern, escape='\\'))
-        )
-        if is_active is not None:
-            query = query.where(Dictionary.is_active == is_active)
-        return await self._page(
-            session,
-            query.order_by(Dictionary.created_at.desc(), Dictionary.id),
-            DictionaryInfo,
-            page=page,
-            page_size=page_size,
-        )
-
-    async def get_dictionary(self, session: AsyncSession, principal: Principal, dictionary_id: UUID) -> DictionaryInfo:
-        self._permission(principal, 'dictionaries')
-        return DictionaryInfo.model_validate(await self._row(session, Dictionary, dictionary_id))
-
-    async def create_dictionary(
-        self, session: AsyncSession, principal: Principal, body: CreateDictionary
-    ) -> DictionaryInfo:
-        self._permission(principal, 'dictionaries', True)
-        return DictionaryInfo.model_validate(
-            await self._insert(session, principal, Dictionary, body.model_dump(), 'dictionary')
-        )
-
-    async def update_dictionary(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, body: PatchDictionary
-    ) -> DictionaryInfo:
-        self._permission(principal, 'dictionaries', True)
-        return DictionaryInfo.model_validate(
-            await self._update(session, principal, Dictionary, dictionary_id, body, 'dictionary')
-        )
-
-    async def delete_dictionary(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, *, expected_version: int
-    ) -> None:
-        self._permission(principal, 'dictionaries', True)
-        row = await self._row(session, Dictionary, dictionary_id, lock=True)
-        if row.version != expected_version:
-            raise AppError('operations_version_conflict', '记录已更新，请刷新后重试', 409)
-        if await session.scalar(
-            select(DictionaryItem.id).where(DictionaryItem.dictionary_id == dictionary_id).limit(1)
-        ):
-            raise AppError('operations_in_use', '字典仍有数据，不能删除', 409)
-        await self._delete(session, principal, Dictionary, dictionary_id, expected_version, 'dictionary')
-
-    async def list_dictionary_items(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        dictionary_id: UUID,
-        *,
-        search: str = '',
-        is_active: bool | None = None,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> Page[DictionaryItemInfo]:
-        self._permission(principal, 'dictionaries')
-        await self._row(session, Dictionary, dictionary_id)
-        pattern = self._pattern(search)
-        query = select(DictionaryItem).where(
-            DictionaryItem.dictionary_id == dictionary_id,
-            or_(DictionaryItem.label.ilike(pattern, escape='\\'), DictionaryItem.value.ilike(pattern, escape='\\')),
-        )
-        if is_active is not None:
-            query = query.where(DictionaryItem.is_active == is_active)
-        return await self._page(
-            session,
-            query.order_by(DictionaryItem.sort_order, DictionaryItem.id),
-            DictionaryItemInfo,
-            page=page,
-            page_size=page_size,
-        )
-
-    async def get_dictionary_item(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, item_id: UUID
-    ) -> DictionaryItemInfo:
-        self._permission(principal, 'dictionaries')
-        return DictionaryItemInfo.model_validate(
-            await self._row(session, DictionaryItem, item_id, DictionaryItem.dictionary_id == dictionary_id)
-        )
-
-    async def create_dictionary_item(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, body: CreateDictionaryItem
-    ) -> DictionaryItemInfo:
-        self._permission(principal, 'dictionaries', True)
-        # The same parent lock is held by deletion, including when its item set is empty.
-        await self._row(session, Dictionary, dictionary_id, lock=True)
-        return DictionaryItemInfo.model_validate(
-            await self._insert(
-                session,
-                principal,
-                DictionaryItem,
-                {**body.model_dump(), 'dictionary_id': dictionary_id},
-                'dictionary_item',
-            )
-        )
-
-    async def update_dictionary_item(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, item_id: UUID, body: PatchDictionaryItem
-    ) -> DictionaryItemInfo:
-        self._permission(principal, 'dictionaries', True)
-        return DictionaryItemInfo.model_validate(
-            await self._update(
-                session,
-                principal,
-                DictionaryItem,
-                item_id,
-                body,
-                'dictionary_item',
-                DictionaryItem.dictionary_id == dictionary_id,
-            )
-        )
-
-    async def delete_dictionary_item(
-        self, session: AsyncSession, principal: Principal, dictionary_id: UUID, item_id: UUID, *, expected_version: int
-    ) -> None:
-        self._permission(principal, 'dictionaries', True)
-        await self._delete(
-            session,
-            principal,
-            DictionaryItem,
-            item_id,
-            expected_version,
-            'dictionary_item',
-            DictionaryItem.dictionary_id == dictionary_id,
         )
 
     @staticmethod

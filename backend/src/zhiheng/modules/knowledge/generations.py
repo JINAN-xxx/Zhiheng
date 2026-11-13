@@ -4,8 +4,8 @@ from uuid import UUID
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.knowledge.adapters.milvus import VectorSpec
 from zhiheng.modules.knowledge.orm import GenerationPin, IndexGeneration, KnowledgeBase
+from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.shared.time import utcnow
 
 
@@ -53,6 +53,7 @@ class GenerationStore:
                 generation.collection_name,
                 generation.fingerprint,
                 generation.dimension,
+                generation.retrieval_version,
             ),
             generation.dimension is not None,
         )

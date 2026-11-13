@@ -1,6 +1,14 @@
 <script setup lang="ts">
+import AdminRowActions from '../components/AdminRowActions.vue'
 import { computed, reactive, ref } from 'vue'
-import { Button as AButton, Modal as AModal, Modal, Tag as ATag } from 'ant-design-vue'
+import {
+  Modal as AModal,
+  Modal,
+  Tag as ATag,
+  Input as AInput,
+  Textarea as ATextarea,
+  Select as ASelect
+} from 'ant-design-vue'
 import { identity } from '../../identity/public.ts'
 import { hasAdminPermission } from '../access.ts'
 import { decodeNotice } from '../api/index.ts'
@@ -8,10 +16,16 @@ import type { Notice, NoticePayload } from '../api/index.ts'
 import { adminError, useCollection } from '../composables/useCollection.ts'
 import AdminPage from '../components/AdminPage.vue'
 import AdminDialog from '../components/AdminDialog.vue'
+import NoticeVisibilitySetting from '../components/NoticeVisibilitySetting.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { formatAdminTime } from '../presentation.ts'
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<Notice, NoticePayload>('notices', decodeNotice)
+const visibility = ref<InstanceType<typeof NoticeVisibilitySetting> | null>(null)
+function refreshPage(): void {
+  void load()
+  void visibility.value?.refresh()
+}
 const writable = computed(() => hasAdminPermission(identity.value, 'notices', 'write'))
 const open = ref(false),
   editing = ref<Notice | null>(null),
@@ -54,6 +68,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(row: Notice): void {
+  if (!hasAdminPermission(identity.value, 'notices', 'delete')) return
   if (!saving.value)
     Modal.confirm({
       title: `删除公告“${row.title}”？`,
@@ -69,25 +84,32 @@ const columns = [
   { title: '类型', key: 'kind', width: 100 },
   { title: '状态', key: 'status', width: 100 },
   { title: '更新时间', key: 'updated', width: 180 },
-  { title: '操作', key: 'actions', width: 170 }
+  { title: '操作', key: 'actions', width: 110 }
 ]
 </script>
 <template>
   <AdminPage
+    search-placeholder="搜索公告标题"
     title="通知公告"
-    subtitle="发布后在登录用户的通知面板中展示"
+    subtitle="维护平台通知与公告内容"
     :loading="loading"
     :error="error"
     :total="total"
     :page="page"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'notices', 'create')"
     create-label="新建公告"
-    @refresh="load"
+    @refresh="refreshPage"
     @create="edit()"
     @search="find"
     @page="changePage"
-    ><ResourceTable :columns="columns" :rows="rows" :loading="loading" empty-text="暂无公告"
+    ><template #before-list><NoticeVisibilitySetting ref="visibility" /></template
+    ><ResourceTable
+      :loading-delay="150"
+      :columns="columns"
+      :rows="rows"
+      :loading="loading"
+      empty-text="暂无公告"
       ><template #bodyCell="{ column, record }"
         ><span v-if="column.key === 'kind'">{{ record.kind === 'notice' ? '通知' : '公告' }}</span
         ><ATag
@@ -95,19 +117,37 @@ const columns = [
           :color="record.status === 'published' ? 'green' : 'default'"
           >{{ record.status === 'published' ? '已发布' : '草稿' }}</ATag
         ><span v-else-if="column.key === 'updated'">{{ formatAdminTime(record.updated_at) }}</span>
-        <div v-else-if="column.key === 'actions'" class="admin-actions">
-          <AButton type="link" @click="preview = record">查看</AButton
-          ><AButton v-if="writable" type="link" @click="edit(record)">编辑</AButton
-          ><AButton
-            v-if="writable"
-            type="link"
-            danger
-            :disabled="saving"
-            @click="confirmDelete(record)"
-            >删除</AButton
-          >
-        </div></template
-      ></ResourceTable
+        <AdminRowActions
+          v-else-if="column.key === 'actions'"
+          :primary="{ key: 'preview', label: '查看' }"
+          :more="
+            writable
+              ? [
+                  {
+                    key: 'edit',
+                    label: '编辑',
+                    disabled:
+                      !hasAdminPermission(identity, 'notices', 'update') &&
+                      !hasAdminPermission(identity, 'notices', 'publish')
+                  },
+                  {
+                    key: 'delete',
+                    label: '删除',
+                    danger: true,
+                    disabled: !hasAdminPermission(identity, 'notices', 'delete')
+                  }
+                ]
+              : []
+          "
+          :busy="saving"
+          @select="
+            (key) =>
+              key === 'preview'
+                ? (preview = record)
+                : key === 'edit'
+                  ? edit(record)
+                  : confirmDelete(record)
+          " /></template></ResourceTable
     ><AdminDialog
       :open="open"
       :title="editing ? '编辑公告' : '新建公告'"
@@ -116,34 +156,52 @@ const columns = [
       :width="700"
       @close="open = false"
       @save="submit"
-      ><label>公告标题<input v-model="form.title" aria-label="公告标题" maxlength="200" /></label>
+      ><label
+        >公告标题<AInput
+          v-model:value="form.title"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
+          aria-label="公告标题"
+          :maxlength="200"
+      /></label>
       <div class="admin-form__grid">
         <label
-          >类型<select v-model="form.kind" aria-label="类型">
-            <option value="notice">通知</option>
-            <option value="announcement">公告</option>
-          </select></label
+          >类型<ASelect
+            :value="form.kind"
+            aria-label="类型"
+            :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
+            :options="[
+              { value: 'notice', label: '通知' },
+              { value: 'announcement', label: '公告' }
+            ]"
+            @update:value="
+              form.kind = $event === 'announcement' ? 'announcement' : 'notice'
+            " /></label
         ><label
-          >发布状态<select v-model="form.status" aria-label="发布状态">
-            <option value="draft">草稿</option>
-            <option value="published">发布</option>
-          </select></label
-        >
+          >发布状态<ASelect
+            :value="form.status"
+            aria-label="发布状态"
+            :disabled="!hasAdminPermission(identity, 'notices', 'publish')"
+            :options="[
+              { value: 'draft', label: '草稿' },
+              { value: 'published', label: '发布' }
+            ]"
+            @update:value="form.status = $event === 'published' ? 'published' : 'draft'"
+        /></label>
       </div>
       <label
-        >公告正文<textarea
-          v-model="form.content"
+        >公告正文<ATextarea
+          v-model:value="form.content"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
           aria-label="公告正文"
-          rows="10"
-          maxlength="32000"
-        /></label
+          :rows="10"
+          :maxlength="32000" /></label
       ><label
-        >备注<textarea
-          v-model="form.remark"
+        >备注<ATextarea
+          v-model:value="form.remark"
+          :disabled="!!editing && !hasAdminPermission(identity, 'notices', 'update')"
           aria-label="备注"
-          rows="2"
-          maxlength="1000"
-        /></label></AdminDialog
+          :rows="2"
+          :maxlength="1000" /></label></AdminDialog
     ><AModal
       :open="Boolean(preview)"
       :title="preview?.title"

@@ -5,9 +5,11 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from arq.connections import ArqRedis
+from arq.jobs import Job
 from sqlalchemy import event
 
 from tests.core.resources import resource
@@ -35,7 +37,7 @@ async def main() -> None:
     event.listen(Outbox, 'before_insert', outbox_intent)
     enqueue = ArqRedis.enqueue_job
 
-    async def registered(queue, *args, **kwargs):
+    async def registered(queue: ArqRedis, *args: object, **kwargs: object) -> Job | None:
         job_id = kwargs.get('_job_id')
         if isinstance(job_id, str):
             register_job(job_id)
@@ -44,7 +46,7 @@ async def main() -> None:
     ArqRedis.enqueue_job = registered
     invoke = GraphVectorRPC._invoke
 
-    def registered_rpc(owner, name, args, kwargs):
+    def registered_rpc(owner: GraphVectorRPC, name: str, args: tuple[object, ...], kwargs: dict[str, Any]) -> Any:
         if name == 'create_collection':
             resource(
                 'intent',
@@ -56,7 +58,9 @@ async def main() -> None:
         return invoke(owner, name, args, kwargs)
 
     GraphVectorRPC._invoke = registered_rpc
-    settings = Settings.model_validate(json.loads(Path(sys.argv[1]).read_text()))
+    settings = Settings.model_validate(json.loads(Path(sys.argv[1]).read_text()))  # noqa: ASYNC240 - load the one private local config synchronously before worker startup
+    for key in (*settings.worker_queues, settings.worker_health_key, *settings.worker_arq_health_keys):
+        resource('intent', 'redis_key', key)
     container = Container(settings)
     worker = build_worker(container, max_jobs=1)
     try:

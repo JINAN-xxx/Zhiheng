@@ -8,14 +8,16 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job, source
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
 from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.knowledge_support import knowledge_models
 from tests.core.provider import ProviderServer
-from zhiheng.application.knowledge_preparation import PreparationStart
+from zhiheng.application.knowledge.preparation import PreparationStart
 from zhiheng.bootstrap.container import Container
-from zhiheng.modules.developer.orm import Invocation
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
 from zhiheng.worker.execution import execute_run
@@ -70,8 +72,11 @@ async def test_query_only_key_runs_original_metered_embedding_with_real_vectors(
         json={'billing_mode': 'token', 'input_price': '0.000001', 'output_price': '0'},
     )
     assert rate.status_code == 201, rate.text
+    await enable_free_billing(admin)
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[model])
+    key = await issue(
+        admin, owner_app['id'], scopes=['knowledge:query'], model_ids=await knowledge_models(admin, model)
+    )
     external = uuid4()
     async with c.database.sessions.begin() as session:
         caller = await c.resource_access.bearer(session, key['api_key'], scope='knowledge:query')
@@ -147,8 +152,9 @@ async def test_query_only_key_runs_original_metered_embedding_with_real_vectors(
         origin = await c.api_requests.origin(session, 'preparation', prep.id)
         assert origin.key_id == UUID(key['id']) and origin.application_id == UUID(owner_app['id'])
         invocations = list(await session.scalars(select(Invocation).where(Invocation.key_id == UUID(key['id']))))
-        assert len(invocations) == 1 and invocations[0].operation == 'embedding'
-        assert invocations[0].status == 'known' and invocations[0].charged_tokens > 0
+        assert len(invocations) == 2 and {row.operation for row in invocations} == {'embedding', 'rerank'}
+        assert all(row.status == 'known' for row in invocations)
+        assert next(row for row in invocations if row.operation == 'embedding').charged_tokens > 0
     denied = await admin.post(
         '/v1/embeddings', headers={'Authorization': f'Bearer {key["api_key"]}'}, json={'model': model, 'input': 'hello'}
     )

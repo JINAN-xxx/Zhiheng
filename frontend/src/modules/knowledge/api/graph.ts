@@ -1,4 +1,6 @@
 import { http } from '../../../shared/http.ts'
+import { parseDiagnostics } from './index.ts'
+import type { RetrievalDiagnostics } from './index.ts'
 import {
   boolean,
   list,
@@ -65,6 +67,7 @@ export interface GraphSource {
   content: string
 }
 export interface GraphQueryResult {
+  diagnostics?: RetrievalDiagnostics | null | undefined
   context: string
   entities: GraphNode[]
   relationships: GraphEdge[]
@@ -170,6 +173,7 @@ function previewResult(value: unknown): GraphPreviewResult {
 function queryResult(value: unknown): GraphQueryResult {
   const d = object(value)
   return {
+    diagnostics: parseDiagnostics(d.diagnostics, true),
     context: string(d.context),
     entities: list(node)(d.entities),
     relationships: list(edge)(d.relationships),

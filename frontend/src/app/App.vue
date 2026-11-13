@@ -18,6 +18,11 @@ import AiResourceShell from './components/AiResourceShell.vue'
 import PlatformTopbar from './components/PlatformTopbar.vue'
 const route = useRoute()
 const router = useRouter()
+const routeViewKey = computed(() => {
+  if (route.matched.some((record) => record.name === 'admin')) return 'admin'
+  const parameter = route.meta.reuseByParam
+  return parameter ? `${String(route.name)}:${String(route.params[parameter] ?? '')}` : route.path
+})
 const leaving = ref(false)
 const error = ref('')
 const collapsed = ref(false)
@@ -83,12 +88,15 @@ async function signOut(): Promise<void> {
             />
             <main
               class="platform-page"
-              :class="{ 'is-conversation': ['chat', 'work'].includes(String(route.name)) }"
+              :class="{
+                'is-conversation': ['chat', 'work', 'assistant-chat'].includes(String(route.name))
+              }"
             >
               <AiResourceShell
                 v-if="
                   [
                     'models',
+                    'credentials',
                     'usage',
                     'developer',
                     'skills',
@@ -99,9 +107,9 @@ async function signOut(): Promise<void> {
                 "
                 inset
               >
-                <RouterView :key="route.path" />
+                <RouterView :key="routeViewKey" />
               </AiResourceShell>
-              <RouterView v-else :key="route.path" />
+              <RouterView v-else :key="routeViewKey" />
             </main>
           </div>
           <ADrawer

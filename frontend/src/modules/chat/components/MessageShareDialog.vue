@@ -10,6 +10,7 @@ import {
   message as notice
 } from 'ant-design-vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { copyText } from '../../../shared/clipboard.ts'
 import {
   createMessageShare,
   getMessageShares,
@@ -18,6 +19,7 @@ import {
 } from '../api/messageActions.ts'
 import type { CreatedMessageShare, MessageShare, SharePreview } from '../api/messageActions.ts'
 import AiMessage from './AiMessage.vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 const props = defineProps<{ messageId: string }>()
 const emit = defineEmits<{ close: [] }>()
 const includeQuestion = ref(true)
@@ -26,6 +28,7 @@ const preview = ref<SharePreview | null>(null)
 const shares = ref<MessageShare[]>([])
 const created = ref<CreatedMessageShare | null>(null)
 const loading = ref(false)
+const sharesLoading = ref(false)
 const busy = ref(false)
 const error = ref('')
 const scope = new RequestScope()
@@ -61,11 +64,14 @@ async function loadPreview(): Promise<void> {
 }
 async function loadShares(): Promise<void> {
   const context = sharesScope.replace()
+  sharesLoading.value = true
   try {
     const values = await getMessageShares(props.messageId, context.signal)
     if (context.isCurrent()) shares.value = values
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+  } finally {
+    if (context.isCurrent()) sharesLoading.value = false
   }
 }
 watch(
@@ -80,6 +86,7 @@ async function create(): Promise<void> {
   if (!preview.value || loading.value || busy.value || created.value) return
   const context = scope.current()
   sharesScope.replace()
+  sharesLoading.value = false
   busy.value = true
   error.value = ''
   try {
@@ -110,8 +117,7 @@ async function create(): Promise<void> {
 }
 async function copy(): Promise<void> {
   try {
-    if (!navigator.clipboard?.writeText) throw new Error('当前浏览器无法直接复制，请选中链接后复制')
-    await navigator.clipboard.writeText(shareLink.value)
+    await copyText(shareLink.value)
     notice.success('分享链接已复制')
   } catch (reason) {
     notice.error(errorMessage(reason))
@@ -190,7 +196,12 @@ onBeforeUnmount(() => {
       <section class="share-history" aria-label="已创建的分享">
         <div class="share-history-title">
           <h3>已创建的分享</h3>
-          <AButton size="small" :disabled="busy" @click="loadShares">刷新分享列表</AButton>
+          <RefreshButton
+            label="刷新分享列表"
+            :loading="sharesLoading"
+            :disabled="busy"
+            @click="loadShares"
+          />
         </div>
         <p v-if="!shares.length" class="muted">暂无分享链接</p>
         <div v-for="share in shares" :key="share.id" class="share-record">

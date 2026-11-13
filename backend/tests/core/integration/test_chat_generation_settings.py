@@ -3,14 +3,14 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
 from tests.core.integration.test_knowledge import finish_preparation
 from tests.core.integration.test_knowledge_failures import ready_base, source
 from tests.core.integration.test_skills import install
 from tests.core.provider import ProviderServer
 from zhiheng.modules.chat.orm import ChatMessage
-from zhiheng.runtime.orm import Run
+from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.worker.execution import execute_run
 
 
@@ -38,8 +38,8 @@ async def test_generation_controls_reach_provider_quota_history_and_regeneration
         request = frozen.payload
     assert request['binding']['max_output_tokens'] == 24
     assert request['binding']['options']['temperature'] == 0.25
-    expected_reservation = sum(len(message['content'].encode()) + 16 for message in request['messages']) + 24
-    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == expected_reservation
+    # The default credit mode records usage without reserving quota; generation controls stay frozen above.
+    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == 0
     duplicate = await admin.post(path, json=body)
     assert duplicate.status_code == 202 and duplicate.json()['id'] == run_id
     for changes in ({'system_prompt': 'changed'}, {'temperature': 0}, {'max_output_tokens': 23}):
@@ -181,18 +181,64 @@ async def test_old_context_has_no_invented_generation_configuration(
     assert all(message.get('generation_config') is None for message in messages)
 
 
+@pytest.mark.parametrize(
+    ('generation_overrides', 'error_code'),
+    [
+        pytest.param({'max_output_tokens': 65}, 'invalid_max_output_tokens', id='output-limit'),
+        pytest.param({'system_prompt': '中' * 32000}, 'context_input_too_long', id='prompt-budget'),
+    ],
+)
 async def test_output_catalog_and_prompt_budget_rejections_leave_no_run_or_quota(
     admin: httpx.AsyncClient,
+    app: FastAPI,
     model_id: str,
     provider: ProviderServer,
+    generation_overrides: dict[str, str | int],
+    error_code: str,
 ) -> None:
+    app.state.container.chat_context.input_tokens = 8192
     conversation = (await admin.post('/api/chat/conversations', json={})).json()['id']
     path = f'/api/chat/conversations/{conversation}/runs'
     body = {'model_id': model_id, 'message': 'hello', 'client_request_id': str(uuid4())}
-    too_many = await admin.post(path, json={**body, 'max_output_tokens': 65})
-    assert too_many.status_code == 422 and too_many.json()['error']['code'] == 'invalid_max_output_tokens'
-    too_long = await admin.post(path, json={**body, 'system_prompt': '中' * 32000})
-    assert too_long.status_code == 400 and too_long.json()['error']['code'] == 'context_too_long'
-    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == 0
+    rejected = await admin.post(path, json={**body, **generation_overrides})
+    assert rejected.status_code == 422 and rejected.json()['error']['code'] == error_code, rejected.text
+    usage = (await admin.get('/api/usage')).json()
+    assert usage['reserved_tokens'] == usage['used_tokens'] == 0
     assert (await admin.get(f'/api/chat/conversations/{conversation}/messages')).json() == []
+    async with app.state.container.database.sessions() as session:
+        assert await session.scalar(select(func.count()).select_from(Run)) == 0
+        assert await session.scalar(select(func.count()).select_from(Outbox)) == 0
     assert not provider.requests
+
+
+async def test_default_chat_sends_large_attachment_without_implicit_token_limits(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
+) -> None:
+    content = '中' * 25000
+    uploaded = await admin.post(
+        '/api/chat/attachments',
+        params={'filename': 'report.txt'},
+        content=content.encode(),
+        headers={'Content-Type': 'application/octet-stream'},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    conversation = (await admin.post('/api/chat/conversations', json={})).json()['id']
+    response = await admin.post(
+        f'/api/chat/conversations/{conversation}/runs',
+        json={
+            'model_id': model_id,
+            'message': '阅读整份附件',
+            'client_request_id': str(uuid4()),
+            'file_ids': [uploaded.json()['id']],
+        },
+    )
+    assert response.status_code == 202, response.text
+    await execute_run(app.state.container, UUID(response.json()['id']))
+    outgoing = provider.requests[-1]
+    assert 'max_tokens' not in outgoing and 'max_completion_tokens' not in outgoing
+    assert 'provider_output_default' not in outgoing
+    assert content in outgoing['messages'][-1]['content']
+    info = (await admin.get(f'/api/chat/conversations/{conversation}/context')).json()
+    assert info['input_budget'] is None
+    usage = (await admin.get('/api/usage')).json()
+    assert usage['reserved_tokens'] == 0 and usage['used_tokens'] > 0

@@ -1,6 +1,7 @@
+import { isActiveAdminPermission } from '../access.ts'
 import { http, decodeVoid } from '../../../shared/http.ts'
-import { list, object } from '../../../shared/validation.ts'
-import { decodePage, decodePermission, decodeNavigation, decodeUserOptions } from './types.ts'
+import { list, object, string } from '../../../shared/validation.ts'
+import { decodePage, decodePermission, decodeUserOptions } from './types.ts'
 import type { Decoder, Entity } from './types.ts'
 export * from './types.ts'
 export interface CollectionQuery {
@@ -25,18 +26,30 @@ export const getCollection = <T>(
     decode: decodePage(decode),
     ...(signal ? { signal } : {})
   })
-export const createEntity = <T>(endpoint: string, body: object, decode: Decoder<T>) =>
-  http.request(`/admin/${endpoint}`, { method: 'POST', body, decode })
+export const createEntity = <T>(
+  endpoint: string,
+  body: object,
+  decode: Decoder<T>,
+  signal?: AbortSignal
+) =>
+  http.request(`/admin/${endpoint}`, {
+    method: 'POST',
+    body,
+    decode,
+    ...(signal ? { signal } : {})
+  })
 export const updateEntity = <T>(
   endpoint: string,
   entity: Entity,
   body: object,
-  decode: Decoder<T>
+  decode: Decoder<T>,
+  signal?: AbortSignal
 ) =>
   http.request(`/admin/${endpoint}/${encodeURIComponent(entity.id)}`, {
     method: 'PATCH',
     body: { ...body, expected_version: entity.version },
-    decode
+    decode,
+    ...(signal ? { signal } : {})
   })
 export const deleteEntity = (endpoint: string, entity: Entity) =>
   http.request(
@@ -47,7 +60,10 @@ export const getUserOptions = (signal?: AbortSignal) =>
   http.request('/admin/users/options', { decode: decodeUserOptions, ...(signal ? { signal } : {}) })
 export const getPermissions = (signal?: AbortSignal) =>
   http.request('/admin/permissions', {
-    decode: (value) => list(decodePermission)(object(value).items),
+    decode: (value) =>
+      list(decodePermission)(object(value).items).filter((item) =>
+        isActiveAdminPermission(item.code)
+      ),
     ...(signal ? { signal } : {})
   })
 export async function getAllCollection<T>(
@@ -63,8 +79,6 @@ export async function getAllCollection<T>(
     if (items.length >= result.total || result.items.length === 0) return items
   }
 }
-export const getNavigation = (signal?: AbortSignal) =>
-  getAllCollection('menus', decodeNavigation, { navigation: 'true' }, signal)
 export const resetPassword = (entity: Entity, password: string) =>
   http.request(`/admin/users/${encodeURIComponent(entity.id)}/password`, {
     method: 'POST',
@@ -75,4 +89,19 @@ export const revokeSession = (id: string, version: number) =>
   http.request(`/admin/sessions/${encodeURIComponent(id)}?expected_version=${version}`, {
     method: 'DELETE',
     decode: decodeVoid
+  })
+
+export const getUserPermissions = (id: string, signal: AbortSignal) =>
+  http.request(`/admin/users/${encodeURIComponent(id)}/effective-permissions`, {
+    signal,
+    decode: (value) =>
+      list((value) => {
+        const row = object(value)
+        return {
+          code: string(row.code),
+          label: string(row.label),
+          group: string(row.group),
+          roles: list(string)(row.roles)
+        }
+      })(object(value).items)
   })

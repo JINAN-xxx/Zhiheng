@@ -1,5 +1,6 @@
 """Public, exact-decimal contracts for platform credits."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -151,6 +152,7 @@ class CreditReservation(CreditValue):
     version: int
     reserved_points: Decimal
     charged_points: Decimal | None
+    failure_waived: bool = False
     rate_version: int
     created_at: datetime
     input_tokens: int | None = None
@@ -174,3 +176,93 @@ class CreditLedgerEntry(CreditValue):
     run_id: UUID | None
     reason: str
     created_at: datetime
+
+
+class UsageOutcome(BaseModel):
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    status: Literal['pending', 'known', 'unknown'] = 'pending'
+    points_enforced: bool = False
+
+
+@dataclass(frozen=True)
+class MeterReservation:
+    """Admission metadata exposed to the unified usage facade without exposing ORM rows."""
+
+    points_enforced: bool
+    key_id: UUID | None = None
+    key_limit: Decimal | None = None
+
+
+class UsageRecord(BaseModel):
+    version: int = 1
+    points_enforced: bool = False
+    id: UUID
+    run_id: UUID
+    model_id: UUID
+    source: str
+    status: str
+    input_tokens: int | None
+    output_tokens: int | None
+    charged_tokens: int | None
+    created_at: datetime
+
+
+class UsageSummary(BaseModel):
+    quota_version: int = 0
+    points_enabled: bool = False
+    total: int = 0
+    page: int = 1
+    page_size: int = 100
+    limit_tokens: int
+    used_tokens: int
+    reserved_tokens: int
+    records: list[UsageRecord]
+
+
+class ApplicationUsage(BaseModel):
+    id: UUID
+    run_id: UUID
+    application_id: UUID | None
+    key_id: UUID | None
+    model_id: UUID
+    operation: str
+    status: str
+    points_enforced: bool = False
+    input_tokens: int | None
+    output_tokens: int | None
+    search_units: int | None
+    cache_tokens: int | None
+    reasoning_tokens: int | None
+    billable_cost: Decimal | None
+    currency: str | None
+    rate_card_id: UUID | None
+    rate_version: int | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class KeyUsageFacts:
+    """Read-only billing facts consumed by Developer Key admission policy."""
+
+    active: int
+    spent: Decimal
+
+
+@dataclass(frozen=True)
+class InvocationIdentity:
+    """Original invocation authorization identity without exposing the ledger row."""
+
+    application_id: UUID | None
+    key_id: UUID | None
+    user_id: UUID
+    model_id: UUID
+
+
+class TokenQuotaPatch(CreditWrite):
+    expected_version: int = Field(strict=True, ge=0)
+    limit_tokens: int = Field(strict=True, ge=1, le=10**12)
+
+
+class TokenReconcile(CreditReconcile):
+    """The same immutable usage facts, applied to Token-only invocations."""

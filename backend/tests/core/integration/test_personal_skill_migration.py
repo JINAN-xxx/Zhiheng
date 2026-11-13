@@ -182,14 +182,14 @@ async def test_upgrade_preserves_uploaded_facts_and_binds_builtin_archives(setti
                     )
                     == row
                 )
-            assert await session.scalar(text('SELECT count(*) FROM skills WHERE owner_id IS NULL')) == 2
-            assert await session.scalar(text('SELECT count(*) FROM skill_legacy_bindings')) == 4
+            assert await session.scalar(text('SELECT count(*) FROM skills WHERE owner_id IS NULL')) == 5
+            assert await session.scalar(text('SELECT count(*) FROM skill_legacy_bindings')) == 10
             legacy = (
                 (
                     await session.execute(
                         text("""SELECT s.id,r.id AS revision_id,s.slug,r.name,r.content_hash,r.content
                 FROM skills s JOIN skill_revisions r ON s.revision_id=r.id
-                WHERE s.owner_id IS NULL ORDER BY s.slug LIMIT 1""")
+                WHERE s.owner_id IS NULL AND s.legacy_archive ORDER BY s.slug LIMIT 1""")
                     )
                 )
                 .mappings()
@@ -225,6 +225,7 @@ async def test_upgrade_preserves_uploaded_facts_and_binds_builtin_archives(setti
 async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
     settings: Settings, stored_hint: bool
 ) -> None:
+    from tests.core.legacy_schema import insert_historical
     from zhiheng.modules.agents.orm import Agent
     from zhiheng.modules.knowledge.orm import RetrievalIntent
     from zhiheng.modules.work.orm import WorkMember, WorkTask
@@ -242,8 +243,7 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
             )
             skill_id, revision_id = await legacy_upload(session, owner.id)
             agent = Agent(owner_id=owner.id, config={'skill_slugs': ['legacy-owned']})
-            session.add(agent)
-            await session.flush()
+            await insert_historical(session, agent)
             task = WorkTask(
                 owner_id=actor.id,
                 title='Delegated',
@@ -252,9 +252,9 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
                 create_client_request_id=uuid4(),
                 create_fingerprint='old',
             )
-            session.add(task)
-            await session.flush()
-            session.add(
+            await insert_historical(session, task)
+            await insert_historical(
+                session,
                 WorkMember(
                     task_id=task.id,
                     agent_id=agent.id,
@@ -263,9 +263,10 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
                     published_version=1,
                     config=agent.config,
                     skills=[{'skill_id': str(skill_id), 'revision_id': str(revision_id), 'slug': 'legacy-owned'}],
-                )
+                ),
             )
-            session.add(
+            await insert_historical(
+                session,
                 RetrievalIntent(
                     namespace_id=actor.id,
                     actor_id=actor.id,
@@ -280,7 +281,7 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
                         **({'skill_owner_id': str(actor.id)} if stored_hint else {}),
                     },
                     deadline=utcnow() + timedelta(hours=1),
-                )
+                ),
             )
         await migrate(settings)
         async with engine.connect() as connection:

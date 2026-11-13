@@ -29,7 +29,7 @@ async def test_resource_catalog_and_console_only_summary(admin: httpx.AsyncClien
         'source_file_limit': 1000,
         'source_byte_limit': 1073741824,
         'can_bind_resources': True,
-        'can_configure_quota': True,
+        'can_configure_quota': False,
         'items': [],
     }
     key = await issue(admin, owner_app['id'], scopes=['files:read'])
@@ -142,8 +142,9 @@ async def test_file_usage_survives_unbind_and_admin_does_not_discover_foreign_so
         assert (await member.get(prefix + '/resource-access')).status_code == 404
     candidates = (await admin.get(prefix + '/resource-candidates?kind=file')).json()
     assert foreign.json()['id'] not in {row['resource_id'] for row in candidates}
-    foreign_summary = (await admin.get('/api/developer/applications/' + foreign_app['id'] + '/resource-access')).json()
-    assert foreign_summary['can_bind_resources'] is False and foreign_summary['items'] == []
+    foreign_summary = await admin.get('/api/developer/applications/' + foreign_app['id'] + '/resource-access')
+    assert foreign_summary.status_code == 404
+    assert foreign.json()['id'] not in foreign_summary.text
     assert (
         await admin.get('/api/developer/applications/' + foreign_app['id'] + '/resource-candidates?kind=file')
     ).status_code == 404
@@ -173,9 +174,7 @@ async def test_owned_disabled_and_deleted_skill_can_be_explicitly_authorized_for
         if row['resource_id'] == skill['id']
     )
     assert candidate['status'] == 'disabled' and set(candidate['allowed_actions']) == {'read', 'write', 'delete'}
-    removed = await admin.request(
-        'DELETE', '/api/skills/' + skill['id'], json={}
-    )
+    removed = await admin.request('DELETE', '/api/skills/' + skill['id'], json={})
     assert removed.status_code == 200, removed.text
     candidates = (await admin.get(prefix + '/resource-candidates?kind=skill')).json()
     candidate = next(row for row in candidates if row['resource_id'] == skill['id'])

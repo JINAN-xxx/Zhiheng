@@ -63,7 +63,7 @@ watch(
     <div class="generation-settings">
       <p class="generation-settings__description">设置仅对后续消息生效；重新生成沿用原消息参数。</p>
       <p v-if="model" class="generation-settings__model">
-        {{ model.name }} · 当前模型最多输出 {{ model.max_output_tokens }} tokens
+        {{ model.name }} · 默认不预设输出长度上限
       </p>
       <div class="generation-settings__field">
         <label for="chat-system-prompt">系统提示词</label>
@@ -100,9 +100,9 @@ watch(
             class="generation-settings__input"
             inputmode="numeric"
             :disabled="disabled"
-            placeholder="模型默认"
+            placeholder="不限制"
           />
-          <small>回复最多使用的 tokens 数，留空使用模型默认值。</small>
+          <small>留空不向模型服务设置输出上限；填写后仅对后续消息生效。</small>
         </div>
       </div>
       <AAlert v-if="validationError" type="error" show-icon :message="validationError" />

@@ -31,7 +31,7 @@ def reference_conflict(
     }
     details: list[dict[str, object]] = []
     for item in references:
-        visible = principal.is_admin or item.owner_id is None or item.owner_id == principal.id
+        visible = item.owner_id is None or item.owner_id == principal.id
         details.append(
             {
                 'kind': item.kind,

@@ -10,7 +10,6 @@ export interface Profile {
   is_admin: boolean
   department_name: string | null
   roles: string[]
-  posts: string[]
   created_at: string | null
   version: number
 }
@@ -39,7 +38,6 @@ export function parseProfile(value: unknown): Profile {
     is_admin: boolean(profile.is_admin),
     department_name: profile.department_name === null ? null : string(profile.department_name),
     roles: list(string)(profile.roles),
-    posts: list(string)(profile.posts),
     created_at: profile.created_at === null ? null : string(profile.created_at),
     version
   }

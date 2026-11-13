@@ -71,7 +71,7 @@ class SkillPackageParser:
             if filename == 'SKILL.md':
                 files = (('SKILL.md', payload),)
             elif filename.lower().endswith('.zip'):
-                files = self._zip(payload)
+                files = self._root_files(self._zip(payload))
             else:
                 raise invalid()
             main = dict(files).get('SKILL.md')
@@ -103,6 +103,24 @@ class SkillPackageParser:
             EOFError,
         ) as error:
             raise invalid() from error
+
+    @staticmethod
+    def _root_files(files: tuple[tuple[str, bytes], ...]) -> tuple[tuple[str, bytes], ...]:
+        if any(path == 'SKILL.md' for path, _ in files):
+            return files
+        if files:
+            prefix = files[0][0].partition('/')[0] + '/'
+            if all(path.startswith(prefix) for path, _ in files) and any(
+                path == prefix + 'SKILL.md' for path, _ in files
+            ):
+                # Paths have already passed ZIP safety validation. Remove only
+                # one shared wrapper, preserving every skill-relative path.
+                return tuple((path[len(prefix) :], data) for path, data in files)
+        raise AppError(
+            'invalid_skill_package',
+            '未找到唯一的 SKILL.md，请放在 ZIP 根目录或唯一的一级技能文件夹内',
+            422,
+        )
 
     @staticmethod
     def _metadata(content: str) -> tuple[str, str, str, str]:

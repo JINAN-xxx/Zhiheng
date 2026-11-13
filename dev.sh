@@ -18,8 +18,11 @@ fi
 export CORE_SOURCE_ROOT="$SOURCE_ROOT"
 export CORE_SOURCE_PROXY_CONFIG="$SOURCE_ROOT/deploy/core/.source/nginx.conf"
 export CORE_ENV_FILE="$(realpath "$SOURCE_CONFIG")"
-python "$SOURCE_ROOT/tools/source_proxy.py" "$SOURCE_ROOT/frontend/nginx.core.conf" "$CORE_SOURCE_PROXY_CONFIG"
+python3 "$SOURCE_ROOT/tools/source_proxy.py" "$SOURCE_ROOT/frontend/nginx.core.conf" "$CORE_SOURCE_PROXY_CONFIG"
 SOURCE_COMPOSE=(docker compose --env-file "$CORE_ENV_FILE" --file "$SOURCE_ROOT/compose.yaml" --file "$SOURCE_ROOT/deploy/core/compose.source.yaml" --project-name zhiheng-core)
+if [[ -f "$SOURCE_ROOT/deploy/core/.source/compose.lan.yaml" ]]; then
+  SOURCE_COMPOSE+=(--file "$SOURCE_ROOT/deploy/core/.source/compose.lan.yaml")
+fi
 case "$SOURCE_COMMAND" in
   up) exec "${SOURCE_COMPOSE[@]}" up --detach --wait --no-build "$@" ;;
   migrate) exec "${SOURCE_COMPOSE[@]}" run --rm --no-deps migrator ;;

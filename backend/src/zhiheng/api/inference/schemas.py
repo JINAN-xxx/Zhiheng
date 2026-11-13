@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from zhiheng.shared.numbers import MAX_SAFE_INTEGER
+
 MAX_STOPS = 4
 MAX_ITEMS = 256
 MAX_ITEM_BYTES = 32768
@@ -28,7 +30,7 @@ class ChatBody(PublicBody):
     stream: bool = Field(default=False, strict=True)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
-    max_tokens: int | None = Field(default=None, strict=True, gt=0, le=131072)
+    max_tokens: int | None = Field(default=None, strict=True, gt=0, le=MAX_SAFE_INTEGER)
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
     stop: str | list[str] | None = None

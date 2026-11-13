@@ -1,11 +1,12 @@
 import hashlib
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, defer, undefer
 
@@ -15,6 +16,7 @@ from zhiheng.modules.chat.contracts import (
     ChatGenerationConfig,
     ChatRequestContext,
     ConversationInfo,
+    MessageHistory,
     MessageInfo,
     RegenerationTarget,
     SkillSnapshot,
@@ -65,19 +67,35 @@ class ChatService:
         return self._conversation(row)
 
     async def list_conversations(
-        self, session: AsyncSession, principal: Principal, *, archived: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        *,
+        archived: bool = False,
+        search: str = '',
+        after: tuple[datetime, UUID] | None = None,
+        limit: int = 100,
     ) -> list[ConversationInfo]:
-        rows = await session.scalars(
-            select(Conversation)
-            .where(
-                Conversation.owner_id == principal.id,
-                Conversation.deleted_at.is_(None),
-                Conversation.archived.is_(archived),
-            )
-            .order_by(Conversation.created_at.desc())
-            .limit(100)
+        activity = func.coalesce(
+            select(func.max(ChatMessage.created_at))
+            .where(ChatMessage.conversation_id == Conversation.id)
+            .correlate(Conversation)
+            .scalar_subquery(),
+            Conversation.created_at,
         )
-        return [self._conversation(row) for row in rows]
+        query = select(Conversation, activity.label('last_activity_at')).where(
+            Conversation.owner_id == principal.id,
+            Conversation.deleted_at.is_(None),
+            Conversation.archived.is_(archived),
+        )
+        if search:
+            literal = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+            query = query.where(Conversation.title.ilike(f'%{literal}%', escape='\\'))
+        if after:
+            timestamp, identifier = after
+            query = query.where(or_(activity < timestamp, and_(activity == timestamp, Conversation.id < identifier)))
+        rows = await session.execute(query.order_by(activity.desc(), Conversation.id.desc()).limit(limit))
+        return [self._conversation(row).model_copy(update={'last_activity_at': updated}) for row, updated in rows]
 
     async def require_conversation(
         self, session: AsyncSession, principal: Principal, conversation_id: UUID, *, lock: bool = False
@@ -92,11 +110,19 @@ class ChatService:
             raise AppError('conversation_not_found', '对话不存在', 404)
         return self._conversation(row)
 
-    async def messages(self, session: AsyncSession, principal: Principal, conversation_id: UUID) -> list[MessageInfo]:
+    async def message_history(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        conversation_id: UUID,
+        *,
+        before: tuple[datetime, UUID] | None = None,
+        limit: int = 100,
+    ) -> MessageHistory:
         await self.require_conversation(session, principal, conversation_id)
         reply = aliased(ChatMessage)
         candidates = await session.execute(
-            select(ChatMessage.id, ChatMessage.run_id, func.count(reply.id))
+            select(ChatMessage.id, ChatMessage.run_id, func.count(reply.id), ChatMessage.created_at)
             .outerjoin(
                 reply,
                 and_(
@@ -108,15 +134,25 @@ class ChatService:
                     ),
                 ),
             )
-            .where(ChatMessage.conversation_id == conversation_id, ChatMessage.role == 'user')
+            .where(
+                ChatMessage.conversation_id == conversation_id,
+                ChatMessage.role == 'user',
+                or_(
+                    ChatMessage.created_at < before[0],
+                    and_(ChatMessage.created_at == before[0], ChatMessage.id < before[1]),
+                )
+                if before
+                else true(),
+            )
             .group_by(ChatMessage.id)
             .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
-            .limit(100)
+            .limit(limit + 1)
         )
+        candidate_rows = candidates.all()
         question_ids: list[UUID] = []
         run_ids: list[UUID] = []
         size = 0
-        for question_id, run_id, reply_count in candidates:
+        for question_id, run_id, reply_count, _created in candidate_rows[:limit]:
             cost = 1 + reply_count
             if size + cost > MAX_VISIBLE_MESSAGE_ROWS:
                 if not question_ids:
@@ -126,7 +162,7 @@ class ChatService:
             run_ids.append(run_id)
             size += cost
         if not question_ids:
-            return []
+            return MessageHistory(items=[])
         rows = list(
             await session.scalars(
                 select(ChatMessage)
@@ -142,7 +178,14 @@ class ChatService:
             )
         )
         questions_by_run = {row.run_id: row.id for row in rows if row.role == 'user'}
-        return [self._message(row, questions_by_run.get(row.run_id)) for row in reversed(rows)]
+        position = candidate_rows[len(question_ids) - 1]
+        return MessageHistory(
+            items=[self._message(row, questions_by_run.get(row.run_id)) for row in reversed(rows)],
+            next_before=(position[3], position[0]) if len(candidate_rows) > len(question_ids) else None,
+        )
+
+    async def messages(self, session: AsyncSession, principal: Principal, conversation_id: UUID) -> list[MessageInfo]:
+        return (await self.message_history(session, principal, conversation_id)).items
 
     @staticmethod
     def _message(row: ChatMessage, question_id: UUID | None = None) -> MessageInfo:
@@ -570,7 +613,12 @@ class ChatService:
     @staticmethod
     def _conversation(row: Conversation) -> ConversationInfo:
         return ConversationInfo(
-            id=row.id, title=row.title, created_at=row.created_at, version=row.version, archived=row.archived
+            id=row.id,
+            title=row.title,
+            created_at=row.created_at,
+            last_activity_at=row.created_at,
+            version=row.version,
+            archived=row.archived,
         )
 
     @staticmethod

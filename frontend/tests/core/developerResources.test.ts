@@ -65,7 +65,9 @@ void test('key and application decoders preserve resource fields, budgets, limit
   const current = api.applyResourceVersion(app, 9, undefined, refreshed)
   assert.equal(current.applicationName, 'Renamed remotely')
   assert.equal(current.status, 'disabled')
-  assert.equal(current.applicationCode, app.applicationCode)
+  assert.equal(current.applicationId, app.applicationId)
+  assert.equal(current.ownerId, app.ownerId)
+  assert.equal('applicationCode' in current, false)
 })
 void test('candidate actions remain the server delegated intersection and invalid bindings stay opaque', () => {
   assert.equal(typeof api.parseResourceCandidate, 'function')

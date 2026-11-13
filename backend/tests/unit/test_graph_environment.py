@@ -58,6 +58,12 @@ assert importlib.import_module('lightrag.kg.milvus_impl').config.sections()==[]
 register()
 """.replace('ENTRY', repr(entry))
     result = subprocess.run(
-        [sys.executable, '-B', '-c', script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30
+        [sys.executable, '-B', '-c', script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stderr

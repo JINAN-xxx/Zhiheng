@@ -25,10 +25,8 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 <style scoped>
 .work-history-dialog-body {
   display: flex;
-  min-height: 180px;
   height: min(65dvh, 600px);
-  max-height: min(65dvh, 600px);
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 </style>

@@ -27,7 +27,9 @@ async def _transaction(session: AsyncSession) -> AsyncIterator[None]:
 
 @router.get('/permissions')
 async def permissions(principal: PrincipalDependency) -> dict[str, Any]:
-    if not principal.is_admin and not any(code.startswith('system:') for code in principal.permissions):
+    if not principal.is_admin and not any(
+        code.startswith('system:') and code.endswith(':read') for code in principal.permissions
+    ):
         raise AppError('forbidden', '需要后台管理权限', 403)
     return {'items': permission_catalog()}
 
@@ -39,6 +41,13 @@ async def user_options(
     session: SessionDependency,
 ) -> dict[str, Any]:
     return await container.admin_identity.user_options(session, principal)
+
+
+@router.get('/users/{identifier}/effective-permissions')
+async def effective_permissions(
+    identifier: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> dict[str, Any]:
+    return await container.admin_identity.effective_permissions(session, principal, identifier)
 
 
 @router.post('/users/{identifier}/password')
@@ -126,12 +135,7 @@ def _resource_router(kind: AdminKind) -> APIRouter:
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=200)] = 20,
         is_active: bool | None = None,
-        navigation: bool = False,
     ) -> dict[str, Any]:
-        if navigation:
-            if kind != 'menus':
-                raise AppError('invalid_navigation', '仅菜单资源支持导航投影', 422)
-            return await container.admin_identity.navigation(session, principal)
         return await container.admin_identity.list(
             session,
             principal,
@@ -223,5 +227,5 @@ def _resource_router(kind: AdminKind) -> APIRouter:
     return resource
 
 
-for _kind in ('users', 'roles', 'departments', 'posts', 'menus'):
+for _kind in ('users', 'roles', 'departments'):
     router.include_router(_resource_router(_kind))

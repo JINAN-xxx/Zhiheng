@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zhiheng.infrastructure.database import Base
@@ -13,31 +13,6 @@ class Versioned:
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class Dictionary(Versioned, Base):
-    __tablename__ = 'operations_dictionaries'
-    __table_args__ = (CheckConstraint('version >= 1', name='ck_operations_dictionary_version'),)
-    code: Mapped[str] = mapped_column(String(80), unique=True)
-    name: Mapped[str] = mapped_column(String(100))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    remark: Mapped[str] = mapped_column(String(500), default='')
-
-
-class DictionaryItem(Versioned, Base):
-    __tablename__ = 'operations_dictionary_items'
-    __table_args__ = (
-        UniqueConstraint('dictionary_id', 'value', name='uq_operations_dictionary_item_value'),
-        CheckConstraint('version >= 1', name='ck_operations_item_version'),
-    )
-    dictionary_id: Mapped[UUID] = mapped_column(
-        ForeignKey('operations_dictionaries.id', ondelete='RESTRICT'), index=True
-    )
-    label: Mapped[str] = mapped_column(String(100))
-    value: Mapped[str] = mapped_column(String(200))
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    remark: Mapped[str] = mapped_column(String(500), default='')
 
 
 class Config(Versioned, Base):

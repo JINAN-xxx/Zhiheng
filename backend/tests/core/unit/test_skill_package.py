@@ -40,6 +40,67 @@ def test_plain_and_zip_preserve_content_attachments_and_stable_tree_hash() -> No
     assert plain.package_version == '1.0.0'
 
 
+@pytest.mark.parametrize('directory', ['writing-assistant', '技能包', 'export-v2'])
+def test_single_directory_zip_uses_same_relative_tree_as_flat_package(directory: str) -> None:
+    entries = [
+        ('SKILL.md', markdown('writing-assistant').replace(b'\n', b'\r\n')),
+        ('agents/openai.yaml', b'interface: {}'),
+    ]
+    flat = parser().parse(archive(entries), filename='flat.zip')
+    wrapped = parser().parse(
+        archive([(directory + '/', b''), *[(directory + '/' + name, content) for name, content in entries]]),
+        filename='writing-assistant.zip',
+    )
+    assert wrapped.slug == 'writing-assistant'
+    assert wrapped.files == flat.files
+    assert wrapped.content == flat.content
+    assert wrapped.content_hash == flat.content_hash
+    assert wrapped.parsed_hash == flat.parsed_hash
+
+
+@pytest.mark.parametrize('layout', ['missing', 'multiple', 'mixed', 'nested'])
+def test_unsupported_zip_layout_explains_main_document_placement(layout: str) -> None:
+    from zhiheng.shared.errors import AppError
+
+    entries = {
+        'missing': [('README.md', b'No main file')],
+        'multiple': [('one/SKILL.md', markdown('one')), ('two/SKILL.md', markdown('two'))],
+        'mixed': [('one/SKILL.md', markdown()), ('README.md', b'Outside skill')],
+        'nested': [('export/skill/SKILL.md', markdown())],
+    }[layout]
+    with pytest.raises(AppError) as error:
+        parser().parse(archive(entries), filename='skill.zip')
+    assert error.value.code == 'invalid_skill_package'
+    assert 'SKILL.md' in error.value.message
+
+
+@pytest.mark.parametrize('unsafe', ['writing-assistant/../bad', '../outside', 'writing-assistant/./bad'])
+def test_wrapper_never_hides_unsafe_original_paths(unsafe: str) -> None:
+    from zhiheng.shared.errors import AppError
+
+    with pytest.raises(AppError):
+        parser().parse(archive([('writing-assistant/SKILL.md', markdown()), (unsafe, b'bad')]), filename='skill.zip')
+
+
+@pytest.mark.parametrize('violation', ['main_size', 'file_count', 'symlink'])
+def test_single_directory_archive_keeps_original_package_limits(violation: str) -> None:
+    from zhiheng.shared.errors import AppError
+
+    entries: list[tuple[str | zipfile.ZipInfo, bytes]] = [('folder/SKILL.md', markdown())]
+    if violation == 'main_size':
+        entries[0] = ('folder/SKILL.md', markdown(body='x' * (128 * 1024)))
+    elif violation == 'file_count':
+        entries.extend((f'folder/references/{index}.txt', b'') for index in range(200))
+    else:
+        link = zipfile.ZipInfo('folder/linked')
+        link.create_system = 3
+        link.external_attr = (stat.S_IFLNK | 0o600) << 16
+        entries.append((link, b'outside'))
+    with pytest.raises(AppError) as error:
+        parser().parse(archive(entries), filename='folder.zip')
+    assert error.value.code == 'invalid_skill_package'
+
+
 @pytest.mark.parametrize('filename', ['SKILL.md', 'minimal.zip'])
 def test_minimal_frontmatter_without_display_name_uses_skill_name(filename: str) -> None:
     raw = b'---\nname: minimal-skill\ndescription: Summarize supplied material\n---\nKeep the original facts.'
@@ -135,6 +196,7 @@ def test_implicit_directories_cannot_have_conflicting_case(entries: list[tuple[s
         (markdown(body='x' * (128 * 1024)), 'SKILL.md'),
         (markdown(), 'other.md'),
     ],
+    ids=['oversized-upload', 'oversized-main-file', 'unsupported-filename'],
 )
 def test_upload_and_main_file_and_filename_limits(payload: bytes, filename: str) -> None:
     value = parser()
@@ -165,7 +227,7 @@ def test_no_skill_fingerprint_remains_compatible_with_previous_runs() -> None:
     import json
     from uuid import uuid4
 
-    from zhiheng.application.chat_runs import ChatRunService
+    from zhiheng.application.chat.runs import ChatRunService
 
     resource, model = uuid4(), uuid4()
     previous = hashlib.sha256(

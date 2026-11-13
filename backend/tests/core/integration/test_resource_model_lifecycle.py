@@ -9,7 +9,8 @@ from sqlalchemy import select, text
 
 from zhiheng.modules.agents.orm import Agent, AgentVersion
 from zhiheng.modules.agents.public import AgentConfig
-from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, Invocation
+from zhiheng.modules.billing.orm import Invocation
+from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
 from zhiheng.modules.knowledge.graph.orm import GraphJob
 from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeBase, KnowledgeJob, RetrievalIntent
 from zhiheng.modules.models.orm import ConnectionRevision, ModelConnection, ModelDefinition, RateCard
@@ -43,17 +44,19 @@ async def test_historical_run_rate_and_invoice_survive_model_and_connection_remo
         )
         session.add(run)
         await session.flush()
-        await container.usage.reserve(
+        # Seed a historical priced invocation independently of the current optional credit switch.
+        await container.usage._meter.reserve(
             session,
             user_id=owner_id,
             run_id=run.id,
             model_id=model,
             source='connection_test',
+            points_enforced=True,
             tokens=100,
             token_limit=100000,
             rate=await container.models.latest_rate(session, model),
         )
-        await container.usage.settle(session, run.id, input_tokens=10, output_tokens=5)
+        await container.usage._meter.settle(session, run.id, input_tokens=10, output_tokens=5)
         run_id, connection_id, revision_id = run.id, binding.connection_id, binding.connection_revision_id
     response = await admin.delete(f'/api/models/{model_id}', headers={'Content-Type': 'application/json'})
     assert response.status_code == 200, response.text
@@ -101,10 +104,10 @@ async def test_inflight_binding_blocks_model_and_connection_removal_with_referen
         item['kind'] == 'run' and item['id'] == str(run_id) for item in result.json()['error']['details']['references']
     )
     async with container.database.sessions() as session:
-        assert await container.runs.references_connection(session, binding.connection_id)
-        assert [ref.id for ref in await container.runs.connection_references(session, binding.connection_id)] == [
-            run_id
-        ]
+        assert await container.run_references.references_connection(session, binding.connection_id)
+        assert [
+            ref.id for ref in await container.run_references.connection_references(session, binding.connection_id)
+        ] == [run_id]
 
 
 async def test_agent_references_only_live_draft_and_current_publication(

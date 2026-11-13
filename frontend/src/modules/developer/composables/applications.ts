@@ -1,4 +1,6 @@
-import { monthlyPointsLimit } from '../../billing/presentation.ts'
+import { canUseCapability } from '../../identity/public.ts'
+import { copyText } from '../../../shared/clipboard.ts'
+import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
@@ -13,6 +15,7 @@ import {
   createApplication,
   createDeveloperKey,
   deleteApplication,
+  deleteDeveloperKey,
   getApplication,
   listApplications,
   listApplicationUsage,
@@ -101,11 +104,12 @@ export function useApplications() {
   const query = reactive({ applicationName: '', pageNum: 1, pageSize: 10 }),
     usageQuery = reactive({ pageNum: 1, pageSize: 10 })
   const applicationFormOpen = ref(false),
+    applicationCreationUncertain = ref(false),
     keyFormOpen = ref(false),
     issuedKeyOpen = ref(false)
   const applicationFormRef = ref<FormInstance>(),
     keyFormRef = ref<FormInstance>()
-  const applicationForm = reactive({ applicationCode: '', applicationName: '' }),
+  const applicationForm = reactive({ applicationName: '' }),
     keyForm = reactive(defaultKeyForm())
   let keyScopesEdited = false,
     keyResourceRpmEdited = false
@@ -119,28 +123,29 @@ export function useApplications() {
     showDocs = computed(() => route.query.view === 'docs'),
     activeTab = computed(() => tabValue(route.query.tab))
   const canListKeys = true,
-    canCreateKey = true,
+    canCreateKey = computed(() => canUseCapability('developer', 'key_create')),
     canViewModelAuthorizations = true,
     canQueryUsage = true
-  const keyActions: MenuAction[] = [
-    { command: 'rotate', label: '轮换密钥', icon: ReloadOutlined },
-    { command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true, divided: true }
-  ]
+  const keyActions = computed<MenuAction[]>(() => [
+    ...(canUseCapability('developer', 'key_rotate')
+      ? [{ command: 'rotate', label: '轮换密钥', icon: ReloadOutlined }]
+      : []),
+    ...(canUseCapability('developer', 'key_revoke')
+      ? [{ command: 'revoke', label: '撤销密钥', icon: DeleteOutlined, danger: true }]
+      : []),
+    ...(canUseCapability('developer', 'key_delete')
+      ? [{ command: 'delete', label: '删除密钥', icon: DeleteOutlined, danger: true }]
+      : [])
+  ])
   const modelOptions = computed(() =>
     models.value
-      .filter((model) => model.enabled && model.published)
+      .filter((model) => model.enabled)
       .map((model) => ({ label: `${model.name}（${model.model_type}）`, value: model.id }))
   )
-  const applicationColumns = [{ title: '应用', key: 'application' }]
   const applicationRules = {
-    applicationCode: [
-      { required: true, message: '应用编码不能为空' },
-      {
-        pattern: /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/,
-        message: '仅支持字母、数字、点、下划线和短横线'
-      }
-    ],
-    applicationName: [{ required: true, whitespace: true, message: '应用名称不能为空' }]
+    applicationName: [
+      { required: true, whitespace: true, max: 80, message: '请输入80字以内的应用名称' }
+    ]
   }
   const keyRules = {
     keyName: [{ required: true, whitespace: true, message: '密钥名称不能为空' }],
@@ -182,6 +187,7 @@ export function useApplications() {
     pendingIssuedKey.value = null
   }
   function closeForms(): void {
+    applicationCreationUncertain.value = false
     scopes.mutation.replace()
     saving.value = false
     applicationFormOpen.value = false
@@ -211,6 +217,14 @@ export function useApplications() {
     catalogError.value = ''
     try {
       const result = await getScopeCatalog(context.signal)
+      result.definitions = result.definitions.filter((item) => {
+        const module = item.scope.split(':')[0]
+        return (
+          (module !== 'agents' && module !== 'knowledge' && module !== 'skills') ||
+          canUseCapability(module, item.scope.endsWith(':write') ? 'manage' : 'access')
+        )
+      })
+      result.scopes = result.definitions.map((item) => item.scope)
       if (context.isCurrent()) {
         scopeCatalog.value = result
         if (keyFormOpen.value) initializeKeyDefaults(result)
@@ -257,6 +271,10 @@ export function useApplications() {
     } finally {
       if (context.isCurrent()) loading.value = false
     }
+  }
+  async function searchApplications(): Promise<void> {
+    query.pageNum = 1
+    await loadApplications()
   }
   async function loadKeys(): Promise<void> {
     const id = selectedApplication.value?.applicationId
@@ -404,22 +422,26 @@ export function useApplications() {
     await loadUsage()
   }
   function openApplicationForm(application: Application | null = null): void {
+    if (!canUseCapability('developer', application ? 'update' : 'create')) return
+    applicationCreationUncertain.value = false
     scopes.mutation.replace()
     editingApplication.value = application
-    applicationForm.applicationCode = application?.applicationCode ?? ''
     applicationForm.applicationName = application?.applicationName ?? ''
     formError.value = ''
     applicationFormOpen.value = true
   }
   function closeApplicationForm(): void {
+    applicationCreationUncertain.value = false
     scopes.mutation.replace()
     saving.value = false
     applicationFormOpen.value = false
     formError.value = ''
   }
   async function saveApplication(): Promise<void> {
+    if (!canUseCapability('developer', editingApplication.value ? 'update' : 'create')) return
     if (
       saving.value ||
+      applicationCreationUncertain.value ||
       !(await applicationFormRef.value
         ?.validate()
         .then(() => true)
@@ -439,7 +461,6 @@ export function useApplications() {
           )
         : await createApplication(
             {
-              code: applicationForm.applicationCode.trim(),
               name: applicationForm.applicationName.trim()
             },
             context.signal
@@ -455,12 +476,18 @@ export function useApplications() {
       if (!context.isCurrent()) return
       if (!editing) await selectApplication(result)
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) formError.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        if (!editing && (!(reason instanceof ApiError) || reason.status >= 500)) {
+          applicationCreationUncertain.value = true
+          formError.value = '创建结果暂未确认，请先刷新应用列表核对，避免重复创建。'
+        } else formError.value = errorMessage(reason)
+      }
     } finally {
       if (context.isCurrent()) saving.value = false
     }
   }
   async function applicationAction(action: 'enable' | 'disable' | 'delete'): Promise<void> {
+    if (!canUseCapability('developer', action === 'delete' ? 'delete' : 'toggle')) return
     const application = selectedApplication.value
     if (!application || saving.value) return
     const context = scopes.mutation.replace()
@@ -506,6 +533,7 @@ export function useApplications() {
     if (!keyResourceRpmEdited) keyForm.resourceRpmLimit = catalog.resourceRpmMax
   }
   function openKeyForm(): void {
+    if (!canUseCapability('developer', 'key_create')) return
     if (selectedApplication.value?.status !== 'active') return
     formError.value = ''
     Object.assign(keyForm, defaultKeyForm())
@@ -537,6 +565,7 @@ export function useApplications() {
     }
   }
   async function saveKey(): Promise<void> {
+    if (!canUseCapability('developer', 'key_create')) return
     const id = selectedApplication.value?.applicationId
     if (
       !id ||
@@ -584,27 +613,40 @@ export function useApplications() {
     }
   }
   async function handleKeyAction(command: string, item: DeveloperKey): Promise<void> {
+    if (!canUseCapability('developer', 'key_' + command)) return
     const id = selectedApplication.value?.applicationId
-    if (!id || saving.value || (command !== 'rotate' && command !== 'revoke')) return
-    const context = scopes.mutation.replace()
     if (
-      !(await confirm(
-        command === 'rotate'
-          ? '轮换后旧密钥将保留 24 小时宽限期，是否继续？'
-          : '撤销后该密钥立即失效，是否继续？'
-      )) ||
-      !context.isCurrent()
+      !id ||
+      item.applicationId !== id ||
+      saving.value ||
+      (command !== 'rotate' && command !== 'revoke' && command !== 'delete') ||
+      (command === 'rotate' && item.status !== 'active') ||
+      (command === 'revoke' && item.status !== 'active' && item.status !== 'retiring')
     )
       return
+    const context = scopes.mutation.replace()
+    const labels = {
+      rotate: '轮换后旧密钥将保留 24 小时宽限期，是否继续？',
+      revoke: '撤销后该密钥立即失效，是否继续？',
+      delete: '删除后该密钥将立即失效并从列表移除，历史调用与账单记录仍会保留。是否继续？'
+    }
     saving.value = true
     try {
+      if (
+        !(await confirm(labels[command])) ||
+        !context.isCurrent() ||
+        selectedApplication.value?.applicationId !== id
+      )
+        return
+      keyError.value = ''
       if (command === 'rotate') {
         const result = await rotateDeveloperKey(id, item.keyId, context.signal)
         if (context.isCurrent()) {
           issuedKey.value = result
           issuedKeyOpen.value = true
         }
-      } else await revokeDeveloperKey(id, item.keyId, context.signal)
+      } else if (command === 'revoke') await revokeDeveloperKey(id, item.keyId, context.signal)
+      else await deleteDeveloperKey(id, item.keyId, context.signal)
       if (context.isCurrent()) await loadKeys()
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) keyError.value = errorMessage(reason)
@@ -616,7 +658,7 @@ export function useApplications() {
     const value = issuedKey.value?.apiKey
     if (!value) return
     try {
-      await navigator.clipboard.writeText(value)
+      await copyText(value)
       void message.success('访问密钥已复制')
     } catch {
       void message.error('复制失败，请手动复制')
@@ -680,6 +722,7 @@ export function useApplications() {
     query,
     usageQuery,
     applicationFormOpen,
+    applicationCreationUncertain,
     keyFormOpen,
     issuedKeyOpen,
     applicationFormRef,
@@ -697,10 +740,10 @@ export function useApplications() {
     canQueryUsage,
     keyActions,
     modelOptions,
-    applicationColumns,
     applicationRules,
     keyRules,
     loadApplications,
+    searchApplications,
     loadKeys,
     loadModels,
     loadModelAuthorizations,

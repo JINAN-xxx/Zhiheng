@@ -1,3 +1,4 @@
+import { copyText as copyClipboardText } from '../../shared/clipboard.ts'
 import { list, object, string } from '../../shared/validation.ts'
 
 export interface ApiField {
@@ -140,7 +141,7 @@ export function parseApiDocAnchor(hash: string, anchors: string[]): string {
 }
 export async function copyText(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text)
+    await copyClipboardText(text)
     return true
   } catch {
     return false

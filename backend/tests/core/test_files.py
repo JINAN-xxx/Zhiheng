@@ -104,12 +104,19 @@ async def test_acl_deny_expiry_transfer_and_single_purge(admin: httpx.AsyncClien
         json={'expected_version': current['version'], 'owner_id': user['id'], 'uploader_access_enabled': False},
     )
     assert transfer.status_code == 200, transfer.text
-    deleted = await admin.request('DELETE', f'/api/files/{fid}', json={'expected_version': transfer.json()['version']})
-    purged = await admin.post(f'/api/files/{fid}/purge', json={'expected_version': deleted.json()['version']})
-    assert purged.status_code == 200 and purged.json()['status'] == 'purged', purged.text
-    assert (
-        await admin.post(f'/api/files/{fid}/restore', json={'expected_version': purged.json()['version']})
-    ).status_code == 409
+    denied = await admin.request('DELETE', f'/api/files/{fid}', json={'expected_version': transfer.json()['version']})
+    assert denied.status_code == 404, denied.text
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
+        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+        deleted = await member.request(
+            'DELETE', f'/api/files/{fid}', json={'expected_version': transfer.json()['version']}
+        )
+        assert deleted.status_code == 200, deleted.text
+        purged = await member.post(f'/api/files/{fid}/purge', json={'expected_version': deleted.json()['version']})
+        assert purged.status_code == 200 and purged.json()['status'] == 'purged', purged.text
+        assert (
+            await member.post(f'/api/files/{fid}/restore', json={'expected_version': purged.json()['version']})
+        ).status_code == 409
 
 
 async def test_retention_policy_and_jobs(admin: httpx.AsyncClient) -> None:
@@ -322,7 +329,9 @@ async def test_manual_periodic_mutex_and_cancelled_job_fact(
     assert (await admin.post('/api/files/jobs/expiry', json={})).status_code == 200
 
 
-async def test_actual_orphan_registration_and_filter_stats(admin: httpx.AsyncClient, app: FastAPI) -> None:
+async def test_unknown_orphan_cannot_register_or_repair_and_quarantined_metadata_is_counted(
+    admin: httpx.AsyncClient, app: FastAPI
+) -> None:
     import os
 
     container = app.state.container
@@ -340,10 +349,36 @@ async def test_actual_orphan_registration_and_filter_stats(admin: httpx.AsyncCli
             'reason': 'operator recovery',
         },
     )
-    assert result.status_code == 200, result.text
-    fid = result.json()['file_id']
-    parsed = await admin.post(f'/api/files/{fid}/parse', json={})
-    assert parsed.json()['text'] == 'recovered text', parsed.text
+    assert result.status_code == 409 and result.json()['error']['code'] == 'orphan_owner_unconfirmed'
+    quarantined = await admin.post(
+        f'/api/files/reconcile/issues/{issue["id"]}/actions',
+        json={
+            'expected_version': 1,
+            'action': 'quarantine',
+            'original_filename': 'recovered.txt',
+            'reason': 'owner unknown',
+        },
+    )
+    assert quarantined.status_code == 200, quarantined.text
+    fid = quarantined.json()['file_id']
+    assert (await admin.post(f'/api/files/{fid}/parse', json={})).status_code == 404
+    repair = await admin.post(
+        f'/api/files/reconcile/issues/{issue["id"]}/actions',
+        json={'expected_version': quarantined.json()['version'], 'action': 'repair', 'reason': 'no owner'},
+    )
+    assert repair.status_code == 409 and repair.json()['error']['code'] == 'orphan_owner_unconfirmed'
+    content = path.read_bytes()
+    path.unlink()
+    assert (await admin.post('/api/files/jobs/reconcile', json={})).status_code == 200
+    missing = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['file_id'] == fid)
+    assert missing['kind'] == 'missing'
+    path.write_bytes(content)
+    repair = await admin.post(
+        f'/api/files/reconcile/issues/{missing["id"]}/actions',
+        json={'expected_version': missing['version'], 'action': 'repair'},
+    )
+    assert repair.status_code == 409 and repair.json()['error']['code'] == 'orphan_owner_unconfirmed'
+    assert (await admin.get(f'/api/files/{fid}/download')).status_code == 404
     query = {
         'status': 'all',
         'search': 'recovered',
@@ -378,17 +413,25 @@ async def test_chat_lifecycle_cas_busy_delete_releases_refs(
             '/api/files?filename=history.txt', content=b'history', headers={'Content-Type': 'application/octet-stream'}
         )
     ).json()['id']
+    body = {'model_id': model_id, 'message': 'history', 'client_request_id': str(uuid4()), 'file_ids': [fid]}
+    archived = await admin.post(f'/api/chat/conversations/{cid}/runs', json=body)
+    assert archived.status_code == 409 and archived.json()['error']['code'] == 'conversation_archived', archived.text
+    assert (await admin.get(f'/api/files/{fid}/references')).json() == []
+    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == 0
+    restored = await admin.patch(f'/api/chat/conversations/{cid}', json={'expected_version': 2, 'archived': False})
+    assert restored.status_code == 200 and not restored.json()['archived'], restored.text
+    version = restored.json()['version']
+    assert version == 3
     run = await admin.post(
         f'/api/chat/conversations/{cid}/runs',
-        json={'model_id': model_id, 'message': 'history', 'client_request_id': str(uuid4()), 'file_ids': [fid]},
+        json=body,
     )
     assert run.status_code == 202, run.text
-    assert (
-        await admin.request('DELETE', f'/api/chat/conversations/{cid}', json={'expected_version': 2})
-    ).status_code == 409
+    busy = await admin.request('DELETE', f'/api/chat/conversations/{cid}', json={'expected_version': version})
+    assert busy.status_code == 409 and busy.json()['error']['code'] == 'conversation_busy', busy.text
     await execute_run(app.state.container, UUID(run.json()['id']))
     assert len((await admin.get(f'/api/files/{fid}/references')).json()) == 1
-    result = await admin.request('DELETE', f'/api/chat/conversations/{cid}', json={'expected_version': 2})
+    result = await admin.request('DELETE', f'/api/chat/conversations/{cid}', json={'expected_version': version})
     assert result.status_code == 204, result.text
     assert (await admin.get(f'/api/files/{fid}/references')).json() == []
     assert (await admin.get(f'/api/chat/conversations/{cid}/messages')).status_code == 404
@@ -479,11 +522,11 @@ async def test_derived_permission_tracks_owner_transfer_without_uploader_backdoo
             ).status_code == 409
 
 
-async def test_attachment_document_count_is_five_with_total_limit_fifteen(
+async def test_chat_accepts_more_than_fifteen_documents_within_total_size(
     admin: httpx.AsyncClient, model_id: str
 ) -> None:
     ids = []
-    for index in range(6):
+    for index in range(16):
         result = await admin.post(
             '/api/files',
             params={'filename': f'{index}.txt'},
@@ -496,7 +539,10 @@ async def test_attachment_document_count_is_five_with_total_limit_fifteen(
         f'/api/chat/conversations/{cid}/runs',
         json={'model_id': model_id, 'message': 'files', 'client_request_id': str(uuid4()), 'file_ids': ids},
     )
-    assert result.status_code == 422 and result.json()['error']['code'] == 'too_many_documents', result.text
+    assert result.status_code == 202, result.text
+    messages = (await admin.get(f'/api/chat/conversations/{cid}/messages')).json()
+    question = next(message for message in messages if message['role'] == 'user')
+    assert [item['file_id'] for item in question['attachments']] == ids
 
 
 @pytest.mark.parametrize('method', ['PATCH', 'DELETE'])
@@ -506,6 +552,28 @@ async def test_policy_invalid_path_is_http_validation(admin: httpx.AsyncClient, 
         body.update(retention_days=30, enabled=True, remark='invalid path')
     response = await admin.request(method, '/api/files/policies/UPPER-INVALID', json=body)
     assert response.status_code in {404, 422}, response.text
+
+
+async def test_chat_attachment_total_size_is_checked_before_parsing(admin: httpx.AsyncClient, model_id: str) -> None:
+    ids = []
+    for index in range(3):
+        uploaded = await admin.post(
+            '/api/chat/attachments',
+            params={'filename': f'large-{index}.txt'},
+            content=b'x' * (20 * 1024 * 1024),
+            headers={'Content-Type': 'application/octet-stream'},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        ids.append(uploaded.json()['id'])
+    cid = (await admin.post('/api/chat/conversations', json={})).json()['id']
+    response = await admin.post(
+        f'/api/chat/conversations/{cid}/runs',
+        json={'model_id': model_id, 'message': 'files', 'client_request_id': str(uuid4()), 'file_ids': ids},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()['error']['code'] == 'attachments_too_large'
+    assert (await admin.get(f'/api/chat/conversations/{cid}/messages')).json() == []
+    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == 0
 
 
 async def test_quarantine_survives_missing_then_healthy_reconcile(admin: httpx.AsyncClient, app: FastAPI) -> None:
@@ -554,12 +622,13 @@ async def test_quarantine_survives_missing_then_healthy_reconcile(admin: httpx.A
 async def test_file_name_queries_keep_all_matching_identities_beyond_picker_limit(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    from uuid import uuid4
+    from uuid import UUID, uuid4
 
-    from zhiheng.modules.files.orm import FileRecord
+    from zhiheng.modules.files.orm import FileGrant, FileRecord
     from zhiheng.modules.identity.orm import IdentityUser
 
     container = app.state.container
+    admin_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     users = [
         IdentityUser(
             id=uuid4(), username=f'bulkowner_{i:03}', password_hash='not-used-for-login', is_active=True, is_admin=False
@@ -586,6 +655,8 @@ async def test_file_name_queries_keep_all_matching_identities_beyond_picker_limi
         )
     async with container.database.sessions.begin() as session:
         session.add_all(files)
+        await session.flush()
+        session.add_all(FileGrant(file_id=file.id, user_id=admin_id, effect='allow') for file in files)
     for field in ('owner_search', 'uploader_search', 'search'):
         query = {'status': 'all', field: 'bulkowner_', 'page_size': 20}
         listed = (await admin.get('/api/files', params=query)).json()
@@ -649,7 +720,7 @@ async def test_historical_and_new_images_share_admitted_context_budget(
 
     from zhiheng.worker.execution import execute_run
 
-    image = Image.frombytes('RGB', (1536, 1536), random.Random(47).randbytes(1536 * 1536 * 3))
+    image = Image.frombytes('RGB', (1400, 1400), random.Random(47).randbytes(1400 * 1400 * 3))
     stream = BytesIO()
     image.save(stream, format='PNG')
     image.close()
@@ -662,7 +733,7 @@ async def test_historical_and_new_images_share_admitted_context_budget(
                 headers={'Content-Type': 'application/octet-stream'},
             )
         ).json()['id']
-        for index in range(10)
+        for index in range(8)
     ]
     await admin.patch(f'/api/models/{model_id}', json={'vision_enabled': True})
     cid = (await admin.post('/api/chat/conversations', json={})).json()['id']
@@ -672,13 +743,27 @@ async def test_historical_and_new_images_share_admitted_context_budget(
         'file_ids': ids,
         'client_request_id': str(uuid4()),
     }
+    container = app.state.container
+    tables = ('runtime_runs', 'chat_messages', 'file_references', 'developer_invocations', 'runtime_outbox')
+    container.chat_context.input_tokens = 8192
+    async with container.database.sessions() as session:
+        empty = {table: await session.scalar(text(f'SELECT count(*) FROM {table}')) for table in tables}
+    default_budget = await admin.post(f'/api/chat/conversations/{cid}/runs', json=body)
+    assert default_budget.status_code == 422 and default_budget.json()['error']['code'] == 'context_input_too_long', (
+        default_budget.text
+    )
+    assert (await admin.get('/api/usage')).json()['reserved_tokens'] == 0
+    async with container.database.sessions() as session:
+        assert empty == {table: await session.scalar(text(f'SELECT count(*) FROM {table}')) for table in tables}
+
+    # A configured larger token budget lets the independent 16 MiB image cap be exercised.
+    container.chat_context.input_tokens = 65536
     first = await admin.post(f'/api/chat/conversations/{cid}/runs', json=body)
     assert first.status_code == 202, first.text
-    container = app.state.container
     await execute_run(container, UUID(first.json()['id']))
-    tables = ('runtime_runs', 'chat_messages', 'file_references', 'developer_invocations', 'runtime_outbox')
     async with container.database.sessions() as session:
         before = {table: await session.scalar(text(f'SELECT count(*) FROM {table}')) for table in tables}
+    usage_before = (await admin.get('/api/usage')).json()
     rejected = await admin.post(f'/api/chat/conversations/{cid}/runs', json={**body, 'client_request_id': str(uuid4())})
     assert rejected.status_code == 422 and rejected.json()['error']['code'] == 'attachment_images_too_large', (
         rejected.text
@@ -688,6 +773,7 @@ async def test_historical_and_new_images_share_admitted_context_budget(
     async with container.database.sessions() as session:
         after = {table: await session.scalar(text(f'SELECT count(*) FROM {table}')) for table in tables}
     assert before == after
+    assert (await admin.get('/api/usage')).json() == usage_before
 
 
 async def test_lost_job_connection_fences_stale_scan_and_success_cursor(

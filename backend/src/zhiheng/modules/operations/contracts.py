@@ -48,36 +48,6 @@ class Patch(Contract):
         return self
 
 
-class CreateDictionary(Contract):
-    code: Code
-    name: Name
-    is_active: bool = True
-    remark: Remark = ''
-
-
-class PatchDictionary(Patch):
-    code: Code | None = None
-    name: Name | None = None
-    is_active: bool | None = None
-    remark: Remark | None = None
-
-
-class CreateDictionaryItem(Contract):
-    label: Name
-    value: Annotated[str, Field(min_length=1, max_length=200)]
-    sort_order: Annotated[int, Field(ge=0, le=1000000)] = 0
-    is_active: bool = True
-    remark: Remark = ''
-
-
-class PatchDictionaryItem(Patch):
-    label: Name | None = None
-    value: Annotated[str, Field(min_length=1, max_length=200)] | None = None
-    sort_order: Annotated[int, Field(ge=0, le=1000000)] | None = None
-    is_active: bool | None = None
-    remark: Remark | None = None
-
-
 class CreateConfig(Contract):
     key: Code
     name: Name
@@ -127,14 +97,6 @@ class EntityInfo(Contract):
     version: int
     created_at: datetime
     updated_at: datetime
-
-
-class DictionaryInfo(EntityInfo, CreateDictionary):
-    pass
-
-
-class DictionaryItemInfo(EntityInfo, CreateDictionaryItem):
-    dictionary_id: UUID
 
 
 class ConfigInfo(EntityInfo, CreateConfig):

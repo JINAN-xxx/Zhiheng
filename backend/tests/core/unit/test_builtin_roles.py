@@ -13,6 +13,7 @@ from zhiheng.modules.identity import public
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 from zhiheng.modules.identity.builtin_roles import ensure_builtin_roles
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -21,7 +22,7 @@ from zhiheng.shared.principal import Principal
 async def identities() -> AsyncIterator[tuple[AsyncSession, public.IdentityService, public.IdentityAdminService]]:
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     async with engine.begin() as connection:
-        for table in public.schema_tables():
+        for table in schema_tables():
             await connection.run_sync(table.create)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:

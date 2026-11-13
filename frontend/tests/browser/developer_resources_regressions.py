@@ -1,5 +1,6 @@
 """Resource UI contract checks in Chromium, using explicit controlled HTTP fixtures."""
 
+from browser_clipboard import read_clipboard
 import json
 import os
 import re
@@ -155,7 +156,7 @@ class DeveloperResourceRegressions(DeveloperBoundary):
         self.assertNotIn('Idempotency-Key', source)
         self.assertNotIn('REQUEST_ID', source)
         await samples.get_by_role('button', name='复制示例', exact=True).click()
-        copied = await self.page.evaluate('navigator.clipboard.readText()')
+        copied = await read_clipboard(self.page)
         self.assertEqual(copied, source)
         self.assertIn(self.origin + '/api/v1/files', copied)
         self.assertIn('Bearer $API_KEY', copied)

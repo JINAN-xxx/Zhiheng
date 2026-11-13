@@ -54,8 +54,9 @@ class AIPermissionsRegressions(DeveloperBoundary):
         return await super().respond(route)
 
     async def assert_no_model_management(self):
-        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作']:
+        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作', '更多模型操作']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
+        await expect(self.page.locator('.model-item').get_by_role('switch')).to_have_count(0)
         await expect(self.page.get_by_role('tab', name='凭据管理', exact=True)).to_have_count(0)
 
     async def open_models(self):
@@ -78,12 +79,18 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await self.page.get_by_role('menuitem', name=label, exact=True).click()
 
     async def test_basic_user_sees_published_models_without_management_requests_on_desktop_and_mobile(self):
-        for width in [1440, 390]:
+        for width in [1440, 1920]:
             with self.subTest(width=width):
                 await self.page.set_viewport_size({'width': width, 'height': 900})
                 await self.open_models()
                 await expect(self.page.get_by_text('日常助手', exact=True)).to_be_visible()
                 await self.assert_no_model_management()
+                await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+                detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+                await expect(detail).to_contain_text('model-1')
+                for label in ['测试连接', '更多模型操作']:
+                    await expect(detail.get_by_role('button', name=label, exact=True)).to_have_count(0)
+                await expect(detail.get_by_role('switch')).to_have_count(0)
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
         self.assertFalse(any(query.get('include_disabled') == ['true'] for _, path, query in self.requests if path == '/api/models'))
         self.assertFalse(any('rate-cards' in path for _, path, _ in self.requests))
@@ -92,8 +99,16 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.permissions = ['ai:models:read']
         await self.open_models()
         await expect(self.page.get_by_text('日常助手', exact=True)).to_be_visible()
-        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作']:
+        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作', '更多模型操作']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+        await expect(detail).to_contain_text('团队服务')
+        for label in ['测试连接', '更多模型操作']:
+            await expect(detail.get_by_role('button', name=label, exact=True)).to_have_count(0)
+        await expect(detail.get_by_role('switch')).to_have_count(0)
+        await detail.get_by_role('button', name='Close', exact=True).click()
+        await expect(detail).to_be_hidden()
         await self.page.get_by_role('tab', name='凭据管理', exact=True).click()
         await expect(self.page.get_by_role('tabpanel', name='凭据管理', exact=True).get_by_text('团队服务', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='编辑凭据', exact=True)).to_have_count(0)
@@ -102,34 +117,36 @@ class AIPermissionsRegressions(DeveloperBoundary):
     async def test_rates_reader_can_view_history_but_cannot_create_a_price(self):
         self.permissions = ['ai:rates:read']
         await self.open_models()
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+        await detail.get_by_role('button', name='更多模型操作', exact=True).click()
         await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
-        await expect(dialog.get_by_role('tab', name='积分计价', exact=True)).to_have_attribute('aria-selected', 'true')
-        await expect(dialog.get_by_role('button', name='创建积分价格版本', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_role('heading', name='当前积分价格', exact=True)).to_be_visible()
+        await expect(dialog.get_by_role('button', name='保存价格', exact=True)).to_have_count(0)
         await expect(dialog.get_by_label('备注', exact=True)).to_have_count(0)
-        await dialog.get_by_role('tab', name='历史金额费率', exact=True).click()
-        await expect(dialog.get_by_text('历史费率版本', exact=True)).to_be_visible()
-        await expect(dialog.get_by_role('button', name='创建价格版本', exact=True)).to_have_count(0)
-        await expect(dialog.get_by_label('输入令牌单价', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_role('tab')).to_have_count(0)
+        await expect(dialog.get_by_label('币种', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_label('输入积分 / 百万 Token', exact=True)).to_be_disabled()
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
     async def test_model_writer_can_onboard_without_receiving_test_or_rate_permissions(self):
         self.permissions = ['ai:models:write']
         await self.open_models()
         await expect(self.page.get_by_role('button', name='接入模型', exact=True)).to_be_enabled()
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+        await detail.get_by_role('button', name='更多模型操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='编辑模型', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('button', name='费率配置', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('menuitem', name='费率配置', exact=True)).to_have_count(0)
 
     async def test_storage_reader_sees_policy_and_reconcile_without_write_controls(self):
         self.permissions = ['ai:storage:read']
-        await self.page.goto(self.origin + '/knowledge')
-        await self.page.get_by_role('button', name='存储管理', exact=True).click()
+        await self.page.goto(self.origin + '/admin/storage')
         await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
-        await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_be_visible()
         await self.page.keyboard.press('Escape')
         await self.open_storage_tool('保留策略')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content').filter(has_text='文件保留策略')
@@ -145,8 +162,13 @@ class AIPermissionsRegressions(DeveloperBoundary):
     async def test_model_tester_can_test_without_model_or_rate_management(self):
         self.permissions = ['ai:models:test']
         await self.open_models()
-        await self.page.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.test-result pre')).to_have_text('连接成功')
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+        await detail.get_by_role('button', name='测试连接', exact=True).click()
+        await expect(self.page.locator('.ant-message-notice-content')).to_have_text('测试成功')
+        await expect(self.page.locator('.test-result')).to_have_count(0)
+        await expect(detail.get_by_role('button', name='更多模型操作', exact=True)).to_have_count(0)
+        await expect(detail.get_by_role('switch')).to_have_count(0)
         for label in ['接入模型', '编辑模型', '费率配置']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('tab', name='凭据管理', exact=True)).to_have_count(0)
@@ -162,23 +184,26 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(dialog).to_be_visible()
         await dialog.get_by_role('button', name='Close', exact=True).click()
         await expect(dialog).not_to_be_visible()
-        await self.page.get_by_role('button', name='查看详情', exact=True).click()
+        await self.page.locator('.skill-item').get_by_role('button', name='示例技能', exact=True).click()
+        detail = self.page.locator('.skill-detail-modal[role="dialog"]')
         await expect(self.page.get_by_text('技能正文', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='停用技能', exact=True)).to_be_enabled()
-        await expect(self.page.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
+        await expect(detail.get_by_role('switch')).to_be_enabled()
+        await detail.get_by_role('button', name='更多技能操作', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='删除技能', exact=True)).to_be_enabled()
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
-        await self.page.get_by_role('button', name='停用技能', exact=True).click()
-        await expect(self.page.get_by_role('button', name='重新启用', exact=True)).to_be_visible()
+        await detail.get_by_role('switch').click()
+        await expect(detail.get_by_role('switch')).not_to_be_checked()
         self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_skill_writer_has_upload_and_status_controls_without_admin_identity(self):
         self.permissions = ['ai:skills:write']
         await self.page.goto(self.origin + '/skills')
         await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='查看详情', exact=True).click()
+        await self.page.locator('.skill-item').get_by_role('button', name='示例技能', exact=True).click()
+        detail = self.page.locator('.skill-detail-modal[role="dialog"]')
         await expect(self.page.get_by_text('技能正文', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='停用技能', exact=True).click()
-        await expect(self.page.get_by_role('button', name='重新启用', exact=True)).to_be_visible()
+        await detail.get_by_role('switch').click()
+        await expect(detail.get_by_role('switch')).not_to_be_checked()
         self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_storage_writer_can_open_new_and_legacy_paths_without_system_admin_access(self):
@@ -188,7 +213,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
                 await self.page.goto(self.origin + path)
                 await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
                 await self.page.get_by_role('button', name='用户菜单', exact=True).click()
-                await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_have_count(0)
+                await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_be_visible()
                 await self.page.keyboard.press('Escape')
         await self.open_storage_tool('存储对账')
         await expect(self.page.get_by_role('button', name='开始对账', exact=True)).to_be_visible()

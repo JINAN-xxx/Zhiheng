@@ -140,6 +140,12 @@ def _describe_inference(operation: dict[str, Any], path: str) -> None:
             'stream=true 返回 SSE data 帧；正常结束为 data: [DONE]，流内失败为推理错误对象。客户端断开沿用原 Run 取消策略。'
         )
         responses['200'].setdefault('content', {})['text/event-stream'] = {'schema': {'type': 'string'}}
+    if path.startswith('/v1/agents/') and path.endswith('/chat/completions'):
+        operation['description'] = (
+            operation.get('description', '') + '\n关联知识库时，必须提供 Idempotency-Key 或 client_request_id（UUID）。'
+            '202 是知识准备状态，按 polling_url 轮询；admitted 后以相同请求体、相同 UUID 重发本接口，获取最终响应。'
+            '轮询与续调沿用同一访问密钥；新问题生成新 UUID。知识准备失败时检查 error，避免换键重复调用。'
+        )
     responses.pop('422', None)
     for status in (400, 401, 403, 404, 409, 413, 422, 429, 500, 502, 503):
         if status == HTTPStatus.UNPROCESSABLE_ENTITY and '/agents/' not in path:
@@ -193,6 +199,12 @@ def install_openapi(app: FastAPI) -> None:
             title='智衡资源 API v1' if prefix == '/api/v1/' else '智衡 AI',
             version='1.0.0',
             openapi_version='3.1.0',
+            description=(
+                '异步接纳不代表执行完成，须核对 operation 或运行终态。资源任务使用所属 Bearer Key 查询返回的 operation 地址。'
+                '执行错误 execution_conflict / execution_unavailable 表示数据库问题，execution_failed 表示模型调用前的内部准备异常，'
+                'inference_failed 表示模型调用开始后未正常完成；权限、资源和供应商错误也可能使用具体错误码。'
+                '请结合错误消息与运行／用量状态判断是否重试。用量为 unknown 时保留预占等待核对，避免直接重发模型请求。'
+            ),
             routes=routes,
         )
         result = describe_protocols(result)

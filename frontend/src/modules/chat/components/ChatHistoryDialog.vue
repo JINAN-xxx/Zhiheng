@@ -25,9 +25,9 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 <style scoped>
 .chat-history-dialog-body {
   display: flex;
-  min-height: 180px;
+  min-height: min(180px, 65dvh);
   max-height: min(65dvh, 600px);
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 </style>

@@ -15,7 +15,6 @@ class ProfileInfo(BaseModel):
     is_admin: bool
     department_name: str | None
     roles: list[str]
-    posts: list[str]
     created_at: datetime | None
     version: int
 

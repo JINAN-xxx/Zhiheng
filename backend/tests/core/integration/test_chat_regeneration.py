@@ -15,7 +15,6 @@ from zhiheng.modules.chat.orm import ChatMessage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.principal import Principal
 from zhiheng.worker.execution import execute_run
-from zhiheng.worker.main import recover_expired
 
 
 async def completed_round(admin: httpx.AsyncClient, app: FastAPI, model_id: str) -> tuple[str, list[dict]]:
@@ -44,7 +43,7 @@ async def test_unanswered_terminal_question_can_regenerate_without_duplicate_que
             await session.execute(
                 update(Run).where(Run.id == claim.id).values(lease_until=text("now() - interval '1 second'"))
             )
-        await recover_expired(app.state.container)
+        await app.state.container.run_recovery.recover_expired()
     failed = (await admin.get(f'/api/runs/{original_run["id"]}')).json()
     assert failed['status'] == terminal_status and failed['text'] == ''
     history = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()

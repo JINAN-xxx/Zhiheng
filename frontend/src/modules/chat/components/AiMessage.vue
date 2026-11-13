@@ -21,6 +21,7 @@
           mode="chat"
           code-renderer="shiki"
           :code-block-props="{ monacoOptions: { fontSize: 13, lineHeight: 22 } }"
+          @copy="copyMarkdownCode"
         />
       </div>
     </div>
@@ -33,6 +34,7 @@
         mode="chat"
         code-renderer="shiki"
         :code-block-props="{ monacoOptions: { fontSize: 13, lineHeight: 22 } }"
+        @copy="copyMarkdownCode"
       />
     </div>
     <div v-if="loading && !content && !reasoningContent" class="typing-indicator">
@@ -44,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { copyMarkdownCode } from '../../../shared/markdownClipboard.ts'
 import { computed, ref } from 'vue'
 import { MarkdownRender } from 'markstream-vue'
 import { RightOutlined } from '@ant-design/icons-vue'

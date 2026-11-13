@@ -11,22 +11,18 @@ from sqlalchemy import delete, func, or_, select, update
 from zhiheng.modules.identity.admin_contracts import CREATE_SCHEMAS, PATCH_SCHEMAS, PasswordReset
 from zhiheng.modules.identity.admin_orm import (
     IdentityDepartment,
-    IdentityMenu,
-    IdentityPost,
     IdentityRole,
-    IdentityUserPost,
     IdentityUserRole,
 )
 from zhiheng.modules.identity.admin_permissions import (
-    ADMIN_PATHS,
-    ALLOWED_MENU_PATHS,
-    AREAS,
     PERMISSION_CODES,
-    SYSTEM_PERMISSION_CODES,
+    permission_catalog,
+    without_retired_permissions,
 )
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.permission_policy import invalid_dependencies, is_granted
 
 if TYPE_CHECKING:
     import builtins
@@ -38,21 +34,17 @@ if TYPE_CHECKING:
     from zhiheng.modules.identity.service import IdentityService
     from zhiheng.shared.principal import Principal
 
-AdminRow = IdentityUser | IdentityRole | IdentityDepartment | IdentityPost | IdentityMenu
+AdminRow = IdentityUser | IdentityRole | IdentityDepartment
 MODELS: dict[str, type[AdminRow]] = {
     'users': IdentityUser,
     'roles': IdentityRole,
     'departments': IdentityDepartment,
-    'posts': IdentityPost,
-    'menus': IdentityMenu,
 }
 MAX_PAGE_SIZE = 200
 DTO_FIELDS = {
     'users': ('username', 'display_name', 'email', 'phone', 'department_id', 'is_active', 'is_admin', 'remark'),
     'roles': ('code', 'name', 'permissions', 'is_active', 'remark', 'system_key'),
     'departments': ('parent_id', 'name', 'sort_order', 'leader', 'phone', 'email', 'is_active'),
-    'posts': ('code', 'name', 'sort_order', 'is_active', 'remark'),
-    'menus': ('parent_id', 'name', 'path', 'permission', 'sort_order', 'is_visible'),
 }
 
 
@@ -109,21 +101,19 @@ class IdentityAdminService:
             field: getattr(row, field) for field in ('id', 'version', 'created_at', 'updated_at', *DTO_FIELDS[kind])
         }
         if kind == 'users':
-            result['role_ids'] = list(
-                await session.scalars(
-                    select(IdentityUserRole.role_id)
+            assignments = (
+                await session.execute(
+                    select(IdentityUserRole.role_id, IdentityRole.name)
+                    .join(IdentityRole, IdentityRole.id == IdentityUserRole.role_id)
                     .where(IdentityUserRole.user_id == row.id)
                     .order_by(IdentityUserRole.role_id)
                 )
-            )
-            result['post_ids'] = list(
-                await session.scalars(
-                    select(IdentityUserPost.post_id)
-                    .where(IdentityUserPost.user_id == row.id)
-                    .order_by(IdentityUserPost.post_id)
-                )
-            )
+            ).all()
+            result['role_ids'] = [role_id for role_id, _ in assignments]
+            result['role_names'] = [name for _, name in assignments]
         if kind == 'roles':
+            assert isinstance(row, IdentityRole)
+            result['permissions'] = without_retired_permissions(row.permissions)
             result['member_count'] = int(
                 await session.scalar(
                     select(func.count()).select_from(IdentityUserRole).where(IdentityUserRole.role_id == row.id)
@@ -149,18 +139,18 @@ class IdentityAdminService:
         query = select(model)
         if kind == 'users':
             query = query.where(IdentityUser.deleted_at.is_(None))
-        if is_active is not None and kind != 'menus':
+        if is_active is not None:
             query = query.where(model.__table__.c.is_active.is_(is_active))
         if search:
             escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
             names = (
                 ('username', 'display_name', 'email', 'phone')
                 if kind == 'users'
-                else (('name', 'code') if kind in {'roles', 'posts'} else ('name',))
+                else (('name', 'code') if kind == 'roles' else ('name',))
             )
             query = query.where(or_(*(getattr(model, name).ilike(f'%{escaped}%', escape='\\') for name in names)))
         total = int(await session.scalar(select(func.count()).select_from(query.subquery())) or 0)
-        order = (model.__table__.c.sort_order, model.id) if kind in {'departments', 'posts', 'menus'} else (model.id,)
+        order = (model.__table__.c.sort_order, model.id) if kind == 'departments' else (model.id,)
         rows = await session.scalars(query.order_by(*order).offset((page - 1) * page_size).limit(page_size))
         return _page([await self._dto(session, kind, cast('AdminRow', row)) for row in rows], total, page, page_size)
 
@@ -174,6 +164,8 @@ class IdentityAdminService:
         proposed = frozenset(permissions)
         if not proposed <= PERMISSION_CODES:
             raise _error('unknown_permission', '包含未接通的权限代码')
+        if invalid_dependencies(proposed):
+            raise _error('permission_dependency', '请先授予同一模块的查看权限')
         if not principal.is_admin and not proposed <= principal.permissions:
             raise _error('permission_escalation', '不能授予超出本人范围的权限', 403)
         return sorted(proposed)
@@ -193,27 +185,13 @@ class IdentityAdminService:
                 raise _error('tree_cycle', '上级设置会形成循环')
             visited.add(current)
             parent = await self._row(session, kind, current)
-            assert isinstance(parent, (IdentityDepartment, IdentityMenu))
+            assert isinstance(parent, IdentityDepartment)
             current = parent.parent_id
-
-    @staticmethod
-    def _menu(fields: dict[str, Any], row: IdentityMenu | None = None) -> None:
-        path = fields.get('path', row.path if row else '')
-        permission = fields.get('permission', row.permission if row else '')
-        if path not in ALLOWED_MENU_PATHS:
-            raise _error('invalid_menu_path', '仅支持已接通的内部页面路径')
-        if permission and permission not in PERMISSION_CODES:
-            raise _error('unknown_permission', '菜单权限代码无效')
-        fixed = f'system:{ADMIN_PATHS[path]}:read' if path in ADMIN_PATHS else None
-        if fixed:
-            if permission and permission != fixed:
-                raise _error('menu_permission_mismatch', '后台页面必须使用其固定查看权限')
-            fields['permission'] = fixed
 
     async def _unique(
         self, session: AsyncSession, kind: str, fields: dict[str, Any], identifier: UUID | None = None
     ) -> None:
-        key = {'users': 'username', 'roles': 'code', 'posts': 'code', 'menus': 'path'}.get(kind)
+        key = {'users': 'username', 'roles': 'code'}.get(kind)
         if key and key in fields:
             model = self._model(kind)
             query = select(model.id).where(getattr(model, key) == fields[key])
@@ -237,7 +215,6 @@ class IdentityAdminService:
                 raise _error('inactive_department', '不能选择已停用部门')
         for kind, field, membership, reference_key in (
             ('roles', 'role_ids', IdentityUserRole, IdentityUserRole.role_id),
-            ('posts', 'post_ids', IdentityUserPost, IdentityUserPost.post_id),
         ):
             if field not in fields:
                 continue
@@ -249,9 +226,9 @@ class IdentityAdminService:
             fields[field] = sorted(set(fields[field]), key=str)
             for identifier in tuple(fields[field]):
                 reference = await self._row(session, kind, identifier, lock=True)
-                assert isinstance(reference, (IdentityRole, IdentityPost))
+                assert isinstance(reference, IdentityRole)
                 if not reference.is_active and identifier not in existing_ids:
-                    raise _error('inactive_assignment', '不能分配已停用角色或岗位')
+                    raise _error('inactive_assignment', '不能分配已停用角色')
                 if isinstance(reference, IdentityRole):
                     if reference.system_key is not None:
                         final_admin = fields.get('is_admin', existing_user.is_admin if existing_user else False)
@@ -259,13 +236,10 @@ class IdentityAdminService:
                             raise _error('builtin_role_assignment_forbidden', '内置角色由超级管理员身份自动维护', 403)
                         fields[field].remove(identifier)
                         continue
-                    self._grant_permissions(principal, reference.permissions)
+                    self._grant_permissions(principal, without_retired_permissions(reference.permissions))
 
     async def _memberships(self, session: AsyncSession, user_id: UUID, fields: dict[str, Any]) -> None:
-        for field, model, key in (
-            ('role_ids', IdentityUserRole, 'role_id'),
-            ('post_ids', IdentityUserPost, 'post_id'),
-        ):
+        for field, model, key in (('role_ids', IdentityUserRole, 'role_id'),):
             if field in fields:
                 await session.execute(delete(model).where(model.user_id == user_id))
                 session.add_all([model(user_id=user_id, **{key: identifier}) for identifier in fields.pop(field)])
@@ -308,7 +282,7 @@ class IdentityAdminService:
             select(IdentityRole).join(IdentityUserRole).where(IdentityUserRole.user_id == user_id)
         )
         for role in roles:
-            self._grant_permissions(principal, role.permissions)
+            self._grant_permissions(principal, without_retired_permissions(role.permissions))
 
     async def _cas(
         self,
@@ -332,6 +306,56 @@ class IdentityAdminService:
             raise _error('version_conflict', '记录已被其他操作修改，请刷新后重试', 409)
         await session.refresh(row)
 
+    async def effective_permissions(self, session: AsyncSession, principal: Principal, user_id: UUID) -> dict[str, Any]:
+        principal.require_permission('system:users:read')
+        user = await self._row(session, 'users', user_id)
+        assert isinstance(user, IdentityUser)
+        roles = list(
+            await session.scalars(
+                select(IdentityRole)
+                .join(IdentityUserRole)
+                .where(
+                    IdentityUserRole.user_id == user_id,
+                    IdentityRole.is_active.is_(True),
+                    IdentityRole.system_key.is_(None),
+                )
+                .order_by(IdentityRole.name, IdentityRole.id)
+            )
+        )
+        items = []
+        if user.is_active:
+            for item in permission_catalog():
+                sources = (
+                    ['超级管理员']
+                    if user.is_admin
+                    else [role.name for role in roles if is_granted(role.permissions, item['code'])]
+                )
+                if sources:
+                    items.append({**item, 'roles': sources})
+        return {'user_id': str(user_id), 'is_active': user.is_active, 'items': items}
+
+    async def _authorize_changes(
+        self, session: AsyncSession, principal: Principal, kind: str, row: AdminRow, values: dict[str, Any]
+    ) -> None:
+        prefix = f'system:{kind}:'
+        if 'is_active' in values and values['is_active'] != row.is_active:
+            principal.require_permission(prefix + 'toggle')
+        if kind == 'users' and 'role_ids' in values:
+            assigned = set(
+                await session.scalars(select(IdentityUserRole.role_id).where(IdentityUserRole.user_id == row.id))
+            )
+            if assigned != set(values['role_ids']):
+                principal.require_permission(prefix + 'assign_roles')
+        if (
+            isinstance(row, IdentityRole)
+            and 'permissions' in values
+            and set(values['permissions']) != set(row.permissions)
+        ):
+            principal.require_permission(prefix + 'grant')
+        excluded = {'is_active', 'role_ids', 'permissions'}
+        if any(getattr(row, key, None) != value for key, value in values.items() if key not in excluded):
+            principal.require_permission(prefix + 'update')
+
     async def create(
         self,
         session: AsyncSession,
@@ -340,17 +364,19 @@ class IdentityAdminService:
         fields: Mapping[str, Any],
     ) -> dict[str, Any]:
         model = self._model(kind)
-        principal.require_permission(f'system:{kind}:write')
+        principal.require_permission(f'system:{kind}:create')
         values = self._validated(kind, fields)
         await self._unique(session, kind, values)
-        if kind in {'departments', 'menus'}:
+        if kind == 'departments':
             await self._lock_tree(session, kind)
             await self._parent(session, kind, values.get('parent_id'), None)
-        if kind == 'menus':
-            self._menu(values)
         if kind == 'roles':
+            if values['permissions']:
+                principal.require_permission('system:roles:grant')
             values['permissions'] = self._grant_permissions(principal, values['permissions'])
         if kind == 'users':
+            if values.get('role_ids'):
+                principal.require_permission('system:users:assign_roles')
             self._manage_user(principal, None, values)
             await self._user_references(session, principal, values)
             password: SecretStr = values.pop('password')
@@ -386,11 +412,12 @@ class IdentityAdminService:
         principal.require_permission(f'system:{kind}:write')
         values = self._validated(kind, fields, expected_version=expected_version)
         admins = await self._admin_guard(session) if kind == 'users' else []
-        if kind in {'departments', 'menus'}:
+        if kind == 'departments':
             await self._lock_tree(session, kind)
         row = await self._row(session, kind, identifier, lock=True)
         if row.version != expected_version:
             raise _error('version_conflict', '记录已被其他操作修改，请刷新后重试', 409)
+        await self._authorize_changes(session, principal, kind, row, values)
         revoke_sessions = False
         if isinstance(row, IdentityUser):
             self._manage_user(principal, row, values)
@@ -409,13 +436,13 @@ class IdentityAdminService:
             await self._memberships(session, row.id, values)
         if isinstance(row, IdentityRole):
             self._protect_builtin_role(row)
-            self._grant_permissions(principal, row.permissions)
+            self._grant_permissions(principal, without_retired_permissions(row.permissions))
             if 'permissions' in values:
-                values['permissions'] = self._grant_permissions(principal, values['permissions'])
-        if kind in {'departments', 'menus'} and 'parent_id' in values:
+                historical = set(row.permissions) - set(without_retired_permissions(row.permissions))
+                requested = [code for code in values['permissions'] if code not in historical]
+                values['permissions'] = self._grant_permissions(principal, requested)
+        if kind == 'departments' and 'parent_id' in values:
             await self._parent(session, kind, values['parent_id'], identifier)
-        if isinstance(row, IdentityMenu):
-            self._menu(values, row)
         await self._unique(session, kind, values, identifier)
         await self._cas(session, kind, row, values, expected_version)
         if isinstance(row, IdentityUser):
@@ -424,7 +451,7 @@ class IdentityAdminService:
             await session.execute(delete(IdentitySession).where(IdentitySession.user_id == row.id))
         return await self._dto(session, kind, row)
 
-    async def delete(  # noqa: PLR0912
+    async def delete(
         self,
         session: AsyncSession,
         principal: Principal,
@@ -434,9 +461,9 @@ class IdentityAdminService:
         expected_version: int,
     ) -> None:
         model = self._model(kind)
-        principal.require_permission(f'system:{kind}:write')
+        principal.require_permission(f'system:{kind}:delete')
         admins = await self._admin_guard(session) if kind == 'users' else []
-        if kind in {'departments', 'menus'}:
+        if kind == 'departments':
             await self._lock_tree(session, kind)
         row = await self._row(session, kind, identifier, lock=True)
         if row.version != expected_version:
@@ -455,16 +482,14 @@ class IdentityAdminService:
             return
         if isinstance(row, IdentityRole):
             self._protect_builtin_role(row)
-            self._grant_permissions(principal, row.permissions)
+            self._grant_permissions(principal, without_retired_permissions(row.permissions))
         checks = []
-        if kind in {'departments', 'menus'}:
+        if kind == 'departments':
             checks.append(select(model.id).where(model.__table__.c.parent_id == identifier).limit(1))
         if kind == 'departments':
             checks.append(select(IdentityUser.id).where(IdentityUser.department_id == identifier).limit(1))
         if kind == 'roles':
             checks.append(select(IdentityUserRole.user_id).where(IdentityUserRole.role_id == identifier).limit(1))
-        if kind == 'posts':
-            checks.append(select(IdentityUserPost.user_id).where(IdentityUserPost.post_id == identifier).limit(1))
         for query in checks:
             if await session.scalar(query) is not None:
                 raise _error('resource_in_use', '记录存在下级或关联用户，不能删除', 409)
@@ -483,7 +508,7 @@ class IdentityAdminService:
         *,
         expected_version: int,
     ) -> dict[str, Any]:
-        principal.require_permission('system:users:write')
+        principal.require_permission('system:users:reset_password')
         try:
             PasswordReset(password=password, expected_version=expected_version)
         except ValidationError as exc:
@@ -503,7 +528,7 @@ class IdentityAdminService:
         ):
             raise _error('forbidden', '需要用户管理权限', 403)
         result: dict[str, Any] = {}
-        for kind, model in (('departments', IdentityDepartment), ('posts', IdentityPost), ('roles', IdentityRole)):
+        for kind, model in (('departments', IdentityDepartment), ('roles', IdentityRole)):
             rows = await session.scalars(select(model).where(model.is_active.is_(True)).order_by(model.name, model.id))
             result[kind] = [
                 {
@@ -512,40 +537,15 @@ class IdentityAdminService:
                     **({'system_key': row.system_key} if isinstance(row, IdentityRole) else {}),
                 }
                 for item in rows
-                for row in [cast('IdentityDepartment | IdentityPost | IdentityRole', item)]
+                for row in [cast('IdentityDepartment | IdentityRole', item)]
                 if not isinstance(row, IdentityRole)
                 or principal.is_admin
-                or (row.system_key is None and frozenset(row.permissions) <= principal.permissions)
+                or (
+                    row.system_key is None
+                    and frozenset(without_retired_permissions(row.permissions)) <= principal.permissions
+                )
             ]
         return result
-
-    async def navigation(self, session: AsyncSession, principal: Principal) -> dict[str, Any]:
-        if not principal.is_admin and not principal.permissions.intersection(SYSTEM_PERMISSION_CODES):
-            raise _error('forbidden', '需要后台管理权限', 403)
-        overrides = {
-            row.path: row
-            for row in await session.scalars(select(IdentityMenu).order_by(IdentityMenu.sort_order, IdentityMenu.id))
-        }
-        items = []
-        for index, (path, area) in enumerate(ADMIN_PATHS.items()):
-            permission = f'system:{area}:read'
-            if not principal.is_admin and permission not in principal.permissions:
-                continue
-            row = overrides.get(path)
-            if row is not None and not row.is_visible:
-                continue
-            name = {'/admin/login-logs': '登录日志', '/admin/operation-logs': '操作日志'}.get(path, AREAS[area])
-            items.append(
-                {
-                    'name': row.name if row else name,
-                    'path': path,
-                    'sort_order': row.sort_order if row else index * 10,
-                    'is_visible': True,
-                    'permission': permission,
-                }
-            )
-        items.sort(key=lambda item: (item['sort_order'], item['path']))
-        return _page(items, len(items), 1, max(1, len(items)))
 
     async def list_sessions(
         self,
@@ -605,7 +605,7 @@ class IdentityAdminService:
         current_token: str | None = None,
         expected_version: int,
     ) -> None:
-        principal.require_permission('system:sessions:write')
+        principal.require_permission('system:sessions:revoke')
         row = await session.scalar(select(IdentitySession).where(IdentitySession.id == identifier).with_for_update())
         if row is None:
             raise _error('session_not_found', '会话不存在', 404)

@@ -9,7 +9,8 @@ from uuid import uuid4
 
 from pymilvus import MilvusClient  # type: ignore[import-untyped]
 
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl, rpc_channel
+from zhiheng.modules.knowledge.adapters.milvus_rpc import rpc_channel
+from zhiheng.modules.knowledge.control import VectorIOControl
 from zhiheng.shared.errors import AppError
 
 _METHODS = frozenset(

@@ -7,11 +7,14 @@ from sqlalchemy.engine import make_url
 
 from tests.core.resources import resource
 from zhiheng.bootstrap.migrations import migrate
+from zhiheng.bootstrap.settings import Settings
 from zhiheng.modules.knowledge.adapters.lightrag.postgres import PostgresContext
 from zhiheng.shared.errors import AppError
 
 
-async def test_real_explicit_pool_reconnect_rejects_catalog_and_owner(settings: object) -> None:
+async def test_real_explicit_pool_reconnect_rejects_catalog_and_owner(  # noqa: PLR0915 - verify catalog faults and restored storage against the same owned pool and role
+    settings: Settings,
+) -> None:
     await migrate(settings)
     url = make_url(settings.database_url.get_secret_value().replace('postgresql+asyncpg:', 'postgresql:'))
     admin = await asyncpg.connect(url.render_as_string(hide_password=False))
@@ -79,7 +82,8 @@ async def test_real_explicit_pool_reconnect_rejects_catalog_and_owner(settings: 
             await admin.execute('ALTER TABLE knowledge_graph_sdk.misplaced_doc_full RENAME TO lightrag_doc_full')
             await context.reconnect()
             from lightrag.base import DocStatus
-            from lightrag.kg.shared_storage import initialize_share_data, finalize_share_data
+            from lightrag.kg.shared_storage import finalize_share_data, initialize_share_data
+
             from zhiheng.modules.knowledge.adapters.lightrag.postgres import CURRENT_STORAGE
             from zhiheng.modules.knowledge.adapters.lightrag.storage import GraphDocStorage, GraphKVStorage
             from zhiheng.shared.time import utcnow

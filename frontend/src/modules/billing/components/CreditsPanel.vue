@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useId } from 'vue'
 import {
   Alert as AAlert,
@@ -8,9 +9,10 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   Modal as AModal,
+  Pagination as APagination,
   Tag as ATag
 } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -18,10 +20,8 @@ import { identity } from '../../identity/public.ts'
 import {
   adjustCredits,
   getCreditAccounts,
-  getCreditState,
   getMyCredits,
-  setCreditAccountState,
-  setCreditState
+  setCreditAccountState
 } from '../api/index.ts'
 import type {
   CreditAccount,
@@ -32,12 +32,22 @@ import type {
 } from '../api/index.ts'
 import { creditAccess, formatPoints, validPoints } from '../presentation.ts'
 import CreditActivity from './CreditActivity.vue'
+import { useRouter } from 'vue-router'
+const router = useRouter()
+const accountName = (account: CreditAccount) => account.display_name.trim() || account.username
+const openTokens = (user: CreditAccount) =>
+  router.push({
+    path: '/usage',
+    query: { tab: 'history', userId: user.user_id, userName: accountName(user) }
+  })
 
 const formName = `billing-account-action-${useId()}`
-const props = defineProps<{ management?: boolean }>()
+const props = defineProps<{ management?: boolean; billingState?: CreditState | null }>()
+const emit = defineEmits<{ loading: [value: boolean] }>()
 const access = computed(() => creditAccess(identity.value))
-const state = ref<CreditState | null>(null),
-  summary = ref<CreditSummary | null>(null)
+const state = computed(() => props.billingState ?? null)
+const summary = ref<CreditSummary | null>(null),
+  hasData = ref(false)
 const accounts = ref<CreditAccount[]>([]),
   total = ref(0),
   page = ref(1),
@@ -49,7 +59,7 @@ const selectedAccount = ref<CreditAccount | null>(null)
 const activity = ref<InstanceType<typeof CreditActivity> | null>(null)
 const scope = new RequestScope(),
   mutation = new RequestScope()
-const dialog = ref<'grant' | 'reclaim' | 'account' | 'mode' | null>(null)
+const dialog = ref<'grant' | 'reclaim' | 'account' | null>(null)
 const target = ref<CreditAccount | null>(null),
   saving = ref(false),
   formError = ref('')
@@ -65,9 +75,7 @@ const dialogTitle = computed(() =>
         ? target.value?.enabled
           ? '暂停积分账户'
           : '恢复积分账户'
-        : state.value?.enabled
-          ? '停用积分计费'
-          : '启用积分计费'
+        : ''
 )
 const confirmText = computed(() =>
   dialog.value === 'grant'
@@ -78,9 +86,7 @@ const confirmText = computed(() =>
         ? target.value?.enabled
           ? '确认暂停'
           : '确认恢复'
-        : state.value?.enabled
-          ? '确认停用'
-          : '确认启用'
+        : ''
 )
 const summaryCards = computed(() =>
   summary.value
@@ -91,10 +97,26 @@ const summaryCards = computed(() =>
           testId: 'available-points',
           primary: true
         },
-        { label: '预占中', value: summary.value.reserved_points, testId: 'reserved-points' },
-        { label: '已消费', value: summary.value.used_points, testId: 'used-points' },
-        { label: '累计发放', value: summary.value.allocated_points, testId: 'allocated-points' },
-        { label: '累计回收', value: summary.value.reclaimed_points, testId: 'reclaimed-points' }
+        {
+          label: '待结算积分',
+          value: summary.value.reserved_points,
+          testId: 'reserved-points'
+        },
+        {
+          label: '已消费',
+          value: summary.value.used_points,
+          testId: 'used-points'
+        },
+        {
+          label: '累计发放',
+          value: summary.value.allocated_points,
+          testId: 'allocated-points'
+        },
+        {
+          label: '累计回收',
+          value: summary.value.reclaimed_points,
+          testId: 'reclaimed-points'
+        }
       ]
     : []
 )
@@ -112,22 +134,23 @@ onMounted(() => {
 onBeforeUnmount(() => {
   scope.dispose()
   mutation.dispose()
+  emit('loading', false)
 })
 async function load(): Promise<void> {
   const context = scope.replace()
   loading.value = true
+  emit('loading', true)
   error.value = ''
   try {
-    const [mode, own, result] = await Promise.all([
-      getCreditState(context.signal),
-      getMyCredits(context.signal),
+    const [own, result] = await Promise.all([
+      !props.management ? getMyCredits(context.signal) : Promise.resolve(null),
       props.management && access.value.read
         ? getCreditAccounts(search.value.trim(), page.value, context.signal)
         : Promise.resolve(null)
     ])
     if (!context.isCurrent()) return
-    state.value = mode
     summary.value = own
+    hasData.value = true
     if (result) {
       accounts.value = result.items
       total.value = result.total
@@ -141,12 +164,14 @@ async function load(): Promise<void> {
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
-    if (context.isCurrent()) loading.value = false
+    if (context.isCurrent()) {
+      loading.value = false
+      emit('loading', false)
+    }
   }
 }
 function open(kind: NonNullable<typeof dialog.value>, account?: CreditAccount): void {
-  if ((kind === 'mode' && !access.value.switchMode) || (kind !== 'mode' && !access.value.write))
-    return
+  if (!access.value.write) return
   target.value = account ?? null
   dialog.value = kind
   form.points = ''
@@ -164,10 +189,9 @@ function close(): void {
 async function save(): Promise<void> {
   const kind = dialog.value,
     account = target.value
-  if (!kind || saving.value || (kind === 'mode' ? !access.value.switchMode : !access.value.write))
-    return
+  if (!kind || !account || saving.value || !access.value.write) return
   formError.value = ''
-  if (kind !== 'mode' && !form.reason.trim()) {
+  if (!form.reason.trim()) {
     formError.value = '请填写操作原因'
     return
   }
@@ -180,32 +204,28 @@ async function save(): Promise<void> {
     kind === 'grant' || kind === 'reclaim'
       ? { kind, points: form.points.trim(), reason }
       : {
-          enabled: kind === 'mode' ? !state.value?.enabled : !account?.enabled,
-          expected_version: kind === 'mode' ? (state.value?.version ?? 0) : (account?.version ?? 0),
+          enabled: !account.enabled,
+          expected_version: account.version,
           reason
         }
   const signature = JSON.stringify({ kind, user_id: account?.user_id, ...payload })
   if (!retryBody || retrySignature !== signature) {
     retrySignature = signature
-    retryBody = { ...payload, client_request_id: crypto.randomUUID() }
+    retryBody = { ...payload, client_request_id: createRequestId() }
   }
   const context = mutation.replace()
   saving.value = true
   try {
-    if (kind === 'mode') {
-      state.value = await setCreditState(retryBody as StateMutation, context.signal)
-    } else if (account) {
-      const result =
-        kind === 'account'
-          ? await setCreditAccountState(account.user_id, retryBody as StateMutation, context.signal)
-          : await adjustCredits(account.user_id, retryBody as CreditAdjustment, context.signal)
-      if (!context.isCurrent()) return
-      accounts.value = accounts.value.map((row) =>
-        row.user_id === account.user_id ? { ...row, ...result } : row
-      )
-      if (selectedAccount.value?.user_id === account.user_id)
-        selectedAccount.value = { ...account, ...result }
-    }
+    const result =
+      kind === 'account'
+        ? await setCreditAccountState(account.user_id, retryBody as StateMutation, context.signal)
+        : await adjustCredits(account.user_id, retryBody as CreditAdjustment, context.signal)
+    if (!context.isCurrent()) return
+    accounts.value = accounts.value.map((row) =>
+      row.user_id === account.user_id ? { ...row, ...result } : row
+    )
+    if (selectedAccount.value?.user_id === account.user_id)
+      selectedAccount.value = { ...account, ...result }
     if (!context.isCurrent()) return
     dialog.value = null
     success.value = `${dialogTitleFor(kind, account)}成功`
@@ -229,8 +249,9 @@ function dialogTitleFor(kind: string, account: CreditAccount | null): string {
         ? account?.enabled
           ? '暂停账户'
           : '恢复账户'
-        : '切换积分计费'
+        : ''
 }
+defineExpose({ reload: load })
 function searchAccounts(): void {
   page.value = 1
   void load()
@@ -238,27 +259,6 @@ function searchAccounts(): void {
 </script>
 <template>
   <section class="credits-panel" aria-label="平台积分">
-    <div class="credit-mode">
-      <AAlert
-        v-if="state"
-        :message="state.enabled ? '积分计费已启用' : '积分计费未启用，当前沿用原规则'"
-        :description="
-          state.enabled
-            ? '调用按锁定的积分价格预占和结算；积分长期有效。'
-            : '可先准备模型积分价格与用户余额，由超级管理员明确启用。新用户默认零积分。'
-        "
-        :type="state.enabled ? 'success' : 'info'"
-        show-icon
-      />
-      <div class="credit-actions">
-        <AButton v-if="access.switchMode && state" :danger="state.enabled" @click="open('mode')">{{
-          state.enabled ? '停用积分计费' : '启用积分计费'
-        }}</AButton>
-        <AButton :loading="loading" aria-label="刷新积分" @click="load"
-          ><ReloadOutlined />刷新</AButton
-        >
-      </div>
-    </div>
     <AAlert
       v-if="success"
       :message="success"
@@ -269,24 +269,28 @@ function searchAccounts(): void {
       @close="success = ''"
     />
     <AAlert
-      v-if="error && summary"
+      v-if="error && hasData"
       :message="`刷新失败，显示上次数据：${error}`"
       type="warning"
       show-icon
       class="credit-notice"
     />
-    <WorkspaceState v-if="loading && !summary" kind="loading" />
-    <WorkspaceState v-else-if="error && !summary" kind="error" :message="error" @retry="load" />
+    <WorkspaceState v-if="loading && !hasData" kind="loading" />
+    <WorkspaceState v-else-if="error && !hasData" kind="error" :message="error" @retry="load" />
     <template v-else-if="!management && summary">
       <AAlert
-        v-if="!summary.enabled"
+        v-if="state?.enabled && !summary.enabled"
         message="积分账户已暂停，无法发起新的积分消费；已有消费仍会结算。"
         type="warning"
         show-icon
         class="credit-notice"
       />
       <AAlert
-        v-if="summary.available_points.startsWith('-') && /[1-9]/.test(summary.available_points)"
+        v-if="
+          state?.enabled &&
+          summary.available_points.startsWith('-') &&
+          /[1-9]/.test(summary.available_points)
+        "
         message="积分已超额，新的积分调用将被阻止。请联系管理员追加积分。"
         type="error"
         show-icon
@@ -294,19 +298,17 @@ function searchAccounts(): void {
       />
       <div class="credit-summary" aria-label="我的积分概览">
         <article v-for="card in summaryCards" :key="card.label" :class="{ primary: card.primary }">
-          <span>{{ card.label }}</span
-          ><strong :class="card.testId">{{ formatPoints(card.value) }}</strong
-          ><small>积分</small>
+          <span class="credit-summary__label">{{ card.label }}</span>
+          <div class="credit-summary__amount">
+            <strong :class="card.testId">{{ formatPoints(card.value) }}</strong
+            ><small>积分</small>
+          </div>
         </article>
       </div>
       <CreditActivity ref="activity" @changed="load" />
     </template>
     <template v-else-if="management && access.read">
       <div class="accounts-heading">
-        <div>
-          <h2>用户积分账户</h2>
-          <p>手工发放长期有效；回收仅影响可用积分，API Key 共享应用所有者余额。</p>
-        </div>
         <AInput.Search
           v-model:value="search"
           placeholder="搜索用户名或姓名"
@@ -314,6 +316,72 @@ function searchAccounts(): void {
           enter-button="搜索"
           :loading="loading"
           @search="searchAccounts"
+        /><span class="accounts-count">共 {{ total }} 个账户</span>
+      </div>
+      <div class="accounts-mobile">
+        <WorkspaceState v-if="!loading && !accounts.length" kind="empty" title="暂无匹配用户" />
+        <article
+          v-for="account in accounts"
+          :key="account.user_id"
+          class="account-mobile"
+          :aria-label="`${accountName(account)}的积分账户`"
+        >
+          <header>
+            <div class="account-user">
+              <strong :title="account.username">{{ accountName(account) }}</strong>
+            </div>
+            <div>
+              <ATag :color="account.enabled ? 'success' : 'warning'">{{
+                account.enabled ? '正常' : '已暂停'
+              }}</ATag
+              ><ATag v-if="!account.is_active">用户已停用</ATag>
+            </div>
+          </header>
+          <dl>
+            <div>
+              <dt>可用积分</dt>
+              <dd class="point-amount">{{ formatPoints(account.available_points) }}</dd>
+            </div>
+            <div>
+              <dt>预占 / 已消费</dt>
+              <dd>
+                {{ formatPoints(account.reserved_points) }} /
+                {{ formatPoints(account.used_points) }}
+              </dd>
+            </div>
+            <div>
+              <dt>累计发放 / 回收</dt>
+              <dd>
+                {{ formatPoints(account.allocated_points) }} /
+                {{ formatPoints(account.reclaimed_points) }}
+              </dd>
+            </div>
+          </dl>
+          <footer class="account-buttons">
+            <AButton type="link" @click="selectedAccount = account">明细</AButton
+            ><AButton type="link" @click="openTokens(account)">Token 用量</AButton>
+            <template v-if="access.write"
+              ><AButton type="link" @click="open('grant', account)">发放</AButton
+              ><AButton type="link" @click="open('reclaim', account)">回收</AButton
+              ><AButton type="link" :danger="account.enabled" @click="open('account', account)">{{
+                account.enabled ? '暂停' : '恢复'
+              }}</AButton></template
+            >
+          </footer>
+        </article>
+        <APagination
+          v-if="total > 10"
+          :current="page"
+          :total="total"
+          :page-size="10"
+          :show-size-changer="false"
+          size="small"
+          @change="
+            (value) => {
+              page = value
+              void load()
+            }
+          "
         />
       </div>
       <div class="accounts-table">
@@ -336,8 +404,7 @@ function searchAccounts(): void {
         >
           <template #bodyCell="{ column, record }">
             <div v-if="column.key === 'user'" class="account-user">
-              <strong>{{ record.display_name || record.username }}</strong
-              ><span>{{ record.username }}</span>
+              <strong :title="record.username">{{ accountName(record) }}</strong>
             </div>
             <strong v-else-if="column.key === 'available'" class="point-amount">{{
               formatPoints(record.available_points)
@@ -358,6 +425,7 @@ function searchAccounts(): void {
             </div>
             <div v-else-if="column.key === 'actions'" class="account-buttons">
               <AButton type="link" @click="selectedAccount = record">明细</AButton
+              ><AButton type="link" @click="openTokens(record)">Token 用量</AButton
               ><template v-if="access.write"
                 ><AButton type="link" @click="open('grant', record)">发放</AButton
                 ><AButton type="link" @click="open('reclaim', record)">回收</AButton
@@ -372,7 +440,7 @@ function searchAccounts(): void {
     </template>
     <ADrawer
       :open="selectedAccount !== null"
-      :title="`${selectedAccount?.display_name || selectedAccount?.username || ''} · 积分明细`"
+      :title="`${selectedAccount ? accountName(selectedAccount) : ''} · 积分明细`"
       width="min(1100px, 96vw)"
       destroy-on-close
       @close="selectedAccount = null"
@@ -383,7 +451,7 @@ function searchAccounts(): void {
             >可用 <strong>{{ formatPoints(selectedAccount.available_points) }}</strong> 积分</span
           ><span>预占 {{ formatPoints(selectedAccount.reserved_points) }}</span
           ><ATag>{{ selectedAccount.enabled ? '账户正常' : '账户已暂停' }}</ATag
-          ><AButton aria-label="刷新账户明细" @click="load">刷新</AButton>
+          ><RefreshButton label="刷新账户明细" :loading="loading" @click="load" />
         </div>
         <CreditActivity
           :account-id="selectedAccount.user_id"
@@ -402,19 +470,8 @@ function searchAccounts(): void {
       @cancel="close"
     >
       <AAlert v-if="formError" :message="formError" type="error" show-icon class="credit-notice" />
-      <AAlert
-        v-if="dialog === 'mode'"
-        :message="
-          state?.enabled
-            ? '停用后新调用恢复原有规则，已预占的积分调用继续按原价格结算。'
-            : '请先配置模型积分价格并准备用户余额。启用后，未配置价格或余额不足的调用将被拒绝。'
-        "
-        type="warning"
-        show-icon
-        class="credit-notice"
-      />
       <p v-if="target">
-        账户：{{ target.display_name || target.username }}（{{ target.username }}）· 可用
+        账户：<span :title="target.username">{{ accountName(target) }}</span> · 可用
         {{ formatPoints(target.available_points) }} 积分
       </p>
       <AAlert
@@ -446,67 +503,54 @@ function searchAccounts(): void {
             :disabled="saving"
             placeholder="请输入正数，最多 18 位小数"
         /></AFormItem>
-        <AFormItem
-          :label="dialog === 'mode' ? '备注' : '操作原因'"
-          name="reason"
-          :required="dialog !== 'mode'"
+        <AFormItem label="操作原因" name="reason" required
           ><AInput.TextArea
             v-model:value="form.reason"
             :disabled="saving"
             :maxlength="1000"
             :rows="3"
-            :placeholder="dialog === 'mode' ? '选填' : '填写发放、回收或状态变更的依据'"
+            placeholder="填写发放、回收或状态变更的依据"
         /></AFormItem>
       </AForm>
-      <p class="credit-footnote">操作会留存审计记录；相同请求重试不会重复发放或回收。</p>
     </AModal>
   </section>
 </template>
 <style scoped>
 .credits-panel {
   min-width: 0;
-  padding: 0 24px 28px;
-}
-.credit-mode {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 22px;
-}
-.credit-mode > :first-child {
-  flex: 1;
-}
-.credit-actions {
-  display: flex;
-  gap: 10px;
-  padding-top: 3px;
+  padding: 0 28px 28px;
 }
 .credit-notice {
   margin-bottom: 16px;
 }
 .credit-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 1.3fr) repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 24px;
 }
 .credit-summary article {
   padding: 20px;
   min-width: 0;
-  background: var(--bg-container, white);
-  border: 1px solid var(--gray-150);
+  background: var(--gray-25);
+  border: 0;
   border-radius: 10px;
 }
 .credit-summary article.primary {
-  border-color: #d5d9fa;
-  background: linear-gradient(135deg, #f5f7ff, white);
+  background: var(--main-50);
 }
-.credit-summary span {
+.credit-summary__label {
   display: block;
   color: var(--color-text-secondary);
   font-size: 13px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
+}
+.credit-summary__amount {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 .credit-summary strong {
   display: block;
@@ -517,32 +561,27 @@ function searchAccounts(): void {
 }
 .credit-summary .primary strong,
 .point-amount {
-  color: #5365c9;
+  color: var(--main-color);
 }
 .credit-summary small {
   display: block;
-  margin-top: 6px;
   color: var(--color-text-secondary);
+  font-size: 11px;
 }
 .accounts-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 4px 0 18px;
+  margin: 0 0 16px;
 }
-.accounts-heading h2 {
-  margin: 0 0 7px;
-  font-size: 17px;
-  font-weight: 500;
-}
-.accounts-heading p,
-.credit-footnote {
+.accounts-count {
   color: var(--color-text-secondary);
   font-size: 12px;
   margin: 0;
 }
 .accounts-heading :deep(.ant-input-search) {
+  width: min(300px, 100%);
   max-width: 300px;
 }
 .accounts-table {
@@ -551,17 +590,11 @@ function searchAccounts(): void {
   border-radius: 10px;
   background: var(--bg-container, white);
 }
-.account-user {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+.accounts-mobile {
+  display: none;
 }
 .account-user strong {
   font-weight: 500;
-}
-.account-user span {
-  font-size: 12px;
-  color: var(--color-text-secondary);
 }
 .account-buttons {
   display: flex;
@@ -576,20 +609,21 @@ function searchAccounts(): void {
   margin: 0 0 20px;
   align-items: center;
 }
+.account-detail-summary > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 1000px) {
   .credit-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .credit-summary article.primary {
+    grid-column: 1 / -1;
   }
 }
 @media (max-width: 640px) {
   .credits-panel {
-    padding: 0 14px 20px;
-  }
-  .credit-mode {
-    flex-direction: column;
-  }
-  .credit-mode > :first-child {
-    width: 100%;
+    padding: 0 16px 24px;
   }
   .credit-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -601,12 +635,68 @@ function searchAccounts(): void {
   .credit-summary strong {
     font-size: 22px;
   }
+  .credit-summary article.primary strong {
+    font-size: 28px;
+  }
+  .credit-summary__label {
+    margin-bottom: 10px;
+  }
   .accounts-heading {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
   }
   .accounts-heading :deep(.ant-input-search) {
     max-width: 100%;
+  }
+  .accounts-table {
+    display: none;
+  }
+  .accounts-mobile {
+    display: grid;
+    gap: 14px;
+  }
+  .account-mobile {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--gray-150);
+    border-radius: 12px;
+  }
+  .account-mobile header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .account-mobile .account-user {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .account-mobile dl {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0;
+  }
+  .account-mobile dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .account-mobile dt {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+  }
+  .account-mobile dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .account-mobile footer {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding-top: 10px;
+    border-top: 1px solid var(--gray-150);
   }
 }
 </style>

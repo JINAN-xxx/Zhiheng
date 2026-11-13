@@ -7,11 +7,7 @@ from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDepend
 from zhiheng.modules.operations.public import (
     ConfigInfo,
     CreateConfig,
-    CreateDictionary,
-    CreateDictionaryItem,
     CreateNotice,
-    DictionaryInfo,
-    DictionaryItemInfo,
     LogInfo,
     LogKind,
     LogOutcome,
@@ -20,8 +16,6 @@ from zhiheng.modules.operations.public import (
     NoticeStatus,
     Page,
     PatchConfig,
-    PatchDictionary,
-    PatchDictionaryItem,
     PatchNotice,
 )
 
@@ -30,137 +24,6 @@ PageNumber = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
 Search = Annotated[str, Query(max_length=500)]
 ExpectedVersion = Annotated[int, Query(ge=1)]
-
-
-@router.get('/dictionaries')
-async def dictionaries(
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-    search: Search = '',
-    page: PageNumber = 1,
-    page_size: PageSize = 20,
-    is_active: bool | None = None,
-) -> Page[DictionaryInfo]:
-    return await container.operations.list_dictionaries(
-        session, principal, search=search, page=page, page_size=page_size, is_active=is_active
-    )
-
-
-@router.post('/dictionaries', status_code=201)
-async def create_dictionary(
-    body: CreateDictionary,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryInfo:
-    async with session.begin():
-        return await container.operations.create_dictionary(session, principal, body)
-
-
-@router.get('/dictionaries/{dictionary_id}')
-async def dictionary(
-    dictionary_id: UUID,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryInfo:
-    return await container.operations.get_dictionary(session, principal, dictionary_id)
-
-
-@router.patch('/dictionaries/{dictionary_id}')
-async def update_dictionary(
-    dictionary_id: UUID,
-    body: PatchDictionary,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryInfo:
-    async with session.begin():
-        return await container.operations.update_dictionary(session, principal, dictionary_id, body)
-
-
-@router.delete('/dictionaries/{dictionary_id}', status_code=204)
-async def delete_dictionary(
-    dictionary_id: UUID,
-    expected_version: ExpectedVersion,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> Response:
-    async with session.begin():
-        await container.operations.delete_dictionary(
-            session, principal, dictionary_id, expected_version=expected_version
-        )
-    return Response(status_code=204)
-
-
-@router.get('/dictionaries/{dictionary_id}/items')
-async def dictionary_items(
-    dictionary_id: UUID,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-    search: Search = '',
-    page: PageNumber = 1,
-    page_size: PageSize = 20,
-    is_active: bool | None = None,
-) -> Page[DictionaryItemInfo]:
-    return await container.operations.list_dictionary_items(
-        session, principal, dictionary_id, search=search, page=page, page_size=page_size, is_active=is_active
-    )
-
-
-@router.post('/dictionaries/{dictionary_id}/items', status_code=201)
-async def create_dictionary_item(
-    dictionary_id: UUID,
-    body: CreateDictionaryItem,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryItemInfo:
-    async with session.begin():
-        return await container.operations.create_dictionary_item(session, principal, dictionary_id, body)
-
-
-@router.get('/dictionaries/{dictionary_id}/items/{item_id}')
-async def dictionary_item(
-    dictionary_id: UUID,
-    item_id: UUID,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryItemInfo:
-    return await container.operations.get_dictionary_item(session, principal, dictionary_id, item_id)
-
-
-@router.patch('/dictionaries/{dictionary_id}/items/{item_id}')
-async def update_dictionary_item(
-    dictionary_id: UUID,
-    item_id: UUID,
-    body: PatchDictionaryItem,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> DictionaryItemInfo:
-    async with session.begin():
-        return await container.operations.update_dictionary_item(session, principal, dictionary_id, item_id, body)
-
-
-@router.delete('/dictionaries/{dictionary_id}/items/{item_id}', status_code=204)
-async def delete_dictionary_item(
-    dictionary_id: UUID,
-    item_id: UUID,
-    expected_version: ExpectedVersion,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> Response:
-    async with session.begin():
-        await container.operations.delete_dictionary_item(
-            session, principal, dictionary_id, item_id, expected_version=expected_version
-        )
-    return Response(status_code=204)
 
 
 @router.get('/configs')

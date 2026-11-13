@@ -15,9 +15,11 @@ from langchain_core.messages import (
 from langchain_core.outputs import ChatGenerationChunk
 from langchain_openai import ChatOpenAI
 from langsmith import tracing_context
-from openai import APIError, APIStatusError, AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, Omit, OpenAI
+from openai import APIError, AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, Omit, OpenAI
 from pydantic import SecretStr
 
+from zhiheng.modules.models.adapters.catalog import validate_catalog
+from zhiheng.modules.models.adapters.errors import provider_error
 from zhiheng.modules.models.adapters.usage import CapturingCompletions, UsageCapture
 from zhiheng.modules.models.contracts import ModelDelta, ModelMessage, ProviderError
 
@@ -91,7 +93,7 @@ class _ReasoningChatOpenAI(ChatOpenAI):
             reasoning = delta.get('reasoning_content')
             if reasoning is not None:
                 if not isinstance(reasoning, str):
-                    raise ProviderError
+                    raise ProviderError(reason='invalid_reasoning')
                 result.message.additional_kwargs['reasoning_content'] = reasoning
         return result
 
@@ -103,7 +105,7 @@ class OpenAIChatProvider:
         base_url: str,
         api_key: str,
         model: str,
-        max_output_tokens: int,
+        max_output_tokens: int | None,
         timeout_seconds: float,
         options: dict[str, object] | None = None,
     ) -> None:
@@ -113,10 +115,11 @@ class OpenAIChatProvider:
         self._max_output = max_output_tokens
         self._timeout = timeout_seconds
         self._options = dict(options or {})
+        self._options.pop('provider_output_default', None)
         response_format = self._options.get('response_format')
         if response_format is not None:
             if response_format != 'json_object':
-                raise ProviderError(definitive_rejection=True)
+                raise ProviderError(definitive_rejection=True, reason='invalid_options')
             self._options['response_format'] = {'type': 'json_object'}
 
     def _isolate_request(self, request: Request) -> None:
@@ -145,7 +148,15 @@ class OpenAIChatProvider:
             return 'stop'
         if value == 'length':
             return 'length'
-        raise ProviderError
+        raise ProviderError(reason='unsupported_finish_reason')
+
+    async def validate(self) -> None:
+        await validate_catalog(
+            base_url=self._base_url,
+            api_key=self._api_key.get_secret_value(),
+            model=self._model,
+            timeout_seconds=self._timeout,
+        )
 
     async def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]:
         usage_capture = UsageCapture()
@@ -205,35 +216,36 @@ class OpenAIChatProvider:
     ) -> AsyncIterator[ModelDelta]:
         normalized = normalize_messages(messages)
         completed = False
+        failure: ProviderError | None = None
         try:
             with tracing_context(enabled=False):
                 async for chunk in client.bind(**self._options).astream(normalized):
                     if not isinstance(chunk.content, str):
-                        raise ProviderError
-                    usage = chunk.usage_metadata
-                    input_tokens = captured.input_tokens if usage is not None else None
-                    output_tokens = captured.output_tokens if usage is not None else None
+                        raise ProviderError(reason='invalid_content')
                     finish_reason = self._completion_reason(chunk.response_metadata.get('finish_reason'))
                     completed = completed or finish_reason is not None
                     reasoning = chunk.additional_kwargs.get('reasoning_content', '')
                     if not isinstance(reasoning, str):
-                        raise ProviderError
-                    if chunk.content or reasoning or usage is not None or finish_reason is not None:
+                        raise ProviderError(reason='invalid_reasoning')
+                    if chunk.content or reasoning or finish_reason is not None:
                         yield ModelDelta(
                             chunk.content,
-                            input_tokens,
-                            output_tokens,
-                            finish_reason,
-                            cache_tokens=captured.cache_tokens,
-                            reasoning_tokens=captured.reasoning_tokens,
+                            finish_reason=finish_reason,
                             reasoning=reasoning,
                         )
-            if not completed:
-                raise ProviderError
-        except APIStatusError as exc:
-            raise ProviderError(definitive_rejection=exc.status_code in {400, 401, 403, 404, 422, 429}) from None
-        except (APIError, TimeoutError, ValueError):
-            raise ProviderError from None
+        except (APIError, TimeoutError, ValueError) as exc:
+            failure = provider_error(exc)
+        if captured.observed:
+            yield ModelDelta(
+                input_tokens=captured.input_tokens,
+                output_tokens=captured.output_tokens,
+                cache_tokens=captured.cache_tokens,
+                reasoning_tokens=captured.reasoning_tokens,
+            )
+        if failure is not None:
+            raise failure from None
+        if not completed:
+            raise ProviderError(reason='incomplete_stream')
 
 
 def normalize_messages(messages: tuple[ModelMessage, ...]) -> list[BaseMessage]:

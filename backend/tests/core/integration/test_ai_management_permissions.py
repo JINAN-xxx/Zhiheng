@@ -38,7 +38,7 @@ async def account(
 
 
 async def test_model_management_read_write_and_basic_usage_are_independent(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
     async with account(admin, app) as (member, _, _):
         assert (await member.get('/api/models')).status_code == 200
@@ -68,7 +68,7 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
                 '/api/models', json={'name': 'deny', 'connection_id': connection_id, 'upstream_model': 'test'}
             ),
             await reader.patch(f'/api/models/{model_id}', json={'name': 'deny'}),
-            await reader.post(f'/api/models/{model_id}/unpublish', json={}),
+            await reader.post(f'/api/models/{model_id}/disable', json={}),
             await reader.delete(f'/api/models/{model_id}'),
             await reader.post(f'/api/models/{model_id}/test', json={'client_request_id': str(uuid4())}),
             await reader.get(f'/api/models/{model_id}/rate-cards'),
@@ -79,7 +79,11 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
         assert (await writer.get('/api/models?include_disabled=true')).status_code == 200
         connection = await writer.post(
             '/api/models/connections',
-            json={'name': 'delegated', 'base_url': 'http://localhost/v1', 'api_key': 'private-key'},
+            json={
+                'name': 'delegated',
+                'base_url': f'http://127.0.0.1:{provider.server_port}/v1',
+                'api_key': 'private-key',
+            },
         )
         assert connection.status_code == 201 and 'private-key' not in connection.text, connection.text
         connection_id = connection.json()['id']
@@ -94,7 +98,7 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
         assert model.status_code == 201, model.text
         identifier = model.json()['id']
         assert (await writer.patch(f'/api/models/{identifier}', json={'name': 'updated'})).status_code == 200
-        for action in ['disable', 'enable', 'unpublish', 'publish']:
+        for action in ['disable', 'enable']:
             assert (await writer.post(f'/api/models/{identifier}/{action}', json={})).status_code == 200
         assert (
             await writer.post(f'/api/models/{model_id}/test', json={'client_request_id': str(uuid4())})
@@ -111,6 +115,9 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
 async def test_model_testing_uses_existing_quota_ledger_idempotency_and_current_role(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
+    from tests.core.billing_support import enable_free_billing
+
+    await enable_free_billing(admin)
     from zhiheng.worker.execution import execute_run
 
     async with account(admin, app, 'ai:models:test') as (tester, role, _):
@@ -237,7 +244,7 @@ async def test_storage_governance_read_write_preserve_private_file_acl(admin: ht
         async with account(admin, app, permission) as (operator, _, user):
             for path in reads:
                 response = await operator.get(path)
-                assert response.status_code == 200, f'{path}: {response.text}'
+                assert response.status_code == (403 if path == '/api/files/users' else 200), f'{path}: {response.text}'
             assert (await operator.get('/api/files')).json()['total'] == 0
             assert (await operator.get('/api/files/stats')).json()['total_count'] == 0
             for suffix in ['', '/download', '/acl', '/references', '/audits']:
@@ -296,30 +303,38 @@ async def test_storage_jobs_keep_owner_checks_for_purge_and_file_repairs(
 ) -> None:
     from datetime import timedelta
 
-    from zhiheng.modules.files.orm import FileJob, FileReconcileIssue, FileRecord
+    from zhiheng.modules.files.orm import FileJob, FileReconcileIssue, FileRecord, FileReference
+    from zhiheng.shared.errors import AppError
     from zhiheng.shared.time import utcnow
 
-    uploaded = await admin.post(
-        '/api/files?filename=private.txt',
-        content=b'private-source',
-        headers={'content-type': 'application/octet-stream'},
-    )
-    identifier = uploaded.json()['id']
-    deleted = await admin.request('DELETE', f'/api/files/{identifier}', json={'expected_version': 1})
-    assert deleted.status_code == 200, deleted.text
     container = app.state.container
+    records = []
+    for name in ['expired', 'retained', 'referenced', 'repairable']:
+        uploaded = await admin.post(
+            '/api/files?filename=' + name + '.txt',
+            content=b'private-source',
+            headers={'content-type': 'application/octet-stream'},
+        )
+        assert uploaded.status_code == 201
+        if name != 'repairable':
+            deleted = await admin.request('DELETE', '/api/files/' + uploaded.json()['id'], json={'expected_version': 1})
+            assert deleted.status_code == 200
+        records.append(uploaded.json())
     async with container.database.sessions.begin() as session:
-        row = await session.get(FileRecord, UUID(identifier))
-        row.retention_until = utcnow() - timedelta(days=1)
-        storage_key = row.storage_key
+        for index, info in enumerate(records):
+            row = await session.get(FileRecord, UUID(info['id']))
+            if index < 3:
+                row.retention_until = utcnow() + timedelta(days=1 if index == 1 else -1)
+            info['storage_key'] = row.storage_key
+        session.add(FileReference(file_id=UUID(records[2]['id']), resource_type='chat', resource_id=uuid4()))
         job = FileJob(kind='reconcile', status='succeeded')
         session.add(job)
         await session.flush()
         issue = FileReconcileIssue(
             job_id=job.id,
-            file_id=row.id,
-            identity_key=f'file:{identifier}',
-            storage_key=storage_key,
+            file_id=UUID(records[3]['id']),
+            identity_key='owned-test:' + records[3]['id'],
+            storage_key=records[3]['storage_key'],
             kind='size_or_hash',
         )
         session.add(issue)
@@ -327,18 +342,27 @@ async def test_storage_jobs_keep_owner_checks_for_purge_and_file_repairs(
         issue_id = issue.id
     async with account(admin, app, 'ai:storage:write') as (operator, _, _):
         purged = await operator.post('/api/files/jobs/purge', json={})
-        assert purged.status_code == 404, purged.text
-        assert (
-            await operator.post(f'/api/files/{identifier}/purge', json={'expected_version': deleted.json()['version']})
-        ).status_code == 404
+        assert purged.status_code == 200 and purged.json()['changed'] == 1, purged.text
+        for info in records:
+            assert (await operator.get('/api/files/' + info['id'] + '/download')).status_code == 404
+            assert (
+                await operator.post('/api/files/' + info['id'] + '/purge', json={'expected_version': 2})
+            ).status_code == 404
         path = f'/api/files/reconcile/issues/{issue_id}/actions'
-        for action in ['quarantine', 'repair']:
-            assert (await operator.post(path, json={'action': action, 'expected_version': 1})).status_code == 404
-        ignored = await operator.post(path, json={'action': 'ignore', 'expected_version': 1})
-        assert ignored.status_code == 200 and ignored.json()['status'] == 'ignored', ignored.text
-        assert (await operator.get(f'/api/files/{identifier}/download')).status_code == 404
-    assert await container.files.storage.read(storage_key) == b'private-source'
-    assert (await admin.get(f'/api/files/{identifier}')).json()['status'] == 'deleted'
+        quarantined = await operator.post(path, json={'action': 'quarantine', 'expected_version': 1})
+        assert quarantined.status_code == 200 and quarantined.json()['status'] == 'quarantined'
+        repaired = await operator.post(
+            path, json={'action': 'repair', 'expected_version': quarantined.json()['version']}
+        )
+        assert repaired.status_code == 200 and repaired.json()['status'] == 'resolved'
+        assert (await operator.get('/api/files/' + records[3]['id'] + '/download')).status_code == 404
+    with pytest.raises(AppError):
+        await container.files.storage.read(records[0]['storage_key'])
+    for info in records[1:]:
+        assert await container.files.storage.read(info['storage_key']) == b'private-source'
+    for info in records[1:3]:
+        assert (await admin.get('/api/files/' + info['id'])).json()['status'] == 'deleted'
+    assert (await admin.get('/api/files/' + records[3]['id'])).json()['owner_id'] == records[3]['owner_id']
 
 
 async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.AsyncClient, app: FastAPI) -> None:
@@ -362,6 +386,8 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
             lambda: container.files.issue_stats(session, principal),
         ]
         writes = [
+            lambda: container.models.resolve_for_test(session, principal, identifier),
+            lambda: container.models.list_models(session, principal=principal, for_test=True),
             lambda: container.models.create_connection(
                 session, principal, name='deny', base_url='http://localhost', api_key='secret'
             ),
@@ -399,7 +425,7 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
             principal.id,
             'read-only',
             False,
-            frozenset({'ai:models:read', 'ai:rates:read', 'ai:storage:read'}),
+            frozenset({'ai:models:read', 'ai:rates:read', 'ai:storage:read', 'system:users:read'}),
         )
         for operation in reads:
             await operation()

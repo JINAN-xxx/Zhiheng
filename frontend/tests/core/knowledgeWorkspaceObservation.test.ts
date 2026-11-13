@@ -30,10 +30,12 @@ const flush = async () => {
   await setImmediate()
 }
 const base = (id = 'base-1'): KnowledgeBase => ({
+  availability: 'available',
   id,
   name: id,
   description: 'Description',
   owner_id: 'user-1',
+  document_policy: 'library',
   access: 'private',
   version: 1,
   acl_version: 1,
@@ -188,7 +190,10 @@ void test('terminal overview failures retry only the overview after documents ha
   t.mock.timers.tick(1500)
   await flush()
   assert.equal(workspace.selected.value?.index_status, 'ready')
-  assert.equal(workspace.bases.value[0]?.index_status, 'building')
+  assert.equal(
+    workspace.bases.value.filter((row) => row.availability === 'available')[0]?.index_status,
+    'building'
+  )
   assert.equal(fixture.count('/api/knowledge/bases/base-1/documents'), 2)
   t.mock.timers.tick(2999)
   await flush()
@@ -199,7 +204,10 @@ void test('terminal overview failures retry only the overview after documents ha
   t.mock.timers.tick(6000)
   await flush()
   assert.equal(fixture.count('/api/knowledge/bases'), 4)
-  assert.equal(workspace.bases.value[0]?.index_status, 'ready')
+  assert.equal(
+    workspace.bases.value.filter((row) => row.availability === 'available')[0]?.index_status,
+    'ready'
+  )
   assert.equal(workspace.listError.value, '')
   assert.equal(workspace.observationError.value, '')
   assert.equal(fixture.count('/api/knowledge/bases/base-1/documents'), 2)
@@ -248,7 +256,10 @@ void test('changing base aborts a pending terminal overview read and rejects its
   release(response([fixture.base, fixture.otherBase]))
   await flush()
   assert.equal(workspace.selected.value?.id, 'base-2')
-  assert.equal(workspace.bases.value[0]?.index_status, 'building')
+  assert.equal(
+    workspace.bases.value.filter((row) => row.availability === 'available')[0]?.index_status,
+    'building'
+  )
 })
 
 const graphJob = (baseId: string): GraphJob => ({
@@ -316,3 +327,228 @@ for (const destination of ['base-1', 'base-2']) {
     assert.equal(fixture.count(`/api/knowledge/bases/${destination}/graph/jobs/new-query`), 0)
   })
 }
+
+void test('same-library navigation changes section before a delayed permission read without reloading collections', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = new Fixture(t)
+  const { workspace, router } = await fixture.mount(t)
+  fixture.complete()
+  await workspace.refresh()
+  const documents = fixture.count('/api/knowledge/bases/base-1/documents')
+  const folders = fixture.count('/api/knowledge/bases/base-1/folders')
+  const overview = fixture.count('/api/knowledge/bases')
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  fixture.override = async (path) => {
+    if (path === '/api/knowledge/bases/base-1') {
+      await held
+      return response(fixture.base)
+    }
+  }
+  t.after(release)
+  let navigated = false
+  void workspace.navigate(workspace.selected.value!, 'query').then(() => {
+    navigated = true
+  })
+  await flush()
+  assert.equal(navigated, true, 'Section navigation must not await the network')
+  assert.equal(router.currentRoute.value.params.view, 'query')
+  assert.equal(workspace.detailLoading.value, false)
+  assert.equal(fixture.count('/api/knowledge/bases/base-1/documents'), documents)
+  assert.equal(fixture.count('/api/knowledge/bases/base-1/folders'), folders)
+  assert.equal(fixture.count('/api/knowledge/bases'), overview)
+  release()
+  await flush()
+})
+
+void test('admitted document processing continues to synchronize while the query section is visible', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = new Fixture(t)
+  const { workspace, router } = await fixture.mount(t)
+  await workspace.navigate(workspace.selected.value!, 'query')
+  await flush()
+  workspace.queryResult.value = { items: [] }
+  fixture.base.active_revision = 'revision-new'
+  fixture.base.version += 1
+  fixture.complete()
+  t.mock.timers.tick(1500)
+  await flush()
+  assert.equal(router.currentRoute.value.params.view, 'query')
+  assert.equal(workspace.selected.value?.index_status, 'ready')
+  assert.equal(fixture.count('/api/knowledge/jobs/job-active'), 1)
+  assert.equal(workspace.observationError.value, '')
+  assert.equal(
+    workspace.queryResult.value,
+    null,
+    'An authoritative index change invalidates old results'
+  )
+})
+
+void test('a background section access denial clears both retained panels', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = new Fixture(t)
+  const { workspace } = await fixture.mount(t)
+  fixture.complete()
+  await workspace.refresh()
+  workspace.queryResult.value = { items: [] }
+  fixture.override = (path) =>
+    path === '/api/knowledge/bases/base-1'
+      ? response({ error: { code: 'knowledge_not_found', message: 'Access revoked' } }, 404)
+      : undefined
+  await workspace.navigate(workspace.selected.value!, 'query')
+  await flush()
+  assert.equal(workspace.selected.value, null)
+  assert.deepEqual(workspace.documents.value, [])
+  assert.equal(workspace.queryResult.value, null)
+  assert.equal(workspace.detailError.value, 'Access revoked')
+})
+
+void test('a late access denial from the old library cannot clear a newly opened library', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = new Fixture(t)
+  const { workspace, router } = await fixture.mount(t)
+  fixture.complete()
+  await workspace.refresh()
+  let release!: () => void
+  let started = false
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  t.after(release)
+  fixture.override = async (path) => {
+    if (path === '/api/knowledge/bases/base-1') {
+      started = true
+      await held
+      return response(
+        { error: { code: 'knowledge_not_found', message: 'Old library denied' } },
+        404
+      )
+    }
+  }
+  await workspace.navigate(workspace.selected.value!, 'query')
+  await flush()
+  assert.equal(started, true)
+  await router.push('/knowledge/base-2/query')
+  await flush()
+  assert.equal(workspace.selected.value?.id, 'base-2')
+  release()
+  await flush()
+  assert.equal(workspace.selected.value?.id, 'base-2')
+  assert.equal(workspace.detailError.value, '')
+})
+
+void test('legacy section revalidation clears a source whose file permission was withdrawn', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fixture = new Fixture(t)
+  fixture.base.document_policy = 'legacy'
+  const document = {
+    id: 'doc-1',
+    base_id: 'base-1',
+    file_id: 'file-1',
+    file_name: 'Protected.txt',
+    file_size: 100,
+    mime: 'text/plain',
+    folder_id: null,
+    version: 1,
+    status: 'ready',
+    active_revision: 'revision-1',
+    job_id: null,
+    chunk_count: 1,
+    chunk_size: 1000,
+    chunk_overlap: 200,
+    error: null,
+    graph_status: 'disabled',
+    graph_error: null,
+    created_at: stamp,
+    updated_at: stamp
+  }
+  let available = true
+  fixture.override = (path) =>
+    path.endsWith('/documents')
+      ? response({ items: available ? [document] : [], total: available ? 1 : 0 })
+      : undefined
+  const { workspace } = await fixture.mount(t)
+  fixture.complete()
+  await workspace.refresh()
+  workspace.queryResult.value = {
+    items: [
+      {
+        chunk_id: 'chunk-1',
+        document_id: 'doc-1',
+        file_id: 'file-1',
+        source_id: 'doc-1',
+        knowledge_base_id: 'base-1',
+        index_revision: 'revision-1',
+        title: 'Protected.txt',
+        content: 'Already delivered source',
+        score: 1,
+        vector_score: null,
+        fusion_score: null,
+        rerank_score: null
+      }
+    ]
+  }
+  available = false
+  await workspace.navigate(workspace.selected.value!, 'query')
+  await flush()
+  assert.equal(workspace.queryResult.value, null)
+  assert.equal(workspace.selected.value?.id, 'base-1')
+})
+
+void test('an unavailable shared entry does not break the healthy overview and clears open content', async (t) => {
+  const fixture = new Fixture(t)
+  const { workspace } = await fixture.mount(t)
+  workspace.preview.open = true
+  workspace.preview.text = 'Protected preview'
+  workspace.graphWorkspace.graph.value = { nodes: [], edges: [], truncated: false } as never
+  const unavailable = {
+    id: fixture.base.id,
+    name: fixture.base.name,
+    owner_id: fixture.base.owner_id,
+    owner_name: 'Creator',
+    availability: 'owner_disabled'
+  }
+  fixture.override = (path) =>
+    path === '/api/knowledge/bases' ? response([unavailable, fixture.otherBase]) : undefined
+  await workspace.loadList()
+  await flush()
+  assert.equal(workspace.listError.value, '')
+  assert.equal(workspace.bases.value.length, 2)
+  assert.equal(workspace.bases.value[0]?.availability, 'owner_disabled')
+  assert.equal(workspace.bases.value[1]?.availability, 'available')
+  assert.equal(workspace.selected.value, null)
+  assert.equal(workspace.preview.open, false)
+  assert.equal(workspace.preview.text, '')
+  assert.equal(workspace.graphWorkspace.graph.value, null)
+  assert.equal(workspace.detailError.value, '创建者已停用')
+})
+
+void test('a direct content denial refreshes the gray entry and stale responses cannot restore content', async (t) => {
+  const fixture = new Fixture(t)
+  const { workspace } = await fixture.mount(t)
+  const unavailable = {
+    id: fixture.base.id,
+    name: fixture.base.name,
+    owner_id: fixture.base.owner_id,
+    owner_name: 'Creator',
+    availability: 'owner_deleted'
+  }
+  fixture.override = (path) => {
+    if (path === '/api/knowledge/bases') return response([unavailable, fixture.otherBase])
+    if (path.startsWith('/api/knowledge/bases/base-1'))
+      return response(
+        { error: { code: 'knowledge_owner_unavailable', message: '创建者已删除' } },
+        404
+      )
+    return undefined
+  }
+  await workspace.loadDetail()
+  await flush()
+  assert.equal(workspace.selected.value, null)
+  assert.equal(workspace.documents.value.length, 0)
+  assert.equal(workspace.queryResult.value, null)
+  assert.equal(workspace.detailError.value, '创建者已删除')
+  assert.equal(workspace.bases.value[0]?.availability, 'owner_deleted')
+})

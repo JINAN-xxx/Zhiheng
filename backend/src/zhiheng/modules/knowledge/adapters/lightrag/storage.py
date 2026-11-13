@@ -6,7 +6,6 @@ from typing import Any, ClassVar
 from lightrag.base import BaseKVStorage, DocStatusStorage  # type: ignore[import-untyped]
 from lightrag.kg.pgtable_impl import PGTableGraphStorage  # type: ignore[import-untyped]
 from lightrag.kg.postgres_impl import PGDocStatusStorage, PGKVStorage  # type: ignore[import-untyped]
-
 from zhiheng.modules.knowledge.adapters.lightrag.postgres import CURRENT_STORAGE, PostgresContext
 from zhiheng.shared.errors import AppError
 

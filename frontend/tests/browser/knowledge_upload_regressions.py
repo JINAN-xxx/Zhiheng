@@ -22,6 +22,7 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         self.import_calls = []
         self.discard_calls = []
         await super().asyncSetUp()
+        self.base.update(document_policy='library')
 
     def source(self):
         return {
@@ -35,6 +36,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
     async def respond(self, route):
         parsed = urlparse(route.request.url)
         path, method = parsed.path, route.request.method
+        if path.startswith("/api/knowledge/bases/base-1/uploads/requests/"):
+            return await route.fulfill(status=404, json={"error":{"code":"knowledge_upload_not_found","message":"Not staged"}})
         if path == "/api/knowledge/bases/base-1/uploads" and method == "POST":
             self.upload_calls.append(route.request.url)
             if self.partial and parse_qs(parsed.query)["filename"][0] == "b.txt":
@@ -163,8 +166,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
     async def fail_batch(self, partial=False):
         self.partial = partial
         await self.page.goto(self.origin + "/knowledge")
-        await self.page.get_by_role("button", name="管理文档", exact=True).click()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         modal = self.page.get_by_role("dialog")
         files = [
             {
@@ -182,7 +185,7 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
                 }
             )
         await modal.locator("input[type=file]").set_input_files(files)
-        await modal.get_by_role("button", name="上传并建立索引", exact=True).click()
+        await modal.get_by_role("button", name="添加并自动处理", exact=True).click()
         await expect(
             modal.get_by_text(
                 "第二份原文无效"
@@ -227,8 +230,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         await modal.get_by_role("button", name="Close", exact=True).click()
         await expect(modal).not_to_be_visible()
         await self.page.get_by_role("button", name="返回知识库", exact=True).click()
-        await self.page.get_by_role("button", name="管理文档", exact=True).click()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         await expect(modal.locator(".upload-result")).to_have_count(0)
         await modal.get_by_role("button", name="Close", exact=True).click()
         await self.verify_released_file()
@@ -237,8 +240,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         await self.fail_batch(partial=True)
         await self.page.go_back()
         await expect(self.page).to_have_url(self.origin + "/knowledge")
-        await self.page.get_by_role("button", name="管理文档", exact=True).click()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         modal = self.page.get_by_role("dialog")
         await expect(modal.locator(".upload-result")).to_have_count(1)
         self.assertEqual(self.discard_calls, [])
@@ -253,7 +256,7 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         await expect(modal.get_by_text(re.compile("清理响应未确认"))).to_be_visible()
         await expect(modal.locator(".upload-result")).to_have_count(1)
         await expect(
-            modal.get_by_role("button", name="上传并建立索引", exact=True)
+            modal.get_by_role("button", name="添加并自动处理", exact=True)
         ).to_be_disabled()
         await modal.get_by_role("button", name="Close", exact=True).click()
         await expect(modal).not_to_be_visible()
@@ -272,8 +275,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         ).to_be_disabled()
         await self.page.go_back()
         await expect(self.page).to_have_url(self.origin + "/knowledge")
-        await self.page.get_by_role("button", name="管理文档", exact=True).click()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         await expect(modal.locator(".upload-result")).to_have_count(1)
         self.assertEqual(self.discard_calls, [])
         self.confirm_import = True
@@ -288,7 +291,7 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
     async def test_reload_restores_known_file_ids_without_reupload(self):
         await self.fail_batch(partial=True)
         await self.page.reload()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         modal = self.page.get_by_role("dialog")
         await expect(modal.locator(".upload-result")).to_have_count(1)
         self.assertEqual(len(self.upload_calls), 2)
@@ -303,21 +306,26 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         await self.fail_batch(partial=True)
 
         async def other_user(route):
+            # Keep the synthetic server fixture consistent with owner-only management.
+            # Reusing its resource id across identities exercises the account key,
+            # rather than accidentally passing due to a different base id.
+            self.base['owner_id'] = 'other-user'
             await route.fulfill(
                 json={"id": "other-user", "username": "other-admin", "is_admin": True}
             )
 
         await self.page.route("**/api/auth/me", other_user)
         await self.page.reload()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         modal = self.page.get_by_role("dialog")
         await expect(modal.locator(".upload-result")).to_have_count(0)
         await modal.get_by_role("button", name="Close", exact=True).click()
         self.assertEqual(self.discard_calls, [])
         self.assertTrue(self.retained)
         await self.page.unroute("**/api/auth/me", other_user)
+        self.base['owner_id'] = 'user-1'
         await self.page.reload()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         await expect(modal.locator(".upload-result")).to_have_count(1)
         await modal.get_by_role("button", name="Close", exact=True).click()
         await self.verify_released_file()
@@ -368,8 +376,8 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
         await expect(self.page).to_have_url(self.origin + "/chat")
         await self.page.go_back()
         await expect(self.page).to_have_url(self.origin + "/knowledge")
-        await self.page.get_by_role("button", name="管理文档", exact=True).click()
-        await self.page.get_by_role("button", name="上传文档", exact=True).click()
+        await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()
+        await self.page.get_by_role("button", name="添加资料", exact=True).click()
         await expect(modal.locator(".upload-result")).to_have_count(1)
         await modal.get_by_role("button", name="Close", exact=True).click()
         await expect(modal).not_to_be_visible()

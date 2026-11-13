@@ -1,3 +1,4 @@
+import { createRequestId } from '../../../shared/requestId.ts'
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -121,7 +122,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
     selectedMode.value = mode
     cancelRequested = false
     result.value = null
-    intent = { query, mode, top_k: 8, client_request_id: crypto.randomUUID() }
+    intent = { query, mode, top_k: 8, client_request_id: createRequestId() }
     if (!persist()) {
       error.value = '无法保存请求标识，请恢复浏览器存储后重试'
       intent = null

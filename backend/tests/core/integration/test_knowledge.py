@@ -27,6 +27,18 @@ class VectorFixture:
             if row['document_id'] in {str(value) for value in document_ids}
         ][:limit]
 
+    async def hybrid_search(
+        self,
+        spec: VectorSpec,
+        vector: list[float],
+        query: str,
+        limit: int,
+        document_ids: list[UUID],
+        *,
+        timeout_seconds: float = 8,
+    ) -> list[dict[str, Any]]:
+        return await self.search(spec, vector, limit, document_ids, timeout_seconds=timeout_seconds)
+
 
 async def embedding_model(admin: httpx.AsyncClient, provider: ProviderServer) -> str:
     connection = (
@@ -50,7 +62,44 @@ async def embedding_model(admin: httpx.AsyncClient, provider: ProviderServer) ->
         },
     )
     assert response.status_code == 201, response.text
+    await configured_ranker(admin, provider, connection_id=connection['id'])
     return response.json()['id']
+
+
+async def configured_ranker(
+    admin: httpx.AsyncClient, provider: ProviderServer, *, connection_id: str | None = None
+) -> str:
+    current = (await admin.get('/api/knowledge/settings')).json()
+    if current.get('default_rerank_model_id'):
+        return current['default_rerank_model_id']
+    if connection_id is None:
+        connection = await admin.post(
+            '/api/models/connections',
+            json={
+                'name': 'Knowledge rerank',
+                'base_url': f'http://127.0.0.1:{provider.server_port}/v1',
+                'api_key': 'local-test-key',
+            },
+        )
+        assert connection.status_code == 201, connection.text
+        connection_id = connection.json()['id']
+    created = await admin.post(
+        '/api/models',
+        json={
+            'name': 'Required knowledge rerank',
+            'connection_id': connection_id,
+            'upstream_model': 'rerank',
+            'model_type': 'rerank',
+            'max_output_tokens': 64,
+        },
+    )
+    assert created.status_code == 201, created.text
+    saved = await admin.patch(
+        '/api/knowledge/settings',
+        json={'expected_version': current['version'], 'default_rerank_model_id': created.json()['id']},
+    )
+    assert saved.status_code == 200, saved.text
+    return created.json()['id']
 
 
 async def test_base_folder_acl_upload_and_request_identity(admin: httpx.AsyncClient, provider: ProviderServer) -> None:
@@ -163,7 +212,8 @@ async def test_index_tick_returns_for_children_and_publishes_complete_generation
     assert preparation['hits'][0]['content'] == 'The service listens on port 8080.'
     repeated = await admin.post(f'/api/knowledge/bases/{base["id"]}/query', json=query)
     assert repeated.json()['id'] == preparation['id']
-    assert len(provider.requests) == 2
+    assert len(provider.requests) == 3
+    assert provider.requests[-1]['model'] == 'rerank'
     await assert_chat_preparation(admin, provider, app, base, preparation)
     await assert_agent_work_preparation(admin, provider, app, base, chat_model_id=None)
 

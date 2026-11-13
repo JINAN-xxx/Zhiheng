@@ -3,14 +3,14 @@ import asyncio
 import pytest
 
 from zhiheng.modules.knowledge.adapters.lightrag.sdk import _callbacks
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.modules.knowledge.public import GraphSDKCall, VectorIOControl
 from zhiheng.shared.errors import AppError
 
 
-async def test_cancelled_control_cannot_submit_a_new_actual_model_bridge():
+async def test_cancelled_control_cannot_submit_a_new_actual_model_bridge() -> None:
     calls = []
 
-    async def model(call):
+    async def model(call: GraphSDKCall) -> str:
         calls.append(call)
         return 'already submitted'
 

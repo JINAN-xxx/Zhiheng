@@ -2,17 +2,23 @@
 
 from datetime import datetime
 from http import HTTPStatus
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from zhiheng.application.access import CallerContext, ResourceAccessService
 from zhiheng.infrastructure.database import Database
+from zhiheng.modules.files.public import FileInfo
 from zhiheng.modules.knowledge.public import BaseInfo, DocumentInfo, FolderInfo, KnowledgeService
 from zhiheng.shared.errors import AppError
+
+if TYPE_CHECKING:
+    from zhiheng.application.knowledge.documents import KnowledgeDocuments
 
 
 class KnowledgeQueries:
     def __init__(self, database: Database, knowledge: KnowledgeService, access: ResourceAccessService) -> None:
         self.database, self.knowledge, self.access = database, knowledge, access
+        self.document_workflows: KnowledgeDocuments | None = None
 
     async def get(self, caller: CallerContext, base_id: UUID) -> BaseInfo:
         async with self.database.sessions.begin() as session:
@@ -52,3 +58,27 @@ class KnowledgeQueries:
         async with self.database.sessions.begin() as session:
             await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
             return (await self.knowledge.documents(session, self.access.personal(caller.principal), base_id)).items
+
+    async def download(self, caller: CallerContext, base_id: UUID, document_id: UUID) -> tuple[FileInfo, bytes]:
+        async with self.database.sessions.begin() as session:
+            await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
+            principal = self.access.personal(caller.principal)
+            file = await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            ticket = await self.knowledge.files.read_ticket(session, principal, file.id)
+        content = await self.knowledge.files.read_content(ticket)
+        async with self.database.sessions.begin() as session:
+            await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
+            await self.knowledge.require_document_source(session, principal, base_id, document_id)
+        return file, content
+
+    async def preview(self, caller: CallerContext, base_id: UUID, document_id: UUID) -> dict[str, object]:
+        assert self.document_workflows is not None
+        async with self.database.sessions.begin() as session:
+            await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
+        result = await self.document_workflows.preview(self.access.personal(caller.principal), base_id, document_id)
+        async with self.database.sessions.begin() as session:
+            await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
+            await self.knowledge.require_document_source(
+                session, self.access.personal(caller.principal), base_id, document_id
+            )
+        return result

@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
-from zhiheng.modules.identity.public import IdentityAdminService, IdentityService, schema_tables
+from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 

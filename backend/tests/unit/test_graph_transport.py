@@ -1,12 +1,13 @@
 import asyncio
 import threading
 from datetime import timedelta
+from typing import Any
 
 import pytest
 
 from tests.unit.test_milvus_lifecycle import delayed_milvus_transport
 from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.modules.knowledge.public import VectorIOControl
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
 
@@ -63,7 +64,9 @@ async def test_shutdown_repeated_cancel_waits_for_real_delayed_writer(monkeypatc
 async def test_two_ten_second_waits_cannot_release_a_delayed_real_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     import os
     from uuid import uuid4
+
     from pymilvus import MilvusClient
+
     from tests.core.resources import resource
 
     uri = os.getenv('ZHIHENG_TEST_MILVUS_URI')
@@ -77,7 +80,7 @@ async def test_two_ten_second_waits_cannot_release_a_delayed_real_writer(monkeyp
     entered, release = threading.Event(), threading.Event()
     original = MilvusClient.upsert
 
-    def delayed(source: object, *args: object, **kwargs: object):
+    def delayed(source: object, *args: object, **kwargs: object) -> Any:
         entered.set()
         if not release.wait(30):
             raise TimeoutError('Probe release bound')

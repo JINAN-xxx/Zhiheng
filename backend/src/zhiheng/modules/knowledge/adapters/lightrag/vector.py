@@ -1,12 +1,8 @@
 """Manifest-bound Milvus collections: explicit provision, read-only validation and exact GC."""
 
-import hashlib
-import json
-import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
-from uuid import UUID
+from typing import Any, cast
 
 from pymilvus import CollectionSchema, MilvusClient  # type: ignore[import-untyped]
 
@@ -15,71 +11,9 @@ from lightrag.kg.milvus_impl import MilvusIndexConfig, MilvusVectorDBStorage  # 
 from lightrag.kg.shared_storage import get_namespace_lock  # type: ignore[import-untyped]
 from zhiheng.modules.knowledge.adapters.lightrag.postgres import CURRENT_STORAGE, PostgresContext
 from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.modules.knowledge.control import VectorIOControl
+from zhiheng.modules.knowledge.graph.contracts import GraphVectorManifest, VectorRole
 from zhiheng.shared.errors import AppError
-
-VectorRole = Literal['entities', 'relationships', 'chunks']
-MAX_GRAPH_DIMENSION = 65536
-
-
-@dataclass(frozen=True)
-class GraphVectorManifest:
-    base_id: UUID
-    revision: UUID
-    attempt_id: UUID
-    fingerprint: str
-    dimension: int
-    workspace: str
-
-    def __post_init__(self) -> None:
-        if (
-            self.workspace != 'g_' + self.attempt_id.hex
-            or not re.fullmatch('[a-f0-9]{64}', self.fingerprint)
-            or not 1 <= self.dimension <= MAX_GRAPH_DIMENSION
-        ):
-            raise AppError('graph_manifest_invalid', '图谱版本完整身份无效', 503)
-
-    def dump(self) -> dict[str, object]:
-        return {
-            'base_id': str(self.base_id),
-            'revision': str(self.revision),
-            'attempt_id': str(self.attempt_id),
-            'fingerprint': self.fingerprint,
-            'dimension': self.dimension,
-            'workspace': self.workspace,
-        }
-
-    @classmethod
-    def load(cls, value: dict[str, object]) -> 'GraphVectorManifest':
-        dimension = value['dimension']
-        if type(dimension) is not int:
-            raise AppError('graph_manifest_invalid', '图谱版本身份无效', 503)
-        return cls(
-            UUID(str(value['base_id'])),
-            UUID(str(value['revision'])),
-            UUID(str(value['attempt_id'])),
-            str(value['fingerprint']),
-            dimension,
-            str(value['workspace']),
-        )
-
-    def collection(self, role: VectorRole) -> str:
-        return 'zh_g_' + hashlib.sha256((self.description(role)).encode()).hexdigest()
-
-    def description(self, role: VectorRole) -> str:
-        return json.dumps(
-            {
-                'sdk': '1.5.7',
-                'base': str(self.base_id),
-                'revision': str(self.revision),
-                'attempt': str(self.attempt_id),
-                'fingerprint': self.fingerprint,
-                'dimension': self.dimension,
-                'workspace': self.workspace,
-                'role': role,
-            },
-            sort_keys=True,
-        )
 
 
 @dataclass(frozen=True)

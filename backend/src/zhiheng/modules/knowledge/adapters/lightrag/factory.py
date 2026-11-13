@@ -11,14 +11,15 @@ from lightrag.utils import EmbeddingFunc, Tokenizer  # type: ignore[import-untyp
 from zhiheng.modules.knowledge.adapters.lightrag.managed import insert_managed
 from zhiheng.modules.knowledge.adapters.lightrag.results import query_result, subgraph_result
 from zhiheng.modules.knowledge.adapters.lightrag.tokenizer import OfficialBPETokenizer
-from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
-from zhiheng.modules.knowledge.graph.contracts import GraphFrozen
+from zhiheng.modules.knowledge.graph.contracts import GraphFrozen, GraphVectorManifest
 from zhiheng.shared.errors import AppError
 
 LABEL_LIMIT = 200
 
 
-def create_rag(*, root: Path, frozen: GraphFrozen, manifest: GraphVectorManifest, llm: Any, embedding: Any) -> Any:
+def create_rag(
+    *, root: Path, frozen: GraphFrozen, manifest: GraphVectorManifest, llm: Any, embedding: Any, rerank: Any = None
+) -> Any:
     return LightRAG(
         working_dir=str(root / manifest.attempt_id.hex),
         workspace=manifest.workspace,
@@ -31,6 +32,8 @@ def create_rag(*, root: Path, frozen: GraphFrozen, manifest: GraphVectorManifest
             embedding_dim=manifest.dimension, max_token_size=8192, func=embedding, model_name='managed'
         ),
         llm_model_func=llm,
+        rerank_model_func=rerank,
+        min_rerank_score=0.0,
         role_llm_configs={
             role: {
                 'func': partial(llm, _role=role),
@@ -63,7 +66,13 @@ def create_rag(*, root: Path, frozen: GraphFrozen, manifest: GraphVectorManifest
 
 
 async def run_operation(
-    rag: Any, operation: str, frozen: GraphFrozen, manifest: GraphVectorManifest, request: dict[str, object]
+    rag: Any,
+    operation: str,
+    frozen: GraphFrozen,
+    manifest: GraphVectorManifest,
+    request: dict[str, object],
+    *,
+    rerank_state: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     result: dict[str, object]
     if operation in {'build', 'preview'}:
@@ -87,16 +96,29 @@ async def run_operation(
             'seconds': 0.0,
         }
     elif operation == 'query':
+        if request.get('_rerank_binding') is None:
+            raise AppError('knowledge_rerank_required', '图谱检索必须配置重排模型', 409)
         response = await rag.aquery_data(
             str(request['query']),
             param=QueryParam(
                 mode=request.get('mode', 'mix'),
-                top_k=request.get('top_k', 8),
+                top_k=40,
                 chunk_top_k=request.get('top_k', 8),
                 only_need_context=True,
+                enable_rerank=True,
             ),
         )
-        result = query_result(response, frozen).model_dump(mode='json')
+        state = rerank_state or {}
+        diagnostics = {key: value for key, value in state.items() if key != 'selected_contents'}
+        diagnostics.setdefault('candidate_count', 0)
+        diagnostics['retrieval_modes'] = {str(frozen.base_id): 'graph'}
+        diagnostics.setdefault('rerank_status', 'no_candidates')
+        result = query_result(
+            response,
+            frozen,
+            selected_contents=state.get('selected_contents'),
+            diagnostics=diagnostics,
+        ).model_dump(mode='json')
     elif operation == 'labels':
         labels = await rag.chunk_entity_relation_graph.get_popular_labels(limit=LABEL_LIMIT + 1)
         result = {'items': labels[:LABEL_LIMIT], 'truncated': len(labels) > LABEL_LIMIT}
@@ -124,7 +146,7 @@ async def shutdown_rag(
             on_error()
 
     if rag is not None:
-        for cb in rag.role_llm_funcs.values():
+        for cb in [*rag.role_llm_funcs.values(), getattr(rag, 'rerank_model_func', None)]:
             if hasattr(cb, 'shutdown'):
                 try:
                     await cb.shutdown(graceful=False, timeout=5)

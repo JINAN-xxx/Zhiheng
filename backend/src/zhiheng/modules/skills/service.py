@@ -21,12 +21,14 @@ from zhiheng.modules.skills.contracts import (
     SkillPage,
     SkillRevisionValue,
     SkillSelection,
+    SkillSource,
     SkillStatus,
 )
 from zhiheng.modules.skills.orm import Skill, SkillDraft, SkillLegacyBinding, SkillRevision
 from zhiheng.modules.skills.package import ParsedSkillPackage, SkillPackageParser
 from zhiheng.modules.skills.validation import is_valid_slug, validate_search
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -126,6 +128,8 @@ class SkillService:
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update(read=True)
         )
+        self._require_upload_target(skill)
+        require_capability(principal, 'skills', 'create' if skill is None else 'update')
         if target_check is not None:
             await target_check(session, skill.id if skill is not None else None)
         current = (
@@ -223,6 +227,8 @@ class SkillService:
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update()
         )
+        self._require_upload_target(skill)
+        require_capability(principal, 'skills', 'create' if skill is None else 'update')
         if target_check is not None:
             await target_check(session, skill.id if skill is not None else None)
         current = (
@@ -276,6 +282,11 @@ class SkillService:
         )
 
     @staticmethod
+    def _require_upload_target(skill: Skill | None) -> None:
+        if skill is not None and skill.source == 'builtin':
+            raise AppError('builtin_skill_protected', '预制技能不能替换，请修改技能包中的名称标识后上传为个人技能', 403)
+
+    @staticmethod
     def _import_action(
         skill: Skill | None, current: SkillRevision | None, parsed: ParsedSkillPackage
     ) -> SkillImportAction:
@@ -307,6 +318,7 @@ class SkillService:
         page_size: int = 20,
         search: str = '',
         status: SkillStatus | None = None,
+        source: SkillSource | None = None,
     ) -> SkillPage:
         validate_search(search)
         query = (
@@ -315,6 +327,8 @@ class SkillService:
             .where(Skill.owner_id == owner_id, Skill.deleted_at.is_(None))
             .options(revision_columns())
         )
+        if source is not None:
+            query = query.where(Skill.source == source)
         if status is not None:
             query = query.where(Skill.status == status)
         if search:
@@ -543,6 +557,8 @@ class SkillService:
         reference_check: Callable[[AsyncSession, str], Awaitable[bool]],
     ) -> SkillInfo:
         skill, revision = await self._row(session, principal.id, skill_id, lock=True)
+        if skill.source == 'builtin':
+            raise AppError('builtin_skill_protected', '市场预制技能不能删除，可通过启用开关控制使用', 403)
         if await reference_check(session, skill.slug):
             raise AppError('skill_referenced', '技能仍有有效引用或进行中的调用', 409)
         skill.deleted_at = skill.updated_at = utcnow()

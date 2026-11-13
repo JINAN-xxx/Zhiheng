@@ -56,8 +56,7 @@ class WorkService:
 
     async def _row(self, session: AsyncSession, principal: Principal, task_id: UUID, *, lock: bool = False) -> WorkTask:
         query = select(WorkTask).where(WorkTask.id == task_id, WorkTask.deleted_at.is_(None))
-        if not principal.is_admin:
-            query = query.where(WorkTask.owner_id == principal.id)
+        query = query.where(WorkTask.owner_id == principal.id)
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
         row = await session.scalar(query)
@@ -111,8 +110,7 @@ class WorkService:
         except ValueError:
             raise AppError('invalid_work_search', '搜索条件无效', 422) from None
         query = select(WorkTask).where(WorkTask.deleted_at.is_(None))
-        if not principal.is_admin:
-            query = query.where(WorkTask.owner_id == principal.id)
+        query = query.where(WorkTask.owner_id == principal.id)
         if search:
             pattern = '%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
             query = query.where(or_(WorkTask.title.ilike(pattern), WorkTask.goal.ilike(pattern)))
@@ -261,7 +259,7 @@ class WorkService:
         *,
         upgrade: bool = False,
     ) -> None:
-        row = await self.editable(session, principal, task_id, version)
+        row = await self.editable(session, principal, task_id, version, allow_completed=True)
         members = list(
             await session.scalars(
                 select(WorkMember).where(WorkMember.task_id == task_id, WorkMember.removed_at.is_(None))
@@ -454,6 +452,21 @@ class WorkService:
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
+
+    async def knowledge_references(self, session: AsyncSession, base_id: UUID) -> list[ResourceReference]:
+        """返回仍有效的工作成员快照引用。"""
+        rows = await session.scalars(
+            select(WorkTask)
+            .join(WorkMember, WorkMember.task_id == WorkTask.id)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkMember.removed_at.is_(None),
+                WorkMember.config['knowledge_base_ids'].contains([str(base_id)]),
+            )
+            .order_by(WorkTask.id)
+        )
+        return [self._task_reference(row) for row in rows.unique()]
 
     async def skill_references(
         self,

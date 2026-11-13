@@ -9,7 +9,9 @@ from langchain_openai import OpenAIEmbeddings
 from langsmith import tracing_context
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from zhiheng.modules.models.adapters.usage import normalize_counter
+from zhiheng.modules.models.adapters.catalog import validate_catalog
+from zhiheng.modules.models.adapters.errors import provider_error
+from zhiheng.modules.models.adapters.usage import normalize_counter, normalize_usage
 from zhiheng.modules.models.contracts import ModelDelta, ModelMessage, ProviderError
 
 
@@ -41,17 +43,31 @@ class EmbeddingTransport:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
         self.usage: int | None = None
+        self.cache_tokens: int | None = None
+        self._observed = False
 
     async def create(self, **kwargs: object) -> dict[str, object]:
         response = await self.client.post('embeddings', json=kwargs)
         response.raise_for_status()
         result = EmbeddingResponse.model_validate(response.json())
-        value = (result.usage or {}).get('prompt_tokens')
-        self.usage = normalize_counter(value)
+        counters = normalize_usage(result.usage or {}, {'output_tokens': 0})
+        input_tokens = counters.input_tokens if counters.output_tokens == 0 else None
+        if self._observed:
+            self.usage = self.usage + input_tokens if self.usage is not None and input_tokens is not None else None
+            if (self.cache_tokens is None) != (counters.cache_tokens is None):
+                self.usage = None
+            self.cache_tokens = (
+                self.cache_tokens + counters.cache_tokens
+                if self.cache_tokens is not None and counters.cache_tokens is not None
+                else None
+            )
+        else:
+            self.usage, self.cache_tokens = input_tokens, counters.cache_tokens
+        self._observed = True
         if [row.index for row in sorted(result.data, key=lambda item: item.index)] != list(range(len(result.data))):
-            raise ProviderError
+            raise ProviderError(reason='invalid_response')
         if not result.data or any(not math.isfinite(value) for row in result.data for value in row.embedding):
-            raise ProviderError
+            raise ProviderError(reason='invalid_response')
         return {'data': [row.model_dump() for row in sorted(result.data, key=lambda item: item.index)]}
 
 
@@ -68,6 +84,14 @@ class StructuredProvider:
     ) -> None:
         self._base_url, self._key, self._model = base_url.rstrip('/') + '/', SecretStr(api_key), model
         self._timeout, self._type, self._options = timeout_seconds, model_type, options
+
+    async def validate(self) -> None:
+        await validate_catalog(
+            base_url=self._base_url,
+            api_key=self._key.get_secret_value(),
+            model=self._model,
+            timeout_seconds=self._timeout,
+        )
 
     async def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]:
         headers = {
@@ -107,10 +131,11 @@ class StructuredProvider:
                         or len({len(vector) for vector in vectors}) != 1
                         or (isinstance(dimensions, int) and len(vectors[0]) != dimensions)
                     ):
-                        raise ProviderError
+                        raise ProviderError(reason='invalid_response')
                     yield ModelDelta(
                         input_tokens=transport.usage,
                         output_tokens=0 if transport.usage is not None else None,
+                        cache_tokens=transport.cache_tokens,
                         result={
                             'data': [
                                 {'object': 'embedding', 'index': index, 'embedding': vector}
@@ -133,7 +158,7 @@ class StructuredProvider:
                         row.index >= len(messages) - 1 or not math.isfinite(row.relevance_score)
                         for row in result.results
                     ):
-                        raise ProviderError
+                        raise ProviderError(reason='invalid_response')
                     units = normalize_counter(((result.meta or {}).get('billed_units') or {}).get('search_units'))
                     rows: list[dict[str, object]] = []
                     for row in result.results:
@@ -141,11 +166,8 @@ class StructuredProvider:
                         if self._options.get('return_documents'):
                             item['document'] = {'text': messages[row.index + 1].content}
                         rows.append(item)
-                    usage = result.usage or (result.meta or {}).get('tokens') or {}
-                    prompt = usage.get('prompt_tokens', usage.get('input_tokens'))
-                    completion = usage.get('completion_tokens', usage.get('output_tokens'))
-                    prompt = normalize_counter(prompt)
-                    completion = normalize_counter(completion)
+                    usage = normalize_usage(result.usage or {}, (result.meta or {}).get('tokens') or {})
+                    prompt, completion = usage.input_tokens, usage.output_tokens
                     yield ModelDelta(
                         input_tokens=prompt,
                         output_tokens=completion,
@@ -157,11 +179,9 @@ class StructuredProvider:
                             },
                         },
                         search_units=units,
+                        cache_tokens=usage.cache_tokens,
+                        reasoning_tokens=usage.reasoning_tokens,
                         finish_reason='stop',
                     )
-        except httpx.HTTPStatusError as error:
-            raise ProviderError(
-                definitive_rejection=error.response.status_code in {400, 401, 403, 404, 422, 429}
-            ) from None
-        except (httpx.HTTPError, ValueError, KeyError):
-            raise ProviderError from None
+        except (httpx.HTTPError, ValueError, KeyError) as error:
+            raise provider_error(error) from None

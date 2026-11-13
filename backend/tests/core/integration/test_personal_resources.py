@@ -5,6 +5,7 @@ import httpx
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_skills import install
+from tests.core.knowledge_support import share_library
 
 
 async def test_same_slug_is_independent_and_owner_can_restore(admin: httpx.AsyncClient, app: object) -> None:
@@ -106,17 +107,11 @@ async def test_private_knowledge_owner_only_and_explicit_share_is_read_only(
                 },
             )
         ).status_code == 404
-        shared = await member.patch(
-            f'/api/knowledge/bases/{base["id"]}/acl',
-            json={
-                'access': 'public',
-                'entries': [],
-                'expected_version': base['acl_version'],
-            },
-        )
-        assert shared.status_code == 200, shared.text
+        await share_library(member, admin, base['id'])
         assert (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()['can_manage'] is False
-        assert (await admin.get('/api/knowledge/bases')).json() == []
+        shared_list = (await admin.get('/api/knowledge/bases')).json()
+        assert {row['id'] for row in shared_list} == {base['id']}
+        assert not shared_list[0]['can_manage']
         assert (await admin.post(f'/api/knowledge/bases/{base["id"]}/folders', json={'name': 'no'})).status_code == 404
         assert (await member.get('/api/knowledge/bases')).json()[0]['id'] == base['id']
 
@@ -174,7 +169,7 @@ async def test_account_resources_share_the_account_transaction_and_reads_do_not_
             user = await container.accounts.create_user(
                 session, username='rollback-user', password='platform-test-password'
             )
-            assert len(await container.skills.available(session, user.id)) == 2
+            assert len(await container.skills.available(session, user.id)) == 5
             raise RuntimeError('rollback account')
     async with container.database.sessions() as session:
         assert await session.scalar(select(IdentityUser.id).where(IdentityUser.username == 'rollback-user')) is None
@@ -197,19 +192,20 @@ async def test_administrator_preview_and_work_use_agent_owner_and_frozen_revisio
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         original = await install(member, 'owned-execution', 'FROZEN OWNER CONTENT')
         agent = await published(member, model_id, skill_slugs=[original['slug']])
-        preview = await admin.post(
-            f'/api/agents/{agent["id"]}/preview',
-            json={
-                'client_request_id': str(uuid4()),
-                'messages': [{'role': 'user', 'content': 'preview'}],
-            },
-        )
+        path = f'/api/agents/{agent["id"]}/preview'
+        request = {'client_request_id': str(uuid4()), 'messages': [{'role': 'user', 'content': 'preview'}]}
+        assert (await admin.post(path, json=request)).status_code == 404
+        assert not provider.requests
+        preview = await member.post(path, json=request)
         assert preview.status_code == 202, preview.text
         await execute_run(app.state.container, UUID(preview.json()['id']))
         assert 'FROZEN OWNER CONTENT' in provider.requests[-1]['messages'][0]['content']
-        work = await task(admin, agent)
+        work = await task(member, agent)
         await install(member, 'owned-execution', 'LATEST OWNER CONTENT')
-        run = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        before = len(provider.requests)
+        assert (await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))).status_code == 404
+        assert len(provider.requests) == before
+        run = await member.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
         assert run.status_code == 202, run.text
         await execute_run(app.state.container, UUID(run.json()['id']))
         messages = provider.requests[-1]['messages']

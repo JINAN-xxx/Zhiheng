@@ -1,4 +1,5 @@
-from typing import Annotated
+from typing import Annotated, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request, Response
@@ -7,7 +8,8 @@ from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.knowledge.public import (
     NATIVE_FORMATS,
-    BaseAcl,
+    AttachmentImport,
+    AttachmentImportInfo,
     BaseAclInfo,
     BaseCreate,
     BaseInfo,
@@ -20,10 +22,12 @@ from zhiheng.modules.knowledge.public import (
     FolderPatch,
     JobInfo,
     JobRequest,
+    KnowledgeSettings,
+    MigrationRequest,
     PreparationInfo,
     QueryRequest,
     RechunkRequest,
-    split_chunks,
+    UnavailableBaseInfo,
 )
 from zhiheng.shared.errors import AppError
 
@@ -31,21 +35,33 @@ router = APIRouter(prefix='/api/knowledge', tags=['knowledge'])
 
 
 @router.get('/capabilities')
-async def capabilities(container: ContainerDependency, principal: PrincipalDependency) -> dict[str, object]:
+async def capabilities(
+    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+) -> dict[str, object]:
+    try:
+        ranker = await container.knowledge.default_rerank_binding(session)
+    except AppError:
+        ranker = None
     return {
+        'default_embedding_configured': await container.knowledge.defaults_ready(session),
+        'default_rerank_configured': ranker is not None,
+        'default_rerank_model_id': str(ranker.model_id) if ranker else None,
         'milvus_configured': bool(container.settings.milvus_uri),
         'milvus_available': await container.vectors.available(),
         'native_formats': NATIVE_FORMATS,
         'graph_available': await container.graph_sdk.available(),
-        'mineru_available': False,
+        'mineru_available': await container.document_parsing.available(),
     }
 
 
 @router.get('/bases')
 async def bases(
-    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
-) -> list[BaseInfo]:
-    return await container.knowledge.list_bases(session, principal)
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    scope: Literal['owned', 'shared', 'all'] = 'all',
+) -> list[BaseInfo | UnavailableBaseInfo]:
+    return await container.knowledge.list_bases(session, principal, scope=scope)
 
 
 @router.get('/available')
@@ -58,7 +74,8 @@ async def available(
     if agent_id:
         agent = await container.agents.get(session, principal, agent_id)
         principal = await container.identity.principal_for_user(session, agent.owner_id)
-    return await container.knowledge.list_bases(session, principal, available=True)
+    rows = await container.knowledge.list_bases(session, principal, available=True)
+    return [row for row in rows if isinstance(row, BaseInfo)]
 
 
 @router.post('/bases', status_code=201)
@@ -88,34 +105,22 @@ async def patch_base(
         return await container.knowledge_commands.native.patch(session, principal, base_id, body)
 
 
+@router.patch('/bases/{base_id}/settings')
+async def configure(
+    base_id: UUID,
+    body: KnowledgeSettings,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> dict[str, object]:
+    base, job = await container.knowledge_configuration.save(principal, base_id, body)
+    return {'base': base.model_dump(mode='json'), 'job': job.model_dump(mode='json') if job else None}
+
+
 @router.get('/bases/{base_id}/acl')
 async def acl(
     base_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> BaseAclInfo:
     return await container.knowledge.acl(session, principal, base_id)
-
-
-@router.patch('/bases/{base_id}/acl')
-async def set_acl(
-    base_id: UUID,
-    body: BaseAcl,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> BaseAclInfo:
-    async with session.begin():
-        return await container.knowledge.set_acl(session, principal, base_id, body)
-
-
-@router.get('/bases/{base_id}/users')
-async def users(
-    base_id: UUID,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-    search: Annotated[str, Query(max_length=80)] = '',
-) -> list[dict[str, object]]:
-    return [row.model_dump() for row in await container.knowledge.users(session, principal, base_id, search)]
 
 
 @router.get('/bases/{base_id}/folders')
@@ -156,27 +161,28 @@ async def upload(
     request: Request,
     container: ContainerDependency,
     principal: PrincipalDependency,
-    session: SessionDependency,
     filename: Annotated[str, Query(min_length=1, max_length=255)],
     folder_id: UUID | None = None,
+    client_request_id: UUID | None = None,
 ) -> dict[str, object]:
-    async with session.begin():
-        base = await container.knowledge.authorize_base(session, principal, base_id, manage=True)
-        container.knowledge.idle(base)
-        owner_id = base.owner_id
-        await container.knowledge.authorize_folder(session, base_id, folder_id)
-    content = await request.body()
-    key = await container.files.storage.put(content)
-    try:
-        async with session.begin():
-            file = await container.files.create_owned(
-                session, principal, owner_id=owner_id, filename=filename, content=content, storage_key=key
-            )
-            upload_id = await container.knowledge.register_upload(session, principal, base_id, file, folder_id)
-        return {'file': file.model_dump(mode='json'), 'upload_id': upload_id, 'folder_id': folder_id}
-    except BaseException:
-        await container.files.storage.delete(key)
-        raise
+    return await container.knowledge_documents.stage_upload(
+        principal,
+        base_id,
+        filename=filename,
+        content=await request.body(),
+        folder_id=folder_id,
+        client_request_id=client_request_id,
+    )
+
+
+@router.get('/bases/{base_id}/uploads/requests/{request_id}')
+async def upload_status(
+    base_id: UUID,
+    request_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> dict[str, object]:
+    return await container.knowledge_documents.upload_status(principal, base_id, request_id)
 
 
 @router.get('/bases/{base_id}/documents')
@@ -208,21 +214,7 @@ async def import_documents(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> JobInfo:
-    async with session.begin():
-        return await container.knowledge_commands.native.console_job(
-            session,
-            principal,
-            base_id,
-            'import',
-            body.client_request_id,
-            body.model_dump(mode='json'),
-            BuildSelection(
-                file_ids=body.file_ids,
-                folder_id=body.folder_id,
-                chunk_size=body.chunk_size,
-                chunk_overlap=body.chunk_overlap,
-            ),
-        )
+    return await container.knowledge_documents.import_files(principal, base_id, body)
 
 
 @router.post('/bases/{base_id}/documents/{document_id}/rechunk', status_code=202)
@@ -273,31 +265,8 @@ async def preview(
     document_id: UUID,
     container: ContainerDependency,
     principal: PrincipalDependency,
-    session: SessionDependency,
 ) -> dict[str, object]:
-    async with session.begin():
-        await container.knowledge.authorize_base(session, principal, base_id)
-        document = await container.knowledge.document_info(session, base_id, document_id)
-        await container.files.require(session, principal, document.file_id, active=True)
-        file_id, size, overlap = document.file_id, document.chunk_size, document.chunk_overlap
-    parsed = await container.file_inputs.parse(principal, file_id)
-    if str(parsed.metadata.get('format', '')).lower() not in NATIVE_FORMATS:
-        raise AppError('ocr_required', '图像知识预览需要OCR解析', 422)
-    try:
-        count = len(split_chunks(parsed.text, size, overlap))
-    except ValueError:
-        raise AppError('invalid_chunks', '知识分块无效或超过2000块', 422) from None
-    async with session.begin():
-        await container.knowledge.authorize_base(session, principal, base_id)
-        await container.knowledge.document_info(session, base_id, document_id)
-        await container.files.require(session, principal, file_id, active=True)
-    return {
-        'document_id': document_id,
-        'file_id': file_id,
-        'text': parsed.text,
-        'parser_version': parsed.parser_version,
-        'chunk_count': count,
-    }
+    return await container.knowledge_documents.preview(principal, base_id, document_id)
 
 
 @router.post('/bases/{base_id}/query', status_code=202)
@@ -423,6 +392,75 @@ async def delete_base(
             'delete_base',
             body.client_request_id,
             body.model_dump(mode='json'),
-            BuildSelection(),
+            BuildSelection(confirm_references=body.confirm_references),
             version=body.expected_version,
         )
+
+
+@router.post('/bases/{base_id}/attachments', status_code=202)
+async def add_attachment(
+    base_id: UUID,
+    body: AttachmentImport,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> AttachmentImportInfo:
+    return await container.knowledge_documents.add_attachment(principal, base_id, body)
+
+
+@router.get('/bases/{base_id}/documents/{document_id}/download')
+async def download(
+    base_id: UUID,
+    document_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> Response:
+    file, content = await container.knowledge_documents.download(principal, base_id, document_id)
+    return Response(
+        content,
+        media_type=file.mime,
+        headers={
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(file.original_filename),
+            'Cache-Control': 'no-store',
+        },
+    )
+
+
+@router.get('/bases/{base_id}/references')
+async def references(
+    base_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> dict[str, object]:
+    return await container.knowledge.references(session, principal, base_id)
+
+
+@router.get('/bases/{base_id}/migration')
+async def migration_preview(
+    base_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> dict[str, object]:
+    return await container.knowledge.migration_preview(session, principal, base_id)
+
+
+@router.post('/bases/{base_id}/migration', status_code=202)
+async def migration_confirm(
+    base_id: UUID,
+    body: MigrationRequest,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+) -> JobInfo:
+    return await container.knowledge_documents.migrate(principal, base_id, body)
+
+
+@router.get('/bases/{base_id}/uploads')
+async def pending_uploads(
+    base_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    folder_id: UUID | None = None,
+) -> dict[str, object]:
+    return await container.knowledge.pending_uploads(session, principal, base_id, folder_id)

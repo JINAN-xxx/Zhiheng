@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
+from tests.core.knowledge_support import knowledge_models
 from tests.core.provider import ProviderServer
+from zhiheng.modules.knowledge.orm import KnowledgeBase
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
@@ -33,11 +35,19 @@ async def finish_job(admin: httpx.AsyncClient, app: FastAPI, job: dict[str, Any]
     raise AssertionError(str(job))
 
 
-async def ready_base(admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer) -> dict[str, Any]:
+async def ready_base(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, *, legacy: bool = False
+) -> dict[str, Any]:
     container = app.state.container
     container.knowledge_jobs.vectors = container.knowledge_preparation.vectors = VectorFixture()
     model = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Managed', 'embed_model_id': model})).json()
+    if legacy:
+        # These fixtures represent databases created before independent library materials.
+        async with container.database.sessions.begin() as session:
+            row = await session.get(KnowledgeBase, UUID(base['id']))
+            assert row is not None
+            row.document_policy = 'legacy'
     file = await source(admin, 'guide.txt', b'The service listens on port 8080.')
     job = await finish_job(
         admin,
@@ -67,7 +77,7 @@ async def test_failed_import_preserves_pointer_and_partial_carries_vectors(
     model = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Recovery', 'embed_model_id': model})).json()
     initial = await source(admin, 'old.txt', b'Old active knowledge.')
-    bad = await source(admin, 'unsupported.doc', b'Unsupported document.')
+    bad = await source(admin, 'broken.pdf', b'%PDF-1.7\ntruncated document')
     endpoint = f'/api/knowledge/bases/{base["id"]}/documents'
     job = await finish_job(
         admin,
@@ -98,8 +108,11 @@ async def test_failed_import_preserves_pointer_and_partial_carries_vectors(
         ).json(),
     )
     assert failed['status'] == 'failed'
+    assert failed['document_results'][0]['error']['code'] == 'invalid_document'
     assert (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()['active_revision'] == active
     good = await source(admin, 'new.txt', b'New knowledge.')
+    # Reimports deduplicate existing library documents, including the failed source above.
+    partial_bad = await source(admin, 'partial-broken.pdf', b'%PDF-1.7\ntruncated document')
     partial = await finish_job(
         admin,
         app,
@@ -107,7 +120,7 @@ async def test_failed_import_preserves_pointer_and_partial_carries_vectors(
             await admin.post(
                 endpoint,
                 json={
-                    'file_ids': [good['id'], bad['id']],
+                    'file_ids': [good['id'], partial_bad['id']],
                     'client_request_id': str(uuid4()),
                 },
             )
@@ -144,7 +157,7 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
             f'/api/developer/applications/{agent["application_id"]}/keys',
             json={
                 'name': 'Knowledge key',
-                'model_ids': [model_id, base['embed_model_id']],
+                'model_ids': await knowledge_models(admin, model_id, base['embed_model_id']),
             },
         )
     ).json()
@@ -267,7 +280,7 @@ async def test_rebuild_is_atomic_and_cleanup_does_not_require_live_embedding(
 ) -> None:
     base = await ready_base(admin, app, provider)
     endpoint = f'/api/knowledge/bases/{base["id"]}'
-    bad = await source(admin, 'bad.doc', b'unsupported')
+    bad = await source(admin, 'broken.pdf', b'%PDF-1.7\ntruncated document')
     failed = await finish_job(
         admin,
         app,
@@ -282,6 +295,8 @@ async def test_rebuild_is_atomic_and_cleanup_does_not_require_live_embedding(
         ).json(),
     )
     assert failed['status'] == 'failed'
+    assert failed['document_results'][0]['error']['code'] == 'invalid_document'
+    failed_document_id = failed['document_results'][0]['document_id']
     previous = (await admin.get(endpoint)).json()
     await admin.patch(f'/api/models/{base["embed_model_id"]}', json={'upstream_model': 'embedding-v2'})
     query = await admin.post(endpoint + '/query', json={'query': 'port', 'client_request_id': str(uuid4())})
@@ -303,7 +318,7 @@ async def test_rebuild_is_atomic_and_cleanup_does_not_require_live_embedding(
     assert (await admin.get(endpoint)).json()['active_revision'] == previous['active_revision']
     await admin.patch(f'/api/models/{base["embed_model_id"]}', json={'enabled': False})
     document = next(
-        item for item in (await admin.get(endpoint + '/documents')).json()['items'] if item['file_id'] == bad['id']
+        item for item in (await admin.get(endpoint + '/documents')).json()['items'] if item['id'] == failed_document_id
     )
     count = len(provider.requests)
     removed = await admin.request(

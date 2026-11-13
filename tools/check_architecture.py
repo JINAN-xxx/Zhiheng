@@ -10,6 +10,7 @@ from pathlib import Path
 PACKAGE = 'zhiheng'
 DOMAIN_PATH_DEPTH = 3
 PUBLIC_PATH_DEPTH = 4
+MIGRATION_SYMBOL_DEPTH = 5
 LEGACY_ROOTS = frozenset({'config', 'plugins', 'common', 'utils', 'exceptions', 'server', 'legacy'})
 FRAMEWORK_ROOTS = frozenset({'fastapi', 'starlette', 'sqlalchemy', 'arq'})
 SUPPLIER_ROOTS = frozenset(
@@ -59,6 +60,12 @@ def _rule(source: str, target: str) -> str | None:
     origin = source.split('.')
     destination = target.split('.')
     root = destination[0]
+    if (
+        origin[-1] == 'public'
+        and destination[:3] == origin[:3]
+        and any(part == 'orm' or part.endswith('_orm') for part in destination[3:])
+    ):
+        return 'public-persistence-import'
     if origin[:3] == [PACKAGE, 'api', 'resources'] and (
         root == 'sqlalchemy' or destination[:2] == [PACKAGE, 'infrastructure']
     ):
@@ -84,7 +91,22 @@ def _rule(source: str, target: str) -> str | None:
     if destination[:2] == [PACKAGE, 'modules'] and len(destination) >= DOMAIN_PATH_DEPTH:
         same_module = origin[:DOMAIN_PATH_DEPTH] == destination[:DOMAIN_PATH_DEPTH]
         public_interface = len(destination) >= PUBLIC_PATH_DEPTH and destination[DOMAIN_PATH_DEPTH] == 'public'
-        if not same_module and not public_interface:
+        migration_inventory = (
+            source == PACKAGE + '.bootstrap.schema'
+            and len(destination) == MIGRATION_SYMBOL_DEPTH
+            and destination[3:] == ['schema', 'schema_tables']
+        )
+        adapter_constructor = source == PACKAGE + '.bootstrap.adapters' and target in {
+            PACKAGE + '.modules.knowledge.adapters.native.NativeParser',
+            PACKAGE + '.modules.knowledge.adapters.native.validate_document_source',
+            PACKAGE + '.modules.knowledge.adapters.mineru.MinerUClient',
+            PACKAGE + '.modules.knowledge.adapters.mineru_cloud.create_mineru_client',
+            PACKAGE + '.modules.knowledge.adapters.mineru.unpack_result',
+            PACKAGE + '.modules.knowledge.adapters.milvus.MilvusStore',
+            PACKAGE + '.modules.knowledge.adapters.lightrag.sdk.GraphSDK',
+            PACKAGE + '.modules.models.adapters.factory.create_provider',
+        }
+        if not same_module and not public_interface and not migration_inventory and not adapter_constructor:
             return 'module-private-import'
     if root in {'pypdf', 'PIL', 'openpyxl'} and origin[:4] != [PACKAGE, 'modules', 'knowledge', 'adapters']:
         return 'parser-sdk-outside-owning-adapter'
@@ -162,6 +184,51 @@ def _is_dynamic_call(node: ast.Call, modules: set[str], functions: set[str]) -> 
     return _importer_reference(node.func, modules, functions)
 
 
+def _structural_violations(source: str, path: Path, node: ast.AST) -> list[ArchitectureViolation]:
+    violations = []
+    if (
+        source == PACKAGE + '.bootstrap.container'
+        and isinstance(node, ast.AsyncWith)
+        and any('.database.sessions' in ast.unparse(item.context_expr) for item in node.items)
+    ):
+        violations.append(
+            ArchitectureViolation(path, node.lineno, 'bootstrap-business-transaction', 'database.sessions')
+        )
+    if (
+        source.startswith(PACKAGE + '.api.')
+        and isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {'fail', 'create', 'request_cancel', 'release', 'completed', 'publish'}
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == 'store'
+    ):
+        violations.append(ArchitectureViolation(path, node.lineno, 'transport-domain-state-mutation', node.func.attr))
+    if (
+        source.startswith(PACKAGE + '.runtime.')
+        and isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == 'payload'
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value in {'binding', 'skill_slugs', 'skills', 'agent_id'}
+    ):
+        violations.append(ArchitectureViolation(path, node.lineno, 'runtime-domain-payload', str(node.slice.value)))
+    if source.endswith('.public') and (
+        (isinstance(node, ast.FunctionDef) and node.name == 'schema_tables')
+        or (isinstance(node, ast.ImportFrom) and any(alias.name == 'schema_tables' for alias in node.names))
+    ):
+        violations.append(ArchitectureViolation(path, node.lineno, 'public-migration-inventory', 'schema_tables'))
+    if (
+        source.startswith(PACKAGE + '.api.')
+        and isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {'put', 'delete'}
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == 'storage'
+    ):
+        violations.append(ArchitectureViolation(path, node.lineno, 'transport-storage-mutation', node.func.attr))
+    return violations
+
+
 def _file_violations(source_root: Path, path: Path) -> list[ArchitectureViolation]:
     try:
         tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
@@ -172,6 +239,7 @@ def _file_violations(source_root: Path, path: Path) -> list[ArchitectureViolatio
     violations = []
     for node in ast.walk(tree):
         targets: list[str] = []
+        violations.extend(_structural_violations(source, path, node))
         if isinstance(node, ast.Import):
             targets = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):

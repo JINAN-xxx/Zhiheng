@@ -1,13 +1,17 @@
 <!-- Adapted from the original platform UI, MIT licensed. -->
 <template>
-  <span class="workspace-status" :class="`is-${status}`">
-    <span class="workspace-status__dot" aria-hidden="true" />
+  <span class="workspace-status" :class="[`is-${status}`, { 'is-label': !showDot }]">
+    <span v-if="showDot" class="workspace-status__dot" aria-hidden="true" />
     <span>{{ label || workspaceStateLabel(status) }}</span>
   </span>
 </template>
 
 <script setup lang="ts">
-defineProps({ status: { type: String, default: 'ready' }, label: { type: String, default: '' } })
+defineProps({
+  status: { type: String, default: 'ready' },
+  label: { type: String, default: '' },
+  showDot: { type: Boolean, default: true }
+})
 const workspaceStateLabel = (status: string) =>
   ({ ready: '就绪', active: '已启用', disabled: '已停用', failed: '失败', warning: '待核对' })[
     status
@@ -22,6 +26,15 @@ const workspaceStateLabel = (status: string) =>
   color: var(--workspace-text-secondary);
   font-size: 12px;
   white-space: nowrap;
+
+  &.is-label {
+    width: fit-content;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--gray-50);
+    line-height: 20px;
+  }
 
   &__dot {
     flex: 0 0 6px;

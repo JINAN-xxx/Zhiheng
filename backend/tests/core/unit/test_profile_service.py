@@ -8,13 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from zhiheng.modules.identity.admin_orm import (
     IdentityDepartment,
-    IdentityPost,
     IdentityRole,
-    IdentityUserPost,
     IdentityUserRole,
 )
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
-from zhiheng.modules.identity.public import IdentityService, PasswordChange, ProfilePatch, schema_tables
+from zhiheng.modules.identity.public import IdentityService, PasswordChange, ProfilePatch
+from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
@@ -48,9 +47,8 @@ async def context() -> AsyncIterator[Context]:
 async def test_profile_returns_association_names_without_credentials(context: Context) -> None:
     async with context.factory.begin() as session:
         department = IdentityDepartment(name='研发部')
-        post = IdentityPost(code='engineer', name='工程师')
         role = IdentityRole(code='reader', name='审阅员', permissions=[])
-        session.add_all([department, post, role])
+        session.add_all([department, role])
         await session.flush()
         user = await session.get(IdentityUser, context.member.id)
         assert user is not None
@@ -58,14 +56,14 @@ async def test_profile_returns_association_names_without_credentials(context: Co
         session.add_all(
             [
                 IdentityUserRole(user_id=user.id, role_id=role.id),
-                IdentityUserPost(user_id=user.id, post_id=post.id),
             ]
         )
     async with context.factory() as session:
         profile = await context.identity.profile(session, user_id=context.member.id)
         assert profile.username == 'member' and profile.version == 1
         assert profile.department_name == '研发部'
-        assert profile.roles == ['审阅员'] and profile.posts == ['工程师']
+        assert profile.roles == ['审阅员']
+        assert 'posts' not in profile.model_dump()
         assert 'password' not in profile.model_dump_json() and PASSWORD not in str(profile)
 
 

@@ -31,7 +31,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
                         'phase': 'completed', 'cancel_allowed': False,
                         'completed_documents': 1, 'chunk_count': 1,
                         'finished_at': STAMP}
-        self.base.update(active_job_id='job-active', index_status='building')
+        self.base.update(active_job_id='job-active', index_status='building', document_policy='library')
         self.observation_errors = []
         self.advance_progress = False
         self.hold_observation = None
@@ -89,18 +89,18 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/folders'], 1)
         self.assertGreaterEqual(self.counts['/api/knowledge/jobs/job-active'], 2)
 
-    async def test_background_observation_preserves_document_dom_focus_and_history(self):
+    async def test_background_observation_preserves_document_dom_focus_and_scroll(self):
         self.advance_progress = True
         self.job.update(total_documents=3)
+        self.documents[0].update(status='processing')
         await self.open_documents()
-        search = self.page.get_by_role('textbox', name='搜索文档', exact=True)
+        search = self.page.get_by_role('textbox', name='搜索资料', exact=True)
         await search.fill('业务')
         await search.focus()
         await search.evaluate('(el) => { window.keptSearch = el; el.setSelectionRange(0, 1) }')
         await self.page.locator('.ant-table').evaluate('(el) => { window.keptTable = el }')
         history = self.page.locator('details[aria-label="索引任务历史"]')
-        await expect(history).not_to_have_attribute('open', '')
-        await history.locator(':scope > summary').click()
+        await expect(history).to_have_count(0)
         await search.evaluate('(el) => el.focus({preventScroll: true})')
         await self.page.locator('.knowledge-documents__content').evaluate(
             '(el) => { window.keptContent = el; el.scrollTop = 80; window.keptScroll = el.scrollTop }')
@@ -109,7 +109,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.assertTrue(await search.evaluate('(el) => el === window.keptSearch && document.activeElement === el && el.selectionStart === 0 && el.selectionEnd === 1'))
         self.assertTrue(await self.page.locator('.ant-table').evaluate('(el) => el === window.keptTable'))
         self.assertTrue(await self.page.locator('.knowledge-documents__content').evaluate('(el) => el === window.keptContent && el.scrollTop === window.keptScroll'))
-        await expect(history).to_have_attribute('open', '')
+        await expect(history).to_have_count(0)
         await expect(self.page.locator('.knowledge-documents .ant-spin-spinning')).to_have_count(0)
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/documents'], 1)
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/folders'], 1)
@@ -117,10 +117,12 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.job.update(status='completed', phase='completed', completed_documents=3,
                         chunk_count=7, cancel_allowed=False, version=2, finished_at=STAMP)
         self.base.update(active_job_id=None, index_status='ready')
-        self.documents[0].update(chunk_count=7)
-        await expect(self.page.locator('.ant-table')).to_contain_text('1000 / 200 / 7', timeout=6000)
+        self.documents[0].update(chunk_count=7, status='ready')
+        await expect(self.page.locator('.ant-table')).to_contain_text('可用', timeout=6000)
+        await expect(self.page.locator('.ant-table')).not_to_contain_text('处理中')
         self.assertTrue(await search.evaluate('(el) => el === window.keptSearch && document.activeElement === el'))
-        await expect(history).to_have_attribute('open', '')
+        await expect(history).to_have_count(0)
+        await expect(self.page.locator('[aria-label="当前索引任务"]')).to_have_count(0)
         self.assertTrue(await self.page.locator('.knowledge-documents__content').evaluate('(el) => el === window.keptContent && el.scrollTop === window.keptScroll'))
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/documents'], 2)
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/folders'], 2)
@@ -145,7 +147,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
     async def test_transient_observation_failure_keeps_content_and_recovers_automatically(self):
         self.observation_errors = [503]
         await self.open_documents()
-        search = self.page.get_by_role('textbox', name='搜索文档', exact=True)
+        search = self.page.get_by_role('textbox', name='搜索资料', exact=True)
         await search.fill('业务')
         await expect(self.page.get_by_text('任务状态暂时无法读取', exact=False)).to_be_visible(timeout=6000)
         await expect(self.page.get_by_role('button', name='业务说明.txt', exact=True)).to_be_visible()
@@ -161,19 +163,19 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_text('业务工作时间是九点到十七点。', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('知识库不存在或无权访问', exact=True)).to_be_visible(timeout=6000)
         await expect(self.page.get_by_text('业务工作时间是九点到十七点。', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('textbox', name='搜索文档', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('textbox', name='搜索资料', exact=True)).to_have_count(0)
 
     async def test_leaving_stops_observation_without_cancelling_server_work(self):
         self.hold_observation = asyncio.Event()
         await self.open_documents()
         await self.wait_reads(1)
         await self.page.get_by_role('button', name='返回知识库', exact=True).click()
-        await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
         self.hold_observation.set()
         await self.page.wait_for_timeout(1700)
         self.assertEqual(self.counts['/api/knowledge/jobs/job-active'], 1)
         self.assertEqual(self.counts['/api/knowledge/jobs/job-active/cancel'], 0)
-        await expect(self.page.get_by_role('textbox', name='搜索文档', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('textbox', name='搜索资料', exact=True)).to_have_count(0)
 
     async def test_switching_base_rejects_an_old_inflight_observation(self):
         other_base = {**self.base, 'id': 'base-2', 'name': '第二知识库', 'active_job_id': None}
@@ -186,7 +188,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         await self.open_documents()
         await self.wait_reads(1)
         await self.page.get_by_role('button', name='返回知识库', exact=True).click()
-        await self.page.locator('.knowledge-card').filter(has=self.page.get_by_role('heading', name='第二知识库', exact=True)).get_by_role('button', name='管理文档', exact=True).click()
+        await self.page.get_by_role('button', name='打开知识库：第二知识库', exact=True).click()
         await expect(self.page.get_by_role('heading', name='第二知识库', exact=True)).to_be_visible()
         self.hold_observation.set()
         await self.page.wait_for_timeout(1700)
@@ -199,7 +201,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.base.update(active_job_id=None)
         self.job.update(status='completed', cancel_allowed=False)
         await self.open_documents()
-        search = self.page.get_by_role('textbox', name='搜索文档', exact=True)
+        search = self.page.get_by_role('textbox', name='搜索资料', exact=True)
         await search.fill('没有匹配的文档')
         await self.page.locator('.ant-table').evaluate('(el) => { window.keptEmptyTable = el }')
         started, release = asyncio.Event(), asyncio.Event()
@@ -210,7 +212,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
                 await route.fulfill(json={'items': self.documents, 'total': len(self.documents)})
         await self.page.route('**/api/knowledge/bases/base-1/documents', docs)
         try:
-            await self.page.get_by_role('button', name='刷新文档', exact=True).click()
+            await self.page.get_by_role('button', name='刷新资料', exact=True).click()
             await asyncio.wait_for(started.wait(), timeout=5)
             self.assertTrue(await self.page.locator('.ant-table').evaluate('(el) => el === window.keptEmptyTable'))
             await expect(search).to_have_value('没有匹配的文档')
@@ -221,6 +223,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
     async def test_an_open_editor_keeps_its_draft_during_observation_and_completion(self):
         self.base.update(active_job_id=None)
         self.job.update(status='completed', cancel_allowed=False)
+        self.documents[0].update(status='processing')
         await self.open_documents()
         started, release = asyncio.Event(), asyncio.Event()
         async def base(route):
@@ -230,7 +233,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
                 await route.fulfill(json=self.base)
         await self.page.route('**/api/knowledge/bases/base-1', base)
         try:
-            await self.page.get_by_role('button', name='刷新文档', exact=True).click()
+            await self.page.get_by_role('button', name='刷新资料', exact=True).click()
             await asyncio.wait_for(started.wait(), timeout=5)
             await self.page.get_by_role('button', name='新建文件夹', exact=True).click()
             field = self.page.get_by_role('textbox', name='文件夹名称', exact=True)
@@ -246,16 +249,18 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
             self.job.update(status='completed', phase='completed', completed_documents=1,
                             chunk_count=4, cancel_allowed=False, version=2, finished_at=STAMP)
             self.base.update(active_job_id=None)
-            self.documents[0].update(chunk_count=4)
-            await expect(self.page.locator('.ant-table')).to_contain_text('1000 / 200 / 4', timeout=6000)
+            self.documents[0].update(chunk_count=4, status='ready')
+            await expect(self.page.locator('.ant-table')).to_contain_text('可用', timeout=6000)
+            await expect(self.page.locator('.ant-table')).not_to_contain_text('处理中')
             await expect(field).to_have_value('尚未保存的草稿')
             self.assertTrue(await field.evaluate('(el) => el === window.keptEditor && document.activeElement === el'))
         finally:
             release.set()
 
     async def test_terminal_sync_failure_retries_without_restarting_the_job(self):
+        self.documents[0].update(status='processing')
         await self.open_documents()
-        search = self.page.get_by_role('textbox', name='搜索文档', exact=True)
+        search = self.page.get_by_role('textbox', name='搜索资料', exact=True)
         await search.fill('业务')
         await search.focus()
         await search.evaluate('(el) => { window.keptSyncSearch = el }')
@@ -271,17 +276,19 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.job.update(status='completed', completed_documents=1, cancel_allowed=False,
                         version=2, finished_at=STAMP)
         self.base.update(active_job_id=None)
-        self.documents[0].update(chunk_count=8)
+        self.documents[0].update(chunk_count=8, status='ready')
         await expect(self.page.get_by_text('列表同步暂时失败', exact=False)).to_be_visible(timeout=6000)
-        await expect(self.page.locator('.ant-table')).to_contain_text('1000 / 200 / 1')
+        await expect(self.page.locator('.ant-table')).to_contain_text('处理中')
         self.assertTrue(await search.evaluate('(el) => el === window.keptSyncSearch && document.activeElement === el'))
-        await expect(self.page.locator('.ant-table')).to_contain_text('1000 / 200 / 8', timeout=7000)
+        await expect(self.page.locator('.ant-table')).to_contain_text('可用', timeout=7000)
+        await expect(self.page.locator('.ant-table')).not_to_contain_text('处理中')
         await expect(self.page.get_by_text('列表同步暂时失败', exact=False)).to_have_count(0)
         self.assertEqual(len(attempts), 2)
         self.assertEqual(self.counts['/api/knowledge/jobs/job-active'], 1)
         self.assertTrue(all(request['method'] == 'GET' for request in self.trace))
 
     async def test_terminal_overview_failure_retries_only_the_overview_and_restores_its_actions(self):
+        self.documents[0].update(status='processing')
         await self.open_documents()
         attempts = []
         async def overview(route):
@@ -295,8 +302,9 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.job.update(status='completed', completed_documents=1, cancel_allowed=False,
                         version=2, finished_at=STAMP)
         self.base.update(active_job_id=None, index_status='ready')
-        self.documents[0].update(chunk_count=9)
-        await expect(self.page.locator('.ant-table')).to_contain_text('1000 / 200 / 9', timeout=6000)
+        self.documents[0].update(chunk_count=9, status='ready')
+        await expect(self.page.locator('.ant-table')).to_contain_text('可用', timeout=6000)
+        await expect(self.page.locator('.ant-table')).not_to_contain_text('处理中')
         await expect(self.page.get_by_text('知识库摘要暂时无法同步', exact=False)).to_be_visible()
         await expect(self.page.get_by_text('知识库摘要暂时无法同步', exact=False)).to_have_count(0, timeout=6000)
         self.assertEqual(len(attempts), 2)
@@ -304,8 +312,9 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/folders'], 2)
         self.assertEqual(self.counts['/api/knowledge/jobs/job-active'], 1)
         await self.page.get_by_role('button', name='返回知识库', exact=True).click()
-        await expect(self.page.locator('.knowledge-card')).to_contain_text('索引可用')
-        await expect(self.page.get_by_role('button', name='删除知识库', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('button', name='打开知识库：业务知识', exact=True)).to_be_enabled()
+        await self.page.get_by_role('button', name='更多操作：业务知识', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='删除知识库', exact=True)).to_be_enabled()
 
     async def test_cancelled_job_is_not_replaced_by_a_late_running_snapshot(self):
         stale = copy.deepcopy(self.job)
@@ -328,12 +337,12 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
             await self.open_documents()
             await asyncio.wait_for(started.wait(), timeout=5)
             await self.page.get_by_role('button', name='取消任务', exact=True).click()
-            await expect(self.page.locator('[aria-label="当前索引任务"]')).to_contain_text('已取消')
+            await expect(self.page.locator('[aria-label="当前索引任务"]')).to_have_count(0)
             release.set()
             await self.page.wait_for_timeout(1800)
-            await expect(self.page.locator('[aria-label="当前索引任务"]')).to_contain_text('已取消')
+            await expect(self.page.locator('[aria-label="当前索引任务"]')).to_have_count(0)
             await expect(self.page.get_by_role('button', name='取消任务', exact=True)).to_have_count(0)
-            await expect(self.page.get_by_role('button', name='上传文档', exact=True)).to_be_enabled()
+            await expect(self.page.get_by_role('button', name='添加资料', exact=True)).to_be_enabled()
             self.assertEqual(self.counts['/api/knowledge/jobs/job-active/cancel'], 1)
             self.assertEqual(self.counts['/api/knowledge/jobs/job-active'], 1)
         finally:
@@ -354,7 +363,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         self.assertTrue(await text.evaluate('(el) => el === window.keptFailedPreview'))
         await expect(text).to_be_visible()
         self.assertEqual(self.counts['/api/knowledge/bases/base-1/documents'], 2)
-        await expect(self.page.locator('details[aria-label="索引任务历史"]')).not_to_have_attribute('open', '')
+        await expect(self.page.locator('details[aria-label="索引任务历史"]')).to_have_count(0)
 
     async def test_binary_upload_keeps_its_file_until_server_acceptance_then_allows_leaving(self):
         self.base.update(active_job_id=None)
@@ -381,11 +390,11 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/documents', admit)
         try:
             await self.page.goto(self.origin + '/knowledge')
-            await self.page.get_by_role('button', name='管理文档', exact=True).click()
-            await self.page.get_by_role('button', name='上传文档', exact=True).click()
+            await self.page.get_by_role('button', name='打开知识库：业务知识', exact=True).click()
+            await self.page.get_by_role('button', name='添加资料', exact=True).click()
             modal = self.page.get_by_role('dialog')
             await modal.locator('input[type=file]').set_input_files({'name': 'still-uploading.txt', 'mimeType': 'text/plain', 'buffer': b'Keep this upload identity'})
-            await modal.get_by_role('button', name='上传并建立索引', exact=True).click()
+            await modal.get_by_role('button', name='添加并自动处理', exact=True).click()
             await asyncio.wait_for(started.wait(), timeout=5)
             await self.page.go_back()
             await expect(self.page).to_have_url(self.origin + '/knowledge/base-1/documents')
@@ -395,7 +404,7 @@ class KnowledgeBackgroundRegressions(KnowledgeUIRegressions):
             release.set()
             await expect(modal).not_to_be_visible()
             await self.page.get_by_role('button', name='返回知识库', exact=True).click()
-            await expect(self.page.get_by_role('heading', name='我的知识库', exact=True)).to_be_visible()
+            await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
             self.assertEqual(len(uploads), 1)
             self.assertEqual(len(admissions), 1)
             self.assertEqual(admissions[0]['file_ids'], ['uploaded-file'])

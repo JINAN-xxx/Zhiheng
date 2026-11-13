@@ -90,15 +90,16 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
             body = self.users[1]
         elif path == '/api/admin/menus':
             if query.get('navigation') == ['true']:
-                definitions = [('users', '用户管理', 'users'), ('roles', '角色权限', 'roles'), ('departments', '部门管理', 'departments'), ('posts', '岗位管理', 'posts'), ('menus', '菜单管理', 'menus'), ('dictionaries', '字典管理', 'dictionaries'), ('configs', '参数管理', 'configs'), ('notices', '通知公告', 'notices'), ('login-logs', '登录日志', 'logs'), ('operation-logs', '操作日志', 'logs'), ('sessions', '在线会话', 'sessions'), ('monitor', '系统状态', 'monitor')]
+                definitions = [('users', '用户管理', 'users'), ('roles', '角色权限', 'roles'), ('departments', '部门管理', 'departments'), ('posts', '岗位管理', 'posts'), ('menus', '菜单管理', 'menus'), ('dictionaries', '字典管理', 'dictionaries'), ('configs', '参数管理', 'configs'), ('storage', '存储管理', 'storage'), ('notices', '通知公告', 'notices'), ('login-logs', '登录日志', 'logs'), ('operation-logs', '操作日志', 'logs'), ('sessions', '在线会话', 'sessions'), ('monitor', '系统状态', 'monitor')]
                 navigation = []
                 for index, (slug, label, area) in enumerate(definitions):
-                    if not self.user['is_admin'] and f'system:{area}:read' not in self.user['permissions']:
+                    prefix = 'ai' if area == 'storage' else 'system'
+                    if not self.user['is_admin'] and f'{prefix}:{area}:read' not in self.user['permissions'] and not (area == 'storage' and 'ai:storage:write' in self.user['permissions']):
                         continue
                     row = next((menu for menu in self.menus if menu['path'] == '/admin/' + slug), None)
                     if row and not row['is_visible']:
                         continue
-                    navigation.append({key: value for key, value in (row or dict(name=label, path='/admin/' + slug, permission=f'system:{area}:read', sort_order=index * 10, is_visible=True)).items() if key in ['name', 'path', 'permission', 'sort_order', 'is_visible']})
+                    navigation.append({key: value for key, value in (row or dict(name=label, path='/admin/' + slug, permission=f'{prefix}:{area}:read', sort_order=index * 10, is_visible=True)).items() if key in ['name', 'path', 'permission', 'sort_order', 'is_visible']})
                 body = self.collection(navigation, query)
             else:
                 body = self.collection(self.menus, query)
@@ -146,20 +147,28 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         else:
             await route.fulfill(status=status, json=body)
 
+    async def row_menu(self, row, command):
+        await row.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name=command, exact=True).click()
+
+    async def select_value(self, field, label):
+        await field.click()
+        await self.page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').get_by_title(label, exact=True).click()
+
     async def open(self, page):
         await self.page.goto(self.origin + '/admin/' + page)
-        await expect(self.page.locator('.admin-console')).to_be_visible()
+        await expect(self.page.locator('.admin-console')).to_be_visible(timeout=15000)
 
     async def test_permission_filter_allows_delegated_reader_without_write_controls(self):
-        self.user = {'id': 'self', 'username': 'reader', 'is_admin': False, 'permissions': ['system:posts:read']}
+        self.user = {'id': 'self', 'username': 'reader', 'is_admin': False, 'permissions': ['system:departments:read']}
         await self.page.goto(self.origin + '/admin')
-        await expect(self.page).to_have_url(self.origin + '/admin/posts')
-        await expect(self.page.get_by_role('heading', name='岗位管理', exact=True)).to_be_visible()
+        await expect(self.page).to_have_url(self.origin + '/admin/departments')
+        await expect(self.page.get_by_role('heading', name='部门管理', exact=True)).to_be_visible()
         await expect(self.page.locator('.admin-navigation a')).to_have_count(1)
-        await expect(self.page.get_by_role('button', name='新建岗位', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='新建部门', exact=True)).to_have_count(0)
         self.assertFalse(any(path == '/api/admin/users' for _, path, _, _ in self.requests))
         await self.page.goto(self.origin + '/admin/users')
-        await expect(self.page.get_by_text('当前页面没有访问权限或已被隐藏。', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('当前账号没有可用的管理入口。', exact=True)).to_be_visible()
         self.assertFalse(any(path == '/api/admin/users' for _, path, _, _ in self.requests))
 
     async def test_conflicting_user_edit_preserves_inputs_and_expected_version(self):
@@ -182,55 +191,54 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_password_requires_twelve_characters_and_is_cleared_when_closed(self):
         await self.open('users')
         row = self.page.get_by_role('row').filter(has_text='小艾')
-        await row.get_by_role('button', name='重置密码', exact=True).click()
+        await self.row_menu(row, '重置密码')
         dialog = self.page.get_by_role('dialog')
         await dialog.get_by_label('新密码', exact=True).fill('short')
         await dialog.get_by_role('button', name='重置密码', exact=True).click()
         await expect(dialog.get_by_text('新密码至少需要 12 位', exact=True)).to_be_visible()
         self.assertFalse(any(path.endswith('/password') for _, path, _, _ in self.requests))
         await dialog.get_by_role('button', name=re.compile(r'^取\s*消$')).click()
-        await row.get_by_role('button', name='重置密码', exact=True).click()
+        await self.row_menu(row, '重置密码')
         await expect(dialog.get_by_label('新密码', exact=True)).to_have_value('')
-        await expect(self.page.get_by_role('row').filter(has_text='管理员').get_by_role('button', name='删除', exact=True)).to_be_disabled()
+        await dialog.get_by_role('button',name=re.compile(r'^取\s*消$')).click()
+        await expect(dialog).to_be_hidden()
+        await self.page.get_by_role('row').filter(has_text='管理员').get_by_role('button', name='更多操作', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='删除', exact=True)).to_have_attribute('aria-disabled','true')
 
     async def test_duplicate_create_is_blocked_while_request_is_pending(self):
         requested, release = asyncio.Event(), asyncio.Event()
         async def delayed(route):
             if route.request.method != 'POST':
                 return await self.respond(route)
-            self.requests.append(('POST', '/api/admin/posts', {}, route.request.post_data_json))
+            self.requests.append(('POST', '/api/admin/roles', {}, route.request.post_data_json))
             requested.set()
             await release.wait()
             with contextlib.suppress(Exception):
-                await route.fulfill(status=201, json={**route.request.post_data_json, 'id': 'post-1', 'version': 1})
-        await self.page.route(self.origin + '/api/admin/posts*', delayed)
+                await route.fulfill(status=201, json={**route.request.post_data_json, 'id': 'role-new', 'code': 'role_duplicate', 'version': 1})
+        await self.page.route(self.origin + '/api/admin/roles*', delayed)
         try:
-            await self.open('posts')
-            await self.page.get_by_role('button', name='新建岗位', exact=True).click()
+            await self.open('roles')
+            await self.page.get_by_role('button', name='新建角色', exact=True).click()
             dialog = self.page.get_by_role('dialog')
-            await dialog.get_by_label('岗位编码', exact=True).fill('engineer')
-            await dialog.get_by_label('岗位名称', exact=True).fill('工程师')
+            await dialog.get_by_label('角色名称', exact=True).fill('工程团队')
             save = dialog.get_by_role('button', name=re.compile(r'^保\s*存$'))
             await save.click()
             await requested.wait()
             await dialog.locator('form').evaluate('(form) => form.dispatchEvent(new Event("submit", {cancelable: true, bubbles: true}))')
-            self.assertEqual(sum(method == 'POST' and path == '/api/admin/posts' for method, path, _, _ in self.requests), 1)
+            self.assertEqual(sum(method == 'POST' and path == '/api/admin/roles' for method, path, _, _ in self.requests), 1)
             release.set()
             await expect(dialog).not_to_be_visible()
         finally:
             release.set()
 
-    async def test_dictionary_delete_requires_confirmation_and_original_version(self):
+    async def test_retired_dictionary_link_returns_to_default_without_reading_dictionary_data(self):
         await self.open('dictionaries')
-        await self.page.get_by_role('button', name='字典条目', exact=True).click()
-        drawer = self.page.locator('.ant-drawer-open')
-        await expect(drawer.get_by_text('已完成', exact=True)).to_be_visible()
-        await drawer.get_by_role('button', name='删除', exact=True).click()
-        self.assertFalse(any(method == 'DELETE' for method, _, _, _ in self.requests))
-        await self.page.get_by_role('dialog').filter(has_text='删除条目').get_by_role('button', name='删除条目', exact=True).click()
-        await expect(drawer.get_by_text('暂无字典条目', exact=True)).to_be_visible()
-        request = next(item for item in self.requests if item[0] == 'DELETE')
-        self.assertEqual(request[2]['expected_version'], ['2'])
+        await expect(self.page).to_have_url(self.origin+'/admin/users')
+        await expect(self.page.get_by_role('heading',name='用户管理',exact=True)).to_be_visible()
+        nav=self.page.get_by_role('navigation',name='后台管理导航',exact=True)
+        await expect(nav.get_by_role('link')).to_have_count(5)
+        await expect(nav.get_by_role('link',name='字典管理',exact=True)).to_have_count(0)
+        self.assertFalse(any(path.startswith('/api/admin/dictionaries') for _,path,_,_ in self.requests))
 
     async def test_notice_publish_uses_version_and_content_is_rendered_as_text(self):
         await self.open('notices')
@@ -238,9 +246,9 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_role('dialog').locator('.notice-content')).to_contain_text('<script>')
         self.assertIsNone(await self.page.evaluate('window.injected'))
         await self.page.get_by_role('dialog').get_by_role('button', name='Close', exact=True).click()
-        await self.page.get_by_role('button', name='编辑', exact=True).click()
+        await self.row_menu(self.page.get_by_role('row').filter(has_text='维护安排'), '编辑')
         dialog = self.page.get_by_role('dialog')
-        await dialog.get_by_label('发布状态', exact=True).select_option('published')
+        await self.select_value(dialog.get_by_label('发布状态', exact=True), '发布')
         await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).not_to_be_visible()
         payload = next(body for method, path, _, body in self.requests if method == 'PATCH' and path.endswith('/notice-1'))
@@ -254,16 +262,24 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_text('session-other', exact=True)).to_have_count(0)
         self.assertTrue(any(method == 'DELETE' and path.endswith('/session-other') and query.get('expected_version') == ['5'] for method, path, query, _ in self.requests))
 
-    async def test_menu_changes_refresh_navigation_without_changing_fixed_permission(self):
-        self.menus = [dict(id='menu-1', version=2, parent_id=None, name='用户维护', path='/admin/users', permission='system:users:read', sort_order=0, is_visible=True)]
-        await self.open('menus')
-        await self.page.get_by_role('button', name='编辑', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
-        await dialog.get_by_label('导航名称', exact=True).fill('团队账号')
-        await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
-        await expect(self.page.locator('.admin-navigation').get_by_role('link', name='团队账号', exact=True)).to_be_visible()
-        payload = next(body for method, path, _, body in self.requests if method == 'PATCH' and path.endswith('/menu-1'))
-        self.assertEqual(payload['permission'], 'system:users:read')
+    async def test_fixed_navigation_ignores_legacy_overrides_and_does_not_fetch_menus(self):
+        self.menus = [dict(id='menu-1', version=2, parent_id=None, name='旧导航名称', path='/admin/users', permission='system:users:read', sort_order=999, is_visible=False)]
+        await self.open('users')
+        await expect(self.page.get_by_role('heading', name='用户管理', exact=True)).to_be_visible()
+        nav=self.page.get_by_role('navigation',name='后台管理导航',exact=True)
+        await expect(nav.get_by_role('link',name='用户管理',exact=True)).to_be_visible()
+        await expect(nav.get_by_role('link',name='导航配置',exact=True)).to_have_count(0)
+        await expect(nav.get_by_role('link',name='旧导航名称',exact=True)).to_have_count(0)
+        await nav.get_by_role('link',name='角色权限',exact=True).click()
+        await expect(self.page.get_by_text('运营员',exact=True)).to_be_visible()
+        self.assertFalse(any(path=='/api/admin/menus' for _,path,_,_ in self.requests))
+
+    async def test_legacy_navigation_link_redirects_to_first_permitted_page(self):
+        self.user={'id':'self','username':'department-reader','is_admin':False,'permissions':['system:departments:read']}
+        await self.page.goto(self.origin+'/admin/menus')
+        await expect(self.page).to_have_url(self.origin+'/admin/departments')
+        await expect(self.page.get_by_role('heading',name='部门管理',exact=True)).to_be_visible()
+        self.assertFalse(any(path=='/api/admin/menus' for _,path,_,_ in self.requests))
 
     async def test_role_editor_sends_real_permission_codes_and_version(self):
         await self.open('roles')
@@ -301,19 +317,22 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await row.get_by_role('button', name='编辑', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         parent = dialog.get_by_label('上级部门', exact=True)
-        self.assertEqual(await parent.locator('option').all_text_contents(), ['顶级部门'])
+        await parent.click()
+        dropdown=self.page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
+        await expect(dropdown.get_by_title('顶级部门',exact=True)).to_be_visible()
+        await expect(dropdown.get_by_title('总部',exact=True)).to_have_count(0)
+        await expect(dropdown.get_by_title('研发部',exact=True)).to_have_count(0)
         await expect(dialog.get_by_label('部门名称', exact=True)).to_have_value('总部')
 
     async def test_config_updates_connected_notice_switch(self):
         await self.open('configs')
-        await self.page.get_by_role('button', name='编辑', exact=True).click()
-        dialog = self.page.get_by_role('dialog')
-        await expect(dialog.get_by_label('参数键', exact=True)).to_be_disabled()
-        await dialog.get_by_label('参数值', exact=True).select_option('false')
-        await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
-        await expect(dialog).not_to_be_visible()
-        payload = next(body for method, path, _, body in self.requests if method == 'PATCH' and path.endswith('/config-1'))
-        self.assertEqual((payload['value'], payload['expected_version']), ('false', 6))
+        switch=self.page.get_by_role('switch',name='在平台展示公告',exact=True)
+        await expect(switch).to_be_enabled()
+        await expect(switch).to_be_checked()
+        await switch.click()
+        await expect(switch).not_to_be_checked()
+        payload=next(body for method,path,_,body in self.requests if method=='PATCH' and path.endswith('/config-1'))
+        self.assertEqual((payload['value'],payload['expected_version']),('false',6))
 
     async def test_new_user_password_is_only_in_create_request(self):
         await self.open('users')
@@ -331,7 +350,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_logs_filter_and_real_monitor_nullable_status(self):
         await self.open('login-logs')
-        await self.page.get_by_label('操作结果', exact=True).select_option('failed')
+        await self.select_value(self.page.get_by_label('操作结果',exact=True),'失败')
         await expect(self.page.get_by_text('用户已更新', exact=True)).to_be_visible()
         self.assertTrue(any(query.get('kind') == ['login'] and query.get('outcome') == ['failed'] for _, path, query, _ in self.requests if path == '/api/admin/logs'))
         await self.open('monitor')

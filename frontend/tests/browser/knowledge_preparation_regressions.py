@@ -191,6 +191,11 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         if path == '/api/knowledge/available':
             self.knowledge_queries.append(parse_qs(urlparse(route.request.url).query))
             await route.fulfill(json=[{'id': 'base-1', 'name': '业务知识', 'description': '', 'owner_id': self.agent['owner_id'], 'access': 'private', 'version': 1, 'acl_version': 1, 'embed_model_id': 'embed-1', 'chunk_size': 1000, 'chunk_overlap': 200, 'active_revision': 'revision-1', 'active_job_id': None, 'index_status': 'ready', 'document_count': 1, 'last_error': None, 'enable_knowledge_graph': False, 'llm_model_id': None, 'graph_status': 'disabled', 'created_at': STAMP, 'updated_at': STAMP, 'can_manage': True}])
+        elif path == '/api/agents/agent-1/api-access':
+            config = self.agent.get('published_config') or self.config
+            await route.fulfill(json={'application_id': config['application_id'],
+                'published_version': self.agent['published_version'],
+                'model_ids': [config['model_id'], 'embed-1', 'rank-1']})
         elif path == '/api/agents/agent-1/preview':
             self.previews.append(route.request.post_data_json)
             await route.fulfill(status=202, json=self.preparation)
@@ -231,7 +236,7 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button', name='创建密钥', exact=True).click()
         await expect(drawer.get_by_text('密钥仅显示一次', exact=True)).to_be_visible()
-        self.assertEqual(self.posts[-1]['model_ids'], ['published-model', 'embed-1'])
+        self.assertEqual(self.posts[-1]['model_ids'], ['published-model', 'embed-1', 'rank-1'])
         await expect(drawer.get_by_text('202', exact=False).first).to_be_visible()
 
 

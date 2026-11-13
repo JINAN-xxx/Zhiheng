@@ -27,6 +27,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.adjustments = []
         self.billing_requests = []
         self.rate_posts = []
+        self.point_rates = []
         self.fail_rate_once = False
         self.state = {'enabled': False, 'version': 0}
         await DeveloperBoundary.asyncSetUp(self)
@@ -76,10 +77,12 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
                 if self.fail_rate_once:
                     self.fail_rate_once = False
                     return await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '定价确认暂不可用'}})
-                body = {**payload, 'id': 'point-rate-1', 'model_id': 'model-1', 'version': 1,
+                version = len(self.point_rates) + 1
+                body = {**payload, 'id': f'point-rate-{version}', 'model_id': 'model-1', 'version': version,
                         'created_at': '2026-10-29T01:00:00Z'}
+                self.point_rates.append(body)
             else:
-                body = []
+                body = self.point_rates
         elif path == '/api/developer/applications/app-1/keys' and method == 'POST':
             payload = route.request.post_data_json
             self.posts.append(payload)
@@ -90,23 +93,24 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         elif path == '/api/models/model-1/rate-cards':
             body = []
         elif path == '/api/usage':
-            body = {'limit_tokens': 1000, 'used_tokens': 5, 'reserved_tokens': 0, 'records': []}
+            body = {'limit_tokens': 1000, 'used_tokens': 5, 'reserved_tokens': 0,
+                    'points_enabled': self.state['enabled'], 'records': []}
         else:
             return await DeveloperBoundary.respond(self, route)
         await route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
 
     async def test_personal_balance_and_unknown_usage_keep_original_units(self):
         await self.page.goto(self.origin + '/usage')
-        await expect(self.page.get_by_text('积分计费未启用，当前沿用原规则', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('积分计费已停用', exact=True)).to_be_visible()
         await expect(self.page.locator('.available-points')).to_have_text('99.2')
-        await expect(self.page.get_by_role('button', name='启用积分计费', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='计费设置', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('cell', name='待核对', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('cell', name='待核对，预占保留', exact=True)).to_be_visible()
         await self.save_evidence('my-credits-desktop.png')
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await self.save_evidence('my-credits-mobile.png')
-        await self.page.get_by_role('tab', name='历史 Token', exact=True).click()
-        await expect(self.page.get_by_role('region', name='Token 额度')).to_contain_text('Token')
+        await self.page.get_by_role('tab', name='Token 用量', exact=True).click()
+        await expect(self.page.get_by_role('region', name='Token 用量统计')).to_contain_text('累计使用 Token')
 
     async def save_evidence(self, name):
         directory = os.environ.get('BILLING_EVIDENCE_DIR')
@@ -253,13 +257,16 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_basic_user_sees_own_credits_without_management_requests(self):
         self.user['permissions'] = []
+        self.state['enabled'] = True
         await self.page.goto(self.origin + '/usage')
         await expect(self.page.locator('.available-points')).to_have_text('99.2')
         await expect(self.page.get_by_role('tab', name='用户积分', exact=True)).to_have_count(0)
-        for action in ['启用积分计费', '发放', '回收', '暂停', '核对']:
+        for action in ['计费设置', '发放', '回收', '暂停', '核对']:
             await expect(self.page.get_by_role('button', name=action, exact=True)).to_have_count(0)
-        await self.page.get_by_role('tab', name='历史 Token', exact=True).click()
-        await expect(self.page.get_by_role('region', name='Token 额度')).to_contain_text('Token')
+        await self.page.get_by_role('tab', name='Token 用量', exact=True).click()
+        await expect(self.page.get_by_role('region', name='Token 用量统计')).to_contain_text('累计使用 Token')
+        await expect(self.page.locator('.token-total strong')).to_have_text('5')
+        await expect(self.page.get_by_role('region', name='Token 额度')).to_have_count(0)
         self.assertTrue(any(path == '/api/billing/me' for _, path in self.billing_requests))
         self.assertFalse(any('/accounts' in path for _, path in self.billing_requests))
         self.assertTrue(all(method == 'GET' for method, _ in self.billing_requests))
@@ -269,7 +276,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.goto(self.origin + '/usage')
         await expect(self.page.locator('.available-points')).to_be_visible()
         await expect(self.page.get_by_role('tab', name='用户积分', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('button', name='启用积分计费', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='计费设置', exact=True)).to_have_count(0)
 
     async def test_credit_reader_cannot_adjust_pause_or_reconcile(self):
         self.user['permissions'] = ['ai:credits:read']
@@ -286,11 +293,12 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_superadmin_switch_keeps_note_and_version(self):
         self.user['is_admin'] = True
         await self.page.goto(self.origin + '/usage')
-        await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
+        await self.page.get_by_role('button', name='计费设置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='积分计费设置', exact=True)
+        await dialog.get_by_role('switch', name='启用积分计费', exact=True).check()
         await expect(dialog.get_by_text('请先配置模型积分价格并准备用户余额。启用后，未配置价格或余额不足的调用将被拒绝。', exact=True)).to_be_visible()
         await dialog.get_by_label('备注', exact=True).fill('已完成价格与账户准备')
-        await dialog.get_by_role('button', name='确认启用', exact=True).click()
+        await dialog.get_by_role('button', name='保存设置', exact=True).click()
         await expect(self.page.get_by_text('积分计费已启用', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1]['expected_version'], 0)
         self.assertEqual(self.posts[-1]['enabled'], True)
@@ -304,14 +312,15 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
             await self.respond(route)
         await self.page.route(self.origin + '/api/billing/state', reject)
         await self.page.goto(self.origin + '/usage')
-        await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
+        await self.page.get_by_role('button', name='计费设置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='积分计费设置', exact=True)
+        await dialog.get_by_role('switch', name='启用积分计费', exact=True).check()
         await dialog.get_by_label('备注', exact=True).fill('管理员确认启用积分')
-        await dialog.get_by_role('button', name='确认启用', exact=True).click()
+        await dialog.get_by_role('button', name='保存设置', exact=True).click()
         return dialog
 
     async def test_enable_preserves_missing_rates_message_and_model_names(self):
-        message = '以下已发布模型尚未配置积分费率：bge-m3、GLM-5.3-Flash'
+        message = '以下已启用模型尚未配置积分费率：bge-m3、GLM-5.3-Flash'
         dialog = await self.rejected_mode_change('credit_rates_incomplete', message)
         await expect(dialog.get_by_text(message, exact=True)).to_be_visible()
         await expect(dialog.get_by_label('备注', exact=True)).to_have_value('管理员确认启用积分')
@@ -325,7 +334,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_enable_version_conflict_keeps_refresh_guidance(self):
         dialog = await self.rejected_mode_change('version_conflict', '数据已更新，请刷新后重试')
-        await expect(dialog.get_by_text('操作冲突或版本已变化。请关闭弹窗并刷新最新账户后重试；已确认的操作不会重复执行。', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('计费状态已变化，请关闭设置并刷新后重试。', exact=True)).to_be_visible()
 
     async def test_reclaim_preserves_insufficient_available_points_message(self):
         message = '仅能回收未使用且未预占的积分'
@@ -353,18 +362,22 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.fail_rate_once = True
         self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
         await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
-        await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
+        await dialog.get_by_role('button', name='保存价格', exact=True).click()
         await expect(dialog.get_by_text('零价格必须明确标记为免费', exact=True)).to_be_visible()
         await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('100')
         await dialog.get_by_label('输出积分 / 百万 Token', exact=True).fill('500')
         await dialog.get_by_label('备注', exact=True).fill('按平台积分方案设置新版本')
-        await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
+        await dialog.get_by_role('button', name='保存价格', exact=True).click()
         await expect(dialog.get_by_text('定价确认暂不可用', exact=True)).to_be_visible()
-        await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
-        await expect(dialog.get_by_role('cell', name='1', exact=True)).to_be_visible()
+        await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('100.000')
+        await dialog.get_by_role('button', name='保存价格', exact=True).click()
+        await expect(dialog.get_by_text('价格已保存', exact=True)).to_be_visible()
+        await expect(dialog.get_by_role('button', name='保存价格', exact=True)).to_be_disabled()
+        await expect(dialog.get_by_role('cell', name='1', exact=True)).to_have_count(0)
         self.assertEqual(self.rate_posts[0], self.rate_posts[1])
         self.assertTrue(self.rate_posts[-1]['client_request_id'])
         self.assertEqual(self.rate_posts[-1]['input_points'], '100')
@@ -375,28 +388,89 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_point_rate_can_save_without_note(self):
         self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
         await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
         await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('1')
-        await dialog.get_by_role('button', name='创建积分价格版本', exact=True).click()
-        await expect(dialog.get_by_role('cell', name='1', exact=True)).to_be_visible()
+        await dialog.get_by_role('button', name='保存价格', exact=True).click()
+        await expect(dialog.get_by_text('价格已保存', exact=True)).to_be_visible()
         await expect(dialog.get_by_label('备注', exact=True)).to_have_value('')
         self.assertEqual(self.rate_posts[-1]['reason'], '')
         self.assertTrue(self.rate_posts[-1]['client_request_id'])
 
+    async def test_current_price_prefills_exact_values_and_keeps_history_folded(self):
+        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        original = dict(id='rate-1', model_id='model-1', version=1, created_at='2026-10-28T01:00:00Z',
+                        billing_mode='token', is_free=False, input_points='1', output_points='1', cache_points='0', search_points='0')
+        current = {**original, 'id': 'rate-2', 'version': 2, 'input_points': '0.000000000000000001', 'output_points': '2.000000000000000000'}
+        self.point_rates = [original, current]
+        await self.page.goto(self.origin + '/models')
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
+        await expect(dialog.get_by_label('输入积分 / 百万 Token', exact=True)).to_have_value('0.000000000000000001')
+        await expect(dialog.get_by_label('输出积分 / 百万 Token', exact=True)).to_have_value('2')
+        save = dialog.get_by_role('button', name='保存价格', exact=True)
+        await expect(save).to_be_disabled()
+        await expect(dialog.get_by_role('table')).to_have_count(0)
+        await dialog.get_by_label('输出积分 / 百万 Token', exact=True).fill('2.00')
+        await expect(save).to_be_disabled()
+        await dialog.get_by_label('输入积分 / 百万 Token', exact=True).fill('0.000000000000000002')
+        await save.click()
+        await expect(dialog.get_by_text('价格已保存', exact=True)).to_be_visible()
+        self.assertEqual(len(self.rate_posts), 1)
+        self.assertEqual(self.rate_posts[0]['input_points'], '0.000000000000000002')
+        self.assertEqual(original['input_points'], '1')
+        await dialog.locator('summary').filter(has_text='价格调整记录').click()
+        await expect(dialog.get_by_role('table')).to_be_visible()
+        self.assertEqual(len(self.point_rates), 3)
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
+
+    async def test_price_readers_cannot_edit_or_save_current_prices(self):
+        self.user['permissions'] = ['ai:rates:read', 'ai:models:read']
+        self.point_rates = [dict(id='rate-1', model_id='model-1', version=1, created_at='2026-10-28T01:00:00Z',
+                                billing_mode='token', is_free=False, input_points='1', output_points='2', cache_points='0', search_points='0')]
+        await self.page.goto(self.origin + '/models')
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
+        await expect(dialog.get_by_label('输入积分 / 百万 Token', exact=True)).to_have_value('1')
+        await expect(dialog.get_by_label('输入积分 / 百万 Token', exact=True)).to_be_disabled()
+        await expect(dialog.get_by_role('checkbox', name='设为免费', exact=True)).to_be_disabled()
+        await expect(dialog.get_by_role('button', name='保存价格', exact=True)).to_have_count(0)
+        self.assertEqual(self.rate_posts, [])
+
+    async def test_failed_price_loading_cannot_save_unknown_current_price(self):
+        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        await self.page.route(self.origin + '/api/billing/models/model-1/rates', lambda route: route.fulfill(status=503, json={
+            'error': {'code': 'unavailable', 'message': '价格暂不可用'}}))
+        await self.page.goto(self.origin + '/models')
+        await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+        await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
+        await self.page.get_by_role('menuitem', name='费率配置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='费率配置', exact=True)
+        await expect(dialog.get_by_text('价格暂不可用', exact=True)).to_be_visible()
+        await expect(dialog.get_by_role('button', name='保存价格', exact=True)).to_be_disabled()
+        self.assertEqual(self.rate_posts, [])
+
     async def test_superadmin_can_enable_and_disable_without_note(self):
         self.user['is_admin'] = True
         await self.page.goto(self.origin + '/usage')
-        await self.page.get_by_role('button', name='启用积分计费', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='启用积分计费', exact=True)
-        await dialog.get_by_role('button', name='确认启用', exact=True).click()
+        await self.page.get_by_role('button', name='计费设置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='积分计费设置', exact=True)
+        await dialog.get_by_role('switch', name='启用积分计费', exact=True).check()
+        await dialog.get_by_role('button', name='保存设置', exact=True).click()
         await expect(self.page.get_by_text('积分计费已启用', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='停用积分计费', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='停用积分计费', exact=True)
+        await self.page.get_by_role('button', name='计费设置', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='积分计费设置', exact=True)
+        await dialog.get_by_role('switch', name='启用积分计费', exact=True).uncheck()
         await expect(dialog.get_by_label('备注', exact=True)).to_have_value('')
-        await dialog.get_by_role('button', name='确认停用', exact=True).click()
-        await expect(self.page.get_by_text('积分计费未启用，当前沿用原规则', exact=True)).to_be_visible()
+        await dialog.get_by_role('button', name='保存设置', exact=True).click()
+        await expect(self.page.get_by_text('积分计费已停用', exact=True)).to_be_visible()
         self.assertEqual([body['enabled'] for body in self.posts], [True, False])
         self.assertEqual([body['expected_version'] for body in self.posts], [0, 1])
         self.assertEqual([body['reason'] for body in self.posts], ['', ''])

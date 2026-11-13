@@ -97,8 +97,8 @@ async def test_explicit_metadata_matches_fresh_migration(app: object) -> None:
 
     assert find_spec('zhiheng.bootstrap.schema') is not None
     from alembic.autogenerate import compare_metadata
-    from alembic.migration import MigrationContext
 
+    from tests.core.schema_support import active_migration_context
     from zhiheng.bootstrap.schema import schema_metadata
 
     metadata = schema_metadata()
@@ -110,7 +110,5 @@ async def test_explicit_metadata_matches_fresh_migration(app: object) -> None:
         'model_connection_revisions',
     } <= set(metadata.tables)
     async with app.state.container.database.engine.connect() as connection:
-        difference = await connection.run_sync(
-            lambda sync: compare_metadata(MigrationContext.configure(sync), metadata)
-        )
+        difference = await connection.run_sync(lambda sync: compare_metadata(active_migration_context(sync), metadata))
     assert difference == []

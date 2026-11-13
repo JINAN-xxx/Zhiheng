@@ -12,23 +12,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.identity.admin_orm import (
     IdentityDepartment,
-    IdentityPost,
     IdentityRole,
-    IdentityUserPost,
     IdentityUserRole,
 )
-from zhiheng.modules.identity.admin_permissions import PERMISSION_CODES
 from zhiheng.modules.identity.builtin_roles import sync_builtin_role_membership
-from zhiheng.modules.identity.contracts import IdentityDirectoryEntry, IdentityDirectoryPage, IdentityInfo
+from zhiheng.modules.identity.contracts import (
+    IdentityDirectoryEntry,
+    IdentityDirectoryPage,
+    IdentityInfo,
+    ResourceOwnerInfo,
+)
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
 from zhiheng.modules.identity.profile_contracts import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.permission_policy import effective_permissions
 from zhiheng.shared.principal import Principal
 
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_LENGTH = 1024
 MAX_DIRECTORY_PAGE_SIZE = 200
 MAX_DIRECTORY_SEARCH_LENGTH = 200
+MAX_RELATED_USERS = 101
 
 
 class IdentityService:
@@ -54,12 +58,6 @@ class IdentityService:
             .where(IdentityUserRole.user_id == user.id)
             .order_by(IdentityRole.name, IdentityRole.id)
         )
-        posts = await session.scalars(
-            select(IdentityPost.name)
-            .join(IdentityUserPost)
-            .where(IdentityUserPost.user_id == user.id)
-            .order_by(IdentityPost.sort_order, IdentityPost.name, IdentityPost.id)
-        )
         return ProfileInfo(
             id=user.id,
             username=user.username,
@@ -69,7 +67,6 @@ class IdentityService:
             is_admin=user.is_admin,
             department_name=department_name,
             roles=list(roles),
-            posts=list(posts),
             created_at=user.created_at,
             version=user.version,
         )
@@ -129,6 +126,17 @@ class IdentityService:
             fields={'password_hash': password_hash},
         )
         await session.execute(delete(IdentitySession).where(IdentitySession.user_id == user_id))
+
+    async def related_users(self, session: AsyncSession, user_ids: tuple[UUID, ...]) -> list[IdentityDirectoryEntry]:
+        """Minimal labels for already-authorized relationships; never a directory search."""
+        if not user_ids:
+            return []
+        if len(user_ids) > MAX_RELATED_USERS:
+            raise ValueError('Too many related identities')
+        rows = await session.scalars(
+            select(IdentityUser).where(IdentityUser.id.in_(user_ids), IdentityUser.deleted_at.is_(None))
+        )
+        return [IdentityDirectoryEntry.model_validate(row, from_attributes=True) for row in rows]
 
     async def directory(self, session: AsyncSession, *, search: str = '') -> list[IdentityInfo]:
         query = select(IdentityUser).where(IdentityUser.is_active.is_(True), IdentityUser.deleted_at.is_(None))
@@ -207,6 +215,17 @@ class IdentityService:
             )
         )
 
+    async def resource_owner(self, session: AsyncSession, user_id: UUID, *, lock: bool = False) -> ResourceOwnerInfo:
+        """Internal relationship metadata; this does not grant directory access or execution rights."""
+        query = select(IdentityUser.id, IdentityUser.username, IdentityUser.is_active, IdentityUser.deleted_at).where(
+            IdentityUser.id == user_id
+        )
+        if lock:
+            query = query.with_for_update(read=True)
+        user = (await session.execute(query)).one_or_none()
+        state = 'deleted' if user is None or user.deleted_at is not None else 'active' if user.is_active else 'disabled'
+        return ResourceOwnerInfo(id=user_id, username=user.username if user else '', state=state)
+
     async def principal_for_user(self, session: AsyncSession, user_id: UUID) -> Principal:
         user = await session.scalar(
             select(IdentityUser).where(IdentityUser.id == user_id).execution_options(populate_existing=True)
@@ -231,7 +250,8 @@ class IdentityService:
                 IdentityRole.system_key.is_(None),
             )
         )
-        granted = frozenset(code for group in permissions for code in group if code in PERMISSION_CODES)
+        # Filter each role before union: another role must never reactivate retained, disabled child settings.
+        granted = frozenset(code for group in permissions for code in effective_permissions(group))
         return Principal(user.id, user.username, user.is_admin, granted)
 
     async def hash_password(self, password: str) -> str:

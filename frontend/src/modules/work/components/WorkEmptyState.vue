@@ -24,7 +24,7 @@
             closable
             @close="remove(member.agentId)"
           >
-            {{ member.name }} · v{{ member.publishedVersion }}
+            {{ member.name }}
           </a-tag>
           <span v-if="!selectedAgents.length" class="work-empty-state__member-hint"
             ><TeamOutlined />添加智能体，开始协作</span
@@ -186,7 +186,7 @@ function start(): void {
 .work-empty-state h1 {
   margin: 0;
   color: var(--color-text);
-  font-size: 26px;
+  font-size: 32px;
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: normal;
@@ -221,7 +221,8 @@ function start(): void {
   padding: 0;
   border: 0;
   background: transparent;
-  line-height: 1.8;
+  font-size: var(--workspace-font-size-chat);
+  line-height: var(--workspace-line-height-chat);
   box-shadow: none;
 }
 .work-empty-state__members {

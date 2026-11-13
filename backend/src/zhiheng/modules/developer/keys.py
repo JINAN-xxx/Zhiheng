@@ -10,8 +10,9 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
-from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, Invocation
+from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from zhiheng.modules.billing.public import UsageFactsPort
     from zhiheng.modules.developer.applications import ApplicationService
     from zhiheng.modules.developer.scopes import Scope
     from zhiheng.modules.identity.public import IdentityService
@@ -36,17 +38,23 @@ class DeveloperIdentity:
 
 
 class KeyService:
-    def __init__(self, applications: ApplicationService, models: ModelService, identity: IdentityService) -> None:
-        self._applications, self._models, self._identity = applications, models, identity
+    def __init__(
+        self,
+        applications: ApplicationService,
+        models: ModelService,
+        identity: IdentityService,
+        facts: UsageFactsPort,
+    ) -> None:
+        self._applications, self._models, self._identity, self._facts = applications, models, identity, facts
 
     async def create(
         self, session: AsyncSession, principal: Principal, application_id: UUID, body: KeyCreate
     ) -> IssuedKey:
         app = await self._applications.require(session, principal, application_id, lock=True)
-        if app.status != 'active':
+        if app.status != 'active' or not app.platform_enabled:
             raise AppError('application_conflict', '应用已停用', 409)
-        for model_id in sorted(body.model_ids, key=str):
-            await self._models.resolve(session, model_id)
+        self._require_modules(principal, body.scopes, invoke=False)
+        await self._models.resolve_many(session, body.model_ids)
         return await self._issue(session, application_id, body)
 
     async def _issue(self, session: AsyncSession, application_id: UUID, body: KeyCreate) -> IssuedKey:
@@ -67,7 +75,9 @@ class KeyService:
         self, session: AsyncSession, principal: Principal, application_id: UUID, page: int, page_size: int
     ) -> dict[str, object]:
         await self._applications.require(session, principal, application_id)
-        query = select(DeveloperKey).where(DeveloperKey.application_id == application_id)
+        query = select(DeveloperKey).where(
+            DeveloperKey.application_id == application_id, DeveloperKey.deleted_at.is_(None)
+        )
         total = await session.scalar(select(func.count()).select_from(query.subquery()))
         rows = await session.scalars(
             query.order_by(DeveloperKey.created_at.desc(), DeveloperKey.id)
@@ -77,7 +87,14 @@ class KeyService:
         return {'items': [self.info(row) for row in rows], 'total': total or 0, 'page': page, 'page_size': page_size}
 
     async def require(
-        self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID, *, lock: bool = False
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        application_id: UUID,
+        key_id: UUID,
+        *,
+        lock: bool = False,
+        include_deleted: bool = False,
     ) -> DeveloperKey:
         query = select(DeveloperKey).where(DeveloperKey.id == key_id, DeveloperKey.application_id == application_id)
         if lock:
@@ -85,7 +102,7 @@ class KeyService:
         row = await session.scalar(query.execution_options(populate_existing=True))
         # Global lock order is key -> application. Never acquire key while holding application.
         await self._applications.require(session, principal, application_id, lock=lock)
-        if row is None:
+        if row is None or (row.deleted_at is not None and not include_deleted):
             raise AppError('key_not_found', '访问密钥不存在', 404)
         return row
 
@@ -94,8 +111,14 @@ class KeyService:
     ) -> IssuedKey:
         row = await self.require(session, principal, application_id, key_id, lock=True)
         app = await session.get(DeveloperApplication, application_id)
-        if row.status != 'active' or not self.usable(row) or app is None or app.status != 'active':
+        if (
+            row.status != 'active'
+            or not self.usable(row)
+            or app is None
+            or (app.status != 'active' or not app.platform_enabled)
+        ):
             raise AppError('key_conflict', '密钥不可轮换', 409)
+        self._require_modules(principal, tuple(row.scopes), invoke=False, operation='key_rotate')
         row.status = 'revoked' if grace == 0 else 'retiring'
         row.retire_at = utcnow() + timedelta(seconds=grace) if grace > 0 else None
         body = KeyCreate(
@@ -114,10 +137,21 @@ class KeyService:
         return await self._issue(session, application_id, body)
 
     async def revoke(self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID) -> KeyInfo:
+        require_capability(principal, 'developer', 'key_revoke')
         row = await self.require(session, principal, application_id, key_id, lock=True)
         row.status = 'revoked'
         row.retire_at = None
         return self.info(row)
+
+    async def delete(self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID) -> None:
+        require_capability(principal, 'developer', 'key_delete')
+        row = await self.require(session, principal, application_id, key_id, lock=True, include_deleted=True)
+        if row.deleted_at is None:
+            # Keep the original identity for accounting and accepted-work origins.
+            # Revocation also protects executors loaded before this schema change.
+            row.status = 'revoked'
+            row.retire_at = None
+            row.deleted_at = utcnow()
 
     async def authenticate(self, session: AsyncSession, token: str, *, lock: bool = False) -> DeveloperIdentity:
         query = select(DeveloperKey).where(DeveloperKey.digest == hashlib.sha256(token.encode()).hexdigest())
@@ -133,10 +167,11 @@ class KeyService:
         if (
             app is None
             or app.deleted_at is not None
-            or app.status != 'active'
+            or (app.status != 'active' or not app.platform_enabled)
             or not await self._identity.is_active(session, app.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
+        self._require_modules(await self._identity.principal_for_user(session, app.owner_id))
         return DeveloperIdentity(app.id, key.id, app.owner_id)
 
     async def revalidate(self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False) -> KeyInfo:
@@ -155,11 +190,12 @@ class KeyService:
             or key.application_id != identity.application_id
             or app is None
             or app.owner_id != identity.owner_id
-            or app.status != 'active'
+            or (app.status != 'active' or not app.platform_enabled)
             or app.deleted_at is not None
             or not await self._identity.is_active(session, identity.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
+        self._require_modules(await self._identity.principal_for_user(session, identity.owner_id))
         return self.info(key)
 
     async def authorize_identity(
@@ -175,8 +211,29 @@ class KeyService:
         key = await self.revalidate(session, identity, lock=lock)
         if scope not in key.scopes:
             raise AppError('insufficient_scope', 'Key lacks the required scope', 403)
+        self._require_modules(await self._identity.principal_for_user(session, identity.owner_id), (scope,))
         if not set(model_ids) <= set(key.model_ids):
             raise AppError('model_not_found', 'Model is unavailable', 404)
+
+    @staticmethod
+    def _require_modules(
+        principal: Principal, scopes: Sequence[str] = (), *, invoke: bool = True, operation: str = 'key_create'
+    ) -> None:
+        require_capability(principal, 'developer', 'invoke' if invoke else operation)
+        for scope in scopes:
+            namespace, action = scope.split(':')
+            module = {'knowledge': 'knowledge', 'skills': 'skills', 'agents': 'agents'}.get(namespace)
+            if module is None:
+                continue
+            if action == 'write':
+                operations = (
+                    ('create', 'update', 'delete', 'import', 'rebuild')
+                    if module == 'knowledge'
+                    else ('create', 'update', 'delete', 'toggle')
+                )
+                principal.require_any_permission(*(f'platform:{module}:{operation}' for operation in operations))
+            else:
+                require_capability(principal, module, 'use' if action == 'invoke' else action)
 
     async def info_for_identity(self, session: AsyncSession, identity: DeveloperIdentity) -> KeyInfo:
         row = await session.get(DeveloperKey, identity.key_id, populate_existing=True)
@@ -186,7 +243,7 @@ class KeyService:
 
     async def authorize_run(self, session: AsyncSession, run_id: UUID, *, scope: Scope) -> None:
         """Execution guard reads the original reservation identity, never a replaying Key."""
-        invocation = await session.scalar(select(Invocation).where(Invocation.run_id == run_id))
+        invocation = await self._facts.invocation_identity(session, run_id)
         if invocation is None or invocation.key_id is None or invocation.application_id is None:
             raise AppError('invalid_api_key', 'Missing execution identity', 401)
         identity = DeveloperIdentity(invocation.application_id, invocation.key_id, invocation.user_id)
@@ -238,7 +295,8 @@ class KeyService:
     def usable(row: DeveloperKey) -> bool:
         now = utcnow()
         return (
-            row.status != 'revoked'
+            row.deleted_at is None
+            and row.status != 'revoked'
             and (row.expires_at is None or row.expires_at > now)
             and (row.status != 'retiring' or (row.retire_at is not None and row.retire_at > now))
         )

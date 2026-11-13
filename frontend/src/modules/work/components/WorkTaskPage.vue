@@ -7,7 +7,7 @@
           <h1>{{ task.title }}</h1>
           <a-tag :color="statusColor">{{ statusLabel }}</a-tag>
         </div>
-        <p>{{ task.goal }}</p>
+        <p v-if="showGoal">{{ task.goal }}</p>
       </div>
       <div class="work-task-header__actions">
         <a-button aria-label="查看完整目标" @click="infoOpen = true"
@@ -28,7 +28,10 @@
           @click="emit('status', 'completed')"
           >完成工作</a-button
         >
-        <a-button v-if="canEdit && task.status === 'completed'" @click="emit('status', 'active')"
+        <a-button
+          v-if="canEdit && task.status !== 'active'"
+          :disabled="locked"
+          @click="emit('status', 'active')"
           >重新打开</a-button
         >
         <a-button
@@ -43,8 +46,8 @@
 
     <WorkMemberBar
       :members="members"
-      :can-manage="canManageMembers && task.status === 'active'"
-      :can-edit="canEdit && task.status === 'active'"
+      :can-manage="canManageMembers"
+      :can-edit="canEdit"
       :locked="locked"
       @add="openPicker"
       @remove="emit('remove-member', $event)"
@@ -55,13 +58,13 @@
       v-if="task.status === 'archived'"
       type="info"
       show-icon
-      message="此工作已归档，只能查看历史内容。"
+      message="此工作已归档。可先修复不可用成员，再重新打开继续执行。"
     />
     <a-alert
       v-else-if="task.status === 'completed'"
       type="success"
       show-icon
-      message="此工作已完成，重新打开后可继续执行。"
+      message="此工作已完成。可管理成员，重新打开后继续执行。"
     />
     <a-alert
       v-if="runError"
@@ -161,7 +164,7 @@
       <div class="work-info-identity">
         <span>工作 ID</span><code>{{ task.taskId }}</code>
       </div>
-      <p class="work-info-goal">{{ task.goal }}</p>
+      <p v-if="showGoal" class="work-info-goal">{{ task.goal }}</p>
     </a-modal>
   </section>
 </template>
@@ -224,6 +227,7 @@ const pickerOpen = ref(false),
   infoOpen = ref(false),
   editingTitle = ref(''),
   editingGoal = ref('')
+const showGoal = computed(() => props.task.goal.trim() !== props.task.title.trim())
 const members = computed(() => props.task.members.filter((member) => !member.removedAt))
 const executorOptions = computed(() =>
   members.value.map((member) => ({
@@ -318,7 +322,7 @@ function saveEditor(): void {
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--gray-10);
+  background: var(--bg-container);
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
@@ -352,8 +356,9 @@ function saveEditor(): void {
   overflow: hidden;
   margin: 0;
   color: var(--color-text);
-  font-size: 18px;
-  line-height: 1.45;
+  font-size: var(--workspace-font-size-title);
+  font-weight: var(--workspace-font-weight-medium);
+  line-height: 1.35;
   overflow-wrap: anywhere;
   letter-spacing: 0;
   -webkit-box-orient: vertical;
@@ -364,8 +369,8 @@ function saveEditor(): void {
   overflow: hidden;
   margin: 8px 0 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: var(--workspace-font-size-body);
+  line-height: 1.7;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
@@ -421,7 +426,8 @@ function saveEditor(): void {
   padding: 2px 0;
   border: 0;
   background: transparent;
-  line-height: 1.7;
+  font-size: var(--workspace-font-size-chat);
+  line-height: var(--workspace-line-height-chat);
   box-shadow: none;
 }
 .work-composer__controls {
@@ -485,7 +491,8 @@ function saveEditor(): void {
 .work-info-goal {
   max-height: 55vh;
   overflow-y: auto;
-  line-height: 1.7;
+  font-size: var(--workspace-font-size-chat);
+  line-height: var(--workspace-line-height-chat);
 }
 @media (max-width: 640px) {
   .work-task-header {

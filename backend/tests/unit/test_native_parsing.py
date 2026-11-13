@@ -5,7 +5,7 @@ import pytest
 
 
 async def test_real_native_formats() -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
 
     parser = NativeParser()
     for name, data, expected in [
@@ -30,7 +30,7 @@ async def test_real_native_formats() -> None:
 async def test_real_bad_zip_and_scanned_pdf() -> None:
     from pypdf import PdfWriter
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     parser = NativeParser()
@@ -49,7 +49,7 @@ async def test_xlsx_rich_dates_and_docx_tables() -> None:
 
     from openpyxl import Workbook
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
 
     book = Workbook()
     sheet = book.active
@@ -67,7 +67,7 @@ async def test_xlsx_rich_dates_and_docx_tables() -> None:
 async def test_parser_timeout_and_cancellation_drain() -> None:
     import asyncio
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     with pytest.raises(AppError) as error:
@@ -81,7 +81,7 @@ async def test_parser_timeout_and_cancellation_drain() -> None:
 
 
 async def test_zip_entity_and_actual_expansion_bounds() -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     for body in [b'<!DOCTYPE a [<!ENTITY x "hello">]><a>&x;</a>', b'a' * (8 * 1024 * 1024 + 1)]:
@@ -96,7 +96,7 @@ async def test_real_text_pdf_and_password_protection() -> None:
     from pypdf import PdfWriter
     from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     writer = PdfWriter()
@@ -127,7 +127,7 @@ async def test_real_text_pdf_and_password_protection() -> None:
 
 @pytest.mark.parametrize('character', [b'"', b'\x01'])
 async def test_legal_text_limit_survives_json_wire_escaping(character: bytes) -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
 
     content = character * 1_999_999
     result = await NativeParser().parse(content, filename='quoted.txt')
@@ -135,7 +135,7 @@ async def test_legal_text_limit_survives_json_wire_escaping(character: bytes) ->
 
 
 async def test_relationship_xml_entities_are_rejected() -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     stream = BytesIO()
@@ -154,7 +154,7 @@ async def test_noise_image_normalizes_within_model_image_cap() -> None:
 
     from PIL import Image
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
 
     image = Image.frombytes('RGB', (1536, 1536), random.Random(0).randbytes(1536 * 1536 * 3))
     output = BytesIO()
@@ -218,7 +218,7 @@ def opaque_workbook(*, dtd: bool, rows: int = 1, columns: int = 1) -> bytes:
 
 
 async def test_opaque_xml_part_rejects_entities_without_optional_sdk_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     monkeypatch.setenv('OPENPYXL_DEFUSEDXML', 'False')
@@ -228,7 +228,7 @@ async def test_opaque_xml_part_rejects_entities_without_optional_sdk_guard(monke
 
 
 async def test_opaque_worksheet_actual_cells_obey_limit() -> None:
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     with pytest.raises(AppError) as error:
@@ -239,7 +239,7 @@ async def test_opaque_worksheet_actual_cells_obey_limit() -> None:
 async def test_empty_workbook_requires_real_cell_text_but_keeps_zero_and_false() -> None:
     from openpyxl import Workbook
 
-    from zhiheng.modules.knowledge.public import NativeParser
+    from zhiheng.modules.knowledge.adapters.native import NativeParser
     from zhiheng.shared.errors import AppError
 
     book = Workbook()

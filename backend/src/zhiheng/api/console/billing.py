@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.application.billing_management import BillingManagementService
+from zhiheng.application.billing.management import BillingManagementService
 from zhiheng.modules.billing.public import (
     CreditAccountStatePatch,
     CreditAdjustment,

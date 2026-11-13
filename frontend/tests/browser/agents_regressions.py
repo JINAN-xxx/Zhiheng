@@ -86,6 +86,9 @@ class AgentsUIRegressions(DeveloperBoundary):
                 await route.fulfill(status=201, json=self.agent)
             else:
                 await route.fulfill(json={'items': self.agents, 'total': len(self.agents), 'page': 1, 'page_size': 12})
+        elif path == '/api/agents/agent-1/api-access':
+            config = self.agent.get('published_config') or self.config
+            await route.fulfill(json={'application_id':config['application_id'],'published_version':self.agent['published_version'],'model_ids':[config['model_id']]})
         elif path == '/api/agents/agent-1':
             if method == 'PATCH':
                 self.posts.append(route.request.post_data_json)
@@ -118,6 +121,27 @@ class AgentsUIRegressions(DeveloperBoundary):
         await self.page.goto(self.origin + '/agents')
         await expect(self.page.get_by_role('heading', name='智能体', exact=True)).to_be_visible()
 
+    async def test_inline_application_creation_only_requires_name(self):
+        submissions = []
+        async def application(route):
+            if route.request.method != 'POST':
+                await self.respond(route)
+                return
+            body = route.request.post_data_json
+            submissions.append(body)
+            await route.fulfill(status=201, json={**self.app, 'id': 'app-new', 'name': body['name'], 'code': 'app_generated_fixture'})
+        await self.page.route(self.origin + '/api/developer/applications', application)
+        await self.page.goto(self.origin + '/agents/agent-1')
+        await self.page.get_by_role('button', name='新建 API 应用', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='新建 API 应用', exact=True)
+        await expect(dialog.get_by_label('应用编码', exact=True)).to_have_count(0)
+        await dialog.get_by_label('应用名称', exact=True).fill('关联应用')
+        await dialog.locator('.ant-modal-footer .ant-btn-primary').click()
+        await expect(dialog).to_be_hidden()
+        await expect(self.page.locator('.application-field .ant-select-selection-item')).to_have_text('关联应用')
+        await expect(self.page.get_by_text('app_generated_fixture', exact=True)).to_have_count(0)
+        self.assertEqual(submissions, [{'name': '关联应用'}])
+
     async def choose_agent_action(self, name):
         await self.page.locator('.agent-card').get_by_role('button', name='更多操作', exact=True).click()
         await self.page.get_by_role('menuitem', name=name, exact=True).click()
@@ -128,10 +152,13 @@ class AgentsUIRegressions(DeveloperBoundary):
         card = self.page.locator('.agent-card.resource-card')
         await expect(card).to_contain_text('2 个技能')
         await expect(card).to_contain_text('1 个知识库')
-        await expect(card).to_contain_text('草稿 v7')
+        await expect(card.locator('.resource-card__status')).to_have_text('草稿')
+        self.assertNotRegex(await card.inner_text(), r'\bv\d+\b')
         await expect(card.get_by_role('button', name='试聊', exact=True)).to_be_visible()
+        await expect(card.get_by_role('button', name='复制智能体 ID', exact=True)).to_have_count(0)
         await card.get_by_role('button', name='更多操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='API', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('menuitem', name='复制 ID', exact=True)).to_have_count(0)
         await self.page.get_by_role('menuitem', name='配置', exact=True).click()
         editor = self.page.locator('.agent-editor--page')
         await expect(editor.get_by_label('系统提示词', exact=True)).to_have_value('草稿提示')
@@ -143,38 +170,24 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.agent['description'] = '尚未发布的修改说明'
         await self.open_agents()
         card = self.page.locator('.agent-card.resource-card')
-        await expect(card).to_contain_text('已发布 v2')
+        await expect(card.locator('.resource-card__status')).to_have_text('已发布')
+        self.assertNotRegex(await card.inner_text(), r'\bv\d+\b')
         await expect(card).to_contain_text('有未发布更改')
         await card.get_by_role('button', name='更多操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='API', exact=True)).to_be_visible()
         await expect(self.page).to_have_url(self.origin + '/agents')
 
-    async def test_long_agent_title_copies_id_and_opens_configuration_with_keyboard_on_mobile(self):
+    async def test_long_agent_title_opens_configuration_with_keyboard_on_mobile(self):
         self.agent['name'] = '很长的智能体名称用于检查手机卡片标题省略和操作宽度' * 3
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await self.open_agents()
         card = self.page.locator('.agent-card.resource-card')
-        await card.get_by_role('button', name='复制智能体 ID', exact=True).click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), 'agent-1')
         await expect(self.page).to_have_url(self.origin + '/agents')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
         title = card.get_by_role('button', name='配置' + self.agent['name'], exact=True)
         await title.focus()
         await title.press('Enter')
         await expect(self.page).to_have_url(self.origin + '/agents/agent-1')
-
-    async def test_copy_failure_is_visible_and_late_clipboard_failure_cannot_write_after_navigation(self):
-        await self.page.add_init_script("Object.defineProperty(navigator, 'clipboard', {value: {writeText: () => Promise.reject(new Error('剪贴板访问被拒绝'))}})")
-        await self.open_agents()
-        await self.page.get_by_role('button', name='复制智能体 ID', exact=True).click()
-        await expect(self.page.get_by_text('剪贴板访问被拒绝', exact=True)).to_be_visible()
-        await self.page.evaluate("() => { navigator.clipboard.writeText = () => new Promise((resolve, reject) => { window.rejectAgentCopy = reject }) }")
-        await self.page.get_by_role('button', name='复制智能体 ID', exact=True).click()
-        await self.choose_agent_action('配置')
-        await expect(self.page).to_have_url(self.origin + '/agents/agent-1')
-        await self.page.evaluate("window.rejectAgentCopy(new Error('离页后的复制失败'))")
-        await self.page.wait_for_timeout(100)
-        await expect(self.page.get_by_text('离页后的复制失败', exact=True)).to_have_count(0)
 
     async def test_basic_user_keeps_preview_and_readonly_configuration_for_another_owner(self):
         await self.page.route('**/api/auth/me', lambda route: route.fulfill(json={'id': 'user-1', 'username': 'reader', 'is_admin': False}))
@@ -191,24 +204,6 @@ class AgentsUIRegressions(DeveloperBoundary):
         for label in ['保存', '发布', '取消发布', '删除智能体']:
             await expect(editor.get_by_role('button', name=label, exact=True)).to_have_count(0)
         self.assertEqual(self.posts, [])
-
-    async def test_pending_copy_feedback_is_discarded_after_search_or_opening_preview(self):
-        for action in ['search', 'preview']:
-            with self.subTest(action=action):
-                await self.open_agents()
-                await self.page.evaluate("() => { navigator.clipboard.writeText = () => new Promise((resolve, reject) => { window.rejectAgentCopy = reject }) }")
-                await self.page.get_by_role('button', name='复制智能体 ID', exact=True).click()
-                if action == 'search':
-                    search = self.page.get_by_placeholder('搜索智能体', exact=True)
-                    await search.fill('研究')
-                    async with self.page.expect_response(lambda response: '/api/agents?search=' in response.url):
-                        await search.press('Enter')
-                else:
-                    await self.page.get_by_role('button', name='试聊', exact=True).click()
-                    await expect(self.page.get_by_role('textbox', name='试聊消息', exact=True)).to_be_visible()
-                await self.page.evaluate("() => { window.rejectAgentCopy(new Error('上一张卡片复制失败')) }")
-                await self.page.wait_for_timeout(100)
-                await expect(self.page.get_by_text('上一张卡片复制失败', exact=True)).to_have_count(0)
 
     async def test_saved_agent_configuration_exposes_full_readonly_id(self):
         await self.open_agents()
@@ -235,7 +230,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(preview.locator('.preview-message--user')).to_have_count(2)
         await rounds.press('Home')
         await editor.get_by_role('button', name='保存', exact=True).click()
-        await expect(editor.get_by_text('草稿 v2', exact=True)).to_be_visible()
+        await expect(editor.get_by_text('所有更改已保存', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1]['history_rounds'], 0)
         await expect(preview.locator('.preview-message--user')).to_have_count(2)
         await preview.get_by_role('textbox', name='试聊消息', exact=True).fill('仅当前问题')
@@ -270,7 +265,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(slider).to_have_attribute('aria-valuenow', '10')
         await expect(editor.locator('.history-rounds-value')).to_have_text('10 轮')
         await editor.get_by_role('button', name='保存', exact=True).click()
-        await expect(editor.get_by_text('草稿 v2', exact=True)).to_be_visible()
+        await expect(editor.get_by_text('所有更改已保存', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1]['history_rounds'], 10)
         await self.page.reload()
         await expect(self.page.get_by_role('slider', name='上下文轮数', exact=True)).to_have_attribute('aria-valuenow', '10')
@@ -285,11 +280,72 @@ class AgentsUIRegressions(DeveloperBoundary):
         await self.page.locator('.ant-select-item-option-content').filter(has_text='日常助手').click()
         await dialog.get_by_label('欢迎语', exact=True).fill('你好，我是助手')
         await dialog.get_by_label('系统提示词', exact=True).fill('草稿提示')
+        length = dialog.get_by_label('最大输出 Token', exact=True)
+        await expect(length).to_have_value('2048')
+        await expect(dialog.get_by_text(re.compile('输出长度超过模型.*512 Token'))).to_be_visible()
         await dialog.get_by_role('button', name='保存', exact=True).click()
-        await expect(dialog.get_by_text('草稿 v1', exact=True)).to_be_visible()
+        self.assertEqual(self.posts, [])
+        await length.fill('512')
+        await dialog.get_by_role('button', name='保存', exact=True).click()
+        await expect(dialog.get_by_text('所有更改已保存', exact=True)).to_be_visible()
         self.assertEqual(self.posts[-1]['max_tokens'], 512)
         self.assertEqual(self.posts[-1]['welcome_message'], '你好，我是助手')
         self.assertEqual(self.posts[-1]['model_id'], 'model-1')
+
+    async def test_output_length_over_limit_is_inline_and_blocks_save_until_corrected(self):
+        await self.page.goto(self.origin + '/agents/agent-1')
+        editor = self.page.locator('.agent-editor--page')
+        length = editor.get_by_label('最大输出 Token', exact=True)
+        await expect(editor.get_by_text('当前模型最多支持输出 512 Token', exact=True)).to_be_visible()
+        await editor.get_by_label('系统提示词', exact=True).fill('保留未保存的提示词')
+        await length.fill('513')
+        error = editor.get_by_text(re.compile('输出长度超过模型「日常助手」.*512 Token'))
+        await expect(error).to_be_visible()
+        await expect(length).to_have_attribute('aria-invalid', 'true')
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        await expect(length).to_be_in_viewport()
+        self.assertEqual(self.posts, [])
+        await expect(length).to_have_value('513')
+        await expect(editor.get_by_label('系统提示词', exact=True)).to_have_value('保留未保存的提示词')
+        await length.fill('512')
+        await expect(error).to_have_count(0)
+        await expect(length).not_to_have_attribute('aria-invalid', 'true')
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        await expect(editor.get_by_text('所有更改已保存', exact=True)).to_be_visible()
+        self.assertEqual(len(self.posts), 1)
+        self.assertEqual(self.posts[0]['max_tokens'], 512)
+        self.assertEqual(self.posts[0]['system_prompt'], '保留未保存的提示词')
+
+    async def test_switching_to_lower_model_preserves_output_and_updates_inline_limit(self):
+        models = [
+            {'id': model_id, 'name': name, 'connection_id': 'connection-1', 'upstream_model': 'fixture',
+             'max_output_tokens': limit, 'model_type': 'chat', 'enabled': True, 'capabilities': ['chat', 'stream']}
+            for model_id, name, limit in [('model-1', '日常助手', 512), ('model-2', '短输出模型', 256)]
+        ]
+        await self.page.route(self.origin + '/api/models', lambda route: route.fulfill(json=models))
+        await self.page.goto(self.origin + '/agents/agent-1')
+        editor = self.page.locator('.agent-editor--page')
+        length = editor.get_by_label('最大输出 Token', exact=True)
+        await expect(length).to_have_value('512')
+        await editor.get_by_role('combobox', name=re.compile(r'模型$')).press('ArrowDown')
+        await self.page.locator('.ant-select-item-option-content').filter(has_text='短输出模型').click()
+        await expect(length).to_have_value('512')
+        await expect(editor.get_by_text(re.compile('输出长度超过模型「短输出模型」.*256 Token'))).to_be_visible()
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        self.assertEqual(self.posts, [])
+        await editor.get_by_role('combobox', name=re.compile(r'模型$')).press('ArrowDown')
+        await self.page.locator('.ant-select-item-option-content').filter(has_text='日常助手').click()
+        await expect(length).to_have_value('512')
+        await expect(editor.get_by_text(re.compile('输出长度超过模型'))).to_have_count(0)
+
+    async def test_existing_agent_above_current_model_limit_shows_error_on_load(self):
+        self.agent['max_tokens'] = 1024
+        await self.page.goto(self.origin + '/agents/agent-1')
+        editor = self.page.locator('.agent-editor--page')
+        await expect(editor.get_by_label('最大输出 Token', exact=True)).to_have_value('1024')
+        await expect(editor.get_by_text(re.compile('输出长度超过模型.*512 Token'))).to_be_visible()
+        await editor.get_by_role('button', name='保存', exact=True).click()
+        self.assertEqual(self.posts, [])
 
     async def test_conflict_preserves_unsaved_editor_values(self):
         await self.page.route('**/api/agents/agent-1', lambda route: route.fulfill(status=409, json={'error': {'code': 'version_conflict', 'message': '智能体已更新，请刷新'}}) if route.request.method == 'PATCH' else route.fulfill(json=self.agent))
@@ -311,7 +367,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.assertEqual(self.agent['published_version'], 1)
         await dialog.get_by_label('系统提示词', exact=True).fill('新的草稿提示')
         await dialog.get_by_role('button', name='保存', exact=True).click()
-        await expect(dialog.get_by_text('草稿 v3', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('所有更改已保存', exact=True)).to_be_visible()
         self.assertEqual(self.agent['published_config']['system_prompt'], '草稿提示')
         self.assertEqual(self.agent['system_prompt'], '新的草稿提示')
         await expect(dialog.get_by_role('button', name='发布', exact=True)).to_be_enabled()

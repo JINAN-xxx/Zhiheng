@@ -44,6 +44,7 @@ export interface CreditUsage {
   version: number
   reserved_points: string
   charged_points: string | null
+  failure_waived?: boolean
   rate_version: number
   created_at: string
 }

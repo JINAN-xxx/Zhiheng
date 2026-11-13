@@ -316,3 +316,37 @@ code,
     }
   }
 }
+
+.workspace-scroll-dialog .ant-modal {
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+
+.workspace-scroll-dialog .ant-modal-content {
+  display: flex;
+  max-height: calc(100dvh - 32px);
+  flex-direction: column;
+  padding: clamp(12px, 4dvh, 24px);
+}
+
+.workspace-scroll-dialog .ant-modal-header,
+.workspace-scroll-dialog .ant-modal-footer {
+  flex-shrink: 0;
+}
+
+.workspace-scroll-dialog .ant-modal-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-scroll-area,
+.workspace-scroll-dialog .ant-modal-body {
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+}
+
+.workspace-scroll-area::-webkit-scrollbar,
+.workspace-scroll-dialog .ant-modal-body::-webkit-scrollbar {
+  display: none;
+}

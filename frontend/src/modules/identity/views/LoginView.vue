@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
@@ -14,7 +14,7 @@ import {
 } from 'ant-design-vue'
 import AuthShell from '../../../shared/components/AuthShell.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { identity, login } from '../public.ts'
+import { identity, login, loginDestination } from '../public.ts'
 import { savePasswordInBrowser } from '../browserPasswords.ts'
 const router = useRouter()
 const route = useRoute()
@@ -22,8 +22,16 @@ const loginForm = reactive({ username: '', password: '' })
 const busy = ref(false)
 const savePassword = ref(false)
 const recoveryOpen = ref(false)
-const error = ref(typeof route.query.reason === 'string' ? route.query.reason : '')
+const error = ref('')
+const navigationError = ref(typeof route.query.reason === 'string' ? route.query.reason : '')
 const scope = new RequestScope()
+onMounted(() => {
+  if (!Object.prototype.hasOwnProperty.call(route.query, 'reason')) return
+  const query = { ...route.query }
+  delete query.reason
+  // A navigation failure is a one-time notice, not a persistent login-page state.
+  void router.replace({ path: route.path, query, hash: route.hash })
+})
 onBeforeUnmount(() => {
   scope.dispose()
   loginForm.password = ''
@@ -33,6 +41,7 @@ async function submit(): Promise<void> {
   const context = scope.replace()
   busy.value = true
   error.value = ''
+  navigationError.value = ''
   try {
     const username = loginForm.username.trim()
     await login(username, loginForm.password, context.signal)
@@ -45,7 +54,7 @@ async function submit(): Promise<void> {
           message.info('请使用浏览器的密码管理器保存密码')
       })
     }
-    await router.replace('/chat')
+    await router.replace(loginDestination(route.query.redirect))
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -56,7 +65,24 @@ async function submit(): Promise<void> {
 </script>
 <template>
   <AuthShell title="登录">
-    <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
+    <AAlert
+      v-if="error"
+      :message="error"
+      type="error"
+      show-icon
+      closable
+      class="space-bottom"
+      @close="error = ''"
+    />
+    <AAlert
+      v-else-if="navigationError"
+      :message="'上次访问未成功：' + navigationError"
+      type="warning"
+      show-icon
+      closable
+      class="space-bottom"
+      @close="navigationError = ''"
+    />
     <AAlert
       v-else-if="route.query.passwordChanged === '1'"
       message="密码修改成功，请使用新密码重新登录"

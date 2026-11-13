@@ -46,7 +46,7 @@ class ContextPackage:
     messages: tuple[ModelMessage, ...]
     selected_turns: tuple[ContextTurn, ...]
     estimated_tokens: int
-    input_budget: int
+    input_budget: int | None
     dropped_turns: int
     summary_used: bool
 
@@ -89,14 +89,15 @@ def estimate_messages(messages: Sequence[ModelMessage]) -> int:
 
 def input_budget_for(
     *,
-    input_budget: int = DEFAULT_INPUT_BUDGET,
+    input_budget: int | None = None,
     context_window_tokens: int | None = None,
-    max_output_tokens: int = 2048,
+    max_output_tokens: int | None = None,
     safety_margin: int = SAFETY_MARGIN,
-) -> int:
+) -> int | None:
     if context_window_tokens is None:
-        return max(0, input_budget)
-    return max(0, min(input_budget, context_window_tokens - max_output_tokens - safety_margin))
+        return max(0, input_budget) if input_budget is not None else None
+    available = max(0, context_window_tokens - (max_output_tokens or 0) - safety_margin)
+    return min(input_budget, available) if input_budget is not None else available
 
 
 def summary_message(summary: str) -> ModelMessage:
@@ -113,9 +114,9 @@ def build_context(
     current: ModelMessage,
     summary: str = '',
     covered_count: int = 0,
-    input_budget: int = DEFAULT_INPUT_BUDGET,
+    input_budget: int | None = None,
     context_window_tokens: int | None = None,
-    max_output_tokens: int = 2048,
+    max_output_tokens: int | None = None,
     safety_margin: int = SAFETY_MARGIN,
 ) -> ContextPackage:
     budget = input_budget_for(
@@ -125,10 +126,15 @@ def build_context(
         safety_margin=safety_margin,
     )
     mandatory = estimate_messages((*required, current))
-    if mandatory > budget:
-        raise AppError('context_input_too_long', '当前问题、附件或必要系统输入超过模型输入预算，请缩短后重试', 422)
+    if budget is not None and mandatory > budget:
+        raise AppError(
+            'context_input_too_long',
+            '本次内容超过已配置的模型输入容量',
+            422,
+            details={'estimated_input_tokens': mandatory, 'input_budget': budget},
+        )
     memory = (summary_message(summary),) if summary else ()
-    summary_used = bool(memory) and mandatory + estimate_messages(memory) <= budget
+    summary_used = bool(memory) and (budget is None or mandatory + estimate_messages(memory) <= budget)
     if not summary_used:
         memory = ()
         covered_count = 0
@@ -136,7 +142,7 @@ def build_context(
     used = mandatory + estimate_messages(memory)
     for turn in reversed(turns[covered_count:]):
         cost = estimate_messages((turn.question, turn.reply))
-        if used + cost > budget:
+        if budget is not None and used + cost > budget:
             break
         selected.append(turn)
         used += cost

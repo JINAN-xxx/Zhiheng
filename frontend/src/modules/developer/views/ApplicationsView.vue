@@ -3,17 +3,25 @@
   <main class="app-container developer-api-page">
     <ApplicationApiDocs v-if="showDocs" @close="closeApiDocs" />
     <template v-else>
-      <WorkspaceToolbar title="开发接入">
+      <WorkspaceToolbar
+        class="developer-toolbar"
+        title="开发接入"
+        :subtitle="showApplicationList ? '管理应用、访问密钥与接口调用权限' : ''"
+      >
         <template #actions>
-          <a-tooltip title="刷新应用" placement="bottom">
-            <a-button shape="circle" aria-label="刷新应用" @click="refreshCurrentView"
-              ><template #icon><ReloadOutlined /></template
-            ></a-button>
-          </a-tooltip>
-          <a-button aria-label="API 说明" @click="openApiDocs"
+          <RefreshButton
+            label="刷新应用"
+            :loading="loading || detailLoading || keyLoading || modelLoading || usageLoading"
+            @click="refreshCurrentView"
+          />
+          <a-button type="text" aria-label="API 说明" @click="openApiDocs"
             ><template #icon><FileTextOutlined /></template>API 说明</a-button
           >
-          <a-button type="primary" aria-label="新建应用" @click="openApplicationForm()"
+          <a-button
+            v-if="canUseCapability('developer', 'create')"
+            type="primary"
+            aria-label="新建应用"
+            @click="openApplicationForm()"
             ><template #icon><PlusOutlined /></template>新建应用</a-button
           >
         </template>
@@ -28,15 +36,15 @@
             v-model:value="query.applicationName"
             allow-clear
             aria-label="搜索应用"
-            placeholder="搜索应用名称或编码"
-            @press-enter="loadApplications()"
+            placeholder="搜索应用名称"
+            @press-enter="searchApplications()"
+            @update:value="(value) => value === '' && searchApplications()"
           >
             <template #prefix><SearchOutlined /></template>
           </a-input>
-          <a-button @click="loadApplications()">搜索</a-button>
           <span class="application-total">共 {{ total }} 个</span>
         </div>
-        <WorkspacePanel v-if="showApplicationList" class="application-list-view" flush>
+        <div v-if="showApplicationList" class="application-list-view" :aria-busy="loading">
           <WorkspaceState v-if="loading && !applications.length" kind="loading" />
           <WorkspaceState
             v-else-if="error && !applications.length"
@@ -44,50 +52,41 @@
             :message="error"
             @retry="loadApplications()"
           />
-          <WorkspaceState v-else-if="!applications.length" kind="empty" title="暂无开发者应用" />
+          <WorkspaceState
+            v-else-if="!applications.length"
+            kind="empty"
+            :title="query.applicationName.trim() ? '没有符合条件的应用' : '暂无开发者应用'"
+          />
           <template v-else>
             <div v-if="error" class="stale-notice">刷新失败，当前列表可能已过期。</div>
-            <ResourceTable
-              :columns="applicationColumns"
-              :rows="applications"
-              :scroll-x="760"
-              row-key="applicationId"
-            >
-              <template #bodyCell="{ column, record: application }">
-                <button
-                  v-if="column.key === 'application'"
-                  type="button"
-                  class="application-row"
-                  :class="{
-                    'is-active': application.applicationId === selectedApplication?.applicationId
-                  }"
-                  @click="selectApplication(application)"
+            <div class="application-grid">
+              <button
+                v-for="application in applications"
+                :key="application.applicationId"
+                type="button"
+                class="application-row"
+                :aria-label="`管理应用“${application.applicationName}”`"
+                :aria-describedby="`application-status-${application.applicationId}`"
+                @click="selectApplication(application)"
+              >
+                <span class="application-icon" aria-hidden="true"><CodeOutlined /></span>
+                <span class="application-row__main">
+                  <strong :title="application.applicationName">{{
+                    application.applicationName
+                  }}</strong>
+                </span>
+                <span
+                  :id="`application-status-${application.applicationId}`"
+                  class="application-row__status"
                 >
-                  <span class="application-icon"><CodeOutlined /></span>
-                  <span class="application-row__main"
-                    ><strong>{{ application.applicationName }}</strong
-                    ><small>{{ application.applicationCode }}</small></span
-                  >
-                </button>
-                <WorkspaceStatus
-                  v-else-if="column.key === 'status'"
-                  :status="application.status"
-                  :label="applicationStatusLabel(application.status)"
-                />
-                <template v-else-if="column.key === 'createdAt'">{{
-                  formatTime(application.createdAt)
-                }}</template>
-                <template v-else-if="column.key === 'updatedAt'">{{
-                  formatTime(application.updatedAt)
-                }}</template>
-                <a-button
-                  v-else-if="column.key === 'actions'"
-                  type="link"
-                  @click="selectApplication(application)"
-                  >管理</a-button
-                >
-              </template>
-            </ResourceTable>
+                  <WorkspaceStatus
+                    :status="application.status"
+                    :label="applicationStatusLabel(application.status, application.platformEnabled)"
+                    :show-dot="false"
+                  />
+                </span>
+              </button>
+            </div>
             <a-pagination
               v-if="total > query.pageSize"
               v-model:current="query.pageNum"
@@ -99,7 +98,7 @@
               @change="loadApplications()"
             />
           </template>
-        </WorkspacePanel>
+        </div>
 
         <section v-else class="application-detail">
           <a-alert v-if="error && selectedApplication" :message="error" type="error" show-icon />
@@ -117,6 +116,12 @@
             title="选择应用以查看详情"
           />
           <template v-else>
+            <a-alert
+              v-if="selectedApplication.platformEnabled === false"
+              type="warning"
+              message="此应用已被平台停用，请联系管理员。"
+              show-icon
+            />
             <header class="application-context-bar">
               <a-button class="application-back" type="text" @click="backToApplicationList"
                 ><LeftOutlined />应用列表</a-button
@@ -124,32 +129,51 @@
               <div class="detail-identity">
                 <div>
                   <h2>{{ selectedApplication.applicationName }}</h2>
-                  <code>{{ selectedApplication.applicationCode }}</code>
                 </div>
                 <WorkspaceStatus
                   :status="selectedApplication.status"
-                  :label="applicationStatusLabel(selectedApplication.status)"
+                  :label="
+                    applicationStatusLabel(
+                      selectedApplication.status,
+                      selectedApplication.platformEnabled
+                    )
+                  "
+                  :show-dot="false"
                 />
               </div>
               <div class="detail-actions">
-                <a-button type="text" @click="openApplicationForm(selectedApplication)"
+                <a-button
+                  v-if="canUseCapability('developer', 'update')"
+                  type="text"
+                  @click="openApplicationForm(selectedApplication)"
                   ><EditOutlined />编辑</a-button
                 >
                 <a-button
-                  v-if="selectedApplication.status === 'active'"
+                  v-if="
+                    canUseCapability('developer', 'toggle') &&
+                    selectedApplication.status === 'active'
+                  "
                   type="text"
                   danger
                   @click="disableSelectedApplication"
                   ><StopOutlined />停用</a-button
                 >
                 <a-button
-                  v-if="selectedApplication.status === 'disabled'"
+                  v-if="
+                    canUseCapability('developer', 'toggle') &&
+                    selectedApplication.status === 'disabled' &&
+                    selectedApplication.platformEnabled !== false
+                  "
                   type="primary"
                   ghost
                   @click="enableSelectedApplication"
                   ><PlayCircleOutlined />重新启用</a-button
                 >
-                <a-button type="text" danger @click="deleteSelectedApplication"
+                <a-button
+                  v-if="canUseCapability('developer', 'delete')"
+                  type="text"
+                  danger
+                  @click="deleteSelectedApplication"
                   ><DeleteOutlined />删除应用</a-button
                 >
               </div>
@@ -166,6 +190,7 @@
             <ApplicationOverviewPanel
               v-if="activeTab === 'overview'"
               :application="selectedApplication"
+              @navigate="changeTab"
             />
             <ApplicationKeysPanel
               v-else-if="activeTab === 'keys'"
@@ -224,22 +249,21 @@
           :rules="applicationRules"
           layout="vertical"
         >
-          <a-form-item v-if="!editingApplication" label="应用编码" name="applicationCode"
-            ><a-input
-              v-model:value="applicationForm.applicationCode"
-              :maxlength="100"
-              placeholder="例如 internal-tools"
-          /></a-form-item>
           <a-form-item label="应用名称" name="applicationName"
             ><a-input
               v-model:value="applicationForm.applicationName"
-              :maxlength="100"
+              :disabled="saving || applicationCreationUncertain"
+              :maxlength="80"
               placeholder="例如内部智能工具"
           /></a-form-item>
         </a-form>
         <template #footer
           ><a-button @click="closeApplicationForm">取消</a-button
-          ><a-button type="primary" :loading="saving" @click="saveApplication"
+          ><a-button
+            type="primary"
+            :loading="saving"
+            :disabled="applicationCreationUncertain"
+            @click="saveApplication"
             >保存</a-button
           ></template
         >
@@ -249,6 +273,8 @@
         :open="keyFormOpen"
         title="创建访问密钥"
         :width="600"
+        centered
+        wrap-class-name="workspace-scroll-dialog"
         destroy-on-close
         :after-close="handleKeyFormClosed"
         @cancel="closeKeyForm"
@@ -277,8 +303,7 @@
                   v-for="item in scopeCatalog?.definitions ?? []"
                   :key="item.scope"
                   :value="item.scope"
-                  ><span
-                    >{{ item.label }} <code>{{ item.scope }}</code></span
+                  ><span>{{ item.label }}</span
                   ><small>{{ item.description }}</small></a-checkbox
                 >
               </a-checkbox-group></a-spin
@@ -297,7 +322,7 @@
               show-search
               option-filter-prop="label"
               style="width: 100%"
-              placeholder="按所选能力选择已发布模型"
+              placeholder="按所选能力选择已启用模型"
               :options="modelOptions"
               @change="setModelIds"
           /></a-form-item>
@@ -389,6 +414,8 @@
 </template>
 
 <script setup lang="ts">
+import { canUseCapability } from '../../identity/public.ts'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -404,8 +431,7 @@ import {
   Pagination as APagination,
   Select as ASelect,
   Tabs as ATabs,
-  TabPane as ATabPane,
-  Tooltip as ATooltip
+  TabPane as ATabPane
 } from 'ant-design-vue'
 import {
   CopyOutlined,
@@ -416,12 +442,9 @@ import {
   LeftOutlined,
   PlayCircleOutlined,
   PlusOutlined,
-  ReloadOutlined,
   SearchOutlined,
   StopOutlined
 } from '@ant-design/icons-vue'
-import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
@@ -462,6 +485,7 @@ const {
   query,
   usageQuery,
   applicationFormOpen,
+  applicationCreationUncertain,
   keyFormOpen,
   issuedKeyOpen,
   applicationFormRef,
@@ -482,6 +506,7 @@ const {
   applicationRules,
   keyRules,
   loadApplications,
+  searchApplications,
   loadKeys,
   loadModelAuthorizations,
   loadUsage,
@@ -510,16 +535,6 @@ const {
   setExpiry,
   closeDocs: closeApiDocs
 } = useApplications()
-const applicationColumns = [
-  { title: '应用名称', key: 'application', width: 260 },
-  { title: '状态', key: 'status', width: 110 },
-  { title: '创建时间', key: 'createdAt', width: 180 },
-  { title: '更新时间', key: 'updatedAt', width: 180 },
-  { title: '操作', key: 'actions', width: 90 }
-]
-function formatTime(value: string): string {
-  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '暂无记录'
-}
 </script>
 
 <style scoped lang="scss">
@@ -536,10 +551,6 @@ function formatTime(value: string): string {
   color: var(--color-text-secondary);
   line-height: 1.6;
 }
-.scope-choices code {
-  font-size: 11px;
-  color: var(--color-text-secondary);
-}
 .developer-api-page {
   display: flex;
   min-width: 0;
@@ -547,8 +558,25 @@ function formatTime(value: string): string {
   height: 100%;
   flex-direction: column;
   color: var(--color-text);
-  background: var(--workspace-bg-page, #f7f8fc);
+  background: var(--bg-page);
   font-family: var(--workspace-font-family);
+}
+.developer-toolbar {
+  padding: 26px 28px 20px;
+}
+.developer-toolbar :deep(.workspace-toolbar__title) {
+  font-size: 24px;
+  font-weight: 600;
+}
+.developer-toolbar :deep(.workspace-toolbar__subtitle) {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.developer-toolbar :deep(.ant-btn-primary) {
+  border-radius: 10px;
+}
+.developer-api-page :deep(.workspace-status.is-label) {
+  background: var(--bg-container);
 }
 
 .developer-grid {
@@ -559,41 +587,35 @@ function formatTime(value: string): string {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   padding: 20px 24px 28px;
 }
 
-.developer-grid > :deep(.workspace-panel) {
-  width: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-}
-
-.developer-grid.is-list > :deep(.workspace-panel) {
-  flex: 0 0 auto;
+.developer-grid.is-list {
+  container-type: inline-size;
+  gap: 0;
+  padding: 0 28px 28px;
 }
 
 .developer-grid.is-detail {
   overflow: hidden;
 }
 
-.application-list-view :deep(.workspace-panel__body) {
+.application-list-view {
   min-height: 0;
 }
 
 .application-tools {
   display: flex;
   flex: 0 0 auto;
-  min-height: 34px;
+  min-height: 40px;
   align-items: center;
-  gap: 10px;
-  padding: 0;
+  gap: 12px;
+  margin-bottom: 26px;
 }
 
 .application-tools :deep(.ant-input-affix-wrapper) {
-  width: min(360px, 70%);
+  width: min(360px, 42%);
 }
 .application-total {
   margin-left: auto;
@@ -604,37 +626,56 @@ function formatTime(value: string): string {
 .application-list-view :deep(.ant-pagination) {
   display: flex;
   justify-content: flex-end;
-  margin: 18px 16px;
+  margin-top: 24px;
+}
+
+.application-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 28px;
+  align-content: start;
+}
+
+@container (min-width: 1360px) {
+  .application-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 960px) {
+  .application-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 560px) {
+  .application-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .application-tools :deep(.ant-input-affix-wrapper) {
+    width: 100%;
+  }
 }
 
 .application-row {
   display: flex;
-  width: 100%;
-  min-height: 48px;
+  min-width: 0;
+  min-height: 88px;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
-  padding: 0;
+  gap: 14px;
+  padding: 10px 12px;
   border: 0;
+  border-radius: 10px;
   background: transparent;
   color: var(--color-text);
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .application-row:hover {
-  background: var(--gray-50);
-  color: var(--color-text);
-}
-
-.application-row.is-active {
-  background: var(--main-50);
-  color: var(--main-700);
-}
-
-.application-row.is-active:hover {
-  background: var(--main-30);
-  color: var(--main-700);
+  background: var(--gray-25);
 }
 
 .application-row__main,
@@ -644,17 +685,26 @@ function formatTime(value: string): string {
   gap: 4px;
 }
 
-.application-row__main strong,
-.application-row__main small {
+.application-row__main {
+  flex: 1;
+  gap: 6px;
+}
+
+.application-row__main strong {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.application-row__status {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.application-row__main strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.application-row__main small,
-.detail-identity code {
-  color: var(--color-text-secondary);
-  font-size: 12px;
 }
 
 .application-detail {
@@ -685,12 +735,14 @@ function formatTime(value: string): string {
 .application-detail > :deep(.overview-panel),
 .application-detail > :deep(.keys-panel),
 .application-detail > :deep(.models-panel),
+.application-detail > :deep(.resources-panel),
 .application-detail > :deep(.usage-panel) {
   min-height: 0;
   flex: 0 1 auto;
   overflow: auto;
+  scrollbar-gutter: stable;
   border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--bg-container);
 }
 
@@ -714,11 +766,23 @@ function formatTime(value: string): string {
 .detail-actions {
   gap: 12px;
 }
+.detail-identity {
+  min-width: 0;
+  flex: 1;
+}
+.detail-identity > :deep(.workspace-status) {
+  flex-shrink: 0;
+}
+.detail-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 
 .detail-identity h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .detail-identity code,
@@ -747,6 +811,7 @@ function formatTime(value: string): string {
 }
 
 .stale-notice {
+  margin-bottom: 16px;
   padding: 8px 14px;
   color: var(--color-warning-900);
   background: var(--color-warning-50);
@@ -778,14 +843,18 @@ function formatTime(value: string): string {
 }
 
 @media (min-width: 992px) {
-  .developer-grid {
+  .developer-grid.is-detail {
     padding: 0 var(--workspace-space-6) var(--workspace-space-6);
   }
 }
 
 @media (max-width: 640px) {
-  .developer-grid {
-    padding: 16px;
+  .developer-toolbar {
+    padding: 20px 16px 16px;
+  }
+  .developer-grid,
+  .developer-grid.is-list {
+    padding: 0 16px 16px;
   }
   .application-context-bar {
     gap: 12px;
@@ -801,6 +870,17 @@ function formatTime(value: string): string {
     justify-content: flex-end;
     gap: 6px;
   }
+  .detail-tabs :deep(.ant-tabs-tab) {
+    margin: 0;
+    padding: 11px 2px;
+    font-size: 12px;
+  }
+  .detail-tabs :deep(.ant-tabs-tab + .ant-tabs-tab) {
+    margin-left: 8px;
+  }
+  .detail-tabs {
+    margin-bottom: 16px;
+  }
   .application-list-view :deep(.ant-pagination) {
     flex-wrap: wrap;
     gap: 6px;
@@ -812,21 +892,19 @@ function formatTime(value: string): string {
 }
 .application-icon {
   display: grid;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
   place-items: center;
-  border-radius: 7px;
-  background: var(--main-50);
-  color: var(--main-700);
-  font-size: 18px;
-}
-.application-row__main strong {
-  font-weight: 500;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 5%, white);
+  color: #8054e8;
+  font-size: 23px;
 }
 .application-row:focus-visible {
-  outline: 2px solid var(--main-700);
-  outline-offset: 4px;
+  outline: 2px solid var(--main-400);
+  outline-offset: 2px;
 }
 .application-back {
   padding-left: 0;

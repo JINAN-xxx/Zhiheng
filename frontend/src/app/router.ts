@@ -1,16 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { chatRoutes } from '../modules/chat/routes.ts'
-import { identity, restoreIdentity } from '../modules/identity/public.ts'
+import { identity, restoreIdentity, loginDestination } from '../modules/identity/public.ts'
 import { identityRoutes } from '../modules/identity/routes.ts'
 import { modelRoutes } from '../modules/models/routes.ts'
 import { usageRoutes } from '../modules/usage/routes.ts'
 import { developerRoutes } from '../modules/developer/public.ts'
 import { skillRoutes } from '../modules/skills/public.ts'
 import { agentRoutes } from '../modules/agents/public.ts'
-import { fileRoutes } from '../modules/files/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { knowledgeRoutes } from '../modules/knowledge/public.ts'
 import { adminRoutes, canAccessAdmin } from '../modules/admin/public.ts'
+import {
+  moduleForPath,
+  hasModule,
+  hasCapability,
+  firstModulePath
+} from '../shared/platformAccess.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -21,6 +26,7 @@ declare module 'vue-router' {
     activeMenu?: string
     console?: boolean
     permission?: string
+    reuseByParam?: string
   }
 }
 export const router = createRouter({
@@ -40,15 +46,21 @@ export const router = createRouter({
     ...skillRoutes,
     ...agentRoutes,
     ...workRoutes,
-    ...fileRoutes,
     ...knowledgeRoutes,
     ...adminRoutes,
-    { path: '/', redirect: '/overview' },
-    { path: '/:pathMatch(.*)*', redirect: '/chat' }
+    {
+      path: '/access',
+      name: 'access',
+      component: () => import('./views/NoAccessView.vue'),
+      meta: { title: '功能访问' }
+    },
+    { path: '/', redirect: () => firstModulePath(identity.value) },
+    { path: '/:pathMatch(.*)*', redirect: () => firstModulePath(identity.value) }
   ]
 })
 router.beforeEach(async (to) => {
-  if (to.meta.public) return to.name === 'login' && identity.value ? '/chat' : true
+  if (to.meta.public)
+    return to.name === 'login' && identity.value ? loginDestination(to.query.redirect) : true
   let user
   try {
     user = await restoreIdentity()
@@ -56,8 +68,19 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { reason: errorMessage(error) } }
   }
   if (!user) return '/login'
-  if (to.meta.admin && !user.is_admin) return '/chat'
-  if (to.meta.console && !canAccessAdmin(user)) return '/chat'
+  const module = moduleForPath(to.path)
+  if (module && !to.meta.permission && !hasModule(user, module))
+    return { path: '/access', query: { denied: module } }
+  if (
+    (to.name === 'agent-create' && !hasCapability(user, 'agents', 'create')) ||
+    (to.name === 'agent-editor' && !hasCapability(user, 'agents', 'read')) ||
+    (to.name === 'assistant-chat' && !hasCapability(user, 'agents'))
+  )
+    return { path: '/access', query: { denied: 'agents' } }
+  if (module === 'knowledge' && to.params.view === 'query' && !hasCapability(user, 'knowledge'))
+    return { path: '/access', query: { denied: 'knowledge' } }
+  if (to.meta.admin && !user.is_admin) return firstModulePath(user)
+  if (to.meta.console && !canAccessAdmin(user)) return firstModulePath(user)
   if (to.meta.permission && !user.is_admin && !user.permissions?.includes(to.meta.permission))
     return '/admin'
   return true

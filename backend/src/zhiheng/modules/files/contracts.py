@@ -155,6 +155,7 @@ class JobInfo(BaseModel):
 
 
 class AttachmentSummary(BaseModel):
+    owner_id: UUID | None = None
     model_config = ConfigDict(frozen=True, extra='forbid')
     file_id: UUID
     original_filename: str

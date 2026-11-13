@@ -1,6 +1,3 @@
-from sqlalchemy import Table
-
-from zhiheng.infrastructure.database import Base
 from zhiheng.modules.chat.actions.public import (
     CreatedShareInfo,
     FeedbackInfo,
@@ -12,10 +9,7 @@ from zhiheng.modules.chat.actions.public import (
     ShareInfo,
     SharePreview,
 )
-from zhiheng.modules.chat.actions.public import (
-    schema_tables as action_schema_tables,
-)
-from zhiheng.modules.chat.context_orm import ContextSnapshot, ContextState, SummaryTask
+from zhiheng.modules.chat.context_memory import ContextMemory
 from zhiheng.modules.chat.context_policy import (
     SUMMARY_KEEP,
     SUMMARY_OUTPUT_TOKENS,
@@ -30,7 +24,13 @@ from zhiheng.modules.chat.context_policy import (
     source_refs,
     summary_message,
 )
-from zhiheng.modules.chat.context_store import ContextStore
+from zhiheng.modules.chat.context_values import (
+    ContextSnapshotDraft,
+    ContextSnapshotValue,
+    ContextStateValue,
+    SummaryTaskDraft,
+    SummaryTaskValue,
+)
 from zhiheng.modules.chat.contracts import (
     ChatContextInfo,
     ChatGenerationConfig,
@@ -41,7 +41,6 @@ from zhiheng.modules.chat.contracts import (
     RegenerationTarget,
     SkillSnapshot,
 )
-from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.chat.service import ChatService
 
 __all__ = [
@@ -52,10 +51,11 @@ __all__ = [
     'ChatGenerationSettings',
     'ChatRequestContext',
     'ChatService',
+    'ContextMemory',
     'ContextPackage',
-    'ContextSnapshot',
-    'ContextState',
-    'ContextStore',
+    'ContextSnapshotDraft',
+    'ContextSnapshotValue',
+    'ContextStateValue',
     'ContextTurn',
     'ConversationInfo',
     'CreatedShareInfo',
@@ -70,26 +70,14 @@ __all__ = [
     'ShareInfo',
     'SharePreview',
     'SkillSnapshot',
-    'SummaryTask',
+    'SummaryTaskDraft',
+    'SummaryTaskValue',
     'attachment_refs',
     'build_context',
     'estimate_messages',
     'input_budget_for',
     'plan_summary',
-    'schema_tables',
     'source_fingerprint',
     'source_refs',
     'summary_message',
 ]
-
-
-def schema_tables() -> tuple[Table, ...]:
-    """Explicit declaration inventory used only by migration composition."""
-    return (
-        Base.metadata.tables[Conversation.__tablename__],
-        Base.metadata.tables[ChatMessage.__tablename__],
-        Base.metadata.tables[ContextState.__tablename__],
-        Base.metadata.tables[SummaryTask.__tablename__],
-        Base.metadata.tables[ContextSnapshot.__tablename__],
-        *action_schema_tables(),
-    )

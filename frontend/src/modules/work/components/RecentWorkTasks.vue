@@ -20,7 +20,7 @@
         >
           <button
             type="button"
-            class="recent-work__refresh"
+            class="recent-work__filter"
             :class="{ 'is-filtered': status }"
             aria-label="筛选工作状态"
             :title="status ? `当前筛选：${statusLabel(status)}` : '筛选工作状态'"
@@ -38,14 +38,7 @@
             </a-menu>
           </template>
         </a-dropdown>
-        <button
-          type="button"
-          class="recent-work__refresh"
-          aria-label="刷新工作列表"
-          @click="emitFilters"
-        >
-          <ReloadOutlined />
-        </button>
+        <RefreshButton label="刷新工作列表" :loading="loading" @click="emitFilters" />
       </div>
     </div>
     <a-input
@@ -63,7 +56,7 @@
     </p>
     <p v-else-if="error" class="recent-work__error" role="alert">{{ error }}</p>
     <a-spin :spinning="loading" wrapper-class-name="recent-work__loading">
-      <div class="recent-work__list">
+      <div class="recent-work__list workspace-scroll-area">
         <ResourceCard
           v-for="task in tasks"
           :key="task.taskId"
@@ -148,7 +141,6 @@ import {
   FilterOutlined,
   LoadingOutlined,
   ProjectOutlined,
-  ReloadOutlined,
   SearchOutlined
 } from '@ant-design/icons-vue'
 import {
@@ -164,6 +156,7 @@ import {
   Spin as ASpin
 } from 'ant-design-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import ResourceCard from '../../../shared/components/ResourceCard.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { WorkSummary, WorkFilters, WorkStatus } from '../api/index.ts'
@@ -178,7 +171,7 @@ const props = defineProps<{
   canOpen: boolean
   canEdit: boolean
   canRemove: boolean
-  canManageTask: (task: WorkSummary) => boolean
+  canManageTask: (task: WorkSummary, action?: 'update' | 'delete') => boolean
   keyword: string
   status: WorkStatus | ''
 }>()
@@ -193,10 +186,15 @@ const keyword = ref(props.keyword),
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const taskActions = (task: WorkSummary): MenuAction[] => {
   const actions: MenuAction[] = []
-  if (!props.canManageTask(task)) return actions
-  if (props.canEdit && task.status === 'active' && !task.currentRunId)
+  if (!props.canManageTask(task, 'update') && !props.canManageTask(task, 'delete')) return actions
+  if (
+    props.canEdit &&
+    props.canManageTask(task, 'update') &&
+    task.status === 'active' &&
+    !task.currentRunId
+  )
     actions.push({ command: 'rename', label: '重命名', icon: EditOutlined })
-  if (props.canRemove && !task.currentRunId)
+  if (props.canRemove && props.canManageTask(task, 'delete') && !task.currentRunId)
     actions.push({
       command: 'delete',
       label: '删除工作',
@@ -298,7 +296,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   flex-shrink: 0;
   align-self: center;
 }
-.recent-work__refresh {
+.recent-work__filter {
   display: inline-flex;
   width: 30px;
   height: 30px;
@@ -328,7 +326,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   min-height: 0;
   height: 100%;
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden auto;
 }
 .recent-work__loading {
   min-height: 0;
@@ -348,8 +346,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 1.7;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -368,6 +366,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 }
 .recent-work :deep(.ant-input-affix-wrapper) {
   flex-shrink: 0;
+  flex-shrink: 0;
   border-color: var(--gray-150);
   background: var(--bg-container);
   box-shadow: none;
@@ -385,7 +384,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   display: flex;
   align-items: center;
 }
-.recent-work__refresh.is-filtered {
+.recent-work__filter.is-filtered {
   color: var(--main-700);
   background: var(--main-50);
   border-radius: var(--workspace-radius-sm);

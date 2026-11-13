@@ -8,6 +8,7 @@ from sqlalchemy import select
 from tests.core.integration.test_knowledge import finish_preparation
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.integration.test_work import member_client, published, task, turn
+from tests.core.knowledge_support import legacy_grant
 from tests.core.provider import ProviderServer
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
@@ -45,13 +46,13 @@ async def test_library_acl_intersects_sources_and_own_history_releases_only_its_
     provider: ProviderServer,
     model_id: str,
 ) -> None:
-    base = await ready_base(admin, app, provider)
+    base = await ready_base(admin, app, provider, legacy=True)
     endpoint = f'/api/knowledge/bases/{base["id"]}'
     document = (await admin.get(endpoint + '/documents')).json()['items'][0]
     file_id = document['file_id']
-    await admin.patch(endpoint + '/acl', json={'expected_version': 1, 'access': 'public', 'entries': []})
     async with member_client(app) as reader:
         reader_id = (await reader.get('/api/auth/me')).json()['id']
+        await legacy_grant(app, base['id'], reader_id)
         before = len(provider.requests)
         empty = await query_result(reader, app, base['id'])
         assert empty['hits'] == [] and len(provider.requests) == before

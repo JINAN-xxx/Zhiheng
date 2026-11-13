@@ -1,16 +1,26 @@
+import hashlib
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.application.chat_runs import PreparedChatInputs
+from zhiheng.api.common.pagination import MAX_CURSOR_LENGTH, decode_cursor, encode_cursor
+from zhiheng.application.chat.runs import PreparedChatInputs
 from zhiheng.modules.chat.public import ChatContextInfo, ChatGenerationSettings, ConversationInfo, MessageInfo
 from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
+from zhiheng.shared.errors import AppError
 
 router = APIRouter(prefix='/api/chat/conversations', tags=['chat'])
+HISTORY_HEADERS = {
+    'X-Next-Cursor': {
+        'description': '下一页游标；空字符串表示已到末页。游标仅适用于当前用户与筛选范围。',
+        'schema': {'type': 'string'},
+    }
+}
 
 
 class ConversationRequest(BaseModel):
@@ -23,7 +33,7 @@ class ChatRequest(ChatGenerationSettings):
     model_id: UUID
     message: str = Field(min_length=1, max_length=16000)
     client_request_id: UUID
-    file_ids: list[UUID] = Field(default_factory=list, max_length=15)
+    file_ids: list[UUID] = Field(default_factory=list)
     knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
     @field_validator('message')
@@ -56,11 +66,34 @@ class RegenerateRequest(BaseModel):
     client_request_id: UUID
 
 
-@router.get('')
+@router.get('', responses={200: {'headers': HISTORY_HEADERS}})
 async def conversations(
-    container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency, archived: bool = False
+    response: Response,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    archived: bool = False,
+    search: Annotated[str, Query(max_length=200)] = '',
+    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR_LENGTH)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> list[ConversationInfo]:
-    values = await container.chat.list_conversations(session, principal, archived=archived)
+    search = search.strip()
+    if '\x00' in search:
+        raise AppError('invalid_search', '搜索内容无效', 422)
+    binding = hashlib.sha256(f'chat:{principal.id}:{archived}:{search}'.encode()).hexdigest()
+    values = await container.chat.list_conversations(
+        session,
+        principal,
+        archived=archived,
+        search=search,
+        after=decode_cursor(cursor, binding),
+        limit=limit + 1,
+    )
+    more = len(values) > limit
+    values = values[:limit]
+    response.headers['X-Next-Cursor'] = (
+        encode_cursor(binding, values[-1].last_activity_at or values[-1].created_at, values[-1].id) if more else ''
+    )
     for value in values:
         value.preparation_id = await container.knowledge_preparation.store.current(session, 'chat', value.id)
     return values
@@ -77,11 +110,22 @@ async def create_conversation(
         return await container.chat.create(session, principal, body.title)
 
 
-@router.get('/{conversation_id}/messages')
+@router.get('/{conversation_id}/messages', responses={200: {'headers': HISTORY_HEADERS}})
 async def messages(
-    conversation_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+    conversation_id: UUID,
+    response: Response,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR_LENGTH)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> list[MessageInfo]:
-    values = await container.chat.messages(session, principal, conversation_id)
+    binding = f'chat-messages:{principal.id}:{conversation_id}'
+    page = await container.chat.message_history(
+        session, principal, conversation_id, before=decode_cursor(cursor, binding), limit=limit
+    )
+    values = page.items
+    response.headers['X-Next-Cursor'] = encode_cursor(binding, *page.next_before) if page.next_before else ''
     feedback = await container.message_actions.feedback_for_messages(
         session, principal, conversation_id=conversation_id, message_ids=[value.id for value in values]
     )

@@ -1,42 +1,47 @@
 import asyncio
-import os
-import secrets
 import hashlib
 import json
+import os
+import secrets
 from collections import Counter
-from uuid import UUID, uuid4
 from datetime import timedelta
+from uuid import UUID, uuid4
 
 import asyncpg
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import select, func, event
+from sqlalchemy import event, func, select
 from sqlalchemy.engine import make_url
 
-from tests.core.integration.test_knowledge_failures import ready_base, source, finish_job
+from tests.core.billing_support import enable_free_billing
+from tests.core.integration.test_knowledge_failures import finish_job, ready_base, source
+from tests.core.integration.test_work import member_client
+from tests.core.knowledge_support import legacy_grant
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
-from zhiheng.modules.knowledge.graph.orm import GraphGeneration, GraphJob, GraphStep, GraphAttempt
-from zhiheng.runtime.orm import Run, Outbox
-from zhiheng.worker.main import build_worker
+from zhiheng.application.knowledge.graph.runs import GraphModelCall
+from zhiheng.modules.billing.orm import Invocation
+from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphGeneration, GraphPin, GraphStep
+from zhiheng.modules.knowledge.public import GraphClaim
+from zhiheng.runtime.contracts import RunSnapshot
+from zhiheng.runtime.orm import Run
 from zhiheng.shared.time import utcnow
-from zhiheng.modules.knowledge.graph.orm import GraphPin
-from zhiheng.modules.developer.orm import Invocation
-from tests.core.integration.test_work import member_client
+from zhiheng.worker.main import build_worker
 
 
-async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
+async def test_real_single_arq_slot_graph_runs_and_atomic_publish(  # noqa: PLR0912, PLR0915 - one live worker and active namespace establish publish, fencing and GC invariants
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from pymilvus import MilvusClient
     from arq.connections import ArqRedis
+    from arq.jobs import Job
+    from pymilvus import MilvusClient
 
     uri = os.getenv('ZHIHENG_TEST_MILVUS_URI')
     if not uri:
         pytest.skip('Separate Milvus required')
     container = app.state.container
-    base = await ready_base(admin, app, provider)
+    base = await ready_base(admin, app, provider, legacy=True)
     document = await source(admin, 'graph.txt', '甲机构和乙公司开展合作研究。'.encode())
     duplicate = await source(admin, 'same-text-different-file.txt', '甲机构和乙公司开展合作研究。'.encode())
     imported = await finish_job(
@@ -72,6 +77,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         json={'billing_mode': 'token', 'input_price': '0.000001', 'output_price': '0.000001'},
     )
     assert rate.status_code == 201, rate.text
+    await enable_free_billing(admin)
     url = make_url(container.settings.database_url.get_secret_value().replace('postgresql+asyncpg:', 'postgresql:'))
     pg = await asyncpg.connect(url.render_as_string(hide_password=False))
     role = 'graph_run_' + uuid4().hex
@@ -88,7 +94,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         resource('intent', 'redis_key', name)
     original = ArqRedis.enqueue_job
 
-    async def record_enqueue(self, *args, **kwargs):
+    async def record_enqueue(self: ArqRedis, *args: object, **kwargs: object) -> Job | None:
         job_id = kwargs.get('_job_id')
         if job_id:
             for prefix in ('arq:job:', 'arq:result:', 'arq:in-progress:', 'arq:retry:'):
@@ -116,12 +122,11 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         admitted = await admin.post(endpoint + '/build', json=request)
         assert admitted.status_code == 202, admitted.text
         job = admitted.json()
-        from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
+        from zhiheng.modules.knowledge.public import GraphVectorManifest
 
         async with container.database.sessions() as session:
             attempt = await session.get(GraphAttempt, UUID(job['attempt_id']))
             generation = await session.get(GraphGeneration, UUID(job['graph_revision']))
-            frozen = generation.frozen
             manifest = GraphVectorManifest(
                 UUID(base['id']), generation.id, attempt.id, generation.fingerprint, 2, attempt.workspace
             )
@@ -142,18 +147,18 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
                 break
             await asyncio.sleep(0.05)
         assert job['status'] == 'completed', job
-        current_base = (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()
-        opened = await admin.patch(
-            f'/api/knowledge/bases/{base["id"]}/acl',
-            json={'expected_version': current_base['acl_version'], 'access': 'public', 'entries': []},
-        )
-        assert opened.status_code == 200, opened.text
+        (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()
+        fixture_member_id = await legacy_grant(app, base['id'])
         documents = (await admin.get(f'/api/knowledge/bases/{base["id"]}/documents')).json()['items']
         for item in documents:
             info = (await admin.get('/api/files/' + item['file_id'])).json()
             grant = await admin.patch(
                 '/api/files/' + item['file_id'] + '/acl',
-                json={'expected_version': info['acl_version'], 'access': 'public', 'entries': []},
+                json={
+                    'expected_version': info['acl_version'],
+                    'access': 'private',
+                    'entries': [{'user_id': fixture_member_id, 'effect': 'allow'}],
+                },
             )
             assert grant.status_code == 200, grant.text
         before_reuse_http = len(provider.requests)
@@ -169,7 +174,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         assert len(provider.requests) == before_reuse_http
         active_names = tuple(collections)
 
-        def vector_hash():
+        def vector_hash() -> str:
             rows = {
                 name: sorted(
                     milvus.query(
@@ -185,7 +190,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
             }
             return hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
 
-        async def pg_hash(workspace=manifest.workspace):
+        async def pg_hash(workspace: str = manifest.workspace) -> str:
             tables = await pg.fetch(
                 "SELECT tablename FROM pg_tables WHERE schemaname='knowledge_graph_sdk' ORDER BY tablename"
             )
@@ -227,7 +232,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         assert query_job['result']['context'] and query_job['result']['sources']
         assert len(query_job['result']['context'].encode()) <= 24000
         paid = provider.requests[before_query_http:]
-        assert len(paid) == 2 and sum(call['model'] == 'graph' for call in paid) == 1
+        assert len(paid) == 3 and sorted(call['model'] for call in paid) == ['embedding', 'graph', 'rerank']
         assert next(call for call in paid if call['model'] == 'graph')['response_format'] == {'type': 'json_object'}
         assert before_vector == vector_hash() and before_pg == await pg_hash()
         assert (await admin.post(endpoint + '/build', json=request)).json()['id'] == job['id']
@@ -292,7 +297,12 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
             assert not milvus.has_collection(name)
             collections[name] = description
             resource('intent', 'milvus_collection', name, description=description, database='default')
-        for _ in range(400):
+        # A fresh SDK workspace prepares Milvus collections before it can enqueue the model call.
+        provider_start_deadline = asyncio.get_running_loop().time() + min(
+            30, configured.json()['config']['timeout_seconds']
+        )
+        running = None
+        while asyncio.get_running_loop().time() < provider_start_deadline:
             async with container.database.sessions() as session:
                 running = await session.scalar(
                     select(Run).where(
@@ -304,7 +314,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
             if running is not None:
                 break
             await asyncio.sleep(0.02)
-        assert running is not None
+        assert running is not None, (await admin.get(endpoint + '/jobs/' + cancelled_job['id'])).text
         cancellation = await admin.post(endpoint + '/jobs/' + cancelled_job['id'] + '/cancel', json={})
         assert cancellation.status_code == 200, cancellation.text
         for _ in range(400):
@@ -340,10 +350,11 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         assert all(
             milvus.has_collection(cancel_manifest.collection(role)) for role in ('entities', 'relationships', 'chunks')
         )
+        from pymilvus import CollectionSchema, FieldSchema
+
         from tests.core.graph_transport import delayed_commit_transport
         from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-        from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
-        from pymilvus import CollectionSchema, FieldSchema
+        from zhiheng.modules.knowledge.public import VectorIOControl
         from zhiheng.shared.errors import AppError
 
         description = milvus.describe_collection(cancel_manifest.collection('entities'))
@@ -432,7 +443,7 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
         epoch_injection_started = False
         lost_pg_digest = None
 
-        async def lose_epoch(claim, call):
+        async def lose_epoch(claim: GraphClaim, call: GraphModelCall) -> RunSnapshot:
             nonlocal lost_pg_digest, epoch_injection_started
             value = await original_invoke(claim, call)
             if call.role == 'extract' and not epoch_injection_started:
@@ -532,10 +543,11 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
                         )
                     )
                 )
-                assert len(reader_runs) == 2 and all(
+                assert len(reader_runs) == 3 and all(
                     row.owner_id == UUID(reader['id']) and row.billing_owner_id == UUID(reader['id'])
                     for row in reader_runs
                 )
+                assert {row.payload['binding']['model_type'] for row in reader_runs} == {'chat', 'embedding', 'rerank'}
                 assert (
                     await session.scalar(
                         select(func.count()).select_from(Invocation).where(Invocation.user_id == UUID(base['owner_id']))
@@ -577,7 +589,11 @@ async def test_real_single_arq_slot_graph_runs_and_atomic_publish(
             info = (await admin.get('/api/files/' + document['id'])).json()
             restored = await admin.patch(
                 '/api/files/' + document['id'] + '/acl',
-                json={'expected_version': info['acl_version'], 'access': 'public', 'entries': []},
+                json={
+                    'expected_version': info['acl_version'],
+                    'access': 'private',
+                    'entries': [{'user_id': fixture_member_id, 'effect': 'allow'}],
+                },
             )
             assert restored.status_code == 200, restored.text
             assert (await member.get(endpoint + '/labels')).status_code == 200

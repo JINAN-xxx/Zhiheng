@@ -90,7 +90,7 @@ def test_shared_layer_cannot_depend_on_business_or_frameworks(
 @pytest.mark.parametrize(
     'statement',
     [
-        'from zhiheng.application.inference import invoke',
+        'from zhiheng.application.execution.executor import invoke',
         'from zhiheng import application',
         'from ... import application',
     ],
@@ -202,3 +202,77 @@ def test_resource_protocol_uses_public_domain_contract_and_application_use_case(
         'from zhiheng.modules.knowledge.public import BaseInfo\nfrom zhiheng.application.access import CallerContext\n',
     )
     assert checker.check_boundaries(root) == []
+
+
+def test_business_public_interface_cannot_reexport_persistence_objects(checker: ModuleType, source: Callable) -> None:
+    root = source('modules/chat/public.py', 'from zhiheng.modules.chat.context_orm import ContextState\n')
+    assert [item.rule for item in checker.check_boundaries(root)] == ['public-persistence-import']
+
+
+def test_business_public_interface_does_not_own_migration_inventory(checker: ModuleType, source: Callable) -> None:
+    root = source('modules/chat/public.py', 'def schema_tables():\n    return ()\n')
+    assert [item.rule for item in checker.check_boundaries(root)] == ['public-migration-inventory']
+
+
+def test_migration_composition_has_an_explicit_inventory_entry(checker: ModuleType, source: Callable) -> None:
+    root = source('bootstrap/schema.py', 'from zhiheng.modules.chat.schema import schema_tables\n')
+    assert checker.check_boundaries(root) == []
+
+
+@pytest.mark.parametrize(
+    'statement',
+    [
+        'from zhiheng.modules.knowledge.adapters.native import NativeParser',
+        'from zhiheng.modules.knowledge.adapters.milvus import MilvusStore',
+        'from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK',
+        'from zhiheng.modules.models.adapters.factory import create_provider',
+    ],
+)
+def test_adapter_composition_has_explicit_constructor_entries(
+    checker: ModuleType, source: Callable, statement: str
+) -> None:
+    root = source('bootstrap/adapters.py', statement + '\n')
+    assert checker.check_boundaries(root) == []
+
+
+@pytest.mark.parametrize(
+    ('origin', 'statement'),
+    [
+        ('bootstrap/container.py', 'from zhiheng.modules.knowledge.adapters.native import NativeParser'),
+        ('bootstrap/adapters.py', 'from zhiheng.modules.knowledge.adapters.native import ParseResult'),
+        ('bootstrap/adapters.py', 'from zhiheng.modules.models.orm import ModelDefinition'),
+    ],
+)
+def test_adapter_composition_does_not_allow_other_private_imports(
+    checker: ModuleType, source: Callable, origin: str, statement: str
+) -> None:
+    root = source(origin, statement + '\n')
+    assert [item.rule for item in checker.check_boundaries(root)] == ['module-private-import']
+
+
+def test_http_adapters_cannot_mutate_storage_objects(checker: ModuleType, source: Callable) -> None:
+    root = source(
+        'api/console/knowledge.py', 'async def upload(container):\n    await container.files.storage.put(b"x")\n'
+    )
+    assert [item.rule for item in checker.check_boundaries(root)] == ['transport-storage-mutation']
+
+
+def test_runtime_cannot_interpret_domain_specific_payload_fields(checker: ModuleType, source: Callable) -> None:
+    root = source('runtime/references.py', 'def find(Run):\n    return Run.payload["skill_slugs"]\n')
+    assert [item.rule for item in checker.check_boundaries(root)] == ['runtime-domain-payload']
+
+
+def test_bootstrap_does_not_execute_business_transactions(checker: ModuleType, source: Callable) -> None:
+    root = source(
+        'bootstrap/container.py',
+        'async def cleanup(self):\n    async with self.database.sessions.begin() as session:\n        pass\n',
+    )
+    assert [item.rule for item in checker.check_boundaries(root)] == ['bootstrap-business-transaction']
+
+
+def test_http_adapter_does_not_mutate_domain_stores(checker: ModuleType, source: Callable) -> None:
+    root = source(
+        'api/inference/agents.py',
+        'async def cancel(container, session, row):\n    await container.preparation.store.fail(session, row)\n',
+    )
+    assert [item.rule for item in checker.check_boundaries(root)] == ['transport-domain-state-mutation']

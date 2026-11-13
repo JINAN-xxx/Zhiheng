@@ -19,7 +19,7 @@ from zhiheng.modules.knowledge.public import (
 class CreateRequest(ChunkParameters):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default='', max_length=2000)
-    embed_model_id: UUID
+    embed_model_id: UUID | None = None
 
     @field_validator('name', 'description')
     @classmethod

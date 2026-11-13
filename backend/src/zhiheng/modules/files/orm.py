@@ -98,7 +98,7 @@ class FileJob(Base):
     scanned: Mapped[int] = mapped_column(Integer, default=0)
     changed: Mapped[int] = mapped_column(Integer, default=0)
     errors: Mapped[list[str]] = mapped_column(JSONB, default=list)
-    cursor: Mapped[str] = mapped_column(String(64), default='')
+    cursor: Mapped[str] = mapped_column(String(128), default='')
 
 
 class FileRetentionPolicy(Base):

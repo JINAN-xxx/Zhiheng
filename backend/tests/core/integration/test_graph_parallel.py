@@ -11,20 +11,22 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job, source
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
-from zhiheng.modules.developer.orm import Invocation
-from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphGeneration, GraphStep
+from zhiheng.modules.knowledge.public import GraphVectorManifest
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.main import build_worker
 
 
-async def test_parallel_four_managed_chunks_summary_and_single_slot_settle_exactly_once(
-    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, real_vectors: object
+@pytest.mark.usefixtures('real_vectors')
+async def test_parallel_four_managed_chunks_summary_and_single_slot_settle_exactly_once(  # noqa: PLR0912, PLR0915 - one worker slot must cover all repeated parallel builds and settlement
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
     from pymilvus import MilvusClient
 
@@ -79,6 +81,7 @@ async def test_parallel_four_managed_chunks_summary_and_single_slot_settle_exact
                 },
             )
         ).status_code == 201
+    await enable_free_billing(admin)
     endpoint = f'/api/knowledge/bases/{base["id"]}/graph'
     configured = await admin.patch(
         endpoint + '/config',

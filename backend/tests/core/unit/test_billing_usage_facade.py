@@ -7,8 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+from zhiheng.modules.billing.contracts import MeterReservation, UsageOutcome
 from zhiheng.modules.billing.usage import UsageService
-from zhiheng.modules.developer.contracts import LegacyReservation, UsageOutcome
 
 
 class Session:
@@ -24,9 +24,9 @@ class Session:
 
 
 def services(enabled: bool) -> tuple[UsageService, SimpleNamespace, SimpleNamespace]:
-    legacy = SimpleNamespace(
-        reserve=AsyncMock(return_value=LegacyReservation(enabled, uuid4(), Decimal('1.5'))),
-        require_reservation=AsyncMock(return_value=LegacyReservation(enabled)),
+    meter = SimpleNamespace(
+        reserve=AsyncMock(return_value=MeterReservation(enabled, uuid4(), Decimal('1.5'))),
+        require_reservation=AsyncMock(return_value=MeterReservation(enabled)),
         settle=AsyncMock(return_value=UsageOutcome(status='known', points_enforced=enabled)),
         reconcile=AsyncMock(),
     )
@@ -37,12 +37,12 @@ def services(enabled: bool) -> tuple[UsageService, SimpleNamespace, SimpleNamesp
         settle=AsyncMock(),
         reconcile=AsyncMock(),
     )
-    return UsageService(credit_service, legacy), credit_service, legacy
+    return UsageService(credit_service, meter), credit_service, meter
 
 
 @pytest.mark.parametrize('enabled', [False, True])
 async def test_mode_is_frozen_during_admission_and_uses_separate_estimates(enabled: bool) -> None:
-    service, credit_service, legacy = services(enabled)
+    service, credit_service, meter = services(enabled)
     session, user, run, model = Session(), uuid4(), uuid4(), uuid4()
     await service.reserve(
         session,
@@ -55,8 +55,8 @@ async def test_mode_is_frozen_during_admission_and_uses_separate_estimates(enabl
         estimated_input_tokens=1000,
         max_output_tokens=1000,
     )
-    assert legacy.reserve.await_args.kwargs['enforce_token_limit'] is (not enabled)
-    assert legacy.reserve.await_args.kwargs['points_enforced'] is enabled
+    assert meter.reserve.await_args.kwargs['tokens'] == (2000 if enabled else 0)
+    assert meter.reserve.await_args.kwargs['points_enforced'] is enabled
     if enabled:
         credit_service.reserve.assert_awaited_once_with(
             session,
@@ -68,7 +68,7 @@ async def test_mode_is_frozen_during_admission_and_uses_separate_estimates(enabl
             estimated_input_tokens=1000,
             max_output_tokens=1000,
             estimated_search_units=0,
-            key_id=legacy.reserve.return_value.key_id,
+            key_id=meter.reserve.return_value.key_id,
             key_limit=Decimal('1.5'),
         )
     else:
@@ -77,10 +77,10 @@ async def test_mode_is_frozen_during_admission_and_uses_separate_estimates(enabl
 
 @pytest.mark.parametrize('enabled', [False, True])
 async def test_execution_requires_points_only_for_the_persisted_scheme(enabled: bool) -> None:
-    service, credit_service, legacy = services(enabled)
+    service, credit_service, meter = services(enabled)
     session, run, user, model = Session(), uuid4(), uuid4(), uuid4()
     await service.require_reservation(session, run, user, model)
-    legacy.require_reservation.assert_awaited_once_with(session, run, user, model)
+    meter.require_reservation.assert_awaited_once_with(session, run, user, model)
     assert credit_service.require_reservation.await_count == int(enabled)
     credit_service.state.assert_not_awaited()
 
@@ -100,7 +100,7 @@ async def test_reconciliation_passes_the_real_actor_to_both_ledgers() -> None:
     from zhiheng.modules.billing.contracts import CreditReconcile
     from zhiheng.shared.principal import Principal
 
-    service, credit_service, legacy = services(True)
+    service, credit_service, meter = services(True)
     actor, run = Principal(uuid4(), 'admin', True), uuid4()
     body = CreditReconcile(
         expected_version=2,
@@ -111,7 +111,7 @@ async def test_reconciliation_passes_the_real_actor_to_both_ledgers() -> None:
     )
     session = Session()
     await service.reconcile(session, actor, run, body)
-    legacy.reconcile.assert_awaited_once_with(
+    meter.reconcile.assert_awaited_once_with(
         session,
         run,
         input_tokens=1000,
@@ -123,42 +123,40 @@ async def test_reconciliation_passes_the_real_actor_to_both_ledgers() -> None:
     credit_service.reconcile.assert_awaited_once_with(session, actor, run, body)
 
 
-async def test_missing_money_rate_is_allowed_only_when_required_in_points_mode() -> None:
+async def test_missing_currency_price_is_optional_in_both_modes() -> None:
     from zhiheng.shared.errors import AppError
 
     service, credit_service, _ = services(False)
     models = SimpleNamespace(latest_rate=AsyncMock(side_effect=AppError('model_not_found', 'missing', 404)))
-    with pytest.raises(AppError):
-        await service.money_rate(Session(), models, uuid4(), required=True)
+    assert await service.money_rate(Session(), models, uuid4(), required=True) is None
     credit_service.state.return_value.enabled = True
     assert await service.money_rate(Session(), models, uuid4(), required=True) is None
 
 
-async def test_disable_between_price_lookup_and_admission_cannot_bypass_old_public_price_requirement() -> None:
-    from zhiheng.shared.errors import AppError
-
-    service, _, legacy = services(False)
-    with pytest.raises(AppError) as rejected:
-        await service.reserve(
-            Session(),
-            user_id=uuid4(),
-            run_id=uuid4(),
-            model_id=uuid4(),
-            source='public',
-            tokens=20,
-            token_limit=100,
-            key_id=uuid4(),
-            rate=None,
-            estimated_input_tokens=10,
-            max_output_tokens=10,
-        )
-    assert rejected.value.code == 'model_not_found'
-    legacy.reserve.assert_not_awaited()
+async def test_disabled_billing_public_admission_records_usage_without_any_prepaid_quota() -> None:
+    service, credit_service, meter = services(False)
+    await service.reserve(
+        Session(),
+        user_id=uuid4(),
+        run_id=uuid4(),
+        model_id=uuid4(),
+        source='public',
+        tokens=20,
+        token_limit=100,
+        key_id=uuid4(),
+        rate=None,
+        estimated_input_tokens=10,
+        max_output_tokens=10,
+    )
+    assert meter.reserve.await_args.kwargs['tokens'] == 0
+    assert meter.reserve.await_args.kwargs['rate'] is None
+    assert meter.reserve.await_args.kwargs['points_enforced'] is False
+    credit_service.reserve.assert_not_awaited()
 
 
 async def test_rerank_search_billing_is_independent_of_unknown_token_statistics() -> None:
-    service, credit_service, legacy = services(True)
-    legacy.settle.return_value = UsageOutcome(status='unknown', points_enforced=True)
+    service, credit_service, meter = services(True)
+    meter.settle.return_value = UsageOutcome(status='unknown', points_enforced=True)
     await service.settle(Session(), uuid4(), search_units=2)
     assert credit_service.settle.await_args.kwargs['search_units'] == 2
 

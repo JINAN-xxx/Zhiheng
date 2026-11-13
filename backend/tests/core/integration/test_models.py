@@ -1,11 +1,19 @@
 import httpx
 from sqlalchemy import text
 
+from tests.core.provider import ProviderServer
 
-async def test_model_connection_encrypts_secrets(admin: httpx.AsyncClient, app: object) -> None:
+
+async def test_model_connection_encrypts_secrets(
+    admin: httpx.AsyncClient, app: object, provider: ProviderServer
+) -> None:
     response = await admin.post(
         '/api/models/connections',
-        json={'name': 'Local provider', 'base_url': 'http://127.0.0.1:19099/v1', 'api_key': 'provider-private-key'},
+        json={
+            'name': 'Local provider',
+            'base_url': f'http://127.0.0.1:{provider.server_port}/v1',
+            'api_key': 'provider-private-key',
+        },
     )
     assert response.status_code == 201, response.text
     assert response.json()['has_api_key'] is True
@@ -46,7 +54,15 @@ async def test_invalid_model_key_is_not_echoed(admin: httpx.AsyncClient) -> None
 async def test_new_account_usage_is_empty(admin: httpx.AsyncClient) -> None:
     response = await admin.get('/api/usage')
     assert response.status_code == 200
-    assert response.json() == {'limit_tokens': 100000, 'used_tokens': 0, 'reserved_tokens': 0, 'records': []}
+    data = response.json()
+    assert {name: data[name] for name in ('limit_tokens', 'used_tokens', 'reserved_tokens', 'records')} == {
+        'limit_tokens': 100000,
+        'used_tokens': 0,
+        'reserved_tokens': 0,
+        'records': [],
+    }
+    assert data['points_enabled'] is False and data['quota_version'] == 0
+    assert data['page'] == 1 and data['total'] == 0
 
 
 async def test_unsupported_provider_is_rejected_instead_of_ignored(admin: httpx.AsyncClient) -> None:

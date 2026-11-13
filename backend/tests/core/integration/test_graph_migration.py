@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.core.integration.test_knowledge import configured_ranker
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
 from tests.core.legacy_schema import reconstruct
 from zhiheng.bootstrap.migrations import migrate
@@ -100,7 +101,7 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
     from zhiheng.modules.knowledge.orm import IndexGeneration
 
     container = app.state.container
-    _, base = await indexed_reference(admin, app, provider)
+    _, base = await indexed_reference(admin, app, provider, legacy_index=True)
     async with container.database.sessions() as session:
         generation = await session.scalar(
             select(IndexGeneration).where(
@@ -154,6 +155,7 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
         }
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0007_knowledge'
     await migrate(container.settings)
+    await configured_ranker(admin, provider)
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table, (old_columns, rows) in snapshots.items():
@@ -176,7 +178,7 @@ async def test_populated_schema7_real_vector_replay_and_fingerprint_survive_grap
     fresh = await admin.post(endpoint, json={**body, 'client_request_id': str(uuid4())})
     assert fresh.status_code == 202, fresh.text
     current = await _finish_query(container, admin, fresh.json())
-    assert current['hits'] and len(provider.requests) == before_http + 1
+    assert current['hits'] and len(provider.requests) == before_http + 2 and provider.requests[-1]['model'] == 'rerank'
     info = (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()
     assert info['active_revision'] == str(revision) and info['index_status'] == 'ready'
     async with container.database.sessions() as session:

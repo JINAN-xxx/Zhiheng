@@ -3,8 +3,8 @@ import { boolean, list, nullableNumber, number, object, string } from '../../sha
 export interface StagedUpload {
   id: string
   name: string
-  fileId: string
-  uploadId: string
+  fileId: string | null
+  uploadId: string | null
 }
 export interface UploadDraft {
   version: 1
@@ -26,8 +26,8 @@ export function parseUploadDraft(value: unknown): UploadDraft {
     return {
       id: string(item.id),
       name: string(item.name),
-      fileId: string(item.fileId),
-      uploadId: string(item.uploadId)
+      fileId: item.fileId === null ? null : string(item.fileId),
+      uploadId: item.uploadId === null ? null : string(item.uploadId)
     }
   })(data.items)
   if (!items.length || items.length > 20) throw new Error('Invalid upload draft size')

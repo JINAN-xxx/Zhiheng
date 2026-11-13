@@ -10,7 +10,7 @@ import {
 } from 'ant-design-vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
-import { identity } from '../../identity/public.ts'
+import { identity, canUseCapability } from '../../identity/public.ts'
 import { deleteTask, updateTask } from '../api/index.ts'
 import type { WorkSummary } from '../api/index.ts'
 import { validateWorkTitle } from '../presentation.ts'
@@ -86,9 +86,9 @@ async function save(): Promise<void> {
 }
 async function remove(task: WorkSummary): Promise<void> {
   if (
-    !canManageTask(task) ||
+    !canManageTask(task, 'delete') ||
     !(await confirmation.confirm(`删除工作“${task.title}”？历史内容将不再显示。`)) ||
-    !canManageTask(task)
+    !canManageTask(task, 'delete')
   )
     return
   const context = scope.replace()
@@ -105,13 +105,14 @@ async function remove(task: WorkSummary): Promise<void> {
     if (context.isCurrent()) working.value = false
   }
 }
-function canManageTask(task: WorkSummary): boolean {
+function canManageTask(task: WorkSummary, action: 'update' | 'delete' = 'update'): boolean {
+  if (!canUseCapability('work', action)) return false
   if (
     working.value ||
     task.currentRunId ||
     state.isTaskBusy(task.taskId) ||
     !identity.value ||
-    (!identity.value.is_admin && task.ownerId !== identity.value.id)
+    task.ownerId !== identity.value.id
   )
     return false
   if (

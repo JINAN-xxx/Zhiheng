@@ -2,7 +2,7 @@
 <template>
   <a-modal
     :open="modelValue && canManage"
-    title="上传技能"
+    :title="target ? '替换技能' : '上传技能'"
     :width="640"
     :mask-closable="!submitting"
     :closable="!submitting"
@@ -17,6 +17,7 @@
     />
 
     <div v-if="!prepared" class="upload-stage">
+      <p v-if="target" class="upload-target">替换「{{ target.skillName }}」的内容</p>
       <a-upload-dragger
         :file-list="fileList"
         :before-upload="selectFile"
@@ -34,8 +35,8 @@
         <FileTextOutlined />
         <div>
           <strong>技能包要求</strong>
-          <p>SKILL.md 需包含技能名称与描述；ZIP 包根目录必须包含 SKILL.md。</p>
-          <p>解析后核对技能信息，再确认安装。</p>
+          <p>SKILL.md 需包含技能名称与描述；ZIP 可直接包含该文件，或只包含一个技能文件夹。</p>
+          <p>解析后核对技能信息，再{{ confirmationLabel }}。</p>
         </div>
       </div>
     </div>
@@ -53,10 +54,6 @@
         <a-descriptions-item label="技能标识"
           ><code>{{ prepared.skillSlug }}</code></a-descriptions-item
         >
-        <a-descriptions-item label="版本">{{ prepared.version }}</a-descriptions-item>
-        <a-descriptions-item v-if="prepared.currentPackageVersion !== null" label="当前版本">{{
-          prepared.currentPackageVersion
-        }}</a-descriptions-item>
         <a-descriptions-item label="处理方式">{{ actionLabel }}</a-descriptions-item>
         <a-descriptions-item label="说明">{{ prepared.description }}</a-descriptions-item>
         <a-descriptions-item label="文件规模">
@@ -66,7 +63,13 @@
       <AAlert :message="actionDescription" type="info" show-icon style="margin-top: 16px" />
     </div>
 
-    <AAlert v-if="error" :message="error" type="error" show-icon style="margin-top: 16px" />
+    <AAlert
+      v-if="targetMismatch || error"
+      :message="targetMismatch ? '请选择对应技能包' : error"
+      type="error"
+      show-icon
+      style="margin-top: 16px"
+    />
     <template #footer>
       <a-button :disabled="submitting" @click="prepared ? back() : close()">{{
         prepared ? '上一步' : '取消'
@@ -84,7 +87,7 @@
         v-else
         type="primary"
         :loading="submitting"
-        :disabled="prepared.action === 'unchanged'"
+        :disabled="prepared.action === 'unchanged' || targetMismatch"
         @click="install"
         >{{ confirmationLabel }}</a-button
       >
@@ -109,7 +112,7 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { confirmSkillImport, prepareSkillImport } from '../api/index.ts'
 import type { PreparedSkill, Skill } from '../api/index.ts'
 import { formatSkillBytes } from '../presentation.ts'
-const props = defineProps<{ modelValue: boolean; canManage: boolean }>()
+const props = defineProps<{ modelValue: boolean; canManage: boolean; target?: Skill | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; installed: [skill: Skill] }>()
 const selectedFile = ref<File | null>(null),
   prepared = ref<PreparedSkill | null>(null),
@@ -123,14 +126,14 @@ const actionLabels = {
     description: '将安装新技能，确认后可在技能列表中使用。'
   },
   update: {
-    label: '更新现有技能',
-    confirm: '确认更新',
-    description: '将更新同一标识的现有技能，保留旧版本和历史记录。'
+    label: '替换现有内容',
+    confirm: '确认替换',
+    description: '将替换此技能的现有内容。'
   },
   restore: {
     label: '恢复已删除技能',
     confirm: '确认恢复',
-    description: '将恢复同一标识的技能，保留旧版本和历史记录。'
+    description: '将恢复此技能，确认后可继续使用。'
   },
   unchanged: {
     label: '已安装',
@@ -138,10 +141,14 @@ const actionLabels = {
     description: '该技能已安装相同内容，无需重复安装。'
   }
 }
-const actionLabel = computed(() => actionLabels[prepared.value?.action ?? 'install'].label)
-const confirmationLabel = computed(() => actionLabels[prepared.value?.action ?? 'install'].confirm)
-const actionDescription = computed(
-  () => actionLabels[prepared.value?.action ?? 'install'].description
+const selectedAction = computed(
+  () => prepared.value?.action ?? (props.target ? 'update' : 'install')
+)
+const actionLabel = computed(() => actionLabels[selectedAction.value].label)
+const confirmationLabel = computed(() => actionLabels[selectedAction.value].confirm)
+const actionDescription = computed(() => actionLabels[selectedAction.value].description)
+const targetMismatch = computed(() =>
+  Boolean(props.target && prepared.value && props.target.skillSlug !== prepared.value.skillSlug)
 )
 const fileList = computed(() =>
   selectedFile.value
@@ -182,13 +189,13 @@ function removeFile(): boolean {
 }
 async function prepare(): Promise<void> {
   const file = selectedFile.value
-  if (!file || !props.canManage || submitting.value) return
+  if (!file || !props.modelValue || !props.canManage || submitting.value) return
   const context = scope.replace()
   submitting.value = true
   error.value = ''
   try {
     const result = await prepareSkillImport(file, context.signal)
-    if (context.isCurrent() && props.modelValue) prepared.value = result
+    if (context.isCurrent() && props.modelValue && props.canManage) prepared.value = result
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -197,13 +204,21 @@ async function prepare(): Promise<void> {
 }
 async function install(): Promise<void> {
   const draft = prepared.value
-  if (!draft || draft.action === 'unchanged' || !props.canManage || submitting.value) return
+  if (
+    !draft ||
+    draft.action === 'unchanged' ||
+    targetMismatch.value ||
+    !props.modelValue ||
+    !props.canManage ||
+    submitting.value
+  )
+    return
   const context = scope.replace()
   submitting.value = true
   error.value = ''
   try {
     const result = await confirmSkillImport(draft.draftId, context.signal)
-    if (context.isCurrent() && props.modelValue) {
+    if (context.isCurrent() && props.modelValue && props.canManage) {
       emit('installed', result)
       emit('update:modelValue', false)
     }
@@ -221,20 +236,23 @@ function back(): void {
 function close(): void {
   if (!submitting.value) emit('update:modelValue', false)
 }
-function reset(): void {
-  if (props.modelValue) return
+function clear(): void {
   scope.replace()
   selectedFile.value = null
   prepared.value = null
   submitting.value = false
   error.value = ''
 }
+function reset(): void {
+  if (!props.modelValue) clear()
+}
 watch(
-  () => props.modelValue,
-  (open) => {
-    if (!open) reset()
+  () => [props.modelValue, props.canManage],
+  ([open, canManage]) => {
+    if (!open || !canManage) clear()
   }
 )
+watch(() => props.target, clear, { deep: true })
 onBeforeUnmount(() => {
   scope.dispose()
   selectedFile.value = null
@@ -245,6 +263,13 @@ onBeforeUnmount(() => {
 <style scoped>
 .upload-stage {
   margin-top: 26px;
+}
+.upload-stage .upload-target {
+  margin: 0 0 16px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 .upload-stage h3 {
   margin: 12px 0 8px;

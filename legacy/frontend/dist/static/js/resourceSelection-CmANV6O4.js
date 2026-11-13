@@ -1,1 +1,0 @@
-import{s as e}from"./index-DAlbRpXp.js";const l="/ai/knowledge";function o(a){return e({url:"/ai/models",method:"get",params:a})}const t=()=>e({url:`${l}/available`,method:"get"});export{t as a,o as l};

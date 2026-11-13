@@ -114,7 +114,9 @@ async def test_pending_cancel_releases_reservation_without_calling_provider(
     assert not provider.requests
 
 
-async def test_parallel_runs_cannot_overreserve_quota(admin: httpx.AsyncClient, model_id: str, app: object) -> None:
+async def test_unbilled_parallel_runs_are_not_blocked_by_a_lifetime_token_quota(
+    admin: httpx.AsyncClient, model_id: str, app: object
+) -> None:
     app.state.container.settings.token_limit = 100
     conversations = [(await admin.post('/api/chat/conversations', json={})).json() for _ in range(2)]
     results = await asyncio.gather(
@@ -130,7 +132,7 @@ async def test_parallel_runs_cannot_overreserve_quota(admin: httpx.AsyncClient, 
             for conversation in conversations
         ]
     )
-    assert sorted(result.status_code for result in results) == [202, 429]
+    assert sorted(result.status_code for result in results) == [202, 202]
 
 
 async def test_unsupported_tools_are_not_silently_discarded(admin: httpx.AsyncClient, model_id: str) -> None:

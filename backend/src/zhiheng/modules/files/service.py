@@ -1,5 +1,6 @@
 import hashlib
 import re
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from typing import Literal, cast
@@ -51,6 +52,7 @@ from zhiheng.modules.files.orm import (
 )
 from zhiheng.modules.files.queries import FileReadTicket
 from zhiheng.modules.identity.public import IdentityInfo, IdentityService
+from zhiheng.shared.csv_text import decode_csv_text
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.storage import StoragePort
@@ -93,12 +95,17 @@ def sniff_mime(content: bytes, filename: str) -> str:
             'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         }.get(extension, 'application/zip')
+    if extension == 'csv':
+        try:
+            decode_csv_text(content)
+            return 'text/csv'
+        except (UnicodeError, ValueError):
+            return 'application/octet-stream'
     if b'\x00' not in content[:8192]:
         try:
             content.decode('utf-8-sig')
             return {
                 'json': 'application/json',
-                'csv': 'text/csv',
                 'html': 'text/html',
                 'htm': 'text/html',
                 'md': 'text/markdown',
@@ -109,9 +116,15 @@ def sniff_mime(content: bytes, filename: str) -> str:
     return 'application/octet-stream'
 
 
+LibraryAccess = Callable[..., Awaitable[bool]]
+LibraryLocks = Callable[[AsyncSession, Principal, tuple[UUID, ...]], Awaitable[None]]
+
+
 class FileService:
     def __init__(self, storage: StoragePort, identity: IdentityService) -> None:
         self.storage, self._identity = storage, identity
+        self.library_access: LibraryAccess | None = None
+        self.library_locks: LibraryLocks | None = None
 
     async def create_owned(
         self,
@@ -122,11 +135,14 @@ class FileService:
         filename: str,
         content: bytes,
         storage_key: str,
+        purpose: str = 'general',
     ) -> FileInfo:
         if owner_id != actor.id:
             actor.require_admin()
         await self._identity.principal_for_user(session, owner_id)
-        info = await self.create(session, actor, filename=filename, content=content, storage_key=storage_key)
+        info = await self.create(
+            session, actor, filename=filename, content=content, storage_key=storage_key, purpose=purpose
+        )
         row = await session.get(FileRecord, info.id)
         assert row is not None
         row.owner_id = owner_id
@@ -157,6 +173,48 @@ class FileService:
             artifact_file_id=artifact_file_id,
         )
 
+    async def require_sent_attachment(
+        self, session: AsyncSession, principal: Principal, file_id: UUID, *, lock: bool = False
+    ) -> FileInfo:
+        row = await self._require(session, principal, file_id, active=True, lock=lock)
+        if row.owner_id != principal.id or row.source_file_id is not None:
+            raise AppError('attachment_not_owned', '只能加入自己拥有的原附件', 404)
+        sent = await session.scalar(
+            select(FileReference.id)
+            .where(
+                FileReference.file_id == file_id,
+                FileReference.resource_type == 'chat',
+                or_(FileReference.retain_until.is_(None), FileReference.retain_until > utcnow()),
+            )
+            .limit(1)
+        )
+        if sent is None:
+            raise AppError('attachment_not_sent', '只能加入已发送消息中的附件', 422)
+        return await self.info(session, row)
+
+    async def source_root_ids(self, session: AsyncSession, file_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        roots = set()
+        for file_id in sorted(set(file_ids)):
+            cursor, visited = file_id, set()
+            while True:
+                if cursor in visited:
+                    raise AppError('invalid_source', '文件来源关系无效', 409)
+                visited.add(cursor)
+                row = await session.scalar(select(FileRecord).where(FileRecord.id == cursor))
+                if row is None:
+                    raise AppError('file_not_found', '文件不存在', 404)
+                if row.source_file_id is None:
+                    roots.add(row.id)
+                    break
+                cursor = row.source_file_id
+        return tuple(sorted(roots))
+
+    async def _lock_libraries(self, session: AsyncSession, principal: Principal, file_ids: tuple[UUID, ...]) -> None:
+        if self.library_locks is None or not file_ids:
+            return
+        # The business module orders KB locks; Files continues to own source/artifact row ordering.
+        await self.library_locks(session, principal, await self.source_root_ids(session, file_ids))
+
     async def bind_sources(
         self,
         session: AsyncSession,
@@ -166,6 +224,7 @@ class FileService:
         resource_type: str,
         resource_id: UUID,
     ) -> None:
+        await self._lock_libraries(session, principal, tuple(source.file_id for source in sources))
         for source in sorted(sources, key=lambda item: item.file_id):
             current = await self.source_snapshot(
                 session, principal, source.file_id, lock=True, artifact_file_id=source.artifact_file_id
@@ -218,6 +277,7 @@ class FileService:
             source_file_id=source_file_id,
             parser_version=parser_version,
             storage_status='normal',
+            expires_at=utcnow() + timedelta(hours=24) if purpose == 'chat_attachment' else None,
         )
         session.add(row)
         await session.flush()
@@ -240,7 +300,30 @@ class FileService:
 
     @staticmethod
     def managed(principal: Principal, row: FileRecord) -> bool:
-        return principal.is_admin or row.owner_id == principal.id
+        return row.owner_id == principal.id
+
+    async def _locked_read(
+        self, session: AsyncSession, principal: Principal, file_id: UUID
+    ) -> tuple[FileRecord, bool, bool]:
+        # Discover immutable provenance without holding a file row. Business ACLs lock their KB first.
+        observed = await session.scalar(select(FileRecord).where(FileRecord.id == file_id))
+        if observed is None:
+            raise AppError('file_not_found', '文件不存在', 404)
+        source_id = observed.source_file_id
+        if source_id is not None:
+            await self._require(session, principal, source_id, active=True, lock=True)
+        library = bool(self.library_access and await self.library_access(session, principal, file_id, lock=True))
+        row = await session.scalar(
+            select(FileRecord)
+            .where(FileRecord.id == file_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            raise AppError('file_not_found', '文件不存在', 404)
+        if row.source_file_id != source_id:
+            raise AppError('file_snapshot_changed', '文件来源已变化，请重试', 409)
+        return row, library, source_id is not None
 
     async def _require(
         self,
@@ -252,18 +335,27 @@ class FileService:
         active: bool = False,
         lock: bool = False,
     ) -> FileRecord:
-        query = select(FileRecord).where(FileRecord.id == file_id)
-        if lock:
-            query = query.with_for_update().execution_options(populate_existing=True)
-        row = await session.scalar(query)
-        if row is None:
-            raise AppError('file_not_found', '文件不存在', 404)
+        source_authorized = False
+        if lock and not manage:
+            row, library, source_authorized = await self._locked_read(session, principal, file_id)
+        else:
+            query = select(FileRecord).where(FileRecord.id == file_id)
+            if lock:
+                query = query.with_for_update().execution_options(populate_existing=True)
+            candidate = await session.scalar(query)
+            if candidate is None:
+                raise AppError('file_not_found', '文件不存在', 404)
+            row = candidate
+            library = bool(
+                not manage and self.library_access and await self.library_access(session, principal, file_id, lock=lock)
+            )
         if manage:
             if row.source_file_id is not None:
+                await self._require(session, principal, row.source_file_id)
                 raise AppError('derived_file_immutable', '派生产物由原文件生命周期管理', 409)
             allowed = self.managed(principal, row)
         else:
-            allowed = self.managed(principal, row)
+            allowed = library or self.managed(principal, row)
             if not allowed and row.status == 'active' and (row.expires_at is None or row.expires_at > utcnow()):
                 grant = await session.get(FileGrant, (row.id, principal.id), populate_existing=lock)
                 effective = grant is not None and (grant.expires_at is None or grant.expires_at > utcnow())
@@ -274,7 +366,8 @@ class FileService:
                 )
 
         if row.source_file_id is not None and not manage:
-            await self._require(session, principal, row.source_file_id, active=True)
+            if not source_authorized:
+                await self._require(session, principal, row.source_file_id, active=True)
             allowed = True
         if not allowed or (
             active
@@ -330,7 +423,7 @@ class FileService:
         self, session: AsyncSession, principal: Principal, file_id: UUID, *, lock: bool = False, active: bool = False
     ) -> tuple[FileInfo, frozenset[str]]:
         """Ownership or explicit current read sharing can be delegated; global admin access cannot."""
-        personal = Principal(principal.id, principal.username, False, principal.permissions)
+        personal = principal.personal()
         row = await self._require(session, personal, file_id, active=active, lock=lock)
         actions = (
             frozenset({'read', 'write', 'delete'})
@@ -438,8 +531,7 @@ class FileService:
             ),
         )
         query = select(FileRecord).where(FileRecord.source_file_id.is_(None))
-        if not principal.is_admin:
-            query = query.where(readable)
+        query = query.where(readable)
         if filters.status != 'all':
             query = query.where(FileRecord.status == filters.status)
         if filters.access:
@@ -590,7 +682,6 @@ class FileService:
                 for g in grants
             ],
             builtin_permissions=[
-                BuiltinPermission(source='admin', enabled=True, deny_overridable=False),
                 BuiltinPermission(source='owner', enabled=True, deny_overridable=False),
                 BuiltinPermission(source='uploader', enabled=row.uploader_access_enabled, deny_overridable=True),
             ],
@@ -703,6 +794,7 @@ class FileService:
         resource_type: str,
         resource_id: UUID,
     ) -> None:
+        await self._lock_libraries(session, principal, tuple(item.summary.file_id for item in attachments))
         policy = await session.get(FileRetentionPolicy, resource_type)
         retain_until = utcnow() + timedelta(days=policy.retention_days) if policy and policy.enabled else None
         for item in sorted(attachments, key=lambda v: v.summary.file_id):
@@ -724,6 +816,8 @@ class FileService:
                         FileReference.resource_id == resource_id,
                     )
                 )
+                if resource_type == 'chat' and row.purpose == 'chat_attachment':
+                    artifact.expires_at = None
                 if existing is None:
                     session.add(
                         FileReference(
@@ -737,6 +831,7 @@ class FileService:
 
     async def users(self, session: AsyncSession, principal: Principal, *, search: str = '') -> list[IdentityInfo]:
         principal.require_any_permission('ai:storage:read', 'ai:storage:write')
+        principal.require_any_permission('system:users:read', 'system:users:write')
         return await self._identity.directory(session, search=search)
 
     async def policy(self, session: AsyncSession, principal: Principal) -> PolicyInfo:
@@ -752,7 +847,7 @@ class FileService:
         )
 
     async def set_policy(self, session: AsyncSession, principal: Principal, body: PolicyRequest) -> PolicyInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:configure')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FilePolicy, 1)
@@ -793,7 +888,7 @@ class FileService:
         source = await session.get(FileRecord, source_id)
         assert source is not None
         owner = await self._identity.principal_for_user(session, source.owner_id)
-        return await self.create(
+        info = await self.create(
             session,
             owner,
             filename='parsed.json',
@@ -802,6 +897,10 @@ class FileService:
             source_file_id=source_id,
             parser_version=parser_version,
         )
+        artifact = await session.get(FileRecord, info.id)
+        assert artifact is not None
+        artifact.expires_at = source.expires_at
+        return await self.info(session, artifact)
 
     async def retention_policies(self, session: AsyncSession, principal: Principal) -> list[RetentionPolicyInfo]:
         principal.require_any_permission('ai:storage:read', 'ai:storage:write')
@@ -832,7 +931,7 @@ class FileService:
         expected_version: int | None = None,
         remove: bool = False,
     ) -> RetentionPolicyInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:configure')
 
         await session.execute(text('SELECT pg_advisory_xact_lock(784246992)'))
         row = await session.get(FileRetentionPolicy, body.resource_type)
@@ -894,8 +993,7 @@ class FileService:
                 FileReminder.expiry_key.cast(DateTime(timezone=True)) == FileRecord.expires_at,
             )
         )
-        if not principal.is_admin:
-            query = query.where(FileRecord.owner_id == principal.id)
+        query = query.where(FileRecord.owner_id == principal.id)
         rows = await session.execute(query.order_by(FileReminder.created_at.desc()).limit(100))
         result = []
         for reminder, row in rows:
@@ -1007,6 +1105,24 @@ class FileService:
             **dict.fromkeys(['open', 'resolved', 'ignored', 'quarantined'], 0),
             **dict(rows.tuples().all()),
         }
+
+    async def retire_business_source(self, session: AsyncSession, file_id: UUID, *, actor_id: UUID) -> None:
+        """Business removal denies new reads while ordinary retention and references protect stored bytes."""
+        row = await session.scalar(select(FileRecord).where(FileRecord.id == file_id).with_for_update())
+        if row is None or row.status != 'active':
+            return
+        if row.purpose != 'knowledge_document' or row.source_file_id is not None:
+            raise AppError('invalid_business_source', '只能回收业务拥有的知识库资料副本', 409)
+        ids = await self._lock_family(session, row)
+        policy = await self._policy(session)
+        now = utcnow()
+        records = await session.scalars(select(FileRecord).where(FileRecord.id.in_(ids)))
+        for record in records:
+            if record.status == 'active':
+                record.status, record.deleted_at = 'deleted', now
+                record.retention_until = now + timedelta(days=policy.retention_days)
+                self.touch(record, acl=True)
+                self.audit(session, record.id, actor_id, 'business_retired')
 
     async def release_resources(
         self, session: AsyncSession, *, resource_type: str, resource_ids: tuple[UUID, ...], actor_id: UUID

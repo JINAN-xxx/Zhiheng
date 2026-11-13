@@ -1,11 +1,13 @@
 """Current resource authorization surrounds storage IO without holding row locks."""
 
 from datetime import datetime
+from http import HTTPStatus
 from uuid import UUID
 
 from zhiheng.application.access import CallerContext, ResourceAccessService
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.files.public import FileBinding, FileInfo, FileService, resource_page
+from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 
@@ -35,7 +37,7 @@ class FileQueries:
                 for g in grants
                 if 'read' in g.actions
             )
-            return await resource_page(
+            candidates = await resource_page(
                 self.files,
                 session,
                 self.access.personal(caller.principal),
@@ -44,6 +46,16 @@ class FileQueries:
                 after=after,
                 limit=limit,
             )
+            result = []
+            for item in candidates:
+                try:
+                    await self.files.require(session, self.access.personal(caller.principal), item.id, active=True)
+                except AppError as error:
+                    if error.status_code != HTTPStatus.NOT_FOUND:
+                        raise
+                    continue
+                result.append(item)
+            return result
 
     async def read(
         self,

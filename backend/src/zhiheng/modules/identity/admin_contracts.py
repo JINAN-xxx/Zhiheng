@@ -31,7 +31,6 @@ class UserCreate(RequestModel):
     email: str = Field(default='', max_length=254)
     phone: str = Field(default='', max_length=40)
     department_id: UUID | None = None
-    post_ids: list[UUID] = Field(default_factory=list, max_length=100)
     role_ids: list[UUID] = Field(default_factory=list, max_length=100)
     is_active: bool = True
     is_admin: bool = False
@@ -44,7 +43,6 @@ class UserPatch(PatchRequest):
     email: str | None = Field(default=None, max_length=254)
     phone: str | None = Field(default=None, max_length=40)
     department_id: UUID | None = None
-    post_ids: list[UUID] | None = Field(default=None, max_length=100)
     role_ids: list[UUID] | None = Field(default=None, max_length=100)
     is_active: bool | None = None
     is_admin: bool | None = None
@@ -89,57 +87,19 @@ class DepartmentPatch(PatchRequest):
     is_active: bool | None = None
 
 
-class PostCreate(RequestModel):
-    code: str = Field(min_length=1, max_length=80, pattern=r'^[a-zA-Z0-9_.:-]+$')
-    name: str = Field(min_length=1, max_length=100)
-    sort_order: int = Field(default=0, ge=0, le=1000000)
-    is_active: bool = True
-    remark: str = Field(default='', max_length=2000)
-
-
-class PostPatch(PatchRequest):
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    sort_order: int | None = Field(default=None, ge=0, le=1000000)
-    is_active: bool | None = None
-    remark: str | None = Field(default=None, max_length=2000)
-
-
-class MenuCreate(RequestModel):
-    parent_id: UUID | None = None
-    name: str = Field(min_length=1, max_length=100)
-    path: str = Field(min_length=1, max_length=200)
-    permission: str = Field(default='', max_length=100)
-    sort_order: int = Field(default=0, ge=0, le=1000000)
-    is_visible: bool = True
-
-
-class MenuPatch(PatchRequest):
-    nullable_fields = frozenset({'parent_id'})
-    parent_id: UUID | None = None
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    path: str | None = Field(default=None, min_length=1, max_length=200)
-    permission: str | None = Field(default=None, max_length=100)
-    sort_order: int | None = Field(default=None, ge=0, le=1000000)
-    is_visible: bool | None = None
-
-
 class PasswordReset(RequestModel):
     password: SecretStr = Field(min_length=12, max_length=1024)
     expected_version: int = Field(ge=1)
 
 
-AdminKind = Literal['users', 'roles', 'departments', 'posts', 'menus']
+AdminKind = Literal['users', 'roles', 'departments']
 CREATE_SCHEMAS: dict[str, type[BaseModel]] = {
     'users': UserCreate,
     'roles': RoleCreate,
     'departments': DepartmentCreate,
-    'posts': PostCreate,
-    'menus': MenuCreate,
 }
 PATCH_SCHEMAS: dict[str, type[BaseModel]] = {
     'users': UserPatch,
     'roles': RolePatch,
     'departments': DepartmentPatch,
-    'posts': PostPatch,
-    'menus': MenuPatch,
 }

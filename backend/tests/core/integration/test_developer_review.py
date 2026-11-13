@@ -137,4 +137,8 @@ async def test_empty_actions_reject_unknown_fields_before_mutation(
     assert await snapshot() == before
     # Preserve the existing no-body form when JSON metadata is present.
     accepted = await admin.post(base + '/' + verb, headers={'Content-Type': 'application/json'})
-    assert accepted.status_code in {200, 409}, accepted.text
+    if action in {'model/publish', 'model/unpublish'}:
+        assert accepted.status_code == 422, accepted.text
+        assert await snapshot() == before
+    else:
+        assert accepted.status_code in {200, 409}, accepted.text

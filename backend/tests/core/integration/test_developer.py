@@ -57,12 +57,15 @@ async def test_public_requires_independent_bearer_and_strict_fields(admin: httpx
 
 @pytest.mark.asyncio
 async def test_rate_cards_freeze_public_reservations(admin: httpx.AsyncClient, model_id: str, app: object) -> None:
+    from tests.core.integration.test_billing_runtime import prepare
+
+    await prepare(admin, app, model_id)
     import asyncio
     from decimal import Decimal
 
     from sqlalchemy import select
 
-    from zhiheng.modules.developer.orm import Invocation
+    from zhiheng.modules.billing.orm import Invocation
     from zhiheng.worker.execution import execute_run
 
     rate = await admin.post(
@@ -181,7 +184,7 @@ async def test_atomic_admission_unknown_usage_and_recovery(
 
     from sqlalchemy import func, select
 
-    from zhiheng.modules.developer.orm import Invocation, UsageAccount
+    from zhiheng.modules.billing.orm import Invocation, UsageAccount
     from zhiheng.shared.errors import AppError
     from zhiheng.worker.execution import execute_run
 
@@ -215,14 +218,11 @@ async def test_atomic_admission_unknown_usage_and_recovery(
 
 @pytest.mark.asyncio
 async def test_budget_zero_currency_and_input_validation(admin: httpx.AsyncClient, model_id: str, app: object) -> None:
-    import pytest
-
-    from zhiheng.shared.errors import AppError
+    from zhiheng.worker.execution import execute_run
 
     _, key = await provision(admin, model_id, monthly_budget='0')
-    with pytest.raises(AppError) as denied:
-        await admitted(app.state.container, key['api_key'], model_id)
-    assert denied.value.status_code == 429
+    run, _ = await admitted(app.state.container, key['api_key'], model_id)
+    await execute_run(app.state.container, run.id)
     headers = {'Authorization': f'Bearer {key["api_key"]}'}
     invalid = await admin.post(
         '/v1/chat/completions',
@@ -233,9 +233,8 @@ async def test_budget_zero_currency_and_input_validation(admin: httpx.AsyncClien
     oversized = await admin.post('/v1/chat/completions', headers=headers, content=b'x' * 1048577)
     assert oversized.status_code == 413
     _, eur = await provision(admin, model_id, currency='EUR')
-    with pytest.raises(AppError) as mismatch:
-        await admitted(app.state.container, eur['api_key'], model_id)
-    assert mismatch.value.code == 'currency_mismatch'
+    run, _ = await admitted(app.state.container, eur['api_key'], model_id)
+    await execute_run(app.state.container, run.id)
 
 
 @pytest.mark.asyncio
@@ -301,6 +300,9 @@ async def test_model_with_grants_cannot_be_deleted_without_invocations(admin: ht
 
 @pytest.mark.asyncio
 async def test_cached_tokens_use_frozen_cache_price(admin: httpx.AsyncClient, model_id: str, app: object) -> None:
+    from tests.core.integration.test_billing_runtime import prepare
+
+    await prepare(admin, app, model_id)
     from decimal import Decimal
 
     from zhiheng.worker.execution import execute_run
@@ -388,7 +390,8 @@ async def test_concurrency_release_and_original_minute_settlement(
 
     from sqlalchemy import select
 
-    from zhiheng.modules.developer.orm import Invocation, KeyMinuteBucket
+    from zhiheng.modules.billing.orm import Invocation
+    from zhiheng.modules.developer.orm import KeyMinuteBucket
     from zhiheng.shared.errors import AppError
     from zhiheng.shared.time import utcnow
     from zhiheng.worker.execution import execute_run

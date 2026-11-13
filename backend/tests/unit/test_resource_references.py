@@ -1,15 +1,17 @@
 from importlib import import_module
 from uuid import uuid4
 
+import pytest
+
 from zhiheng.shared.principal import Principal
 
 
-def test_admin_dependency_details_preserve_resource_navigation() -> None:
+def test_own_dependency_details_preserve_resource_navigation() -> None:
     module = import_module('zhiheng.shared.references')
     resource_id, owner_id = uuid4(), uuid4()
     reference = module.ResourceReference('agent', resource_id, '客服助手', 'published', owner_id, '/agents/example')
     error = module.reference_conflict(
-        'skill_referenced', '技能仍被使用', Principal(uuid4(), 'admin', True), [reference]
+        'skill_referenced', '技能仍被使用', Principal(owner_id, 'admin', True), [reference]
     )
     assert error.status_code == 409 and error.code == 'skill_referenced'
     assert error.details == {
@@ -25,7 +27,8 @@ def test_admin_dependency_details_preserve_resource_navigation() -> None:
     }
 
 
-def test_delegated_manager_cannot_learn_private_dependency_identity() -> None:
+@pytest.mark.parametrize('admin', [False, True])
+def test_delegated_manager_cannot_learn_private_dependency_identity(admin: bool) -> None:
     module = import_module('zhiheng.shared.references')
     actor_id, private_id = uuid4(), uuid4()
     references = [
@@ -33,7 +36,7 @@ def test_delegated_manager_cannot_learn_private_dependency_identity() -> None:
         module.ResourceReference('agent', actor_id, '本人助手', 'draft', actor_id, '/agents/own'),
     ]
     error = module.reference_conflict(
-        'skill_referenced', '技能仍被使用', Principal(actor_id, 'manager', False), references
+        'skill_referenced', '技能仍被使用', Principal(actor_id, 'manager', admin), references
     )
     hidden, own = error.details['references']
     assert hidden['id'] is None and hidden['path'] is None

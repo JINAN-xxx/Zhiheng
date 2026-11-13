@@ -1,6 +1,6 @@
 <!-- Adapted from original RecentSessions.vue, MIT licensed. -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import {
   Input as AInput,
   Spin as ASpin,
@@ -10,21 +10,21 @@ import {
   Modal as AModal,
   Button as AButton
 } from 'ant-design-vue'
-import {
-  DeleteOutlined,
-  EditOutlined,
-  InboxOutlined,
-  ReloadOutlined,
-  SearchOutlined
-} from '@ant-design/icons-vue'
+import { DeleteOutlined, EditOutlined, InboxOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useChatNavigation } from '../composables/workspace.ts'
 import type { Conversation } from '../api/index.ts'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 const emit = defineEmits<{ navigate: [] }>()
 const {
   conversations,
+  search: query,
+  setSearch,
+  more,
+  moreLoading,
+  loadMore,
   selected,
   loading,
   error,
@@ -39,8 +39,7 @@ function openConversation(conversation: Conversation): void {
   void select(conversation)
   emit('navigate')
 }
-const query = ref(''),
-  renameTitle = ref(''),
+const renameTitle = ref(''),
   renameTarget = ref<Conversation | null>(null),
   renaming = ref(false),
   renameError = ref('')
@@ -82,11 +81,6 @@ async function rename(): Promise<void> {
     renaming.value = false
   }
 }
-const filtered = computed(() =>
-  conversations.value.filter((item) =>
-    item.title.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())
-  )
-)
 </script>
 <template>
   <section class="recent-sessions" aria-label="对话列表">
@@ -98,23 +92,22 @@ const filtered = computed(() =>
         @update:value="(value) => setArchivedFilter(value === 'archived')"
         ><ARadioButton value="active">最近会话</ARadioButton
         ><ARadioButton value="archived">已归档</ARadioButton></ARadioGroup
-      ><button
-        type="button"
-        class="recent-sessions__refresh"
-        aria-label="刷新会话"
-        @click="refresh"
-      >
-        <ReloadOutlined />
-      </button>
+      ><RefreshButton label="刷新会话" :loading="loading" @click="refresh" />
     </div>
-    <AInput v-model:value="query" allow-clear placeholder="搜索当前页会话" aria-label="搜索最近会话"
+    <AInput
+      :value="query"
+      allow-clear
+      :maxlength="200"
+      placeholder="搜索会话"
+      aria-label="搜索最近会话"
+      @update:value="setSearch"
       ><template #prefix><SearchOutlined /></template
     ></AInput>
     <p v-if="error" class="recent-sessions__error" role="alert">{{ error }}</p>
     <ASpin :spinning="loading" wrapper-class-name="recent-sessions__loading">
       <div class="recent-sessions__list">
         <div
-          v-for="conversation in filtered"
+          v-for="conversation in conversations"
           :key="conversation.id"
           class="recent-session"
           :class="{ active: selected?.id === conversation.id }"
@@ -128,13 +121,16 @@ const filtered = computed(() =>
           >
             <strong>{{ conversation.title }}</strong
             ><small>{{
-              new Date(conversation.created_at).toLocaleString('zh-CN', {
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-              })
+              new Date(conversation.last_activity_at ?? conversation.created_at).toLocaleString(
+                'zh-CN',
+                {
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false
+                }
+              )
             }}</small>
           </button>
           <WorkspaceMoreMenu
@@ -145,11 +141,20 @@ const filtered = computed(() =>
           />
         </div>
         <AEmpty
-          v-if="!loading && !filtered.length"
-          :description="query ? '当前页没有匹配会话' : '暂无会话'"
+          v-if="!loading && !conversations.length"
+          :description="query ? '没有匹配会话' : '暂无会话'"
           :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
         /></div
     ></ASpin>
+    <AButton
+      v-if="more"
+      class="recent-sessions__pagination"
+      type="text"
+      :loading="moreLoading"
+      :disabled="loading"
+      @click="loadMore"
+      >加载更多会话</AButton
+    >
   </section>
   <AModal
     :open="renameTarget !== null"
@@ -176,7 +181,7 @@ const filtered = computed(() =>
 .recent-sessions {
   min-height: 0;
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 9px;
   padding: 12px 10px;
@@ -185,6 +190,7 @@ const filtered = computed(() =>
 .recent-sessions__heading {
   display: flex;
   min-height: 28px;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   color: var(--color-text-secondary);
@@ -196,18 +202,7 @@ const filtered = computed(() =>
   font-size: 12px;
 }
 .recent-sessions__pagination {
-  align-self: center;
-}
-.recent-sessions__refresh {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
+  flex-shrink: 0;
 }
 .recent-sessions__stale,
 .recent-sessions__error {
@@ -224,19 +219,15 @@ const filtered = computed(() =>
   color: var(--workspace-danger);
   background: var(--workspace-danger-soft);
 }
-.recent-sessions__list {
-  min-height: 0;
-  height: 100%;
-  flex: 1;
-  overflow-y: auto;
-}
 .recent-sessions__loading {
   min-height: 0;
-  flex: 1;
-  overflow: hidden;
+  flex: 1 1 auto;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
 }
-.recent-sessions__loading :deep(.ant-spin-container) {
-  height: 100%;
+.recent-sessions__loading::-webkit-scrollbar {
+  display: none;
 }
 .recent-session {
   display: flex;
@@ -285,6 +276,7 @@ const filtered = computed(() =>
   color: var(--color-text-secondary);
 }
 .recent-sessions :deep(.ant-input-affix-wrapper) {
+  flex-shrink: 0;
   border-color: var(--gray-150);
   background: var(--bg-container);
   box-shadow: none;

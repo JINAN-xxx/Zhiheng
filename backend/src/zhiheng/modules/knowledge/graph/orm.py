@@ -105,8 +105,8 @@ class GraphStep(Base):
     __table_args__ = (
         UniqueConstraint('attempt_id', 'role', 'operation', 'ordinal'),
         CheckConstraint('epoch>=1 AND ordinal>=1'),
-        CheckConstraint("role IN ('extract','keyword','query','vlm','embedding')"),
-        CheckConstraint("operation IN ('generation','keyword','embedding')"),
+        CheckConstraint("role IN ('extract','keyword','query','vlm','embedding','rerank')"),
+        CheckConstraint("operation IN ('generation','keyword','embedding','rerank')"),
     )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     attempt_id: Mapped[UUID] = mapped_column(ForeignKey('knowledge_graph_attempts.id'), index=True)

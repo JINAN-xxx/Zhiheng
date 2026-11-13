@@ -16,14 +16,20 @@ import type { ManagedFile } from '../../files/public.ts'
 type Failure = { code: string; message: string } | null
 type Access = 'private' | 'public'
 export interface KnowledgeBase {
+  availability: 'available'
   id: string
   name: string
   description: string
   owner_id: string
+  owner_name?: string | undefined
+  sharing_scope?: 'private' | 'users' | 'public' | undefined
+  document_policy?: 'legacy' | 'library'
   access: Access
   version: number
   acl_version: number
   embed_model_id: string
+  rerank_model_id?: string | null
+  use_default_rerank?: boolean
   chunk_size: number
   chunk_overlap: number
   active_revision: string | null
@@ -38,6 +44,14 @@ export interface KnowledgeBase {
   updated_at: string
   can_manage: boolean
 }
+export interface UnavailableKnowledgeBase {
+  id: string
+  name: string
+  owner_id: string
+  owner_name: string
+  availability: 'owner_disabled' | 'owner_deleted'
+}
+export type KnowledgeBaseListItem = KnowledgeBase | UnavailableKnowledgeBase
 export interface KnowledgeFolder {
   id: string
   base_id: string
@@ -48,6 +62,7 @@ export interface KnowledgeFolder {
   updated_at: string
 }
 export interface KnowledgeDocument {
+  parsing_engine?: string | null
   id: string
   base_id: string
   file_id: string
@@ -83,6 +98,7 @@ export interface KnowledgeJob {
     | 'pending'
     | 'running'
     | 'waiting_model'
+    | 'waiting_parse'
     | 'publishing'
     | 'completed'
     | 'partial'
@@ -121,6 +137,47 @@ export interface KnowledgeHit {
   title: string
   content: string
   score: number
+  vector_score?: number | null | undefined
+  fusion_score?: number | null | undefined
+  rerank_score?: number | null | undefined
+}
+export interface RetrievalDiagnostics {
+  candidate_count: number | null
+  retrieval_modes: Record<string, 'hybrid' | 'vector'>
+  rerank_status:
+    | 'not_configured'
+    | 'pending'
+    | 'completed'
+    | 'fallback'
+    | 'no_candidates'
+    | 'failed'
+  rerank_run_id?: string | undefined
+  rerank_milliseconds?: number | undefined
+  rerank_reason?: string | undefined
+}
+export function parseDiagnostics(value: unknown, partial = false): RetrievalDiagnostics | null {
+  if (value == null) return null
+  const d = object(value)
+  if (!Object.keys(d).length) return null
+  const modes = partial && d.retrieval_modes == null ? {} : object(d.retrieval_modes)
+  return {
+    candidate_count: partial && d.candidate_count == null ? null : number(d.candidate_count),
+    retrieval_modes: Object.fromEntries(
+      Object.entries(modes).map(([id, mode]) => [id, choice(mode, ['hybrid', 'vector'])])
+    ),
+    rerank_status: choice(d.rerank_status, [
+      'not_configured',
+      'pending',
+      'completed',
+      'fallback',
+      'no_candidates',
+      'failed'
+    ]),
+    rerank_run_id: typeof d.rerank_run_id === 'string' ? d.rerank_run_id : undefined,
+    rerank_milliseconds:
+      typeof d.rerank_milliseconds === 'number' ? d.rerank_milliseconds : undefined,
+    rerank_reason: typeof d.rerank_reason === 'string' ? d.rerank_reason : undefined
+  }
 }
 export interface KnowledgePreparation {
   kind: 'knowledge_preparation'
@@ -141,6 +198,7 @@ export interface KnowledgePreparation {
   phase: string
   run: RunSnapshot | null
   hits: KnowledgeHit[]
+  diagnostics?: RetrievalDiagnostics | null | undefined
   error: Failure
   created_at: string
   updated_at: string
@@ -170,17 +228,40 @@ function failure(value: unknown): Failure {
   const data = object(value)
   return { code: string(data.code), message: string(data.message) }
 }
+function parseBaseListItem(value: unknown): KnowledgeBaseListItem {
+  const d = object(value)
+  if (d.availability === 'owner_disabled' || d.availability === 'owner_deleted') {
+    return {
+      id: string(d.id),
+      name: string(d.name),
+      owner_id: string(d.owner_id),
+      owner_name: string(d.owner_name),
+      availability: d.availability
+    }
+  }
+  return parseBase(value)
+}
 export function parseBase(value: unknown): KnowledgeBase {
   const d = object(value)
+  if (d.availability !== undefined && d.availability !== 'available')
+    throw new Error('知识库当前不可用')
   return {
+    availability: 'available',
     id: string(d.id),
     name: string(d.name),
     description: string(d.description),
     owner_id: string(d.owner_id),
+    owner_name: typeof d.owner_name === 'string' ? d.owner_name : undefined,
+    sharing_scope:
+      d.sharing_scope == null ? undefined : choice(d.sharing_scope, ['private', 'users', 'public']),
+    document_policy:
+      d.document_policy == null ? 'legacy' : choice(d.document_policy, ['legacy', 'library']),
     access: choice(d.access, ['private', 'public']),
     version: number(d.version),
     acl_version: number(d.acl_version),
     embed_model_id: string(d.embed_model_id),
+    rerank_model_id: d.rerank_model_id == null ? null : string(d.rerank_model_id),
+    use_default_rerank: d.use_default_rerank === undefined ? true : boolean(d.use_default_rerank),
     chunk_size: number(d.chunk_size),
     chunk_overlap: number(d.chunk_overlap),
     active_revision: nullableString(d.active_revision),
@@ -224,6 +305,7 @@ function parseFolder(value: unknown): KnowledgeFolder {
 function parseDocument(value: unknown): KnowledgeDocument {
   const d = object(value)
   return {
+    parsing_engine: d.parsing_engine == null ? null : string(d.parsing_engine),
     id: string(d.id),
     base_id: string(d.base_id),
     file_id: string(d.file_id),
@@ -270,6 +352,7 @@ function parseJob(value: unknown): KnowledgeJob {
       'pending',
       'running',
       'waiting_model',
+      'waiting_parse',
       'publishing',
       'completed',
       'partial',
@@ -314,7 +397,10 @@ export function parseHit(value: unknown): KnowledgeHit {
     index_revision: string(d.index_revision),
     title: string(d.title),
     content: string(d.content),
-    score: number(d.score)
+    score: number(d.score),
+    vector_score: d.vector_score == null ? null : number(d.vector_score),
+    fusion_score: d.fusion_score == null ? null : number(d.fusion_score),
+    rerank_score: d.rerank_score == null ? null : number(d.rerank_score)
   }
 }
 export function parsePreparation(value: unknown): KnowledgePreparation {
@@ -340,6 +426,7 @@ export function parsePreparation(value: unknown): KnowledgePreparation {
     phase: string(d.phase),
     run: d.run === null ? null : parseRunSnapshot(d.run),
     hits: list(parseHit)(d.hits),
+    diagnostics: parseDiagnostics(d.diagnostics),
     error: failure(d.error),
     created_at: string(d.created_at),
     updated_at: string(d.updated_at)
@@ -358,8 +445,11 @@ const root = '/knowledge'
 const basePath = (id: string) => `${root}/bases/${encodeURIComponent(id)}`
 const docPath = (id: string, document: string) =>
   `${basePath(id)}/documents/${encodeURIComponent(document)}`
-export const listBases = (signal: AbortSignal) =>
-  http.request(`${root}/bases`, { signal, decode: list(parseBase) })
+export const listBases = (signal: AbortSignal, scope?: 'owned' | 'shared' | 'all') =>
+  http.request(`${root}/bases${scope ? `?${new URLSearchParams({ scope })}` : ''}`, {
+    signal,
+    decode: list(parseBaseListItem)
+  })
 export const availableBases = (signal: AbortSignal, agentId?: string) =>
   http.request(
     `${root}/available${agentId ? `?${new URLSearchParams({ agent_id: agentId })}` : ''}`,
@@ -377,19 +467,17 @@ export const getCapabilities = (signal: AbortSignal) =>
         milvus_available: boolean(d.milvus_available),
         native_formats: list(string)(d.native_formats),
         graph_available: boolean(d.graph_available),
-        mineru_available: boolean(d.mineru_available)
+        mineru_available: boolean(d.mineru_available),
+        default_embedding_configured: d.default_embedding_configured === true,
+        default_rerank_configured: d.default_rerank_configured === true,
+        default_rerank_model_id:
+          d.default_rerank_model_id == null ? null : string(d.default_rerank_model_id)
       }
     }
   })
 export interface BaseCreate {
   name: string
   description: string
-  embed_model_id: string
-  chunk_size: number
-  chunk_overlap: number
-  access: Access
-  enable_knowledge_graph: false
-  llm_model_id: null
 }
 export const createBase = (body: BaseCreate, signal: AbortSignal) =>
   http.request(`${root}/bases`, { method: 'POST', body, signal, decode: parseBase })
@@ -404,10 +492,19 @@ export const updateBase = (
     signal,
     decode: parseBase
   })
-export const deleteBase = (base: KnowledgeBase, key: string, signal: AbortSignal) =>
+export const deleteBase = (
+  base: KnowledgeBase,
+  key: string,
+  signal: AbortSignal,
+  confirmReferences = false
+) =>
   http.request(basePath(base.id), {
     method: 'DELETE',
-    body: { expected_version: base.version, client_request_id: key },
+    body: {
+      expected_version: base.version,
+      client_request_id: key,
+      confirm_references: confirmReferences
+    },
     signal,
     decode: parseJob
   })
@@ -472,9 +569,11 @@ export const uploadDocument = (
   id: string,
   file: File,
   folderId: string | null,
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestId?: string
 ) => {
   const query = new URLSearchParams({ filename: file.name })
+  if (requestId) query.set('client_request_id', requestId)
   if (folderId) query.set('folder_id', folderId)
   return http.request(`${basePath(id)}/uploads?${query}`, {
     method: 'POST',
@@ -588,14 +687,6 @@ export async function observePreparation(
   }
   return value
 }
-export const findKnowledgeUsers = (id: string, search: string, signal: AbortSignal) =>
-  http.request(`${basePath(id)}/users?${new URLSearchParams({ search })}`, {
-    signal,
-    decode: list((value): KnowledgeUser => {
-      const d = object(value)
-      return { id: string(d.id), username: string(d.username) }
-    })
-  })
 function parseAcl(value: unknown): KnowledgeAcl {
   const d = object(value)
   return {
@@ -620,8 +711,317 @@ function parseAcl(value: unknown): KnowledgeAcl {
 }
 export const getBaseAcl = (id: string, signal: AbortSignal) =>
   http.request(`${basePath(id)}/acl`, { signal, decode: parseAcl })
-export const saveBaseAcl = (
+export const cleanupKnowledgeSharing = (
   id: string,
-  body: { expected_version: number; access: Access; entries: KnowledgeAclEntry[] },
+  expectedAclVersion: number,
   signal: AbortSignal
-) => http.request(`${basePath(id)}/acl`, { method: 'PATCH', body, signal, decode: parseAcl })
+) =>
+  http.request(`${basePath(id)}/sharing/cleanup`, {
+    method: 'POST',
+    body: { expected_acl_version: expectedAclVersion },
+    signal,
+    decode: parseAcl
+  })
+
+export async function downloadDocument(
+  baseId: string,
+  documentId: string,
+  signal: AbortSignal
+): Promise<Blob> {
+  const response = await http.open(`${docPath(baseId, documentId)}/download`, { signal })
+  const blob = await response.blob()
+  signal.throwIfAborted()
+  return blob
+}
+export const addChatAttachment = (
+  baseId: string,
+  body: { file_id: string; client_request_id: string },
+  signal: AbortSignal
+) =>
+  http.request(`${basePath(baseId)}/attachments`, {
+    method: 'POST',
+    body,
+    signal,
+    decode: (value) => {
+      const d = object(value)
+      return {
+        document: parseDocument(d.document),
+        job: parseJob(d.job),
+        already_exists: boolean(d.already_exists)
+      }
+    }
+  })
+export interface MigrationPreview {
+  base_id: string
+  document_policy: 'legacy' | 'library'
+  expected_version: number
+  acl_version: number
+  sharing: { access: Access; entries: KnowledgeAclEntry[] }
+  documents: {
+    document_id: string
+    file_name: string
+    can_migrate: boolean
+    reason?: string | undefined
+  }[]
+  requires_acl_cleanup: boolean
+  can_migrate: boolean
+}
+export const getMigration = (baseId: string, signal: AbortSignal) =>
+  http.request(`${basePath(baseId)}/migration`, {
+    signal,
+    decode: (value) => {
+      const d = object(value),
+        sharing = object(d.sharing)
+      return {
+        base_id: string(d.base_id),
+        document_policy: choice(d.document_policy, ['legacy', 'library']),
+        expected_version: number(d.expected_version),
+        acl_version: number(d.acl_version),
+        sharing: {
+          access: choice(sharing.access, ['private', 'public']),
+          entries: list((value) => {
+            const e = object(value)
+            return {
+              user_id: string(e.user_id),
+              effect: choice(e.effect, ['allow', 'deny']),
+              expires_at: nullableString(e.expires_at)
+            }
+          })(sharing.entries)
+        },
+        documents: list((value) => {
+          const doc = object(value)
+          return {
+            document_id: string(doc.document_id),
+            file_name: string(doc.file_name),
+            can_migrate: boolean(doc.can_migrate),
+            reason: typeof doc.reason === 'string' ? doc.reason : undefined
+          }
+        })(d.documents),
+        requires_acl_cleanup: boolean(d.requires_acl_cleanup),
+        can_migrate: boolean(d.can_migrate)
+      } satisfies MigrationPreview
+    }
+  })
+export const migrateBase = (
+  id: string,
+  body: {
+    expected_version: number
+    expected_acl_version: number
+    confirm_shared_access: true
+    client_request_id: string
+  },
+  signal: AbortSignal
+) => http.request(`${basePath(id)}/migration`, { method: 'POST', body, signal, decode: parseJob })
+export const baseReferences = (id: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/references`, {
+    signal,
+    decode: (value) => {
+      const d = object(value)
+      return {
+        items: list((value) => {
+          const row = object(value)
+          return {
+            name:
+              typeof row.name === 'string'
+                ? row.name
+                : typeof row.title === 'string'
+                  ? row.title
+                  : '关联资源',
+            resource_type: typeof row.resource_type === 'string' ? row.resource_type : '',
+            path:
+              typeof row.path === 'string' && row.path.startsWith('/') && !row.path.startsWith('//')
+                ? row.path
+                : null
+          }
+        })(d.items),
+        hidden_count: number(d.hidden_count),
+        total: number(d.total)
+      }
+    }
+  })
+
+export interface KnowledgeSettingsInput {
+  name?: string
+  description?: string
+  expected_version: number
+  embed_model_id: string
+  rerank_model_id: string | null
+  use_default_rerank: boolean
+  chunk_size: number
+  chunk_overlap: number
+  confirm_rebuild: boolean
+  client_request_id: string
+}
+export const configureKnowledge = (id: string, body: KnowledgeSettingsInput, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/settings`, {
+    method: 'PATCH',
+    body,
+    signal,
+    decode: (value) => {
+      const result = object(value)
+      return {
+        base: parseBase(result.base),
+        job: result.job === null ? null : parseJob(result.job)
+      }
+    }
+  })
+export const getUploadReceipt = (id: string, requestId: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/uploads/requests/${encodeURIComponent(requestId)}`, {
+    signal,
+    decode: (value) => {
+      const result = object(value)
+      return { file: parseManagedFile(result.file), upload_id: string(result.upload_id) }
+    }
+  })
+export interface KnowledgeDefaults {
+  default_embed_model_id: string | null
+  default_rerank_model_id: string | null
+  chunk_size: number
+  chunk_overlap: number
+  version: number
+  updated_at: string
+}
+const parseDefaults = (value: unknown): KnowledgeDefaults => {
+  const d = object(value)
+  return {
+    default_embed_model_id: nullableString(d.default_embed_model_id),
+    default_rerank_model_id: nullableString(d.default_rerank_model_id),
+    chunk_size: number(d.chunk_size),
+    chunk_overlap: number(d.chunk_overlap),
+    version: number(d.version),
+    updated_at: string(d.updated_at)
+  }
+}
+export const getKnowledgeDefaults = (signal: AbortSignal) =>
+  http.request('/knowledge/settings', { signal, decode: parseDefaults })
+export const updateKnowledgeDefaults = (
+  body: Omit<KnowledgeDefaults, 'version' | 'updated_at'> & { expected_version: number },
+  signal: AbortSignal
+) => http.request('/knowledge/settings', { method: 'PATCH', body, signal, decode: parseDefaults })
+
+export interface KnowledgeInvitation {
+  id: string
+  status: 'active' | 'used' | 'expired' | 'revoked'
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+}
+export interface KnowledgeMember {
+  id: string
+  name: string
+  active: boolean
+}
+export interface KnowledgeInvitationPreview {
+  base_id: string
+  base_name: string
+  owner_name: string
+  expires_at: string
+  already_member: boolean
+}
+function parseInvitation(value: unknown): KnowledgeInvitation {
+  const d = object(value)
+  return {
+    id: string(d.id),
+    status: choice(d.status, ['active', 'used', 'expired', 'revoked']),
+    expires_at: string(d.expires_at),
+    created_at: string(d.created_at),
+    accepted_at: nullableString(d.accepted_at)
+  }
+}
+function parseInvitationLink(value: unknown) {
+  const d = object(value)
+  return { invitation: parseInvitation(d.invitation), token: string(d.token) }
+}
+export const listKnowledgeInvitations = (id: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/invitations`, { signal, decode: list(parseInvitation) })
+export const createKnowledgeInvitation = (
+  id: string,
+  body: { expected_acl_version: number; client_request_id: string },
+  signal: AbortSignal
+) =>
+  http.request(`${basePath(id)}/invitations`, {
+    method: 'POST',
+    body,
+    signal,
+    decode: parseInvitationLink
+  })
+export const getKnowledgeInvitationLink = (id: string, invitationId: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/invitations/${encodeURIComponent(invitationId)}/link`, {
+    signal,
+    decode: parseInvitationLink
+  })
+export const revokeKnowledgeInvitation = (id: string, invitationId: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/invitations/${encodeURIComponent(invitationId)}/revoke`, {
+    method: 'POST',
+    body: {},
+    signal,
+    decode: parseInvitation
+  })
+export const listKnowledgeMembers = (id: string, signal: AbortSignal) =>
+  http.request(`${basePath(id)}/members`, {
+    signal,
+    decode: list((value): KnowledgeMember => {
+      const d = object(value)
+      return { id: string(d.id), name: string(d.name), active: boolean(d.active) }
+    })
+  })
+export const removeKnowledgeMember = (
+  id: string,
+  userId: string,
+  version: number,
+  signal: AbortSignal
+) =>
+  http.request(`${basePath(id)}/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    body: { expected_acl_version: version },
+    signal,
+    decode: decodeVoid
+  })
+export const previewKnowledgeInvitation = (token: string, signal: AbortSignal) =>
+  http.request('/knowledge/invitations/preview', {
+    method: 'POST',
+    body: { token },
+    signal,
+    decode: (value): KnowledgeInvitationPreview => {
+      const d = object(value)
+      return {
+        base_id: string(d.base_id),
+        base_name: string(d.base_name),
+        owner_name: string(d.owner_name),
+        expires_at: string(d.expires_at),
+        already_member: boolean(d.already_member)
+      }
+    }
+  })
+export const acceptKnowledgeInvitation = (token: string, signal: AbortSignal) =>
+  http.request('/knowledge/invitations/accept', {
+    method: 'POST',
+    body: { token },
+    signal,
+    decode: (value) => {
+      const d = object(value)
+      return { base_id: string(d.base_id), already_member: boolean(d.already_member) }
+    }
+  })
+
+export const getPendingUploads = (id: string, folderId: string | null, signal: AbortSignal) =>
+  http.request(
+    `${basePath(id)}/uploads${folderId ? `?folder_id=${encodeURIComponent(folderId)}` : ''}`,
+    {
+      signal,
+      decode: (value) => {
+        const data = object(value)
+        return {
+          total: number(data.total),
+          items: list((value) => {
+            const item = object(value)
+            return {
+              requestId: string(item.request_id),
+              uploadId: string(item.upload_id),
+              file: parseManagedFile(item.file)
+            }
+          })(data.items)
+        }
+      }
+    }
+  )

@@ -34,13 +34,11 @@ class LifecycleSkills(SkillsUIRegressions):
     async def test_builtin_enabled_skill_deletes_with_one_confirmation(self):
         self.skill['source'] = 'builtin'
         await self.open_skills()
-        await self.page.get_by_role('button', name='查看详情', exact=True).click()
-        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
-        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
-        await drawer.get_by_role('button', name='删除技能', exact=True).click()
-        await expect(self.page.get_by_role('dialog')).to_contain_text('历史')
+        detail = await self.open_skill_detail()
+        confirmation = await self.open_skill_delete(detail)
+        await expect(confirmation).to_contain_text('历史')
         await accept(self.page)
-        await expect(self.page.locator('.skill-card')).to_have_count(0)
+        await expect(self.page.locator('.skill-item')).to_have_count(0)
         self.assertEqual(self.updates, [])
 
     async def test_skill_dependency_lists_actionable_and_private_references(self):
@@ -61,12 +59,10 @@ class LifecycleSkills(SkillsUIRegressions):
 
         await self.page.route('**/api/skills/skill-1', blocked)
         await self.open_skills()
-        await self.page.get_by_role('button', name='查看详情', exact=True).click()
-        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
-        await expect(drawer.get_by_role('button', name='删除技能', exact=True)).to_be_enabled()
-        await drawer.get_by_role('button', name='删除技能', exact=True).click()
+        detail = await self.open_skill_detail()
+        confirmation = await self.open_skill_delete(detail)
         await accept(self.page)
-        references = drawer.get_by_role('region', name='使用中的资源', exact=True)
+        references = detail.get_by_role('region', name='使用中的资源', exact=True)
         await expect(references).to_be_visible()
         await expect(references.get_by_role('link', name='研究助手', exact=True)).to_have_attribute(
             'href', '/agents/agent-1'
@@ -124,15 +120,19 @@ class LifecycleSkills(SkillsUIRegressions):
         )
         await self.open_skills()
         dialog = await self.prepare_upload()
-        await expect(dialog.get_by_text('0.9.0', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('版本', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_text('当前版本', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_text('0.9.0', exact=True)).to_have_count(0)
+        await expect(dialog.get_by_text('1.0.0', exact=True)).to_have_count(0)
         await expect(dialog.get_by_role('button', name=label, exact=True)).to_be_visible()
-        await expect(dialog).to_contain_text('历史')
+        await expect(dialog).not_to_contain_text('版本')
+        await expect(dialog).not_to_contain_text('历史')
         await dialog.get_by_role('button', name=label, exact=True).click()
         await expect(dialog).not_to_be_visible()
         self.assertEqual(self.confirmations, 1)
 
     async def test_existing_slug_preflight_explicitly_confirms_update(self):
-        await self.check_import_action('update', '确认更新')
+        await self.check_import_action('update', '确认替换')
 
     async def test_deleted_slug_preflight_explicitly_confirms_restore(self):
         await self.check_import_action('restore', '确认恢复')
@@ -175,13 +175,14 @@ class LifecycleModels(ModelManagementRegressions):
             ),
         )
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.open_model_more()
         await expect(self.page.get_by_role('menuitem', name='删除模型', exact=True)).to_be_visible()
         await self.page.get_by_role('menuitem', name='删除模型', exact=True).click()
         await accept(self.page)
-        await expect(self.page.get_by_text('请先处理当前模型依赖', exact=True)).to_be_visible()
+        detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+        await expect(detail.get_by_text('请先处理当前模型依赖', exact=True)).to_be_visible()
         await expect(
-            self.page.get_by_role('region', name='使用中的资源', exact=True).get_by_role(
+            detail.get_by_role('region', name='使用中的资源', exact=True).get_by_role(
                 'link', name='研究助手', exact=True
             )
         ).to_have_attribute('href', '/agents/agent-1')
@@ -192,13 +193,15 @@ class LifecycleModels(ModelManagementRegressions):
             '**/api/models/model-1', lambda route: (deleted.append(route.request.method), route.fulfill(status=204))[1]
         )
         await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
+        await self.open_model_more()
         await expect(self.page.get_by_role('menuitem', name='删除模型', exact=True)).to_be_visible()
         await self.page.get_by_role('menuitem', name='删除模型', exact=True).click()
-        await expect(self.page.get_by_role('dialog')).to_contain_text('历史')
-        await expect(self.page.get_by_role('dialog')).not_to_contain_text('有历史或业务引用时将拒绝')
+        confirmation = self.page.locator('.ant-modal-confirm')
+        await expect(confirmation).to_contain_text('历史')
+        await expect(confirmation).not_to_contain_text('有历史或业务引用时将拒绝')
         await accept(self.page)
         await expect(self.page.get_by_role('dialog')).to_have_count(0)
+        await expect(self.page.locator('.model-item')).to_have_count(0)
         self.assertEqual(deleted, ['DELETE'])
 
     async def test_credential_deletion_lists_current_models(self):

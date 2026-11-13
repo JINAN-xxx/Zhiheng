@@ -1,3 +1,4 @@
+import { createRequestId } from '../../shared/requestId.ts'
 import { computed, inject, onBeforeUnmount, provide, reactive, ref } from 'vue'
 import type { InjectionKey } from 'vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../shared/http.ts'
@@ -394,7 +395,7 @@ function createWorkWorkspace() {
   }
   async function createTask(draft: WorkDraft): Promise<WorkTask | null> {
     if (createLoading.value) return null
-    const intent = nextCreateIntent(pendingCreate, draft, () => crypto.randomUUID())
+    const intent = nextCreateIntent(pendingCreate, draft, () => createRequestId())
     if (!intent.activeAgentId) return null
     pendingCreate = intent
     createDraft.value = {
@@ -461,7 +462,7 @@ function createWorkWorkspace() {
             message: input.message,
             expectedVersion: task.version
           },
-          () => crypto.randomUUID()
+          () => createRequestId()
         )
     if (!intent) return false
     intents.set(task.taskId, intent)

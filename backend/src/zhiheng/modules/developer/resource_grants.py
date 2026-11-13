@@ -12,6 +12,7 @@ from zhiheng.modules.developer.orm import DeveloperApplication, ResourceGrant, S
 from zhiheng.modules.developer.scopes import ResourceAction, ResourceKind, validate_actions
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.references import ResourceReference
 from zhiheng.shared.time import utcnow
 
 
@@ -44,11 +45,30 @@ class ResourceGrantService:
     def __init__(self, applications: ApplicationService) -> None:
         self.applications = applications
 
+    async def knowledge_references(self, session: AsyncSession, base_id: UUID) -> list[ResourceReference]:
+        """返回尚未删除应用的知识库资源授权。"""
+        rows = await session.scalars(
+            select(DeveloperApplication)
+            .join(ResourceGrant, ResourceGrant.application_id == DeveloperApplication.id)
+            .where(
+                DeveloperApplication.deleted_at.is_(None),
+                ResourceGrant.kind == 'knowledge_base',
+                ResourceGrant.resource_id == base_id,
+            )
+            .order_by(DeveloperApplication.id)
+        )
+        return [
+            ResourceReference(
+                'application', row.id, row.name, row.status, row.owner_id, f'/developer?applicationId={row.id}'
+            )
+            for row in rows.unique()
+        ]
+
     async def lock_owned(
         self, session: AsyncSession, owner_id: UUID, application_id: UUID, expected_version: int | None = None
     ) -> DeveloperApplication:
         row = await self.applications.require(session, Principal(owner_id, '', False), application_id, lock=True)
-        if row.status != 'active':
+        if row.status != 'active' or not row.platform_enabled:
             raise AppError('application_conflict', '应用已停用', 409)
         if expected_version is not None and row.version != expected_version:
             raise AppError('application_conflict', '应用状态或版本已改变', 409)
@@ -211,6 +231,26 @@ class ResourceGrantService:
         if type(file_limit) is not int or type(byte_limit) is not int or file_limit <= 0 or byte_limit <= 0:
             raise AppError('invalid_resource_quota', '容量上限必须为正整数', 422)
         app = await self.applications.require(session, principal, application_id, lock=True)
+        if app.version != expected_version:
+            raise AppError('application_conflict', '应用状态或版本已改变', 409)
+        app.source_file_limit, app.source_byte_limit = file_limit, byte_limit
+        app.version += 1
+        app.updated_at = utcnow()
+        return app.version
+
+    async def configure_governance_quota(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        application_id: UUID,
+        *,
+        file_limit: int,
+        byte_limit: int,
+        expected_version: int,
+    ) -> int:
+        app = await self.applications.require_governance(session, principal, application_id, lock=True)
+        if type(file_limit) is not int or type(byte_limit) is not int or file_limit <= 0 or byte_limit <= 0:
+            raise AppError('invalid_resource_quota', '容量上限必须为正整数', 422)
         if app.version != expected_version:
             raise AppError('application_conflict', '应用状态或版本已改变', 409)
         app.source_file_limit, app.source_byte_limit = file_limit, byte_limit

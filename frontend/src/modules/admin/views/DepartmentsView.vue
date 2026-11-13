@@ -1,6 +1,16 @@
 <script setup lang="ts">
+import AdminRowActions from '../components/AdminRowActions.vue'
+import { singleSelection } from '../formValues.ts'
+import AdminState from '../components/AdminState.vue'
+import { numberInput } from '../formValues.ts'
+import AdminToggle from '../components/AdminToggle.vue'
 import { computed, reactive, ref } from 'vue'
-import { Button as AButton, Modal, Tag as ATag } from 'ant-design-vue'
+import {
+  Modal,
+  Input as AInput,
+  InputNumber as AInputNumber,
+  Select as ASelect
+} from 'ant-design-vue'
 import { identity } from '../../identity/public.ts'
 import { hasAdminPermission } from '../access.ts'
 import { decodeDepartment } from '../api/index.ts'
@@ -9,7 +19,7 @@ import { adminError, useCollection } from '../composables/useCollection.ts'
 import AdminPage from '../components/AdminPage.vue'
 import AdminDialog from '../components/AdminDialog.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
-import { activeLabel, validSortOrder } from '../presentation.ts'
+import { validSortOrder } from '../presentation.ts'
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<Department, DepartmentPayload>('departments', decodeDepartment, {}, true)
 const writable = computed(() => hasAdminPermission(identity.value, 'departments', 'write'))
@@ -112,6 +122,7 @@ async function submit(): Promise<void> {
   }
 }
 function confirmDelete(row: Department): void {
+  if (!hasAdminPermission(identity.value, 'departments', 'delete')) return
   if (!saving.value)
     Modal.confirm({
       title: `删除部门“${row.name}”？`,
@@ -128,11 +139,12 @@ const columns = [
   { title: '联系方式', key: 'contact', width: 200 },
   { title: '排序', dataIndex: 'sort_order', key: 'sort_order', width: 80 },
   { title: '状态', key: 'status', width: 100 },
-  { title: '操作', key: 'actions', width: 180 }
+  { title: '操作', key: 'actions', width: 110 }
 ]
 </script>
 <template>
   <AdminPage
+    search-placeholder="搜索部门名称"
     title="部门管理"
     subtitle="按组织层级维护部门与负责人"
     :loading="loading"
@@ -141,34 +153,58 @@ const columns = [
     :page="page"
     :page-size="Math.max(total, 20)"
     :search="search"
-    :can-create="writable"
+    :can-create="hasAdminPermission(identity, 'departments', 'create')"
     create-label="新建部门"
     @refresh="load"
     @create="edit()"
     @search="find"
     @page="changePage"
-    ><ResourceTable :columns="columns" :rows="tree" :loading="loading" empty-text="暂无部门"
+    ><ResourceTable
+      :loading-delay="150"
+      :columns="columns"
+      :rows="tree"
+      :loading="loading"
+      empty-text="暂无部门"
       ><template #bodyCell="{ column, record }"
         ><div v-if="column.key === 'contact'" class="admin-primary">
-          <span>{{ record.phone || '—' }}</span
-          ><small>{{ record.email || '—' }}</small>
+          <span>{{ record.phone || record.email || '—' }}</span>
+          <small v-if="record.phone && record.email">{{ record.email }}</small>
         </div>
-        <ATag v-else-if="column.key === 'status'" :color="record.is_active ? 'green' : 'default'">{{
-          activeLabel(record.is_active)
-        }}</ATag>
-        <div v-else-if="column.key === 'actions' && writable" class="admin-actions">
-          <AButton type="link" @click="edit(null, record.id)">新增下级</AButton
-          ><AButton type="link" @click="edit(record)">编辑</AButton
-          ><AButton
-            type="link"
-            danger
-            :disabled="saving || rows.some((row) => row.parent_id === record.id)"
-            @click="confirmDelete(record)"
-            >删除</AButton
-          >
-        </div></template
-      ></ResourceTable
-    >
+        <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
+        <AdminRowActions
+          v-else-if="column.key === 'actions' && writable"
+          :primary="{
+            key: 'edit',
+            label: '编辑',
+            disabled:
+              !hasAdminPermission(identity, 'departments', 'update') &&
+              !hasAdminPermission(identity, 'departments', 'toggle')
+          }"
+          :more="[
+            {
+              key: 'child',
+              label: '新增下级',
+              disabled: !hasAdminPermission(identity, 'departments', 'create')
+            },
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              disabled:
+                !hasAdminPermission(identity, 'departments', 'delete') ||
+                rows.some((row) => row.parent_id === record.id)
+            }
+          ]"
+          :busy="saving"
+          @select="
+            (key) =>
+              key === 'edit'
+                ? edit(record)
+                : key === 'child'
+                  ? edit(null, record.id)
+                  : confirmDelete(record)
+          " /></template
+    ></ResourceTable>
     <AdminDialog
       :open="open"
       :title="editing ? '编辑部门' : '新建部门'"
@@ -177,30 +213,59 @@ const columns = [
       @close="open = false"
       @save="submit"
       ><label
-        >上级部门<select v-model="form.parent_id" aria-label="上级部门">
-          <option value="">顶级部门</option>
-          <option v-for="item in parentOptions" :key="item.id" :value="item.id">
-            {{ item.name }}
-          </option>
-        </select></label
-      ><label>部门名称<input v-model="form.name" aria-label="部门名称" maxlength="100" /></label>
+        >上级部门<ASelect
+          :value="form.parent_id"
+          :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+          aria-label="上级部门"
+          show-search
+          option-filter-prop="label"
+          :options="[
+            { value: '', label: '顶级部门' },
+            ...parentOptions.map((item) => ({ value: item.id, label: item.name }))
+          ]"
+          @update:value="form.parent_id = singleSelection($event)" /></label
+      ><label
+        >部门名称<AInput
+          v-model:value="form.name"
+          :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+          aria-label="部门名称"
+          :maxlength="100"
+      /></label>
       <div class="admin-form__grid">
-        <label>负责人<input v-model="form.leader" aria-label="负责人" maxlength="100" /></label
+        <label
+          >负责人<AInput
+            v-model:value="form.leader"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+            aria-label="负责人"
+            :maxlength="100" /></label
         ><label
-          >排序<input
-            v-model.number="form.sort_order"
+          >排序<AInputNumber
+            :value="Number.isFinite(form.sort_order) ? form.sort_order : ''"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
             aria-label="排序"
-            type="number"
-            min="0"
-            max="1000000" /></label
-        ><label>手机号<input v-model="form.phone" aria-label="手机号" maxlength="30" /></label
+            :min="0"
+            :max="1000000"
+            :precision="0"
+            @update:value="form.sort_order = numberInput($event)" /></label
         ><label
-          >电子邮箱<input v-model="form.email" aria-label="电子邮箱" type="email" maxlength="254"
+          >手机号<AInput
+            v-model:value="form.phone"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+            aria-label="手机号"
+            :maxlength="30" /></label
+        ><label
+          >电子邮箱<AInput
+            v-model:value="form.email"
+            :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'update')"
+            aria-label="电子邮箱"
+            type="email"
+            :maxlength="254"
         /></label>
       </div>
-      <label class="admin-check"
-        ><input v-model="form.is_active" type="checkbox" />启用部门</label
-      ></AdminDialog
-    >
+      <AdminToggle
+        v-model="form.is_active"
+        :disabled="!!editing && !hasAdminPermission(identity, 'departments', 'toggle')"
+        label="启用部门"
+    /></AdminDialog>
   </AdminPage>
 </template>

@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { MenuOutlined } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
-import PlatformResourceSearch from './PlatformResourceSearch.vue'
 withDefaults(defineProps<{ title: string; leaving: boolean; mobile?: boolean }>(), { mobile: true })
 const emit = defineEmits<{ 'toggle-sidebar': []; logout: [] }>()
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
@@ -24,7 +23,7 @@ defineExpose({ focusMenu: () => menuButtonRef.value?.focus() })
       <span class="sr-only">{{ title }}</span>
     </div>
     <div class="platform-topbar__actions">
-      <PlatformResourceSearch /><PlatformAccountMenu :leaving="leaving" @logout="emit('logout')" />
+      <PlatformAccountMenu :leaving="leaving" @logout="emit('logout')" />
     </div>
   </header>
 </template>

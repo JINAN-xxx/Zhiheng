@@ -1,6 +1,6 @@
 <!-- Adapted from original Work UI, MIT licensed. -->
 <template>
-  <section ref="root" class="work-timeline" aria-label="共享工作时间线">
+  <section ref="root" class="work-timeline workspace-scroll-area" aria-label="共享工作时间线">
     <article
       v-for="message in messages"
       :key="message.messageId"
@@ -11,11 +11,6 @@
         <strong>{{
           message.role === 'user' ? '你' : message.agentNameSnapshot || '智能体'
         }}</strong>
-        <span
-          v-if="message.role === 'assistant' && message.publishedVersion"
-          class="work-message__version"
-          >v{{ message.publishedVersion }}</span
-        >
         <a-tag v-if="showStatus(message.runStatus)" :color="statusColor(message.runStatus)">{{
           statusLabel(message.runStatus)
         }}</a-tag>
@@ -85,7 +80,7 @@ watch(
   width: min(860px, 100%);
   flex: 1;
   align-self: center;
-  overflow-y: auto;
+  overflow: hidden auto;
   padding: 24px 20px 32px;
 }
 .work-message {
@@ -110,6 +105,7 @@ watch(
   min-width: 0;
   overflow: hidden;
   color: var(--color-text);
+  font-weight: var(--workspace-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -134,13 +130,6 @@ watch(
   border-radius: 10px 0 10px 10px;
   background: var(--gray-50);
 }
-.work-message__version {
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: var(--gray-100);
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
-}
 .work-message__reasoning {
   margin: 7px 0 0;
   padding: 9px 12px;
@@ -151,6 +140,7 @@ watch(
 }
 .work-message__reasoning summary {
   cursor: pointer;
+  font-size: 13px;
 }
 .work-message__reasoning p {
   margin: 8px 0 0;
@@ -160,6 +150,8 @@ watch(
   margin-top: 6px;
   border-color: var(--workspace-danger);
   color: var(--workspace-danger);
+  font-size: 13px;
+  line-height: 1.7;
 }
 @media (max-width: 600px) {
   .work-timeline {

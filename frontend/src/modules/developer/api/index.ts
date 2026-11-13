@@ -1,5 +1,5 @@
-import { parsePoints } from '../../billing/presentation.ts'
-import { http } from '../../../shared/http.ts'
+import { parsePoints } from '../../billing/public.ts'
+import { decodeVoid, http } from '../../../shared/http.ts'
 import {
   boolean,
   list,
@@ -12,9 +12,9 @@ import {
 export interface Application {
   ownerId: string
   applicationId: string
-  applicationCode: string
   applicationName: string
   status: 'active' | 'disabled'
+  platformEnabled?: boolean
   version: number
   createdAt: string
   updatedAt: string
@@ -45,12 +45,13 @@ export interface ApplicationUsage {
   operationType: string
   status: string
   usageStatus: string
+  pointsEnforced: boolean
   startedAt: string
   inputTokens: number | null
   outputTokens: number | null
   searchUnits: number | null
   billableCost: string | null
-  currency: string
+  currency: string | null
 }
 export interface Page<T> {
   rows: T[]
@@ -76,9 +77,9 @@ export function parseApplication(value: unknown): Application {
   return {
     ownerId: string(data.owner_id),
     applicationId: string(data.id),
-    applicationCode: string(data.code),
     applicationName: string(data.name),
     status: data.status,
+    platformEnabled: data.platform_enabled === undefined ? true : boolean(data.platform_enabled),
     version: number(data.version),
     createdAt: string(data.created_at),
     sourceFileLimit: number(data.source_file_limit),
@@ -129,12 +130,13 @@ function parseUsage(value: unknown): ApplicationUsage {
     operationType: string(data.operation),
     status: string(data.run_status),
     usageStatus: string(data.status),
+    pointsEnforced: data.points_enforced === true,
     startedAt: string(data.created_at),
     inputTokens: nullableNumber(data.input_tokens),
     outputTokens: nullableNumber(data.output_tokens),
     searchUnits: nullableNumber(data.search_units),
     billableCost: nullableString(data.billable_cost),
-    currency: string(data.currency)
+    currency: nullableString(data.currency)
   }
 }
 function page<T>(decode: (value: unknown) => T): (value: unknown) => Page<T> {
@@ -153,7 +155,7 @@ export const listApplications = (
   )
 export const getApplication = (id: string, signal: AbortSignal) =>
   http.request(path(id), { signal, decode: parseApplication })
-export const createApplication = (body: { code: string; name: string }, signal: AbortSignal) =>
+export const createApplication = (body: { name: string }, signal: AbortSignal) =>
   http.request(root, { method: 'POST', body, signal, decode: parseApplication })
 export const updateApplication = (
   id: string,
@@ -205,6 +207,12 @@ export const revokeDeveloperKey = (appId: string, keyId: string, signal: AbortSi
     body: {},
     signal,
     decode: parseKey
+  })
+export const deleteDeveloperKey = (appId: string, keyId: string, signal: AbortSignal) =>
+  http.request(`${path(appId)}/keys/${encodeURIComponent(keyId)}`, {
+    method: 'DELETE',
+    signal,
+    decode: decodeVoid
   })
 export const listApplicationUsage = (
   id: string,

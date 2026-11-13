@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 
 from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.knowledge_support import share_library
 from tests.core.provider import ProviderServer
 from zhiheng.application.access import CallerContext
 from zhiheng.bootstrap.container import Container
@@ -87,7 +88,8 @@ async def test_resource_rpm_does_not_use_token_buckets(admin: httpx.AsyncClient,
         with pytest.raises(AppError) as limited:
             await c.resource_limits.consume(session, caller.identity)
         assert limited.value.status_code == 429 and limited.value.details['retry_after'] > 0
-    from zhiheng.modules.developer.orm import Invocation, KeyMinuteBucket
+    from zhiheng.modules.billing.orm import Invocation
+    from zhiheng.modules.developer.orm import KeyMinuteBucket
 
     async with c.database.sessions() as session:
         assert await session.scalar(select(func.count()).select_from(Invocation)) == 0
@@ -470,15 +472,7 @@ async def test_autobind_never_claims_shared_knowledge_but_explicit_read_query_bi
         response = await member.post('/api/knowledge/bases', json={'name': 'Shared', 'embed_model_id': model})
         assert response.status_code == 201, response.text
         base = response.json()
-        shared = await member.patch(
-            f'/api/knowledge/bases/{base["id"]}/acl',
-            json={
-                'access': 'private',
-                'expected_version': base['acl_version'],
-                'entries': [{'user_id': str(caller.principal.id), 'effect': 'allow'}],
-            },
-        )
-        assert shared.status_code == 200, shared.text
+        await share_library(member, admin, base['id'])
     async with c.database.sessions.begin() as session:
         await c.resource_access.bind(
             session,
@@ -599,23 +593,28 @@ async def test_file_transfer_invalidates_old_binding_even_when_acl_remains_and_o
                 session, caller.principal, UUID(owner_app['id']), 'file', UUID(file['id']), ['read'], expected_version=1
             )
         current = (await admin.get(f'/api/files/{file["id"]}')).json()
-        for new_owner in (str(third.id), file['owner_id']):
-            transferred = await admin.post(
-                f'/api/files/{file["id"]}/transfer',
-                json={
-                    'owner_id': new_owner,
-                    'expected_version': current['version'],
-                    'reason': 'ownership boundary probe',
-                    'uploader_access_enabled': False,
-                },
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as third_client:
+            logged_in = await third_client.post(
+                '/api/auth/login', json={'username': 'transfer-target', 'password': 'platform-test-password'}
             )
-            assert transferred.status_code == 200, transferred.text
-            current = transferred.json()
-            assert (await member.get(f'/api/files/{file["id"]}')).status_code == 200
-            async with c.database.sessions.begin() as session:
-                with pytest.raises(AppError) as stale:
-                    await c.resource_access.require(session, caller, 'file', UUID(file['id']), 'read')
-                assert stale.value.status_code == 404
+            assert logged_in.status_code == 200
+            for current_owner, new_owner in ((admin, str(third.id)), (third_client, file['owner_id'])):
+                transferred = await current_owner.post(
+                    f'/api/files/{file["id"]}/transfer',
+                    json={
+                        'owner_id': new_owner,
+                        'expected_version': current['version'],
+                        'reason': 'ownership boundary probe',
+                        'uploader_access_enabled': False,
+                    },
+                )
+                assert transferred.status_code == 200, transferred.text
+                current = transferred.json()
+                assert (await member.get(f'/api/files/{file["id"]}')).status_code == 200
+                async with c.database.sessions.begin() as session:
+                    with pytest.raises(AppError) as stale:
+                        await c.resource_access.require(session, caller, 'file', UUID(file['id']), 'read')
+                    assert stale.value.status_code == 404
         async with c.database.sessions.begin() as session:
             await c.resource_access.bind(
                 session, caller.principal, UUID(owner_app['id']), 'file', UUID(file['id']), ['read'], expected_version=2

@@ -1,6 +1,0 @@
-# Optional knowledge dependencies. Embeddings use the platform ModelService.
-chromadb==1.5.9
-pypdf==6.18.0
-python-docx==1.2.0
-beautifulsoup4==4.15.0
-# XLSX support uses openpyxl from the platform requirements.

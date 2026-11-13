@@ -3,6 +3,7 @@
   <a-modal
     :open="open"
     title="添加智能体"
+    centered
     :confirm-loading="loading"
     @ok="confirm"
     @cancel="emit('update:open', false)"
@@ -12,7 +13,7 @@
       <div class="work-agent-picker__intro">
         <span>选择参与协作的智能体</span><span>已选 {{ draftIds.length }} / {{ max }}</span>
       </div>
-      <div class="work-agent-picker">
+      <div class="work-agent-picker workspace-scroll-area">
         <div
           v-for="agent in agents"
           :key="agent.agentId"
@@ -27,7 +28,6 @@
             >{{ agent.name }}</a-checkbox
           >
           <span>{{ agent.description || '已发布智能体' }}</span>
-          <small>v{{ agent.publishedVersion }}</small>
         </div>
         <a-empty v-if="!loading && !agents.length" description="暂无已发布智能体" />
       </div>
@@ -88,16 +88,16 @@ function confirm(): void {
 .work-agent-picker {
   display: grid;
   gap: 10px;
-  max-height: min(420px, 56vh);
-  overflow-y: auto;
+  max-height: min(420px, 56dvh, calc(100dvh - 200px));
+  overflow: hidden auto;
   padding: 2px;
 }
 .work-agent-picker__row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 7px 12px;
+  gap: 7px;
   padding: 14px;
   border: 1px solid var(--gray-150);
   border-radius: 12px;
@@ -128,15 +128,5 @@ function confirm(): void {
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
-}
-.work-agent-picker__row > small {
-  grid-column: 2;
-  grid-row: 1;
-  padding: 2px 7px;
-  border: 1px solid var(--gray-150);
-  border-radius: 6px;
-  background: var(--bg-container);
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
 }
 </style>

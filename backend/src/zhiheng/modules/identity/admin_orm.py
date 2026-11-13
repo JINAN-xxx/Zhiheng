@@ -31,15 +31,6 @@ class IdentityDepartment(Versioned, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
-class IdentityPost(Versioned, Base):
-    __tablename__ = 'identity_posts'
-    code: Mapped[str] = mapped_column(String(80), unique=True)
-    name: Mapped[str] = mapped_column(String(100))
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    remark: Mapped[str] = mapped_column(String(2000), default='')
-
-
 class IdentityRole(Versioned, Base):
     __tablename__ = 'identity_roles'
     code: Mapped[str] = mapped_column(String(80), unique=True)
@@ -50,23 +41,7 @@ class IdentityRole(Versioned, Base):
     remark: Mapped[str] = mapped_column(String(2000), default='')
 
 
-class IdentityMenu(Versioned, Base):
-    __tablename__ = 'identity_menus'
-    parent_id: Mapped[UUID | None] = mapped_column(ForeignKey('identity_menus.id'), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String(100))
-    path: Mapped[str] = mapped_column(String(200), unique=True)
-    permission: Mapped[str] = mapped_column(String(100), default='')
-    sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    is_visible: Mapped[bool] = mapped_column(Boolean, default=True)
-
-
 class IdentityUserRole(Base):
     __tablename__ = 'identity_user_roles'
     user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
     role_id: Mapped[UUID] = mapped_column(ForeignKey('identity_roles.id'), primary_key=True)
-
-
-class IdentityUserPost(Base):
-    __tablename__ = 'identity_user_posts'
-    user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
-    post_id: Mapped[UUID] = mapped_column(ForeignKey('identity_posts.id'), primary_key=True)

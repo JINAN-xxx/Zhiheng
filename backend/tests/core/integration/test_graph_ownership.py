@@ -2,26 +2,36 @@ import asyncio
 import errno
 import os
 import threading
+from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
 from datetime import timedelta
+from pathlib import Path
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
+from fastapi import FastAPI
 from pymilvus import MilvusClient
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.core.billing_support import enable_free_billing
 from tests.core.graph_fixtures import empty_frozen, evidence, graph_base, graph_role
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
+from tests.core.provider import ProviderServer
 from tests.core.resources import resource
 from zhiheng.bootstrap.migrations import migrate
-from zhiheng.modules.developer.orm import Invocation
+from zhiheng.bootstrap.settings import Settings
+from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.knowledge.adapters.lightrag import sdk as boundary
 from zhiheng.modules.knowledge.adapters.lightrag.factory import shutdown_rag
 from zhiheng.modules.knowledge.adapters.lightrag.owned_loop import _CURRENT_TASKS
 from zhiheng.modules.knowledge.adapters.lightrag.postgres import CURRENT_STORAGE, PostgresContext
 from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-from zhiheng.modules.knowledge.adapters.lightrag.vector import CURRENT_VECTOR, GraphVectorManifest
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+from zhiheng.modules.knowledge.adapters.lightrag.vector import CURRENT_VECTOR
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphGeneration, GraphStep
+from zhiheng.modules.knowledge.public import GraphSDKCall, GraphSDKOutcome, GraphVectorManifest, VectorIOControl
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
@@ -42,7 +52,9 @@ from zhiheng.worker.main import build_worker
         ),
     ],
 )
-async def test_initialization_releases_each_acquisition_and_proves_actual_stop(settings, tmp_path, monkeypatch, stage):
+async def test_initialization_releases_each_acquisition_and_proves_actual_stop(  # noqa: PLR0915 - keep acquisition, fault and drain evidence in one scenario
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
     await migrate(settings)
     frozen = empty_frozen()
     contexts, rpcs, calls, scopes, stopped = [], [], [], [], []
@@ -52,15 +64,15 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
         GraphVectorRPC._submit,
     )
 
-    def context_init(owner, *args, **kwargs):
+    def context_init(owner: PostgresContext, *args: Any, **kwargs: Any) -> None:
         original_context(owner, *args, **kwargs)
         contexts.append(owner)
 
-    def rpc_init(owner, *args, **kwargs):
+    def rpc_init(owner: GraphVectorRPC, *args: Any, **kwargs: Any) -> None:
         original_rpc(owner, *args, **kwargs)
         rpcs.append(owner)
 
-    def submit(owner, name, args, kwargs):
+    def submit(owner: GraphVectorRPC, name: str, args: tuple[object, ...], kwargs: dict[str, object]) -> Future[Any]:
         calls.append(name)
         return original_submit(owner, name, args, kwargs)
 
@@ -82,14 +94,14 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
         )
         original_run = instance.owned_loop.run
 
-        async def observed_run(program):
-            async def observed():
+        async def observed_run(program: Callable[[], Awaitable[Any]]) -> Any:
+            async def observed() -> Any:
                 before = (CURRENT_STORAGE.get(None), CURRENT_VECTOR.get(None), _CURRENT_TASKS.get())
                 try:
                     return await program()
                 finally:
                     after = (CURRENT_STORAGE.get(None), CURRENT_VECTOR.get(None), _CURRENT_TASKS.get())
-                    scopes.append([left is right for left, right in zip(before, after)])
+                    scopes.append([left is right for left, right in zip(before, after, strict=True)])
 
             return await original_run(observed)
 
@@ -99,7 +111,7 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
             expected = FileExistsError
         elif stage == 'temporary':
 
-            def enospc(*args, **kwargs):
+            def enospc(*args: Any, **kwargs: Any) -> NoReturn:
                 raise OSError(errno.ENOSPC, 'Explicit temporary-directory fault injection')
 
             monkeypatch.setattr(boundary, 'TemporaryDirectory', enospc)
@@ -107,7 +119,7 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
         elif stage in {'constructor', 'partial-constructor'}:
             create = boundary.create_rag
 
-            def constructor(**kwargs):
+            def constructor(**kwargs: Any) -> NoReturn:
                 if stage == 'partial-constructor':
                     create(**kwargs)
                 raise AppError('test_constructor_fault', 'Explicit constructor fault injection', 503)
@@ -116,7 +128,7 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
         elif stage == 'catalog':
             await pg.execute(f'REVOKE UPDATE ON knowledge_graph_sdk.lightrag_doc_full FROM "{role}"')
 
-        async def no_model(call):
+        async def no_model(call: GraphSDKCall) -> NoReturn:
             raise AssertionError('Initialization must precede model work')
 
         facts = []
@@ -163,7 +175,7 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
             assert not calls if stage != 'partial-read' else calls == ['has_collection']
         finally:
             # Exact original-loop fallback is only fixture cleanup after red evidence.
-            async def finish():
+            async def finish() -> None:
                 for rpc in rpcs:
                     await rpc.aclose()
                 for context in contexts:
@@ -177,11 +189,18 @@ async def test_initialization_releases_each_acquisition_and_proves_actual_stop(s
     'failure',
     ['workroot', 'manifest', 'pre-sdk-cancel', 'cancel-during-cleanup', 'cancel-during-finish', 'cooperative-shutdown'],
 )
-async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
-    admin, app, provider, real_vectors, tmp_path, monkeypatch, failure
-):
+@pytest.mark.usefixtures('real_vectors')
+async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(  # noqa: PLR0912, PLR0915 - retain each cancellation barrier through fees, stop proof and GC
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
     container = app.state.container
     base = await graph_base(admin, app, provider)
+    await enable_free_billing(admin)
     path = f'/api/knowledge/bases/{base["id"]}/graph'
     captures, calls, collections = [], [], {}
     worker = worker_task = None
@@ -199,14 +218,14 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
             container.graph_sdk.root = occupied
         elif failure == 'manifest':
 
-            async def fail_manifest(*args, **kwargs):
+            async def fail_manifest(*args: Any, **kwargs: Any) -> NoReturn:
                 raise AppError('test_manifest_fault', 'Explicit failure before SDK entry', 503)
 
             monkeypatch.setattr(container.graph_store, 'save_manifest', fail_manifest)
         elif failure == 'pre-sdk-cancel':
             execute = container.graph_jobs._execute
 
-            async def before_sdk(*args, **kwargs):
+            async def before_sdk(*args: Any, **kwargs: Any) -> GraphSDKOutcome:
                 entered.set()
                 await asyncio.Event().wait()
                 return await execute(*args, **kwargs)
@@ -215,12 +234,12 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
         else:
             create = boundary.create_rag
 
-            def capture(**kwargs):
+            def capture(**kwargs: Any) -> Any:
                 rag = create(**kwargs)
                 first = rag.role_llm_funcs['extract']
                 shutdown = first.shutdown
 
-                async def fail_after_real_shutdown(*args, **kwargs):
+                async def fail_after_real_shutdown(*args: Any, **kwargs: Any) -> NoReturn:
                     await shutdown(*args, **kwargs)
                     raise AppError('test_queue_shutdown', 'Explicit error after cooperative shutdown', 503)
 
@@ -244,7 +263,9 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
             resource('intent', 'milvus_collection', name, description=description, database='default')
         submit = GraphVectorRPC._submit
 
-        def observed_submit(owner, name, args, kwargs):
+        def observed_submit(
+            owner: GraphVectorRPC, name: str, args: tuple[object, ...], kwargs: dict[str, object]
+        ) -> Future[Any]:
             calls.append(name)
             return submit(owner, name, args, kwargs)
 
@@ -254,12 +275,12 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
             close = PostgresContext.close
             observe = container.graph_jobs._observe
 
-            async def held_close(owner):
+            async def held_close(owner: PostgresContext) -> None:
                 loop.call_soon_threadsafe(entered.set)
                 await asyncio.to_thread(release_cleanup.wait)
                 await close(owner)
 
-            async def observe_stop(*args):
+            async def observe_stop(*args: Any) -> None:
                 try:
                     await observe(*args)
                 finally:
@@ -270,7 +291,7 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
         elif failure == 'cancel-during-finish':
             finish = container.graph_store.finish
 
-            async def held_finish(session, *args, **kwargs):
+            async def held_finish(session: AsyncSession, *args: Any, **kwargs: Any) -> None:
                 await finish(session, *args, **kwargs)
                 await session.flush()
                 pending_finish['pid'] = await session.scalar(text('SELECT pg_backend_pid()'))
@@ -345,8 +366,8 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
                 worker = build_worker(container, max_jobs=1)
                 worker_task = asyncio.create_task(worker.async_run())
 
-                async def terminal():
-                    while (await admin.get(path + '/jobs/' + job['id'])).json()['status'] not in {
+                async def terminal() -> None:
+                    while (await admin.get(path + '/jobs/' + job['id'])).json()['status'] not in {  # noqa: ASYNC110 - observe durable worker state across process boundaries
                         'failed',
                         'completed',
                     }:
@@ -414,7 +435,11 @@ async def test_public_failed_attempt_closes_resources_preserves_fees_and_can_gc(
             for rag, owned, context, first, shutdown in captures:
                 first.shutdown = shutdown
 
-                async def finish():
+                async def finish(
+                    rag: Any = rag,
+                    owned: set[asyncio.Task[Any]] | None = owned,
+                    context: PostgresContext = context,
+                ) -> None:
                     try:
                         await shutdown_rag(rag, owned)
                     except AppError:

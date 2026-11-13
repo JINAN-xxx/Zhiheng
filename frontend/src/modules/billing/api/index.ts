@@ -7,7 +7,7 @@ import {
   object,
   string
 } from '../../../shared/validation.ts'
-import { parsePoints } from '../presentation.ts'
+import { parsePoints } from '../contracts.ts'
 import type {
   CreditAccount,
   CreditAdjustment,
@@ -91,6 +91,7 @@ export function parseCreditUsage(value: unknown): CreditUsage {
     version: number(data.version),
     reserved_points: parsePoints(data.reserved_points),
     charged_points: data.charged_points === null ? null : parsePoints(data.charged_points),
+    failure_waived: data.failure_waived === undefined ? false : boolean(data.failure_waived),
     rate_version: number(data.rate_version),
     created_at: string(data.created_at)
   }

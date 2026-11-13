@@ -1,4 +1,0 @@
--r requirements-knowledge-milvus.txt
-# Native PostgreSQL graph/KV/document status; no AGE, pgvector or API/model extras.
-asyncpg==0.31.0
-lightrag-hku==1.5.7

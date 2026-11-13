@@ -8,18 +8,18 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import event, func, select, text
+from sqlalchemy import event, func, select, text, update
 
 from tests.core.integration.test_billing_runtime import prepare as prepare_points
 from tests.core.integration.test_skills import install as install_skill
 from tests.core.provider import ProviderServer
-from zhiheng.application.inference import InferenceExecutor
-from zhiheng.modules.billing.orm import CreditHold, CreditLedger
+from zhiheng.application.execution.executor import InferenceExecutor
+from zhiheng.modules.billing.orm import CreditHold, CreditLedger, Invocation
 from zhiheng.modules.chat.context_orm import ContextState, SummaryTask
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
-from zhiheng.modules.developer.orm import Invocation
 from zhiheng.modules.files.orm import FileRecord
 from zhiheng.modules.identity.orm import IdentityUser
+from zhiheng.modules.models.orm import ModelDefinition
 from zhiheng.modules.models.public import ModelRequest
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.time import utcnow
@@ -112,10 +112,10 @@ async def execute_native(app: FastAPI, run_id: UUID, *, reconcile: bool = False)
         runs=container.runs,
         usage=container.usage,
         chat=container.chat,
-        provider_factory=container.prepare_provider,
+        provider_factory=container.execution_authorization.prepare_provider,
         lease_seconds=container.settings.lease_seconds,
         timeout_seconds=container.settings.provider_timeout_seconds,
-        before_provider=container.require_model_execution,
+        before_provider=container.execution_authorization.require,
     )
     await executor.execute(run_id)
 
@@ -288,7 +288,6 @@ async def test_expired_summary_lease_is_settled_once_and_does_not_restart_paid_c
     provider: ProviderServer,
     provider_started: bool,
 ) -> None:
-    from zhiheng.worker.main import recover_expired
 
     conversation_id, _, _ = await seed_history(admin, app, model_id)
     container = app.state.container
@@ -298,7 +297,7 @@ async def test_expired_summary_lease_is_settled_once_and_does_not_restart_paid_c
         assert await container.runs.claim(session, run.id, 3)
         row = await session.get(Run, run.id)
         row.provider_started, row.lease_until = provider_started, utcnow() - timedelta(seconds=1)
-    await recover_expired(container)
+    await container.run_recovery.recover_expired()
     await container.chat_context.reconcile()
     await execute_run(container, run.id)
     assert len(provider.requests) == 1
@@ -817,7 +816,7 @@ async def test_partial_summary_batches_resume_durable_target_and_finish_first_15
     app: FastAPI,
     model_id: str,
 ) -> None:
-    from zhiheng.application.chat_context import ChatContextConfig, ChatContextService
+    from zhiheng.application.chat.context import ChatContextConfig, ChatContextService
 
     container = app.state.container
     container.chat_context.input_tokens = 600
@@ -835,11 +834,14 @@ async def test_partial_summary_batches_resume_durable_target_and_finish_first_15
                 container.models,
                 container.identity,
                 container.files,
-                container.admission,
+                container.run_admission,
                 container.settings.token_limit,
                 ChatContextConfig(input_tokens=600),
+                runs=container.runs,
+                usage=container.usage,
             )
             container.chat_context, container.admission.context = service, service
+            container.execution_authorization.chat_context = service
         await container.chat_context.reconcile()
         info = (await admin.get(f'/api/chat/conversations/{conversation_id}/context')).json()
         if info['covered_rounds'] == 15:
@@ -913,7 +915,9 @@ async def test_knowledge_regeneration_rejects_changed_or_revoked_original_source
         async with container.database.sessions() as session:
             pending = list(
                 await session.scalars(
-                    select(Run.id).where(Run.status == 'pending', Run.resource_type == 'knowledge_embedding')
+                    select(Run.id).where(
+                        Run.status == 'pending', Run.resource_type.in_(('knowledge_embedding', 'knowledge_rerank'))
+                    )
                 )
             )
         for run_id in pending:
@@ -1054,8 +1058,8 @@ async def test_normal_admitted_chat_keeps_frozen_connection_revision_after_crede
         new_connection = await admin.post(
             '/api/models/connections',
             json={
-                'name': 'New unavailable endpoint',
-                'base_url': 'http://127.0.0.1:9/v1',
+                'name': 'New validated endpoint',
+                'base_url': f'http://127.0.0.1:{provider.server_port}/v1',
                 'api_key': 'rebound-local-test-key',
             },
         )
@@ -1129,8 +1133,12 @@ async def test_summary_reconciliation_never_takes_state_while_main_completion_ho
                 state.last_run_id,
             )
         if operation == 'automatic_cancel':
-            disabled = await admin.post(f'/api/models/{model_id}/disable', json={})
-            assert disabled.status_code == 200, disabled.text
+            # Management commands serialize with admission. Inject maintenance state
+            # here so the paused completion tests summary reconciliation itself.
+            async with container.database.sessions.begin() as maintenance:
+                await maintenance.execute(
+                    update(ModelDefinition).where(ModelDefinition.id == UUID(model_id)).values(enabled=False)
+                )
             action = asyncio.create_task(container.chat_context.reconcile())
         else:
             action = asyncio.create_task(

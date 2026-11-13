@@ -83,7 +83,7 @@ async def test_recursive_folder_delete_releases_staging_and_gc_respects_pins(
     app: FastAPI,
     provider: ProviderServer,
 ) -> None:
-    base = await ready_base(admin, app, provider)
+    base = await ready_base(admin, app, provider, legacy=True)
     container = app.state.container
     endpoint = f'/api/knowledge/bases/{base["id"]}'
     root = (await admin.post(endpoint + '/folders', json={'name': 'Parent'})).json()
@@ -177,11 +177,16 @@ async def test_cancelled_paid_step_is_zero_before_provider_and_stale_attempt_can
     )
     assert len(provider.requests) == 1
     assert (await admin.get(endpoint)).json()['active_revision'] == original
+    # A fresh source starts a new attempt; library reimports of the cancelled source deduplicate.
+    next_file = await source(admin, 'next.txt', b'Next knowledge')
     next_job = (
-        await admin.post(endpoint + '/documents', json={'file_ids': [file['id']], 'client_request_id': str(uuid4())})
+        await admin.post(
+            endpoint + '/documents', json={'file_ids': [next_file['id']], 'client_request_id': str(uuid4())}
+        )
     ).json()
     async with container.database.sessions.begin() as session:
         claim = await container.knowledge_jobs.store.claim(session, UUID(next_job['id']))
+        assert claim is not None
         await session.execute(
             update(KnowledgeJob).where(KnowledgeJob.id == claim.id).values(lease_until=utcnow() - timedelta(seconds=1))
         )
@@ -203,7 +208,7 @@ async def test_personal_upload_rejects_other_admin_and_preserves_owner_and_uploa
         owner_id = (await owner.get('/api/auth/me')).json()['id']
         base = (await owner.post('/api/knowledge/bases', json={'name': 'Owned', 'embed_model_id': model})).json()
         users = await owner.get(f'/api/knowledge/bases/{base["id"]}/users')
-        assert users.status_code == 200 and all(set(user) == {'id', 'username'} for user in users.json())
+        assert users.status_code == 404
         assert (await owner.get('/api/files/users')).status_code == 403
         rejected = await admin.post(
             f'/api/knowledge/bases/{base["id"]}/uploads',

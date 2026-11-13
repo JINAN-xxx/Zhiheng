@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from zhiheng.modules.knowledge.adapters.lightrag.postgres import PostgresContext
     from zhiheng.modules.knowledge.adapters.lightrag.transport import GraphVectorRPC
-    from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
+    from zhiheng.modules.knowledge.control import VectorIOControl
 
 logger = logging.getLogger(__name__)
 

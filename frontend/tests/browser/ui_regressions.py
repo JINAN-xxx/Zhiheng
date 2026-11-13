@@ -4,6 +4,7 @@ Uses real Chromium UI interactions with controlled HTTP/SSE boundary responses.
 Set PLATFORM_BROWSER_URL to target another already running instance.
 """
 
+from browser_clipboard import read_clipboard
 import asyncio
 import contextlib
 import json
@@ -109,7 +110,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
     async def test_next_send_shows_submission_instead_of_previous_completion(self):
         self.completed = True
         started, release = asyncio.Event(), asyncio.Event()
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', lambda route: route.fulfill(json=[{'id': 'message-1', 'role': 'user', 'content': '你好', 'run_id': 'r1', 'created_at': '2026-10-23T00:00:00Z'}]))
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c1/messages') + r'(?:\?.*)?$'), lambda route: route.fulfill(json=[{'id': 'message-1', 'role': 'user', 'content': '你好', 'run_id': 'r1', 'created_at': '2026-10-23T00:00:00Z'}]))
         async def submit(route):
             started.set()
             await release.wait()
@@ -119,7 +120,8 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         try:
             await self.page.goto(self.origin + '/chat')
             await self.select_conversation('恢复中会话')
-            await expect(self.page.locator('.run-state')).to_have_text('已完成')
+            await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
+            await expect(self.page.locator('.run-state')).to_have_count(0)
             await self.page.get_by_role('textbox', name='消息内容').fill('下一轮问题')
             await self.page.get_by_role('button', name='发送消息').click()
             await asyncio.wait_for(started.wait(), timeout=5)
@@ -127,7 +129,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
             release.set()
             await expect(self.page.get_by_text('暂时不可用', exact=True)).to_be_visible()
-            await expect(self.page.locator('.run-state')).to_have_text('已完成')
+            await expect(self.page.locator('.run-state')).to_have_count(0)
         finally:
             release.set()
 
@@ -139,14 +141,14 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await dialog.get_by_placeholder('填写服务商提供的模型 ID').fill('test-model')
         await dialog.locator('.ant-select').click()
         await self.page.locator('.ant-select-item-option-content').filter(has_text='测试服务').click()
-        output_limit = dialog.get_by_role('spinbutton')
+        output_limit = dialog.get_by_role('spinbutton').first
         await expect(output_limit).to_have_value('512')
         await output_limit.fill('')
         await dialog.get_by_role('button', name='保存模型', exact=True).click()
         await self.page.wait_for_timeout(150)
         self.assertEqual(self.posts, [], 'An empty limit must not submit the previous 512 value')
         await expect(dialog).to_be_visible()
-        await expect(dialog.get_by_text('请填写模型信息，输出上限须为 1–131072 的整数', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('输出上限须为正整数', exact=True)).to_be_visible()
         await expect(output_limit).to_have_value('')
         await output_limit.fill('256')
         await dialog.get_by_role('button', name='保存模型', exact=True).click()
@@ -191,8 +193,8 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             sent.set()
 
         await self.page.route(self.origin + '/api/models', models)
-        await self.page.route(self.origin + '/api/chat/conversations', conversations)
-        await self.page.route(self.origin + '/api/chat/conversations/c2/messages', lambda route: route.fulfill(status=200, json=[]))
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations') + r'(?:\?.*)?$'), conversations)
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c2/messages') + r'(?:\?.*)?$'), lambda route: route.fulfill(status=200, json=[]))
         await self.page.route(self.origin + '/api/chat/conversations/c2/runs', submit)
         await self.page.goto(self.origin + '/chat')
         await self.page.locator('.model-select').click()
@@ -244,7 +246,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             posts.append(route.request.post_data_json)
             await route.fulfill(status=409, json={'error': {'code': 'active_run', 'message': '已有运行中任务'}})
 
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c1/messages') + r'(?:\?.*)?$'), history)
         await self.page.route(self.origin + '/api/chat/conversations/c1/runs', submit)
         await self.page.goto(self.origin + '/chat')
         await self.select_conversation('恢复中会话')
@@ -310,18 +312,17 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
     async def test_model_code_copy_uses_public_platform_id(self):
         await self.context.grant_permissions(['clipboard-read', 'clipboard-write'])
         await self.page.goto(self.origin + '/models')
-        copy = self.page.get_by_role('button', name='复制模型代码', exact=True)
-        await expect(copy).to_be_visible()
-        await copy.click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
-        await self.page.set_viewport_size({'width': 375, 'height': 812})
-        await expect(copy).to_be_visible()
-        await copy.click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
-        await self.page.route(re.compile(re.escape(self.origin) + r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(status=200, json=[{**self.model, 'id': ''}]))
-        await self.page.get_by_role('button', name='刷新当前视图', exact=True).click()
-        await expect(copy).to_be_disabled()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.model['id'])
+        await expect(self.page.get_by_role('button', name='复制模型代码', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='查看模型详情：测试模型', exact=True).click()
+        detail = self.page.locator('.model-detail-modal[role="dialog"]')
+        copy = detail.get_by_role('button', name='复制模型代码', exact=True)
+        for viewport in [{'width': 1440, 'height': 900}, {'width': 375, 'height': 812}]:
+            await self.page.set_viewport_size(viewport)
+            await expect(copy).to_be_visible()
+            await copy.click()
+            self.assertEqual(await read_clipboard(self.page), self.model['id'])
+        await expect(detail).to_contain_text(self.model['id'])
+        await expect(detail.get_by_role('textbox')).to_have_count(0)
 
     async def test_mobile_model_and_usage_preserve_original_compact_views(self):
         await self.page.set_viewport_size({'width': 375, 'height': 812})
@@ -337,10 +338,10 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await expect(self.page.locator('.workspace-toolbar__subtitle')).to_have_count(0)
         await expect(self.page.locator('.panel-toolbar')).to_be_visible()
         await self.page.goto(self.origin + '/ai/usage')
-        await self.page.get_by_role('tab', name='历史 Token', exact=True).click()
-        await expect(self.page.locator('.usage-mobile-item')).to_have_count(1)
-        await expect(self.page.locator('.usage-mobile-item__meta')).to_contain_text('令牌 待核对 / 待核对')
-        await expect(self.page.locator('.usage-mobile-item__header')).to_contain_text('待核对')
+        await self.page.get_by_role('tab', name='Token 用量', exact=True).click()
+        await expect(self.page.locator('.token-mobile-records article')).to_have_count(1)
+        await expect(self.page.locator('.token-mobile-records article p')).to_contain_text('输入 待核对 / 输出 待核对 Token')
+        await expect(self.page.locator('.token-mobile-records article header')).to_contain_text('待核对')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
 
     async def test_mobile_navigation_drawer_tracks_viewport_resize(self):
@@ -358,19 +359,19 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         async def history(route):
             await route.fulfill(status=200, json=[{'id':'code-message','role':'assistant','content':content,'run_id':'done','created_at':'2026-10-23T00:00:00Z'}])
         await self.context.grant_permissions(['clipboard-read', 'clipboard-write'])
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c1/messages') + r'(?:\?.*)?$'), history)
         await self.page.goto(self.origin + '/chat')
         await self.select_conversation('恢复中会话')
         await expect(self.page.locator('.ai-message-content pre code span[style*="color"]')).not_to_have_count(0, timeout=10000)
         copy = self.page.locator('.ai-message-content').get_by_role('button', name='Copy', exact=True)
         await expect(copy).to_have_count(1)
         await copy.click()
-        self.assertEqual((await self.page.evaluate('navigator.clipboard.readText()')).strip(), 'print("hello")')
+        self.assertEqual((await read_clipboard(self.page)).strip(), 'print("hello")')
 
     async def test_assistant_markdown_renders_structure_and_filters_active_content(self):
         async def history(route):
             await route.fulfill(status=200, json=[{'id':'safe-message','role':'assistant','content':'**安全标题**\n\n[危险链接](javascript:alert(1))\n\n<script>window.markdownInjected = true</script>','run_id':'done','created_at':'2026-10-23T00:00:00Z'}])
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', history)
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c1/messages') + r'(?:\?.*)?$'), history)
         await self.page.goto(self.origin + '/chat')
         await self.select_conversation('恢复中会话')
         await expect(self.page.locator('.ai-message-content strong')).to_have_text('安全标题', timeout=2000)
@@ -523,7 +524,8 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             await expect(self.page.get_by_placeholder('账号', exact=True)).to_be_disabled()
             release.set()
             await expect(self.page).to_have_url(self.origin + '/chat')
-            self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), [{'username': 'admin', 'password': 'browser-test-password'}])
+            expected = [{'username': 'admin', 'password': 'browser-test-password'}] if await self.page.evaluate('isSecureContext') else []
+            self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), expected)
             self.assertNotIn('browser-test-password', await self.page.evaluate('JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.cookie'))
         finally:
             release.set()

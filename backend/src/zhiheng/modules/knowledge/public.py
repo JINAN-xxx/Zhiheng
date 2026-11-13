@@ -1,11 +1,3 @@
-from sqlalchemy import Table
-
-from zhiheng.infrastructure.database import Base
-from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK, SDKCall, SDKOutcome
-from zhiheng.modules.knowledge.adapters.lightrag.vector import GraphVectorManifest
-from zhiheng.modules.knowledge.adapters.milvus import MilvusStore, VectorSpec
-from zhiheng.modules.knowledge.adapters.milvus_rpc import VectorIOControl
-from zhiheng.modules.knowledge.adapters.native import NativeParser
 from zhiheng.modules.knowledge.build import BuildClaim, BuildStore
 from zhiheng.modules.knowledge.chunks import split_chunks, validate_vectors
 from zhiheng.modules.knowledge.contracts import (
@@ -13,6 +5,8 @@ from zhiheng.modules.knowledge.contracts import (
     NATIVE_FORMATS,
     PARSER_VERSION,
     PREPARATION_TERMINAL,
+    AttachmentImport,
+    AttachmentImportInfo,
     BaseAccess,
     BaseAcl,
     BaseAclInfo,
@@ -31,13 +25,18 @@ from zhiheng.modules.knowledge.contracts import (
     Input,
     JobInfo,
     JobRequest,
+    KnowledgeSettings,
+    MigrationRequest,
     ParsePort,
     ParseResult,
     PreparationInfo,
     QueryRequest,
     RechunkRequest,
+    UnavailableBaseInfo,
     Version,
 )
+from zhiheng.modules.knowledge.control import VectorIOControl
+from zhiheng.modules.knowledge.defaults import KnowledgeDefaultsInfo, KnowledgeDefaultsPatch, KnowledgeDefaultsService
 from zhiheng.modules.knowledge.generations import GenerationStore
 from zhiheng.modules.knowledge.graph.contracts import (
     GraphBuildRequest,
@@ -55,33 +54,32 @@ from zhiheng.modules.knowledge.graph.contracts import (
     GraphProgress,
     GraphQueryRequest,
     GraphQueryResult,
+    GraphSDKCall,
+    GraphSDKOutcome,
     GraphSource,
     GraphSubgraph,
     GraphSubgraphRequest,
+    GraphVectorManifest,
 )
-from zhiheng.modules.knowledge.graph.orm import (
-    GraphAttempt,
-    GraphConfiguration,
-    GraphGeneration,
-    GraphJob,
-    GraphPin,
-    GraphStep,
-)
+from zhiheng.modules.knowledge.graph.ports import GraphPort
 from zhiheng.modules.knowledge.graph.service import GraphService
 from zhiheng.modules.knowledge.graph.store import GraphClaim, GraphStore
-from zhiheng.modules.knowledge.orm import (
-    GenerationPin,
-    IndexGeneration,
-    KnowledgeBase,
-    KnowledgeChunk,
-    KnowledgeDocument,
-    KnowledgeFolder,
-    KnowledgeGrant,
-    KnowledgeJob,
-    KnowledgeStep,
-    KnowledgeUpload,
-    RetrievalIntent,
+from zhiheng.modules.knowledge.parsing import ParsingSettingsService, ParsingStore
+from zhiheng.modules.knowledge.parsing_contracts import (
+    PARSE_TERMINAL,
+    DocumentSourceValidator,
+    MinerUClientFactory,
+    MinerUClientPort,
+    MinerUFailure,
+    MinerUResultDecoder,
+    ParsingClaim,
+    ParsingPending,
+    ParsingServiceStatus,
+    ParsingSettingsInfo,
+    ParsingSettingsPatch,
+    ParsingStatusInfo,
 )
+from zhiheng.modules.knowledge.ranking import FINAL_HITS, PER_BASE_CANDIDATES, balance_candidates, rank_candidates
 from zhiheng.modules.knowledge.retrieval import (
     PreparedKnowledge,
     RetrievalAdmission,
@@ -90,12 +88,29 @@ from zhiheng.modules.knowledge.retrieval import (
     RetrievalStore,
 )
 from zhiheng.modules.knowledge.service import BuildSelection, KnowledgeService, binding_fingerprint, fingerprint
+from zhiheng.modules.knowledge.sharing import (
+    CreatedInvitation,
+    InvitationAccepted,
+    InvitationCreate,
+    InvitationInfo,
+    InvitationPreview,
+    InvitationToken,
+    KnowledgeSharing,
+    MemberRemoval,
+    SharingMember,
+)
+from zhiheng.modules.knowledge.vector import VectorPort, VectorSpec
 
 __all__ = [
+    'FINAL_HITS',
     'JOB_TERMINAL',
     'NATIVE_FORMATS',
     'PARSER_VERSION',
+    'PARSE_TERMINAL',
+    'PER_BASE_CANDIDATES',
     'PREPARATION_TERMINAL',
+    'AttachmentImport',
+    'AttachmentImportInfo',
     'BaseAccess',
     'BaseAcl',
     'BaseAclInfo',
@@ -106,10 +121,12 @@ __all__ = [
     'BuildSelection',
     'BuildStore',
     'ChunkParameters',
+    'CreatedInvitation',
     'DocumentImport',
     'DocumentInfo',
     'DocumentPage',
     'DocumentResult',
+    'DocumentSourceValidator',
     'FolderCreate',
     'FolderInfo',
     'FolderPatch',
@@ -126,11 +143,13 @@ __all__ = [
     'GraphModelRole',
     'GraphNode',
     'GraphOperation',
+    'GraphPort',
     'GraphPreviewRequest',
     'GraphProgress',
     'GraphQueryRequest',
     'GraphQueryResult',
-    'GraphSDK',
+    'GraphSDKCall',
+    'GraphSDKOutcome',
     'GraphService',
     'GraphSource',
     'GraphStore',
@@ -139,13 +158,35 @@ __all__ = [
     'GraphVectorManifest',
     'Hit',
     'Input',
+    'InvitationAccepted',
+    'InvitationCreate',
+    'InvitationInfo',
+    'InvitationPreview',
+    'InvitationToken',
     'JobInfo',
     'JobRequest',
+    'KnowledgeDefaultsInfo',
+    'KnowledgeDefaultsPatch',
+    'KnowledgeDefaultsService',
     'KnowledgeService',
-    'MilvusStore',
-    'NativeParser',
+    'KnowledgeSettings',
+    'KnowledgeSharing',
+    'MemberRemoval',
+    'MigrationRequest',
+    'MinerUClientFactory',
+    'MinerUClientPort',
+    'MinerUFailure',
+    'MinerUResultDecoder',
     'ParsePort',
     'ParseResult',
+    'ParsingClaim',
+    'ParsingPending',
+    'ParsingServiceStatus',
+    'ParsingSettingsInfo',
+    'ParsingSettingsPatch',
+    'ParsingSettingsService',
+    'ParsingStatusInfo',
+    'ParsingStore',
     'PreparationInfo',
     'PreparedKnowledge',
     'QueryRequest',
@@ -154,39 +195,16 @@ __all__ = [
     'RetrievalBase',
     'RetrievalState',
     'RetrievalStore',
-    'SDKCall',
-    'SDKOutcome',
+    'SharingMember',
+    'UnavailableBaseInfo',
     'VectorIOControl',
+    'VectorPort',
     'VectorSpec',
     'Version',
+    'balance_candidates',
     'binding_fingerprint',
     'fingerprint',
-    'schema_tables',
+    'rank_candidates',
     'split_chunks',
     'validate_vectors',
 ]
-
-
-def schema_tables() -> tuple[Table, ...]:
-    return tuple(
-        Base.metadata.tables[model.__tablename__]
-        for model in (
-            GraphConfiguration,
-            GraphJob,
-            GraphAttempt,
-            GraphGeneration,
-            GraphStep,
-            GraphPin,
-            KnowledgeBase,
-            KnowledgeGrant,
-            KnowledgeFolder,
-            KnowledgeUpload,
-            KnowledgeDocument,
-            IndexGeneration,
-            KnowledgeChunk,
-            KnowledgeJob,
-            RetrievalIntent,
-            KnowledgeStep,
-            GenerationPin,
-        )
-    )

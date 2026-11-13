@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { Alert as AAlert, Button as AButton, Tag as ATag } from 'ant-design-vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
+import { inject, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Alert as AAlert, Tag as ATag } from 'ant-design-vue'
+import { adminReadCacheKey } from '../readCache.ts'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { RequestScope, errorMessage, isAborted } from '../../../shared/http.ts'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
 import WorkspacePanel from '../../../shared/components/WorkspacePanel.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { getMonitor } from '../api/monitor.ts'
 import type { Monitor } from '../api/monitor.ts'
-const data = ref<Monitor | null>(null),
+const readCache = inject(adminReadCacheKey, null)
+const saved = readCache?.getResource<{ data: Monitor; collectedAt: string }>('monitor')
+const data = ref<Monitor | null>(saved?.value.data ?? null),
   loading = ref(false),
   error = ref(''),
-  collectedAt = ref('')
+  collectedAt = ref(saved?.value.collectedAt ?? '')
 const scope = new RequestScope()
 async function load(): Promise<void> {
+  const stamp = readCache?.stamp()
   const ticket = scope.replace()
   loading.value = true
   error.value = ''
@@ -22,6 +26,8 @@ async function load(): Promise<void> {
     if (ticket.isCurrent()) {
       data.value = result
       collectedAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
+      if (stamp)
+        readCache?.setResource('monitor', { data: result, collectedAt: collectedAt.value }, stamp)
     }
   } catch (failure) {
     if (ticket.isCurrent() && !isAborted(failure)) error.value = errorMessage(failure)
@@ -38,7 +44,9 @@ function bytes(value: number | null): string {
 }
 const measure = (value: string | number | null, suffix = ''): string =>
   value === null ? '不可用' : `${value}${suffix}`
-onMounted(load)
+onMounted(() => {
+  if (!readCache?.isFresh(saved)) void load()
+})
 onBeforeUnmount(() => scope.dispose())
 </script>
 <template>
@@ -47,11 +55,8 @@ onBeforeUnmount(() => scope.dispose())
       title="系统状态"
       :subtitle="collectedAt ? '采集时间：' + collectedAt : '查看平台及基础服务当前状态'"
       ><template #actions
-        ><AButton :loading="loading" @click="load"
-          ><ReloadOutlined aria-hidden="true" />刷新</AButton
-        ></template
-      ></WorkspaceToolbar
-    >
+        ><RefreshButton label="刷新系统状态" :loading="loading" @click="load" /></template
+    ></WorkspaceToolbar>
     <div class="admin-page__body">
       <AAlert v-if="error" :message="error" type="error" show-icon /><WorkspaceState
         v-if="loading && !data"

@@ -44,7 +44,11 @@ class FileJobs:
 
     async def _purge_native(self, principal: Principal, file_id: UUID, expected_version: int) -> FileInfo:
         async with self._transaction() as session:
-            row = await self._files._require(session, principal, file_id, manage=True, lock=True)
+            if self._attempt_id is not None:
+                principal.require_permission('ai:storage:delete')
+                row = await self._maintenance_source(session, file_id)
+            else:
+                row = await self._files._require(session, principal, file_id, manage=True, lock=True)
             if row.status == 'purged':
                 return await self._files.info(session, row)
             if row.version != expected_version:
@@ -90,7 +94,7 @@ class FileJobs:
             return await self._files.info(session, row)
 
     async def run(self, principal: Principal, kind: JobKind) -> JobInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:maintain')
         job_id = uuid4()
         async with self._sessions() as guard:
             connection = await guard.connection()
@@ -200,7 +204,18 @@ class FileJobs:
             policy = await self._files.policy(session, principal)
             if kind == 'expiry':
                 query = select(FileRecord).where(
-                    FileRecord.status == 'active', FileRecord.expires_at <= now, FileRecord.source_file_id.is_(None)
+                    FileRecord.status == 'active',
+                    FileRecord.expires_at <= now,
+                    FileRecord.source_file_id.is_(None),
+                    or_(
+                        FileRecord.purpose != 'chat_attachment',
+                        ~select(FileReference.id)
+                        .where(
+                            FileReference.file_id == FileRecord.id,
+                            or_(FileReference.retain_until.is_(None), FileReference.retain_until > now),
+                        )
+                        .exists(),
+                    ),
                 )
             elif kind == 'reminders':
                 query = select(FileRecord).where(
@@ -352,7 +367,7 @@ class FileJobs:
         return 0
 
     async def issue_action(self, principal: Principal, issue_id: UUID, body: IssueAction) -> ReconcileIssueInfo:
-        principal.require_permission('ai:storage:write')
+        principal.require_permission('ai:storage:maintain')
         async with self._transaction() as session:
             await self._lock_issue_maintenance(session)
             issue = await session.scalar(
@@ -364,9 +379,10 @@ class FileJobs:
                 issue.status != 'open' and not (issue.status == 'quarantined' and body.action == 'repair')
             ):
                 raise AppError('file_version_conflict', '对账问题已被处理', 409)
+            await self._require_issue_owner(session, issue, body)
             if body.action == 'ignore':
                 issue.status = 'ignored'
-            elif body.action in {'register', 'quarantine'} and issue.kind == 'orphan':
+            elif body.action == 'quarantine' and issue.kind == 'orphan':
                 # Object must still be orphaned; client cannot select a storage path/key.
                 if (
                     await session.scalar(select(FileRecord.id).where(FileRecord.storage_key == issue.storage_key))
@@ -384,11 +400,8 @@ class FileJobs:
                 issue.file_id = info.id
                 row = await session.get(FileRecord, info.id)
                 assert row is not None
-                if body.action == 'quarantine':
-                    row.storage_status = 'quarantined'
-                    issue.status = 'quarantined'
-                else:
-                    issue.status = 'resolved'
+                row.storage_status = 'quarantined'
+                issue.status = 'quarantined'
                 self._files.audit(session, row.id, principal.id, 'reconcile_' + body.action, {'reason': body.reason})
             elif issue.file_id is not None and body.action in {'repair', 'quarantine'}:
                 row = await self._maintenance_record(session, principal, issue.file_id)
@@ -410,17 +423,48 @@ class FileJobs:
             await session.flush()
             return ReconcileIssueInfo.model_validate(issue)
 
+    @staticmethod
+    async def _require_issue_owner(session: AsyncSession, issue: FileReconcileIssue, body: IssueAction) -> None:
+        unconfirmed = issue.kind == 'orphan' and body.action in {'register', 'repair'}
+        if not unconfirmed and body.action == 'repair' and issue.file_id is not None:
+            unconfirmed = (
+                await session.scalar(
+                    select(FileReconcileIssue.id)
+                    .where(
+                        FileReconcileIssue.file_id == issue.file_id,
+                        FileReconcileIssue.kind == 'orphan',
+                        FileReconcileIssue.status == 'quarantined',
+                    )
+                    .limit(1)
+                )
+            ) is not None
+        if unconfirmed:
+            raise AppError('orphan_owner_unconfirmed', '孤立对象尚未确认原所有者，目前仅支持隔离', 409)
+
+    @staticmethod
+    async def _maintenance_source(session: AsyncSession, file_id: UUID) -> FileRecord:
+        row = await session.scalar(
+            select(FileRecord)
+            .where(FileRecord.id == file_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None or row.source_file_id is not None:
+            raise AppError('file_not_found', '文件不存在', 404)
+        return row
+
     async def _maintenance_record(self, session: AsyncSession, principal: Principal, file_id: UUID) -> FileRecord:
+        principal.require_permission('ai:storage:maintain')
         record = await session.get(FileRecord, file_id)
         if record is None:
             raise AppError('file_not_found', '文件不存在', 404)
         if record.source_file_id is None:
-            source_record = await self._files._require(session, principal, file_id, manage=True, lock=True)
+            source_record = await self._maintenance_source(session, file_id)
             if source_record.status in {'purging', 'purged'}:
                 raise AppError('file_not_mutable', '文件正在清理或已清理', 409)
             return source_record
         # Maintenance inherits current source management authority and follows purge's source→artifact lock order.
-        source = await self._files._require(session, principal, record.source_file_id, manage=True, lock=True)
+        source = await self._maintenance_source(session, record.source_file_id)
         if source.status in {'purging', 'purged'}:
             raise AppError('file_not_mutable', '原文件正在清理或已清理', 409)
         artifact = await session.scalar(

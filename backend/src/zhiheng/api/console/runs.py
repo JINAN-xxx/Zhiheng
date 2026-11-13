@@ -19,7 +19,7 @@ async def run_snapshot(
     run_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> RunSnapshot:
     value = await container.runs.snapshot(session, run_id, principal.id)
-    await container.graph_runs.authorize_read(session, principal, value)
+    await container.run_content.authorize_read(session, principal, value)
     return value
 
 
@@ -29,7 +29,7 @@ async def cancel_run(
 ) -> RunSnapshot:
     async with session.begin():
         value = await container.runs.snapshot(session, run_id, principal.id)
-        await container.graph_runs.authorize_read(session, principal, value)
+        await container.run_content.authorize_read(session, principal, value)
         return await container.admission.cancel(session, principal, run_id)
 
 
@@ -39,7 +39,7 @@ async def events(
 ) -> StreamingResponse:
     async with container.database.sessions() as session:
         initial = await container.runs.snapshot(session, run_id, principal.id)
-        await container.graph_runs.authorize_read(session, principal, initial)
+        await container.run_content.authorize_read(session, principal, initial)
 
     async def snapshots() -> AsyncIterator[str]:
         revision = -1
@@ -51,7 +51,7 @@ async def events(
                         session, request.cookies.get(COOKIE_NAME), lock=True
                     )
                     value = await container.runs.snapshot(session, run_id, current.id)
-                    await container.graph_runs.authorize_read(session, current, value)
+                    await container.run_content.authorize_read(session, current, value)
             except AppError as exc:
                 if exc.code == 'unauthenticated' or exc.status_code in {403, 404, 409}:
                     return

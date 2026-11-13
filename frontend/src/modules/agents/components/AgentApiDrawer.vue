@@ -14,8 +14,7 @@
     <WorkspaceState v-if="!access" kind="empty" title="暂无已发布配置" />
     <template v-else>
       <div class="api-published">
-        <a-tag color="green">已发布 v{{ agent?.publishedVersion }}</a-tag
-        ><span>应用 {{ access.applicationId }}</span>
+        <a-tag color="green">已发布</a-tag><span>应用 {{ access.applicationId }}</span>
       </div>
       <section class="api-section">
         <div class="api-section__heading">
@@ -43,7 +42,7 @@
         </p>
         <template v-if="publishedKnowledgeIds.length">
           <p class="api-contract">
-            知识检索需要同时授权向量模型，并计入此密钥的配额与用量。每次请求提供稳定的
+            知识检索需要同时授权向量和重排模型，并计入此密钥的配额与用量。每次请求提供稳定的
             client_request_id；重试使用相同标识。
           </p>
           <p class="api-contract">
@@ -57,10 +56,7 @@
       <section class="api-section">
         <div class="api-section__heading">
           <h3>应用访问密钥</h3>
-          <a-tooltip title="刷新密钥"
-            ><a-button type="text" :loading="loading" aria-label="刷新密钥" @click="loadKeys"
-              ><template #icon><ReloadOutlined /></template></a-button
-          ></a-tooltip>
+          <RefreshButton label="刷新密钥" :loading="loading" @click="loadKeys" />
         </div>
         <a-alert v-if="error" class="api-alert" type="error" :message="error" show-icon />
         <a-form class="api-key-form" :model="keyForm" layout="vertical" @finish="createKey">
@@ -117,6 +113,8 @@
                   {{
                     publishedKnowledgeIds.length ? '已授权全部所需模型' : '已授权此模型'
                   }}</template
+                ><template v-else-if="requirementsReady">
+                  · 模型授权不完整，请创建新密钥</template
                 ></span
               >
             </div>
@@ -142,7 +140,9 @@
 </template>
 
 <script setup lang="ts">
-import { monthlyPointsLimit } from '../../billing/presentation.ts'
+import { copyText } from '../../../shared/clipboard.ts'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
+import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
@@ -156,13 +156,7 @@ import {
   Tooltip as ATooltip,
   message
 } from 'ant-design-vue'
-import {
-  CloseOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-  KeyOutlined,
-  ReloadOutlined
-} from '@ant-design/icons-vue'
+import { CloseOutlined, CopyOutlined, DeleteOutlined, KeyOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
@@ -174,7 +168,7 @@ import {
 import type { DeveloperKey, IssuedKey } from '../../developer/public.ts'
 import type { Agent } from '../api/index.ts'
 import { getPublishedAgentAccess } from '../presentation.ts'
-import { availableBases } from '../../knowledge/public.ts'
+import { getAgentApiAccess } from '../api/index.ts'
 const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const access = computed(() => getPublishedAgentAccess(props.agent))
@@ -216,18 +210,16 @@ async function loadKeys(): Promise<void> {
   requirementsReady.value = false
   error.value = ''
   try {
-    const [result, bases] = await Promise.all([
+    const [result, requirements] = await Promise.all([
       listDeveloperKeys(binding.applicationId, context.signal),
-      publishedKnowledgeIds.value.length
-        ? availableBases(context.signal, props.agent?.agentId)
-        : Promise.resolve([])
+      getAgentApiAccess(props.agent!.agentId, context.signal)
     ])
-    const required = [binding.modelId]
-    for (const id of publishedKnowledgeIds.value) {
-      const base = bases.find((base) => base.id === id)
-      if (!base) throw new Error('已发布知识库不可用，请检查配置后再创建密钥')
-      required.push(base.embed_model_id)
-    }
+    if (
+      requirements.applicationId !== binding.applicationId ||
+      requirements.publishedVersion !== props.agent?.publishedVersion
+    )
+      throw new Error('发布配置已变化，请刷新智能体后重试')
+    const required = requirements.modelIds
     if (context.isCurrent()) {
       keys.value = result
       requiredModelIds.value = [...new Set(required)]
@@ -262,6 +254,17 @@ async function createKey(): Promise<void> {
   creating.value = true
   error.value = ''
   try {
+    const latest = await getAgentApiAccess(props.agent!.agentId, context.signal)
+    if (!context.isCurrent()) return
+    if (
+      latest.applicationId !== binding.applicationId ||
+      latest.publishedVersion !== props.agent?.publishedVersion
+    )
+      throw new Error('发布配置已变化，请刷新智能体后重试')
+    if (JSON.stringify(latest.modelIds) !== JSON.stringify(requiredModelIds.value)) {
+      requiredModelIds.value = latest.modelIds
+      throw new Error('所需模型已变化，请核对上方授权要求后再次创建密钥')
+    }
     const result = await createDeveloperKey(
       binding.applicationId,
       {
@@ -307,7 +310,7 @@ async function revoke(item: DeveloperKey): Promise<void> {
 }
 async function copy(value: string): Promise<void> {
   try {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     void message.success('已复制')
   } catch {
     void message.error('复制失败')

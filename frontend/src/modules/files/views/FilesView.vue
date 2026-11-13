@@ -1,6 +1,7 @@
 <!-- Adapted from original system/file/index.vue, MIT licensed. -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
+import { inject, computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
@@ -22,10 +23,10 @@ import {
   FilterOutlined,
   LockOutlined,
   PartitionOutlined,
-  ReloadOutlined,
   RollbackOutlined,
   SwapOutlined
 } from '@ant-design/icons-vue'
+import { adminReadCacheKey } from '../../admin/public.ts'
 import WorkspacePage from '../../../shared/components/WorkspacePage.vue'
 import { hasAnyPermission, identity } from '../../identity/public.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
@@ -55,17 +56,31 @@ import { canManageFile } from '../access.ts'
 const canReadStorage = computed(() =>
   hasAnyPermission(identity.value, 'ai:storage:read', 'ai:storage:write')
 )
-const canWriteStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:write'))
-const queryParams = ref(emptyQuery()),
-  dateRange = ref<[string, string] | null>(null),
-  showSearch = ref(false),
-  showStatistics = ref(false)
-const files = ref<ManagedFile[]>([]),
-  stats = ref<FileStats | null>(null),
-  users = ref<FileUser[]>([]),
+interface StorageReadState {
+  query: ReturnType<typeof emptyQuery>
+  dates: [string, string] | null
+  showSearch: boolean
+  showStatistics: boolean
+  files: ManagedFile[]
+  stats: FileStats | null
+  users: FileUser[]
+  usersReady: boolean
+  total: number
+  hasData: boolean
+}
+const readCache = inject(adminReadCacheKey, null)
+const savedStorage = readCache?.getResource<StorageReadState>('storage-view')
+const saved = savedStorage?.value
+const queryParams = ref(saved?.query ?? emptyQuery()),
+  dateRange = ref<[string, string] | null>(saved?.dates ?? null),
+  showSearch = ref(saved?.showSearch ?? false),
+  showStatistics = ref(saved?.showStatistics ?? false)
+const files = ref<ManagedFile[]>(saved?.hasData ? saved.files : []),
+  stats = ref<FileStats | null>(saved?.hasData ? saved.stats : null),
+  users = ref<FileUser[]>(saved?.users ?? []),
   selected = ref<ManagedFile[]>([])
-const total = ref(0),
-  loading = ref(false),
+const total = ref(saved?.hasData ? saved.total : 0),
+  loading = ref(!saved?.hasData),
   error = ref(''),
   busyIds = ref<string[]>([]),
   notice = ref('')
@@ -91,8 +106,43 @@ const hasActiveSelection = computed(
   () => selected.value.length > 0 && activeSelected.value.length === selected.value.length
 )
 const mutationBusy = computed(() => busyIds.value.length > 0)
+let loadedStorage = saved?.hasData ?? false,
+  usersReady = saved?.usersReady ?? false,
+  loadedAt = savedStorage?.capturedAt ?? 0
+let storageStamp = readCache?.stamp()
+const storageQuery = () =>
+  JSON.stringify({
+    ...queryParams.value,
+    createdFrom: dateRange.value?.[0] ?? '',
+    createdTo: dateRange.value?.[1] ?? ''
+  })
+let loadedQuery = loadedStorage ? storageQuery() : ''
+function rememberStorage(): void {
+  if (!readCache || !storageStamp) return
+  const valid = loadedStorage && loadedQuery === storageQuery()
+  readCache.setResource(
+    'storage-view',
+    {
+      query: queryParams.value,
+      dates: dateRange.value,
+      showSearch: showSearch.value,
+      showStatistics: showStatistics.value,
+      files: valid ? files.value : [],
+      stats: valid ? stats.value : null,
+      users: users.value,
+      usersReady,
+      total: valid ? total.value : 0,
+      hasData: valid
+    },
+    storageStamp,
+    valid ? loadedAt : 0
+  )
+}
+
 async function load(): Promise<void> {
   const context = scope.replace()
+  const stamp = readCache?.stamp(),
+    queryKey = storageQuery()
   loading.value = true
   error.value = ''
   const query = {
@@ -109,6 +159,11 @@ async function load(): Promise<void> {
       files.value = page.rows
       total.value = page.total
       stats.value = counts
+      loadedStorage = true
+      loadedQuery = queryKey
+      loadedAt = Date.now()
+      storageStamp = stamp
+      rememberStorage()
       const ids = new Set(selected.value.map((file) => file.fileId))
       selected.value = page.rows.filter(
         (file) =>
@@ -126,6 +181,7 @@ async function load(): Promise<void> {
         total.value = 0
         selected.value = []
       }
+      loadedAt = 0
       error.value = errorMessage(reason)
     }
   } finally {
@@ -195,6 +251,7 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
       !context.isCurrent()
     )
       return
+    readCache?.invalidate()
     for (const file of targets) {
       await changeFileState(file, action, context.signal)
       if (!context.isCurrent()) return
@@ -214,28 +271,36 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
   }
 }
 onMounted(() => {
-  void load()
+  if (!saved?.hasData || !readCache?.isFresh(savedStorage)) void load()
+  if (usersReady && readCache?.isFresh(savedStorage)) return
   const context = userScope.replace()
   void findFileUsers('', context.signal)
     .then((values) => {
-      if (context.isCurrent()) users.value = values
+      if (context.isCurrent()) {
+        users.value = values
+        usersReady = true
+      }
     })
     .catch((reason: unknown) => {
-      if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        if (reason instanceof ApiError && [401, 403, 404].includes(reason.status)) {
+          users.value = []
+          usersReady = false
+          readCache?.removeResource('storage-view')
+        }
+        error.value = errorMessage(reason)
+      }
     })
 })
 onBeforeUnmount(() => {
+  rememberStorage()
   scope.dispose()
   writes.dispose()
   userScope.dispose()
 })
 </script>
 <template>
-  <WorkspacePage
-    title="存储管理"
-    subtitle="管理知识文档与对话附件的存储、权限及保留规则"
-    class="files-page"
-  >
+  <WorkspacePage title="存储管理" subtitle="管理可访问文件与平台保留规则" class="files-page">
     <template #actions>
       <a-button aria-label="返回知识库" @click="router.push('/knowledge')"
         ><ArrowLeftOutlined />返回知识库</a-button
@@ -286,7 +351,7 @@ onBeforeUnmount(() => {
     <section class="file-resources" aria-label="文件资源">
       <div class="file-resources__heading">
         <div class="file-resources__overview">
-          <h2>{{ queryParams.status === 'deleted' ? '回收站' : '文件列表' }}</h2>
+          <h2>{{ queryParams.status === 'deleted' ? '回收站' : '可访问文件' }}</h2>
           <div v-if="stats" role="region" aria-label="当前查询概览" class="file-summary">
             当前查询 {{ total }} 个文件 · {{ formatFileSize(stats.totalSize) }}
           </div>
@@ -299,10 +364,7 @@ onBeforeUnmount(() => {
               @click="showSearch = !showSearch"
               ><FilterOutlined />高级筛选</a-button
             ></a-tooltip
-          ><a-tooltip title="刷新"
-            ><a-button aria-label="刷新文件" :loading="loading" @click="load"
-              ><ReloadOutlined /></a-button
-          ></a-tooltip>
+          ><RefreshButton label="刷新文件" :loading="loading" @click="load" />
         </div>
       </div>
       <div class="file-view-tabs" role="tablist" aria-label="文件视图">
@@ -442,16 +504,16 @@ onBeforeUnmount(() => {
     /><FileRetentionPolicyDrawer
       ref="policy"
       :can-read="canReadStorage"
-      :can-write="canWriteStorage"
+      :can-write="hasAnyPermission(identity, 'ai:storage:configure')"
     /><FileRetentionReminderDrawer
       ref="reminders"
       :users="users"
-      :can-run-jobs="canWriteStorage"
+      :can-run-jobs="hasAnyPermission(identity, 'ai:storage:maintain')"
       @refresh="load"
     /><FileReconcileDrawer
       ref="reconcile"
       :can-read="canReadStorage"
-      :can-write="canWriteStorage"
+      :can-write="hasAnyPermission(identity, 'ai:storage:maintain')"
       @refresh="load"
     />
   </WorkspacePage>

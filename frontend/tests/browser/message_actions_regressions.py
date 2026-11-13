@@ -1,4 +1,5 @@
 """Message actions through the real Vue UI with controlled HTTP/browser boundaries."""
+from browser_clipboard import read_clipboard
 import asyncio
 import contextlib
 import copy
@@ -171,7 +172,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='赞同', exact=True).click()
-            await requested.wait()
+            await asyncio.wait_for(requested.wait(), timeout=10)
             await self.page.get_by_role('button', name='不赞同', exact=True).dispatch_event('click')
             self.assertEqual(len(self.feedback_calls), 1)
             await self.select_conversation('另一会话')
@@ -208,13 +209,13 @@ class MessageActionsRegressions(DeveloperBoundary):
             await release.wait()
             with contextlib.suppress(Exception):
                 await route.fulfill(json=snapshot)
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages', delayed_history)
+        await self.page.route(re.compile(re.escape(self.origin + '/api/chat/conversations/c1/messages') + r'(?:\?.*)?$'), delayed_history)
         self.run.update(status='running', text='正在生成新的回复', revision=2)
         await self.page.route(self.origin + '/api/runs/regen-run/events', lambda route: route.fulfill(content_type='text/plain', body='broken stream'))
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='重新生成', exact=True).click()
-            await requested.wait()
+            await asyncio.wait_for(requested.wait(), timeout=10)
             up = self.page.get_by_role('button', name='赞同', exact=True)
             await up.click()
             await expect(up).to_have_attribute('aria-pressed', 'true')
@@ -278,7 +279,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         await expect(dialog.get_by_text(self.origin + '/share/fixture-share-token', exact=True)).to_be_visible()
         self.assertEqual(self.share_calls, [{'include_question': False, 'expires_in_days': 7, 'expected_content_hash': 'answer-only'}])
         await dialog.get_by_role('button', name='复制分享链接', exact=True).click()
-        self.assertEqual(await self.page.evaluate('navigator.clipboard.readText()'), self.origin + '/share/fixture-share-token')
+        self.assertEqual(await read_clipboard(self.page), self.origin + '/share/fixture-share-token')
         storage = await self.page.evaluate('JSON.stringify({local:{...localStorage},session:{...sessionStorage}})')
         self.assertNotIn('fixture-share-token', storage)
         await dialog.get_by_role('button', name='撤销分享', exact=True).click()
@@ -334,7 +335,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         try:
             await self.open_chat()
             await self.page.get_by_role('button', name='分享', exact=True).click()
-            await requested.wait()
+            await asyncio.wait_for(requested.wait(), timeout=10)
             dialog = self.page.get_by_role('dialog')
             await expect(dialog.get_by_text('原回复', exact=True)).to_be_visible()
             await dialog.get_by_role('button', name='创建分享链接', exact=True).click()
@@ -416,7 +417,7 @@ class MessageActionsRegressions(DeveloperBoundary):
             dialog = self.page.get_by_role('dialog')
             await expect(dialog.get_by_text('原回复', exact=True)).to_be_visible()
             await dialog.get_by_role('button', name='创建分享链接', exact=True).click()
-            await requested.wait()
+            await asyncio.wait_for(requested.wait(), timeout=10)
             await dialog.get_by_role('button', name='Close', exact=True).click()
             release.set()
             await self.page.wait_for_timeout(150)

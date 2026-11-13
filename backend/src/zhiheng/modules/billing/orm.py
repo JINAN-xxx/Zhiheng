@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -12,7 +13,6 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
-    Table,
     UniqueConstraint,
     Uuid,
 )
@@ -146,16 +146,55 @@ class CreditLedger(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-def schema_tables() -> tuple[Table, ...]:
-    return tuple(
-        Base.metadata.tables[model.__tablename__]
-        for model in (
-            CreditAccount,
-            CreditControl,
-            CreditRate,
-            CreditCommand,
-            CreditKeyMonth,
-            CreditHold,
-            CreditLedger,
-        )
-    )
+class UsageAccount(Base):
+    __tablename__ = 'developer_accounts'
+    quota_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
+    __table_args__ = (CheckConstraint('used_tokens >= 0 AND reserved_tokens >= 0 AND limit_tokens > 0'),)
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
+    limit_tokens: Mapped[int] = mapped_column(BigInteger)
+    used_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+    reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class Invocation(Base):
+    __tablename__ = 'developer_invocations'
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default='1')
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(Uuid, unique=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), index=True)
+    model_id: Mapped[UUID] = mapped_column(ForeignKey('models.id'))
+    source: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(16), default='pending')
+    reserved_tokens: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    charged_tokens: Mapped[int | None] = mapped_column(Integer)
+    application_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_applications.id'), index=True)
+    key_id: Mapped[UUID | None] = mapped_column(ForeignKey('developer_keys.id'), index=True)
+    operation: Mapped[str] = mapped_column(String(16), default='chat')
+    points_enforced: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')
+    rate_card_id: Mapped[UUID | None] = mapped_column(ForeignKey('model_rate_cards.id'))
+    rate_version: Mapped[int | None] = mapped_column(Integer)
+    rate_snapshot: Mapped[dict[str, str] | None] = mapped_column(JSONB)
+    currency: Mapped[str | None] = mapped_column(String(3))
+    reserved_cost: Mapped[Decimal | None] = mapped_column(Numeric(30, 12))
+    billable_cost: Mapped[Decimal | None] = mapped_column(Numeric(30, 12))
+    search_units: Mapped[int | None] = mapped_column(Integer)
+    cache_tokens: Mapped[int | None] = mapped_column(Integer)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer)
+    quota_minute: Mapped[int | None] = mapped_column(Integer)
+    quota_month: Mapped[str | None] = mapped_column(String(7))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TokenCommand(Base):
+    __tablename__ = 'billing_token_commands'
+    actor_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(32), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(String(1000))
+    result: Mapped[dict[str, object]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

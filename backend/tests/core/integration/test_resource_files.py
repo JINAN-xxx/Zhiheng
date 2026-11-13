@@ -12,7 +12,8 @@ from sqlalchemy import func, select
 
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_requests import setup_access, upload
-from zhiheng.modules.developer.orm import APIRequest, Invocation, KeyMinuteBucket
+from zhiheng.modules.billing.orm import Invocation
+from zhiheng.modules.developer.orm import APIRequest, KeyMinuteBucket
 from zhiheng.modules.files.orm import FileRecord
 from zhiheng.shared.time import utcnow
 
@@ -295,6 +296,9 @@ async def test_content_io_has_no_file_locks_and_rechecks_acl(
 
 
 async def test_cursor_acl_revoked_rows_do_not_consume_page_slots(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    from tests.core.integration.test_permission_tree import allow
+
+    await allow(app, 'developer', 'create', 'key_create', 'invoke', 'grant')
     c = app.state.container
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         assert (
@@ -543,28 +547,36 @@ async def test_explicit_artifact_list_get_and_current_source_acl_before_limit(
         },
     )
     assert transferred.status_code == 200, transferred.text
-    shared = await admin.patch(
-        '/api/files/' + source['id'] + '/acl',
-        json={
-            'expected_version': transferred.json()['acl_version'],
-            'access': 'private',
-            'entries': [{'user_id': str(caller.principal.id), 'effect': 'allow'}],
-        },
-    )
-    assert shared.status_code == 200, shared.text
-    await bind_artifact()
-    first = await admin.get('/api/v1/files?limit=1', headers=auth(key))
-    assert [item['id'] for item in first.json()['items']] == [str(artifact_id)]
-    assert (await admin.get(artifact_url, headers=auth(key))).status_code == 200
-    revoked = await admin.patch(
-        '/api/files/' + source['id'] + '/acl',
-        json={'expected_version': shared.json()['file']['acl_version'], 'access': 'private', 'entries': []},
-    )
-    assert revoked.status_code == 200, revoked.text
-    envelope(await admin.get(artifact_url, headers=auth(key)), 404)
-    page = await admin.get('/api/v1/files?limit=1', headers=auth(key))
-    assert [item['id'] for item in page.json()['items']] == [other['id']]
-    assert not page.json()['has_more']
+    from tests.core.integration.test_permission_tree import allow
+
+    await allow(app, 'ai:storage', 'acl')
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as source_owner:
+        login = await source_owner.post(
+            '/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'}
+        )
+        assert login.status_code == 200
+        shared = await source_owner.patch(
+            '/api/files/' + source['id'] + '/acl',
+            json={
+                'expected_version': transferred.json()['acl_version'],
+                'access': 'private',
+                'entries': [{'user_id': str(caller.principal.id), 'effect': 'allow'}],
+            },
+        )
+        assert shared.status_code == 200, shared.text
+        await bind_artifact()
+        first = await admin.get('/api/v1/files?limit=1', headers=auth(key))
+        assert [item['id'] for item in first.json()['items']] == [str(artifact_id)]
+        assert (await admin.get(artifact_url, headers=auth(key))).status_code == 200
+        revoked = await source_owner.patch(
+            '/api/files/' + source['id'] + '/acl',
+            json={'expected_version': shared.json()['file']['acl_version'], 'access': 'private', 'entries': []},
+        )
+        assert revoked.status_code == 200, revoked.text
+        envelope(await admin.get(artifact_url, headers=auth(key)), 404)
+        page = await admin.get('/api/v1/files?limit=1', headers=auth(key))
+        assert [item['id'] for item in page.json()['items']] == [other['id']]
+        assert not page.json()['has_more']
 
 
 @pytest.mark.parametrize(

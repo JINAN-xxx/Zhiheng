@@ -224,7 +224,7 @@ async def test_http_core_conflict_rolls_back_legacy_settlement_and_both_meters(
             max_output_tokens=1000,
         )
         # Each owner received a different amount of confirmed diagnostic data.
-        await container.legacy_usage.settle(session, run_id)
+        await container.metering.settle(session, run_id)
         await container.credits.settle(session, run_id, **known)
     before_credit = (await admin.get('/api/billing/me')).json()
     before_usage = (await admin.get('/api/billing/me/usage')).json()['items'][0]

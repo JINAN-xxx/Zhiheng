@@ -10,6 +10,8 @@ class AdminShellRegressions(DeveloperBoundary):
     async def asyncSetUp(self):
         await super().asyncSetUp()
         self.notice_reads = 0
+        self.notice_version = 1
+        self.notice_available = True
         self.user_override = None
         self.admin_reads = []
 
@@ -25,22 +27,81 @@ class AdminShellRegressions(DeveloperBoundary):
             await route.fulfill(json={'items': [], 'total': 0, 'page': 1, 'page_size': 20})
         elif path == '/api/admin/notices/published':
             self.notice_reads += 1
-            await route.fulfill(json={'items': [{'id': 'notice-1', 'title': '维护安排', 'content': '<script>window.unexpectedNoticeExecution = true</script>\n维护窗口已安排', 'kind': 'announcement', 'status': 'published', 'remark': '', 'version': 1, 'created_at': '2026-10-28T00:00:00Z', 'updated_at': '2026-10-28T00:00:00Z'}], 'total': 1, 'page': 1, 'page_size': 20})
+            await route.fulfill(json={'items': [{'id': 'notice-1', 'title': '维护安排', 'content': '<script>window.unexpectedNoticeExecution = true</script>\n维护窗口已安排', 'kind': 'announcement', 'status': 'published', 'remark': '', 'version': self.notice_version, 'created_at': '2026-10-28T00:00:00Z', 'updated_at': '2026-10-28T00:00:00Z'}] if self.notice_available else [], 'total': int(self.notice_available), 'page': 1, 'page_size': 20})
         else:
             await super().respond(route)
 
-    async def test_published_notices_load_on_click_and_render_as_text(self):
+    async def test_published_notices_load_automatically_and_render_as_text(self):
         await self.page.goto(self.origin + '/chat')
         await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_visible()
-        self.assertEqual(self.notice_reads, 0)
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+        self.assertEqual(self.notice_reads, 1)
         await self.page.get_by_role('button', name='通知', exact=True).click(timeout=2000)
         await expect(self.page.get_by_role('heading', name='维护安排', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('<script>window.unexpectedNoticeExecution = true</script>', exact=False)).to_be_visible()
         self.assertFalse(await self.page.evaluate('Boolean(window.unexpectedNoticeExecution)'))
-        self.assertEqual(self.notice_reads, 1)
+        self.assertEqual(self.notice_reads, 2)
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
         await self.page.get_by_role('button', name='刷新公告', exact=True).click()
         await expect(self.page.get_by_role('button', name='刷新公告', exact=True)).to_be_enabled()
-        self.assertEqual(self.notice_reads, 2)
+        self.assertEqual(self.notice_reads, 3)
+
+    async def test_new_publication_lights_up_without_click_and_read_survives_reload(self):
+        self.notice_available = False
+        await self.page.goto(self.origin + '/chat')
+        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_visible()
+        self.assertEqual(self.notice_reads, 1)
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
+        self.notice_available = True
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible(timeout=15000)
+        await expect(self.page.get_by_role('button', name='通知', exact=True)).to_have_attribute('title', '通知（1 条未读）')
+        await self.page.get_by_role('button', name='通知', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='维护安排', exact=True)).to_be_visible()
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
+        await self.page.reload()
+        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_visible()
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
+        self.notice_version += 1
+        await self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+
+    async def test_notice_reads_are_per_user_and_shared_between_tabs(self):
+        await self.page.goto(self.origin + '/chat')
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+        other = await self.context.new_page()
+        await other.route(self.origin + '/api/**', self.respond)
+        await other.goto(self.origin + '/chat')
+        await expect(other.locator('.platform-notices-dot')).to_be_visible()
+        await self.page.get_by_role('button', name='通知', exact=True).click()
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
+        await expect(other.locator('.platform-notices-dot')).to_have_count(0)
+        await other.close()
+        self.user_override = {'id': 'another-member', 'username': 'other', 'is_admin': False, 'permissions': []}
+        await self.page.reload()
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+
+    async def test_notice_read_works_when_storage_is_blocked(self):
+        await self.page.add_init_script("Storage.prototype.getItem = Storage.prototype.setItem = () => { throw new DOMException('blocked', 'SecurityError') }")
+        await self.page.goto(self.origin + '/chat')
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+        await self.page.get_by_role('button', name='通知', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='维护安排', exact=True)).to_be_visible()
+        await expect(self.page.locator('.platform-notices-dot')).to_have_count(0)
+
+    async def test_hidden_tab_pauses_notice_reads_and_return_refreshes(self):
+        await self.page.goto(self.origin + '/chat')
+        await expect(self.page.locator('.platform-notices-dot')).to_be_visible()
+        await self.page.evaluate("Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange'))")
+        reads = self.notice_reads
+        await self.page.wait_for_timeout(10500)
+        self.assertEqual(self.notice_reads, reads)
+        await self.page.evaluate("Object.defineProperty(document, 'hidden', { configurable: true, get: () => false }); document.dispatchEvent(new Event('visibilitychange'))")
+        await expect(self.page.get_by_role('button', name='通知', exact=True)).to_be_visible()
+        for _ in range(20):
+            if self.notice_reads > reads:
+                break
+            await self.page.wait_for_timeout(50)
+        self.assertGreater(self.notice_reads, reads)
 
     async def test_admin_entry_uses_account_menu_and_opens_real_route(self):
         await self.page.goto(self.origin + '/chat')
