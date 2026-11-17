@@ -29,7 +29,7 @@ async def create_admin(settings: Settings, username: str, password: str) -> None
         await database.close()
 
 
-def main(argv: list[str] | None = None) -> int:
+def _arguments(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog='zhiheng', description='智衡 AI 平台独立运行入口')
     commands = parser.add_subparsers(dest='command', required=True)
     serve = commands.add_parser('serve', help='启动 API')
@@ -41,7 +41,25 @@ def main(argv: list[str] | None = None) -> int:
     admin = commands.add_parser('create-admin', help='显式创建管理员')
     admin.add_argument('--username', required=True)
     admin.add_argument('--password-stdin', action='store_true')
-    args = parser.parse_args(argv)
+    files = commands.add_parser('migrate-files', help='离线迁移或校验受管文件，保留原文件与全部权限')
+    files.add_argument('--source-root', type=Path, required=True, help='一次性迁移所读取的旧文件目录')
+    files.add_argument('--verify-only', action='store_true', help='只校验目标存储，不写入对象')
+    files.add_argument('--offline', action='store_true', required=True, help='确认已停止 API 与 Worker 的文件读写')
+    return parser.parse_args(argv)
+
+
+def _source_preflight(settings: Settings, command: str) -> None:
+    requirements = os.getenv('ZHIHENG_SOURCE_REQUIREMENTS')
+    if requirements:
+        from zhiheng.bootstrap.preflight import require_dependencies, require_source_schema
+
+        require_dependencies(Path(requirements))
+        if command in {'serve', 'worker'}:
+            asyncio.run(require_source_schema(settings))
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _arguments(argv)
     try:
         settings = Settings()
     except ValidationError as exc:
@@ -49,13 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f'配置无效，请检查：{fields}', file=sys.stderr)
         return 2
     try:
-        requirements = os.getenv('ZHIHENG_SOURCE_REQUIREMENTS')
-        if requirements:
-            from zhiheng.bootstrap.preflight import require_dependencies, require_source_schema
-
-            require_dependencies(Path(requirements))
-            if args.command in {'serve', 'worker'}:
-                asyncio.run(require_source_schema(settings))
+        _source_preflight(settings, args.command)
         if args.command == 'serve':
             import uvicorn
 
@@ -89,6 +101,15 @@ def main(argv: list[str] | None = None) -> int:
             from zhiheng.bootstrap.migrations import migrate
 
             asyncio.run(migrate(settings))
+        elif args.command == 'migrate-files':
+            from zhiheng.cli.files import migrate_files
+
+            report = asyncio.run(migrate_files(settings, args.source_root, verify_only=args.verify_only))
+            print(
+                f'文件校验完成：{report.scanned} 个，新增复制 {report.copied} 个，'
+                f'已存在并通过校验 {report.existing} 个，共 {report.total_bytes} 字节；'
+                '原文件和数据库元数据均保留。'
+            )
         else:
             password = sys.stdin.readline().rstrip('\r\n') if args.password_stdin else getpass.getpass('管理员密码：')
             asyncio.run(create_admin(settings, args.username, password))

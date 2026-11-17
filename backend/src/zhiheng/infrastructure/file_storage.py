@@ -1,189 +1,200 @@
-"""Flat, opaque local object store. Business code never receives a filesystem path."""
+"""Private S3 objects behind the same opaque keys and limits as local storage."""
 
 import asyncio
 import hashlib
-import heapq
-import os
+import io
 import re
-import stat
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import BinaryIO
+from datetime import datetime
+from urllib.parse import urlsplit
 from uuid import uuid4
+
+from minio import Minio
+from minio.error import MinioException, S3Error
+from urllib3 import PoolManager, Retry, Timeout
+from urllib3.exceptions import HTTPError
 
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.storage import StorageEntry, StorageInspection, StorageStat
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
 INSPECTION_CHUNK_BYTES = 64 * 1024
+MAX_PAGE_SIZE = 1000
+
+STORAGE_ERRORS = (MinioException, HTTPError, OSError, ValueError)
+MISSING_OBJECT_CODES = frozenset({'NoSuchKey', 'NoSuchObject'})
 
 
-class LocalFileStorage:
-    def __init__(self, root: Path) -> None:
-        self._root = root.absolute()
-
-    def _directory(self) -> int:
-        try:
-            # Never follow symlinks in configured ancestors, including a replaced root.
-            for path in (*reversed(self._root.parents), self._root):
-                if path.is_symlink():
-                    raise OSError('symlink directory')
-            self._root.mkdir(parents=True, exist_ok=True, mode=0o700)
-            return os.open(self._root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        except OSError as error:
-            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
+class S3FileStorage:
+    def __init__(
+        self,
+        endpoint: str,
+        access_key: str,
+        secret_key: str,
+        bucket: str,
+        *,
+        region: str = 'us-east-1',
+        timeout: float = 30,
+    ) -> None:
+        address = urlsplit(endpoint)
+        self._bucket = bucket
+        self._client = Minio(
+            address.netloc,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=address.scheme == 'https',
+            region=region,
+            http_client=PoolManager(
+                timeout=Timeout(connect=min(5, timeout), read=timeout),
+                retries=Retry(total=2, backoff_factor=0.2, allowed_methods=frozenset({'GET', 'HEAD'})),
+                maxsize=10,
+            ),
+        )
 
     @staticmethod
     def _validate(key: str) -> None:
         if not re.fullmatch(r'[a-f0-9]{32}', key):
             raise AppError('invalid_storage_key', '文件存储标识无效', 422)
 
-    async def put(self, content: bytes) -> str:
+    @staticmethod
+    def _validate_content(content: bytes) -> None:
         if not content or len(content) > MAX_FILE_BYTES:
             raise AppError('invalid_file_size', '文件为空或超过20MiB', 422)
-        return await asyncio.to_thread(self._put, content)
 
-    def _put(self, content: bytes) -> str:
-        directory = self._directory()
-        temporary, key = uuid4().hex, uuid4().hex
+    @staticmethod
+    def _content_error(error: Exception) -> AppError:
+        if isinstance(error, ValueError) or (isinstance(error, S3Error) and error.code in MISSING_OBJECT_CODES):
+            return AppError('file_bytes_unavailable', '文件内容不可用', 503)
+        return AppError('file_storage_unavailable', '文件存储暂时不可用', 503)
+
+    async def check(self) -> None:
         try:
-            descriptor = os.open(
-                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory
-            )
-            with os.fdopen(descriptor, 'wb') as stream:
-                stream.write(content)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.rename(temporary, key, src_dir_fd=directory, dst_dir_fd=directory)
-            os.fsync(directory)
-            return key
-        finally:
-            try:
-                os.unlink(temporary, dir_fd=directory)
-            except FileNotFoundError:
-                pass
-            os.close(directory)
+            exists = await asyncio.to_thread(self._client.bucket_exists, self._bucket)
+        except STORAGE_ERRORS as error:
+            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
+        if not exists:
+            raise AppError('file_storage_unavailable', '文件存储桶尚未初始化', 503)
+
+    async def put(self, content: bytes) -> str:
+        self._validate_content(content)
+        key = uuid4().hex
+        try:
+            await asyncio.to_thread(self._write, key, content)
+        except STORAGE_ERRORS as error:
+            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
+        return key
+
+    def _write(self, key: str, content: bytes) -> None:
+        self._client.put_object(
+            self._bucket,
+            key,
+            io.BytesIO(content),
+            len(content),
+            content_type='application/octet-stream',
+            metadata={'sha256': hashlib.sha256(content).hexdigest()},
+            num_parallel_uploads=1,
+        )
 
     async def read(self, key: str) -> bytes:
         self._validate(key)
-        return await asyncio.to_thread(self._read, key)
+        try:
+            return await asyncio.to_thread(self._read, key)
+        except STORAGE_ERRORS as error:
+            raise self._content_error(error) from error
 
     def _read(self, key: str) -> bytes:
-        directory = self._directory()
+        response = self._client.get_object(self._bucket, key)
         try:
-            stream, _ = self._open_object(directory, key)
-            with stream:
-                content = stream.read(MAX_FILE_BYTES + 1)
+            content = response.read(MAX_FILE_BYTES + 1)
             if not content or len(content) > MAX_FILE_BYTES:
-                raise OSError('invalid stored size')
+                raise ValueError('invalid stored size')
+            if len(content) != int(response.headers.get('content-length', '-1')):
+                raise ValueError('incomplete stored object')
             return content
-        except OSError as error:
-            raise AppError('file_bytes_unavailable', '文件内容不可用', 503) from error
         finally:
-            os.close(directory)
-
-    @staticmethod
-    def _check_object(info: os.stat_result) -> None:
-        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_FILE_BYTES:
-            raise OSError('invalid stored object')
-
-    def _open_object(self, directory: int, key: str) -> tuple[BinaryIO, os.stat_result]:
-        descriptor = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-        try:
-            info = os.fstat(descriptor)
-            self._check_object(info)
-            return os.fdopen(descriptor, 'rb'), info
-        except BaseException:
-            # fdopen can fail without taking ownership, notably for directory descriptors.
-            os.close(descriptor)
-            raise
+            response.close()
+            response.release_conn()
 
     async def stat(self, key: str) -> StorageStat:
         self._validate(key)
-        return await asyncio.to_thread(self._stat, key)
-
-    def _stat(self, key: str) -> StorageStat:
-        directory = self._directory()
         try:
-            descriptor = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-            try:
-                info = os.fstat(descriptor)
-                self._check_object(info)
-                return StorageStat(info.st_size, datetime.fromtimestamp(info.st_mtime, timezone.utc))
-            finally:
-                os.close(descriptor)
-        except OSError as error:
-            raise AppError('file_bytes_unavailable', '文件内容不可用', 503) from error
-        finally:
-            os.close(directory)
+            item = await asyncio.to_thread(self._client.stat_object, self._bucket, key)
+            if item.size is None or not 0 < item.size <= MAX_FILE_BYTES or item.last_modified is None:
+                raise ValueError('invalid stored object')
+            return StorageStat(item.size, item.last_modified)
+        except STORAGE_ERRORS as error:
+            raise self._content_error(error) from error
 
     async def inspect(self, key: str) -> StorageInspection:
         self._validate(key)
-        return await asyncio.to_thread(self._inspect, key)
+        try:
+            return await asyncio.to_thread(self._inspect, key)
+        except STORAGE_ERRORS as error:
+            raise self._content_error(error) from error
 
     def _inspect(self, key: str) -> StorageInspection:
-        directory = self._directory()
+        response = self._client.get_object(self._bucket, key)
         try:
-            stream, before = self._open_object(directory, key)
-            with stream:
-                digest, size = hashlib.sha256(), 0
-                while block := stream.read(INSPECTION_CHUNK_BYTES):
-                    size += len(block)
-                    if size > MAX_FILE_BYTES:
-                        raise OSError('invalid stored size')
-                    digest.update(block)
-                after = os.fstat(stream.fileno())
-                if size != before.st_size or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                    after.st_size,
-                    after.st_mtime_ns,
-                    after.st_ctime_ns,
-                ):
-                    raise OSError('stored object changed during inspection')
+            digest, size = hashlib.sha256(), 0
+            while block := response.read(INSPECTION_CHUNK_BYTES):
+                size += len(block)
+                if size > MAX_FILE_BYTES:
+                    raise ValueError('invalid stored size')
+                digest.update(block)
+            if not size or size != int(response.headers.get('content-length', '-1')):
+                raise ValueError('invalid or incomplete stored object')
             return StorageInspection(size, digest.hexdigest())
-        except OSError as error:
-            raise AppError('file_bytes_unavailable', '文件内容不可用', 503) from error
         finally:
-            os.close(directory)
+            response.close()
+            response.release_conn()
 
     async def delete(self, key: str) -> None:
         self._validate(key)
-        await asyncio.to_thread(self._delete, key)
-
-    def _delete(self, key: str) -> None:
-        directory = self._directory()
         try:
-            try:
-                os.unlink(key, dir_fd=directory)
-            except FileNotFoundError:
-                pass
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            await asyncio.to_thread(self._client.remove_object, self._bucket, key)
+        except STORAGE_ERRORS as error:
+            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
 
     async def entries(self, *, after: str = '', limit: int = 100) -> tuple[StorageEntry, ...]:
-        return await asyncio.to_thread(self._entries, after, limit)
+        if after:
+            self._validate(after)
+        if not 1 <= limit <= MAX_PAGE_SIZE:
+            raise ValueError('Storage page limit must be between 1 and 1000')
+        try:
+            return await asyncio.to_thread(self._entries, after, limit)
+        except STORAGE_ERRORS as error:
+            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
 
     def _entries(self, after: str, limit: int) -> tuple[StorageEntry, ...]:
-        directory = self._directory()
-        try:
-            # Flat random keys still require a directory pass; only this page's keys stay in memory.
-            with os.scandir(directory) as entries:
-                keys = heapq.nsmallest(
-                    limit,
-                    (
-                        entry.name
-                        for entry in entries
-                        if re.fullmatch(r'[a-f0-9]{32}', entry.name) and entry.name > after
-                    ),
-                )
-            return tuple(entry for key in keys if (entry := self._entry(directory, key)) is not None)
-        finally:
-            os.close(directory)
+        result = []
+        for item in self._client.list_objects(self._bucket, recursive=True, start_after=after):
+            if (
+                isinstance(item.object_name, str)
+                and re.fullmatch(r'[a-f0-9]{32}', item.object_name)
+                and isinstance(item.last_modified, datetime)
+            ):
+                result.append(StorageEntry(item.object_name, item.last_modified))
+                if len(result) == limit:
+                    break
+        return tuple(result)
 
-    @staticmethod
-    def _entry(directory: int, key: str) -> StorageEntry | None:
+    async def import_object(self, key: str, content: bytes) -> bool:
+        """Offline migration only: preserve keys and refuse to replace different existing bytes."""
+        self._validate(key)
+        self._validate_content(content)
         try:
-            info = os.stat(key, dir_fd=directory, follow_symlinks=False)
-            return StorageEntry(key, datetime.fromtimestamp(info.st_mtime, timezone.utc))
-        except FileNotFoundError:
-            return None
+            return await asyncio.to_thread(self._import_object, key, content)
+        except STORAGE_ERRORS as error:
+            raise AppError('file_storage_unavailable', '文件存储不可用', 503) from error
+
+    def _import_object(self, key: str, content: bytes) -> bool:
+        try:
+            existing = self._read(key)
+        except S3Error as error:
+            if error.code not in MISSING_OBJECT_CODES:
+                raise
+        else:
+            if existing != content:
+                raise AppError('file_migration_conflict', '目标存储已有不同内容，迁移已停止', 409)
+            return False
+        self._write(key, content)
+        return True

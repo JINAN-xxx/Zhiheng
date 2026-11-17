@@ -56,6 +56,7 @@ from zhiheng.modules.files.parsing_contracts import (
 from zhiheng.modules.files.queries import FileBinding, FileCatalog, FileReadTicket, resource_page
 from zhiheng.modules.files.references import FileReferences
 from zhiheng.modules.files.service import FileService
+from zhiheng.modules.files.storage_migration import FileStorageMigration, StorageMigrationReport
 
 __all__ = [
     'MAX_IMAGE_URL_BYTES',
@@ -85,6 +86,7 @@ __all__ = [
     'FileService',
     'FileStats',
     'FileStatus',
+    'FileStorageMigration',
     'IssueAction',
     'JobInfo',
     'JobKind',
@@ -111,6 +113,7 @@ __all__ = [
     'RetentionPolicyPatch',
     'RetentionPolicyRequest',
     'SourceSnapshot',
+    'StorageMigrationReport',
     'TransferRequest',
     'VersionRequest',
     'file_semantics',

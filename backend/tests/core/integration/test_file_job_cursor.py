@@ -1,12 +1,9 @@
 """Real PostgreSQL checkpoints retain both bounded reconciliation cursors."""
 
-import asyncio
 import hashlib
-import os
-from datetime import timedelta
-from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
@@ -14,6 +11,7 @@ from sqlalchemy import insert, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.core.storage import age_objects
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -22,7 +20,9 @@ from zhiheng.modules.files.orm import FileJob, FileReconcileIssue, FileRecord
 from zhiheng.shared.time import utcnow
 
 
-async def test_reconcile_checkpoints_both_sources_without_repeating_or_skipping(app: FastAPI) -> None:
+async def test_reconcile_checkpoints_both_sources_without_repeating_or_skipping(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
     container = app.state.container
     async with container.database.sessions() as session:
         users = await container.identity.directory(session, search='admin')
@@ -49,12 +49,7 @@ async def test_reconcile_checkpoints_both_sources_without_repeating_or_skipping(
     # Distinct physical orphans make object traversal observable in persisted issue facts.
     object_keys = sorted([await container.files.storage.put(content) for _ in range(count)])
 
-    def age_objects(root: Path) -> None:
-        timestamp = (utcnow() - timedelta(hours=2)).timestamp()
-        for key in object_keys:
-            os.utime(root / key, (timestamp, timestamp))
-
-    await asyncio.to_thread(age_objects, container.settings.files_root)
+    age_objects(container.files.storage, set(object_keys), monkeypatch)
     seen_files: list[UUID] = []
     seen_objects: list[str] = []
     for batch, start in enumerate(range(0, count, BATCH_SIZE)):

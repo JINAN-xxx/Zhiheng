@@ -16,7 +16,7 @@ KnowledgeJobs.cleanup_retired_chunks 使用短事务，接入原15分钟文件�
 
 ## 文件扫描
 
-StoragePort 明确区分 StorageInspection(size,sha256) 和 StorageStat(size,modified_at)。LocalFileStorage 用64KiB块计算摘要，stat仅读取安全打开后的元信息，禁止空、超限、symlink、FIFO、目录等不合规对象；所有FD在失败路径同样关闭。
+StoragePort 明确区分 StorageInspection(size,sha256) 和 StorageStat(size,modified_at)。S3FileStorage 用64KiB块计算摘要，stat仅读取对象元信息，拒绝空对象、超限对象及不完整读取；响应连接在成功和失败路径均关闭。受管文件统一使用私有业务 MinIO，API 与 Worker 不使用本地文件后端。
 
 对象目录使用 scandir+nsmallest，内存只保留本页，排序成本 O(N log limit)。平铺随机键目录仍需 O(N)枚举，不声称是物理目录keyset。DB记录继续UUID分页；孤儿检测按页批量查询已登记键，IO后复核登记和一小时宽限。真实引用、原文→派生物锁序、purging两阶段、审计、会话维护锁与attempt nonce保持原规则；失联或取消不能推进成功游标。
 

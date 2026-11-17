@@ -106,7 +106,14 @@ async def test_actual_worker_kill_interruption_and_explicit_retry_use_new_namesp
         job = first.json()
         old_manifest = await manifest_for(job)
         configuration = container.settings.model_dump(mode='json')
-        for name in ('database_url', 'redis_url', 'credential_key', 'milvus_token'):
+        for name in (
+            'database_url',
+            'redis_url',
+            'credential_key',
+            'milvus_token',
+            'files_s3_access_key',
+            'files_s3_secret_key',
+        ):
             configuration[name] = getattr(container.settings, name).get_secret_value()
         configuration.update(graph_database_url=runtime, milvus_uri=uri)
         descriptor = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

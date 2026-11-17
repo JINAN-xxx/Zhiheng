@@ -63,6 +63,7 @@ def create_app(settings: Settings) -> FastAPI:
         try:
             await container.database.require_schema()
             await container.redis.ping()
+            await container.files.storage.check()
             heartbeat = await container.redis.get(settings.worker_health_key)
             if heartbeat is None or not 0 <= time() - float(heartbeat) <= WORKER_HEARTBEAT_MAX_AGE_SECONDS:
                 return JSONResponse({'status': 'unavailable', 'component': 'worker'}, status_code=503)

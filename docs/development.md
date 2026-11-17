@@ -14,7 +14,7 @@ npm ci
 cd ..
 ~~~
 
-使用独立开发配置，先按[部署指南](deployment.md)启动依赖，再运行 dev.sh。API 自动重载，前端热更新；Worker 修改后执行 ./dev.sh restart-worker。受管文件路径由实例配置管理，API 与 Worker 使用同一位置。
+使用独立开发配置，先按[部署指南](deployment.md)启动依赖，再运行 dev.sh。API 自动重载，前端热更新；Worker 修改后执行 ./dev.sh restart-worker。受管文件统一使用业务 MinIO，API 与 Worker 使用同一私有桶与专用应用账号。
 
 ## 后端检查
 
@@ -46,9 +46,9 @@ npm run build:platform
 
 ## 后端集成测试
 
-从 `backend/` 运行 `pytest tests/unit tests/core`。集成测试需显式提供独立的 `ZHIHENG_TEST_DATABASE_URL`、`ZHIHENG_TEST_REDIS_URL`，涉及向量索引时还需 `ZHIHENG_TEST_MILVUS_URI`。这些地址应指向专用测试服务。
+从 `backend/` 运行 `pytest tests/unit tests/core`。集成测试需显式提供独立的 `ZHIHENG_TEST_DATABASE_URL`、`ZHIHENG_TEST_REDIS_URL`，同时提供 `ZHIHENG_TEST_S3_ENDPOINT`、`ZHIHENG_TEST_S3_ACCESS_KEY`、`ZHIHENG_TEST_S3_SECRET_KEY`；涉及向量索引时还需 `ZHIHENG_TEST_MILVUS_URI`。这些地址应指向专用测试服务，MinIO 测试账号需能创建和删除隔离测试桶。
 
-每个业务用例拥有独立 PostgreSQL 数据库、Redis 队列、凭据密钥和临时文件目录；清理按创建时登记的精确资源执行。`ZHIHENG_TEST_RESOURCE_LOG` 可记录资源意图、创建和删除，不记录连接秘密。
+每个业务用例拥有独立 PostgreSQL 数据库、Redis 队列、凭据密钥和独立 MinIO 测试桶；清理按创建时登记的精确资源执行。`ZHIHENG_TEST_RESOURCE_LOG` 可记录资源意图、创建和删除，不记录连接秘密。
 
 ## 可选的 schema 模板
 

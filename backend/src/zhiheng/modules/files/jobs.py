@@ -336,7 +336,9 @@ class FileJobs:
                 continue
             try:
                 stored = await self._files.storage.stat(entry.key)
-            except AppError:
+            except AppError as error:
+                if error.code == 'file_storage_unavailable':
+                    raise
                 continue
             if stored.modified_at > cutoff:
                 continue
@@ -364,6 +366,8 @@ class FileJobs:
             if stored.size != size or stored.sha256 != sha:
                 kind = 'size_or_hash'
         except AppError as error:
+            if error.code == 'file_storage_unavailable':
+                raise
             kind = 'invalidkey' if error.code == 'invalid_storage_key' else 'missing'
         async with self._transaction() as session:
             row = await session.scalar(select(FileRecord).where(FileRecord.id == file_id).with_for_update())

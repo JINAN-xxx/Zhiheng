@@ -188,6 +188,7 @@ curl "$ORIGIN/v1/chat/completions" \
 | 前端 | Vue 3、TypeScript、Ant Design Vue、Vite |
 | 状态与任务 | PostgreSQL 业务/运行/账本事实与 checkpoint，Redis、ARQ、事务 Outbox |
 | 知识与解析 | Milvus、LightRAG、本地及云端 MinerU |
+| 文件存储 | 独立业务 MinIO、私有桶、专用应用账号；下载经过权限与完整性校验 |
 | 部署 | Docker Compose、Nginx、API/Worker 分进程 |
 
 ~~~text

@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 from cryptography.fernet import Fernet
 from pydantic import SecretStr
+
 from zhiheng.api.main import create_app
 from zhiheng.bootstrap.settings import Settings
 
