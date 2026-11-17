@@ -65,6 +65,24 @@ REQUIRED_MEMBERS = (
     'zhiheng/api/inference/agents.py',
     'zhiheng/modules/work/public.py',
     'zhiheng/application/work/runs.py',
+    'zhiheng/application/work/agent.py',
+    'zhiheng/application/work/context.py',
+    'zhiheng/application/work/execution.py',
+    'zhiheng/application/work/snapshots.py',
+    'zhiheng/application/work/tools.py',
+    'zhiheng/modules/work/agent.py',
+    'zhiheng/modules/work/agent_contracts.py',
+    'zhiheng/modules/work/agent_ports.py',
+    'zhiheng/infrastructure/agents/adapters/workspace.py',
+    'zhiheng/infrastructure/sandbox/__init__.py',
+    'zhiheng/infrastructure/sandbox/contracts.py',
+    'zhiheng/infrastructure/sandbox/paths.py',
+    'zhiheng/infrastructure/sandbox/adapters/opensandbox.py',
+    'zhiheng/bootstrap/sandbox.py',
+    'zhiheng/application/files/objects.py',
+    'zhiheng/modules/files/workspace_contracts.py',
+    'zhiheng/modules/files/adapters/workspace.py',
+    'zhiheng/modules/files/adapters/workspace_worker.py',
     'zhiheng/application/chat/agent.py',
     'zhiheng/application/models/trials.py',
     'zhiheng/modules/models/capacity.py',
@@ -193,6 +211,9 @@ REQUIRED_MEMBERS = (
             'versions/0038_skill_receipt_payload.py',
             'versions/0039_retired_runtime_fields.py',
             'versions/0040_assistant_agents.py',
+            'versions/0041_work_agent.py',
+            'versions/0041_assistant_attachments.py',
+            'versions/0042_workspace_merge.py',
         )
     ),
 )
@@ -306,6 +327,9 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0038_skill_receipt_payload.py',
         '0039_retired_runtime_fields.py',
         '0040_assistant_agents.py',
+        '0041_work_agent.py',
+        '0041_assistant_attachments.py',
+        '0042_workspace_merge.py',
     ],
 )
 def test_requires_all_database_migration_revisions(
@@ -329,6 +353,25 @@ def test_requires_platform_billing_resources(verify_wheel: Callable[[Path], Path
 @pytest.mark.parametrize('member', ['zhiheng/shared/references.py', 'zhiheng/application/developer/management.py'])
 def test_requires_resource_lifecycle_services(
     verify_wheel: Callable[[Path], Path], tmp_path: Path, member: str
+) -> None:
+    write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if name != member))
+    with pytest.raises(ValueError, match='missing'):
+        verify_wheel(tmp_path)
+
+
+@pytest.mark.parametrize(
+    'member',
+    [
+        'zhiheng/application/work/tools.py',
+        'zhiheng/infrastructure/agents/adapters/workspace.py',
+        'zhiheng/infrastructure/sandbox/adapters/opensandbox.py',
+        'zhiheng/modules/files/adapters/workspace_worker.py',
+    ],
+)
+def test_requires_workspace_execution_resources(
+    verify_wheel: Callable[[Path], Path],
+    tmp_path: Path,
+    member: str,
 ) -> None:
     write_wheel(tmp_path, tuple(name for name in REQUIRED_MEMBERS if name != member))
     with pytest.raises(ValueError, match='missing'):

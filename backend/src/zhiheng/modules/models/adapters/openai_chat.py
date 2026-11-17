@@ -18,10 +18,11 @@ from langsmith import tracing_context
 from openai import APIError, AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, Omit, OpenAI
 from pydantic import SecretStr
 
+from zhiheng.modules.models.adapters.agent_tools import stream_agent
 from zhiheng.modules.models.adapters.catalog import validate_catalog
 from zhiheng.modules.models.adapters.errors import provider_error
 from zhiheng.modules.models.adapters.usage import CapturingCompletions, UsageCapture
-from zhiheng.modules.models.contracts import ModelDelta, ModelMessage, ProviderError
+from zhiheng.modules.models.contracts import AgentModelMessage, ModelDelta, ModelMessage, ProviderError
 
 
 def _connection_headers(authentication: Mapping[str, str]) -> dict[str, str | Omit]:
@@ -159,6 +160,22 @@ class OpenAIChatProvider:
         )
 
     async def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]:
+        async for delta in self._stream(messages):
+            yield delta
+
+    async def stream_agent(
+        self, messages: tuple[AgentModelMessage, ...], tools: tuple[dict[str, object], ...]
+    ) -> AsyncIterator[ModelDelta]:
+        async for delta in self._stream((), agent_messages=messages, tools=tools):
+            yield delta
+
+    async def _stream(
+        self,
+        messages: tuple[ModelMessage, ...],
+        *,
+        agent_messages: tuple[AgentModelMessage, ...] = (),
+        tools: tuple[dict[str, object], ...] = (),
+    ) -> AsyncIterator[ModelDelta]:
         usage_capture = UsageCapture()
         # Each invocation owns these clients. LangChain's implicit HTTP cache must
         # not be closed by one invocation while another is still using it.
@@ -190,6 +207,18 @@ class OpenAIChatProvider:
                     trust_env=False, follow_redirects=False, event_hooks={'request': [self._isolate_async_request]}
                 ),
             ) as async_client:
+                if agent_messages:
+                    async for delta in stream_agent(
+                        async_client,
+                        usage_capture,
+                        agent_messages,
+                        tools,
+                        model=self._model,
+                        max_output_tokens=self._max_output,
+                        options=self._options,
+                    ):
+                        yield delta
+                    return
                 client = _ReasoningChatOpenAI(
                     model=self._model,
                     api_key=self._api_key,

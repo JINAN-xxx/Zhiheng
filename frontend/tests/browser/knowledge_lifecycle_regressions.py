@@ -3,14 +3,15 @@
 import asyncio
 import contextlib
 import copy
+import json
 import re
 import unittest
 from urllib.parse import urlparse
 from playwright.async_api import expect
 from knowledge_regressions import KnowledgeUIRegressions
+from work_regressions import WorkUIRegressions
 from knowledge_preparation_regressions import (
     AgentKnowledgePreparation,
-    WorkKnowledgePreparation,
 )
 
 
@@ -265,105 +266,56 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
             release.set()
 
 
-class WorkQuality(Evidence, WorkKnowledgePreparation):
+class WorkQuality(Evidence, WorkUIRegressions):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        self.task['current_run_id']='work-run'
+        self.run.update(status='running',revision=1,projection_seq=1)
+        self.cancels=0
+
     async def test_lost_cancel_response_can_be_confirmed_by_get(self):
+        async def stop(route):
+            self.cancels+=1
+            self.run.update(status='cancelled',revision=3,projection_seq=3)
+            self.task.update(current_run_id=None,execution_state='cancelled',version=2)
+            await route.fulfill(status=503,json={'error':{'code':'unavailable','message':'停止响应丢失'}})
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/work-run/cancel',stop)
         await self.open_task()
-
-        async def unavailable(route):
-            await route.fulfill(
-                status=503,
-                json={"error": {"code": "unavailable", "message": "观察暂时失败"}},
-            )
-
-        async def cancel(route):
-            self.preparation_cancels += 1
-            self.preparation.update(status="cancel_requested", phase="cancel_requested")
-            await route.fulfill(
-                status=503,
-                json={"error": {"code": "unavailable", "message": "停止响应丢失"}},
-            )
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", unavailable)
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
-        await expect(self.page.get_by_text("观察暂时失败", exact=True)).to_be_visible()
-        await self.page.get_by_role("button", name="停止", exact=True).click()
-        await expect(self.page.get_by_text("停止响应丢失", exact=True)).to_be_visible()
-        reads = []
-
-        async def observe(route):
-            reads.append(route.request.url)
-            if len(reads) > 1:
-                self.preparation.update(status="cancelled", phase="cancelled")
-                self.task.update(preparation_id=None, version=2)
-            await route.fulfill(json=self.preparation)
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", observe)
-        await self.page.get_by_role("button", name="恢复查看", exact=True).click()
-        await expect(
-            self.page.get_by_role("textbox", name="工作消息", exact=True)
-        ).to_be_enabled()
-        self.assertEqual(self.preparation_cancels, 1)
-        self.assertGreaterEqual(len(reads), 2)
+        await self.page.get_by_role('button',name='停止',exact=True).click()
+        await expect(self.page.get_by_text('停止响应丢失',exact=True)).to_be_visible()
+        await self.page.get_by_role('button',name='恢复查看',exact=True).click()
+        await expect(self.page.get_by_role('textbox',name='工作消息',exact=True)).to_be_enabled()
+        self.assertEqual(self.cancels,1)
+        self.assertEqual(self.runs,[])
 
     async def test_cancel_requested_is_observed_without_reposting_stop(self):
-        async def cancel(route):
-            self.preparation_cancels += 1
-            self.preparation.update(status="cancel_requested", phase="cancel_requested")
-            await route.fulfill(json=self.preparation)
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
+        async def stop(route):
+            self.cancels+=1
+            self.run.update(status='cancel_requested',revision=3,projection_seq=3)
+            await route.fulfill(json=self.run)
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/work-run/cancel',stop)
         await self.open_task()
-        await self.page.get_by_role("button", name="停止", exact=True).click()
+        button=self.page.get_by_role('button',name='停止',exact=True)
+        await button.click()
+        await expect(button).to_be_disabled()
         await self.page.wait_for_timeout(150)
-        stop = self.page.get_by_role("button", name="停止", exact=True)
-        if await stop.count() and await stop.is_enabled():
-            await stop.click()
-        await self.page.wait_for_timeout(180)
-        self.observations["cancel_posts"] = self.preparation_cancels
-        self.assertEqual(
-            self.preparation_cancels,
-            1,
-            "Work also allows another POST after cancellation is acknowledged",
-        )
+        self.assertEqual(self.cancels,1)
 
     async def test_confirmed_cancel_replaces_old_observation_scope(self):
-        started, release = asyncio.Event(), asyncio.Event()
-        reads = []
-        stale = copy.deepcopy(self.preparation)
-
-        async def observe(route):
-            reads.append(route.request.url)
-            if len(reads) == 1:
-                await route.fulfill(json=stale)
-            else:
-                started.set()
-                await release.wait()
-                with contextlib.suppress(Exception):
-                    await route.fulfill(json=stale)
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work", observe)
+        started,release=asyncio.Event(),asyncio.Event()
+        stale=copy.deepcopy(self.run)
+        async def stream(route):
+            started.set();await release.wait()
+            with contextlib.suppress(Exception):
+                await route.fulfill(content_type='text/event-stream',body='event: snapshot\ndata: '+json.dumps(stale)+'\n\n')
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/work-run/events',stream)
+        await self.open_task()
         try:
-            await self.open_task()
-            await asyncio.wait_for(started.wait(), 4)
-            await self.page.get_by_role("button", name="停止", exact=True).click()
-            await expect(
-                self.page.get_by_role("button", name="停止", exact=True)
-            ).to_have_count(0)
-            release.set()
-            await self.page.wait_for_timeout(700)
-            self.observations.update(
-                cancel_posts=self.preparation_cancels,
-                reads=len(reads),
-                stop_buttons=await self.page.get_by_role(
-                    "button", name="停止", exact=True
-                ).count(),
-            )
-            self.assertEqual(self.observations["stop_buttons"], 0)
-            await expect(
-                self.page.get_by_role("textbox", name="工作消息", exact=True)
-            ).to_be_enabled()
-        finally:
-            release.set()
+            await asyncio.wait_for(started.wait(),3)
+            await self.page.get_by_role('button',name='停止',exact=True).click()
+            await expect(self.page.get_by_role('textbox',name='工作消息',exact=True)).to_be_enabled()
+        finally:release.set()
+        await expect(self.page.get_by_role('button',name='停止',exact=True)).to_have_count(0)
 
 
 class AgentQuality(Evidence, AgentKnowledgePreparation):
@@ -408,63 +360,36 @@ class AgentQuality(Evidence, AgentKnowledgePreparation):
         )
 
 
-class WorkMultiTurnQuality(Evidence, WorkKnowledgePreparation):
-    async def test_previous_terminal_run_does_not_shadow_new_preparation_ack(self):
-        self.task["preparation_id"] = None
-        admissions = []
-        cancels = []
-
+class WorkMultiTurnQuality(Evidence, WorkUIRegressions):
+    async def test_previous_terminal_run_does_not_shadow_new_run_ack(self):
+        admissions=[]
+        cancels=[]
         async def admit(route):
-            body = route.request.post_data_json
-            admissions.append(body)
-            if len(admissions) == 1:
-                self.task.update(version=2, current_run_id=None)
-                self.task["messages"] = [
-                    self.message("user", body),
-                    self.message("assistant", body, self.run),
-                ]
-                await route.fulfill(status=202, json=self.run)
-            else:
-                self.task.update(version=3, preparation_id=self.preparation["id"])
-                await route.fulfill(status=202, json=self.preparation)
-
-        async def cancel(route):
-            cancels.append(route.request.url)
-            self.preparation.update(status="cancel_requested", phase="cancel_requested")
-            await route.fulfill(json=self.preparation)
-
-        await self.page.route(self.origin + "/api/work/tasks/task-1/runs", admit)
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-work/cancel", cancel)
+            admissions.append(route.request.post_data_json)
+            if len(admissions)==2:self.run.update(id='next-run',status='running',revision=1,projection_seq=1)
+            await self.respond(route)
+        async def next_run(route):
+            if route.request.url.endswith('/cancel'):
+                cancels.append(route.request.url)
+                self.run.update(status='cancel_requested',revision=3,projection_seq=3)
+            if route.request.url.endswith('/events'):
+                return await route.fulfill(content_type='text/event-stream',body='event: snapshot\ndata: '+json.dumps(self.run)+'\n\n')
+            await route.fulfill(json=self.run)
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs',admit)
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/next-run**',next_run)
         await self.open_task()
-        text = self.page.get_by_role("textbox", name="工作消息", exact=True)
-        await text.fill("先完成第一轮")
-        await self.page.get_by_role("button", name="发送", exact=True).click()
-        await expect(self.page.get_by_text("核实后的结论", exact=True)).to_be_visible()
+        text=self.page.get_by_role('textbox',name='工作消息',exact=True)
+        await text.fill('先完成第一轮')
+        await self.page.get_by_role('button',name='发送',exact=True).click()
+        await expect(self.page.get_by_text('核实后的结论',exact=True)).to_be_visible()
         await expect(text).to_be_enabled()
-        await self.page.locator(".work-composer .ant-select-selector").click()
-        await (
-            self.page.locator(".ant-select-item-option-content")
-            .filter(has_text="写作助手")
-            .click()
-        )
-        await text.fill("第二轮知识检索")
-        await self.page.get_by_role("button", name="发送", exact=True).click()
-        await expect(
-            self.page.get_by_text("正在检索知识库", exact=True)
-        ).to_be_visible()
-        stop = self.page.get_by_role("button", name="停止", exact=True)
+        await text.fill('再生成一份报告')
+        await self.page.get_by_role('button',name='发送',exact=True).click()
+        stop=self.page.get_by_role('button',name='停止',exact=True)
         await stop.click()
-        await self.page.wait_for_timeout(200)
-        self.observations["stop_enabled_after_ack"] = await stop.is_enabled()
-        if await stop.is_enabled():
-            await stop.click()
-        await self.page.wait_for_timeout(150)
-        self.observations.update(run_posts=admissions, cancel_posts=cancels)
-        self.assertEqual(
-            len(cancels),
-            1,
-            "Previous completed Work activeRun shadows current preparation cancellation acknowledgement",
-        )
+        await expect(stop).to_be_disabled()
+        self.assertEqual(len(cancels),1)
+        self.assertEqual(len(admissions),2)
 
 
 CASES = [
@@ -491,7 +416,7 @@ def load_tests(loader, tests, pattern):
         [
             *(cls(name) for cls, name in CASES),
             WorkMultiTurnQuality(
-                "test_previous_terminal_run_does_not_shadow_new_preparation_ack"
+                "test_previous_terminal_run_does_not_shadow_new_run_ack"
             ),
             KnowledgeQuality(
                 "test_unknown_metadata_create_does_not_offer_idempotent_resubmit"

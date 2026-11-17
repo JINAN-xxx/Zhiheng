@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.work.orm import WorkMessage, WorkTask
+from zhiheng.modules.work.orm import WorkMessage, WorkStep, WorkTask
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.principal import Principal
 
@@ -67,9 +67,33 @@ class WorkbenchWork:
             .order_by(Run.created_at.desc(), Run.id.desc())
             .limit(50)
         )
-        return [
+        legacy = [
             (str(item['slug']), at)
             for skills, at in rows
             for item in (skills if isinstance(skills, list) else [])
             if isinstance(item, dict) and isinstance(item.get('slug'), str)
         ]
+        agent_rows = await session.execute(
+            select(WorkStep.details['arguments']['name'].astext, WorkStep.updated_at)
+            .join(WorkTask, WorkTask.id == WorkStep.task_id)
+            .join(Run, Run.id == WorkStep.run_id)
+            .where(
+                WorkTask.owner_id == actor.id,
+                WorkTask.deleted_at.is_(None),
+                WorkTask.mode == 'agent',
+                Run.owner_id == actor.id,
+                Run.resource_type == 'work_agent',
+                Run.resource_id == WorkTask.id,
+                WorkStep.kind == 'tool',
+                WorkStep.name == 'load_skill',
+                WorkStep.status.in_(('succeeded', 'completed')),
+                WorkStep.details['arguments']['name'].astext.is_not(None),
+            )
+            .order_by(WorkStep.updated_at.desc(), WorkStep.id.desc())
+            .limit(50)
+        )
+        return sorted(
+            [*legacy, *((slug, at) for slug, at in agent_rows if isinstance(slug, str))],
+            key=lambda item: item[1],
+            reverse=True,
+        )

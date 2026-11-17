@@ -11,7 +11,7 @@ from sqlalchemy.engine import Connection
 
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import assert_original_rows
+from tests.core.schema_support import RETIRED_TABLES, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 
@@ -74,6 +74,9 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
     async with c.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in names:
+            if name in RETIRED_TABLES:
+                assert await connection.scalar(text('SELECT to_regclass(:table)'), {'table': name}) is None
+                continue
             after = list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{name}" t ORDER BY 1')))
             assert_original_rows(before[name], after, name)
         rows = (await connection.execute(text('SELECT scopes,resource_rpm_limit FROM developer_keys'))).all()

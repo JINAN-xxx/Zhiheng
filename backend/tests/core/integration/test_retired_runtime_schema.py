@@ -72,7 +72,7 @@ async def test_upgrade_removes_retired_fields_without_rewriting_usage_or_snapsho
             run_before = await session.scalar(
                 text('SELECT to_jsonb(r) FROM runtime_runs r WHERE id=:run'), {'run': run_id}
             )
-        await migrate(settings)
+        await _version(settings, '0039_retired_runtime_fields')
         async with engine.connect() as connection:
             columns = await connection.run_sync(
                 lambda sync: {
@@ -113,6 +113,12 @@ async def test_upgrade_removes_retired_fields_without_rewriting_usage_or_snapsho
             assert (
                 await connection.scalar(text('SELECT version_num FROM alembic_version'))
                 == '0039_retired_runtime_fields'
+            )
+        await migrate(settings)
+        async with engine.connect() as connection:
+            assert (
+                await connection.scalar(text('SELECT to_jsonb(r) FROM runtime_runs r WHERE id=:run'), {'run': run_id})
+                == run_before
             )
     finally:
         await engine.dispose()

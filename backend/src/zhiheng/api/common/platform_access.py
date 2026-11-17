@@ -34,11 +34,26 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'api_access': 'agents:read',
     },
     'work': {
-        **dict.fromkeys(('available', 'tasks', 'detail', 'snapshot', 'cancel', 'events'), 'work:read'),
+        **dict.fromkeys(
+            (
+                'available',
+                'tasks',
+                'detail',
+                'snapshot',
+                'events',
+                'options',
+                'input_download',
+                'artifact_download',
+                'artifact_preview',
+            ),
+            'work:read',
+        ),
         'create': 'work:create',
-        **dict.fromkeys(('update', 'add_member', 'upgrade_member', 'remove_member'), 'work:update'),
+        **dict.fromkeys(('update', 'add_member', 'upgrade_member', 'remove_member', 'detach_input'), 'work:update'),
         'remove': 'work:delete',
         'admit': 'work:use',
+        'cancel': 'work:use',
+        'upload': 'work:use',
     },
     'skills': {'skills': 'skills:read', 'get': 'skills:read', 'content': 'skills:read', 'remove': 'skills:delete'},
     'developer': {

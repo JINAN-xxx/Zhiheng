@@ -35,6 +35,8 @@ def require_execution_capabilities(
         'agent_chat': ('agents', 'use'),
         'agent_preview': ('agents', 'debug'),
         'work_turn': ('work', 'use'),
+        'work_agent': ('work', 'use'),
+        'work_agent_model': ('work', 'use'),
         'knowledge_query': ('knowledge', 'query'),
     }.get(kind, ('knowledge', 'import'))
     require_capability(principal, module, action)

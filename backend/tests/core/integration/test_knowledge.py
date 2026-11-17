@@ -5,6 +5,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.public import VectorSpec
@@ -247,8 +248,10 @@ async def finish_preparation(
 async def assert_agent_work_preparation(
     admin: httpx.AsyncClient, provider: ProviderServer, app: FastAPI, base: dict, chat_model_id: str | None
 ) -> None:
-    from tests.core.integration.test_work import published, task, turn
     from tests.core.integration.test_worker import named_model
+    from tests.core.legacy_work import legacy_task as task
+    from tests.core.legacy_work import legacy_turn as turn
+    from tests.core.legacy_work import published
 
     chat_model = chat_model_id or await named_model(admin, provider, 'knowledge-chat')
     agent = await published(admin, chat_model, knowledge_base_ids=[base['id']])
@@ -263,7 +266,7 @@ async def assert_agent_work_preparation(
     assert preview.json()['kind'] == 'knowledge_preparation'
     await finish_preparation(admin, app, preview.json())
     work = await task(admin, agent, goal='Which port?')
-    pending = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+    pending = await legacy_work_request(admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
     assert pending.status_code == 202, pending.text
     assert pending.json()['kind'] == 'knowledge_preparation'
     restored = (await admin.get(f'/api/work/tasks/{work["id"]}')).json()

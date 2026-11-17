@@ -46,6 +46,8 @@ from zhiheng.application.operations.queries import OperationQueries
 from zhiheng.application.skills.commands import SkillCommands
 from zhiheng.application.skills.management import PreparationSkillOwners, SkillManagementService
 from zhiheng.application.skills.queries import SkillQueries
+from zhiheng.application.work.agent import WorkAgentService
+from zhiheng.application.work.context import WorkAgentContext, WorkspacePolicy
 from zhiheng.application.work.runs import WorkRunService
 from zhiheng.bootstrap.adapters import (
     create_assistant_agent_factory,
@@ -57,8 +59,12 @@ from zhiheng.bootstrap.adapters import (
     create_models,
     create_parser,
     create_vector_store,
+    create_workspace_checkpoint_cleanup,
+    create_workspace_kernel,
+    create_workspace_reader,
 )
 from zhiheng.bootstrap.file_storage import create_file_storage
+from zhiheng.bootstrap.sandbox import create_sandbox_factory
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
@@ -91,7 +97,7 @@ from zhiheng.modules.knowledge.public import (
 from zhiheng.modules.models.public import SummaryPolicy
 from zhiheng.modules.operations.public import OperationsService
 from zhiheng.modules.skills.public import SkillService
-from zhiheng.modules.work.public import WorkService
+from zhiheng.modules.work.public import WorkAgentStore, WorkService
 from zhiheng.runtime.outbox import OutboxStore
 from zhiheng.runtime.runs import RunStore
 
@@ -125,6 +131,7 @@ class Container:
         self.models = create_models(self.cipher, settings.provider_timeout_seconds)
         self.model_configuration = ModelConfigurationService(self.database, self.models, self.identity)
         self.agents, self.work = AgentService(), WorkService()
+        self.work_agent_store = WorkAgentStore(self.work)
         self.knowledge = KnowledgeService(
             self.files,
             self.identity,
@@ -170,7 +177,7 @@ class Container:
             self.agents, self.agent_management, self.keys, self.runs, self.identity, admission=self.run_admission
         )
         self.chat = ChatService()
-        self.run_lifecycle = RunLifecycle(self.chat, self.work)
+        self.run_lifecycle = RunLifecycle(self.chat, self.work, self.work_agent_store)
         self.run_recovery = RunRecovery(self.database.sessions, self.runs, self.usage, self.run_lifecycle)
         self.skill_management = SkillManagementService(
             self.skills, self.agents, self.work, self.knowledge, chat=self.chat
@@ -311,6 +318,38 @@ class Container:
         self.graph_jobs = GraphJobs(self.database, self.graph_store, self.graph_runs, self.graph_sdk)
         self.outbox = OutboxStore()
         self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs, admission=self.run_admission)
+        self.sandbox = create_sandbox_factory(settings)
+        self.work_agent = WorkAgentService(
+            WorkAgentContext(
+                database=self.database,
+                identity=self.identity,
+                models=self.models,
+                skills=self.skills,
+                usage=self.usage,
+                runs=self.runs,
+                admission=self.run_admission,
+                files=self.files,
+                objects=self.file_objects,
+                queries=self.file_queries,
+                inputs=self.file_inputs,
+                tasks=self.work_agent_store,
+                kernel=create_workspace_kernel(settings),
+                sandbox=self.sandbox,
+                reader=create_workspace_reader(),
+                checkpoint_cleanup=create_workspace_checkpoint_cleanup(settings),
+                policy=WorkspacePolicy(
+                    run_seconds=settings.sandbox_run_seconds,
+                    sandbox_image=settings.sandbox_image,
+                    input_tokens=settings.chat_context_input_tokens,
+                    summary=SummaryPolicy(
+                        settings.chat_summary_trigger_tokens,
+                        settings.chat_summary_keep_tokens,
+                        settings.chat_summary_input_tokens,
+                        settings.chat_summary_output_tokens,
+                    ),
+                ),
+            )
+        )
         self.execution_authorization = ModelExecutionAuthorization(
             database=self.database,
             chat_context=self.chat_context,
@@ -326,6 +365,7 @@ class Container:
             files=self.files,
             assistant_conversations=self.assistant_conversations,
             assistant_agent=self.assistant_agent,
+            work_agent=self.work_agent,
         )
         self.run_executor = InferenceExecutor(
             sessions=self.database.sessions,
@@ -391,9 +431,14 @@ class Container:
         # Each resource gets a close attempt. Native finally scopes preserve
         # earlier close failures in the exception chain if another closer fails.
         try:
-            await self.graph_sdk.close()
+            sandbox = getattr(self, 'sandbox', None)
+            if sandbox is not None:
+                await sandbox.close()
         finally:
             try:
-                await self.redis.aclose()
+                await self.graph_sdk.close()
             finally:
-                await self.database.close()
+                try:
+                    await self.redis.aclose()
+                finally:
+                    await self.database.close()

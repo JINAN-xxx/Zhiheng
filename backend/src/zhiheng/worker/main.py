@@ -17,6 +17,10 @@ async def execute_chat(context: dict[str, object], run_id: str) -> None:
     await cast('Container', context['container']).run_executor.execute(UUID(run_id))
 
 
+async def execute_workspace(context: dict[str, object], run_id: str) -> None:
+    await cast('Container', context['container']).work_agent.execute(UUID(run_id))
+
+
 async def execute_knowledge(context: dict[str, object], job_id: str, kind: str) -> None:
     container = cast('Container', context['container'])
     if kind == 'build':
@@ -30,7 +34,11 @@ async def execute_knowledge(context: dict[str, object], job_id: str, kind: str) 
 def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 10) -> WorkerProcess:
     consumers = tuple(
         ConsumerWorker(
-            functions=[cast('WorkerCoroutine', execute_chat), cast('WorkerCoroutine', execute_knowledge)],
+            functions=[
+                cast('WorkerCoroutine', execute_chat),
+                cast('WorkerCoroutine', execute_knowledge),
+                cast('WorkerCoroutine', execute_workspace),
+            ],
             redis_settings=RedisSettings.from_dsn(container.settings.redis_url.get_secret_value()),
             queue_name=queue_name,
             ctx={'container': container},
@@ -39,14 +47,18 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
             max_tries=1,
             retry_jobs=False,
             # Admitted Agent Runs retain their version when the rollout flag changes.
-            job_timeout=container.settings.provider_timeout_seconds * 2 + 20,
+            job_timeout=(
+                container.settings.sandbox_run_seconds + 120
+                if queue_name == container.settings.worker_workspace_queue
+                else container.settings.provider_timeout_seconds * 2 + 20
+            ),
             health_check_interval=5,
             health_check_key=f'{queue_name}:arq-health',
             handle_signals=False,
             burst=False,
             poll_delay=0.05,
         )
-        for queue_name, limit in zip(container.settings.worker_queues, (max_jobs, 4, 2, 4), strict=True)
+        for queue_name, limit in zip(container.settings.worker_queues, (max_jobs, 4, 2, 4, 2), strict=True)
     )
     return WorkerProcess(container, consumers, burst=burst)
 

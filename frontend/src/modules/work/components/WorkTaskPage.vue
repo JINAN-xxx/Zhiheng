@@ -1,198 +1,42 @@
-<!-- Adapted from original Work UI, MIT licensed. -->
-<template>
-  <section class="work-task-page">
-    <header class="work-task-header">
-      <div class="work-task-header__copy">
-        <div class="work-task-header__title-row">
-          <h1>{{ task.title }}</h1>
-          <a-tag :color="statusColor">{{ statusLabel }}</a-tag>
-        </div>
-        <p v-if="showGoal">{{ task.goal }}</p>
-      </div>
-      <div class="work-task-header__actions">
-        <a-button aria-label="查看完整目标" @click="infoOpen = true"
-          ><InfoCircleOutlined />查看完整目标</a-button
-        >
-        <a-tooltip title="编辑标题和目标">
-          <a-button
-            v-if="canEdit && task.status === 'active'"
-            :disabled="locked"
-            aria-label="编辑工作信息"
-            @click="openEditor"
-            ><EditOutlined
-          /></a-button>
-        </a-tooltip>
-        <a-button
-          v-if="canEdit && task.status === 'active'"
-          :disabled="locked"
-          @click="emit('status', 'completed')"
-          >完成工作</a-button
-        >
-        <a-button
-          v-if="canEdit && task.status !== 'active'"
-          :disabled="locked"
-          @click="emit('status', 'active')"
-          >重新打开</a-button
-        >
-        <a-button
-          v-if="canEdit && task.status !== 'archived'"
-          aria-label="归档"
-          :disabled="locked"
-          @click="emit('status', 'archived')"
-          >归档</a-button
-        >
-      </div>
-    </header>
-
-    <WorkMemberBar
-      :members="members"
-      :can-manage="canManageMembers"
-      :can-edit="canEdit"
-      :locked="locked"
-      @add="openPicker"
-      @remove="emit('remove-member', $event)"
-      @upgrade="emit('upgrade-member', $event)"
-    />
-
-    <a-alert
-      v-if="task.status === 'archived'"
-      type="info"
-      show-icon
-      message="此工作已归档。可先修复不可用成员，再重新打开继续执行。"
-    />
-    <a-alert
-      v-else-if="task.status === 'completed'"
-      type="success"
-      show-icon
-      message="此工作已完成。可管理成员，重新打开后继续执行。"
-    />
-    <a-alert
-      v-if="runError"
-      :type="retryKind === 'unstarted' ? 'info' : 'error'"
-      show-icon
-      :message="runError"
-    >
-      <template #action>
-        <a-button
-          v-if="
-            task.status === 'active' &&
-            (canRecover || (canRun && (retryKind === 'uncertain' || (!!retryKind && !locked))))
-          "
-          size="small"
-          :danger="retryKind !== 'unstarted'"
-          @click="emit('retry')"
-        >
-          {{ canRecover ? '恢复查看' : retryKind === 'unstarted' ? '继续执行' : '重试执行' }}
-        </a-button>
-      </template>
-    </a-alert>
-
-    <WorkMessageTimeline :messages="task.messages" />
-    <a-alert v-if="task.preparationId" type="info" show-icon message="正在检索知识库" />
-
-    <footer v-if="task.status === 'active' && (canRun || stoppable)" class="work-composer">
-      <div class="work-composer__controls">
-        <a-select
-          :value="selectedAgentId ?? undefined"
-          aria-label="执行智能体"
-          placeholder="选择执行智能体"
-          :options="executorOptions"
-          :disabled="locked || !canRun"
-          @update:value="setSelectedAgent"
-        />
-        <span v-if="selectedMember && !selectedMember.available" class="work-composer__unavailable"
-          >当前智能体不可用</span
-        >
-      </div>
-      <a-textarea
-        v-model:value="message"
-        aria-label="工作消息"
-        placeholder="输入要交给当前智能体的工作消息"
-        :maxlength="64000"
-        :auto-size="{ minRows: 2, maxRows: 7 }"
-        :disabled="locked || !canRun"
-        @keydown="keydown"
-      />
-      <div class="work-composer__submit">
-        <a-button
-          v-if="stoppable"
-          aria-label="停止"
-          :disabled="stopDisabled"
-          danger
-          @click="emit('cancel')"
-          ><PauseCircleOutlined />停止</a-button
-        >
-        <a-button
-          v-else
-          aria-label="发送"
-          type="primary"
-          :disabled="!canSend || locked"
-          @click="send"
-          ><SendOutlined />发送</a-button
-        >
-      </div>
-    </footer>
-    <a-alert
-      v-else-if="task.status === 'active'"
-      type="info"
-      show-icon
-      message="当前账号可查看工作历史，但没有执行权限。"
-    />
-
-    <WorkAgentPicker
-      v-model:open="pickerOpen"
-      :agents="availableAgents"
-      :selected-ids="members.map((member) => member.agentId)"
-      :loading="agentsLoading"
-      :error="agentsError"
-      @confirm="addSelectedMembers"
-    />
-
-    <a-modal v-model:open="editorOpen" title="编辑工作信息" @ok="saveEditor">
-      <a-form layout="vertical">
-        <a-form-item label="标题" name="title"
-          ><a-input v-model:value="editingTitle" :maxlength="200"
-        /></a-form-item>
-        <a-form-item label="完整目标" name="goal"
-          ><a-textarea v-model:value="editingGoal" :maxlength="64000" :rows="7"
-        /></a-form-item>
-      </a-form>
-    </a-modal>
-    <a-modal v-model:open="infoOpen" title="工作信息" :footer="null">
-      <h2 class="work-info-title">{{ task.title }}</h2>
-      <div class="work-info-identity">
-        <span>工作 ID</span><code>{{ task.taskId }}</code>
-      </div>
-      <p v-if="showGoal" class="work-info-goal">{{ task.goal }}</p>
-    </a-modal>
-  </section>
-</template>
-
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
+  Drawer as ADrawer,
+  Dropdown as ADropdown,
   Form as AForm,
   FormItem as AFormItem,
   Input as AInput,
+  Menu as AMenu,
+  MenuItem as AMenuItem,
   Modal as AModal,
-  Select as ASelect,
   Tag as ATag,
-  Textarea as ATextarea,
-  Tooltip as ATooltip
+  Textarea as ATextarea
 } from 'ant-design-vue'
 import {
   EditOutlined,
-  InfoCircleOutlined,
+  FileTextOutlined,
+  MoreOutlined,
+  PaperClipOutlined,
   PauseCircleOutlined,
-  SendOutlined
+  SendOutlined,
+  SettingOutlined
 } from '@ant-design/icons-vue'
-import { validateWorkMessage, validateWorkTitle, validateWorkGoal } from '../presentation.ts'
-import type { WorkAgent, WorkMember, WorkTask, WorkStatus } from '../api/index.ts'
-import WorkAgentPicker from './WorkAgentPicker.vue'
-import WorkMemberBar from './WorkMemberBar.vue'
+import type { UpdateWorkBody, WorkOptions, WorkStatus, WorkTask } from '../api/index.ts'
+import type { WorkDraft } from '../presentation.ts'
+import type { WorkTurnInput } from '../composables/turns.ts'
+import {
+  validateWorkGoal,
+  validateWorkMessage,
+  validateWorkTitle,
+  workExecutionLabel
+} from '../presentation.ts'
 import WorkMessageTimeline from './WorkMessageTimeline.vue'
+import WorkExecutionPanel from './WorkExecutionPanel.vue'
+import WorkFilesPanel from './WorkFilesPanel.vue'
+import WorkResourcesForm from './WorkResourcesForm.vue'
+
 const props = defineProps<{
   task: WorkTask
   locked: boolean
@@ -203,76 +47,101 @@ const props = defineProps<{
   retryKind: string
   canEdit: boolean
   canRun: boolean
-  canManageMembers: boolean
-  availableAgents: WorkAgent[]
-  agentsLoading: boolean
-  agentsError: string
+  options: WorkOptions | null
+  optionsLoading: boolean
+  optionsError: string
+  uploading: boolean
+  initialMessage?: string
 }>()
 const emit = defineEmits<{
-  'add-members': [ids: string[]]
   cancel: []
-  'load-agents': []
-  'remove-member': [member: WorkMember]
   retry: []
-  save: [changes: { title: string; goal: string }, done: () => void]
-  send: [payload: { agentId: string; message: string }, clear: () => void]
+  retryOptions: []
+  upload: [files: File[]]
+  save: [changes: Omit<UpdateWorkBody, 'expected_version'>, done: () => void]
+  send: [payload: WorkTurnInput, restore: () => void]
   status: [status: WorkStatus]
-  'upgrade-member': [member: WorkMember]
 }>()
-const message = ref(''),
-  selectedAgentId = ref<string | null>(props.task.activeAgentId)
-const pickerOpen = ref(false),
-  editorOpen = ref(false),
-  infoOpen = ref(false),
-  editingTitle = ref(''),
-  editingGoal = ref('')
-const showGoal = computed(() => props.task.goal.trim() !== props.task.title.trim())
-const members = computed(() => props.task.members.filter((member) => !member.removedAt))
-const executorOptions = computed(() =>
-  members.value.map((member) => ({
-    value: member.agentId,
-    label: member.agentNameSnapshot,
-    disabled: !member.available
-  }))
-)
-const selectedMember = computed(() =>
-  members.value.find((member) => member.agentId === selectedAgentId.value)
-)
+const message = ref(props.initialMessage ?? ''),
+  fileInput = ref<HTMLInputElement | null>(null)
+const editorOpen = ref(false),
+  resourcesOpen = ref(false),
+  filesOpen = ref(false),
+  infoOpen = ref(false)
+const editingTitle = ref(''),
+  editingGoal = ref(''),
+  resourceDraft = ref<WorkDraft>({
+    goal: '',
+    modelId: null,
+    skillSlugs: [],
+    allowCodeExecution: false
+  })
+const isAgent = computed(() => props.task.mode === 'agent')
+const legacyMembers = computed(() => [
+  ...new Set(props.task.members.map((member) => member.agentNameSnapshot))
+])
 const canSend = computed(
   () =>
     props.canRun &&
+    isAgent.value &&
     !props.locked &&
-    validateWorkMessage(message.value).valid &&
-    selectedMember.value?.available
+    (validateWorkMessage(message.value).valid ||
+      (!message.value.trim() && props.task.executionState === 'paused'))
 )
-const statusLabel = computed(
-  () => ({ active: '进行中', completed: '已完成', archived: '已归档' })[props.task.status]
+const stateLabel = computed(() =>
+  !isAgent.value
+    ? '历史任务'
+    : props.task.status === 'archived'
+      ? '已归档'
+      : props.task.status === 'completed'
+        ? '已结束'
+        : workExecutionLabel[props.task.executionState]
 )
-const statusColor = computed(
-  () => ({ active: 'processing', completed: 'success', archived: 'default' })[props.task.status]
+const stateColor = computed(() =>
+  props.task.executionState === 'failed'
+    ? 'error'
+    : props.stoppable
+      ? 'processing'
+      : props.task.executionState === 'completed'
+        ? 'success'
+        : 'default'
+)
+const latestRunId = computed(
+  () =>
+    props.task.currentRunId ??
+    [...props.task.messages].reverse().find((item) => item.role === 'assistant' && item.runId)
+      ?.runId
+)
+const runSteps = computed(() =>
+  latestRunId.value
+    ? props.task.steps.filter((step) => step.runId === latestRunId.value)
+    : props.task.steps
+)
+const canSaveResources = computed(
+  () =>
+    !!resourceDraft.value.modelId &&
+    !!props.options?.models.some((model) => model.id === resourceDraft.value.modelId) &&
+    resourceDraft.value.skillSlugs.every((slug) =>
+      props.options?.skills.some((skill) => skill.slug === slug)
+    )
 )
 watch(
-  () => [
-    props.task.activeAgentId,
-    ...members.value.map((member) => `${member.agentId}:${member.available}`)
-  ],
-  () => {
-    if (
-      !members.value.some((member) => member.agentId === selectedAgentId.value && member.available)
-    )
-      selectedAgentId.value =
-        members.value.find((member) => member.available)?.agentId ?? props.task.activeAgentId
-  },
-  { immediate: true }
+  () => props.initialMessage,
+  (value) => {
+    if (!message.value && value) message.value = value
+  }
 )
-function setSelectedAgent(value: unknown): void {
-  selectedAgentId.value = typeof value === 'string' ? value : null
-}
 function send(): void {
-  if (canSend.value && selectedAgentId.value)
-    emit('send', { agentId: selectedAgentId.value, message: message.value.trim() }, () => {
-      message.value = ''
-    })
+  if (!canSend.value) return
+  if (!message.value.trim() && props.task.executionState === 'paused') {
+    emit('retry')
+    return
+  }
+  const content = message.value.trim()
+  message.value = ''
+  emit('send', { message: content }, () => {
+    if (!message.value) message.value = content
+  })
 }
 function keydown(event: KeyboardEvent): void {
   if (
@@ -287,137 +156,389 @@ function keydown(event: KeyboardEvent): void {
     send()
   }
 }
-function openPicker(): void {
-  if (props.locked) return
-  pickerOpen.value = true
-  emit('load-agents')
-}
-function addSelectedMembers(ids: string[]): void {
-  const existing = new Set(members.value.map((member) => member.agentId))
-  emit(
-    'add-members',
-    ids.filter((id) => !existing.has(id))
-  )
-}
 function openEditor(): void {
   editingTitle.value = props.task.title
   editingGoal.value = props.task.goal
   editorOpen.value = true
 }
 function saveEditor(): void {
+  const goal = editingGoal.value.trim()
   if (
     props.locked ||
     !validateWorkTitle(editingTitle.value).valid ||
-    !validateWorkGoal(editingGoal.value).valid
+    (goal ? !validateWorkGoal(goal).valid : !!props.task.goal.trim())
   )
     return
-  emit('save', { title: editingTitle.value.trim(), goal: editingGoal.value.trim() }, () => {
+  emit('save', { title: editingTitle.value.trim(), ...(goal ? { goal } : {}) }, () => {
     editorOpen.value = false
   })
 }
+function openResources(): void {
+  const config = props.task.configuration
+  resourceDraft.value = {
+    goal: props.task.goal,
+    modelId: config?.modelId ?? props.task.modelId,
+    skillSlugs: [...(config?.skillSlugs ?? [])],
+    allowCodeExecution: config?.allowCodeExecution ?? false
+  }
+  resourcesOpen.value = true
+  emit('retryOptions')
+}
+function saveResources(): void {
+  if (props.locked || !canSaveResources.value || !resourceDraft.value.modelId) return
+  emit(
+    'save',
+    {
+      model_id: resourceDraft.value.modelId,
+      skill_slugs: [...resourceDraft.value.skillSlugs],
+      allow_code_execution: resourceDraft.value.allowCodeExecution
+    },
+    () => {
+      resourcesOpen.value = false
+    }
+  )
+}
+function picked(event: Event): void {
+  const input = event.target as HTMLInputElement,
+    files = [...(input.files ?? [])]
+  input.value = ''
+  if (files.length && props.canRun && !props.locked) emit('upload', files)
+}
 </script>
-
+<template>
+  <section class="work-task-page">
+    <header class="work-task-header">
+      <div class="work-task-header__copy">
+        <h1>{{ task.title || '新任务' }}</h1>
+        <ATag :color="stateColor">{{ stateLabel }}</ATag>
+      </div>
+      <div class="work-task-header__actions">
+        <AButton
+          v-if="isAgent && canEdit"
+          type="text"
+          aria-label="资源与能力"
+          :disabled="locked"
+          @click="openResources"
+          ><SettingOutlined />资源与能力</AButton
+        ><AButton
+          v-if="isAgent"
+          type="text"
+          class="work-task-header__files"
+          aria-label="查看资料与成果"
+          @click="filesOpen = true"
+          ><FileTextOutlined />资料与成果</AButton
+        ><ADropdown :trigger="['click']"
+          ><AButton type="text" aria-label="更多任务操作"><MoreOutlined /></AButton
+          ><template #overlay
+            ><AMenu
+              ><AMenuItem @click="infoOpen = true">查看完整目标</AMenuItem
+              ><AMenuItem v-if="isAgent && canEdit" :disabled="locked" @click="openEditor"
+                ><EditOutlined />编辑任务信息</AMenuItem
+              ><AMenuItem
+                v-if="isAgent && canEdit && task.status === 'active'"
+                :disabled="locked"
+                @click="emit('status', 'completed')"
+                >结束任务</AMenuItem
+              ><AMenuItem
+                v-if="isAgent && canEdit && task.status !== 'active'"
+                :disabled="locked"
+                @click="emit('status', 'active')"
+                >重新打开</AMenuItem
+              ><AMenuItem
+                v-if="isAgent && canEdit && task.status !== 'archived'"
+                :disabled="locked"
+                @click="emit('status', 'archived')"
+                >归档任务</AMenuItem
+              ></AMenu
+            ></template
+          ></ADropdown
+        >
+      </div>
+    </header>
+    <div class="work-task-layout">
+      <div class="work-task-conversation">
+        <AAlert
+          v-if="!isAgent"
+          class="work-task-notice"
+          type="info"
+          show-icon
+          message="历史任务仅供查看，新建任务可自动规划并处理资料。"
+        />
+        <AAlert
+          v-else-if="task.status !== 'active'"
+          class="work-task-notice"
+          :type="task.status === 'archived' ? 'info' : 'success'"
+          show-icon
+          :message="
+            task.status === 'archived'
+              ? '任务已归档，资料和成果继续保留。'
+              : '任务已结束，重新打开后可以继续修改。'
+          "
+        />
+        <AAlert
+          v-if="runError"
+          class="work-task-notice"
+          :type="
+            retryKind === 'unstarted' ||
+            retryKind === 'uncertain' ||
+            task.executionState === 'paused'
+              ? 'info'
+              : 'error'
+          "
+          show-icon
+          :message="runError"
+          ><template #action
+            ><AButton
+              v-if="
+                isAgent &&
+                task.status === 'active' &&
+                (canRecover ||
+                  (canRun &&
+                    (retryKind === 'uncertain' ||
+                      (!!retryKind && !locked && task.executionState !== 'paused'))))
+              "
+              size="small"
+              @click="emit('retry')"
+              >{{
+                canRecover
+                  ? '恢复查看'
+                  : retryKind === 'uncertain'
+                    ? '确认原请求'
+                    : retryKind === 'unstarted'
+                      ? '继续执行'
+                      : '重新执行'
+              }}</AButton
+            ></template
+          ></AAlert
+        >
+        <WorkExecutionPanel
+          v-if="isAgent"
+          :plan="task.plan"
+          :steps="runSteps"
+          :state="task.executionState"
+          :busy="stoppable"
+        />
+        <WorkMessageTimeline :messages="task.messages" />
+        <footer
+          v-if="isAgent && task.status === 'active' && (canRun || stoppable)"
+          class="work-composer"
+        >
+          <ATextarea
+            v-model:value="message"
+            aria-label="工作消息"
+            :placeholder="
+              task.executionState === 'waiting_input'
+                ? '补充所需信息，或上传资料后继续'
+                : '描述目标，或继续修改已有成果'
+            "
+            :maxlength="32000"
+            :auto-size="{ minRows: 2, maxRows: 7 }"
+            :disabled="locked || !canRun"
+            @keydown="keydown"
+          />
+          <div class="work-composer__tools">
+            <AButton
+              type="text"
+              aria-label="上传资料"
+              :disabled="locked || !canRun"
+              :loading="uploading"
+              @click="fileInput?.click()"
+              ><PaperClipOutlined />上传资料</AButton
+            ><span v-if="task.inputs.length">{{ task.inputs.length }} 份资料</span>
+          </div>
+          <div class="work-composer__submit">
+            <AButton
+              v-if="stoppable"
+              aria-label="停止"
+              :disabled="stopDisabled"
+              danger
+              @click="emit('cancel')"
+              ><PauseCircleOutlined />停止</AButton
+            ><AButton
+              v-else
+              :aria-label="
+                task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'
+              "
+              type="primary"
+              :disabled="!canSend"
+              @click="send"
+              ><SendOutlined />{{
+                task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'
+              }}</AButton
+            >
+          </div>
+          <input
+            ref="fileInput"
+            class="work-composer__input"
+            type="file"
+            multiple
+            aria-label="选择工作资料"
+            @change="picked"
+          />
+        </footer>
+        <AAlert
+          v-else-if="isAgent && task.status === 'active'"
+          class="work-task-notice"
+          type="info"
+          show-icon
+          message="当前账号可以查看任务，但没有执行权限。"
+        />
+      </div>
+      <aside v-if="isAgent" class="work-task-files">
+        <WorkFilesPanel
+          :task-id="task.taskId"
+          :inputs="task.inputs"
+          :artifacts="task.artifacts"
+          :uploading="uploading"
+          :can-upload="canRun && !locked && task.status === 'active'"
+          @upload="emit('upload', $event)"
+        />
+      </aside>
+    </div>
+    <ADrawer
+      v-model:open="filesOpen"
+      title="资料与成果"
+      placement="right"
+      :width="360"
+      :body-style="{ padding: 0 }"
+      ><WorkFilesPanel
+        :task-id="task.taskId"
+        :inputs="task.inputs"
+        :artifacts="task.artifacts"
+        :uploading="uploading"
+        :can-upload="canRun && !locked && task.status === 'active'"
+        @upload="emit('upload', $event)"
+    /></ADrawer>
+    <AModal
+      v-model:open="editorOpen"
+      title="编辑任务信息"
+      :ok-button-props="{ disabled: locked }"
+      @ok="saveEditor"
+      ><AForm layout="vertical"
+        ><AFormItem label="标题" name="title"
+          ><AInput v-model:value="editingTitle" :maxlength="100" /></AFormItem
+        ><AFormItem label="工作目标" name="goal"
+          ><ATextarea v-model:value="editingGoal" :maxlength="32000" :rows="5" /></AFormItem></AForm
+    ></AModal>
+    <AModal
+      v-model:open="resourcesOpen"
+      title="资源与能力"
+      :ok-button-props="{ disabled: locked || !canSaveResources }"
+      @ok="saveResources"
+      ><WorkResourcesForm
+        v-model="resourceDraft"
+        :options="options"
+        :loading="optionsLoading"
+        :error="optionsError"
+        :disabled="locked"
+        @retry="emit('retryOptions')"
+    /></AModal>
+    <AModal v-model:open="infoOpen" title="工作目标" :footer="null"
+      ><p class="work-info-goal">{{ task.goal || '上传资料并发送目标后开始工作。' }}</p>
+      <div v-if="!isAgent && legacyMembers.length" class="work-info-members">
+        <strong>历史参与助手</strong>
+        <p>{{ legacyMembers.join('、') }}</p>
+      </div></AModal
+    >
+  </section>
+</template>
 <style scoped>
 .work-task-page {
   min-height: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--bg-container);
   color: var(--color-text);
   font-family: var(--workspace-font-family);
 }
 .work-task-header {
-  width: min(1040px, 100%);
-  min-width: 0;
-  align-self: center;
   display: flex;
-  align-items: flex-start;
+  flex-shrink: 0;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 22px 24px 16px;
+  gap: 16px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--gray-150);
 }
-.work-task-header {
-  flex-shrink: 0;
-}
 .work-task-header__copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   flex: 1;
 }
-.work-task-header__title-row {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
 .work-task-header h1 {
   min-width: 0;
-  display: -webkit-box;
   overflow: hidden;
   margin: 0;
   color: var(--color-text);
-  font-size: var(--workspace-font-size-title);
-  font-weight: var(--workspace-font-weight-medium);
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   letter-spacing: 0;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
-.work-task-header p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 8px 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-body);
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.work-task-header__copy :deep(.ant-tag) {
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 6px;
+  font-size: 11px;
 }
 .work-task-header__actions {
-  flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
 }
 .work-task-header__actions :deep(.ant-btn) {
-  border-color: var(--gray-200);
-  border-radius: 9px;
-  background: var(--bg-container);
-  box-shadow: none;
   font-size: 13px;
 }
-.work-task-header__title-row :deep(.ant-tag) {
-  margin: 3px 0 0;
-  padding: 1px 8px;
-  border-radius: 7px;
+.work-task-header__files {
+  display: none;
 }
-.work-task-page > :deep(.ant-alert) {
-  width: min(992px, calc(100% - 32px));
+.work-task-layout {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.work-task-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.work-task-files {
+  width: 300px;
+  flex-shrink: 0;
+  min-height: 0;
+  border-left: 1px solid var(--gray-150);
+}
+.work-task-notice {
+  width: min(840px, calc(100% - 40px));
   flex-shrink: 0;
   align-self: center;
-  margin: 6px 0;
+  margin: 10px 0 0;
   border-radius: 10px;
 }
 .work-composer {
-  width: min(880px, calc(100% - 40px));
+  width: min(840px, calc(100% - 40px));
   flex-shrink: 0;
   align-self: center;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  margin: 8px 0 24px;
-  padding: 16px;
+  gap: 10px;
+  margin: 10px 0 20px;
+  padding: 14px 16px;
   border: 1px solid var(--gray-200);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--bg-container);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 4%);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 3%);
 }
 .work-composer:focus-within {
   border-color: var(--main-400);
@@ -425,99 +546,97 @@ function saveEditor(): void {
 }
 .work-composer > :deep(.ant-input) {
   grid-column: 1 / -1;
-  grid-row: 1;
-  padding: 2px 0;
+  padding: 0;
   border: 0;
   background: transparent;
   font-size: var(--workspace-font-size-chat);
   line-height: var(--workspace-line-height-chat);
   box-shadow: none;
 }
-.work-composer__controls {
-  grid-column: 1;
-  grid-row: 2;
-  min-width: 0;
+.work-composer__tools,
+.work-composer__submit {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.work-composer__controls :deep(.ant-select) {
-  width: min(260px, 100%);
-}
-.work-composer__controls :deep(.ant-select-selector) {
-  border-color: var(--gray-150);
-  border-radius: 9px;
-  background: var(--gray-10);
-  box-shadow: none;
-}
-.work-composer__unavailable {
-  color: var(--workspace-danger);
-  font-size: 12px;
-}
-.work-composer__submit {
-  grid-column: 2;
-  grid-row: 2;
-  display: flex;
-  align-items: flex-end;
-}
-.work-composer__submit :deep(.ant-btn) {
-  min-width: 82px;
-  height: 36px;
-  border-radius: 10px;
-}
-.work-info-title,
-.work-info-goal {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-.work-info-title {
-  margin-top: 0;
-  font-size: 18px;
-  letter-spacing: 0;
-}
-.work-info-identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 10px;
-  margin: 12px 0 16px;
+.work-composer__tools {
+  min-width: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
-  line-height: 22px;
 }
-.work-info-identity code {
-  min-width: 0;
-  color: var(--color-text);
-  font-family: var(--workspace-font-mono);
-  overflow-wrap: anywhere;
+.work-composer__tools :deep(.ant-btn) {
+  padding-inline: 5px;
+  color: var(--color-text-secondary);
+}
+.work-composer__submit {
+  justify-content: flex-end;
+}
+.work-composer__submit :deep(.ant-btn) {
+  border-radius: 9px;
+  min-width: 78px;
+}
+.work-composer__input {
+  display: none;
 }
 .work-info-goal {
-  max-height: 55vh;
-  overflow-y: auto;
+  max-height: 60vh;
+  overflow: auto;
+  margin: 0;
   font-size: var(--workspace-font-size-chat);
   line-height: var(--workspace-line-height-chat);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.work-info-members {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--gray-150);
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--color-text-secondary);
+}
+.work-info-members strong {
+  color: var(--color-text);
+  font-weight: 500;
+}
+.work-info-members p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .work-task-files {
+    width: 260px;
+  }
+}
+@media (max-width: 940px) {
+  .work-task-files {
+    display: none;
+  }
+  .work-task-header__files {
+    display: inline-flex;
+  }
 }
 @media (max-width: 640px) {
   .work-task-header {
-    padding: 16px 14px 12px;
-    gap: 12px;
-    flex-direction: column;
+    padding: 12px 14px;
+    gap: 6px;
   }
-  .work-task-header__actions {
-    width: 100%;
-    justify-content: flex-start;
+  .work-task-header h1 {
+    font-size: 15px;
+  }
+  .work-task-header__copy {
+    gap: 6px;
+  }
+  .work-task-header__actions :deep(.ant-btn) {
+    padding-inline: 7px;
+    font-size: 12px;
   }
   .work-composer {
     width: calc(100% - 24px);
     margin-bottom: 12px;
     padding: 12px;
-    border-radius: 16px;
   }
-  .work-composer__controls {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .work-task-page > :deep(.ant-alert) {
+  .work-task-notice {
     width: calc(100% - 24px);
   }
 }

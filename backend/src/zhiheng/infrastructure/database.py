@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0041_assistant_attachments'
+SCHEMA_REVISION = '0042_workspace_merge'
 
 
 class Base(DeclarativeBase):
@@ -21,10 +21,10 @@ class Database:
     async def require_schema(self) -> None:
         try:
             async with self.engine.connect() as connection:
-                revision = await connection.scalar(text('SELECT version_num FROM alembic_version'))
+                revisions = tuple(await connection.scalars(text('SELECT version_num FROM alembic_version')))
         except Exception as exc:
             raise AppError('schema_unavailable', '数据库尚未初始化或暂时不可用', 503) from exc
-        if revision != SCHEMA_REVISION:
+        if revisions != (SCHEMA_REVISION,):
             raise AppError('schema_incompatible', '数据库版本与应用不匹配，请运行迁移命令', 503)
 
     async def close(self) -> None:

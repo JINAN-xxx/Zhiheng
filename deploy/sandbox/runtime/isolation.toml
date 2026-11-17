@@ -1,0 +1,4 @@
+# Session-private /tmp is backed by the kernel-bounded outer /tmp tmpfs.
+upper_root = "/tmp/execd-isolation"
+upper_max_bytes = 134217728
+allowed_writable = ["/workspace"]

@@ -7,7 +7,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from tests.core.integration.test_work import published, task, turn
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_turn as turn
+from tests.core.legacy_work import published
 from tests.core.permission_support import (
     grant_member,
     grants,

@@ -9,7 +9,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.core.integration.test_developer import provision
-from tests.core.integration.test_work import published, task
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_work_request, published
 from zhiheng.modules.models.public import ModelBinding
 
 
@@ -61,7 +62,9 @@ async def test_published_agent_deletion_lists_current_work_and_preserves_history
     references = rejected.json()['error']['details']['references']
     assert any(row['kind'] == 'work' and row['id'] == work['id'] for row in references)
     assert (await admin.get(f'/api/agents/{agent["id"]}')).json()['status'] == 'enabled'
-    removed = await admin.delete(
+    removed = await legacy_work_request(
+        admin,
+        'DELETE',
         f'/api/work/tasks/{work["id"]}',
         params={'expected_version': work['version']},
         headers={'content-type': 'application/json'},
@@ -83,8 +86,11 @@ async def test_reopening_work_revalidates_frozen_dependencies(
 ) -> None:
     agent = await published(admin, model_id, skill_slugs=['document-summary'])
     work = await task(admin, agent)
-    completed = await admin.patch(
-        f'/api/work/tasks/{work["id"]}', json={'expected_version': work['version'], 'status': 'completed'}
+    completed = await legacy_work_request(
+        admin,
+        'PATCH',
+        f'/api/work/tasks/{work["id"]}',
+        json={'expected_version': work['version'], 'status': 'completed'},
     )
     assert completed.status_code == 200, completed.text
     async with app.state.container.database.sessions.begin() as session:
@@ -100,8 +106,11 @@ async def test_reopening_work_revalidates_frozen_dependencies(
             await session.execute(
                 text('UPDATE agents SET deleted_at=now(),enabled=false WHERE id=:id'), {'id': agent['id']}
             )
-    rejected = await admin.patch(
-        f'/api/work/tasks/{work["id"]}', json={'expected_version': completed.json()['version'], 'status': 'active'}
+    rejected = await legacy_work_request(
+        admin,
+        'PATCH',
+        f'/api/work/tasks/{work["id"]}',
+        json={'expected_version': completed.json()['version'], 'status': 'active'},
     )
     assert rejected.status_code == 409, rejected.text
     assert rejected.json()['error']['code'] == 'work_dependencies_unavailable'
@@ -112,12 +121,18 @@ async def test_reopening_work_revalidates_frozen_dependencies(
 async def test_archived_work_can_reopen_when_dependencies_are_valid(admin: httpx.AsyncClient, model_id: str) -> None:
     agent = await published(admin, model_id)
     work = await task(admin, agent)
-    archived = await admin.patch(
-        f'/api/work/tasks/{work["id"]}', json={'expected_version': work['version'], 'status': 'archived'}
+    archived = await legacy_work_request(
+        admin,
+        'PATCH',
+        f'/api/work/tasks/{work["id"]}',
+        json={'expected_version': work['version'], 'status': 'archived'},
     )
     assert archived.status_code == 200, archived.text
-    reopened = await admin.patch(
-        f'/api/work/tasks/{work["id"]}', json={'expected_version': archived.json()['version'], 'status': 'active'}
+    reopened = await legacy_work_request(
+        admin,
+        'PATCH',
+        f'/api/work/tasks/{work["id"]}',
+        json={'expected_version': archived.json()['version'], 'status': 'active'},
     )
     assert reopened.status_code == 200 and reopened.json()['status'] == 'active', reopened.text
 
@@ -127,8 +142,11 @@ async def test_reopening_work_takes_model_before_task_lock(
 ) -> None:
     agent = await published(admin, model_id)
     work = await task(admin, agent)
-    completed = await admin.patch(
-        f'/api/work/tasks/{work["id"]}', json={'expected_version': work['version'], 'status': 'completed'}
+    completed = await legacy_work_request(
+        admin,
+        'PATCH',
+        f'/api/work/tasks/{work["id"]}',
+        json={'expected_version': work['version'], 'status': 'completed'},
     )
     assert completed.status_code == 200
     container = app.state.container
@@ -145,7 +163,9 @@ async def test_reopening_work_takes_model_before_task_lock(
         await holder.begin()
         await resolve(holder, [UUID(model_id)])
         request = asyncio.create_task(
-            admin.patch(
+            legacy_work_request(
+                admin,
+                'PATCH',
                 f'/api/work/tasks/{work["id"]}',
                 json={'expected_version': completed.json()['version'], 'status': 'active'},
             )

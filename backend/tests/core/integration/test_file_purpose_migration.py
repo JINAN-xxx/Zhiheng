@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from tests.core.integration.test_resource_requests import setup_access, upload
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import active_migration_context, assert_original_rows
+from tests.core.schema_support import RETIRED_TABLES, active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -51,6 +51,9 @@ async def test_schema15_original_rows_preserved_with_file_purpose(admin: httpx.A
     async with c.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
+            if table in RETIRED_TABLES:
+                assert await connection.scalar(text('SELECT to_regclass(:table)'), {'table': table}) is None
+                continue
             after = list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{table}" t ORDER BY 1')))
             assert_original_rows(before[table], after, table)
         assert await connection.scalar(text('SELECT purpose FROM files')) == 'general'

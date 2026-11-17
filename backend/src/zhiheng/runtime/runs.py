@@ -3,8 +3,9 @@ from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import String, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from zhiheng.runtime.contracts import (
     ActiveRunReference,
@@ -17,9 +18,11 @@ from zhiheng.runtime.contracts import (
 )
 from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.text import storage_text
 from zhiheng.shared.time import utcnow
 
 ACTIVE_STATUSES = ('running', 'cancel_requested')
+PARENT_USAGE_REPAIR_LIMIT = 100
 
 
 class RunStore:
@@ -186,6 +189,108 @@ class RunStore:
             raise AppError('run_not_found', '运行不存在', 404)
         return self._snapshot(row)
 
+    async def child_snapshots(self, session: AsyncSession, parent_run_id: UUID) -> list[RunSnapshot]:
+        """Trusted execution composition; the owning application authorizes its parent first."""
+        rows = await session.scalars(
+            select(Run)
+            .where(Run.payload['parent_run_id'].astext == str(parent_run_id))
+            .order_by(Run.created_at, Run.id)
+        )
+        return [self._snapshot(row) for row in rows]
+
+    async def owner_active(self, session: AsyncSession, owner_id: UUID, resource_type: str) -> bool:
+        return (
+            await session.scalar(
+                select(Run.id)
+                .where(
+                    Run.owner_id == owner_id,
+                    Run.resource_type == resource_type,
+                    Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+    async def orphaned_children(self, session: AsyncSession, *, resource_type: str) -> list[ActiveRunReference]:
+        parent = aliased(Run)
+        rows = await session.scalars(
+            select(Run)
+            .join(parent, Run.payload['parent_run_id'].astext == parent.id.cast(String))
+            .where(
+                Run.resource_type == resource_type,
+                Run.status.in_(('pending', *ACTIVE_STATUSES)),
+                parent.status.in_(('completed', 'failed', 'cancelled', 'interrupted')),
+            )
+            .limit(100)
+        )
+        return [
+            ActiveRunReference(row.id, row.resource_type, row.resource_id, cast('RunStatus', row.status), row.owner_id)
+            for row in rows
+        ]
+
+    async def aggregate_children(self, session: AsyncSession, parent_run_id: UUID) -> RunUsage:
+        children = await self.child_snapshots(session, parent_run_id)
+        if any(child.status not in {'completed', 'failed', 'cancelled', 'interrupted'} for child in children):
+            return RunUsage(status='pending')
+        if any(child.usage.status != 'known' for child in children):
+            return RunUsage(status='unknown')
+        return RunUsage(
+            input_tokens=sum(child.usage.input_tokens or 0 for child in children),
+            output_tokens=sum(child.usage.output_tokens or 0 for child in children),
+            status='known',
+        )
+
+    async def pending_parent_usage(
+        self,
+        session: AsyncSession,
+        *,
+        resource_type: str,
+        limit: int = PARENT_USAGE_REPAIR_LIMIT,
+    ) -> list[UUID]:
+        """Bound terminal aggregate repairs to parents whose children have all stopped."""
+        child = aliased(Run)
+        active_child = (
+            select(child.id)
+            .where(
+                child.payload['parent_run_id'].astext == Run.id.cast(String),
+                child.status.in_(('pending', *ACTIVE_STATUSES)),
+            )
+            .exists()
+        )
+        return list(
+            await session.scalars(
+                select(Run.id)
+                .where(
+                    Run.resource_type == resource_type,
+                    Run.status.in_(('completed', 'failed', 'cancelled', 'interrupted')),
+                    Run.usage_status == 'pending',
+                    ~active_child,
+                )
+                .order_by(Run.created_at, Run.id)
+                .limit(max(0, min(limit, PARENT_USAGE_REPAIR_LIMIT)))
+            )
+        )
+
+    async def project_child_usage(
+        self,
+        session: AsyncSession,
+        parent_run_id: UUID,
+        *,
+        pending_only: bool = False,
+    ) -> RunSnapshot:
+        row = await session.scalar(select(Run).where(Run.id == parent_run_id).with_for_update())
+        if row is None:
+            raise AppError('run_not_found', '运行不存在', 404)
+        if pending_only and (
+            row.usage_status != 'pending' or row.status not in {'completed', 'failed', 'cancelled', 'interrupted'}
+        ):
+            return self._snapshot(row)
+        usage = await self.aggregate_children(session, parent_run_id)
+        row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
+        row.revision += 1
+        return self._snapshot(row)
+
     async def claim(self, session: AsyncSession, run_id: UUID, lease_seconds: int) -> ClaimedRun | None:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if row is None or row.status != 'pending':
@@ -236,8 +341,8 @@ class RunStore:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
             return False
-        row.text = content
-        row.reasoning = reasoning
+        row.text = storage_text(content)
+        row.reasoning = storage_text(reasoning)
         row.projection_seq += 1
         row.revision += 1
         return True
@@ -262,13 +367,13 @@ class RunStore:
         row.status = 'cancelled' if row.status == 'cancel_requested' else status
         if row.status == 'cancelled':
             error = None
-        row.text = content
-        row.reasoning = reasoning
+        row.text = storage_text(content)
+        row.reasoning = storage_text(reasoning)
         row.result = result
         row.finish_reason = finish_reason
         row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
         row.error_code = error.code if error is not None else None
-        row.error_message = error.message if error is not None else None
+        row.error_message = storage_text(error.message)[:300] if error is not None else None
         row.revision += 1
         row.projection_seq += 1
         row.lease_until = None

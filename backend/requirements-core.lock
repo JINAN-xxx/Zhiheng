@@ -335,7 +335,9 @@ asyncpg==0.31.0 \
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
-    # via aiohttp
+    # via
+    #   aiohttp
+    #   opensandbox
 cachetools==7.2.4 \
     --hash=sha256:4cfbebf3eec4040d2073b19c460511ad47eef7b852dbf9a0d385099b4dafa31e \
     --hash=sha256:e0203b04b75fe13e62098eeb5b2018c4eb1a14c04e2b5b450e70db3ee7e92ec5
@@ -1163,6 +1165,7 @@ httpcore==1.0.9 \
     # via
     #   -c backend/requirements-core-constraints.txt
     #   httpx
+    #   opensandbox
 httpcore2==2.14.0 ; python_full_version < '3.11' and sys_platform != 'emscripten' \
     --hash=sha256:4c4f64f4b544afeb778c42c0ffb5941b29e671157e90ed3f6dc787c4bca90cd1 \
     --hash=sha256:4f57a1a8249fe6af589d935cfd456f1d13bbdcb0f0fc72af9142368fc94811d7
@@ -1306,6 +1309,11 @@ httpx==0.28.1 \
     #   google-genai
     #   langchain-core
     #   langgraph-sdk
+    #   opensandbox
+httpx-sse==0.4.3 \
+    --hash=sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc \
+    --hash=sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d
+    # via opensandbox
 httpx2==2.14.0 ; python_full_version < '3.11' \
     --hash=sha256:47ad61a3c40282cd8d0dc96311531f00f5bfc71a066c6fe3b36d8f63fb9e4f6e \
     --hash=sha256:9d20c13a10bae1773a0be3b0f1e5beeb4bdd549bc3a2ba18efa32897c65403e4
@@ -2136,6 +2144,14 @@ openpyxl==3.1.5 \
     # via
     #   -c backend/requirements-core-constraints.txt
     #   -r backend/requirements-core.in
+opensandbox==1.2.1 \
+    --hash=sha256:079bdde72fb7cd047de09c04928820cbed7394ab5c537ddda9e5ac108b1855df \
+    --hash=sha256:67c9210a06cc2c18e621b34b6b21ce143e04226b6773ea17924783b379a75585
+    # via -r backend/requirements-core.in
+opentelemetry-api==1.45.2 \
+    --hash=sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34 \
+    --hash=sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4
+    # via opensandbox
 orjson==3.13.0 \
     --hash=sha256:0526a3456db67b264c6d661b5f090077f326b6cd074d0ef53a72763595dec5d7 \
     --hash=sha256:08bf722f923d2100bc5e5a5dcf72c656db557049c1bea26582fdd5dd9d5395a1 \
@@ -2790,6 +2806,7 @@ pydantic==2.12.3 \
     #   langsmith
     #   lightrag-hku
     #   openai
+    #   opensandbox
     #   pydantic-settings
 pydantic-core==2.41.4 \
     --hash=sha256:025ba34a4cf4fb32f917d5d188ab5e702223d3ba603be4d8aca2f82bede432a4 \
@@ -2940,11 +2957,12 @@ pypinyin==0.55.0 \
     --hash=sha256:b5711b3a0c6f76e67408ec6b2e3c4987a3a806b7c528076e7c7b86fcf0eaa66b \
     --hash=sha256:d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f
     # via lightrag-hku
-python-dateutil==3.0.0 \
-    --hash=sha256:3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd \
-    --hash=sha256:7ebcb3c29a92f3ceafe79a7a48a5c45677e9e004bbeec5742ac0bbb00560b7a2
+python-dateutil==2.9.0.post0 \
+    --hash=sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3 \
+    --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
     # via
     #   -c backend/requirements-core-constraints.txt
+    #   opensandbox
     #   pandas
 python-dotenv==1.2.4 \
     --hash=sha256:42269a8a5b3fd54ffa6f3d84b18abed50064717576b4ecf03dc4a55d8aa04fdc \
@@ -3477,6 +3495,7 @@ typing-extensions==4.16.0 \
     #   minio
     #   multidict
     #   openai
+    #   opentelemetry-api
     #   psycopg
     #   psycopg-pool
     #   pydantic
@@ -3502,7 +3521,6 @@ tzdata==2026.5 \
     #   -c backend/requirements-core-constraints.txt
     #   pandas
     #   psycopg
-    #   python-dateutil
 urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63

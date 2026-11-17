@@ -12,7 +12,7 @@ backend/src/zhiheng/
 ├── runtime/         持久运行、attempt、租约、投影和 Outbox
 ├── worker/          队列、周期调度、恢复和心跳
 ├── bootstrap/       配置、资源装配、迁移与适配器构造
-├── infrastructure/  数据库连接、凭据加密和文件存储
+├── infrastructure/  数据库、官方 Agent/checkpoint、文件存储及隔离执行适配
 └── shared/          身份、错误和基础值
 
 frontend/src/
@@ -32,7 +32,7 @@ frontend/src/
 | chat | 会话、消息、回复版本、上下文和滚动摘要 |
 | agents | 私人助手、最新配置、启用状态、调试、正式会话及调用审计 |
 | skills | 安装预检、技能包、修订和冻结内容 |
-| work | 任务、冻结成员、共享消息和单运行占用 |
+| work | 任务配置、输入、计划、执行步骤、成果版本、恢复快照及沙盒租约 |
 | files | 文件元数据、权限、引用、回收、通用解析协议/配置与解析器 |
 | knowledge | 知识资料、构建所需解析任务事实、分块、向量、重排、共享和图谱 |
 | operations | 系统参数、公告、操作审计和资源异步操作 |
@@ -53,7 +53,7 @@ frontend/src/
 4. 网页通过流式接口及状态查询观察持久投影，刷新与离开页面不丢失已接纳任务。
 5. 取消先记录持久意图，再关闭上游和释放占用；未确认用量不按零计费。
 
-PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；Milvus 保存版本化向量索引；受管文件保存在共享文件卷。API、Worker 和迁移必须使用同一套配置、源码与密钥。
+PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；Milvus 保存版本化向量索引；受管文件保存在独立业务 MinIO。API、Worker 和迁移必须使用同一套配置、源码与密钥。
 
 ## 知识与解析
 
@@ -69,7 +69,17 @@ PostgreSQL 保存业务与运行事实；Redis 用于队列、心跳与限速；
 
 普通聊天与正式助手会话共用官方create_agent、Token摘要Middleware与PostgreSQL checkpoint，分别拥有业务记忆和完整消息记录。详情见[会话上下文](chat-context-memory.md)。
 
-智能助手只维护最新配置与启用状态，正式会话的新消息和公开 API 使用本轮受理时的配置；调试/API每请求独立。工作成员加入时冻结当时配置。技能内容、知识依赖、模型绑定和实际请求保留审计快照，编辑配置不改写已受理的运行。
+智能助手只维护最新配置与启用状态，正式会话的新消息和公开 API 使用本轮受理时的配置；调试/API每请求独立。工作空间直接选择模型与技能，每轮冻结配置、技能修订、输入版本和执行镜像。技能内容、知识依赖（适用入口）、模型绑定和实际请求保留审计快照，编辑配置不改写已受理的运行。
+
+## 工作空间任务执行
+
+新任务使用官方 `create_agent`、`TodoListMiddleware`、`SummarizationMiddleware` 与独立 `work_checkpoints`，通过标准工具协议读取资料、管理计划和处理文件。任务领域拥有配置、步骤与成果事实，`application/work` 组织授权、事务和执行；`infrastructure/agents` 与 `infrastructure/sandbox` 分别提供官方 Agent 和 OpenSandbox 适配。本期没有知识库检索工具。
+
+父 `work_agent` 运行由专用 ARQ 队列监督；模型分析、摘要与最终答复是公共 `RunAdmission` 接纳的 `work_agent_model` 子运行。取消、租约、用量未知和积分结算沿用平台公共服务。代码执行另授 `platform:work:execute_code`，只有任务启用且环境可用时提供相应工具。
+
+输入只读，工作现场与正式成果复用公共文件存储、权限、来源引用和生命周期。原件、预览和成果元数据统一事务登记；跨轮恢复使用 MinIO 中的文件快照，沙盒进程和依赖环境不作为永久状态。旧成员任务只保留历史读取。
+
+接口和恢复见[工作空间任务 Agent](../api/workspace-agent.md)，环境隔离、镜像、资源限额与验证见[工作空间执行环境](../deployment/workspace-sandbox.md)。
 
 ## 文件与生命周期
 

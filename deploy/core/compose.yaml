@@ -23,6 +23,14 @@ x-core-environment: &core-environment
   ZHIHENG_MILVUS_TOKEN: ${CORE_MILVUS_TOKEN:-}
   ZHIHENG_MILVUS_DATABASE: ${CORE_MILVUS_DATABASE:-default}
   ZHIHENG_WORKER_QUEUE: ${CORE_WORKER_QUEUE:-zhiheng:core:queue}
+  ZHIHENG_SANDBOX_URL: ${CORE_SANDBOX_URL:-}
+  ZHIHENG_SANDBOX_API_KEY: ${CORE_SANDBOX_API_KEY:-}
+  ZHIHENG_SANDBOX_IMAGE: ${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.1.0}
+  ZHIHENG_SANDBOX_CPU: ${CORE_SANDBOX_CPU:-1}
+  ZHIHENG_SANDBOX_MEMORY_MB: ${CORE_SANDBOX_MEMORY_MB:-1024}
+  ZHIHENG_SANDBOX_RUN_SECONDS: ${CORE_SANDBOX_RUN_SECONDS:-600}
+  ZHIHENG_SANDBOX_READY_SECONDS: ${CORE_SANDBOX_READY_SECONDS:-60}
+  ZHIHENG_SANDBOX_PIP_INDEX_URL: ${CORE_SANDBOX_PIP_INDEX_URL:-https://pypi.org/simple}
 
 x-core-backend: &core-backend
   image: ${CORE_BACKEND_IMAGE:-zhiheng-core-api:0.1.0}
@@ -33,10 +41,55 @@ x-core-backend: &core-backend
       PYTHON_IMAGE: ${CORE_PYTHON_IMAGE:-python:3.12-slim}
       PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
   environment: *core-environment
+  extra_hosts:
+    - 'host.docker.internal:host-gateway'
   init: true
   stop_grace_period: 90s
 
 services:
+  sandbox-runtime:
+    profiles: [workspace]
+    image: ${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.1.0}
+    build:
+      context: ../sandbox/runtime
+      args:
+        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim}
+        PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
+        APT_MIRROR: ${CORE_SANDBOX_APT_MIRROR:-https://deb.debian.org}
+    entrypoint: [/bin/true]
+    restart: 'no'
+
+  sandbox-manager:
+    profiles: [workspace]
+    image: ${CORE_SANDBOX_MANAGER_IMAGE:-zhiheng-sandbox-manager:1.2.1}
+    build:
+      context: ../sandbox/manager
+      args:
+        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim}
+        PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
+    network_mode: host
+    environment:
+      OPENSANDBOX_SERVER_API_KEY: ${CORE_SANDBOX_API_KEY:-}
+      ZHIHENG_SANDBOX_MANAGER_PORT: ${CORE_SANDBOX_MANAGER_PORT:-19192}
+      ZHIHENG_SANDBOX_EXECD_IMAGE: ${CORE_SANDBOX_EXECD_IMAGE:-opensandbox/execd:release-1.2.1}
+      ZHIHENG_SANDBOX_EGRESS_IMAGE: ${CORE_SANDBOX_EGRESS_IMAGE:-opensandbox/egress:release-1.2.1}
+      ZHIHENG_SANDBOX_WORKSPACE_MB: ${CORE_SANDBOX_WORKSPACE_MB:-1024}
+      ZHIHENG_SANDBOX_DNS_SERVERS: ${CORE_SANDBOX_DNS_SERVERS:-223.5.5.5,1.1.1.1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sandbox-manager-data:/root/.opensandbox
+    depends_on:
+      sandbox-runtime:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, /opt/healthcheck.py]
+      interval: 5s
+      timeout: 4s
+      start_period: 15s
+      retries: 12
+    mem_limit: 768m
+    restart: unless-stopped
+
   vector-etcd:
     image: quay.io/coreos/etcd:v3.5.25
     stop_grace_period: 30s
@@ -250,6 +303,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  sandbox-manager-data:
   vector-etcd-data:
   vector-objects-data:
   file-objects-data:

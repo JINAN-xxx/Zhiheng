@@ -16,6 +16,15 @@ ARCHIVED_TABLES = frozenset(
 )
 
 
+# Frozen migration0040 preserves accepted assistant configuration in the Run
+# audit before explicitly retiring the publication catalog.
+RETIRED_TABLES = frozenset({'agent_versions'})
+RENAMED_COLUMNS = {
+    'work_members': {'published_version': 'agent_revision'},
+    'work_messages': {'published_version': 'agent_revision'},
+}
+
+
 # Frozen migrations0036/0039 explicitly removed these values. Everything else
 # in an original row remains part of the preservation assertion.
 RETIRED_COLUMNS = {
@@ -52,10 +61,8 @@ def assert_original_rows(before: list[str], after: list[str], table: str) -> Non
     retired = RETIRED_COLUMNS.get(table, frozenset())
     assert all(not (retired & set(row)) for row in new), table
     old = [{key: value for key, value in row.items() if key not in retired} for row in old]
-    if table in {'work_members', 'work_messages'}:
-        for row in old:
-            if 'published_version' in row:
-                row['agent_revision'] = row.pop('published_version')
+    renamed = RENAMED_COLUMNS.get(table, {})
+    old = [{renamed.get(key, key): value for key, value in row.items()} for row in old]
     if table in {'agents', 'assistant_conversations'}:
         for row in old:
             if isinstance(row.get('config'), dict):

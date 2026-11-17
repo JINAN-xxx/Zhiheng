@@ -11,11 +11,14 @@ async def publish_outbox(container: Container, queue: ArqRedis) -> None:
         pending = await container.outbox.pending(session, payload_path=MODEL_TYPE_PATH)
     for delivery in pending:
         queue_name = (
-            container.settings.worker_short_queue
+            container.settings.worker_workspace_queue
+            if delivery.resource_type == 'work_agent'
+            else container.settings.worker_short_queue
             if delivery.resource_type in {'chat_summary', 'agent_summary'} or execution_lane(delivery.hint) == 'short'
             else container.settings.worker_queue
         )
-        await queue.enqueue_job('execute_chat', str(delivery.run_id), _job_id=str(delivery.id), _queue_name=queue_name)
+        function = 'execute_workspace' if delivery.resource_type == 'work_agent' else 'execute_chat'
+        await queue.enqueue_job(function, str(delivery.run_id), _job_id=str(delivery.id), _queue_name=queue_name)
         async with container.database.sessions.begin() as session:
             await container.outbox.mark_sent(session, delivery.id)
 

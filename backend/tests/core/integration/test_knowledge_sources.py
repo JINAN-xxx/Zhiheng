@@ -8,8 +8,10 @@ from sqlalchemy import select
 
 from tests.core.integration.test_knowledge import finish_preparation
 from tests.core.integration.test_knowledge_failures import ready_base
-from tests.core.integration.test_work import member_client, published, task, turn
 from tests.core.knowledge_support import legacy_grant
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_turn as turn
+from tests.core.legacy_work import legacy_work_request, member_client, published
 from tests.core.permission_support import (
     member_agent_work_permissions,  # noqa: F401 - pytest fixture by name
     member_knowledge_permissions,  # noqa: F401 - pytest fixture by name
@@ -75,7 +77,9 @@ async def test_library_acl_filters_sources_and_work_deletion_releases_own_refere
         assert result['hits'][0]['file_id'] == file_id
         agent = await published(reader, model_id, knowledge_base_ids=[base['id']])
         work = await task(reader, agent, goal='Which port?')
-        prepared_work = (await reader.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))).json()
+        prepared_work = (
+            await legacy_work_request(reader, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        ).json()
         work_preparation = await finish_preparation(reader, app, prepared_work)
         references = (await admin.get(f'/api/files/{file_id}/references')).json()
         assert {row['resource_id'] for row in references if row['resource_type'] == 'knowledge_run'} == {
@@ -94,7 +98,9 @@ async def test_library_acl_filters_sources_and_work_deletion_releases_own_refere
         assert (await reader.get(f'/api/knowledge/preparations/{result["id"]}')).status_code == 404
         detail = (await reader.get(f'/api/work/tasks/{work["id"]}')).json()
         assert all(message['knowledge_sources'] == [] for message in detail['messages'])
-        removed = await reader.delete(
+        removed = await legacy_work_request(
+            reader,
+            'DELETE',
             f'/api/work/tasks/{work["id"]}',
             params={'expected_version': detail['version']},
             headers={'content-type': 'application/json'},

@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     files_s3_secret_key: SecretStr = SecretStr('')
     files_s3_region: str = Field(default='us-east-1', min_length=1, max_length=100)
     files_s3_timeout_seconds: float = Field(default=30, ge=1, le=120)
+    sandbox_url: str = ''
+    sandbox_api_key: SecretStr = SecretStr('')
+    sandbox_image: str = 'zhiheng-workspace-runtime:0.1.0'
+    sandbox_cpu: str = '1'
+    sandbox_memory_mb: int = Field(default=1024, ge=256, le=8192)
+    sandbox_run_seconds: int = Field(default=600, ge=60, le=3600)
+    sandbox_ready_seconds: int = Field(default=60, ge=5, le=180)
+    sandbox_pip_index_url: str = 'https://pypi.org/simple'
     milvus_uri: str | None = None
     milvus_token: SecretStr = SecretStr('')
     milvus_database: str = 'default'
@@ -41,6 +49,38 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
+
+    @field_validator('sandbox_url')
+    @classmethod
+    def validate_sandbox_url(cls, value: str) -> str:
+        if value:
+            address = urlsplit(value)
+            if (
+                address.scheme not in {'http', 'https'}
+                or not address.hostname
+                or address.username
+                or address.password
+                or address.path not in {'', '/'}
+                or address.query
+                or address.fragment
+            ):
+                raise ValueError('sandbox_url must be an HTTP(S) origin without credentials or a path')
+        return value.rstrip('/')
+
+    @field_validator('sandbox_pip_index_url')
+    @classmethod
+    def validate_sandbox_pip_index_url(cls, value: str) -> str:
+        address = urlsplit(value)
+        if (
+            address.scheme != 'https'
+            or not address.hostname
+            or address.username
+            or address.password
+            or address.query
+            or address.fragment
+        ):
+            raise ValueError('sandbox_pip_index_url must be a trusted HTTPS index without embedded credentials')
+        return value
 
     @model_validator(mode='after')
     def valid_file_storage(self) -> 'Settings':
@@ -135,8 +175,18 @@ class Settings(BaseSettings):
         return f'{self.worker_queue}:retrieval'
 
     @property
+    def worker_workspace_queue(self) -> str:
+        return f'{self.worker_queue}:workspace'
+
+    @property
     def worker_queues(self) -> tuple[str, ...]:
-        return (self.worker_queue, self.worker_short_queue, self.worker_knowledge_queue, self.worker_retrieval_queue)
+        return (
+            self.worker_queue,
+            self.worker_short_queue,
+            self.worker_knowledge_queue,
+            self.worker_retrieval_queue,
+            self.worker_workspace_queue,
+        )
 
     @property
     def worker_arq_health_keys(self) -> tuple[str, ...]:

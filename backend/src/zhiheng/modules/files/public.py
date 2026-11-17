@@ -57,6 +57,7 @@ from zhiheng.modules.files.queries import FileBinding, FileCatalog, FileReadTick
 from zhiheng.modules.files.references import FileReferences
 from zhiheng.modules.files.service import FileService
 from zhiheng.modules.files.storage_migration import FileStorageMigration, StorageMigrationReport
+from zhiheng.modules.files.workspace_contracts import WorkspaceFileView, WorkspaceReader
 
 __all__ = [
     'MAX_IMAGE_URL_BYTES',
@@ -116,6 +117,8 @@ __all__ = [
     'StorageMigrationReport',
     'TransferRequest',
     'VersionRequest',
+    'WorkspaceFileView',
+    'WorkspaceReader',
     'file_semantics',
     'resource_page',
     'validate_filename',

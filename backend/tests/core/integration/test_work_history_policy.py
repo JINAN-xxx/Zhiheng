@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from tests.core.integration.test_agents import config
-from tests.core.integration.test_work import published, task
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_work_request, published
 from tests.core.provider import ProviderServer
 from zhiheng.modules.work.orm import WorkMember, WorkMessage
 from zhiheng.worker.execution import execute_run
@@ -48,7 +49,9 @@ async def test_work_history_rounds_uses_frozen_member_keeps_goal_attribution_and
                 )
             )
     endpoint = f'/api/work/tasks/{work["id"]}'
-    admitted = await admin.post(
+    admitted = await legacy_work_request(
+        admin,
+        'POST',
         endpoint + '/runs',
         json={
             'agent_id': agent['id'],

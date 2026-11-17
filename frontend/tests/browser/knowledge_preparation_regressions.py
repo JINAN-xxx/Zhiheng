@@ -72,110 +72,43 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
 
 
 class WorkKnowledgePreparation(WorkUIRegressions):
+    """Historical relay preparations remain readable without reviving the retired engine."""
     async def asyncSetUp(self):
         await super().asyncSetUp()
-        self.task['preparation_id'] = 'prep-work'
-        self.preparation = {'kind': 'knowledge_preparation', 'id': 'prep-work', 'resource_type': 'work_turn', 'resource_id': 'task-1', 'status': 'waiting_models', 'phase': 'embedding', 'run': None, 'hits': [], 'error': None, 'created_at': STAMP, 'updated_at': STAMP}
-        self.preparation_cancels = 0
+        self.task.update(mode='legacy', configuration=None, model_id=None,
+                         preparation_id='prep-work', current_run_id=None)
+        self.legacy_requests=[]
+        self.page.on('request',lambda request:self.legacy_requests.append(urlparse(request.url).path))
 
-    async def respond(self, route):
-        path = urlparse(route.request.url).path
-        if path == '/api/knowledge/preparations/prep-work':
-            await route.fulfill(json=self.preparation)
-        elif path == '/api/knowledge/preparations/prep-work/cancel':
-            self.preparation_cancels += 1
-            self.preparation.update(status='cancelled', phase='cancelled')
-            self.task.update(preparation_id=None, version=self.task['version'] + 1)
-            await route.fulfill(json=self.preparation)
-        else:
-            await super().respond(route)
-
-    async def test_known_preparation_restores_task_lock_and_can_cancel(self):
+    async def test_legacy_preparation_history_is_read_only(self):
         await self.open_task()
-        await expect(self.page.get_by_text('正在检索知识库', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_disabled()
-        await expect(self.page.get_by_role('button', name='编辑工作信息', exact=True)).to_be_disabled()
+        await expect(self.page.get_by_text('历史任务仅供查看，新建任务可自动规划并处理资料。',exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button',name='停止',exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('textbox',name='工作消息',exact=True)).to_have_count(0)
+        self.assertFalse(any('/knowledge/preparations/' in path for path in self.legacy_requests))
+
+    async def test_reloading_history_does_not_resume_legacy_preparation(self):
+        await self.open_task()
         await self.page.reload()
-        await expect(self.page.get_by_text('正在检索知识库', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='停止', exact=True).click()
-        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_enabled()
-        self.assertEqual(self.preparation_cancels, 1)
-        self.assertEqual(self.runs, [])
+        await expect(self.page.get_by_text('历史任务仅供查看，新建任务可自动规划并处理资料。',exact=True)).to_be_visible()
+        self.assertFalse(any('/knowledge/preparations/' in path for path in self.legacy_requests))
+        self.assertEqual(self.runs,[])
 
-    async def test_lost_preparation_stop_continues_after_task_run_handoff(self):
+    async def test_legacy_run_does_not_automatically_restore_old_executor(self):
+        self.task['current_run_id']='old-run'
         await self.open_task()
-        await expect(self.page.get_by_text('正在检索知识库', exact=True)).to_be_visible()
-        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备观察中断'}}))
-        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work/cancel', lambda route: route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作取消接纳响应丢失'}}))
-        await expect(self.page.get_by_text('工作准备观察中断', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='停止', exact=True).click()
-        await expect(self.page.get_by_text('工作取消接纳响应丢失', exact=True)).to_be_visible()
-        self.task.update(preparation_id=None, current_run_id='work-run', version=2)
-        self.run.update(status='running', text='', revision=2)
-        stopped = asyncio.Event()
-        calls = []
-        async def stop_main(route):
-            calls.append(route.request.url)
-            self.run.update(status='cancelled', revision=9)
-            self.task.update(current_run_id=None, version=3)
-            await route.fulfill(json=self.run)
-            stopped.set()
-        await self.page.route(self.origin + '/api/work/tasks/task-1/runs/work-run/cancel', stop_main)
-        await self.page.get_by_role('button', name='恢复查看', exact=True).click()
-        try:
-            await asyncio.wait_for(stopped.wait(), timeout=4)
-        except TimeoutError:
-            self.fail('恢复后未继续停止已接纳的主运行')
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(self.runs, [])
+        await expect(self.page.get_by_role('button',name='停止',exact=True)).to_have_count(0)
+        self.assertFalse(any('/runs/old-run' in path for path in self.legacy_requests))
 
-    async def test_known_preparation_first_read_failure_has_a_recovery_action(self):
-        reads = []
-        async def observe(route):
-            reads.append(route.request.url)
-            if len(reads) == 1:
-                await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备读取失败'}})
-            else:
-                await route.fulfill(json=self.preparation)
-        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', observe)
+    async def test_new_task_uses_workspace_options_without_knowledge_retrieval(self):
+        self.task.update(mode='agent', model_id='model-1', preparation_id=None,
+                         configuration={'model_id':'model-1','skill_slugs':[],'allow_code_execution':False})
         await self.open_task()
-        await expect(self.page.get_by_text('工作准备读取失败', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='恢复查看', exact=True).click()
-        await expect(self.page.get_by_text('工作准备读取失败', exact=True)).not_to_be_visible()
-        await self.page.get_by_role('button', name='停止', exact=True).click()
-        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_enabled()
-        self.assertGreaterEqual(len(reads), 2)
-        self.assertEqual(self.runs, [])
-
-    async def test_lost_stop_retries_preparation_cancel_before_task_run_exists(self):
-        await self.open_task()
-        await expect(self.page.get_by_text('正在检索知识库', exact=True)).to_be_visible()
-        async def unreadable(route):
-            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作准备观察中断'}})
-        calls, confirmed = [], asyncio.Event()
-        async def cancel(route):
-            calls.append(route.request.url)
-            if len(calls) == 1:
-                await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '工作停止响应丢失'}})
-            else:
-                self.preparation.update(status='cancelled', phase='cancelled')
-                self.task.update(preparation_id=None, version=2)
-                await route.fulfill(json=self.preparation)
-                confirmed.set()
-        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work', unreadable)
-        await self.page.route(self.origin + '/api/knowledge/preparations/prep-work/cancel', cancel)
-        await expect(self.page.get_by_text('工作准备观察中断', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='停止', exact=True).click()
-        await expect(self.page.get_by_text('工作停止响应丢失', exact=True)).to_be_visible()
-        await self.page.unroute(self.origin + '/api/knowledge/preparations/prep-work', unreadable)
-        await self.page.get_by_role('button', name='恢复查看', exact=True).click()
-        try:
-            await asyncio.wait_for(confirmed.wait(), timeout=3)
-        except TimeoutError:
-            self.fail('工作准备仍等待时未继续确认停止操作')
-        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_enabled()
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(self.runs, [])
+        text=self.page.get_by_role('textbox',name='工作消息',exact=True)
+        await text.fill('分析这些资料')
+        await self.page.get_by_role('button',name='发送',exact=True).click()
+        await expect(self.page.get_by_text('核实后的结论',exact=True)).to_be_visible()
+        self.assertFalse(any(path.startswith('/api/knowledge/') for path in self.legacy_requests))
 
 
 def load_tests(loader, tests, pattern):
@@ -183,10 +116,10 @@ def load_tests(loader, tests, pattern):
         (AgentKnowledgePreparation, 'test_preview_observes_and_cancels_knowledge_preparation'),
         (AgentKnowledgePreparation, 'test_editor_loads_knowledge_options_for_saved_agent_owner'),
         (AgentKnowledgePreparation, 'test_api_key_includes_published_knowledge_embedding_model_grants'),
-        (WorkKnowledgePreparation, 'test_known_preparation_restores_task_lock_and_can_cancel'),
-        (WorkKnowledgePreparation, 'test_lost_preparation_stop_continues_after_task_run_handoff'),
-        (WorkKnowledgePreparation, 'test_known_preparation_first_read_failure_has_a_recovery_action'),
-        (WorkKnowledgePreparation, 'test_lost_stop_retries_preparation_cancel_before_task_run_exists'),
+        (WorkKnowledgePreparation, 'test_legacy_preparation_history_is_read_only'),
+        (WorkKnowledgePreparation, 'test_reloading_history_does_not_resume_legacy_preparation'),
+        (WorkKnowledgePreparation, 'test_legacy_run_does_not_automatically_restore_old_executor'),
+        (WorkKnowledgePreparation, 'test_new_task_uses_workspace_options_without_knowledge_retrieval'),
     ]
     return unittest.TestSuite(case(name) for case, name in names)
 

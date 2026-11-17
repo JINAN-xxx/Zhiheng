@@ -1,18 +1,24 @@
+import type { WorkExecutionState } from './api/index.ts'
+
 export interface WorkDraft {
   goal: string
-  agentIds: string[]
-  activeAgentId: string | null
+  modelId: string | null
+  skillSlugs: string[]
+  allowCodeExecution: boolean
 }
 export interface CreateIntent extends WorkDraft {
   clientRequestId: string
 }
 export interface WorkIntent {
   taskId: string
-  agentId: string
   message: string
   expectedVersion: number
   clientRequestId: string
+  fileIds: string[]
+  resume: boolean
 }
+const sameSet = (left: string[], right: string[]) =>
+  JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
 export function nextWorkIntent(
   previous: WorkIntent | null,
   input: Omit<WorkIntent, 'clientRequestId'>,
@@ -22,11 +28,12 @@ export function nextWorkIntent(
   if (
     previous &&
     previous.taskId === input.taskId &&
-    previous.agentId === input.agentId &&
-    previous.message === message
+    previous.message === message &&
+    previous.resume === input.resume &&
+    sameSet(previous.fileIds, input.fileIds)
   )
     return previous
-  return { ...input, message, clientRequestId: createId() }
+  return { ...input, fileIds: [...input.fileIds], message, clientRequestId: createId() }
 }
 export function nextCreateIntent(
   previous: CreateIntent | null,
@@ -37,16 +44,21 @@ export function nextCreateIntent(
   if (
     previous &&
     previous.goal === goal &&
-    previous.activeAgentId === draft.activeAgentId &&
-    JSON.stringify([...previous.agentIds].sort()) === JSON.stringify([...draft.agentIds].sort())
+    previous.modelId === draft.modelId &&
+    previous.allowCodeExecution === draft.allowCodeExecution &&
+    sameSet(previous.skillSlugs, draft.skillSlugs)
   )
     return previous
   return {
     goal,
-    agentIds: [...draft.agentIds],
-    activeAgentId: draft.activeAgentId,
+    modelId: draft.modelId,
+    skillSlugs: [...draft.skillSlugs],
+    allowCodeExecution: draft.allowCodeExecution,
     clientRequestId: createId()
   }
+}
+export function emptyWorkDraft(): WorkDraft {
+  return { goal: '', modelId: null, skillSlugs: [], allowCodeExecution: false }
 }
 function validText(value: string, maxLength: number, maxBytes = 65536): boolean {
   const trimmed = value.trim()
@@ -61,6 +73,14 @@ function validText(value: string, maxLength: number, maxBytes = 65536): boolean 
 export const validateWorkGoal = (value: string) => ({ valid: validText(value, 32000) })
 export const validateWorkMessage = validateWorkGoal
 export const validateWorkTitle = (value: string) => ({ valid: validText(value, 100) })
-export const validateWorkMembers = (ids: string[]) => ({
-  valid: ids.length > 0 && ids.length <= 10 && new Set(ids).size === ids.length
-})
+export const MAX_WORK_FILE_BYTES = 20 * 1024 * 1024
+export const workExecutionLabel: Record<WorkExecutionState, string> = {
+  idle: '等待指令',
+  queued: '排队中',
+  running: '正在执行',
+  waiting_input: '待补充资料',
+  paused: '已暂停',
+  completed: '本轮已完成',
+  failed: '执行未完成',
+  cancelled: '已停止'
+}

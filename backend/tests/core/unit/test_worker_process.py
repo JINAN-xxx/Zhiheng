@@ -175,9 +175,9 @@ def test_model_lanes_are_bounded_and_do_not_share_worker_context() -> None:
     from zhiheng.worker.main import build_worker
 
     worker = build_worker(SimpleNamespace(settings=settings()), max_jobs=1)
-    assert [consumer.max_jobs for consumer in worker.consumers] == [1, 4, 2, 4]
-    assert len({consumer.queue_name for consumer in worker.consumers}) == 4
-    assert len({id(consumer.ctx) for consumer in worker.consumers}) == 4
+    assert [consumer.max_jobs for consumer in worker.consumers] == [1, 4, 2, 4, 2]
+    assert len({consumer.queue_name for consumer in worker.consumers}) == 5
+    assert len({id(consumer.ctx) for consumer in worker.consumers}) == 5
     assert all(not consumer.burst and not consumer._handle_signals for consumer in worker.consumers)
 
 

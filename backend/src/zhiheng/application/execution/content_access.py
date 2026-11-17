@@ -30,7 +30,7 @@ class RunContentAccess:
             require_capability(principal, 'agents', 'use')
         elif kind == 'agent_preview':
             require_capability(principal, 'agents', 'read')
-        elif kind == 'work_turn':
+        elif kind in {'work_turn', 'work_agent', 'work_agent_model'}:
             require_capability(principal, 'work', 'read')
         if kind in {'agent_preview', 'agent_invocation'}:
             await self.agents.get(session, principal, resource_id)
@@ -41,7 +41,7 @@ class RunContentAccess:
             if link is None or link.owner_id != principal.id:
                 raise AppError('run_not_found', '运行不存在', 404)
             await AssistantConversations().authorize(session, principal, link.conversation_id)
-        elif kind == 'work_turn':
+        elif kind in {'work_turn', 'work_agent', 'work_agent_model'}:
             await self.work.require(session, principal, resource_id)
 
     async def authorize_read(self, session: AsyncSession, principal: Principal, value: RunSnapshot) -> None:

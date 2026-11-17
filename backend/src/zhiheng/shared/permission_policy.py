@@ -7,7 +7,7 @@ MODULE_DEFINITIONS = (
     ('platform', 'overview', '工作台', ('read', 'platform_stats')),
     ('platform', 'chat', '对话体验', ('read', 'use', 'update', 'delete', 'share')),
     ('platform', 'agents', '智能助手', ('read', 'use', 'create', 'update', 'delete', 'debug', 'publish')),
-    ('platform', 'work', '工作空间', ('read', 'use', 'create', 'update', 'delete')),
+    ('platform', 'work', '工作空间', ('read', 'use', 'create', 'update', 'delete', 'execute_code')),
     ('platform', 'models', '模型目录', ('read', 'config_read', 'create', 'update', 'delete', 'toggle', 'test')),
     ('platform', 'knowledge', '知识库', ('read', 'query', 'create', 'update', 'delete', 'import', 'rebuild', 'share')),
     ('platform', 'skills', '技能', ('read', 'use', 'create', 'update', 'delete', 'toggle')),
@@ -49,6 +49,7 @@ PERMISSION_CODES = frozenset(
 )
 ACTION_LABELS = {
     'read': '查看',
+    'execute_code': '文件处理与代码执行',
     'platform_stats': '全平台统计',
     'use': '使用',
     'query': '检索',

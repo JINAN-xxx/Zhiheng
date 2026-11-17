@@ -25,12 +25,14 @@ AdmissionIdentity有三个明确字段：owner_id是原生Run所属操作人，b
 | 助手配置调试 | 实际调用人 | 助手所有者 | 无 | agent_preview |
 | 助手公开调用 | 原Key所有者 | 助手所有者 | 原Key | agent_invocation |
 | 公开模型API | 原Key所有者 | 原Key所有者 | 原Key | public |
-| Work | 实际调用人 | 任务所有者 | 无 | work_turn |
+| 工作空间 Agent 模型子调用 | 任务所有者 | 同一用户 | 无 | work_agent_model |
 | 知识构建向量子调用 | 构建所有者 | 构建所有者 | 原接入Key（如有） | knowledge_embedding |
 | 知识检索向量/重排子调用 | 准备任务owner | 准备任务owner | 原接入Key（如有） | knowledge_retrieval |
 | 图谱模型回调 | 当前claim owner | 当前claim owner | 无 | knowledge_graph |
 
 知识检索的Run类型仍分别为knowledge_embedding与knowledge_rerank，用量来源通过usage_source显式保留knowledge_retrieval。Key的application_id仍由原生计量服务从该Key取得，不从当前重放请求覆盖。
+
+工作空间父运行 `work_agent` 负责监督与聚合展示，不额外预占一次模型费用。分析、摘要和最终答复各自通过公共准入创建 `work_agent_model` 子运行，冻结父 Run/attempt，执行前复核归属与当前权限。旧 `work_turn` 保留历史，不能作为新任务入口。任务与工具协议见[工作空间任务 Agent](../api/workspace-agent.md)。
 
 ## 估算与收费
 

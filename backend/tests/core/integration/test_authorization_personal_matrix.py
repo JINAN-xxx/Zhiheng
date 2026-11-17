@@ -17,7 +17,9 @@ from tests.core.integration.test_knowledge_failures import ready_base, source
 from tests.core.integration.test_knowledge_sources import query_result
 from tests.core.integration.test_message_actions import create_share
 from tests.core.integration.test_skills import install, prepare
-from tests.core.integration.test_work import published, task, turn
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_turn as turn
+from tests.core.legacy_work import legacy_work_request, published
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.orm import RetrievalIntent
 from zhiheng.runtime.orm import Run
@@ -173,13 +175,13 @@ async def test_private_conversation_operation_matrix(
             assert saved_chat['conversation_id'] in ids((await admin.get('/api/chat/conversations')).json())
             return
         method, endpoint, body = cases[operation]
-        denied = await stranger.request(method, endpoint, json=body)
+        denied = await legacy_work_request(stranger, method, endpoint, json=body)
         assert denied.status_code == 404, denied.text
         assert (await admin.get(base)).json()['id'] == conversation_id
         # The saved immutable message fixture has an intentionally empty execution payload.
         # Real regeneration's positive/provider path is covered by test_chat_regeneration.
         if operation != 'regenerate':
-            allowed = await admin.request(method, endpoint, json=body)
+            allowed = await legacy_work_request(admin, method, endpoint, json=body)
             assert allowed.status_code in {200, 202, 204}, allowed.text
 
 
@@ -201,9 +203,9 @@ async def test_message_actions_reject_other_admin_and_member(
     method, endpoint, body = cases[operation]
     for is_admin in (False, True):
         async with identity_client(app, admin=is_admin) as stranger:
-            denied = await stranger.request(method, endpoint, json=body)
+            denied = await legacy_work_request(stranger, method, endpoint, json=body)
             assert denied.status_code == 404, denied.text
-    allowed = await admin.request(method, endpoint, json=body)
+    allowed = await legacy_work_request(admin, method, endpoint, json=body)
     assert allowed.status_code in {200, 201, 204}, allowed.text
 
 
@@ -306,10 +308,10 @@ async def test_private_file_operation_matrix(admin: httpx.AsyncClient, app: Fast
             'audit-page': ('GET', path + '/audit/page', None),
         }
         method, endpoint, body = cases[operation]
-        denied = await stranger.request(method, endpoint, json=body)
+        denied = await legacy_work_request(stranger, method, endpoint, json=body)
         assert denied.status_code == 404, denied.text
         assert (await admin.get(path)).json()['id'] == file['id']
-        allowed = await admin.request(method, endpoint, json=body)
+        allowed = await legacy_work_request(admin, method, endpoint, json=body)
         assert allowed.status_code in ({200, 409} if operation == 'dispose-expired' else {200}), allowed.text
 
 
@@ -428,7 +430,7 @@ async def test_work_owner_and_foreign_member_operation_matrix(
     path = '/api/work/tasks/' + owned['id']
     run_id = ''
     if operation in {'snapshot', 'cancel', 'events'}:
-        response = await admin.post(path + '/runs', json=turn(owned, agent))
+        response = await legacy_work_request(admin, 'POST', path + '/runs', json=turn(owned, agent))
         assert response.status_code == 202, response.text
         run_id = response.json()['id']
         # A terminal persisted run makes ASGI's finite SSE response deterministic.
@@ -467,10 +469,10 @@ async def test_work_owner_and_foreign_member_operation_matrix(
                 assert (await stranger.get(endpoint, params={'task_id': owned['id']})).status_code == 404
             return
         method, endpoint, body = cases[operation]
-        denied = await stranger.request(method, endpoint, json=body)
+        denied = await legacy_work_request(stranger, method, endpoint, json=body)
         assert denied.status_code == 404, denied.text
         assert (await admin.get(path)).json()['id'] == owned['id']
-        allowed = await admin.request(method, endpoint, json=body)
+        allowed = await legacy_work_request(admin, method, endpoint, json=body)
         assert allowed.status_code in {200, 202, 204}, allowed.text
 
 
@@ -486,12 +488,12 @@ async def test_secondary_conversation_message_and_work_run_ids_cannot_cross_pare
     assert (await admin.get(f'/api/chat/conversations/{saved_chat["conversation_id"]}/messages')).status_code == 200
     agent = await published(admin, model_id)
     first, second = await task(admin, agent), await task(admin, agent)
-    started = await admin.post(f'/api/work/tasks/{first["id"]}/runs', json=turn(first, agent))
+    started = await legacy_work_request(admin, 'POST', f'/api/work/tasks/{first["id"]}/runs', json=turn(first, agent))
     assert started.status_code == 202, started.text
     run_id = started.json()['id']
     assert (await admin.get(f'/api/work/tasks/{first["id"]}/runs/{run_id}')).status_code == 200
     for method, suffix in [('GET', ''), ('POST', '/cancel'), ('GET', '/events')]:
-        wrong = await admin.request(method, f'/api/work/tasks/{second["id"]}/runs/{run_id}' + suffix)
+        wrong = await legacy_work_request(admin, method, f'/api/work/tasks/{second["id"]}/runs/{run_id}' + suffix)
         assert wrong.status_code == 404, wrong.text
 
 
@@ -597,10 +599,10 @@ async def test_knowledge_owner_only_management_and_private_read_matrix(
     )
     for is_admin in (False, True):
         async with identity_client(app, admin=is_admin) as stranger:
-            denied = await stranger.request(method, endpoint, **kwargs)
+            denied = await legacy_work_request(stranger, method, endpoint, **kwargs)
             assert denied.status_code == 404, denied.text
     assert (await admin.get(path)).json()['id'] == base['id']
-    allowed = await admin.request(method, endpoint, **kwargs)
+    allowed = await legacy_work_request(admin, method, endpoint, **kwargs)
     assert allowed.status_code in {200, 201, 202, 204}, allowed.text
 
 
@@ -714,10 +716,10 @@ async def test_graph_private_base_and_persisted_job_operation_matrix(
     method, endpoint, body = cases[operation]
     for is_admin in (False, True):
         async with identity_client(app, admin=is_admin) as stranger:
-            denied = await stranger.request(method, endpoint, json=body)
+            denied = await legacy_work_request(stranger, method, endpoint, json=body)
             assert denied.status_code == 404, denied.text
     assert (await admin.get(path + '/jobs/' + job['id'])).status_code == 200
-    allowed = await admin.request(method, endpoint, json=body)
+    allowed = await legacy_work_request(admin, method, endpoint, json=body)
     expected = (
         {409} if operation in {'labels', 'subgraph'} else {503} if operation in {'build', 'preview', 'query'} else {200}
     )
@@ -812,15 +814,15 @@ async def test_storage_governance_permissions_do_not_grant_private_file_access(
     }
     method, endpoint, body = cases[operation]
     async with account(admin, app) as (stranger, _, _):
-        denied = await stranger.request(method, endpoint, json=body)
+        denied = await legacy_work_request(stranger, method, endpoint, json=body)
         assert denied.status_code == 403, denied.text
     async with account(admin, app, *grants('ai:storage')) as (reader, _, _):
-        response = await reader.request(method, endpoint, json=body)
+        response = await legacy_work_request(reader, method, endpoint, json=body)
         expected = 200 if method == 'GET' and operation != 'users' else 403
         assert response.status_code == expected, response.text
         assert (await reader.get('/api/files/' + file['id'])).status_code == 404
     async with account(admin, app, *grants('ai:storage', 'configure', 'maintain')) as (writer, _, _):
-        allowed = await writer.request(method, endpoint, json=body)
+        allowed = await legacy_work_request(writer, method, endpoint, json=body)
         assert allowed.status_code in ({403} if operation == 'users' else {200, 201, 204}), allowed.text
         assert (await writer.get('/api/files/' + file['id'] + '/download')).status_code == 404
 
@@ -874,7 +876,9 @@ async def test_sse_reauthenticates_before_later_snapshots_without_starting_serve
     else:
         agent = await published(admin, model_id)
         owned = await task(admin, agent)
-        response = await admin.post(f'/api/work/tasks/{owned["id"]}/runs', json=turn(owned, agent))
+        response = await legacy_work_request(
+            admin, 'POST', f'/api/work/tasks/{owned["id"]}/runs', json=turn(owned, agent)
+        )
         assert response.status_code == 202, response.text
         run, resource_id = response.json(), UUID(owned['id'])
     user_id = UUID((await admin.get('/api/auth/me')).json()['id'])

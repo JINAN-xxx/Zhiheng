@@ -9,6 +9,7 @@ from zhiheng.application.knowledge.graph.runs import GraphRuns
 from zhiheng.application.knowledge.jobs import KnowledgeJobs
 from zhiheng.application.knowledge.origin import KnowledgeOriginGuard
 from zhiheng.application.knowledge.preparation import KnowledgePreparation
+from zhiheng.application.work.agent import WorkAgentService
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.developer.public import KeyService
 from zhiheng.modules.files.public import FileService
@@ -38,9 +39,11 @@ class ModelExecutionAuthorization:
         files: FileService,
         assistant_conversations: AssistantConversationService,
         assistant_agent: AssistantAgentService,
+        work_agent: WorkAgentService | None = None,
     ) -> None:
         self.assistant_conversations = assistant_conversations
         self.assistant_agent = assistant_agent
+        self.work_agent = work_agent
         self.database, self.chat_context, self.keys = database, chat_context, keys
         self.graph_runs, self.knowledge_preparation = graph_runs, knowledge_preparation
         self.run_content = run_content
@@ -91,6 +94,11 @@ class ModelExecutionAuthorization:
                     )
 
     async def require(self, claim: ClaimedRun) -> None:  # noqa: PLR0912, PLR0915 - explicit policies for distinct execution resources
+        if claim.resource_type == 'work_agent_model':
+            if self.work_agent is None:
+                raise AppError('work_execution_unavailable', '工作空间执行服务尚未就绪', 503)
+            await self.work_agent.guard_model(claim)
+            return
         await self._require_platform(claim)
         await self._require_knowledge_run(claim)
         if claim.resource_type in {'agent_chat', 'agent_preview', 'agent_invocation', 'agent_summary'}:

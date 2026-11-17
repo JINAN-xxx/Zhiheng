@@ -21,6 +21,8 @@ export interface RunSnapshot {
     | 'agent_chat'
     | 'agent_invocation'
     | 'work_turn'
+    | 'work_agent'
+    | 'work_agent_model'
     | 'knowledge_embedding'
     | 'knowledge_rerank'
     | 'knowledge_graph'
@@ -63,6 +65,8 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
       resourceType !== 'agent_chat' &&
       resourceType !== 'agent_invocation' &&
       resourceType !== 'work_turn' &&
+      resourceType !== 'work_agent' &&
+      resourceType !== 'work_agent_model' &&
       resourceType !== 'knowledge_embedding' &&
       resourceType !== 'knowledge_rerank' &&
       resourceType !== 'knowledge_graph'

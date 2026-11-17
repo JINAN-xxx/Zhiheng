@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.core.integration.test_agents import config
+from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.application.overview import WorkbenchService
@@ -523,7 +524,8 @@ async def test_assistant_recent_usage_uses_each_turn_publication_skills_and_froz
 
 async def work_recent_fixture(admin: httpx.AsyncClient, app: FastAPI, model_id: str) -> tuple[dict, dict, dict]:
     from tests.core.integration.test_skills import install
-    from tests.core.integration.test_work import published, task
+    from tests.core.legacy_work import legacy_task as task
+    from tests.core.legacy_work import published
     from zhiheng.modules.agents.orm import Agent
     from zhiheng.modules.skills.orm import Skill
     from zhiheng.shared.time import utcnow
@@ -599,7 +601,9 @@ async def work_recent_private_and_deleted(
         assert not any(item['id'] in ids for item in value['recent'])
     detail = await admin.get('/api/work/tasks/' + work['id'])
     assert detail.status_code == 200, detail.text
-    removed = await admin.delete(
+    removed = await legacy_work_request(
+        admin,
+        'DELETE',
         '/api/work/tasks/' + work['id'],
         params={'expected_version': detail.json()['version']},
         headers={'content-type': 'application/json'},
@@ -618,7 +622,7 @@ async def test_real_work_recent_uses_frozen_turn_refs_and_respects_owner_and_del
     provider: ProviderServer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.core.integration.test_work import turn
+    from tests.core.legacy_work import legacy_turn as turn
     from zhiheng.shared.time import utcnow
     from zhiheng.worker.execution import execute_run
 
@@ -631,7 +635,9 @@ async def test_real_work_recent_uses_frozen_turn_refs_and_respects_owner_and_del
     assert before.status_code == 200, before.text
     assert before.json()['metrics']['today_calls'] == 0
     assert not any(item['id'] in ids for item in before.json()['recent'])
-    admitted = await admin.post('/api/work/tasks/' + work['id'] + '/runs', json=turn(work, agent))
+    admitted = await legacy_work_request(
+        admin, 'POST', '/api/work/tasks/' + work['id'] + '/runs', json=turn(work, agent)
+    )
     assert admitted.status_code == 202, admitted.text
     run_id = UUID(admitted.json()['id'])
     await execute_run(app.state.container, run_id)
@@ -641,7 +647,9 @@ async def test_real_work_recent_uses_frozen_turn_refs_and_respects_owner_and_del
     assert 'WORK FUTURE SKILL MUST NOT APPEAR' not in str(provider.requests)
     detail = await admin.get('/api/work/tasks/' + work['id'])
     assert detail.status_code == 200, detail.text
-    upgraded = await admin.patch(
+    upgraded = await legacy_work_request(
+        admin,
+        'PATCH',
         '/api/work/tasks/' + work['id'] + '/members/' + agent['id'],
         json={
             'expected_version': detail.json()['version'],

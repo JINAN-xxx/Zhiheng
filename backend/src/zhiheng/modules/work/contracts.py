@@ -2,29 +2,21 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from zhiheng.modules.agents.public import AgentConfig
 from zhiheng.modules.knowledge.public import Hit
+from zhiheng.modules.work.agent_contracts import (
+    AgentTaskConfiguration,
+    ExecutionState,
+    WorkArtifactInfo,
+    WorkInputInfo,
+    WorkPlanItem,
+    WorkStepInfo,
+)
+from zhiheng.modules.work.base import Input, Version, safe_text
 
-MAX_TEXT_BYTES = 65536
-
-Version = Annotated[StrictInt, Field(ge=1)]
 TaskStatus = Literal['active', 'completed', 'archived']
-
-
-def safe_text(value: str) -> str:
-    try:
-        encoded = value.encode('utf-8')
-    except UnicodeError:
-        raise ValueError('非法 Unicode') from None
-    if '\x00' in value or len(encoded) > MAX_TEXT_BYTES:
-        raise ValueError('文本包含非法字符或超过字节限制')
-    return value
-
-
-class Input(BaseModel):
-    model_config = ConfigDict(extra='forbid')
 
 
 class CreateTask(Input):
@@ -100,6 +92,9 @@ class TaskSummary(Input):
     title: str
     goal: str
     status: TaskStatus
+    mode: Literal['legacy', 'agent'] = 'legacy'
+    model_id: UUID | None = None
+    execution_state: ExecutionState = 'idle'
     version: int
     current_run_id: UUID | None
     preparation_id: UUID | None = None
@@ -139,6 +134,11 @@ class MessageInfo(Input):
 class TaskDetail(TaskSummary):
     members: list[MemberInfo]
     messages: list[MessageInfo]
+    configuration: AgentTaskConfiguration | None = None
+    inputs: list[WorkInputInfo] = Field(default_factory=list)
+    steps: list[WorkStepInfo] = Field(default_factory=list)
+    artifacts: list[WorkArtifactInfo] = Field(default_factory=list)
+    plan: list[WorkPlanItem] = Field(default_factory=list)
 
 
 class TaskPage(Input):

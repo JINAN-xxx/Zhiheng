@@ -1,13 +1,14 @@
 """The execution path for every admitted model call, including connection tests."""
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from time import monotonic
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from sqlalchemy.exc import DBAPIError
@@ -17,10 +18,18 @@ from zhiheng.application.execution.failures import database_sqlstate, exception_
 from zhiheng.application.execution.lifecycle import RunLifecycle
 from zhiheng.modules.billing.public import UsageService
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.models.public import ModelBinding, ModelDelta, ModelProvider, ModelRequest, ProviderError
+from zhiheng.modules.models.public import (
+    AgentModelProvider,
+    ModelBinding,
+    ModelDelta,
+    ModelProvider,
+    ModelRequest,
+    ProviderError,
+)
 from zhiheng.runtime.contracts import ClaimedRun, RunError, RunSnapshot, RunStatus, RunUsage
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.text import storage_text
 from zhiheng.shared.time import utcnow
 
 MAX_PROJECTION_BYTES = 2 * 1024 * 1024
@@ -69,6 +78,8 @@ def retrieval_execution_error(claim: ClaimedRun, error: Exception, *, provider_s
 class InferenceProgress:
     text: str = ''
     reasoning: str = ''
+    raw_text: str = ''
+    raw_reasoning: str = ''
     projection_bytes: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -82,13 +93,17 @@ class InferenceProgress:
     cache_tokens: int | None = None
     reasoning_tokens: int | None = None
 
-    def append(self, chunk: ModelDelta, *, agent_execution: bool) -> None:
-        chunk_bytes = len(chunk.text.encode('utf-8')) + len(chunk.reasoning.encode('utf-8'))
+    def append(self, chunk: ModelDelta, *, agent_execution: bool, tool_execution: bool = False) -> None:
+        text, reasoning = storage_text(chunk.text), storage_text(chunk.reasoning)
+        chunk_bytes = len(text.encode('utf-8')) + len(reasoning.encode('utf-8'))
         if self.projection_bytes + chunk_bytes > MAX_PROJECTION_BYTES:
             raise ProviderError(reason='projection_limit')
         self.projection_bytes += chunk_bytes
-        self.text += chunk.text
-        self.reasoning += chunk.reasoning
+        self.text += text
+        self.reasoning += reasoning
+        if tool_execution:
+            self.raw_text += chunk.text
+            self.raw_reasoning += chunk.reasoning
         for name in ('input_tokens', 'output_tokens', 'search_units', 'cache_tokens', 'reasoning_tokens'):
             value = getattr(chunk, name)
             if value is not None:
@@ -289,6 +304,10 @@ class InferenceExecutor:
         if self._before_provider is not None:
             await self._before_provider(claim)
         provider = await self._provider_factory(request.binding)
+        if request.agent_messages and (
+            claim.resource_type != 'work_agent_model' or not callable(getattr(provider, 'stream_agent', None))
+        ):
+            raise ProviderError(definitive_rejection=True, reason='invalid_options')
 
         async def start_model() -> None:
             if progress.provider_started:
@@ -317,8 +336,13 @@ class InferenceExecutor:
 
             async def read_stream() -> None:
                 nonlocal last_projection
-                async for chunk in provider.stream(request.messages):
-                    progress.append(chunk, agent_execution=agent_execution)
+                stream = (
+                    cast('AgentModelProvider', provider).stream_agent(request.agent_messages, request.tools)
+                    if request.agent_messages
+                    else provider.stream(request.messages)
+                )
+                async for chunk in stream:
+                    progress.append(chunk, agent_execution=agent_execution, tool_execution=bool(request.agent_messages))
                     if (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
                         async with self._sessions.begin() as session:
                             if not await self._runs.project(
@@ -370,6 +394,19 @@ class InferenceExecutor:
         *,
         rejected: bool,
     ) -> None:
+        result = progress.result
+        if claim.resource_type == 'work_agent_model':
+            result = {
+                'agent_message_json': json.dumps(
+                    {
+                        'role': 'assistant',
+                        'content': progress.raw_text,
+                        'reasoning_content': progress.raw_reasoning,
+                        'tool_calls': (progress.result or {}).get('tool_calls', []),
+                    },
+                    ensure_ascii=True,
+                )
+            }
         async with self._sessions.begin() as session:
             await self._runs.lock_execution(session, claim.id, claim.attempt_id)
             outcome = await self._usage.settle(
@@ -393,7 +430,7 @@ class InferenceExecutor:
                     input_tokens=outcome.input_tokens, output_tokens=outcome.output_tokens, status=outcome.status
                 ),
                 error=error,
-                result=progress.result,
+                result=result,
                 finish_reason=progress.finish_reason,
             )
             await self._lifecycle.project(session, snapshot)

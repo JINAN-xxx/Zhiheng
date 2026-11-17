@@ -106,6 +106,7 @@ async function remove(task: WorkSummary): Promise<void> {
   }
 }
 function canManageTask(task: WorkSummary, action: 'update' | 'delete' = 'update'): boolean {
+  if (task.mode !== 'agent') return false
   if (!canUseCapability('work', action)) return false
   if (
     working.value ||

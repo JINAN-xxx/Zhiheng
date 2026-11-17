@@ -50,6 +50,23 @@ npm run build:platform
 
 每个业务用例拥有独立 PostgreSQL 数据库、Redis 队列、凭据密钥和独立 MinIO 测试桶；清理按创建时登记的精确资源执行。`ZHIHENG_TEST_RESOURCE_LOG` 可记录资源意图、创建和删除，不记录连接秘密。
 
+### 工作空间专项
+
+基础工具与适配器测试不需要真实模型和沙盒：
+
+```bash
+python -m pytest tests/unit/test_workspace_tools.py tests/unit/test_sandbox_adapter.py tests/unit/test_workspace_file_reader.py -q
+```
+
+公共工作空间执行回归位于 `tests/core/integration/test_work_agent_execution.py`。问候和权限用例使用真实 API、ARQ、官方 LangChain/PostgreSQL checkpoint 与原生计量，模型端为测试专用 OpenAI 兼容 HTTP 服务。Office 制作与续写用例另需显式提供 `ZHIHENG_TEST_SANDBOX_URL`、`ZHIHENG_TEST_SANDBOX_API_KEY`、`ZHIHENG_TEST_SANDBOX_IMAGE`，否则跳过该用例。
+
+```bash
+python -m pytest tests/core/integration/test_work_agent_execution.py tests/core/integration/test_file_objects.py -q
+python -m pytest tests/core/integration/test_workspace_sandbox.py -q
+```
+
+这些用例分别验证真实任务队列、模型子调用计量、CSV→Excel/Word 与 PDF 预览、跨轮文件快照、旧成果字节不可变、空工作文件、控制字符、代码执行权限，以及多个文件对象登记的回滚、丢提交回执与取消。沙盒底层另覆盖实际隔离、超时、依赖和清理。测试服务应独立配置，不能复用生产任务环境；镜像及管理服务配置见[工作空间执行环境](deployment/workspace-sandbox.md)。测试通过不表示真实云端模型已完成兼容性与任务质量验证。
+
 ## 可选的 schema 模板
 
 设置 `ZHIHENG_TEST_SCHEMA_TEMPLATE=1` 可减少反复应用同一组迁移的成本。每个 pytest 进程创建一个仅含当前迁移和默认目录数据的模板，并禁止连接修改；普通 app 用例从该模板创建各自的新数据库，随后照常检查迁移版本、初始化账号。数据库中的测试数据不跨用例复用。
