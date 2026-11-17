@@ -11,7 +11,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix='ZHIHENG_', env_file=None, extra='forbid')
 
-    files_root: Path = Path('/var/lib/zhiheng/files')
+    files_s3_endpoint: str = 'http://file-objects:9000'
+    files_s3_bucket: str = Field(
+        default='zhiheng-files', min_length=3, max_length=63, pattern=r'^[a-z0-9][a-z0-9-]+[a-z0-9]$'
+    )
+    files_s3_access_key: SecretStr = SecretStr('')
+    files_s3_secret_key: SecretStr = SecretStr('')
+    files_s3_region: str = Field(default='us-east-1', min_length=1, max_length=100)
+    files_s3_timeout_seconds: float = Field(default=30, ge=1, le=120)
     milvus_uri: str | None = None
     milvus_token: SecretStr = SecretStr('')
     milvus_database: str = 'default'
@@ -34,6 +41,24 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def valid_file_storage(self) -> 'Settings':
+        if bool(self.files_s3_access_key.get_secret_value()) != bool(self.files_s3_secret_key.get_secret_value()):
+            raise ValueError('S3 file storage requires a complete application credential pair')
+        if self.files_s3_endpoint:
+            address = urlsplit(self.files_s3_endpoint)
+            if (
+                address.scheme not in {'http', 'https'}
+                or not address.hostname
+                or address.username is not None
+                or address.password is not None
+                or address.path not in {'', '/'}
+                or address.query
+                or address.fragment
+            ):
+                raise ValueError('S3 endpoint must be an HTTP(S) origin without credentials or a path')
+        return self
 
     @model_validator(mode='after')
     def valid_chat_memory(self) -> 'Settings':

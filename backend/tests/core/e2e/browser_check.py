@@ -12,7 +12,6 @@ import time
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import httpx
@@ -27,6 +26,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 # Support direct execution of this test tool without installing the test package.
 from tests.core.provider import ProviderServer  # noqa: E402
+from tests.core.storage import isolated_bucket  # noqa: E402
 
 
 async def create_database(url: str, name: str, *, drop: bool = False) -> None:
@@ -189,11 +189,13 @@ def browser_flow(base_url: str, provider: ProviderServer, artifacts: Path) -> No
             browser.close()
 
 
-def child_environment(database_url: str, redis_url: str, base_url: str, *, files_root: Path) -> dict[str, str]:
+def child_environment(
+    database_url: str, redis_url: str, base_url: str, *, object_store: dict[str, str]
+) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if not key.startswith(('ZHIHENG_', 'PYTHONPATH'))}
     env.update(
         {
-            'ZHIHENG_FILES_ROOT': str(files_root),
+            **{'ZHIHENG_' + key.upper(): value for key, value in object_store.items()},
             'ZHIHENG_DATABASE_URL': database_url,
             'ZHIHENG_REDIS_URL': redis_url,
             'ZHIHENG_CREDENTIAL_KEY': Fernet.generate_key().decode(),
@@ -270,9 +272,9 @@ def main() -> int:
     database_name = f'core_browser_{uuid4().hex}'
     python = os.getenv('ZHIHENG_E2E_PYTHON', sys.executable)
     instance_url = make_url(database_url).set(database=database_name).render_as_string(hide_password=False)
-    with TemporaryDirectory(prefix='zhiheng-core-e2e-files-') as files_root:
+    with isolated_bucket() as object_store:
         env = child_environment(
-            instance_url, os.environ['ZHIHENG_TEST_REDIS_URL'], args.base_url, files_root=Path(files_root)
+            instance_url, os.environ['ZHIHENG_TEST_REDIS_URL'], args.base_url, object_store=object_store
         )
         artifacts = args.artifacts_dir
         artifacts.mkdir(parents=True, exist_ok=True)

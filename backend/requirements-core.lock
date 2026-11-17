@@ -207,6 +207,7 @@ argon2-cffi==25.1.0 \
     # via
     #   -c backend/requirements-core-constraints.txt
     #   -r backend/requirements-core.in
+    #   minio
 argon2-cffi-bindings==26.1.0 \
     --hash=sha256:061a6919145bbf282ebf1f9c59d3135d4833c25313c8595c0d68cf7712ddfce2 \
     --hash=sha256:0cc40f7b4050bb93eb67de95d2d759322fc7ce4930b9d645581ecf4913ec651e \
@@ -349,6 +350,7 @@ certifi==2026.10.19 \
     #   httpcore
     #   httpx
     #   langchain-openai
+    #   minio
     #   requests
 cffi==2.1.1 \
     --hash=sha256:046bfc24911b37851ee1b51aab8bffe713d89c68c6a057b09484ce9fd5f69b4e \
@@ -1709,6 +1711,10 @@ markupsafe==3.0.4 \
     # via
     #   -c backend/requirements-core-constraints.txt
     #   mako
+minio==7.2.20 \
+    --hash=sha256:95898b7a023fbbfde375985aa77e2cd6a0762268db79cf886f002a9ea8e68598 \
+    --hash=sha256:eb33dd2fb80e04c3726a76b13241c6be3c4c46f8d81e1d58e757786f6501897e
+    # via -r backend/requirements-core.in
 multidict==7.1.0 ; python_full_version < '3.11' \
     --hash=sha256:0179698c3c913eb64f32397083747fad20ed0f0a2b7469a08cd1a8a95d14d90e \
     --hash=sha256:034b0dc1b7fb8279599c5d8563f86abb4d2454735b06544ecab23c54572ad2bd \
@@ -2306,8 +2312,8 @@ packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
     # via
-    #   -r backend/requirements-core.in
     #   -c backend/requirements-core-constraints.txt
+    #   -r backend/requirements-core.in
     #   langchain-core
     #   langsmith
     #   lightrag-hku
@@ -2737,6 +2743,39 @@ pycparser==3.12 ; python_full_version >= '3.11' and implementation_name != 'PyPy
     # via
     #   -c backend/requirements-core-constraints.txt
     #   cffi
+pycryptodome==4.5.0 \
+    --hash=sha256:04c1b9feaf73db4f6aae714589bdabdf2c3d991b579976e1f734de6de133a099 \
+    --hash=sha256:081af2cbd5d85ff282b0f22013b60bd87b7507d87790e0227e42050880adb1d4 \
+    --hash=sha256:0a2f83187938665ffd0b80758d3e26e811d01523ba332495ea82fae0f5ca78d0 \
+    --hash=sha256:0fc718c17bf9611f489e8f87630ca44e7424598320ee1444f6a52fa0dab0a326 \
+    --hash=sha256:16116a0a6aa37fd1f7a58acd5a63ffd81cd223f6393376a9f2137176b05eb54c \
+    --hash=sha256:1eb900e5dccddef0589fd7ee2911521beeccf1d7db0c9dd725c2cae9406f7c56 \
+    --hash=sha256:298b54c6bee5e23ec4add59ea8d9ad04aa125d4106fbafe9ecfb17d08637aaf1 \
+    --hash=sha256:2d7eed2a1042296f8cffdd07b0289d508472258dbf878105f53f45158769d2c2 \
+    --hash=sha256:33094d990610bf205f2b841599f514429d9ef61aca40e6c11ff1a08aeef5cbb9 \
+    --hash=sha256:38229c875772dea2bbbe46061e2e5573b5810c52cd7bb5a9225f07cb2c9c00a9 \
+    --hash=sha256:3afbe7ecd62357203a588d451c604a61af7d7c9d3f0aa0b792de0612cffb8f8d \
+    --hash=sha256:4510c875794c4cdf81cf3ef43651ca137fc4482cac8b8bbc5ba6525057e2ca76 \
+    --hash=sha256:5167c5b1f38a3824f1cbb188cf5ec7c6de58bfea284b21e68bf25f74a505a1e0 \
+    --hash=sha256:51e97a8d1cf101974bc40c20b3191cb1903891e5c172346943d5d4f3bc4f9d83 \
+    --hash=sha256:7962a15df4e2206b9e409764337107a66e6f3d04857f3f0a0af5c937f277304c \
+    --hash=sha256:7c212b2c8312aef5e4c457e01330d54df3e42df2e3309ecad34374d7fde61b9e \
+    --hash=sha256:8910dce36ec2ebaec9925a1f8284d776c9eb63bc6193710a7cd8c4e5a5204a6f \
+    --hash=sha256:8f7efc3dbc31f8f1e4f63c248bf687c8acce6c9f8b53f915682cc140f74b0a00 \
+    --hash=sha256:91100f89a0e3ed7e6073bdb6a8f3fa964b44f40aa96c20a41ae251bd4a01c80e \
+    --hash=sha256:93b04cfb4f55e7364e065c6deb9fb14a4cc009be647b631aad49de3ef05ae1d5 \
+    --hash=sha256:950856be7d0e1ef12b853f51ebae8b26e8c2578c4c191e27cca8976024172272 \
+    --hash=sha256:ae9ad9b4a49f1fb5299b07fb52bf1f00dbe3df0fdce8dd38b9379e5e0b067f46 \
+    --hash=sha256:b05fed07d07d69c5205689293c3b71a21b8bb4c6f4bb964d1c2d24dfdf22433d \
+    --hash=sha256:b132b6c11a837addf4cd4b90f65193fda4a426ed9413420cb967923a2a9acab4 \
+    --hash=sha256:b1bf14c0bf44fd44510ed2e6f707bb0cfb0d8e562f2d3218def6c840c635cff5 \
+    --hash=sha256:b59c59a96fb6ec25a778fa8ed6e26c952f7e94e70da81dcfc1adf9a57b934ada \
+    --hash=sha256:bc275973d04ba8629434e3e9d78154de679014a9c6c32da0170556a035d29422 \
+    --hash=sha256:c09594b1f6d02b673592e9f202ae95456a81e4f883cc9780fdef1fdb79df84e8 \
+    --hash=sha256:c256da4ef688656cd1ecd4230df762164847623e974848b3304cc6bf9b454748 \
+    --hash=sha256:d2f9904c7dbb72be5c35f6b59bc79f8314b26c2cd65908efbd7fb8619e2c17dc \
+    --hash=sha256:e031a0a430ce1d8a11ef37f2caaf51c5f1c0d9a037db8ffa2753b28a93fc5005
+    # via minio
 pydantic==2.12.3 \
     --hash=sha256:1da1c82b0fc140bb0103bc1441ffe062154c8d38491189751ee00fd8ca65ce74 \
     --hash=sha256:6986454a854bc3bc6e5443e1369e06a3a456af9d339eda45510f517d9ea5c6bf
@@ -3435,6 +3474,7 @@ typing-extensions==4.16.0 \
     #   langchain-core
     #   langchain-protocol
     #   langsmith
+    #   minio
     #   multidict
     #   openai
     #   psycopg
@@ -3468,6 +3508,7 @@ urllib3==2.8.0 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
     # via
     #   -c backend/requirements-core-constraints.txt
+    #   minio
     #   requests
 uuid-utils==0.18.0 \
     --hash=sha256:01b1e5b0eacdf7e7115eb9abcca3d183da59f1da212f235a82d7d8c379715a95 \

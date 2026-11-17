@@ -71,7 +71,7 @@ jobs:
         run: |
           python -m ruff check --config ruff.toml src tests/core
           python -m ruff format --check --config ruff.toml src tests/core
-      - name: Start an independent vector service for integration tests
+      - name: Start independent vector and file services for integration tests
         run: |
           ./deploy.sh --env-file "$RUNNER_TEMP/core-vector.env" init
           cat > "$RUNNER_TEMP/core-vector-ports.yml" <<'YAML'
@@ -79,10 +79,25 @@ jobs:
             milvus:
               ports:
                 - '127.0.0.1::19530'
+            file-objects:
+              ports:
+                - '127.0.0.1::9000'
+                - '127.0.0.1::9001'
           YAML
-          docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors up --detach --wait milvus
+          docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors up --detach --wait milvus file-objects
+          docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors run --rm file-objects-init
           vector_address="$(docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors port milvus 19530)"
           echo "ZHIHENG_TEST_MILVUS_URI=http://$vector_address" >> "$GITHUB_ENV"
+          objects_address="$(docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors port file-objects 9000)"
+          echo "ZHIHENG_TEST_S3_ENDPOINT=http://$objects_address" >> "$GITHUB_ENV"
+          python - "$RUNNER_TEMP/core-vector.env" "$GITHUB_ENV" <<'PY'
+          from pathlib import Path
+          import sys
+          values = dict(line.split('=', 1) for line in Path(sys.argv[1]).read_text().splitlines() if '=' in line and not line.startswith('#'))
+          with Path(sys.argv[2]).open('a') as stream:
+              stream.write('ZHIHENG_TEST_S3_ACCESS_KEY=' + values['CORE_FILES_ROOT_USER'] + '\n')
+              stream.write('ZHIHENG_TEST_S3_SECRET_KEY=' + values['CORE_FILES_ROOT_PASSWORD'] + '\n')
+          PY
       - name: Run PostgreSQL, Redis and local model integration tests
         working-directory: backend
         run: python -m pytest tests/core -q

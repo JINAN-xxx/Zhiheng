@@ -77,7 +77,7 @@ async def monitor(
     principal.require_permission('system:monitor:read')
     total = used = None
     try:
-        disk = shutil.disk_usage(container.settings.files_root)
+        disk = shutil.disk_usage('/')
         total, used = disk.total, disk.used
     except OSError:
         pass

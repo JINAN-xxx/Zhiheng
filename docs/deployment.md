@@ -11,19 +11,58 @@
 ./deploy.sh exec api python -m zhiheng create-admin --username admin
 ```
 
-`init` 只创建新的 `deploy/core/.env.core`，生成独立数据库密码、Fernet 密钥及向量存储凭据，权限为 `0600`，拒绝覆盖已有文件。自定义新文件使用 `./deploy.sh --env-file /absolute/path/to/new-core.env COMMAND`；配置字段见[示例配置](../deploy/core/.env.core.example)。脚本显式选择该文件，不读取旧根 `.env`。升级既有配置时，补齐 `CORE_VECTOR_ACCESS_KEY` 和 `CORE_VECTOR_SECRET_KEY` 的独立随机值，保留原数据库密码与 Fernet 密钥。
+`init` 只创建新的 `deploy/core/.env.core`，生成独立数据库密码、Fernet 密钥、向量存储及业务 MinIO 管理凭据，权限为 `0600`，拒绝覆盖已有文件。自定义新文件使用 `./deploy.sh --env-file /absolute/path/to/new-core.env COMMAND`；配置字段见[示例配置](../deploy/core/.env.core.example)。脚本显式选择该文件，不读取旧根 `.env`。升级既有配置时，补齐 `CORE_VECTOR_ACCESS_KEY` 和 `CORE_VECTOR_SECRET_KEY` 的独立随机值，保留原数据库密码与 Fernet 密钥。
 
 `CORE_DB_PASSWORD` 仅支持字母、数字、下划线和连字符组成的 URL-safe 原始口令，不能预先 URL 编码。`init` 的随机密码符合这一限制。默认网页为 `http://127.0.0.1:19080`，生成的配置显式使用本机 HTTP Cookie 和允许来源。对外提供 HTTPS 时，将 `CORE_COOKIE_SECURE` 设置为 `true`，并按实际访问地址调整 `CORE_ALLOWED_ORIGINS` 和绑定地址。
 
 启动依次等待 PostgreSQL / Redis、Milvus 及其 etcd / 对象存储健康，迁移成功后启动 worker，再等待 API 和网页就绪。管理员必须显式创建，没有固定默认口令。`./deploy.sh down` 保留新实例数据卷；配置校验使用 `./deploy.sh config --quiet`，避免把包含密钥的展开配置输出到日志。
 
-受管文件使用独立的 `files-data` 卷，同时挂载到 API 和 worker 的 `/var/lib/zhiheng/files`，由 UID/GID `10001:10001` 写入。该目录不对外提供静态访问，下载始终经过身份和文件权限校验。本机开发应将 `ZHIHENG_FILES_ROOT` 显式设置为可写目录，并在 API 与 worker 间使用相同路径。
+受管文件统一保存到独立业务 MinIO：聊天附件、知识库原文、解析产物以及通过文件接口上传的技能包使用同一私有业务桶。API 与 worker 使用相同的桶和专用应用账号，不挂载业务本地文件卷。业务文件不提供静态直链，下载继续经过身份、当前权限及 SHA-256 完整性校验；模型、会话和资源 API 的文件接口保持原协议。解析临时文件使用容器临时目录。
 
 向量服务固定为 Milvus 2.6.25，配套 etcd 和对象存储使用独立的 `vector-etcd-data`、`vector-objects-data`、`milvus-data` 卷，均不向宿主机发布端口。API / worker 通过内部 `http://milvus:19530` 连接。向量 SDK、模型维度和索引参数由知识模块校验，读取请求不会自动创建索引。
 
-备份应同时保存 PostgreSQL、Redis、`files-data`、三个向量服务卷、受保护的 `.env.core` 和对应应用镜像。先停止网页、API 与 worker，再依次停止 Milvus、etcd 和对象存储；确认服务正常退出后复制其卷，并导出数据库和 Redis。数据库中的活动索引版本必须与向量备份对应，不能仅备份 SQL 元数据或单个向量卷。Fernet 密钥和向量存储凭据必须与对应数据一起保留，否则无法读取已存储的凭据或对象。
+备份应同时保存 PostgreSQL、Redis、业务对象存储 `file-objects-data`、三个向量服务卷、受保护的 `.env.core` 和对应应用镜像。业务 MinIO 使用独立卷及管理凭据，备份时也应停止 `file-objects` 并保存匹配的配置。先停止网页、API 与 worker，再依次停止 Milvus、etcd 和对象存储；确认服务正常退出后复制其卷，并导出数据库和 Redis。数据库中的活动索引版本必须与向量备份对应，不能仅备份 SQL 元数据或单个向量卷。Fernet 密钥和向量存储凭据必须与对应数据一起保留，否则无法读取已存储的凭据或对象。
 
 升级前完成备份；更改配置文件中的数据库密码不会自动修改已初始化 PostgreSQL 用户的密码。恢复时使用匹配的应用版本、完整数据和密钥，在独立实例上验证迁移与健康状态后再开放访问。
+
+## 业务文件统一使用 MinIO
+
+`file-objects` 是独立的业务 MinIO 服务，数据卷为 `file-objects-data`，与 Milvus 的 `vector-objects` 分别维护。`file-objects-init` 是运行后退出的初始化容器：创建私有业务桶、关闭匿名访问，并为 API / Worker 配置桶范围的读写账号。
+
+`CORE_FILES_ROOT_USER` / `CORE_FILES_ROOT_PASSWORD` 仅用于存储管理与初始化；API / Worker 只接收 `CORE_FILES_ACCESS_KEY` / `CORE_FILES_SECRET_KEY`。应用账号不能创建其他桶、修改桶策略或访问 Milvus 的对象存储。桶名由 `CORE_FILES_BUCKET` 指定，默认 `zhiheng-files`，使用 3–63 位小写字母、数字和连字符。
+
+新实例执行 `./deploy.sh init` 时生成两组独立凭据，`./deploy.sh up` 等待业务桶和账号初始化完成后启动 Worker 与 API。已有实例先备份受保护的环境文件，再运行 `./deploy.sh init-minio`；该命令补齐配置，保持已有完整凭据不变，发现不完整的凭据对时拒绝操作。所有实例配置均不进入 Git。
+
+S3 内网地址默认为 `http://file-objects:9000`，不向宿主机发布。管理控制台默认为 `http://127.0.0.1:19001`，由 `CORE_FILES_CONSOLE_BIND` / `CORE_FILES_CONSOLE_PORT` 控制，登录信息从受保护的环境文件读取。需要远程管理时使用 SSH 隧道或受控 HTTPS 入口。API / Worker 的连接、区域、超时通过 `CORE_FILES_S3_ENDPOINT`、`CORE_FILES_S3_REGION`、`CORE_FILES_S3_TIMEOUT_SECONDS` 设置。
+
+运行时只有 MinIO 文件存储，不提供本地后端切换、双写或本地读取兜底。对象存储不可用时返回明确的 503，API 就绪检查同时检查业务桶。`file-objects-data` 必须持久保存，并与数据库、业务 MinIO 配置一起备份。
+
+### 从旧本地文件卷迁移
+
+此过程只用于一次性搬迁既有数据，不保留旧存储运行方式。先备份数据库、旧文件卷及环境配置，然后使用新版本镜像执行下列命令。示例旧卷名为 `zhiheng-core_files-data`，自定义部署需要替换为实际名称。
+
+~~~bash
+./deploy.sh init-minio
+./deploy.sh build
+./deploy.sh run --rm file-objects-init
+./deploy.sh stop web api worker
+./deploy.sh run --rm --no-deps migrator
+
+# 原文件卷只读挂载到一次性迁移容器，不挂载到 API / Worker。
+./deploy.sh run --rm --no-deps \
+  --volume zhiheng-core_files-data:/migration-source:ro \
+  migrator python -m zhiheng migrate-files --source-root /migration-source --offline
+
+./deploy.sh run --rm --no-deps \
+  --volume zhiheng-core_files-data:/migration-source:ro \
+  migrator python -m zhiheng migrate-files --source-root /migration-source --offline --verify-only
+
+./deploy.sh up
+~~~
+
+使用自定义环境文件时，每条命令都加 `--env-file /absolute/path/to/core.env`；自定义镜像部署时，在环境文件中将 `CORE_BACKEND_IMAGE` 和 `CORE_FRONTEND_IMAGE` 填写为实际已构建的标签。源码模式使用对应的 `dev.sh` 命令，并在依赖变化后重新构建后端镜像。迁移期间保持 API / Worker 停止，验证成功后统一启动新版本。
+
+迁移以数据库中尚未物理清理的文件记录为准，分批检查原始字节和目标对象的大小、SHA-256。文件 ID、对象标识、所有者、ACL、引用和历史会话不变。相同对象可重复校验，不同内容、缺失文件或未完成的物理清理会阻止迁移；已经复制的正确对象保留，修复后可继续。源卷不被修改，可作为离线备份保存；新部署不再声明或挂载该卷。
 
 ## 图谱运行连接
 
@@ -43,7 +82,7 @@ cd ..
 ./dev.sh restart-worker
 ~~~
 
-前端使用 Vite 热更新，API 使用自动重载；Worker 修改后需重启。源码代理配置由脚本生成，保存在被 Git 忽略的实例目录中。API 与 Worker 必须使用相同的源码、迁移和文件卷。
+前端使用 Vite 热更新，API 使用自动重载；Worker 修改后需重启。源码代理配置由脚本生成，保存在被 Git 忽略的实例目录中。API 与 Worker 必须使用相同的源码、迁移和业务 MinIO 配置。
 
 源码依赖或迁移更新时，先备份，再执行 `./deploy.sh build` 重新构建镜像、`./dev.sh migrate` 显式升级数据库，最后执行 `./dev.sh up`。源码启动会核对镜像依赖与当前 schema；出现不匹配时按这一顺序处理。API 与 Worker 启动不执行迁移。
 

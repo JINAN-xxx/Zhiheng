@@ -73,7 +73,9 @@ async def test_readiness_requires_finite_nonfuture_recent_heartbeat(
     )
     app = create_app(settings)
     app.state.container = SimpleNamespace(
-        database=SimpleNamespace(require_schema=ok), redis=SimpleNamespace(ping=ok, get=get)
+        database=SimpleNamespace(require_schema=ok),
+        redis=SimpleNamespace(ping=ok, get=get),
+        files=SimpleNamespace(storage=SimpleNamespace(check=ok)),
     )
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url='http://test') as client:
         assert (await client.get('/health/ready')).status_code == status

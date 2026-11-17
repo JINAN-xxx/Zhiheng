@@ -16,6 +16,7 @@ import { errorMessage } from '../shared/http.ts'
 import PlatformSidebar from './components/PlatformSidebar.vue'
 import AiResourceShell from './components/AiResourceShell.vue'
 import PlatformTopbar from './components/PlatformTopbar.vue'
+import AssistantFloat from './components/AssistantFloat.vue'
 const route = useRoute()
 const router = useRouter()
 const routeViewKey = computed(() => {
@@ -127,6 +128,10 @@ async function signOut(): Promise<void> {
               @logout="signOut"
               @navigate="mobileOpen = false"
           /></ADrawer>
+          <AssistantFloat
+            :conversation="['chat', 'work', 'assistant-chat'].includes(String(route.name))"
+            :suspended="isMobile && mobileOpen"
+          />
         </div>
       </WorkWorkspaceProvider>
     </ChatWorkspaceProvider>

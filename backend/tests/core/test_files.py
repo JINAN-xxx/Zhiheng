@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from tests.core.permission_support import member_file_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
+from tests.core.storage import age_objects, overwrite_object
 from zhiheng.bootstrap.container import Container
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.storage import StorageEntry, StorageInspection
@@ -331,14 +332,12 @@ async def test_manual_periodic_mutex_and_cancelled_job_fact(
 
 
 async def test_unknown_orphan_cannot_register_or_repair_and_quarantined_metadata_is_counted(
-    admin: httpx.AsyncClient, app: FastAPI
+    admin: httpx.AsyncClient, app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import os
 
     container = app.state.container
     key = await container.files.storage.put(b'recovered text')
-    path = container.settings.files_root / key
-    os.utime(path, (1, 1))
+    age_objects(container.files.storage, {key}, monkeypatch)
     await admin.post('/api/files/jobs/reconcile', json={})
     issue = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['kind'] == 'orphan')
     result = await admin.post(
@@ -368,12 +367,12 @@ async def test_unknown_orphan_cannot_register_or_repair_and_quarantined_metadata
         json={'expected_version': quarantined.json()['version'], 'action': 'repair', 'reason': 'no owner'},
     )
     assert repair.status_code == 409 and repair.json()['error']['code'] == 'orphan_owner_unconfirmed'
-    content = path.read_bytes()
-    path.unlink()
+    content = await container.files.storage.read(key)
+    await container.files.storage.delete(key)
     assert (await admin.post('/api/files/jobs/reconcile', json={})).status_code == 200
     missing = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['file_id'] == fid)
     assert missing['kind'] == 'missing'
-    path.write_bytes(content)
+    await overwrite_object(container, key, content)
     repair = await admin.post(
         f'/api/files/reconcile/issues/{missing["id"]}/actions',
         json={'expected_version': missing['version'], 'action': 'repair'},
@@ -596,8 +595,7 @@ async def test_quarantine_survives_missing_then_healthy_reconcile(admin: httpx.A
     async with container.database.sessions() as session:
         row = await session.get(FileRecord, UUID(fid))
         key = row.storage_key
-    path = container.settings.files_root / key
-    path.write_bytes(b'damaged')
+    await overwrite_object(container, key, b'damaged')
     await admin.post('/api/files/jobs/reconcile', json={})
     issue = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['file_id'] == fid)
     quarantined = await admin.post(
@@ -605,9 +603,9 @@ async def test_quarantine_survives_missing_then_healthy_reconcile(admin: httpx.A
         json={'expected_version': 1, 'action': 'quarantine', 'reason': 'explicit operator isolation'},
     )
     assert quarantined.status_code == 200, quarantined.text
-    path.unlink()
+    await container.files.storage.delete(key)
     await admin.post('/api/files/jobs/reconcile', json={})
-    path.write_bytes(b'original')
+    await overwrite_object(container, key, b'original')
     await admin.post('/api/files/jobs/reconcile', json={})
     assert (await admin.get(f'/api/files/{fid}')).json()['storage_status'] == 'quarantined'
     assert (await admin.get(f'/api/files/{fid}/download')).status_code == 404
@@ -686,12 +684,12 @@ async def test_derived_artifact_maintenance_recovers_verified_bytes_without_publ
     artifact = (await admin.post(f'/api/files/{fid}/parse', json={})).json()['artifact_file_id']
     async with container.database.sessions() as session:
         row = await session.get(FileRecord, UUID(artifact))
-        path = container.settings.files_root / row.storage_key
-        backup = path.read_bytes()
-    path.unlink()
+        key = row.storage_key
+    backup = await container.files.storage.read(key)
+    await container.files.storage.delete(key)
     await admin.post('/api/files/jobs/reconcile', json={})
     issue = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['file_id'] == artifact)
-    path.write_bytes(backup)
+    await overwrite_object(container, key, backup)
     repaired = await admin.post(
         f'/api/files/reconcile/issues/{issue["id"]}/actions',
         json={'expected_version': issue['version'], 'action': 'repair', 'reason': 'verified restored artifact'},
@@ -801,11 +799,10 @@ async def test_lost_job_connection_fences_stale_scan_and_success_cursor(
     async with container.database.sessions() as session:
         row = await session.get(FileRecord, UUID(fid))
         key = row.storage_key
-    path = container.settings.files_root / key
-    path.write_bytes(b'bad')
+    await overwrite_object(container, key, b'bad')
     await admin.post('/api/files/jobs/reconcile', json={})
     issue = next(i for i in (await admin.get('/api/files/reconcile/issues')).json() if i['file_id'] == fid)
-    path.write_bytes(b'original')
+    await overwrite_object(container, key, b'original')
     started = asyncio.Event()
     release = asyncio.Event()
     original_inspect = container.files.storage.inspect

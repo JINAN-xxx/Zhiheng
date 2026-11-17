@@ -9,6 +9,7 @@ usage() {
 Usage: ./deploy.sh [--env-file NEW_CORE_FILE] COMMAND [COMPOSE_ARGS...]
 
   init       Create fresh local HTTP configuration; never overwrite a file
+  init-minio Add independent business MinIO credentials to an existing env file
   build      Build only the new platform images
   up         Start the new platform in the background and wait for health
   down       Stop the new platform; keep persistent volumes
@@ -61,6 +62,16 @@ CORE_CREDENTIAL_KEY={base64.urlsafe_b64encode(os.urandom(32)).decode()}
 CORE_GRAPH_DATABASE_URL=
 CORE_VECTOR_ACCESS_KEY={secrets.token_urlsafe(24)}
 CORE_VECTOR_SECRET_KEY={secrets.token_urlsafe(36)}
+CORE_FILES_ROOT_USER={secrets.token_urlsafe(24)}
+CORE_FILES_ROOT_PASSWORD={secrets.token_urlsafe(36)}
+CORE_FILES_ACCESS_KEY={secrets.token_urlsafe(24)}
+CORE_FILES_SECRET_KEY={secrets.token_urlsafe(36)}
+CORE_FILES_BUCKET=zhiheng-files
+CORE_FILES_S3_ENDPOINT=http://file-objects:9000
+CORE_FILES_S3_REGION=us-east-1
+CORE_FILES_S3_TIMEOUT_SECONDS=30
+CORE_FILES_CONSOLE_BIND=127.0.0.1
+CORE_FILES_CONSOLE_PORT=19001
 CORE_WEB_BIND=127.0.0.1
 CORE_WEB_PORT=19080
 CORE_COOKIE_SECURE=false
@@ -78,6 +89,13 @@ with os.fdopen(descriptor, 'w') as stream:
 print(f'Created independent local configuration: {target}')
 PY
     exit 0
+    ;;
+  init-minio)
+    if [[ $# -ne 0 ]]; then
+      usage >&2
+      exit 2
+    fi
+    exec python3 "$CORE_ROOT/tools/init_minio.py" "$CORE_CONFIG"
     ;;
   build|up|down|config|ps|logs|exec|run|pull|stop|start|restart)
     ;;

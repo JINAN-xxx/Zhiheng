@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
+from tests.core.storage import isolated_bucket
 
 BACKEND_SOURCE_PATH = str(Path(__file__).resolve().parents[2] / 'src')
 
@@ -87,7 +88,6 @@ async def schema_template(tmp_path_factory: pytest.TempPathFactory) -> AsyncIter
         temporary = tmp_path_factory.mktemp('core-schema-template')
         await migrate(
             Settings(
-                files_root=temporary / 'files',
                 graph_working_root=temporary / 'graph-sdk',
                 database_url=url,
                 redis_url=redis_url,
@@ -116,6 +116,7 @@ async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and 
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
     schema_template: str | None,
+    object_store: dict[str, str],
 ) -> AsyncIterator['Settings']:
     from zhiheng.bootstrap.settings import Settings
 
@@ -142,7 +143,7 @@ async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and 
     from zhiheng.runtime.orm import Outbox
 
     instance = Settings(
-        files_root=tmp_path / 'files',
+        **object_store,
         graph_working_root=tmp_path / 'graph-sdk',
         database_url=url,
         redis_url=redis_url,
@@ -242,6 +243,17 @@ async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and 
             await connection.execute(text(f'DROP DATABASE "{database_name}" WITH (FORCE)'))
         resource('deleted', 'postgres_database', database_name)
         await admin.dispose()
+
+
+@pytest.fixture
+def object_store() -> Iterator[dict[str, str]]:
+    if not all(
+        os.getenv(key)
+        for key in ('ZHIHENG_TEST_S3_ENDPOINT', 'ZHIHENG_TEST_S3_ACCESS_KEY', 'ZHIHENG_TEST_S3_SECRET_KEY')
+    ):
+        pytest.skip('A separate MinIO endpoint and credentials are required for integration tests')
+    with isolated_bucket() as configuration:
+        yield configuration
 
 
 @pytest_asyncio.fixture

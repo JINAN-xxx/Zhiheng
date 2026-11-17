@@ -57,10 +57,10 @@ from zhiheng.bootstrap.adapters import (
     create_parser,
     create_vector_store,
 )
+from zhiheng.bootstrap.file_storage import create_file_storage
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
-from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.agents.public import AgentService, AssistantConversations
 from zhiheng.modules.billing.public import (
     BillingTraceQueries,
@@ -105,7 +105,7 @@ class Container:
         self.identity, self.skills = IdentityService(settings.session_ttl_seconds), SkillService()
         self.admin_identity = IdentityAdminService(self.identity)
         self.operations = OperationsService()
-        self.files = FileService(LocalFileStorage(settings.files_root), self.identity)
+        self.files = FileService(create_file_storage(settings), self.identity)
         self.file_objects = FileObjects(self.database, self.files)
         self.file_jobs = FileJobs(self.files, self.database.sessions)
         self.file_inputs = FileInputService(self.database, self.files, create_parser(), self.file_objects)

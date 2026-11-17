@@ -1,5 +1,4 @@
 from collections.abc import Iterator
-from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -8,12 +7,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.files.orm import FileReconcileIssue
 from zhiheng.modules.files.service import FileService
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.storage import StoragePort
 
 
 @pytest.fixture
@@ -39,7 +38,7 @@ def issue_session() -> Iterator[Session]:
     ],
 )
 async def test_issue_stats_counts_real_grouped_results(
-    issue_session: Session, tmp_path: Path, statuses: list[str], expected: dict[str, int]
+    issue_session: Session, statuses: list[str], expected: dict[str, int]
 ) -> None:
     for status in statuses:
         issue_session.add(
@@ -52,7 +51,7 @@ async def test_issue_stats_counts_real_grouped_results(
             )
         )
     issue_session.flush()
-    service = FileService(LocalFileStorage(tmp_path), IdentityService())
+    service = FileService(AsyncMock(spec=StoragePort), IdentityService())
     admin = Principal(uuid4(), 'admin', True)
     # Keep the actual SQLAlchemy grouped Result; only adapt the SQLite call to async.
     async_session = AsyncMock(spec=AsyncSession)
@@ -61,8 +60,8 @@ async def test_issue_stats_counts_real_grouped_results(
     assert await service.queries.issue_stats(async_session, admin) == expected
 
 
-async def test_issue_stats_rejects_non_admin(tmp_path: Path) -> None:
-    service = FileService(LocalFileStorage(tmp_path), IdentityService())
+async def test_issue_stats_rejects_non_admin() -> None:
+    service = FileService(AsyncMock(spec=StoragePort), IdentityService())
     member = Principal(uuid4(), 'member', False)
     session = AsyncMock(spec=AsyncSession)
 
