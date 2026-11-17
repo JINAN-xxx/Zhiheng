@@ -53,6 +53,8 @@ class RunSnapshot(BaseModel):
         'agent_summary',
         'agent_invocation',
         'work_turn',
+        'work_agent',
+        'work_agent_model',
         'knowledge_embedding',
         'knowledge_rerank',
         'knowledge_graph',

@@ -28,8 +28,12 @@ class RunRecovery:
                 if recovered is None:
                     break
                 run_id, provider_started = recovered
-                await self.usage.settle(session, run_id, rejected_before_execution=not provider_started)
-                await self.lifecycle.project(session, await self.runs.projection(session, run_id))
+                snapshot = await self.runs.projection(session, run_id)
+                if snapshot.resource_type != 'work_agent':
+                    await self.usage.settle(session, run_id, rejected_before_execution=not provider_started)
+                else:
+                    snapshot = await self.runs.project_child_usage(session, run_id)
+                await self.lifecycle.project(session, snapshot)
         await self.recover_failed_chat_holds(limit=limit)
 
     async def recover_failed_chat_holds(self, *, limit: int = RECOVERY_LIMIT) -> int:

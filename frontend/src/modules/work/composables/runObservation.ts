@@ -3,14 +3,6 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import type { ContextTicket } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
-import {
-  cancelPreparation,
-  getPreparation,
-  observePreparation,
-  projectPreparation,
-  preparationFinished
-} from '../../knowledge/public.ts'
-import type { KnowledgePreparation } from '../../knowledge/public.ts'
 import * as api from '../api/index.ts'
 import type { WorkTask } from '../api/index.ts'
 import type { WorkTasks } from './tasks.ts'
@@ -19,33 +11,26 @@ interface WorkRunObservationOptions {
   tasks: WorkTasks
   canObserve: (task: WorkTask) => boolean
   runSettled: (run: RunSnapshot) => void
-  preparationSettled: (preparation: KnowledgePreparation, taskId: string) => void
 }
 
 export function useWorkRunObservation(options: WorkRunObservationOptions) {
   const { tasks } = options
   const activeRun = ref<RunSnapshot | null>(null)
-  const activePreparation = ref<KnowledgePreparation | null>(null)
   const runError = ref(''),
     disconnected = ref(false),
     stopping = ref(false)
   const pendingStops = reactive(new Set<string>())
   const stopOperations = new Map<string, { context: ContextTicket; promise: Promise<void> }>()
   const observeScope = new RequestScope()
-  const stopAcknowledged = computed(() => {
-    const preparation = activePreparation.value
-    return preparation && !preparationFinished(preparation)
-      ? preparation.status === 'cancel_requested'
-      : activeRun.value?.status === 'cancel_requested'
-  })
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null
+  const stopAcknowledged = computed(() => activeRun.value?.status === 'cancel_requested')
   const canStop = computed(() => {
     const task = tasks.currentTask.value
-    if (!task || !options.canObserve(task)) return false
     return (
-      Boolean(task.currentRunId) ||
-      Boolean(task.preparationId) ||
-      Boolean(activePreparation.value && !preparationFinished(activePreparation.value)) ||
-      Boolean(activeRun.value && !isTerminal(activeRun.value))
+      !!task &&
+      task.mode === 'agent' &&
+      options.canObserve(task) &&
+      (Boolean(task.currentRunId) || Boolean(activeRun.value && !isTerminal(activeRun.value)))
     )
   })
   const occupied = computed(
@@ -81,7 +66,7 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
   function applyRun(run: RunSnapshot, taskId: string): RunSnapshot | null {
     if (
       tasks.currentTask.value?.taskId !== taskId ||
-      run.resource_type !== 'work_turn' ||
+      run.resource_type !== 'work_agent' ||
       run.resource_id !== taskId
     )
       return null
@@ -95,30 +80,26 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
   function adoptRun(run: RunSnapshot, taskId: string): RunSnapshot | null {
     if (
       tasks.currentTask.value?.taskId !== taskId ||
-      run.resource_type !== 'work_turn' ||
+      run.resource_type !== 'work_agent' ||
       run.resource_id !== taskId
     )
-      throw new Error('运行与当前工作不匹配')
+      throw new Error('运行与当前任务不匹配')
     if (activeRun.value?.id !== run.id) activeRun.value = null
-    const accepted = applyRun(run, taskId)
-    if (accepted) activePreparation.value = null
-    return accepted
+    return applyRun(run, taskId)
   }
-  function updatePreparation(value: KnowledgePreparation, taskId: string): KnowledgePreparation {
-    if (
-      tasks.currentTask.value?.taskId !== taskId ||
-      value.resource_type !== 'work_turn' ||
-      value.resource_id !== taskId
-    )
-      throw new Error('知识检索准备与当前工作不匹配')
-    value = projectPreparation(activePreparation.value, value)
-    activePreparation.value = value
-    if (
-      value.status === 'cancel_requested' ||
-      (preparationFinished(value) && value.status !== 'admitted')
-    )
-      pendingStops.delete(taskId)
-    return value
+  function clearRefresh(): void {
+    if (refreshTimer !== null) clearTimeout(refreshTimer)
+    refreshTimer = null
+  }
+  function refreshProgress(taskId: string, context: ContextTicket): void {
+    if (refreshTimer !== null || !context.isCurrent()) return
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null
+      if (context.isCurrent())
+        void tasks.refreshTask(taskId, context).catch(() => {
+          // The durable run stream remains authoritative; reconnect also reloads the task projection.
+        })
+    }, 400)
   }
   async function follow(run: RunSnapshot, taskId: string, parent: ContextTicket): Promise<void> {
     const current = tasks.currentTask.value
@@ -126,10 +107,12 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
       !parent.isCurrent() ||
       !current ||
       current.taskId !== taskId ||
+      current.mode !== 'agent' ||
       !options.canObserve(current)
     )
       return
-    const context = observationContext(taskId, parent)
+    let context = observationContext(taskId, parent)
+    clearRefresh()
     disconnected.value = false
     try {
       run = applyRun(run, taskId) ?? run
@@ -143,21 +126,22 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
         taskId,
         run,
         (snapshot) => {
-          if (context.isCurrent()) applyRun(snapshot, taskId)
+          if (context.isCurrent() && applyRun(snapshot, taskId)) refreshProgress(taskId, context)
         },
         context.signal
       )
       if (!context.isCurrent()) return
+      clearRefresh()
       const accepted = applyRun(terminal, taskId)
       if (!accepted || !isTerminal(accepted)) return
+      context = observationContext(taskId, parent)
       const task = await tasks.refreshTask(taskId, context)
       if (!task) return
-      if (task.currentRunId || task.preparationId)
-        throw new Error('运行已结束，任务状态尚未确认，请恢复查看')
+      if (task.currentRunId) throw new Error('运行已结束，任务状态尚未确认，请恢复查看')
       options.runSettled(accepted)
       runError.value =
         accepted.error?.message ??
-        (accepted.status === 'completed' ? '' : '本轮已停止或中断，可用新请求重试')
+        (accepted.status === 'completed' ? '' : '本轮已停止或中断，已确认的文件和进度已保留')
       void tasks.loadTasks()
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) {
@@ -166,77 +150,14 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
       }
     }
   }
-  async function followPreparation(
-    initial: KnowledgePreparation,
-    taskId: string,
-    parent: ContextTicket
-  ): Promise<boolean> {
-    const current = tasks.currentTask.value
-    if (
-      !parent.isCurrent() ||
-      !current ||
-      current.taskId !== taskId ||
-      !options.canObserve(current)
-    )
-      return false
-    const context = observationContext(taskId, parent)
-    initial = updatePreparation(initial, taskId)
-    current.preparationId = initial.id
-    runError.value = ''
-    disconnected.value = false
-    try {
-      if (pendingStops.has(taskId) && !preparationFinished(initial)) {
-        await cancelRun(false)
-        if (!context.isCurrent()) return false
-        if (pendingStops.has(taskId))
-          throw new Error(runError.value || '停止结果待确认，请恢复查看')
-        initial = activePreparation.value ?? initial
-      }
-      const final = await observePreparation(
-        initial,
-        (value) => {
-          if (context.isCurrent()) return updatePreparation(value, taskId)
-        },
-        context.signal
-      )
-      if (!context.isCurrent()) return false
-      const task = await tasks.refreshTask(taskId, context)
-      if (!task) return false
-      options.preparationSettled(final, taskId)
-      if (final.run) {
-        const run = adoptRun(final.run, taskId)
-        if (run) void follow(run, taskId, parent)
-        return true
-      }
-      if (task.preparationId || task.currentRunId)
-        throw new Error('知识检索已结束，工作状态尚未确认，请恢复查看')
-      runError.value =
-        final.error?.message ??
-        (final.status === 'cancelled'
-          ? '知识检索已取消，可重新发送'
-          : '知识检索未完成，请检查知识库后重新发送')
-      void tasks.loadTasks()
-    } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) {
-        runError.value = errorMessage(reason)
-        disconnected.value = true
-      }
-    }
-    return false
-  }
-
   function cancelRun(observe = true): Promise<void> {
     const task = tasks.currentTask.value
-    if (!task || !options.canObserve(task) || stopAcknowledged.value) return Promise.resolve()
-    const preparationId =
-      task.preparationId ??
-      (activePreparation.value && !preparationFinished(activePreparation.value)
-        ? activePreparation.value.id
-        : null)
+    if (!task || task.mode !== 'agent' || !options.canObserve(task) || stopAcknowledged.value)
+      return Promise.resolve()
     const runId =
       task.currentRunId ??
       (activeRun.value && !isTerminal(activeRun.value) ? activeRun.value.id : null)
-    if (!preparationId && !runId) return Promise.resolve()
+    if (!runId) return Promise.resolve()
     pendingStops.add(task.taskId)
     const existing = stopOperations.get(task.taskId)
     if (existing?.context.isCurrent()) return existing.promise
@@ -244,27 +165,10 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     stopping.value = true
     const operation = (async () => {
       try {
-        let run: RunSnapshot | null = null
-        if (preparationId) {
-          const incoming = await cancelPreparation(preparationId, context.signal)
-          if (!context.isCurrent()) return
-          const value = updatePreparation(incoming, task.taskId)
-          if (!value.run) {
-            if (observe) void followPreparation(value, task.taskId, context)
-            return
-          }
-          run = adoptRun(value.run, task.taskId)
-          if (run && !isTerminal(run) && run.status !== 'cancel_requested') {
-            const stopped = await api.cancelWorkRun(task.taskId, run.id, context.signal)
-            if (!context.isCurrent()) return
-            run = applyRun(stopped, task.taskId)
-          }
-        } else if (runId) {
-          const incoming = await api.cancelWorkRun(task.taskId, runId, context.signal)
-          if (!context.isCurrent()) return
-          run = applyRun(incoming, task.taskId)
-        }
-        if (!context.isCurrent() || !run) return
+        const incoming = await api.cancelWorkRun(task.taskId, runId, context.signal)
+        if (!context.isCurrent()) return
+        const run = applyRun(incoming, task.taskId)
+        if (!run) return
         runError.value = ''
         disconnected.value = false
         if (observe) {
@@ -286,19 +190,16 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     })
     return operation
   }
-
   async function restore(task: WorkTask, context: ContextTicket): Promise<void> {
     if (
       !context.isCurrent() ||
       tasks.currentTask.value?.taskId !== task.taskId ||
+      task.mode !== 'agent' ||
       !options.canObserve(task)
     )
       return
     try {
-      if (task.preparationId) {
-        const preparation = await getPreparation(task.preparationId, context.signal)
-        if (context.isCurrent()) void followPreparation(preparation, task.taskId, context)
-      } else if (task.currentRunId) {
+      if (task.currentRunId) {
         const run = await api.getWorkRun(task.taskId, task.currentRunId, context.signal)
         if (!context.isCurrent()) return
         const accepted = adoptRun(run, task.taskId)
@@ -313,7 +214,7 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
   }
   async function reconnect(): Promise<void> {
     const task = tasks.currentTask.value
-    if (!task || !options.canObserve(task)) return
+    if (!task || task.mode !== 'agent' || !options.canObserve(task)) return
     const parent = tasks.taskScope.current()
     const operation = stopOperations.get(task.taskId)
     if (operation?.context.isCurrent()) await operation.promise
@@ -322,11 +223,6 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     try {
       const refreshed = await tasks.refreshTask(task.taskId, context)
       if (!refreshed) return
-      if (refreshed.preparationId) {
-        const preparation = await getPreparation(refreshed.preparationId, context.signal)
-        if (context.isCurrent()) void followPreparation(preparation, task.taskId, parent)
-        return
-      }
       const runId = refreshed.currentRunId ?? activeRun.value?.id
       if (!runId) {
         disconnected.value = false
@@ -346,21 +242,21 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     }
   }
   function reset(): void {
+    clearRefresh()
     observeScope.replace()
     activeRun.value = null
-    activePreparation.value = null
     runError.value = ''
     disconnected.value = false
     stopping.value = false
   }
   function dispose(): void {
+    clearRefresh()
     observeScope.dispose()
     pendingStops.clear()
     stopOperations.clear()
   }
   return {
     activeRun,
-    activePreparation,
     runError,
     disconnected,
     stopping,
@@ -371,7 +267,6 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     projectCurrentRun,
     adoptRun,
     follow,
-    followPreparation,
     restore,
     reconnect,
     cancelRun,

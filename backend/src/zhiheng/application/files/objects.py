@@ -19,7 +19,15 @@ class FileObjects:
 
     @asynccontextmanager
     async def registration(self, storage_key: str) -> AsyncIterator[AsyncSession]:
+        async with self.registrations((storage_key,)) as session:
+            yield session
+
+    @asynccontextmanager
+    async def registrations(self, storage_keys: tuple[str, ...]) -> AsyncIterator[AsyncSession]:
         """Own registration and its outcome; an uncertain commit is left to reconciliation."""
+        keys = tuple(dict.fromkeys(storage_keys))
+        if not keys:
+            raise ValueError('At least one fresh storage key is required')
         body_finished = False
         uncertain = False
         cancelled = False
@@ -44,7 +52,8 @@ class FileObjects:
             if uncertain:
                 logger.warning('Deferred file object cleanup: transaction outcome uncertain')
             else:
-                await self.discard_unregistered(storage_key)
+                for storage_key in keys:
+                    await self.discard_unregistered(storage_key)
 
     async def discard_unregistered(self, storage_key: str) -> None:
         """Only the fresh key owned by the current attempt may be passed here."""

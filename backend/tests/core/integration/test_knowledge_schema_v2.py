@@ -18,7 +18,9 @@ from tests.core.integration.test_knowledge_materials_v2 import library
 from tests.core.legacy_schema import reconstruct
 from tests.core.provider import ProviderServer
 from tests.core.schema_support import (
+    RENAMED_COLUMNS,
     RETIRED_COLUMNS,
+    RETIRED_TABLES,
     active_migration_context,
     assert_original_rows,
     assert_private_base_backfill,
@@ -30,7 +32,7 @@ from zhiheng.modules.knowledge.orm import KnowledgeBase
 from zhiheng.shared.time import utcnow
 
 
-async def test_populated_schema19_upgrade_keeps_original_knowledge_and_acl(
+async def test_populated_schema19_upgrade_keeps_original_knowledge_and_acl(  # noqa: PLR0915 - keep populated upgrade and preservation in one fixture lifecycle
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
     container = app.state.container
@@ -97,8 +99,11 @@ async def test_populated_schema19_upgrade_keeps_original_knowledge_and_acl(
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
+            if table in RETIRED_TABLES:
+                assert await connection.scalar(text('SELECT to_regclass(:table)'), {'table': table}) is None
+                continue
             names = [
-                column[1]
+                RENAMED_COLUMNS.get(table, {}).get(column[1], column[1])
                 for column in columns
                 if column[0] == table and column[1] not in RETIRED_COLUMNS.get(table, frozenset())
             ]

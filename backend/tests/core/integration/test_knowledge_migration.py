@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import active_migration_context, assert_original_rows
+from tests.core.schema_support import RETIRED_TABLES, active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -64,6 +64,9 @@ async def test_schema6_history_survives_and_unfrozen_chat_fails_before_provider(
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
+            if table in RETIRED_TABLES:
+                assert await connection.scalar(text('SELECT to_regclass(:table)'), {'table': table}) is None
+                continue
             current = (
                 (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))).scalars().all()
             )

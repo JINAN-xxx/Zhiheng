@@ -545,7 +545,7 @@ async def test_changed_source_access_snapshot_cancels_before_upload(
 async def test_settings_require_platform_configuration_permission(
     admin: httpx.AsyncClient, app: FastAPI, miners: tuple[LocalMinerU, LocalMinerU]
 ) -> None:
-    from tests.core.integration.test_work import member_client
+    from tests.core.legacy_work import member_client
 
     async with member_client(app) as member:
         for path in ['/api/knowledge/settings/parsing', '/api/knowledge/settings/parsing/status']:

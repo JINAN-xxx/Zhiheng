@@ -8,7 +8,7 @@ from sqlalchemy import func, select, update
 
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job, ready_base, source
-from tests.core.integration.test_work import member_client
+from tests.core.legacy_work import member_client
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeDocument, KnowledgeJob, KnowledgeUpload
 from zhiheng.runtime.orm import Run

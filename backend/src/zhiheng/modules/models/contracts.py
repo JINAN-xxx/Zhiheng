@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +22,7 @@ from pydantic import (
 from zhiheng.modules.models.capacity import SAFETY_MARGIN, CapacityStatus, capacity_evidence_status
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.numbers import MAX_SAFE_INTEGER
+from zhiheng.shared.text import storage_text
 
 MAX_IMAGE_SNAPSHOT_BYTES = 2_000_000
 MAX_CONTEXT_IMAGE_BYTES = 16 * 1024 * 1024
@@ -62,6 +64,48 @@ class ModelProvider(Protocol):
     async def validate(self) -> None: ...
 
     def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]: ...
+
+
+class ModelToolCall(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z_][A-Za-z0-9_-]*$')
+    arguments: str = Field(default='{}', max_length=100000)
+
+    @field_validator('id')
+    @classmethod
+    def valid_identity(cls, value: str) -> str:
+        value.encode('utf-8')
+        if any(character < ' ' for character in value):
+            raise ValueError('Invalid tool call identity')
+        return value
+
+
+class AgentModelMessage(BaseModel):
+    """Tool-aware wire values for trusted internal Agent executions only."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    role: Literal['system', 'developer', 'user', 'assistant', 'tool']
+    content: str = Field(default='', max_length=2000000)
+    tool_calls: tuple[ModelToolCall, ...] = Field(default=(), max_length=20)
+    tool_call_id: str | None = Field(default=None, min_length=1, max_length=200)
+    reasoning_content: str = Field(default='', max_length=200000)
+
+    @model_validator(mode='after')
+    def valid_tool_message(self) -> 'AgentModelMessage':
+        if (self.role == 'tool') != (self.tool_call_id is not None):
+            raise ValueError('Tool results require their original tool call identity')
+        if self.tool_calls and self.role != 'assistant':
+            raise ValueError('Only assistant messages can request tools')
+        return self
+
+
+class AgentModelProvider(Protocol):
+    def stream_agent(
+        self, messages: tuple[AgentModelMessage, ...], tools: tuple[dict[str, object], ...]
+    ) -> AsyncIterator[ModelDelta]: ...
 
 
 ProviderFailureReason = Literal[
@@ -242,6 +286,59 @@ class ModelRequest(BaseModel):
     execution_timeout_seconds: float | None = Field(default=None, ge=0.1, le=600)
     execution_deadline: datetime | None = None
     required_modules: tuple[str, ...] = ()
+    parent_run_id: UUID | None = None
+    parent_attempt_id: UUID | None = None
+    agent_messages: tuple[AgentModelMessage, ...] = ()
+    tools: tuple[dict[str, object], ...] = Field(default=(), max_length=30)
+
+    @model_validator(mode='before')
+    @classmethod
+    def restore_agent_messages(cls, value: object) -> object:
+        if not isinstance(value, dict) or 'agent_messages_json' not in value:
+            return value
+        restored = dict(value)
+        encoded = restored.pop('agent_messages_json')
+        if not isinstance(encoded, str) or 'agent_messages' in restored:
+            raise ValueError('Invalid encoded Agent messages')
+        restored['agent_messages'] = json.loads(encoded)
+        return restored
+
+    @model_serializer(mode='wrap')
+    def serialize_agent_additions(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        raw = handler(self)
+        if not isinstance(raw, dict):
+            raise ValueError('Invalid model request serialization')
+        result: dict[str, object] = dict(raw)
+        if self.agent_messages:
+            # JSONB cannot store NUL or unpaired surrogates. Keep executable
+            # messages in an ASCII JSON string; only the display transcript is escaped.
+            result.pop('agent_messages', None)
+            result['agent_messages_json'] = json.dumps(
+                [message.model_dump(mode='json') for message in self.agent_messages], ensure_ascii=True
+            )
+            result['messages'] = [
+                {'role': message.role, 'content': storage_text(message.content), 'images': []}
+                for message in self.messages
+            ]
+        else:
+            result.pop('agent_messages', None)
+        if not self.tools:
+            result.pop('tools', None)
+        if self.parent_run_id is None:
+            result.pop('parent_run_id', None)
+        if self.parent_attempt_id is None:
+            result.pop('parent_attempt_id', None)
+        return result
+
+    @model_validator(mode='after')
+    def valid_agent_request(self) -> 'ModelRequest':
+        if (self.parent_run_id is None) != (self.parent_attempt_id is None):
+            raise ValueError('A child model call requires its complete parent execution identity')
+        if (self.agent_messages or self.tools) and self.binding.model_type != 'chat':
+            raise ValueError('Agent tools require a chat model')
+        if self.tools and not self.agent_messages:
+            raise ValueError('Agent tools require explicit Agent messages')
+        return self
 
     @field_validator('messages')
     @classmethod

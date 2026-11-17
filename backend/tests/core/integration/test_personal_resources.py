@@ -6,6 +6,7 @@ from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_skills import install
 from tests.core.knowledge_support import share_library
+from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import account, grants
 
 
@@ -224,7 +225,9 @@ async def test_administrator_preview_and_work_use_agent_owner_and_frozen_revisio
 ) -> None:
     from uuid import UUID, uuid4
 
-    from tests.core.integration.test_work import published, task, turn
+    from tests.core.legacy_work import legacy_task as task
+    from tests.core.legacy_work import legacy_turn as turn
+    from tests.core.legacy_work import published
     from zhiheng.worker.execution import execute_run
 
     await install(admin, 'owned-execution', 'ACTOR MUST NOT SUPPLY THIS CONTENT')
@@ -251,9 +254,11 @@ async def test_administrator_preview_and_work_use_agent_owner_and_frozen_revisio
         work = await task(member, agent)
         await install(member, 'owned-execution', 'LATEST OWNER CONTENT')
         before = len(provider.requests)
-        assert (await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))).status_code == 404
+        assert (
+            await legacy_work_request(admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        ).status_code == 404
         assert len(provider.requests) == before
-        run = await member.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        run = await legacy_work_request(member, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
         assert run.status_code == 202, run.text
         await execute_run(app.state.container, UUID(run.json()['id']))
         messages = provider.requests[-1]['messages']

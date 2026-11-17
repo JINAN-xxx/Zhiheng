@@ -1,6 +1,6 @@
 <!-- Adapted from original Work UI, MIT licensed. -->
 <template>
-  <section ref="root" class="work-timeline workspace-scroll-area" aria-label="共享工作时间线">
+  <section ref="root" class="work-timeline workspace-scroll-area" aria-label="工作对话">
     <article
       v-for="message in messages"
       :key="message.messageId"
@@ -9,25 +9,31 @@
     >
       <div class="work-message__meta">
         <strong>{{
-          message.role === 'user' ? '你' : message.agentNameSnapshot || '智能体'
+          message.role === 'user' ? '你' : message.agentNameSnapshot || '工作助手'
         }}</strong>
         <a-tag v-if="showStatus(message.runStatus)" :color="statusColor(message.runStatus)">{{
           statusLabel(message.runStatus)
         }}</a-tag>
         <time>{{ formatTime(message.createdAt) }}</time>
       </div>
-      <p>{{ message.content }}</p>
+      <p v-if="message.role === 'user'">{{ message.content }}</p>
+      <AiMessage
+        v-else
+        :content="message.content"
+        :reasoning-content="message.reasoningContent"
+        :loading="
+          message.runStatus === 'pending' ||
+          message.runStatus === 'running' ||
+          message.runStatus === 'cancel_requested'
+        "
+      />
       <KnowledgeSources :sources="message.knowledgeSources" />
-      <details v-if="message.reasoningContent" class="work-message__reasoning">
-        <summary>查看推理过程</summary>
-        <p>{{ message.reasoningContent }}</p>
-      </details>
       <p v-if="message.errorSnapshot" class="work-message__error">
         {{ errorText(message.errorSnapshot) }}
       </p>
       <MessageActions :content="message.content" :role="message.role" />
     </article>
-    <a-empty v-if="!messages.length" description="暂无工作消息" />
+    <a-empty v-if="!messages.length" description="资料准备好后，描述目标即可开始工作" />
   </section>
 </template>
 
@@ -35,6 +41,7 @@
 import { nextTick, ref, watch } from 'vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { Empty as AEmpty, Tag as ATag } from 'ant-design-vue'
+import { AiMessage } from '../../chat/public.ts'
 import { KnowledgeSources } from '../../knowledge/public.ts'
 import type { WorkMessage } from '../api/index.ts'
 import type { RunSnapshot, RunStatus } from '../../../shared/stream.ts'

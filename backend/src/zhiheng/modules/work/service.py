@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.knowledge.public import Hit
+from zhiheng.modules.work.base import safe_text
 from zhiheng.modules.work.contracts import (
     CreateTask,
     MemberInfo,
@@ -14,7 +16,6 @@ from zhiheng.modules.work.contracts import (
     TaskStatus,
     TaskSummary,
     UpdateTask,
-    safe_text,
 )
 from zhiheng.modules.work.orm import WorkMember, WorkMessage, WorkTask
 from zhiheng.runtime.orm import Run
@@ -66,9 +67,11 @@ class WorkService:
 
     @staticmethod
     def summary(row: WorkTask) -> TaskSummary:
-        return TaskSummary.model_validate(
-            {key: getattr(row, key) for key in TaskSummary.model_fields if key != 'preparation_id'}
-        )
+        values = {
+            key: getattr(row, key) for key in TaskSummary.model_fields if key not in {'preparation_id', 'model_id'}
+        }
+        values['model_id'] = row.configuration.get('model_id')
+        return TaskSummary.model_validate(values)
 
     async def detail(self, session: AsyncSession, principal: Principal, task_id: UUID) -> TaskDetail:
         summary = await self.require(session, principal, task_id)
@@ -234,6 +237,8 @@ class WorkService:
     async def remove(self, session: AsyncSession, principal: Principal, task_id: UUID, version: int) -> None:
         row = await self.editable(session, principal, task_id, version, deleting=True)
         row.deleted_at = utcnow()
+        if row.mode == 'agent':
+            row.checkpoint_cleanup_after = utcnow() + timedelta(hours=1)
         self.touch(row)
 
     async def member(self, session: AsyncSession, task_id: UUID, agent_id: UUID) -> MemberSnapshot:
@@ -448,7 +453,19 @@ class WorkService:
             )
             .order_by(WorkTask.id)
         )
-        return [self._task_reference(row) for row in rows.unique()]
+        references = [self._task_reference(row) for row in rows.unique()]
+        agent_tasks = await session.scalars(
+            select(WorkTask)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkTask.mode == 'agent',
+                WorkTask.configuration['model_id'].astext == str(model_id),
+            )
+            .order_by(WorkTask.id)
+        )
+        references.extend(self._task_reference(row) for row in agent_tasks)
+        return references
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
@@ -500,6 +517,18 @@ class WorkService:
             )
             .order_by(Run.id)
         )
+        agent_tasks = await session.scalars(
+            select(WorkTask)
+            .where(
+                WorkTask.deleted_at.is_(None),
+                WorkTask.status == 'active',
+                WorkTask.mode == 'agent',
+                WorkTask.owner_id == owner_id,
+                WorkTask.configuration['skill_slugs'].contains([slug]),
+            )
+            .order_by(WorkTask.id)
+        )
+        references.extend(self._task_reference(row) for row in agent_tasks)
         references.extend(
             ResourceReference(
                 'run', row.id, '工作任务运行', row.status, row.owner_id, f'/work?taskId={row.resource_id}'

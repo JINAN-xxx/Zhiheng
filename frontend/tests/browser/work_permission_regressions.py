@@ -1,5 +1,6 @@
 """An owner may safely stop an existing Work run after losing execution permission."""
 from urllib.parse import urlparse
+import unittest
 
 from playwright.async_api import expect
 
@@ -35,3 +36,7 @@ class WorkPermissionRegressions(WorkUIRegressions):
         self.assertEqual(self.cancellations, ['/api/work/tasks/task-1/runs/work-run/cancel'])
         self.assertEqual(self.runs, [])
         self.assertEqual(self.posts, [])
+
+
+def load_tests(loader, tests, pattern):
+    return unittest.TestSuite([WorkPermissionRegressions('test_read_only_work_owner_can_stop_existing_run_without_admitting_another')])

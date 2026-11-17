@@ -31,6 +31,7 @@ async def reconstruct(  # noqa: PLR0912 - explicit retired-column conversions st
     await connection.execute(text('DROP SCHEMA IF EXISTS knowledge_graph_sdk CASCADE'))
     await connection.execute(text('DROP SCHEMA IF EXISTS chat_checkpoints CASCADE'))
     await connection.execute(text('DROP SCHEMA IF EXISTS assistant_checkpoints CASCADE'))
+    await connection.execute(text('DROP SCHEMA IF EXISTS work_checkpoints CASCADE'))
     await connection.execute(text('DROP SCHEMA public CASCADE'))
     await connection.execute(text('CREATE SCHEMA public'))
     await connection.run_sync(run_upgrade)

@@ -13,8 +13,9 @@ from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.integration.test_resource_key_scopes import application, issue
-from tests.core.integration.test_work import member_client, published, task
 from tests.core.integration.test_worker import named_model
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_work_request, member_client, published
 from tests.core.permission_support import grant_member, grants
 from tests.core.provider import ProviderServer
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -143,24 +144,30 @@ async def test_work_can_repair_members_before_reopening(admin: httpx.AsyncClient
     old = await published(admin, model_id)
     t = await task(admin, old)
     path = '/api/work/tasks/' + t['id']
-    closed = await admin.patch(path, json={'status': status, 'expected_version': t['version']})
+    closed = await legacy_work_request(admin, 'PATCH', path, json={'status': status, 'expected_version': t['version']})
     assert closed.status_code == 200, closed.text
     deleted = await admin.delete('/api/agents/' + old['id'], headers={'Content-Type': 'application/json'})
     assert deleted.status_code == 200, deleted.text
-    blocked = await admin.patch(path, json={'status': 'active', 'expected_version': closed.json()['version']})
+    blocked = await legacy_work_request(
+        admin, 'PATCH', path, json={'status': 'active', 'expected_version': closed.json()['version']}
+    )
     assert blocked.status_code == 409
     new = await published(admin, model_id, name='Replacement')
-    added = await admin.post(
-        path + '/members', json={'agent_id': new['id'], 'expected_version': closed.json()['version']}
+    added = await legacy_work_request(
+        admin, 'POST', path + '/members', json={'agent_id': new['id'], 'expected_version': closed.json()['version']}
     )
     assert added.status_code == 200, added.text
-    removed = await admin.delete(
+    removed = await legacy_work_request(
+        admin,
+        'DELETE',
         path + '/members/' + old['id'],
         params={'expected_version': added.json()['version']},
         headers={'Content-Type': 'application/json'},
     )
     assert removed.status_code == 200, removed.text
-    opened = await admin.patch(path, json={'status': 'active', 'expected_version': removed.json()['version']})
+    opened = await legacy_work_request(
+        admin, 'PATCH', path, json={'status': 'active', 'expected_version': removed.json()['version']}
+    )
     assert opened.status_code == 200, opened.text
     assert len(opened.json()['messages']) == len(t['messages'])
 

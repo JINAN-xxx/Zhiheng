@@ -2,11 +2,14 @@ import { computed, reactive, ref } from 'vue'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { errorMessage, isAborted, isDefiniteRejection, RequestScope } from '../../../shared/http.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
-import { isPreparation } from '../../knowledge/public.ts'
-import type { KnowledgePreparation } from '../../knowledge/public.ts'
 import * as api from '../api/index.ts'
-import type { WorkMember, WorkStatus, WorkSummary, WorkTask } from '../api/index.ts'
-import { nextCreateIntent, nextWorkIntent } from '../presentation.ts'
+import type { UpdateWorkBody, WorkSummary, WorkTask } from '../api/index.ts'
+import {
+  emptyWorkDraft,
+  MAX_WORK_FILE_BYTES,
+  nextCreateIntent,
+  nextWorkIntent
+} from '../presentation.ts'
 import type { CreateIntent, WorkDraft, WorkIntent } from '../presentation.ts'
 import type { WorkTasks } from './tasks.ts'
 import type { WorkRunObservation } from './runObservation.ts'
@@ -20,14 +23,21 @@ interface WorkTurnCommandsOptions {
   ownerId: () => string | undefined
   reloadTask: (taskId: string) => Promise<void>
 }
+export interface WorkTurnInput {
+  message: string
+  fileIds?: string[]
+  resume?: boolean
+}
 
 export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   const { tasks, observation } = options
   const createLoading = ref(false),
     admitting = ref(false),
-    mutating = ref(false)
+    mutating = ref(false),
+    uploading = ref(false),
+    createUncertain = ref(false)
   const retryKind = ref<'' | 'unstarted' | 'uncertain' | 'failed'>('')
-  const createDraft = ref<WorkDraft>({ goal: '', agentIds: [], activeAgentId: null })
+  const createDraft = ref<WorkDraft>(emptyWorkDraft())
   const mutationScope = new RequestScope(),
     createScope = new RequestScope()
   const intents = new Map<string, WorkIntent>()
@@ -35,7 +45,11 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   let pendingCreate: CreateIntent | null = null
   const runLocked = computed(
     () =>
-      admitting.value || mutating.value || observation.stopping.value || observation.occupied.value
+      admitting.value ||
+      mutating.value ||
+      uploading.value ||
+      observation.stopping.value ||
+      observation.occupied.value
   )
   const submissionBlocked = computed(
     () =>
@@ -48,7 +62,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   function recordTask(task: WorkSummary): void {
     const lock = taskLocks.get(task.taskId)
     if (lock !== undefined && task.version < lock) return
-    if (task.currentRunId || task.preparationId) taskLocks.set(task.taskId, task.version)
+    if (task.currentRunId) taskLocks.set(task.taskId, task.version)
     else if (!intents.has(task.taskId)) {
       taskLocks.delete(task.taskId)
       observation.pendingStops.delete(task.taskId)
@@ -63,15 +77,6 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   function runSettled(run: RunSnapshot): void {
     retryKind.value = run.status === 'completed' ? '' : 'failed'
   }
-  function preparationSettled(preparation: KnowledgePreparation, taskId: string): void {
-    if (preparation.run) {
-      intents.delete(taskId)
-      retryKind.value = ''
-    } else {
-      retryKind.value = intents.has(taskId) ? 'failed' : ''
-      taskLocks.delete(taskId)
-    }
-  }
   function restoreTask(task: WorkTask): void {
     const taskId = task.taskId
     if (
@@ -79,13 +84,14 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       task.ownerId === options.ownerId()
     ) {
       pendingCreate = null
-      createDraft.value = { goal: '', agentIds: [], activeAgentId: null }
+      createUncertain.value = false
+      createDraft.value = emptyWorkDraft()
     }
+    if (task.mode !== 'agent') return
     if (task.currentRunId) {
       intents.delete(taskId)
       return
     }
-    if (task.preparationId) return
     const intent = intents.get(taskId)
     const latestReply = [...task.messages].reverse().find((message) => message.role === 'assistant')
     if (
@@ -97,34 +103,40 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       )
     ) {
       retryKind.value = 'uncertain'
-      observation.runError.value = '上次请求结果待确认，请重试原请求'
-    } else if (!latestReply && task.messages.length === 1 && task.activeAgentId) {
+      observation.runError.value = '上次请求结果待确认，请确认原请求'
+    } else if (!latestReply && task.goal.trim() && task.messages.length <= 1) {
       intents.set(taskId, {
         taskId,
-        agentId: task.activeAgentId,
-        message: task.messages[0]!.content,
+        message: task.goal,
         expectedVersion: task.version,
-        clientRequestId: task.createClientRequestId
+        clientRequestId: task.createClientRequestId,
+        fileIds: [],
+        resume: false
       })
       retryKind.value = 'unstarted'
       observation.runError.value = '目标已保存，尚未执行'
     } else if (latestReply && latestReply.runStatus !== 'completed') {
       if (intent) intents.delete(taskId)
       retryKind.value = 'failed'
-      observation.runError.value = latestReply.errorSnapshot?.message ?? '上轮未完成，可重试执行'
+      observation.runError.value =
+        latestReply.errorSnapshot?.message ?? '上轮未完成，已确认的进度与成果已保留'
     } else if (intent) intents.delete(taskId)
     recordTask(task)
   }
-
   async function createTask(draft: WorkDraft): Promise<WorkTask | null> {
     if (createLoading.value || !options.canCreate()) return null
-    const intent = nextCreateIntent(pendingCreate, draft, createRequestId)
-    if (!intent.activeAgentId) return null
+    const confirming = createUncertain.value
+    const intent =
+      confirming && pendingCreate
+        ? pendingCreate
+        : nextCreateIntent(pendingCreate, draft, createRequestId)
+    if (!intent.modelId) return null
     pendingCreate = intent
     createDraft.value = {
       goal: intent.goal,
-      agentIds: [...intent.agentIds],
-      activeAgentId: intent.activeAgentId
+      modelId: intent.modelId,
+      skillSlugs: [...intent.skillSlugs],
+      allowCodeExecution: intent.allowCodeExecution
     }
     const context = createScope.replace()
     createLoading.value = true
@@ -133,27 +145,36 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       const task = await api.createTask(
         {
           goal: intent.goal,
-          agent_ids: intent.agentIds,
-          active_agent_id: intent.activeAgentId,
+          model_id: intent.modelId,
+          skill_slugs: intent.skillSlugs,
+          file_ids: [],
+          allow_code_execution: intent.allowCodeExecution,
           client_request_id: intent.clientRequestId
         },
         context.signal
       )
       if (!context.isCurrent()) return null
-      intents.set(task.taskId, {
-        taskId: task.taskId,
-        agentId: intent.activeAgentId,
-        message: intent.goal,
-        expectedVersion: task.version,
-        clientRequestId: intent.clientRequestId
-      })
+      if (intent.goal.trim())
+        intents.set(task.taskId, {
+          taskId: task.taskId,
+          message: intent.goal,
+          expectedVersion: task.version,
+          clientRequestId: intent.clientRequestId,
+          fileIds: [],
+          resume: false
+        })
       pendingCreate = null
-      createDraft.value = { goal: '', agentIds: [], activeAgentId: null }
+      createUncertain.value = false
+      createDraft.value = emptyWorkDraft()
       void tasks.loadTasks()
       return task
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) {
-        observation.runError.value = errorMessage(reason)
+        createUncertain.value = confirming || !isDefiniteRejection(reason)
+        if (!createUncertain.value) pendingCreate = null
+        observation.runError.value = createUncertain.value
+          ? '任务创建结果待确认。再次操作会沿用原请求。'
+          : errorMessage(reason)
         throw reason
       }
       return null
@@ -161,13 +182,60 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       if (context.isCurrent()) createLoading.value = false
     }
   }
-  async function runMessage(
-    input: { agentId: string; message: string },
-    retry = false
-  ): Promise<boolean> {
+  function showPending(task: WorkTask, intent: WorkIntent): void {
+    const now = new Date().toISOString()
+    const base = {
+      clientRequestId: intent.clientRequestId,
+      reasoningContent: '',
+      runId: null,
+      runStatus: 'pending' as const,
+      usage: null,
+      errorSnapshot: null,
+      agentId: null,
+      agentNameSnapshot: null,
+      agentRevision: null,
+      createdAt: now,
+      knowledgeSources: []
+    }
+    if (
+      !intent.resume &&
+      !task.messages.some(
+        (message) => message.clientRequestId === intent.clientRequestId && message.role === 'user'
+      )
+    )
+      task.messages.push({
+        ...base,
+        messageId: 'local:user:' + intent.clientRequestId,
+        role: 'user',
+        content: intent.message,
+        sequence: task.messages.length + 1
+      })
+    if (
+      !task.messages.some(
+        (message) =>
+          message.clientRequestId === intent.clientRequestId && message.role === 'assistant'
+      )
+    )
+      task.messages.push({
+        ...base,
+        messageId: 'local:assistant:' + intent.clientRequestId,
+        role: 'assistant',
+        content: '',
+        sequence: task.messages.length + 1
+      })
+  }
+  function discardPending(task: WorkTask, intent: WorkIntent): void {
+    task.messages = task.messages.filter(
+      (message) =>
+        !message.messageId.startsWith('local:') ||
+        message.clientRequestId !== intent.clientRequestId
+    )
+  }
+  async function runMessage(input: WorkTurnInput, retry = false): Promise<boolean> {
     const task = tasks.currentTask.value
     if (
       !task ||
+      task.mode !== 'agent' ||
       !options.canRun(task) ||
       task.status !== 'active' ||
       runLocked.value ||
@@ -183,9 +251,10 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
           previous,
           {
             taskId: task.taskId,
-            agentId: input.agentId,
             message: input.message,
-            expectedVersion: task.version
+            expectedVersion: task.version,
+            fileIds: input.fileIds ?? [],
+            resume: input.resume ?? false
           },
           createRequestId
         )
@@ -196,22 +265,20 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     admitting.value = true
     observation.runError.value = ''
     retryKind.value = ''
+    showPending(task, intent)
     try {
       const admission = await api.admitTurn(
         task.taskId,
         {
-          agent_id: intent.agentId,
           client_request_id: intent.clientRequestId,
           message: intent.message,
-          expected_version: intent.expectedVersion
+          expected_version: intent.expectedVersion,
+          file_ids: intent.fileIds,
+          resume: intent.resume
         },
         context.signal
       )
       if (!context.isCurrent() || tasks.currentTask.value?.taskId !== task.taskId) return false
-      if (isPreparation(admission)) {
-        admitting.value = false
-        return await observation.followPreparation(admission, task.taskId, context)
-      }
       intents.delete(task.taskId)
       taskLocks.set(task.taskId, Math.max(task.version + 1, taskLocks.get(task.taskId) ?? 0))
       const run = observation.adoptRun(admission, task.taskId)
@@ -229,7 +296,20 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
           if (definite) {
             intents.delete(task.taskId)
             taskLocks.delete(task.taskId)
+            discardPending(task, intent)
             if (reason.status === 409) void options.reloadTask(task.taskId)
+          } else {
+            const pending = task.messages.find(
+              (message) => message.messageId === 'local:assistant:' + intent.clientRequestId
+            )
+            if (pending)
+              Object.assign(pending, {
+                runStatus: 'interrupted',
+                errorSnapshot: {
+                  code: 'admission_unconfirmed',
+                  message: '请求结果待确认，请确认原请求'
+                }
+              })
           }
         } else observation.disconnected.value = true
       }
@@ -240,7 +320,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   }
   async function retryRun(): Promise<void> {
     const task = tasks.currentTask.value
-    if (!task) return
+    if (!task || task.mode !== 'agent') return
     if (observation.disconnected.value) {
       await observation.reconnect()
       return
@@ -248,10 +328,14 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     if (!options.canRun(task)) return
     const pending = intents.get(task.taskId)
     if (pending) {
-      if (retryKind.value === 'failed') {
-        intents.delete(task.taskId)
-        await runMessage({ agentId: pending.agentId, message: pending.message })
-      } else await runMessage({ agentId: pending.agentId, message: pending.message }, true)
+      await runMessage(
+        { message: pending.message, fileIds: pending.fileIds, resume: pending.resume },
+        true
+      )
+      return
+    }
+    if (task.executionState === 'paused') {
+      await runMessage({ message: '', resume: true })
       return
     }
     const latest = [...task.messages].reverse().find((message) => message.role === 'assistant')
@@ -262,23 +346,22 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
         .find(
           (message) => message.role === 'user' && message.clientRequestId === latest.clientRequestId
         )
-    if (latest?.agentId && user)
-      await runMessage({ agentId: latest.agentId, message: user.content })
+    if (user) await runMessage({ message: user.content })
   }
-
   async function mutate(
     operation: (task: WorkTask, signal: AbortSignal) => Promise<WorkTask>
   ): Promise<boolean> {
     const task = tasks.currentTask.value
-    if (!task || !options.canEdit(task) || submissionBlocked.value) return false
+    if (!task || task.mode !== 'agent' || !options.canEdit(task) || submissionBlocked.value)
+      return false
     const context = mutationScope.replace(),
       parent = tasks.taskScope.current()
     mutating.value = true
     tasks.detailError.value = ''
     try {
       const result = await operation(task, AbortSignal.any([context.signal, parent.signal]))
-      if (!context.isCurrent() || !parent.isCurrent()) return false
-      if (!tasks.acceptTask(result, parent)) return false
+      if (!context.isCurrent() || !parent.isCurrent() || !tasks.acceptTask(result, parent))
+        return false
       void tasks.loadTasks()
       return true
     } catch (reason) {
@@ -291,43 +374,52 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       if (context.isCurrent() && parent.isCurrent()) mutating.value = false
     }
   }
-  const saveTask = (changes: { title?: string; goal?: string; status?: WorkStatus }) =>
+  const saveTask = (changes: Omit<UpdateWorkBody, 'expected_version'>) =>
     mutate((task, signal) =>
       api.updateTask(task.taskId, { expected_version: task.version, ...changes }, signal)
     )
-  const addMember = (id: string) =>
-    mutate((task, signal) => api.addMember(task.taskId, id, task.version, signal))
-  async function addMembers(ids: string[]): Promise<void> {
-    const taskId = tasks.currentTask.value?.taskId,
-      parent = tasks.taskScope.current()
-    if (!taskId) return
-    for (const id of ids) {
-      if (
-        !parent.isCurrent() ||
-        tasks.currentTask.value?.taskId !== taskId ||
-        !(await addMember(id))
-      )
-        return
+  async function uploadFiles(files: File[]): Promise<void> {
+    const task = tasks.currentTask.value
+    if (!task || task.mode !== 'agent' || !options.canRun(task) || submissionBlocked.value) return
+    if (files.some((file) => file.size < 1 || file.size > MAX_WORK_FILE_BYTES))
+      throw new Error('请选择非空文件，单个文件不超过 20 MiB')
+    const parent = tasks.taskScope.current(),
+      context = mutationScope.replace()
+    uploading.value = true
+    tasks.detailError.value = ''
+    try {
+      for (const file of files) {
+        const uploaded = await api.uploadTaskFile(
+          task.taskId,
+          file,
+          AbortSignal.any([parent.signal, context.signal])
+        )
+        if (!parent.isCurrent() || !context.isCurrent()) return
+        const refreshed = tasks.acceptTask(uploaded, parent)
+        if (!refreshed) return
+        const unstarted = intents.get(task.taskId)
+        if (unstarted && retryKind.value === 'unstarted')
+          intents.set(task.taskId, { ...unstarted, expectedVersion: refreshed.version })
+      }
+      void tasks.loadTasks()
+    } catch (reason) {
+      if (parent.isCurrent() && context.isCurrent() && !isAborted(reason)) {
+        tasks.detailError.value = isDefiniteRejection(reason)
+          ? errorMessage(reason)
+          : '上传结果尚未确认，请刷新资料列表后核对'
+        void tasks.refreshTask(task.taskId, parent).catch(() => {})
+        throw reason
+      }
+    } finally {
+      if (parent.isCurrent() && context.isCurrent()) uploading.value = false
     }
   }
-  const removeMember = (id: string) =>
-    mutate((task, signal) => api.removeMember(task.taskId, id, task.version, signal))
-  const upgradeMember = (member: WorkMember) =>
-    mutate((task, signal) =>
-      api.upgradeMember(
-        task.taskId,
-        member.agentId,
-        task.version,
-        member.latestAgentRevision ?? member.agentRevision,
-        signal
-      )
-    )
-
   function stopLocalActivity(): void {
     mutationScope.replace()
     createScope.replace()
     admitting.value = false
     mutating.value = false
+    uploading.value = false
     createLoading.value = false
     retryKind.value = ''
   }
@@ -336,7 +428,8 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     intents.clear()
     taskLocks.clear()
     pendingCreate = null
-    createDraft.value = { goal: '', agentIds: [], activeAgentId: null }
+    createUncertain.value = false
+    createDraft.value = emptyWorkDraft()
   }
   function dispose(): void {
     mutationScope.dispose()
@@ -347,25 +440,23 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   }
   return {
     createLoading,
+    createUncertain,
     createDraft,
     admitting,
     mutating,
+    uploading,
     retryKind,
     runLocked,
     submissionBlocked,
     recordTask,
     isTaskBusy,
     runSettled,
-    preparationSettled,
     restoreTask,
     createTask,
     runMessage,
     retryRun,
     saveTask,
-    addMember,
-    addMembers,
-    removeMember,
-    upgradeMember,
+    uploadFiles,
     stopLocalActivity,
     clear,
     dispose

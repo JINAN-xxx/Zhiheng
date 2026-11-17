@@ -9,22 +9,43 @@ from zhiheng.application.chat.agent import ChatAgentFactory, CheckpointCleanup, 
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.agents.adapters.agent import AgentProvider
 from zhiheng.infrastructure.agents.adapters.checkpoints import CheckpointStore
+from zhiheng.infrastructure.agents.adapters.workspace import WorkspaceKernel
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.modules.chat.public import ChatExecutionSpec
 from zhiheng.modules.files.adapters.mineru import unpack_result
 from zhiheng.modules.files.adapters.mineru_cloud import create_mineru_client
 from zhiheng.modules.files.adapters.native import NativeParser, validate_document_source
-from zhiheng.modules.files.public import DocumentSourceValidator, MinerUClientFactory, MinerUResultDecoder, ParsePort
+from zhiheng.modules.files.adapters.workspace import WorkspaceFileReader
+from zhiheng.modules.files.public import (
+    DocumentSourceValidator,
+    MinerUClientFactory,
+    MinerUResultDecoder,
+    ParsePort,
+    WorkspaceReader,
+)
 from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK
 from zhiheng.modules.knowledge.adapters.milvus import MilvusStore
 from zhiheng.modules.knowledge.public import GraphPort, VectorPort
 from zhiheng.modules.models.adapters.factory import create_provider
 from zhiheng.modules.models.public import ModelProvider, ModelService
+from zhiheng.modules.work.public import WorkspaceAgentKernel
 from zhiheng.shared.agent import AgentSettings
 
 
 def create_parser() -> ParsePort:
     return NativeParser()
+
+
+def create_workspace_kernel(settings: Settings) -> WorkspaceAgentKernel:
+    return WorkspaceKernel(settings.database_url.get_secret_value())
+
+
+def create_workspace_reader() -> WorkspaceReader:
+    return WorkspaceFileReader()
+
+
+def create_workspace_checkpoint_cleanup(settings: Settings) -> Callable[[str], Awaitable[None]]:
+    return CheckpointStore(settings.database_url.get_secret_value(), 'work_checkpoints').delete_thread
 
 
 def create_vector_store(settings: Settings) -> VectorPort:

@@ -16,7 +16,9 @@ from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.integration.test_knowledge_failures import source as upload_source
 from tests.core.integration.test_public_protocol import drive
-from tests.core.integration.test_work import member_client, published, task, turn
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_turn as turn
+from tests.core.legacy_work import legacy_work_request, member_client, published
 from tests.core.permission_support import (
     member_agent_work_permissions,  # noqa: F401 - registered by pytest through usefixtures
 )
@@ -167,7 +169,9 @@ async def test_each_user_entry_reserves_from_frozen_input_then_local_worker_sett
     elif source == 'work_turn':
         agent = await published(admin, model_id)
         work = await task(admin, agent)
-        response = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        response = await legacy_work_request(
+            admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent)
+        )
         assert response.status_code == 202, response.text
         run = response.json()
     else:
@@ -580,11 +584,13 @@ async def test_admin_work_turn_keeps_original_owners_wallet_and_resource_authori
                 CreditAdjustment(kind='grant', points='1', reason='Owner allocation', client_request_id=uuid4().hex),
             )
             before = await container.credits.queries.summary(session, member_id)
-        denied = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        denied = await legacy_work_request(admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
         assert denied.status_code == 404, denied.text
         async with container.database.sessions() as session:
             assert await container.credits.queries.summary(session, member_id) == before
-        response = await member.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        response = await legacy_work_request(
+            member, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent)
+        )
         assert response.status_code == 202, response.text
         await execute_run(container, UUID(response.json()['id']))
         async with container.database.sessions() as session:

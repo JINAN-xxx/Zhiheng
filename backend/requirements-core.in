@@ -20,6 +20,7 @@ cryptography==44.0.1
 argon2-cffi==25.1.0
 httpx==0.28.1
 minio==7.2.20
+opensandbox==1.2.1
 PyYAML==6.0.3
 pypdf==6.18.0
 Pillow==12.3.0

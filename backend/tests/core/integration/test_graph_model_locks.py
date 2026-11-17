@@ -402,7 +402,7 @@ async def test_callback_guard_refreshes_fence_after_waiting_for_models(
 async def test_freeze_refreshes_cached_base_grant_after_waiting_for_models(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, revocation: str
 ) -> None:
-    from tests.core.integration.test_work import member_client
+    from tests.core.legacy_work import member_client
     from zhiheng.modules.knowledge.orm import KnowledgeGrant
 
     container = app.state.container

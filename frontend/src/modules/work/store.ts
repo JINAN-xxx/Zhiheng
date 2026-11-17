@@ -10,8 +10,10 @@ import type { WorkRunObservation } from './composables/runObservation.ts'
 
 function createWorkWorkspace() {
   const ownsTask = (task: WorkTask) => task.ownerId === identity.value?.id
-  const canRun = (task: WorkTask) => canUseCapability('work', 'use') && ownsTask(task)
-  const canObserve = (task: WorkTask) => canUseCapability('work', 'read') && ownsTask(task)
+  const canRun = (task: WorkTask) =>
+    task.mode === 'agent' && canUseCapability('work', 'use') && ownsTask(task)
+  const canObserve = (task: WorkTask) =>
+    task.mode === 'agent' && canUseCapability('work', 'read') && ownsTask(task)
   // These callbacks run only from explicit resource/turn operations after composition.
   const tasks = useWorkTasks({
     canRead: () => canUseModule('work'),
@@ -21,8 +23,7 @@ function createWorkWorkspace() {
   const observation: WorkRunObservation = useWorkRunObservation({
     tasks,
     canObserve: (task) => canObserve(task) && !commands.admitting.value,
-    runSettled: (run) => commands.runSettled(run),
-    preparationSettled: (preparation, taskId) => commands.preparationSettled(preparation, taskId)
+    runSettled: (run) => commands.runSettled(run)
   })
   const commands: WorkTurnCommands = useWorkTurnCommands({
     tasks,
@@ -51,7 +52,7 @@ function createWorkWorkspace() {
     if (!task) return
     const context = tasks.taskScope.current()
     commands.restoreTask(task)
-    void tasks.loadAvailableAgents(taskId)
+    if (task.mode === 'agent') void tasks.loadOptions()
     await observation.restore(task, context)
   }
 
@@ -61,7 +62,7 @@ function createWorkWorkspace() {
     [
       () => identity.value?.id ?? '',
       () => canUseModule('work'),
-      ...['use', 'create', 'update', 'delete'].map(
+      ...['use', 'create', 'update', 'delete', 'execute_code'].map(
         (action) => () => canUseCapability('work', action)
       )
     ],
@@ -92,13 +93,15 @@ function createWorkWorkspace() {
     currentTask: tasks.currentTask,
     detailLoading: tasks.detailLoading,
     detailError: tasks.detailError,
-    availableAgents: tasks.availableAgents,
-    agentsLoading: tasks.agentsLoading,
-    agentsError: tasks.agentsError,
+    workOptions: tasks.workOptions,
+    optionsLoading: tasks.optionsLoading,
+    optionsError: tasks.optionsError,
     createLoading: commands.createLoading,
+    createUncertain: commands.createUncertain,
     createDraft: commands.createDraft,
     admitting: commands.admitting,
     mutating: commands.mutating,
+    uploading: commands.uploading,
     stopping: observation.stopping,
     stopAcknowledged: observation.stopAcknowledged,
     runLocked: commands.runLocked,
@@ -109,7 +112,7 @@ function createWorkWorkspace() {
     retryKind: commands.retryKind,
     disconnected: observation.disconnected,
     loadTasks: tasks.loadTasks,
-    loadAvailableAgents: tasks.loadAvailableAgents,
+    loadOptions: tasks.loadOptions,
     loadTask,
     clearCurrentTask,
     stopLocalActivity,
@@ -119,10 +122,7 @@ function createWorkWorkspace() {
     reconnect: observation.reconnect,
     cancelRun: observation.cancelRun,
     saveTask: commands.saveTask,
-    addMember: commands.addMember,
-    addMembers: commands.addMembers,
-    removeMember: commands.removeMember,
-    upgradeMember: commands.upgradeMember
+    uploadFiles: commands.uploadFiles
   })
 }
 type WorkWorkspace = ReturnType<typeof createWorkWorkspace>

@@ -3,8 +3,19 @@
 from sqlalchemy import Table
 
 from zhiheng.infrastructure.database import Base
-from zhiheng.modules.work.orm import WorkMember, WorkMessage, WorkTask
+from zhiheng.modules.work.orm import (
+    WorkArtifact,
+    WorkInput,
+    WorkMember,
+    WorkMessage,
+    WorkSandboxLease,
+    WorkStep,
+    WorkTask,
+)
 
 
 def schema_tables() -> tuple[Table, ...]:
-    return tuple(Base.metadata.tables[row.__tablename__] for row in (WorkTask, WorkMember, WorkMessage))
+    return tuple(
+        Base.metadata.tables[row.__tablename__]
+        for row in (WorkTask, WorkMember, WorkMessage, WorkInput, WorkStep, WorkArtifact, WorkSandboxLease)
+    )

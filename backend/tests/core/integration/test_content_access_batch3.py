@@ -7,7 +7,8 @@ import httpx
 from fastapi import FastAPI
 
 from tests.core.integration.test_agents import config
-from tests.core.integration.test_work import published, task
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_work_request, published
 from tests.core.permission_support import grant_member, grants
 from zhiheng.modules.files.orm import FileRecord
 from zhiheng.modules.knowledge.orm import RetrievalIntent
@@ -115,7 +116,7 @@ async def test_admin_configuration_rights_do_not_enumerate_or_mutate_private_res
             ),
         ]
         for verb, path, body in mutations:
-            response = await admin.request(verb, path, json=body)
+            response = await legacy_work_request(admin, verb, path, json=body)
             assert response.status_code == 404, (verb, path, response.status_code, response.text)
         assert (await owner.get(f'/api/agents/{agent["id"]}')).json()['system_prompt'] == 'PRIVATE_PROMPT'
         assert (await owner.get(f'/api/work/tasks/{work["id"]}')).json()['goal'] == 'PRIVATE_GOAL'

@@ -31,7 +31,8 @@ from tests.core.integration.test_resource_files import post as upload_resource
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import finish
 from tests.core.integration.test_resource_skills import preview
-from tests.core.integration.test_work import member_client as unconfigured_member_client
+from tests.core.legacy_work import legacy_work_request
+from tests.core.legacy_work import member_client as unconfigured_member_client
 from tests.core.provider import ProviderServer
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
@@ -200,7 +201,8 @@ async def test_resource_write_authority_precedes_version(
             ('other-app', sibling, 404),
             ('foreign-owner', foreign, 404),
         ]:
-            response = await admin.request(
+            response = await legacy_work_request(
+                admin,
                 operation.method,
                 endpoint,
                 headers={**request_headers(key, etag=etag_for(operation, world, stale)), 'X-Auth-Audit-Case': case},
@@ -211,7 +213,8 @@ async def test_resource_write_authority_precedes_version(
             assert await domain_facts(app) == before
             assert len(provider.requests) == calls
         async with without_grants(app, world.application['id']):
-            response = await admin.request(
+            response = await legacy_work_request(
+                admin,
                 operation.method,
                 endpoint,
                 headers={
@@ -435,7 +438,9 @@ async def inference_context(
         body = {'messages': [{'role': 'user', 'content': 'matrix'}]}
         method = 'POST'
         if operation != 'agent_chat':
-            prepared = await admin.post(endpoint, headers=auth(key), json={**body, 'client_request_id': str(uuid4())})
+            prepared = await legacy_work_request(
+                admin, 'POST', endpoint, headers=auth(key), json={**body, 'client_request_id': str(uuid4())}
+            )
             assert prepared.status_code == 202, prepared.text
             endpoint = prepared.json()['polling_url']
             method, body = 'GET', None
@@ -458,7 +463,7 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
         ({'Authorization': 'Bearer invalid', 'X-Auth-Audit-Case': 'invalid-bearer'}, 401),
         ({**auth(insufficient), 'X-Auth-Audit-Case': 'no-scope'}, 403),
     ]:
-        response = await admin.request(method, endpoint, headers=headers, json=body)
+        response = await legacy_work_request(admin, method, endpoint, headers=headers, json=body)
         assert response.status_code == expected, (operation, required, response.text)
         assert 'run' not in response.json() and 'hits' not in response.json()
         assert await domain_facts(app) == before and len(provider.requests) == calls
@@ -491,7 +496,9 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
             else:
                 # Simulate loss of the original allowlist, as existing replay tests do.
                 current.model_ids = [value for value in current.model_ids if value != target]
-        response = await admin.request(method, endpoint, headers={**auth(key), 'X-Auth-Audit-Case': state}, json=body)
+        response = await legacy_work_request(
+            admin, method, endpoint, headers={**auth(key), 'X-Auth-Audit-Case': state}, json=body
+        )
         if state == 'model_unlisted' and operation == 'models':
             assert response.status_code == 200, response.text
             assert target not in {item['id'] for item in response.json()['data']}
@@ -520,7 +527,7 @@ async def test_original_inference_key_is_rechecked_before_local_provider(
     _owner_app, key, method, endpoint, body, _target = await inference_context(
         admin, app, provider, model_id, operation
     )
-    task = asyncio.create_task(admin.request(method, endpoint, headers=auth(key), json=body))
+    task = asyncio.create_task(legacy_work_request(admin, method, endpoint, headers=auth(key), json=body))
     try:
         pending = None
         for _ in range(100):
@@ -598,7 +605,7 @@ async def test_public_preparation_is_bound_to_original_key_and_agent(
     owner_app, key, method, endpoint, body, _target = await inference_context(admin, app, provider, model_id, operation)
     observer = await issue(admin, owner_app['id'], scopes=['agents:invoke'], model_ids=key['model_ids'])
     before, calls = await domain_facts(app), len(provider.requests)
-    denied = await admin.request(method, endpoint, headers=auth(observer), json=body)
+    denied = await legacy_work_request(admin, method, endpoint, headers=auth(observer), json=body)
     assert denied.status_code == 404 and 'run' not in denied.json() and 'hits' not in denied.json(), denied.text
     second_agent = await admin.post('/api/agents', json=config(model_id, application_id=owner_app['id']))
     assert second_agent.status_code == 201, second_agent.text
@@ -606,10 +613,10 @@ async def test_public_preparation_is_bound_to_original_key_and_agent(
     assert published.status_code == 200, published.text
     parts = endpoint.split('/')
     parts[3] = second_agent.json()['id']
-    mixed = await admin.request(method, '/'.join(parts), headers=auth(key), json=body)
+    mixed = await legacy_work_request(admin, method, '/'.join(parts), headers=auth(key), json=body)
     assert mixed.status_code == 404 and 'run' not in mixed.json() and 'hits' not in mixed.json(), mixed.text
     assert await domain_facts(app) == before and len(provider.requests) == calls
-    allowed = await admin.request(method, endpoint, headers=auth(key), json=body)
+    allowed = await legacy_work_request(admin, method, endpoint, headers=auth(key), json=body)
     assert allowed.status_code == 200, allowed.text
 
 
@@ -624,7 +631,8 @@ async def test_native_rebuild_scope_follows_material_policy(
     )
     selected = next(item for item in WRITE_OPERATIONS if item.name == operation)
     before, calls = await domain_facts(app), len(provider.requests)
-    response = await admin.request(
+    response = await legacy_work_request(
+        admin,
         selected.method,
         selected.path.format(**world.values()),
         headers=request_headers(key, etag=etag_for(selected, world, False)),
@@ -645,8 +653,12 @@ async def test_public_inference_result_keeps_connection_credentials_private(
     response = await drive(
         app.state.container,
         asyncio.create_task(
-            admin.request(
-                method, endpoint, headers={**auth(key), 'X-Auth-Audit-Case': 'authorized-model-result'}, json=body
+            legacy_work_request(
+                admin,
+                method,
+                endpoint,
+                headers={**auth(key), 'X-Auth-Audit-Case': 'authorized-model-result'},
+                json=body,
             )
         ),
     )

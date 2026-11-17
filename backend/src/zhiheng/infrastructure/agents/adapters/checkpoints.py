@@ -19,7 +19,7 @@ from sqlalchemy.engine import make_url
 
 from zhiheng.shared.errors import AppError
 
-CheckpointSchema = Literal['chat_checkpoints', 'assistant_checkpoints']
+CheckpointSchema = Literal['chat_checkpoints', 'assistant_checkpoints', 'work_checkpoints']
 CHECKPOINT_MIGRATION_VERSION = 9
 MAX_CHECKPOINT_ID_LENGTH = 128
 ROOT_CHECKPOINT_ID = '00000000-0000-0000-0000-000000000000'

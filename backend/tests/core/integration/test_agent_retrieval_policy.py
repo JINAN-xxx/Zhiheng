@@ -12,8 +12,10 @@ from fastapi import FastAPI
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model, finish_preparation
 from tests.core.integration.test_knowledge_failures import finish_job, ready_base, source
-from tests.core.integration.test_work import published, task, turn
 from tests.core.knowledge_support import knowledge_models
+from tests.core.legacy_work import legacy_task as task
+from tests.core.legacy_work import legacy_turn as turn
+from tests.core.legacy_work import legacy_work_request, published
 from tests.core.provider import ProviderHandler, ProviderServer
 from zhiheng.modules.agents.orm import Agent
 from zhiheng.modules.knowledge.orm import KnowledgeBase, KnowledgeDefaults, RetrievalIntent
@@ -174,7 +176,9 @@ async def test_final_limit_reaches_ranker_and_bounds_the_combined_library_result
     body = {'messages': [{'role': 'user', 'content': 'service port'}], 'client_request_id': str(uuid4())}
     if entry == 'work':
         work = await task(admin, agent, goal='service port')
-        response = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+        response = await legacy_work_request(
+            admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent)
+        )
     elif entry == 'conversation':
         conversation = (
             await admin.post(f'/api/agents/{agent["id"]}/conversations', json={'client_request_id': str(uuid4())})

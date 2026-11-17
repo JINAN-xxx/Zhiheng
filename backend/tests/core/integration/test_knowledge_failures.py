@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.knowledge_support import knowledge_models
+from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.orm import KnowledgeBase
@@ -140,7 +141,7 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     model_id: str,
 ) -> None:
     from tests.core.integration.test_knowledge import finish_preparation
-    from tests.core.integration.test_work import published
+    from tests.core.legacy_work import published
 
     base = await ready_base(admin, app, provider)
     for model in (model_id, base['embed_model_id']):
@@ -179,7 +180,7 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     replay = await admin.post(endpoint, headers=headers, json=body)
     assert replay.status_code == 200, replay.text
     assert len(provider.requests) == count
-    cancelled = await admin.post(intent['polling_url'] + '/cancel', headers=headers, json={})
+    cancelled = await legacy_work_request(admin, 'POST', intent['polling_url'] + '/cancel', headers=headers, json={})
     assert cancelled.status_code == 200 and cancelled.json()['run']['id'] == intent['run']['id']
     assert cancelled.json()['status'] == 'admitted'
 
@@ -190,12 +191,14 @@ async def test_work_selection_rechecks_knowledge_availability(
     provider: ProviderServer,
     model_id: str,
 ) -> None:
-    from tests.core.integration.test_work import published
+    from tests.core.legacy_work import published
 
     base = await ready_base(admin, app, provider)
     agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
     await admin.patch(f'/api/models/{base["embed_model_id"]}', json={'enabled': False})
-    response = await admin.post(
+    response = await legacy_work_request(
+        admin,
+        'POST',
         '/api/work/tasks',
         json={
             'goal': 'Use knowledge',
@@ -388,7 +391,7 @@ async def test_concurrent_prepare_and_rejected_final_admission_keep_one_paid_chi
 
     base = await ready_base(admin, app, provider)
     container = app.state.container
-    from tests.core.integration.test_work import published
+    from tests.core.legacy_work import published
 
     agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
     endpoint = f'/api/agents/{agent["id"]}/preview'

@@ -2,7 +2,7 @@ import { ref, reactive } from 'vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import type { ContextTicket } from '../../../shared/http.ts'
 import * as api from '../api/index.ts'
-import type { WorkAgent, WorkFilters, WorkSummary, WorkTask } from '../api/index.ts'
+import type { WorkFilters, WorkOptions, WorkSummary, WorkTask } from '../api/index.ts'
 
 interface TaskResourcesOptions {
   canRead: () => boolean
@@ -20,12 +20,12 @@ export function useWorkTasks(options: TaskResourcesOptions) {
     currentTask = ref<WorkTask | null>(null)
   const detailLoading = ref(false),
     detailError = ref('')
-  const availableAgents = ref<WorkAgent[]>([]),
-    agentsLoading = ref(false),
-    agentsError = ref('')
+  const workOptions = ref<WorkOptions | null>(null),
+    optionsLoading = ref(false),
+    optionsError = ref('')
   const listScope = new RequestScope(),
     taskScope = new RequestScope(),
-    agentsScope = new RequestScope()
+    optionsScope = new RequestScope()
 
   function acceptTask(task: WorkTask, context: ContextTicket): WorkTask | null {
     if (!context.isCurrent() || selectedTaskId.value !== task.taskId) return null
@@ -56,21 +56,18 @@ export function useWorkTasks(options: TaskResourcesOptions) {
     }
   }
 
-  async function loadAvailableAgents(
-    taskId: string | null = selectedTaskId.value || null
-  ): Promise<void> {
+  async function loadOptions(): Promise<void> {
     if (!options.canRead()) return
-    const context = agentsScope.replace()
-    agentsLoading.value = true
-    agentsError.value = ''
-    availableAgents.value = []
+    const context = optionsScope.replace()
+    optionsLoading.value = true
+    optionsError.value = ''
     try {
-      const result = await api.availableAgents(taskId, context.signal)
-      if (context.isCurrent()) availableAgents.value = result
+      const result = await api.getWorkOptions(context.signal)
+      if (context.isCurrent()) workOptions.value = result
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) agentsError.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) optionsError.value = errorMessage(reason)
     } finally {
-      if (context.isCurrent()) agentsLoading.value = false
+      if (context.isCurrent()) optionsLoading.value = false
     }
   }
 
@@ -97,16 +94,14 @@ export function useWorkTasks(options: TaskResourcesOptions) {
 
   function stopLocalActivity(): void {
     taskScope.replace()
-    agentsScope.replace()
+    optionsScope.replace()
     detailLoading.value = false
-    agentsLoading.value = false
+    optionsLoading.value = false
   }
   function clearCurrentTask(): void {
     selectedTaskId.value = ''
     currentTask.value = null
-    availableAgents.value = []
     detailError.value = ''
-    agentsError.value = ''
   }
   function invalidateAccess(): void {
     stopLocalActivity()
@@ -117,11 +112,13 @@ export function useWorkTasks(options: TaskResourcesOptions) {
     invalidateAccess()
     clearCurrentTask()
     tasks.value = []
+    workOptions.value = null
+    optionsError.value = ''
     total.value = 0
     listError.value = ''
   }
   function dispose(): void {
-    for (const scope of [listScope, taskScope, agentsScope]) scope.dispose()
+    for (const scope of [listScope, taskScope, optionsScope]) scope.dispose()
   }
 
   return {
@@ -134,13 +131,13 @@ export function useWorkTasks(options: TaskResourcesOptions) {
     currentTask,
     detailLoading,
     detailError,
-    availableAgents,
-    agentsLoading,
-    agentsError,
+    workOptions,
+    optionsLoading,
+    optionsError,
     taskScope,
     acceptTask,
     loadTasks,
-    loadAvailableAgents,
+    loadOptions,
     refreshTask,
     loadTask,
     stopLocalActivity,

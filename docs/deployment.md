@@ -11,7 +11,7 @@
 ./deploy.sh exec api python -m zhiheng create-admin --username admin
 ```
 
-`init` 只创建新的 `deploy/core/.env.core`，生成独立数据库密码、Fernet 密钥、向量存储及业务 MinIO 管理凭据，权限为 `0600`，拒绝覆盖已有文件。自定义新文件使用 `./deploy.sh --env-file /absolute/path/to/new-core.env COMMAND`；配置字段见[示例配置](../deploy/core/.env.core.example)。脚本显式选择该文件，不读取旧根 `.env`。升级既有配置时，补齐 `CORE_VECTOR_ACCESS_KEY` 和 `CORE_VECTOR_SECRET_KEY` 的独立随机值，保留原数据库密码与 Fernet 密钥。
+`init` 只创建新的 `deploy/core/.env.core`，生成独立数据库密码、Fernet 密钥、向量存储、业务 MinIO 管理凭据及沙盒 API key，权限为 `0600`，拒绝覆盖已有文件。自定义新文件使用 `./deploy.sh --env-file /absolute/path/to/new-core.env COMMAND`；配置字段见[示例配置](../deploy/core/.env.core.example)。脚本显式选择该文件，不读取旧根 `.env`。升级既有配置时，补齐 `CORE_VECTOR_ACCESS_KEY` 和 `CORE_VECTOR_SECRET_KEY` 的独立随机值，保留原数据库密码与 Fernet 密钥。
 
 `CORE_DB_PASSWORD` 仅支持字母、数字、下划线和连字符组成的 URL-safe 原始口令，不能预先 URL 编码。`init` 的随机密码符合这一限制。默认网页为 `http://127.0.0.1:19080`，生成的配置显式使用本机 HTTP Cookie 和允许来源。对外提供 HTTPS 时，将 `CORE_COOKIE_SECURE` 设置为 `true`，并按实际访问地址调整 `CORE_ALLOWED_ORIGINS` 和绑定地址。
 
@@ -70,6 +70,21 @@ LightRAG 使用独立 `CORE_GRAPH_DATABASE_URL`，原生 `postgresql://` 格式�
 
 由管理员在显式迁移完成后配置该登录角色：只授予数据库 CONNECT、`knowledge_graph_sdk` schema 的 USAGE 与其中十张表的 SELECT/INSERT/UPDATE/DELETE，不授予任何 schema CREATE、数据库 CREATE/TEMPORARY、对象所有权、superuser、CREATEDB 或 CREATEROLE。PostgreSQL 默认向 PUBLIC 授予 TEMPORARY，因此独立平台数据库须由管理员显式撤销 PUBLIC 的数据库 CREATE/TEMPORARY 与 public schema CREATE，再授予运行角色所需的窄权限；迁移/API 的数据库所有者权限保持有效。API/worker 初始化只核对实际权限、catalog 和现有索引，缺失时明确拒绝，不自行创建角色、表或索引。图谱角色凭据与数据库、文件、向量卷及应用镜像一起私密备份。
 
+## 工作空间文件执行
+
+普通任务问答不需要沙盒。Python/Shell 和办公文件制作需要可选的 `workspace` profile，它包含独立 OpenSandbox 管理服务与办公运行镜像：
+
+```bash
+COMPOSE_PROFILES=workspace ./deploy.sh build sandbox-manager sandbox-runtime
+COMPOSE_PROFILES=workspace ./deploy.sh up
+```
+
+新配置已生成独立 `CORE_SANDBOX_API_KEY` 和内部访问地址；旧实例需先在受保护的环境文件中补齐，不能复用模型、数据库或 MinIO 密钥。办公镜像和官方 execd、egress 镜像也需在 Docker 守护进程可用。源码模式先完成镜像构建，再使用 `COMPOSE_PROFILES=workspace ./dev.sh up`。
+
+管理服务仅绑定 Docker 网桥地址，API/Worker 通过认证 HTTP 访问；只有管理服务持有 Docker socket。任务输入只读，代码处于独立的非 root 隔离 session，成果与工作快照写入公共 MinIO。临时沙盒卷不替代业务对象存储，也不作为恢复备份。
+
+部署还需为使用者单独授予“工作空间 → 文件处理与代码执行”。升级包含 `0041_work_agent` 迁移与官方 `work_checkpoints`；旧成员任务保留历史只读，新任务使用目标、模型、技能和文件执行流程。配置、隔离条件、限额与清理规则见[工作空间执行环境](deployment/workspace-sandbox.md)，接口见[工作空间任务 Agent](api/workspace-agent.md)。
+
 ## 源码模式
 
 先完成镜像构建和配置初始化，再在已安装前端依赖的仓库中启动：
@@ -118,5 +133,6 @@ curl --fail http://127.0.0.1:19080/health/ready
 - 本机可访问、其他设备超时：检查监听地址、WSL 转发、防火墙和实际访问 IP。
 - 文档解析不可用：检查解析地址、Key 与配置页状态。官方 MinerU 使用 /api/v4；本地服务使用自部署 V1 Tasks 接口。
 - 模型调用失败：根据运行记录核对服务连接、模型授权、输出限制和供应商错误。提交结果未知时先查原任务，避免重复调用。
+- 工作空间文件执行不可用：核对 `workspace` profile、独立沙盒 API key、运行镜像、管理服务保护检查及用户的代码执行权限；普通问答仍可在未开启代码执行的任务中使用。
 
 升级前保存完整备份，使用匹配的配置和应用版本执行迁移。查看当前迁移版本以实际源码和迁移结果为准；不要根据文档中的旧版本号跳过迁移。

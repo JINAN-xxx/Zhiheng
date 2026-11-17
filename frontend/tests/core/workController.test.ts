@@ -4,7 +4,6 @@ import type { TestContext } from 'node:test'
 import { createRenderer, defineComponent, h } from 'vue'
 import type { WorkTask } from '../../src/modules/work/api/index.ts'
 import type { RunSnapshot } from '../../src/shared/stream.ts'
-import type { KnowledgePreparation } from '../../src/modules/knowledge/public.ts'
 import { grantedPermissions } from './permissionFixture.ts'
 
 const originalFetch = globalThis.fetch
@@ -35,6 +34,14 @@ function task(id = 'task-1', version = 1): WorkTask {
     title: id,
     goal: 'goal',
     status: 'active',
+    mode: 'agent',
+    modelId: 'model-a',
+    executionState: 'idle',
+    configuration: { modelId: 'model-a', skillSlugs: [], allowCodeExecution: false },
+    inputs: [],
+    steps: [],
+    artifacts: [],
+    plan: [],
     version,
     currentRunId: null,
     preparationId: null,
@@ -53,6 +60,28 @@ function rawTask(value: WorkTask) {
     title: value.title,
     goal: value.goal,
     status: value.status,
+    mode: value.mode,
+    model_id: value.modelId,
+    execution_state: value.executionState,
+    configuration: value.configuration && {
+      model_id: value.configuration.modelId,
+      skill_slugs: value.configuration.skillSlugs,
+      allow_code_execution: value.configuration.allowCodeExecution
+    },
+    inputs: value.inputs.map((input) => ({
+      file_id: input.fileId,
+      name: input.name,
+      version: input.version,
+      size: input.size,
+      mime: input.mime,
+      sha256: input.sha256,
+      acl_version: input.aclVersion,
+      file_version: input.fileVersion,
+      created_at: input.createdAt
+    })),
+    steps: [],
+    artifacts: [],
+    plan: [],
     version: value.version,
     current_run_id: value.currentRunId,
     preparation_id: value.preparationId,
@@ -67,7 +96,7 @@ function rawTask(value: WorkTask) {
 function run(status: RunSnapshot['status'] = 'running', revision = 1): RunSnapshot {
   return {
     id: 'run-1',
-    resource_type: 'work_turn',
+    resource_type: 'work_agent',
     resource_id: 'task-1',
     status,
     attempt_id: 'attempt-1',
@@ -79,23 +108,6 @@ function run(status: RunSnapshot['status'] = 'running', revision = 1): RunSnapsh
     error: null,
     created_at: stamp,
     usage: { input_tokens: null, output_tokens: null, status: 'pending' }
-  }
-}
-function preparation(
-  status: KnowledgePreparation['status'] = 'waiting_models'
-): KnowledgePreparation {
-  return {
-    kind: 'knowledge_preparation',
-    id: 'prep-1',
-    resource_type: 'work_turn',
-    resource_id: 'task-1',
-    status,
-    phase: 'embedding',
-    run: null,
-    hits: [],
-    error: null,
-    created_at: stamp,
-    updated_at: stamp
   }
 }
 function deferred<T>() {
@@ -117,8 +129,7 @@ function controllers(t: TestContext) {
   const observation: Observation = useWorkRunObservation({
     tasks: resources,
     canObserve: () => true,
-    runSettled: (value) => commands.runSettled(value),
-    preparationSettled: (value, id) => commands.preparationSettled(value, id)
+    runSettled: (value) => commands.runSettled(value)
   })
   const commands: Commands = useWorkTurnCommands({
     tasks: resources,
@@ -244,54 +255,6 @@ void test('concurrent stop requests share one operation and a late reply cannot 
   assert.equal(resources.currentTask.value?.currentRunId, null)
 })
 
-void test('stopping a preparation follows admission into its run and cancels that run once', async (t) => {
-  const { observation, select } = controllers(t)
-  select({ ...task(), preparationId: 'prep-1' })
-  observation.activePreparation.value = preparation()
-  observation.activeRun.value = { ...run('completed', 5), id: 'previous-run' }
-  const calls: string[] = []
-  fetcher = (input) => {
-    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    calls.push(path)
-    if (path === '/api/knowledge/preparations/prep-1/cancel')
-      return Promise.resolve(response({ ...preparation('admitted'), run: run() }))
-    if (path === '/api/work/tasks/task-1/runs/run-1/cancel')
-      return Promise.resolve(response(run('cancel_requested', 2)))
-    throw new Error('Unexpected request ' + path)
-  }
-  const first = observation.cancelRun(false),
-    second = observation.cancelRun(false)
-  assert.equal(first, second)
-  await first
-  assert.deepEqual(calls, [
-    '/api/knowledge/preparations/prep-1/cancel',
-    '/api/work/tasks/task-1/runs/run-1/cancel'
-  ])
-  assert.equal(observation.activeRun.value?.id, 'run-1')
-  assert.equal(observation.activeRun.value?.status, 'cancel_requested')
-  assert.equal(observation.pendingStops.has('task-1'), false)
-})
-
-void test('a batch of member commands keeps the task selected when the batch started', async (t) => {
-  const { resources, commands, select } = controllers(t)
-  select(task())
-  const held = deferred<Response>()
-  const writes: string[] = []
-  fetcher = (input, init) => {
-    if (init?.method === 'POST') {
-      writes.push(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
-      return held.promise
-    }
-    return Promise.resolve(response({ items: [], total: 0 }))
-  }
-  const adding = commands.addMembers(['agent-b', 'agent-c'])
-  select(task('task-2'))
-  held.resolve(response(rawTask(task('task-1', 2))))
-  await adding
-  assert.deepEqual(writes, ['/api/work/tasks/task-1/members'])
-  assert.equal(resources.currentTask.value?.taskId, 'task-2')
-})
-
 void test('revoking Work commands invalidates pending writes while retaining authorized reads', async (t) => {
   clearIdentity()
   let permissions = grantedPermissions('platform:work:use', 'platform:work:update')
@@ -315,7 +278,10 @@ void test('revoking Work commands invalidates pending writes while retaining aut
       return held.promise
     }
     if (path === '/api/work/tasks/task-1') return Promise.resolve(response(rawTask(task())))
-    if (path.startsWith('/api/work/agents/available')) return Promise.resolve(response([]))
+    if (path === '/api/work/options')
+      return Promise.resolve(
+        response({ models: [], skills: [], can_execute_code: false, sandbox_available: false })
+      )
     if (path.startsWith('/api/work/tasks?'))
       return Promise.resolve(response({ items: [], total: 0 }))
     throw new Error('Unexpected request ' + path)
@@ -333,64 +299,6 @@ void test('revoking Work commands invalidates pending writes while retaining aut
   assert.equal(workspace.currentTask?.title, 'task-1')
   assert.equal(await workspace.saveTask({ title: 'unauthorized title' }), false)
   assert.equal(writes, 1)
-})
-
-void test('recovering a lost preparation stop cancels its admitted run without retrying the old preparation', async (t) => {
-  const { observation, select } = controllers(t)
-  const pending = { ...task(), preparationId: 'prep-1' }
-  select(pending)
-  observation.activePreparation.value = preparation()
-  let admitted = false
-  let stopped = false
-  let preparationStops = 0
-  let runStops = 0
-  fetcher = (input) => {
-    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (path === '/api/knowledge/preparations/prep-1/cancel') {
-      preparationStops++
-      admitted = true
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({ error: { code: 'unavailable', message: 'Stop result unknown' } }),
-          {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          }
-        )
-      )
-    }
-    if (path === '/api/work/tasks/task-1')
-      return Promise.resolve(
-        response(
-          rawTask(
-            stopped
-              ? task('task-1', 3)
-              : admitted
-                ? { ...task('task-1', 2), currentRunId: 'run-1' }
-                : pending
-          )
-        )
-      )
-    if (path === '/api/work/tasks/task-1/runs/run-1') return Promise.resolve(response(run()))
-    if (path === '/api/work/tasks/task-1/runs/run-1/cancel') {
-      runStops++
-      stopped = true
-      return Promise.resolve(response(run('cancelled', 2)))
-    }
-    if (path.startsWith('/api/work/tasks?'))
-      return Promise.resolve(response({ items: [], total: 0 }))
-    throw new Error('Unexpected request ' + path)
-  }
-  await observation.cancelRun()
-  assert.equal(observation.disconnected.value, true)
-  assert.equal(observation.pendingStops.has('task-1'), true)
-  await observation.reconnect()
-  await flush()
-  assert.equal(preparationStops, 1)
-  assert.equal(runStops, 1)
-  assert.equal(observation.activePreparation.value, null)
-  assert.equal(observation.activeRun.value?.status, 'cancelled')
-  assert.equal(observation.pendingStops.has('task-1'), false)
 })
 
 void test('a read-only Work owner can recover and stop an existing run without admitting another', async (t) => {
@@ -444,7 +352,10 @@ void test('a read-only Work owner can recover and stop an existing run without a
       return Promise.resolve(
         response(rawTask(active ? { ...task(), currentRunId: 'run-1' } : task('task-1', 2)))
       )
-    if (path.startsWith('/api/work/agents/available')) return Promise.resolve(response([]))
+    if (path === '/api/work/options')
+      return Promise.resolve(
+        response({ models: [], skills: [], can_execute_code: false, sandbox_available: false })
+      )
     if (path.startsWith('/api/work/tasks?'))
       return Promise.resolve(response({ items: [], total: 0 }))
     throw new Error('Unexpected request ' + path)
@@ -465,89 +376,7 @@ void test('a read-only Work owner can recover and stop an existing run without a
   assert.equal(workspace.canStop, false)
   assert.equal(workspace.currentTask?.taskId, 'task-1')
   assert.equal(workspace.submissionBlocked, false)
-  assert.equal(
-    await workspace.runMessage({ agentId: 'agent-a', message: 'Forbidden new turn' }),
-    false
-  )
-  assert.equal(admissions, 0)
-})
-
-void test('a read-only owner recovers an unknown preparation stop into one run cancellation', async (t) => {
-  clearIdentity()
-  let admitted = false,
-    stopped = false,
-    preparationStops = 0,
-    runStops = 0,
-    admissions = 0
-  fetcher = (input, init) => {
-    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (path === '/api/auth/me')
-      return Promise.resolve(
-        response({
-          id: 'user-1',
-          username: 'owner',
-          is_admin: false,
-          permissions: grantedPermissions('platform:work:read')
-        })
-      )
-    if (path === '/api/knowledge/preparations/prep-1/cancel') {
-      preparationStops++
-      admitted = true
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({ error: { code: 'unavailable', message: 'Stop result unknown' } }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        )
-      )
-    }
-    if (path === '/api/knowledge/preparations/prep-1')
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            error: { code: 'unavailable', message: 'Preparation observation unavailable' }
-          }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        )
-      )
-    if (path === '/api/work/tasks/task-1/runs/run-1/cancel') {
-      runStops++
-      stopped = true
-      return Promise.resolve(response(run('cancelled', 2)))
-    }
-    if (path === '/api/work/tasks/task-1/runs/run-1') return Promise.resolve(response(run()))
-    if (path === '/api/work/tasks/task-1/runs' && init?.method === 'POST') {
-      admissions++
-      throw new Error('Stop recovery must not admit another run')
-    }
-    if (path === '/api/work/tasks/task-1')
-      return Promise.resolve(
-        response(
-          rawTask(
-            stopped
-              ? task('task-1', 3)
-              : admitted
-                ? { ...task('task-1', 2), currentRunId: 'run-1' }
-                : { ...task(), preparationId: 'prep-1' }
-          )
-        )
-      )
-    if (path.startsWith('/api/work/agents/available')) return Promise.resolve(response([]))
-    if (path.startsWith('/api/work/tasks?'))
-      return Promise.resolve(response({ items: [], total: 0 }))
-    throw new Error('Unexpected request ' + path)
-  }
-  await restoreIdentity(true)
-  const workspace = mountedWorkspace(t)
-  await workspace.loadTask('task-1')
-  await workspace.cancelRun()
-  assert.equal(preparationStops, 1)
-  assert.equal(workspace.disconnected, true)
-  await workspace.retryRun()
-  await flush()
-  assert.equal(preparationStops, 1)
-  assert.equal(runStops, 1)
-  assert.equal(workspace.canStop, false)
-  assert.equal(workspace.runLocked, false)
+  assert.equal(await workspace.runMessage({ message: 'Forbidden new turn' }), false)
   assert.equal(admissions, 0)
 })
 
@@ -581,7 +410,10 @@ void test('Work read and use rights never authorize observing or cancelling anot
           })
         )
       )
-    if (path.startsWith('/api/work/agents/available')) return Promise.resolve(response([]))
+    if (path === '/api/work/options')
+      return Promise.resolve(
+        response({ models: [], skills: [], can_execute_code: false, sandbox_available: false })
+      )
     throw new Error('Unexpected request ' + path)
   }
   await restoreIdentity(true)
@@ -596,7 +428,7 @@ void test('Work read and use rights never authorize observing or cancelling anot
   await workspace.loadTask('task-1')
   await flush()
   assert.equal(workspace.submissionBlocked, false)
-  assert.equal(await workspace.runMessage({ agentId: 'agent-a', message: 'Foreign task' }), false)
+  assert.equal(await workspace.runMessage({ message: 'Foreign task' }), false)
   assert.deepEqual(runtimeRequests, [])
 })
 
@@ -639,16 +471,12 @@ for (const status of [408, 503]) {
         throw new Error('Unexpected request ' + path)
       }
       assert.equal(commands.submissionBlocked.value, false)
-      assert.equal(
-        await commands.runMessage({ agentId: 'agent-a', message: 'Original Work request' }),
-        false
-      )
+      assert.equal(await commands.runMessage({ message: 'Original Work request' }), false)
       assert.equal(commands.retryKind.value, 'uncertain')
       await resources.loadTask('task-1')
       assert.equal(resources.currentTask.value?.version, 9)
       assert.equal(
         await commands.runMessage({
-          agentId: 'agent-b',
           message: 'Replacement must not overwrite'
         }),
         false
@@ -660,8 +488,171 @@ for (const status of [408, 503]) {
       assert.equal(posted.length, 3)
       assert.ok(posted.every((body) => JSON.stringify(body) === JSON.stringify(posted[0])))
       assert.equal(posted[0]?.expected_version, 1)
-      assert.equal(posted[0]?.agent_id, 'agent-a')
+      assert.deepEqual(posted[0]?.file_ids, [])
+      assert.equal(posted[0]?.resume, false)
       assert.equal(posted[0]?.message, 'Original Work request')
     }
   )
 }
+
+void test('upload-first draft applies refreshed versions and binds files without admitting a model run', async (t) => {
+  const { resources, commands, select } = controllers(t)
+  const draft = { ...task(), goal: '', title: '新任务' }
+  select(draft)
+  const uploads: string[] = []
+  fetcher = (input, init) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (path.startsWith('/api/work/tasks/task-1/files?')) {
+      assert.equal(init?.method, 'POST')
+      assert.ok(init.body instanceof File)
+      uploads.push(init.body.name)
+      const value = {
+        ...draft,
+        version: 1 + uploads.length,
+        inputs: uploads.map((name, index) => ({
+          fileId: 'file-' + index,
+          name,
+          version: 1,
+          size: 1,
+          mime: 'text/plain',
+          sha256: 'a'.repeat(64),
+          aclVersion: 1,
+          fileVersion: 1,
+          createdAt: stamp
+        }))
+      }
+      return Promise.resolve(response(rawTask(value)))
+    }
+    if (path.startsWith('/api/work/tasks?'))
+      return Promise.resolve(response({ items: [], total: 0 }))
+    throw new Error('Unexpected request ' + path)
+  }
+  await commands.uploadFiles([new File(['a'], 'first.txt'), new File(['b'], 'second.txt')])
+  assert.deepEqual(uploads, ['first.txt', 'second.txt'])
+  assert.equal(resources.currentTask.value?.version, 3)
+  assert.equal(resources.currentTask.value?.inputs.length, 2)
+  assert.equal(commands.uploading.value, false)
+})
+
+void test('switching tasks ends an upload batch before another file or stale projection', async (t) => {
+  const { resources, commands, select } = controllers(t)
+  select(task())
+  const held = deferred<Response>(),
+    uploads: string[] = []
+  fetcher = (input, init) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (init?.method === 'POST') {
+      uploads.push(path)
+      return held.promise
+    }
+    throw new Error('Unexpected request ' + path)
+  }
+  const upload = commands.uploadFiles([new File(['a'], 'a.txt'), new File(['b'], 'b.txt')])
+  select(task('task-2'))
+  held.resolve(response(rawTask(task('task-1', 2))))
+  await upload
+  assert.equal(uploads.length, 1)
+  assert.equal(resources.currentTask.value?.taskId, 'task-2')
+})
+
+void test('legacy history never admits, mutates or starts sandbox file upload', async (t) => {
+  const { commands, observation, select } = controllers(t)
+  select({ ...task(), mode: 'legacy', currentRunId: 'old-run' })
+  let calls = 0
+  fetcher = () => {
+    calls++
+    throw new Error('Historical tasks are read-only')
+  }
+  assert.equal(await commands.runMessage({ message: 'do work' }), false)
+  assert.equal(await commands.saveTask({ title: 'changed' }), false)
+  await commands.uploadFiles([new File(['a'], 'a.txt')])
+  await observation.cancelRun()
+  assert.equal(calls, 0)
+})
+
+void test('task decoding retains real bounded tool results separately from execution arguments', async (t) => {
+  const { resources } = controllers(t)
+  fetcher = () =>
+    Promise.resolve(
+      response({
+        ...rawTask(task()),
+        steps: [
+          {
+            id: 'step-1',
+            run_id: 'run-1',
+            action_id: 'a',
+            kind: 'tool',
+            name: 'run_python',
+            status: 'succeeded',
+            summary: '核对完成',
+            details: { arguments: { code: 'print(42)' }, arguments_fingerprint: 'internal' },
+            result: {
+              success: true,
+              data: { stdout: '真实结果42', stderr: '' },
+              _workspace_files: [{ file_id: 'internal-snapshot' }]
+            },
+            created_at: stamp,
+            updated_at: stamp
+          }
+        ]
+      })
+    )
+  await resources.loadTask('task-1')
+  assert.deepEqual(resources.currentTask.value?.steps[0]?.result?.data, {
+    stdout: '真实结果42',
+    stderr: ''
+  })
+  assert.equal(resources.currentTask.value?.steps[0]?.details.arguments_fingerprint, 'internal')
+})
+
+void test('unknown task creation confirms its frozen goal, model and skills before another draft', async (t) => {
+  const { commands } = controllers(t)
+  const posted: Record<string, unknown>[] = []
+  fetcher = (input, init) => {
+    const path = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (path === '/api/work/tasks' && init?.method === 'POST') {
+      assert.equal(typeof init.body, 'string')
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      posted.push(body)
+      if (posted.length === 1)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { code: 'unavailable', message: 'unknown create' } }),
+            { status: 503 }
+          )
+        )
+      return Promise.resolve(
+        response(
+          rawTask({
+            ...task(),
+            goal: 'original',
+            createClientRequestId: String(body.client_request_id)
+          })
+        )
+      )
+    }
+    if (path.startsWith('/api/work/tasks?'))
+      return Promise.resolve(response({ items: [], total: 0 }))
+    throw new Error('Unexpected request ' + path)
+  }
+  await assert.rejects(
+    commands.createTask({
+      goal: 'original',
+      modelId: 'model-a',
+      skillSlugs: ['documents'],
+      allowCodeExecution: false
+    })
+  )
+  assert.equal(commands.createUncertain.value, true)
+  await commands.createTask({
+    goal: 'replacement',
+    modelId: 'model-b',
+    skillSlugs: [],
+    allowCodeExecution: true
+  })
+  assert.deepEqual(posted[1], posted[0])
+  assert.equal(posted[0]?.model_id, 'model-a')
+  assert.deepEqual(posted[0]?.skill_slugs, ['documents'])
+  assert.equal(posted[0]?.allow_code_execution, false)
+  assert.equal(commands.createUncertain.value, false)
+})

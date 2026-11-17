@@ -163,6 +163,9 @@ async def test_upgrade_preserves_uploaded_facts_and_binds_builtin_archives(setti
                 table: (await session.execute(text(f'SELECT to_jsonb(t) FROM {table} t ORDER BY id'))).scalars().all()
                 for table in ('skills', 'skill_revisions', 'skill_drafts')
             }
+        await _version(settings, '0014_personal_skill_ownership')
+        with pytest.raises(RuntimeError, match='Cannot downgrade personal skill ownership'):
+            await _version(settings, '0013_skill_revision_history', downgrade=True)
         await migrate(settings)
         async with factory.begin() as session:
             skill = (
@@ -215,8 +218,6 @@ async def test_upgrade_preserves_uploaded_facts_and_binds_builtin_archives(setti
             with pytest.raises(AppError, match='所选技能'):
                 await require_frozen_available(session, owner.id, frozen)
             await require_frozen_available(session, other.id, frozen)
-        with pytest.raises(RuntimeError, match='restore a database backup'):
-            await _version(settings, '0013_skill_revision_history', downgrade=True)
     finally:
         await engine.dispose()
 
@@ -283,10 +284,30 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
                     deadline=utcnow() + timedelta(hours=1),
                 ),
             )
+        # This fixture intentionally retains an active historical preparation;
+        # validate its owner at the migration that audits that preparation.
+        await _version(settings, '0014_personal_skill_ownership')
+        async with engine.connect() as connection:
+            assert (
+                await connection.scalar(text('SELECT owner_id FROM skills WHERE id=:id'), {'id': skill_id}) == owner.id
+            )
+        # The current runtime correctly requires old preparations to end before
+        # upgrading. Resolve this fixture explicitly rather than bypassing it.
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("UPDATE knowledge_retrieval_intents SET status='cancelled' WHERE resource_id=:id"),
+                {'id': task.id},
+            )
         await migrate(settings)
         async with engine.connect() as connection:
             assert (
                 await connection.scalar(text('SELECT owner_id FROM skills WHERE id=:id'), {'id': skill_id}) == owner.id
+            )
+            assert (
+                await connection.scalar(
+                    text('SELECT status FROM knowledge_retrieval_intents WHERE resource_id=:id'), {'id': task.id}
+                )
+                == 'cancelled'
             )
     finally:
         await engine.dispose()

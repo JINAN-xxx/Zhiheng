@@ -63,7 +63,7 @@
           class="recent-work__item"
           :class="{ active: task.taskId === activeTaskId }"
           :title="task.title"
-          :status="statusLabel(task.status)"
+          :status="task.mode === 'legacy' ? '历史任务' : statusLabel(task.status)"
           :tone="
             task.currentRunId ? 'processing' : task.status === 'completed' ? 'positive' : 'neutral'
           "
@@ -79,13 +79,15 @@
           <span class="recent-work__run" :class="{ 'is-running': task.currentRunId }">
             <LoadingOutlined v-if="task.currentRunId" />
             {{
-              task.currentRunId
-                ? '正在执行'
-                : task.status === 'active'
-                  ? '等待指令'
-                  : task.status === 'completed'
-                    ? '工作已完成'
-                    : '历史记录'
+              task.mode === 'legacy'
+                ? '历史记录'
+                : task.currentRunId
+                  ? '正在执行'
+                  : task.status === 'active'
+                    ? '等待指令'
+                    : task.status === 'completed'
+                      ? '工作已完成'
+                      : '历史记录'
             }}
           </span>
           <template #footer-info>

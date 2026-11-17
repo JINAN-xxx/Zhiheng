@@ -3,15 +3,22 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.work.public import WorkService
+from zhiheng.modules.work.public import WorkAgentStore, WorkService
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 
 
 class RunLifecycle:
-    def __init__(self, chat: ChatService, work: WorkService | None = None) -> None:
+    def __init__(
+        self, chat: ChatService, work: WorkService | None = None, work_agent: WorkAgentStore | None = None
+    ) -> None:
         self.chat, self.work = chat, work or WorkService()
+        self.work_agent = work_agent
 
     async def project(self, session: AsyncSession, snapshot: RunSnapshot) -> None:
+        if snapshot.resource_type == 'work_agent':
+            if self.work_agent is not None:
+                await self.work_agent.project_snapshot(session, snapshot)
+            return
         if snapshot.resource_type == 'work_turn':
             await self.work.project(
                 session,

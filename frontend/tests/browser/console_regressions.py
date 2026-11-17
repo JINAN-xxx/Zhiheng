@@ -74,7 +74,9 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
             body = {'status': 'full', 'strategy': 'token', 'effective_memory': {'summary_used': False, 'covered_rounds': 0, 'retained_rounds': 1, 'estimated_tokens': 100}, 'last_run_context': None, 'reason': None}
         elif path == '/api/work/tasks':
             body = {'items': [], 'total': 0}
-        elif path in ['/api/skills/available', '/api/knowledge/available', '/api/work/agents', '/api/work/available-agents', '/api/work/agents/available']:
+        elif path == '/api/work/options':
+            body = {'models': [{'id': 'm1', 'name': '核对模型', 'max_output_tokens': 512}], 'skills': [], 'can_execute_code': self.admin, 'sandbox_available': False}
+        elif path in ['/api/skills/available', '/api/knowledge/available']:
             body = []
         else:
             self.unexpected.append(path)

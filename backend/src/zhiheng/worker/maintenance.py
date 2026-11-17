@@ -13,6 +13,7 @@ async def maintain(container: Container) -> None:
     await container.chat_agent.cleanup_checkpoints()
     await container.assistant_agent.reconcile()
     await container.assistant_agent.cleanup_checkpoints()
+    await container.work_agent.reconcile()
 
 
 async def file_maintenance(container: Container) -> None:

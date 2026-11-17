@@ -21,9 +21,9 @@
 - **查看真实运行情况**：工作台汇总调用趋势、已确认 Token、积分消耗、运行提醒和最近资源，个人与全平台统计分别授权。
 - **一个入口使用多种模型**：管理 OpenAI 兼容服务连接，接入聊天、向量和重排模型，独立试用并记录调用用量。
 - **让对话持续积累上下文**：流式回答、文档和图片附件、回复重新生成与版本切换；长对话按已配置的上下文预算自适应摘要，原始消息完整保存。
-- **把资料变成可检索知识**：上传文档，经 MinerU 解析、切片和向量化入库，结合检索与重排返回来源，供绑定知识库的智能助手、工作空间及资源 API 使用。
+- **把资料变成可检索知识**：上传文档，经 MinerU 解析、切片和向量化入库，结合检索与重排返回来源，供绑定知识库的智能助手及资源 API 使用。
 - **配置私人智能助手**：组合模型、提示词、欢迎语、技能与知识库，调试后发布，在独立会话中使用，也可授权应用调用。
-- **让多个角色接力处理任务**：工作空间保存任务目标、成员和历史，由用户逐轮选择成员继续工作。
+- **围绕任务执行与交付**：工作空间选择模型和技能，理解上传资料、维护计划，按权限在独立沙盒处理文件，保存成果预览、版本和可继续的工作现场。
 - **控制成员权限与使用成本**：用户、部门、角色、应用、访问密钥、资源授权、用量统计与可选积分计费统一管理。
 - **接入已有业务系统**：提供 OpenAI 兼容推理接口，以及文件、知识库、技能和异步任务资源 API。
 
@@ -108,7 +108,7 @@ curl --fail http://127.0.0.1:19080/health/ready
 
 摘要默认随已配置的有效输入预算计算，约 70% 触发整理、20% 保留近期原文，并受本轮输入和模型限制约束；管理员可使用 `auto` 或固定数值覆盖。窗口未知时采用保守默认值，不从模型名称推断容量。已有运行恢复查看原状态，受理结果未知时沿用原请求标识确认。配置及边界见[会话上下文](docs/architecture/chat-context-memory.md)。
 
-普通对话使用会话历史、附件和技能指令上下文。绑定知识库的检索入口位于智能助手、工作空间及资源 API。
+普通对话使用会话历史、附件和技能指令上下文。绑定知识库的检索入口位于智能助手及资源 API；工作空间本期使用明确加入任务的文件。
 
 ![智衡对话界面](docs/assets/readme/chat.png)
 
@@ -134,9 +134,11 @@ LightRAG 提供独立的图谱构建、浏览和上下文查询；需要额外�
 
 ### 工作空间
 
-为一个任务选择已启用的智能助手成员，保留目标、成员加入时的配置快照和完整消息记录。用户每轮选择一个成员接力，适合研究、归纳、审阅等需要人工控制节奏的工作。
+选择聊天模型与技能，提交目标和资料后，由任务 Agent 按需阅读文件、维护清单、请求补充信息并完成处理。普通问答无需沙盒；需要制作或修改文件时，单独开启“文件处理与代码执行”，同时要求角色具有 `platform:work:execute_code` 和可用的隔离环境。
 
-当前工作空间采用人工指定成员接力，尚未提供自动多智能体规划、MCP 或沙盒代码执行。
+执行采用官方 LangChain Agent、任务清单与摘要 Middleware、PostgreSQL checkpoint 和标准工具调用协议，继续复用平台模型、权限、运行、计费、技能和 MinIO 文件服务。Python/Shell 在独立 OpenSandbox 运行，成果可预览、下载并保留历史版本；下一轮从工作快照恢复。旧成员任务保留历史读取，新任务不再从智能助手选成员，本期不接入知识库检索。
+
+接口、状态和恢复规则见[工作空间任务 Agent](docs/api/workspace-agent.md)。文件执行是可选部署能力，需启用 [workspace 沙盒配置](docs/deployment/workspace-sandbox.md)。
 
 ### 应用、API 与平台管理
 
@@ -185,6 +187,7 @@ curl "$ORIGIN/v1/chat/completions" \
 | --- | --- |
 | 后端 | Python、FastAPI、SQLAlchemy、Alembic |
 | 普通对话执行 | LangChain create_agent、摘要 Middleware、官方 PostgreSQL checkpoint |
+| 工作空间执行 | LangChain create_agent、清单/摘要 Middleware、标准工具调用、OpenSandbox 文件环境 |
 | 前端 | Vue 3、TypeScript、Ant Design Vue、Vite |
 | 状态与任务 | PostgreSQL 业务/运行/账本事实与 checkpoint，Redis、ARQ、事务 Outbox |
 | 知识与解析 | Milvus、LightRAG、本地及云端 MinerU |
@@ -206,6 +209,7 @@ frontend/
   src/shared/              通用组件、权限、HTTP 和样式
   tests/                   核心与浏览器回归
 deploy/core/               Compose、环境示例和源码模式配置
+deploy/sandbox/            独立管理服务与办公运行镜像
 docs/                      使用、API、架构和开发文档
 tools/                     架构、打包检查及源码导出工具
 compose.yaml               根部署组合配置
@@ -218,6 +222,8 @@ deploy.sh / dev.sh         镜像部署 / 源码运行入口
 - [使用与操作](docs/usage.md)
 - [工作台口径与权限](docs/api/workbench.md)
 - [普通对话与自适应摘要](docs/architecture/chat-context-memory.md)
+- [工作空间任务 Agent](docs/api/workspace-agent.md)
+- [工作空间执行环境](docs/deployment/workspace-sandbox.md)
 - [部署、升级与备份](docs/deployment.md)
 - [本地开发与测试](docs/development.md)
 - [架构与模块边界](docs/architecture/README.md)
@@ -243,4 +249,4 @@ deploy.sh / dev.sh         镜像部署 / 源码运行入口
 
 项目采用 [MIT License](LICENSE)。再分发时保留原有版权与许可声明。
 
-感谢 RuoYi / 智衡原项目的界面基础，以及 FastAPI、Vue、Ant Design Vue、LangChain、Milvus、LightRAG 和 MinerU 等项目。第三方代码、模型和容器镜像遵循各自许可证，见[第三方说明](THIRD_PARTY_NOTICES.md)。
+感谢 RuoYi / 智衡原项目的界面基础，以及 FastAPI、Vue、Ant Design Vue、LangChain、Milvus、LightRAG、MinerU 和 OpenSandbox 等项目。第三方代码、模型和容器镜像遵循各自许可证，见[第三方说明](THIRD_PARTY_NOTICES.md)。

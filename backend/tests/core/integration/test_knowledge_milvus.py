@@ -10,6 +10,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 from tests.core.knowledge_support import knowledge_models, legacy_grant
+from tests.core.legacy_work import legacy_work_request
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
 from zhiheng.modules.knowledge.adapters.milvus import MilvusStore
@@ -71,7 +72,7 @@ async def completed_public_knowledge(
 
     from tests.core.integration.test_knowledge import embedding_model, finish_preparation
     from tests.core.integration.test_knowledge_failures import finish_job, source
-    from tests.core.integration.test_work import published
+    from tests.core.legacy_work import published
 
     embedding = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Replay', 'embed_model_id': embedding})).json()
@@ -148,7 +149,9 @@ async def test_public_accepted_replay_uses_original_authorization_not_model_live
     from zhiheng.modules.knowledge.orm import RetrievalIntent
 
     context = completed_public_knowledge
-    before = (await admin.post(context['endpoint'], headers=context['headers'], json=context['body'])).json()
+    before = (
+        await legacy_work_request(admin, 'POST', context['endpoint'], headers=context['headers'], json=context['body'])
+    ).json()
     model_id = context['model_id']
     if change == 'connection_disabled':
         connection = next(
@@ -162,17 +165,21 @@ async def test_public_accepted_replay_uses_original_authorization_not_model_live
         )
     assert response.status_code == 200, response.text
     count = len(provider.requests)
-    replay = await admin.post(context['endpoint'], headers=context['headers'], json=context['body'])
+    replay = await legacy_work_request(
+        admin, 'POST', context['endpoint'], headers=context['headers'], json=context['body']
+    )
     polled = await admin.get(context['intent']['polling_url'], headers=context['headers'])
     assert replay.status_code == 200 and replay.json()['id'] == before['id'], replay.text
     assert polled.status_code == 200 and polled.json()['run']['id'] == context['intent']['run']['id'], polled.text
     for changes in ({'messages': [{'role': 'user', 'content': 'Different'}]}, {'stream': True}):
-        conflict = await admin.post(
-            context['endpoint'], headers=context['headers'], json={**context['body'], **changes}
+        conflict = await legacy_work_request(
+            admin, 'POST', context['endpoint'], headers=context['headers'], json={**context['body'], **changes}
         )
         assert conflict.status_code == 409, conflict.text
     for _ in range(2):
-        cancelled = await admin.post(context['intent']['polling_url'] + '/cancel', headers=context['headers'], json={})
+        cancelled = await legacy_work_request(
+            admin, 'POST', context['intent']['polling_url'] + '/cancel', headers=context['headers'], json={}
+        )
         assert cancelled.status_code == 200, cancelled.text
         assert cancelled.json()['run']['id'] == context['intent']['run']['id']
         assert cancelled.json()['run']['status'] == 'completed'
@@ -181,7 +188,9 @@ async def test_public_accepted_replay_uses_original_authorization_not_model_live
         container = app.state.container
         async with container.database.sessions() as session:
             intents_before = await session.scalar(select(func.count()).select_from(RetrievalIntent))
-        fresh = await admin.post(
+        fresh = await legacy_work_request(
+            admin,
+            'POST',
             context['endpoint'],
             headers=context['headers'],
             json={
@@ -264,10 +273,14 @@ async def test_public_accepted_replay_still_requires_current_authorization(
     count = len(provider.requests)
     if revoke != 'other_key':
         assert (
-            await admin.post(context['endpoint'], headers=context['headers'], json=context['body'])
+            await legacy_work_request(
+                admin, 'POST', context['endpoint'], headers=context['headers'], json=context['body']
+            )
         ).status_code == status
     assert (await admin.get(context['intent']['polling_url'], headers=context['headers'])).status_code == status
-    cancelled = await admin.post(context['intent']['polling_url'] + '/cancel', headers=context['headers'], json={})
+    cancelled = await legacy_work_request(
+        admin, 'POST', context['intent']['polling_url'] + '/cancel', headers=context['headers'], json={}
+    )
     assert cancelled.status_code == status, cancelled.text
     assert 'run' not in cancelled.json() and 'hits' not in cancelled.json()
     assert len(provider.requests) == count
@@ -339,8 +352,12 @@ async def test_public_cancel_preserves_authorized_stop_and_terminal_idempotency(
     if stage == 'running':
         response = await admin.patch('/api/models/' + context['model_id'], json={'upstream_model': 'reasoning-silent'})
         assert response.status_code == 200, response.text
-    prepared = await admin.post(
-        context['endpoint'], headers=context['headers'], json={**context['body'], 'client_request_id': str(uuid4())}
+    prepared = await legacy_work_request(
+        admin,
+        'POST',
+        context['endpoint'],
+        headers=context['headers'],
+        json={**context['body'], 'client_request_id': str(uuid4())},
     )
     assert prepared.status_code == 202, prepared.text
     intent = prepared.json()
@@ -364,11 +381,15 @@ async def test_public_cancel_preserves_authorized_stop_and_terminal_idempotency(
                     await asyncio.sleep(0.02)
                 assert intent['run']['reasoning'] == '先思考', str(intent)
         count = len(provider.requests)
-        first = await admin.post(intent['polling_url'] + '/cancel', headers=context['headers'], json={})
+        first = await legacy_work_request(
+            admin, 'POST', intent['polling_url'] + '/cancel', headers=context['headers'], json={}
+        )
         assert first.status_code == 200, first.text
         if execution:
             await asyncio.wait_for(execution, 2)
-        repeated = await admin.post(intent['polling_url'] + '/cancel', headers=context['headers'], json={})
+        repeated = await legacy_work_request(
+            admin, 'POST', intent['polling_url'] + '/cancel', headers=context['headers'], json={}
+        )
         assert repeated.status_code == 200, repeated.text
         if stage in {'pending', 'running'}:
             assert repeated.json()['run']['id'] == intent['run']['id']
@@ -394,7 +415,7 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
     from uuid import UUID
 
     from tests.core.integration.test_knowledge import finish_preparation
-    from tests.core.integration.test_work import member_client, published
+    from tests.core.legacy_work import member_client, published
     from tests.core.permission_support import grant_member, grants
 
     await grant_member(
@@ -448,7 +469,7 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
             async with container.database.sessions() as session:
                 saved = await container.knowledge_preparation.store.get(session, UUID(intent['id']))
                 assert saved.hits[0]['file_id'] == file_id and saved.main_run_id is None
-        visible = await member.post(intent['polling_url'] + '/cancel', headers=headers, json={})
+        visible = await legacy_work_request(member, 'POST', intent['polling_url'] + '/cancel', headers=headers, json={})
         assert visible.status_code == 200, visible.text
         assert visible.json()['hits'] == (intent['hits'] if admission == 'admitted' else [])
         file = (await admin.get('/api/files/' + file_id)).json()
@@ -459,7 +480,9 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
             )
         ).status_code == 200
         count = len(provider.requests)
-        filtered = await member.post(intent['polling_url'] + '/cancel', headers=headers, json={})
+        filtered = await legacy_work_request(
+            member, 'POST', intent['polling_url'] + '/cancel', headers=headers, json={}
+        )
         assert filtered.status_code == 200, filtered.text
         if admission == 'admitted':
             assert filtered.json()['run']['id'] == intent['run']['id']

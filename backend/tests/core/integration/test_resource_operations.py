@@ -13,8 +13,8 @@ from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F
 from tests.core.integration.test_resource_files import auth, envelope, post
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import SCOPES, finish, setup
-from tests.core.integration.test_work import member_client
 from tests.core.knowledge_support import knowledge_models, legacy_grant
+from tests.core.legacy_work import member_client
 from tests.core.permission_support import grant_member, grants
 from tests.core.provider import ProviderServer
 from zhiheng.bootstrap.container import Container

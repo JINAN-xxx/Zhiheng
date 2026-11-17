@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_skills import install, prepare
 from tests.core.legacy_schema import reconstruct
+from tests.core.legacy_work import legacy_work_request
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.skills.orm import Skill, SkillRevision
 from zhiheng.modules.skills.package import SkillPackageParser
@@ -208,7 +209,8 @@ async def test_delete_holds_skill_lock_until_new_chat_admission_checks_availabil
 async def test_removed_work_member_and_old_publication_keep_history_without_blocking_deletion(
     admin: httpx.AsyncClient, model_id: str
 ) -> None:
-    from tests.core.integration.test_work import published, task
+    from tests.core.legacy_work import legacy_task as task
+    from tests.core.legacy_work import published
 
     skill = await install(admin, 'removed-work')
     first = await published(admin, model_id, skill_slugs=[skill['slug']])
@@ -223,7 +225,9 @@ async def test_removed_work_member_and_old_publication_keep_history_without_bloc
     blocked = await remove(admin, skill)
     assert blocked.status_code == 409, blocked.text
     assert any(item['id'] == work['id'] for item in blocked.json()['error']['details']['references'])
-    response = await admin.delete(
+    response = await legacy_work_request(
+        admin,
+        'DELETE',
         f'/api/work/tasks/{work["id"]}/members/{first["id"]}',
         params={'expected_version': work['version']},
         headers={'Content-Type': 'application/json'},
@@ -236,7 +240,9 @@ async def test_removed_work_member_and_old_publication_keep_history_without_bloc
 async def test_package_update_affects_next_assistant_run_but_preserves_work_input(
     admin: httpx.AsyncClient, app: object, model_id: str, provider: object
 ) -> None:
-    from tests.core.integration.test_work import published, task, turn
+    from tests.core.legacy_work import legacy_task as task
+    from tests.core.legacy_work import legacy_turn as turn
+    from tests.core.legacy_work import published
     from zhiheng.modules.agents.orm import AgentRunAudit
     from zhiheng.modules.work.orm import WorkMember
     from zhiheng.worker.execution import execute_run
@@ -247,7 +253,7 @@ async def test_package_update_affects_next_assistant_run_but_preserves_work_inpu
     response = await confirm(admin, await prepare(admin, original['slug'], 'UPDATED INSTRUCTION'))
     assert response.status_code == 201, response.text
     updated = response.json()
-    response = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
+    response = await legacy_work_request(admin, 'POST', f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
     assert response.status_code == 202, response.text
     await execute_run(app.state.container, UUID(response.json()['id']))
     assert 'ORIGINAL INSTRUCTION' in str(provider.requests[-1])
@@ -269,7 +275,9 @@ async def test_package_update_affects_next_assistant_run_but_preserves_work_inpu
     latest = (await admin.get(f'/api/agents/{agent["id"]}')).json()
     assert latest['version'] == agent['version']
     detail = (await admin.get(f'/api/work/tasks/{work["id"]}')).json()
-    adopted = await admin.patch(
+    adopted = await legacy_work_request(
+        admin,
+        'PATCH',
         f'/api/work/tasks/{work["id"]}/members/{agent["id"]}',
         json={'expected_version': detail['version'], 'expected_agent_revision': latest['version']},
     )
