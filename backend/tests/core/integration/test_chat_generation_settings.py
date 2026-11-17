@@ -3,13 +3,11 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 
-from tests.core.integration.test_knowledge import finish_preparation
-from tests.core.integration.test_knowledge_failures import ready_base, source
+from tests.core.integration.test_knowledge_failures import source
 from tests.core.integration.test_skills import install
 from tests.core.provider import ProviderServer
-from zhiheng.modules.chat.orm import ChatMessage
 from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.worker.execution import execute_run
 
@@ -82,105 +80,6 @@ async def test_generation_controls_reach_provider_quota_history_and_regeneration
     assert settings['system_prompt'] not in shared.text and 'generation_config' not in shared.text
 
 
-async def test_knowledge_preparation_freezes_controls_and_restores_them_on_regeneration(
-    admin: httpx.AsyncClient,
-    app: FastAPI,
-    model_id: str,
-    provider: ProviderServer,
-) -> None:
-    base = await ready_base(admin, app, provider)
-    skill = await install(admin, 'knowledge-generation-test', 'KNOWLEDGE SELECTED SKILL')
-    attachment = await source(admin, 'extra.txt', b'KNOWLEDGE ATTACHMENT')
-    conversation = (await admin.post('/api/chat/conversations', json={})).json()['id']
-    body = {
-        'model_id': model_id,
-        'message': 'Which port?',
-        'client_request_id': str(uuid4()),
-        'knowledge_base_ids': [base['id']],
-        'skill_slugs': [skill['slug']],
-        'file_ids': [attachment['id']],
-        'system_prompt': 'PRIVATE KNOWLEDGE INSTRUCTION',
-        'temperature': 0.4,
-        'max_output_tokens': 32,
-    }
-    path = f'/api/chat/conversations/{conversation}/runs'
-    preparation = await admin.post(path, json=body)
-    assert preparation.status_code == 202, preparation.text
-    async with app.state.container.database.sessions() as session:
-        state = await app.state.container.knowledge_preparation.store.find_state(
-            session, UUID(preparation.json()['id'])
-        )
-    assert {key: state.request[key] for key in ('system_prompt', 'temperature', 'max_output_tokens')} == {
-        'system_prompt': body['system_prompt'],
-        'temperature': 0.4,
-        'max_output_tokens': 32,
-    }
-    replay = await admin.post(path, json=body)
-    assert replay.json()['id'] == preparation.json()['id']
-    assert (await admin.post(path, json={**body, 'temperature': 0.5})).status_code == 409
-    result = await finish_preparation(admin, app, preparation.json())
-    await execute_run(app.state.container, UUID(result['run']['id']))
-    outgoing = provider.requests[-1]
-    assert outgoing['messages'][0] == {'role': 'system', 'content': body['system_prompt']}
-    assert outgoing['temperature'] == 0.4
-    assert outgoing.get('max_tokens', outgoing.get('max_completion_tokens')) == 32
-    assert '[知识资料]' in outgoing['messages'][-1]['content']
-    assert 'KNOWLEDGE SELECTED SKILL' in outgoing['messages'][2]['content']
-    assert 'KNOWLEDGE ATTACHMENT' in outgoing['messages'][-1]['content']
-    messages = (await admin.get(f'/api/chat/conversations/{conversation}/messages')).json()
-    assert messages[-1]['generation_config'] == {
-        'model_id': model_id,
-        'system_prompt': body['system_prompt'],
-        'temperature': 0.4,
-        'max_output_tokens': 32,
-    }
-    endpoint = f'/api/chat/conversations/{conversation}/messages/{messages[-1]["id"]}/regenerate'
-    regenerated = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
-    assert regenerated.status_code == 202, regenerated.text
-    second = await finish_preparation(admin, app, regenerated.json())
-    await execute_run(app.state.container, UUID(second['run']['id']))
-    assert provider.requests[-1] == outgoing
-
-
-async def test_old_context_has_no_invented_generation_configuration(
-    admin: httpx.AsyncClient,
-    app: FastAPI,
-    model_id: str,
-) -> None:
-    conversation = (await admin.post('/api/chat/conversations', json={})).json()['id']
-    run = await admin.post(
-        f'/api/chat/conversations/{conversation}/runs',
-        json={
-            'model_id': model_id,
-            'message': 'hello',
-            'client_request_id': str(uuid4()),
-        },
-    )
-    assert run.status_code == 202, run.text
-    await execute_run(app.state.container, UUID(run.json()['id']))
-    fresh_messages = (await admin.get(f'/api/chat/conversations/{conversation}/messages')).json()
-    assert all(
-        message['generation_config']
-        == {
-            'model_id': model_id,
-            'system_prompt': '',
-            'temperature': None,
-            'max_output_tokens': None,
-        }
-        for message in fresh_messages
-    )
-    async with app.state.container.database.sessions.begin() as session:
-        await session.execute(
-            update(ChatMessage)
-            .where(ChatMessage.conversation_id == UUID(conversation))
-            .values(
-                request_context={'model_id': model_id, 'skill_slugs': [], 'file_ids': [], 'knowledge_base_ids': []},
-            )
-        )
-    messages = (await admin.get(f'/api/chat/conversations/{conversation}/messages')).json()
-    assert all(message.get('generation_config') is None for message in messages)
-
-
 @pytest.mark.parametrize(
     ('generation_overrides', 'error_code'),
     [
@@ -239,6 +138,13 @@ async def test_default_chat_sends_large_attachment_without_implicit_token_limits
     assert 'provider_output_default' not in outgoing
     assert content in outgoing['messages'][-1]['content']
     info = (await admin.get(f'/api/chat/conversations/{conversation}/context')).json()
-    assert info['input_budget'] is None
+    assert info['last_run_context']['input_budget'] is None
     usage = (await admin.get('/api/usage')).json()
     assert usage['reserved_tokens'] == 0 and usage['used_tokens'] > 0
+
+
+@pytest.fixture(autouse=True)
+async def member_chat_permissions(admin: httpx.AsyncClient) -> None:
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:chat', 'use', 'update', 'delete', 'share'))

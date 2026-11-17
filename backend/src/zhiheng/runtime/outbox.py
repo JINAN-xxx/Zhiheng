@@ -14,6 +14,7 @@ class OutboxDelivery:
     id: UUID
     run_id: UUID
     hint: object
+    resource_type: str = ''
 
 
 class OutboxStore:
@@ -21,7 +22,7 @@ class OutboxStore:
         if not payload_path:
             raise ValueError('A delivery hint path is required')
         rows = await session.execute(
-            select(Outbox.id, Outbox.run_id, Run.payload[payload_path])
+            select(Outbox.id, Outbox.run_id, Run.payload[payload_path], Run.resource_type)
             .join(Run)
             .where(
                 Run.status == 'pending',
@@ -29,7 +30,7 @@ class OutboxStore:
             )
             .limit(100)
         )
-        return [OutboxDelivery(row[0], row[1], row[2]) for row in rows]
+        return [OutboxDelivery(row[0], row[1], row[2], row[3]) for row in rows]
 
     async def mark_sent(self, session: AsyncSession, outbox_id: UUID) -> None:
         await session.execute(update(Outbox).where(Outbox.id == outbox_id).values(sent_at=utcnow()))

@@ -26,6 +26,7 @@ from zhiheng.modules.developer.resource_grants import (
 )
 from zhiheng.modules.developer.resource_limits import ResourceLimitService
 from zhiheng.modules.developer.scopes import SCOPES, ResourceAction, ResourceKind, Scope, resource_scope, scope_catalog
+from zhiheng.modules.developer.workbench import WorkbenchDeveloper
 
 __all__ = [
     'SCOPES',
@@ -58,6 +59,7 @@ __all__ = [
     'ResourceQuotaRequest',
     'Scope',
     'SourceFileFact',
+    'WorkbenchDeveloper',
     'resource_scope',
     'scope_catalog',
 ]

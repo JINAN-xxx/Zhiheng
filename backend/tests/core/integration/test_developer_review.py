@@ -77,7 +77,6 @@ async def test_connection_delete_serializes_with_admission(
             operation='chat',
             messages=(ModelMessage('user', 'Hi'),),
             options={},
-            token_limit=container.settings.token_limit,
         )
         deletion = asyncio.create_task(
             admin.delete('/api/models/connections/' + connection_a, headers={'Content-Type': 'application/json'})

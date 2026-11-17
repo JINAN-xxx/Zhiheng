@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 
-from zhiheng.modules.knowledge.adapters.mineru import MinerUClient
-from zhiheng.modules.knowledge.adapters.mineru_cloud import MinerUCloudClient, create_mineru_client
-from zhiheng.modules.knowledge.parsing_contracts import MinerUFailure
+from zhiheng.modules.files.adapters.mineru import MinerUClient
+from zhiheng.modules.files.adapters.mineru_cloud import MinerUCloudClient, create_mineru_client
+from zhiheng.modules.files.public import MinerUFailure
 from zhiheng.shared.errors import AppError
 
 

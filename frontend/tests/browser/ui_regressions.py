@@ -48,6 +48,12 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         self.counts[(method, path)] += 1
         if path == '/api/auth/me':
             body = {'id': 'user-1', 'username': 'admin', 'is_admin': True}
+        elif path == '/api/models/connection-options':
+            body = [{'id': 'connection-1', 'name': '测试服务', 'enabled': True}]
+        elif path in ['/api/agents', '/api/skills']:
+            body = {'items': [], 'total': 0}
+        elif path == '/api/knowledge/bases':
+            body = []
         elif path == '/api/models/connections':
             body = [{'id': 'connection-1', 'name': '测试服务', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True, 'enabled': True}]
         elif path == '/api/models':
@@ -58,7 +64,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             else:
                 body = [self.model]
         elif path == '/api/usage':
-            body = {'limit_tokens': 100000, 'used_tokens': 1, 'reserved_tokens': 0, 'records': [
+            body = {'used_tokens': 1, 'reserved_tokens': 0, 'records': [
                 {'id': 'usage-1', 'run_id': 'r1', 'model_id': 'm1', 'source': 'chat', 'status': 'unknown', 'input_tokens': None, 'output_tokens': None, 'charged_tokens': None, 'created_at': '2026-10-23T00:00:00Z'}
             ]}
         elif path == '/api/chat/conversations':
@@ -277,7 +283,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await expect(sidebar).to_have_css('width', '56px')
         await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('textbox', name='消息内容')).to_be_visible()
-        await expect(self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='智能体', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='智能助手', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='选择技能', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='展开侧栏', exact=True).click()
         await expect(self.page.get_by_text('恢复后的完整回复', exact=True)).to_be_visible()
@@ -468,15 +474,15 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
     async def test_login_button_posts_credentials_and_opens_chat(self):
         requests = await self.prepare_login()
         await self.page.get_by_role('button', name='登录', exact=True).click()
-        await expect(self.page).to_have_url(re.compile('/chat$'), timeout=3000)
+        await expect(self.page).to_have_url(re.compile('/overview$'), timeout=3000)
         self.assertEqual(requests, [{'username': 'admin', 'password': 'browser-test-password'}])
         self.assertEqual(self.counts[('GET', '/api/auth/me')], 0)
-        await expect(self.page.get_by_role('textbox', name='消息内容')).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible()
 
     async def test_login_enter_posts_credentials_and_opens_chat(self):
         requests = await self.prepare_login()
         await self.page.get_by_placeholder('密码', exact=True).press('Enter')
-        await expect(self.page).to_have_url(re.compile('/chat$'), timeout=3000)
+        await expect(self.page).to_have_url(re.compile('/overview$'), timeout=3000)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0]['username'], 'admin')
         self.assertEqual(self.counts[('GET', '/api/auth/me')], 0)
@@ -490,7 +496,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await expect(self.page.get_by_placeholder('密码', exact=True)).to_have_value('')
         await self.page.get_by_placeholder('密码', exact=True).fill('browser-test-password')
         await self.page.get_by_role('button', name='登录', exact=True).click()
-        await expect(self.page).to_have_url(re.compile('/chat$'))
+        await expect(self.page).to_have_url(re.compile('/overview$'))
         self.assertEqual(len(requests), 2)
         self.assertEqual(self.counts[('GET', '/api/auth/me')], 0)
 
@@ -523,7 +529,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
             self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), [])
             await expect(self.page.get_by_placeholder('账号', exact=True)).to_be_disabled()
             release.set()
-            await expect(self.page).to_have_url(self.origin + '/chat')
+            await expect(self.page).to_have_url(self.origin + '/overview')
             expected = [{'username': 'admin', 'password': 'browser-test-password'}] if await self.page.evaluate('isSecureContext') else []
             self.assertEqual(await self.page.evaluate('window.passwordSaveCalls'), expected)
             self.assertNotIn('browser-test-password', await self.page.evaluate('JSON.stringify(localStorage) + JSON.stringify(sessionStorage) + document.cookie'))
@@ -544,7 +550,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await self.prepare_login()
         await self.page.get_by_role('checkbox', name='保存密码', exact=True).check()
         await self.page.get_by_role('button', name='登录', exact=True).click()
-        await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page).to_have_url(self.origin + '/overview')
         await expect(self.page.get_by_text('请使用浏览器的密码管理器保存密码', exact=True)).to_be_visible()
 
     async def test_browser_password_save_unavailable_keeps_login_working(self):

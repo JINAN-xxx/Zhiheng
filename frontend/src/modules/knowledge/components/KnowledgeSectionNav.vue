@@ -9,7 +9,7 @@ const root = ref<HTMLElement | null>(null),
   id = useId()
 const items = computed(() => [
   { view: 'documents', label: '资料', icon: FileTextOutlined },
-  ...(canUseCapability('knowledge')
+  ...(canUseCapability('knowledge', 'query')
     ? [{ view: 'query', label: '检索测试', icon: SearchOutlined }]
     : [])
 ])

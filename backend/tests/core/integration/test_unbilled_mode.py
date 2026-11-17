@@ -18,7 +18,7 @@ from zhiheng.worker.execution import execute_run
 async def exhausted_accounts(admin: httpx.AsyncClient, app: FastAPI) -> UUID:
     user = UUID((await admin.get('/api/auth/me')).json()['id'])
     async with app.state.container.database.sessions.begin() as session:
-        session.add(UsageAccount(user_id=user, limit_tokens=1, used_tokens=2_147_483_648, reserved_tokens=0))
+        session.add(UsageAccount(user_id=user, used_tokens=2_147_483_648, reserved_tokens=0))
         session.add(
             CreditAccount(
                 user_id=user,

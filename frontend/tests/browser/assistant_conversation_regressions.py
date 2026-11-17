@@ -18,13 +18,8 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         await DeveloperBoundary.asyncTearDown(self)
 
     async def asyncSetUp(self):
-        self.config = {'name': '制度助手', 'description': '解答公司制度', 'model_id': 'model-1',
-                       'system_prompt': 'PRIVATE CONFIG', 'welcome_message': '你好，我会根据公司制度为你解答。',
-                       'skill_slugs': [], 'knowledge_base_ids': [], 'application_id': None,
-                       'temperature': 0.7, 'max_tokens': 32, 'history_rounds': 20}
-        self.agent = {**self.config, 'id': 'assistant-1', 'owner_id': 'user-1', 'version': 2,
-                      'status': 'published', 'published_version': 1, 'published_config': self.config.copy(),
-                      'created_at': '2026-11-12T01:00:00Z', 'updated_at': '2026-11-12T01:00:00Z'}
+        self.config = {'name': '制度助手', 'description': '解答公司制度', 'model_id': 'model-1', 'system_prompt': 'PRIVATE CONFIG', 'welcome_message': '你好，我会根据公司制度为你解答。', 'skill_slugs': [], 'knowledge_base_ids': [], 'application_id': None, 'temperature': 0.7, 'max_tokens': 32}
+        self.agent = {**self.config, 'id': 'assistant-1', 'owner_id': 'user-1', 'version': 2, 'status': 'enabled', 'created_at': '2026-11-12T01:00:00Z', 'updated_at': '2026-11-12T01:00:00Z'}
         self.sessions = []
         self.turns = {}
         self.submissions = []
@@ -44,10 +39,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         await DeveloperBoundary.asyncSetUp(self)
 
     def session(self, identifier):
-        return {'id': identifier, 'agent_id': 'assistant-1', 'title': '新对话', 'version': 1, 'name': '制度助手',
-                'description': '解答公司制度', 'welcome_message': self.config['welcome_message'],
-                'published_version': 1, 'created_at': '2026-11-12T01:00:00Z',
-                'updated_at': '2026-11-12T01:00:00Z', 'preparation_id': None}
+        return {'id': identifier, 'agent_id': 'assistant-1', 'title': '新对话', 'version': 1, 'name': '制度助手', 'description': '解答公司制度', 'welcome_message': self.config['welcome_message'], 'created_at': '2026-11-12T01:00:00Z', 'updated_at': '2026-11-12T01:00:00Z', 'preparation_id': None, 'memory_available': True, 'summary_used': False}
 
     def snapshot(self, run_id, cid):
         return {'id': run_id, 'resource_type': 'agent_chat', 'resource_id': cid,
@@ -65,10 +57,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         if self.preparation_state == 'admitted':
             old = next((t for t in self.turns[cid] if t['request_id'] == item['request_id']), None)
             if old is None:
-                old = {'id': 'prepared-turn-' + pid, 'sequence': len(self.turns[cid]) + 1,
-                       'content': item['content'], 'run_id': 'prepared-run-' + pid,
-                       'request_id': item['request_id'], 'request': item['request_id'], 'sources': [],
-                       'agent_name': '制度助手', 'published_version': 1, 'created_at': '2026-11-12T01:00:00Z'}
+                old = {'id': 'prepared-turn-' + pid, 'sequence': len(self.turns[cid]) + 1, 'content': item['content'], 'run_id': 'prepared-run-' + pid, 'request_id': item['request_id'], 'request': item['request_id'], 'sources': [], 'agent_name': '制度助手', 'created_at': '2026-11-12T01:00:00Z'}
                 self.turns[cid].append(old)
                 session['title'] = item['content']
                 session['version'] += 1
@@ -135,9 +124,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
                     return await route.fulfill(status=202, json=self.preparation_info(pid))
                 old = next((t for t in self.turns[cid] if t['request'] == body['client_request_id']), None)
                 if old is None:
-                    old = {'id': 'turn-' + str(len(self.turns[cid]) + 1), 'sequence': len(self.turns[cid]) + 1,
-                           'content': body['message'], 'run_id': 'run-' + cid + '-' + str(len(self.turns[cid]) + 1),
-                           'sources': [], 'agent_name': '制度助手', 'published_version': 1, 'request': body['client_request_id'], 'request_id': body['client_request_id'], 'created_at': '2026-11-12T01:00:00Z'}
+                    old = {'id': 'turn-' + str(len(self.turns[cid]) + 1), 'sequence': len(self.turns[cid]) + 1, 'content': body['message'], 'run_id': 'run-' + cid + '-' + str(len(self.turns[cid]) + 1), 'sources': [], 'agent_name': '制度助手', 'request': body['client_request_id'], 'request_id': body['client_request_id'], 'created_at': '2026-11-12T01:00:00Z'}
                     self.turns[cid].append(old)
                     session['title'] = body['message']
                     session['version'] += 1
@@ -237,11 +224,11 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator('.assistant-chat__reply')).to_contain_text('制度答复')
 
     async def test_draft_is_read_only_and_foreign_session_error_clears_display(self):
-        self.agent.update(status='draft', published_version=None, published_config=None)
+        self.agent.update({'status': 'disabled'})
         await self.page.goto(self.origin + '/agents/assistant-1/chat')
-        await expect(self.page.get_by_role('alert')).to_contain_text('助手尚未发布')
+        await expect(self.page.get_by_role('alert')).to_contain_text('助手尚未启用')
         await expect(self.page.get_by_role('textbox', name='发送给助手的消息')).to_be_disabled()
-        self.agent.update(status='published', published_version=1, published_config=self.config.copy())
+        self.agent.update({'status': 'enabled', **self.config.copy()})
         await self.page.reload()
         await self.ask('PRIVATE QUESTION')
         await expect(self.page.locator('.assistant-chat__reply')).to_contain_text('制度答复')
@@ -298,7 +285,7 @@ class AssistantConversationRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_welcome_uses_the_same_left_markdown_message_ui(self):
         self.config['welcome_message'] = '**科研助理**\n\n- 帮你梳理研究问题'
-        self.agent['published_config'] = self.config.copy()
+        self.agent.update(self.config)
         await self.open_chat()
         welcome = self.page.locator('.assistant-chat__welcome')
         await expect(welcome.locator('.ai-message-container')).to_be_visible()

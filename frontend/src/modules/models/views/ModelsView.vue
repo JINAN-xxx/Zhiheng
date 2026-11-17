@@ -17,7 +17,8 @@ import {
   Tag as ATag,
   Switch as ASwitch
 } from 'ant-design-vue'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { PlusOutlined, CopyOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
@@ -31,9 +32,16 @@ import ModelConnectionCatalog from '../components/ModelConnectionCatalog.vue'
 import ModelDetailModal from '../components/ModelDetailModal.vue'
 import ModelTrialDialog from '../components/ModelTrialDialog.vue'
 import type { ChatModel } from '../api/index.ts'
-import { useModelDirectory } from '../composables/useModelDirectory.ts'
+import { modelTypeLabel } from '../presentation.ts'
+import { useModelAccess } from '../composables/useModelAccess.ts'
+import { useModelCatalog } from '../composables/useModelCatalog.ts'
+import { useModelConfiguration } from '../composables/useModelConfiguration.ts'
+import { useConnectionConfiguration } from '../composables/useConnectionConfiguration.ts'
+import { useModelConnectionTest } from '../composables/useModelConnectionTest.ts'
+
+const credentialPage = useRoute().name === 'credentials'
+const access = useModelAccess()
 const {
-  credentialPage,
   canCreateModels,
   canUpdateModels,
   canDeleteModels,
@@ -43,15 +51,22 @@ const {
   canDeleteCredentials,
   canToggleCredentials,
   canReadModels,
-  canWriteModels,
   canReadCredentials,
-  canWriteCredentials,
   canTestModels,
   denyTrialAccess,
   canReadRates,
-  canWriteRates,
-  setActiveTab,
+  canCreateRates
+} = access
+const rateModel = ref<ChatModel | null>(null)
+const catalog = useModelCatalog(credentialPage, access, {
+  busy: (): boolean => modelConfiguration.saving.value || connectionConfiguration.saving.value,
+  deleted: (id) => {
+    if (rateModel.value?.id === id) rateModel.value = null
+  }
+})
+const {
   activeTab,
+  setActiveTab,
   modelSearch,
   modelType,
   modelFilters,
@@ -64,36 +79,15 @@ const {
   connectionEnabled,
   connectionDisabled,
   loading,
-  saving,
+  controllingConnection,
   error,
   errorDetails,
-  modalError,
-  connectionOpen,
-  modelOpen,
-  editingConnection,
-  editingModel,
   detailModel,
-  rateModel,
-  connectionForm,
-  modelForm,
-  testingModel,
-  testBusy,
   connectionOptions,
   load,
   copyModelCode,
-  openConnection,
-  openModel,
-  closeConnection,
-  saveConnection,
-  closeModel,
-  setConnectionId,
-  setMaxOutputTokens,
-  setModelType,
-  modelTypeLabel,
   changeModel,
   changeConnection,
-  saveModel,
-  testModel,
   modelPending,
   modelErrorMessages,
   connectionLabels,
@@ -104,15 +98,80 @@ const {
   detailConnectionLabel,
   detailConnectionIssue,
   openDetails,
-  setDetailOpen,
-  toggleModel,
-  toggleDetails,
-  copyDetails,
-  editDetails,
-  ratesDetails,
-  testDetails,
-  controlDetails
-} = useModelDirectory()
+  setDetailOpen
+} = catalog
+const modelConfiguration = useModelConfiguration({
+  access,
+  connections: () => catalog.connectionData.value,
+  pending: modelPending,
+  saved: catalog.modelSaved
+})
+const {
+  modelOpen,
+  editingModel,
+  modelForm,
+  saving: modelSaving,
+  modalError: modelError,
+  openModel,
+  closeModel,
+  saveModel,
+  setConnectionId,
+  setMaxOutputTokens,
+  setModelType
+} = modelConfiguration
+const connectionConfiguration = useConnectionConfiguration({
+  access,
+  saved: catalog.connectionSaved
+})
+const {
+  connectionOpen,
+  editingConnection,
+  connectionForm,
+  saving: connectionSaving,
+  modalError: connectionError,
+  openConnection,
+  closeConnection,
+  saveConnection
+} = connectionConfiguration
+const credentialBusy = computed(() => connectionSaving.value || controllingConnection.value)
+const { testingModel, testBusy, testModel } = useModelConnectionTest({
+  access,
+  pending: modelPending,
+  failures: catalog.modelFailures,
+  connectionDisabled
+})
+watch(access.authority, () => {
+  rateModel.value = null
+})
+function toggleModel(model: ChatModel): void {
+  void changeModel(model, model.enabled ? 'disable' : 'enable')
+}
+function toggleDetails(): void {
+  if (detailModel.value) toggleModel(detailModel.value)
+}
+function copyDetails(): void {
+  if (detailModel.value) void copyModelCode(detailModel.value.id)
+}
+function editDetails(): void {
+  const model = detailModel.value
+  if (model) {
+    catalog.closeDetails()
+    openModel(model)
+  }
+}
+function ratesDetails(): void {
+  const model = detailModel.value
+  if (model && canReadRates.value) {
+    catalog.closeDetails()
+    rateModel.value = model
+  }
+}
+function testDetails(): void {
+  if (detailModel.value) void testModel(detailModel.value)
+}
+function controlDetails(action: 'delete'): void {
+  if (detailModel.value) void changeModel(detailModel.value, action)
+}
 const trial = ref<InstanceType<typeof ModelTrialDialog> | null>(null)
 function openTrial(model: ChatModel) {
   if (trial.value?.open(model)) setDetailOpen(false)
@@ -136,7 +195,7 @@ function trialDetails() {
           v-if="canCreateCredentials && activeTab === 'credentials'"
           type="primary"
           aria-label="新增凭据"
-          :disabled="saving"
+          :disabled="credentialBusy"
           @click="openConnection()"
           ><PlusOutlined />新增凭据</AButton
         ></template
@@ -284,7 +343,7 @@ function trialDetails() {
               :message="
                 models.length
                   ? '试试其他模型类型或关键词。'
-                  : !canWriteModels
+                  : !(canUpdateModels || canDeleteModels || canToggleModels)
                     ? '当前暂无可用模型，请联系平台管理员。'
                     : connections.length
                       ? '点击接入模型，选择已保存的连接。'
@@ -302,7 +361,7 @@ function trialDetails() {
               :can-update="canUpdateCredentials"
               :can-delete="canDeleteCredentials"
               :can-toggle="canToggleCredentials"
-              :busy="saving"
+              :busy="credentialBusy"
               @edit="openConnection"
               @control="changeConnection"
             />
@@ -312,14 +371,20 @@ function trialDetails() {
     </section>
   </main>
   <ADrawer
-    :open="connectionOpen && canWriteCredentials"
+    :open="connectionOpen && (editingConnection ? canUpdateCredentials : canCreateCredentials)"
     :title="editingConnection ? '编辑服务商凭据' : '新建服务商凭据'"
     width="min(620px, 100vw)"
     root-class-name="model-form-drawer"
     destroy-on-close
     @close="closeConnection"
   >
-    <AAlert v-if="modalError" :message="modalError" type="error" show-icon class="space-bottom" />
+    <AAlert
+      v-if="connectionError"
+      :message="connectionError"
+      type="error"
+      show-icon
+      class="space-bottom"
+    />
     <AForm layout="vertical"
       ><AFormItem label="连接名称" required
         ><AInput
@@ -342,29 +407,31 @@ function trialDetails() {
     <template #footer
       ><div class="footer-actions">
         <AButton @click="closeConnection">取消</AButton
-        ><AButton type="primary" :loading="saving" @click="saveConnection">保存连接</AButton>
+        ><AButton type="primary" :loading="connectionSaving" @click="saveConnection"
+          >保存连接</AButton
+        >
       </div></template
     >
   </ADrawer>
   <ADrawer
-    :open="modelOpen && canWriteModels"
+    :open="modelOpen && (editingModel ? canUpdateModels : canCreateModels)"
     :title="editingModel ? '编辑模型' : '接入模型'"
     width="min(840px, 100vw)"
     root-class-name="model-onboarding-drawer"
     destroy-on-close
-    :mask-closable="!saving"
-    :closable="!saving"
-    :keyboard="!saving"
+    :mask-closable="!modelSaving"
+    :closable="!modelSaving"
+    :keyboard="!modelSaving"
     @close="closeModel"
   >
-    <AAlert v-if="modalError" :message="modalError" type="error" show-icon class="space-bottom" />
+    <AAlert v-if="modelError" :message="modelError" type="error" show-icon class="space-bottom" />
     <div class="onboarding-form">
       <section class="form-section">
         <div class="section-heading">
           <h3>模型信息</h3>
           <p>先确定模型用途，再填写服务商提供的模型名称。</p>
         </div>
-        <AForm layout="vertical" :disabled="saving">
+        <AForm layout="vertical" :disabled="modelSaving">
           <AFormItem label="模型类型"
             ><ARadioGroup
               :value="modelForm.model_type"
@@ -402,14 +469,14 @@ function trialDetails() {
           <h3>连接配置</h3>
           <p>复用已保存的连接。</p>
         </div>
-        <AForm layout="vertical" :disabled="saving"
+        <AForm layout="vertical" :disabled="modelSaving"
           ><AFormItem label="模型连接" required
             ><ASelect
               :value="modelForm.connection_id || undefined"
               :options="connectionOptions"
               placeholder="选择模型连接"
               @update:value="setConnectionId" /></AFormItem
-          ><AFormItem label="最大输出 tokens" required
+          ><AFormItem v-if="modelForm.model_type === 'chat'" label="最大输出 tokens" required
             ><AInputNumber
               :value="modelForm.max_output_tokens ?? ''"
               :min="1"
@@ -417,18 +484,27 @@ function trialDetails() {
               class="full-width"
               @update:value="setMaxOutputTokens" /></AFormItem
           ><AFormItem
+            v-if="modelForm.model_type === 'chat'"
             label="上下文窗口 tokens（可选）"
-            extra="填写模型实际窗口；留空时使用平台输入预算。"
+            extra="按实际接入服务或部署限制填写；留空表示未知，平台预算如有配置则仍生效。"
             ><AInputNumber
               :value="modelForm.context_window_tokens ?? ''"
               :min="256"
               :max="2097152"
               :precision="0"
               class="full-width"
-              placeholder="使用平台输入预算"
+              placeholder="未配置模型窗口"
               @update:value="
                 modelForm.context_window_tokens = typeof $event === 'number' ? $event : null
               " /></AFormItem
+          ><AFormItem
+            label="容量依据（可选）"
+            extra="记录文档链接、版本或部署限制；已记录依据表示有参考来源。"
+            ><AInput.TextArea
+              v-model:value="modelForm.capacity_note"
+              aria-label="容量依据"
+              :maxlength="2000"
+              :rows="3" /></AFormItem
         ></AForm>
       </section>
     </div>
@@ -436,10 +512,14 @@ function trialDetails() {
       ><div class="onboarding-footer">
         <span class="footer-status">{{ '保存前会校验服务商连接、密钥和模型标识。' }}</span>
         <div class="footer-actions">
-          <AButton :disabled="saving" @click="closeModel">取消</AButton
-          ><AButton type="primary" aria-label="保存模型" :loading="saving" @click="saveModel">{{
-            saving ? '正在校验并保存' : '校验并保存'
-          }}</AButton>
+          <AButton :disabled="modelSaving" @click="closeModel">取消</AButton
+          ><AButton
+            type="primary"
+            aria-label="保存模型"
+            :loading="modelSaving"
+            @click="saveModel"
+            >{{ modelSaving ? '正在校验并保存' : '校验并保存' }}</AButton
+          >
         </div>
       </div></template
     >
@@ -482,7 +562,7 @@ function trialDetails() {
   <ModelRatesDialog
     :model="rateModel"
     :can-read="canReadRates"
-    :can-write="canWriteRates"
+    :can-write="canCreateRates"
     @close="rateModel = null"
   />
 </template>

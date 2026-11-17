@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.legacy_schema import reconstruct
+from tests.core.schema_support import assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 
@@ -62,17 +63,6 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
                 )
             )
         )
-        columns = {
-            name: list(
-                await connection.scalars(
-                    text(
-                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:name ORDER BY ordinal_position"
-                    ),
-                    {'name': name},
-                )
-            )
-            for name in names
-        }
         before = {
             name: list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{name}" t ORDER BY 1')))
             for name in names
@@ -84,13 +74,8 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
     async with c.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in names:
-            projection = ','.join('"' + column + '"' for column in columns[name])
-            after = list(
-                await connection.scalars(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {projection} FROM "{name}") t ORDER BY 1')
-                )
-            )
-            assert after == before[name], name
+            after = list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{name}" t ORDER BY 1')))
+            assert_original_rows(before[name], after, name)
         rows = (await connection.execute(text('SELECT scopes,resource_rpm_limit FROM developer_keys'))).all()
         assert len(rows) == 2 and all(
             set(row.scopes) == {'models:invoke', 'agents:invoke'} and row.resource_rpm_limit == 120 for row in rows

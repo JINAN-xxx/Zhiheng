@@ -34,12 +34,12 @@ class ModelManagementService:
         async def referenced(session: AsyncSession, resource_id: UUID) -> bool:
             references = await self._runs.connection_references(session, resource_id)
             if self._knowledge:
-                references.extend(await self._knowledge.connection_references(session, resource_id))
+                references.extend(await self._knowledge.references.connection_references(session, resource_id))
             if references:
                 raise reference_conflict('connection_referenced', '连接仍被进行中的任务引用', principal, references)
             return False
 
-        return await self._models.delete_connection(session, principal, connection_id, reference_check=referenced)
+        return await self._models.connections.remove(session, principal, connection_id, reference_check=referenced)
 
     async def delete_model(self, session: AsyncSession, principal: Principal, model_id: UUID) -> ModelInfo:
         async def referenced(session: AsyncSession, resource_id: UUID) -> bool:
@@ -48,11 +48,11 @@ class ModelManagementService:
             references.extend(await self._keys.model_references(session, resource_id))
             references.extend(await self._runs.model_references(session, resource_id))
             if self._knowledge:
-                references.extend(await self._knowledge.model_references(session, resource_id))
+                references.extend(await self._knowledge.references.model_references(session, resource_id))
             if references:
                 raise reference_conflict(
                     'model_referenced', '模型仍被当前资源或进行中的任务引用', principal, references
                 )
             return False
 
-        return await self._models.delete_model(session, principal, model_id, reference_check=referenced)
+        return await self._models.catalog.remove(session, principal, model_id, reference_check=referenced)

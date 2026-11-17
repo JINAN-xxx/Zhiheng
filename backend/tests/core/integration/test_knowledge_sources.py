@@ -2,6 +2,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
@@ -9,6 +10,10 @@ from tests.core.integration.test_knowledge import finish_preparation
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.integration.test_work import member_client, published, task, turn
 from tests.core.knowledge_support import legacy_grant
+from tests.core.permission_support import (
+    member_agent_work_permissions,  # noqa: F401 - pytest fixture by name
+    member_knowledge_permissions,  # noqa: F401 - pytest fixture by name
+)
 from tests.core.provider import ProviderServer
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
@@ -40,7 +45,7 @@ async def query_result(client: httpx.AsyncClient, app: FastAPI, base_id: str) ->
     return intent
 
 
-async def test_library_acl_intersects_sources_and_own_history_releases_only_its_references(
+async def test_library_acl_filters_sources_and_work_deletion_releases_own_references(
     admin: httpx.AsyncClient,
     app: FastAPI,
     provider: ProviderServer,
@@ -68,26 +73,12 @@ async def test_library_acl_intersects_sources_and_own_history_releases_only_its_
         assert grant.status_code == 200, grant.text
         result = await query_result(reader, app, base['id'])
         assert result['hits'][0]['file_id'] == file_id
-        conversation = (await reader.post('/api/chat/conversations', json={})).json()
-        prepared = (
-            await reader.post(
-                f'/api/chat/conversations/{conversation["id"]}/runs',
-                json={
-                    'message': 'Which port?',
-                    'model_id': model_id,
-                    'knowledge_base_ids': [base['id']],
-                    'client_request_id': str(uuid4()),
-                },
-            )
-        ).json()
-        chat = await finish_preparation(reader, app, prepared)
         agent = await published(reader, model_id, knowledge_base_ids=[base['id']])
         work = await task(reader, agent, goal='Which port?')
         prepared_work = (await reader.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))).json()
         work_preparation = await finish_preparation(reader, app, prepared_work)
         references = (await admin.get(f'/api/files/{file_id}/references')).json()
         assert {row['resource_id'] for row in references if row['resource_type'] == 'knowledge_run'} == {
-            chat['run']['id'],
             work_preparation['run']['id'],
         }
         file = (await admin.get(f'/api/files/{file_id}')).json()
@@ -101,21 +92,8 @@ async def test_library_acl_intersects_sources_and_own_history_releases_only_its_
         )
         assert revoked.status_code == 200, revoked.text
         assert (await reader.get(f'/api/knowledge/preparations/{result["id"]}')).status_code == 404
-        messages = (await reader.get(f'/api/chat/conversations/{conversation["id"]}/messages')).json()
-        assert all(message['knowledge_sources'] == [] for message in messages)
         detail = (await reader.get(f'/api/work/tasks/{work["id"]}')).json()
         assert all(message['knowledge_sources'] == [] for message in detail['messages'])
-        replay = (await reader.get(f'/api/knowledge/preparations/{chat["id"]}')).json()
-        assert replay['run']['id'] == chat['run']['id'] and replay['hits'] == []
-        version = (await reader.get(f'/api/chat/conversations/{conversation["id"]}')).json()['version']
-        removed = await reader.request(
-            'DELETE', f'/api/chat/conversations/{conversation["id"]}', json={'expected_version': version}
-        )
-        assert removed.status_code == 204, removed.text
-        references = (await admin.get(f'/api/files/{file_id}/references')).json()
-        assert {row['resource_id'] for row in references if row['resource_type'] == 'knowledge_run'} == {
-            work_preparation['run']['id']
-        }
         removed = await reader.delete(
             f'/api/work/tasks/{work["id"]}',
             params={'expected_version': detail['version']},
@@ -124,3 +102,6 @@ async def test_library_acl_intersects_sources_and_own_history_releases_only_its_
         assert removed.status_code == 204, removed.text
         references = (await admin.get(f'/api/files/{file_id}/references')).json()
         assert {row['resource_type'] for row in references} == {'knowledge_document'}
+
+
+pytestmark = pytest.mark.usefixtures('member_knowledge_permissions', 'member_agent_work_permissions')

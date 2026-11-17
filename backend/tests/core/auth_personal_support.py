@@ -7,14 +7,52 @@ from uuid import uuid4
 import httpx
 from fastapi import FastAPI
 
+from tests.core.permission_support import grants
+from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
+
+# Ownership audits grant functional rights explicitly so their denials reach the ACL.
+PERSONAL_FUNCTIONS = (
+    grants('platform:chat', 'use', 'update', 'delete', 'share')
+    | grants('platform:agents', 'use', 'create', 'update', 'delete', 'debug', 'publish')
+    | grants('platform:work', 'use', 'create', 'update', 'delete')
+    | grants('platform:knowledge', 'query', 'create', 'update', 'delete', 'import', 'rebuild', 'share')
+    | grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')
+    | grants(
+        'platform:developer',
+        'create',
+        'update',
+        'delete',
+        'toggle',
+        'key_create',
+        'key_rotate',
+        'key_revoke',
+        'key_delete',
+        'grant',
+        'invoke',
+    )
+    | grants('platform:models')
+    | grants('platform:usage')
+    | grants('ai:storage', 'maintain', 'acl', 'transfer', 'delete', 'parse')
+)
+
 
 @asynccontextmanager
 async def identity_client(app: FastAPI, *, admin: bool = False) -> AsyncIterator[httpx.AsyncClient]:
     username = ('audit-admin-' if admin else 'audit-member-') + uuid4().hex
     async with app.state.container.database.sessions.begin() as session:
-        await app.state.container.accounts.create_user(
+        user = await app.state.container.accounts.create_user(
             session, username=username, password='platform-test-password', is_admin=admin
         )
+        if not admin:
+            role = IdentityRole(
+                code='personal_audit_' + uuid4().hex,
+                name='Personal ownership audit',
+                permissions=sorted(PERSONAL_FUNCTIONS),
+                is_active=True,
+            )
+            session.add(role)
+            await session.flush()
+            session.add(IdentityUserRole(user_id=user.id, role_id=role.id))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url='http://test', headers={'content-type': 'application/json'}
     ) as client:

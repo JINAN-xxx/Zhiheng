@@ -15,15 +15,12 @@ export interface AgentConfig {
   applicationId: string | null
   temperature: number
   maxTokens: number
-  historyRounds: number
 }
 export interface Agent extends AgentConfig {
   agentId: string
   ownerId: string
   version: number
-  status: 'draft' | 'published'
-  publishedVersion: number | null
-  publishedConfig: AgentConfig | null
+  status: 'disabled' | 'enabled'
   updatedAt?: string
 }
 export interface AgentPayload {
@@ -39,7 +36,6 @@ export interface AgentPayload {
   application_id: string | null
   temperature: number
   max_tokens: number
-  history_rounds: number
 }
 function parseConfig(value: unknown): AgentConfig {
   const data = object(value)
@@ -54,21 +50,18 @@ function parseConfig(value: unknown): AgentConfig {
     knowledgeTopK: data.knowledge_top_k === undefined ? 8 : number(data.knowledge_top_k),
     applicationId: data.application_id === null ? null : string(data.application_id),
     temperature: number(data.temperature),
-    maxTokens: number(data.max_tokens),
-    historyRounds: data.history_rounds === undefined ? 20 : number(data.history_rounds)
+    maxTokens: number(data.max_tokens)
   }
 }
 function parseAgent(value: unknown): Agent {
   const data = object(value)
-  if (data.status !== 'draft' && data.status !== 'published') throw new Error('智能体状态无效')
+  if (data.status !== 'disabled' && data.status !== 'enabled') throw new Error('智能体状态无效')
   return {
     ...parseConfig(data),
     agentId: string(data.id),
     ownerId: string(data.owner_id),
     version: number(data.version),
     status: data.status,
-    publishedVersion: data.published_version === null ? null : number(data.published_version),
-    publishedConfig: data.published_config === null ? null : parseConfig(data.published_config),
     ...(data.updated_at === undefined ? {} : { updatedAt: string(data.updated_at) })
   }
 }
@@ -119,15 +112,15 @@ export const updateAgent = (
   body: AgentPayload & { expected_version: number },
   signal: AbortSignal
 ) => http.request(path(id), { method: 'PATCH', body, signal, decode: parseAgent })
-export const publishAgent = (id: string, version: number, signal: AbortSignal) =>
-  http.request(`${path(id)}/publish`, {
+export const enableAgent = (id: string, version: number, signal: AbortSignal) =>
+  http.request(`${path(id)}/enable`, {
     method: 'POST',
     body: { expected_version: version },
     signal,
     decode: parseAgent
   })
-export const unpublishAgent = (id: string, version: number, signal: AbortSignal) =>
-  http.request(`${path(id)}/unpublish`, {
+export const disableAgent = (id: string, version: number, signal: AbortSignal) =>
+  http.request(`${path(id)}/disable`, {
     method: 'POST',
     body: { expected_version: version },
     signal,
@@ -156,8 +149,7 @@ export function nextPreviewIntent(
   previous: PreviewIntent | null,
   agentId: string,
   messages: PreviewHistoryMessage[],
-  createId: () => string,
-  historyRounds = 20
+  createId: () => string
 ): PreviewIntent {
   if (
     previous &&
@@ -167,13 +159,11 @@ export function nextPreviewIntent(
     return previous
   return {
     agentId,
-    messages: selectPreviewMessages(messages, historyRounds),
+    messages: selectPreviewMessages(messages),
     sourceMessages: messages.map((message) => ({ ...message })),
     clientRequestId: createId()
   }
 }
-
-export { getRun, cancelRun, observeRun } from '../../../shared/runs.ts'
 
 export const getAgentApiAccess = (id: string, signal: AbortSignal) =>
   http.request(`/agents/${encodeURIComponent(id)}/api-access`, {
@@ -182,7 +172,7 @@ export const getAgentApiAccess = (id: string, signal: AbortSignal) =>
       const data = object(value)
       return {
         applicationId: string(data.application_id),
-        publishedVersion: number(data.published_version),
+        revision: number(data.revision),
         modelIds: list(string)(data.model_ids)
       }
     }

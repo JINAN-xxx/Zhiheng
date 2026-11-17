@@ -55,7 +55,7 @@ class DeveloperResourceQueries:
         if kind == 'file':
             metadata = [
                 (row.id, row.display_name, row.status)
-                for row in await self.access.files.delegable_metadata(session, personal)
+                for row in await self.access.files.queries.delegable_metadata(session, personal)
             ]
         elif kind == 'knowledge_base':
             metadata = [

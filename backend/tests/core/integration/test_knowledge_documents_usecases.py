@@ -64,7 +64,7 @@ async def test_staged_upload_discards_its_object_after_registration_rollback(
     async def reject(*_args: object, **_kwargs: object) -> UUID:
         raise AppError('registration_failed', 'Simulated registration failure', 503)
 
-    monkeypatch.setattr(container.knowledge, 'register_upload', reject)
+    monkeypatch.setattr(container.knowledge.materials, 'register_upload', reject)
     result = await admin.post(
         f'/api/knowledge/bases/{base["id"]}/uploads',
         params={'filename': 'rolled-back.txt'},

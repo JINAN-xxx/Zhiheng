@@ -42,10 +42,6 @@ class OperationsService:
     """Transactions belong to callers; every successful administration write adds its audit row."""
 
     @staticmethod
-    def _permission(principal: Principal, area: str, write: bool = False) -> None:
-        principal.require_permission(f'system:{area}:{"write" if write else "read"}')
-
-    @staticmethod
     def _pattern(search: str) -> str:
         try:
             encoded = search.encode('utf-8')
@@ -203,7 +199,7 @@ class OperationsService:
         page: int = 1,
         page_size: int = 20,
     ) -> Page[ConfigInfo]:
-        self._permission(principal, 'configs')
+        principal.require_permission('system:configs:read')
         pattern = self._pattern(search)
         query = select(Config).where(
             Config.key == 'console.notice_enabled',
@@ -216,20 +212,20 @@ class OperationsService:
         )
 
     async def get_config(self, session: AsyncSession, principal: Principal, config_id: UUID) -> ConfigInfo:
-        self._permission(principal, 'configs')
+        principal.require_permission('system:configs:read')
         row = await self._row(session, Config, config_id, Config.key == 'console.notice_enabled')
         self._config(row.key, row.value)
         return ConfigInfo.model_validate(row)
 
     async def create_config(self, session: AsyncSession, principal: Principal, body: CreateConfig) -> ConfigInfo:
-        self._permission(principal, 'configs', True)
+        principal.require_permission('system:configs:create')
         self._config(body.key, body.value)
         return ConfigInfo.model_validate(await self._insert(session, principal, Config, body.model_dump(), 'config'))
 
     async def update_config(
         self, session: AsyncSession, principal: Principal, config_id: UUID, body: PatchConfig
     ) -> ConfigInfo:
-        self._permission(principal, 'configs', True)
+        principal.require_any_permission('system:configs:update', 'system:configs:toggle')
         row = await self._row(session, Config, config_id, Config.key == 'console.notice_enabled')
         self._config(body.key if body.key is not None else row.key, body.value if body.value is not None else row.value)
         return ConfigInfo.model_validate(await self._update(session, principal, Config, config_id, body, 'config'))
@@ -237,7 +233,7 @@ class OperationsService:
     async def delete_config(
         self, session: AsyncSession, principal: Principal, config_id: UUID, *, expected_version: int
     ) -> None:
-        self._permission(principal, 'configs', True)
+        principal.require_permission('system:configs:delete')
         await self._delete(
             session, principal, Config, config_id, expected_version, 'config', Config.key == 'console.notice_enabled'
         )
@@ -253,7 +249,7 @@ class OperationsService:
         page: int = 1,
         page_size: int = 20,
     ) -> Page[NoticeInfo]:
-        self._permission(principal, 'notices')
+        principal.require_permission('system:notices:read')
         pattern = self._pattern(search)
         query = select(Notice).where(Notice.title.ilike(pattern, escape='\\'))
         if status is not None:
@@ -265,23 +261,23 @@ class OperationsService:
         )
 
     async def get_notice(self, session: AsyncSession, principal: Principal, notice_id: UUID) -> NoticeInfo:
-        self._permission(principal, 'notices')
+        principal.require_permission('system:notices:read')
         return NoticeInfo.model_validate(await self._row(session, Notice, notice_id))
 
     async def create_notice(self, session: AsyncSession, principal: Principal, body: CreateNotice) -> NoticeInfo:
-        self._permission(principal, 'notices', True)
+        principal.require_permission('system:notices:create')
         return NoticeInfo.model_validate(await self._insert(session, principal, Notice, body.model_dump(), 'notice'))
 
     async def update_notice(
         self, session: AsyncSession, principal: Principal, notice_id: UUID, body: PatchNotice
     ) -> NoticeInfo:
-        self._permission(principal, 'notices', True)
+        principal.require_any_permission('system:notices:update', 'system:notices:publish')
         return NoticeInfo.model_validate(await self._update(session, principal, Notice, notice_id, body, 'notice'))
 
     async def delete_notice(
         self, session: AsyncSession, principal: Principal, notice_id: UUID, *, expected_version: int
     ) -> None:
-        self._permission(principal, 'notices', True)
+        principal.require_permission('system:notices:delete')
         await self._delete(session, principal, Notice, notice_id, expected_version, 'notice')
 
     async def published_notices(
@@ -356,7 +352,7 @@ class OperationsService:
         page: int = 1,
         page_size: int = 20,
     ) -> Page[LogInfo]:
-        self._permission(principal, 'logs')
+        principal.require_permission('system:logs:read')
         pattern = self._pattern(search)
         query = select(OperationLog).where(
             or_(

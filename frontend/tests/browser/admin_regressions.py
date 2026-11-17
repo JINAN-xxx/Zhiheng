@@ -7,6 +7,7 @@ import unittest
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright, expect
+from permission_fixture import PERMISSION_CATALOG, granted_permissions
 
 
 class AdminRegressions(unittest.IsolatedAsyncioTestCase):
@@ -21,7 +22,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         self.user = {'id': 'self', 'username': 'admin', 'is_admin': True, 'permissions': []}
         self.users = [dict(id='self', version=3, username='admin', display_name='管理员', email='', phone='', department_id=None, post_ids=[], role_ids=[], is_active=True, is_admin=True, remark=''), dict(id='user-2', version=7, username='alice', display_name='小艾', email='', phone='', department_id=None, post_ids=[], role_ids=[], is_active=True, is_admin=False, remark='')]
-        self.roles = [dict(id='role-1', version=3, code='operator', name='运营员', permissions=['system:notices:read'], is_active=True, remark='')]
+        self.roles = [dict(id='role-1', version=3, code='operator', name='运营员', permissions=granted_permissions('system:notices:read'), is_active=True, remark='')]
         self.departments = [dict(id='department-1', version=1, parent_id=None, name='总部', sort_order=0, leader='', phone='', email='', is_active=True), dict(id='department-2', version=2, parent_id='department-1', name='研发部', sort_order=1, leader='张三', phone='', email='', is_active=True)]
         self.configs = [dict(id='config-1', version=6, key='console.notice_enabled', name='控制台公告显示', value='true', is_active=True, remark='')]
         self.menus = []
@@ -63,7 +64,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
             else:
                 body = self.collection([{key: value for key, value in user.items() if key != 'password'} for user in self.users], query)
         elif path == '/api/admin/permissions':
-            body = {'items': [dict(code='system:notices:read', label='查看公告', group='系统管理 · 公告'), dict(code='system:notices:write', label='管理公告', group='系统管理 · 公告'), dict(code='ai:models:write', label='维护模型与凭据', group='AI平台 · 模型管理')]}
+            body = {'items': PERMISSION_CATALOG}
         elif path == '/api/admin/roles':
             if method == 'POST':
                 self.roles.append({**request.post_data_json, 'id': 'role-new', 'code': 'role_0123456789abcdef', 'version': 1})
@@ -94,7 +95,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
                 navigation = []
                 for index, (slug, label, area) in enumerate(definitions):
                     prefix = 'ai' if area == 'storage' else 'system'
-                    if not self.user['is_admin'] and f'{prefix}:{area}:read' not in self.user['permissions'] and not (area == 'storage' and 'ai:storage:write' in self.user['permissions']):
+                    if not self.user['is_admin'] and f'{prefix}:{area}:read' not in self.user['permissions']:
                         continue
                     row = next((menu for menu in self.menus if menu['path'] == '/admin/' + slug), None)
                     if row and not row['is_visible']:
@@ -160,7 +161,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator('.admin-console')).to_be_visible(timeout=15000)
 
     async def test_permission_filter_allows_delegated_reader_without_write_controls(self):
-        self.user = {'id': 'self', 'username': 'reader', 'is_admin': False, 'permissions': ['system:departments:read']}
+        self.user = {'id': 'self', 'username': 'reader', 'is_admin': False, 'permissions': granted_permissions('system:departments:read')}
         await self.page.goto(self.origin + '/admin')
         await expect(self.page).to_have_url(self.origin + '/admin/departments')
         await expect(self.page.get_by_role('heading', name='部门管理', exact=True)).to_be_visible()
@@ -275,7 +276,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(path=='/api/admin/menus' for _,path,_,_ in self.requests))
 
     async def test_legacy_navigation_link_redirects_to_first_permitted_page(self):
-        self.user={'id':'self','username':'department-reader','is_admin':False,'permissions':['system:departments:read']}
+        self.user={'id':'self','username':'department-reader','is_admin':False,'permissions':granted_permissions('system:departments:read')}
         await self.page.goto(self.origin+'/admin/menus')
         await expect(self.page).to_have_url(self.origin+'/admin/departments')
         await expect(self.page.get_by_role('heading',name='部门管理',exact=True)).to_be_visible()
@@ -286,11 +287,11 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.get_by_role('button', name='编辑', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         await expect(dialog.get_by_label('角色编码', exact=True)).to_be_disabled()
-        await dialog.get_by_label('管理公告', exact=True).check()
+        await dialog.get_by_role('checkbox', name='通知公告：编辑', exact=True).check()
         await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).not_to_be_visible()
         payload = next(body for method, path, _, body in self.requests if method == 'PATCH' and path.endswith('/role-1'))
-        self.assertEqual(payload['permissions'], ['system:notices:read', 'system:notices:write'])
+        self.assertEqual(set(payload['permissions']), set(granted_permissions('system:notices:update')))
         self.assertEqual(payload['expected_version'], 3)
         self.assertNotIn('code', payload)
 
@@ -299,14 +300,15 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.get_by_role('button', name='新建角色', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         await expect(dialog.get_by_label('角色编码', exact=True)).to_have_count(0)
-        await expect(dialog.get_by_text('AI平台 · 模型管理', exact=True)).to_be_visible()
+        await expect(dialog.get_by_role('region', name='模型目录', exact=True)).to_be_visible()
         await dialog.get_by_label('角色名称', exact=True).fill('模型接入员')
-        await dialog.get_by_label('维护模型与凭据', exact=True).check()
+        await dialog.get_by_role('switch', name='开启模型目录', exact=True).click()
+        await dialog.get_by_role('checkbox', name='模型目录：新增', exact=True).check()
         await dialog.get_by_role('button', name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).not_to_be_visible()
         payload = next(body for method, path, _, body in self.requests if method == 'POST' and path == '/api/admin/roles')
         self.assertNotIn('code', payload)
-        self.assertEqual(payload['permissions'], ['ai:models:write'])
+        self.assertEqual(set(payload['permissions']), set(granted_permissions('platform:models:create')))
         await expect(self.page.get_by_role('row').filter(has_text='模型接入员')).to_contain_text('role_0123456789abcdef')
 
     async def test_department_tree_expands_and_parent_cannot_be_self_or_descendant(self):

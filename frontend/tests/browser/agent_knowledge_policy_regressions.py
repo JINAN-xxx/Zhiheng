@@ -111,12 +111,12 @@ class AgentKnowledgePolicyRegressions(AgentsUIRegressions):
             self.page.get_by_text("所有更改已保存", exact=True)
         ).to_be_visible()
         self.assertEqual(self.posts[-1]["knowledge_top_k"], 15)
-        await self.page.get_by_role("button", name="发布", exact=True).click()
-        await expect(self.page.locator(".editor-status")).to_contain_text("已发布")
+        await self.page.get_by_role("button", name="启用", exact=True).click()
+        await expect(self.page.locator(".editor-status")).to_contain_text("已启用")
         self.assertGreaterEqual(
             len(self.policy_calls), 2, "Publishing must refresh the effective policy"
         )
-        self.assertEqual(self.agent["published_config"]["knowledge_top_k"], 15)
+        self.assertEqual(self.agent["knowledge_top_k"], 15)
         self.assertEqual(self.policy_calls[-1]["knowledge_base_ids"], ["kb-a", "kb-b"])
 
     async def test_unavailable_policy_blocks_publication_and_retry_recovers(self):
@@ -125,7 +125,7 @@ class AgentKnowledgePolicyRegressions(AgentsUIRegressions):
         await expect(self.page.locator(".knowledge-policy")).to_contain_text(
             "请先配置默认重排模型"
         )
-        publish = self.page.get_by_role("button", name="发布", exact=True)
+        publish = self.page.get_by_role("button", name="启用", exact=True)
         await expect(publish).to_be_disabled()
         self.policy_failed = False
         await (

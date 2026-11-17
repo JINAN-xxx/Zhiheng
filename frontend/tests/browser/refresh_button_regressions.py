@@ -38,7 +38,7 @@ class RefreshButtonRegressions(DeveloperBoundary):
     async def test_refresh_controls_match_across_platform_pages(self):
         cases = [
             (ConsoleUIRegressions, '/overview', '刷新工作台'),
-            (AgentsUIRegressions, '/agents', '刷新智能体'),
+            (AgentsUIRegressions, '/agents', '刷新智能助手'),
             (CompactModels, '/models', '刷新当前视图'),
             (CompactSkills, '/skills', '刷新技能'),
             (KnowledgeUIRegressions, '/knowledge', '刷新知识库'),

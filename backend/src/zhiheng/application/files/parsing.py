@@ -10,22 +10,21 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from zhiheng.infrastructure.database import Database
-from zhiheng.modules.files.public import FileService, PreparedAttachment
-from zhiheng.modules.identity.public import IdentityService
-from zhiheng.modules.knowledge.public import (
+from zhiheng.modules.files.public import (
     PARSER_VERSION,
     DocumentSourceValidator,
+    FileService,
     MinerUClientFactory,
     MinerUClientPort,
     MinerUFailure,
     MinerUResultDecoder,
-    ParsingClaim,
-    ParsingPending,
     ParsingServiceStatus,
     ParsingSettingsService,
     ParsingStatusInfo,
-    ParsingStore,
+    PreparedAttachment,
 )
+from zhiheng.modules.identity.public import IdentityService
+from zhiheng.modules.knowledge.public import ParsingClaim, ParsingPending, ParsingStore
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow

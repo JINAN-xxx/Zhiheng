@@ -6,12 +6,16 @@ from tests.core.integration.test_agents import config
 from tests.core.integration.test_knowledge import embedding_model
 from tests.core.integration.test_skills import install
 from tests.core.knowledge_support import share_library
+from tests.core.permission_support import account, grants
 
 
 async def test_same_slug_is_independent_and_owner_can_restore(admin: httpx.AsyncClient, app: object) -> None:
     mine = await install(admin, 'personal-same', 'ADMIN CONTENT')
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')) as (
+        member,
+        _,
+        _,
+    ):
         theirs = await install(member, 'personal-same', 'MEMBER CONTENT')
         assert theirs['id'] != mine['id']
         assert theirs['revision_id'] != mine['revision_id']
@@ -72,17 +76,51 @@ async def test_builtin_copies_are_initialized_when_creating_accounts_and_are_ind
     admin: httpx.AsyncClient,
     app: object,
 ) -> None:
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from zhiheng.modules.skills.orm import SkillRevision
+
     mine = (await admin.get('/api/skills/available')).json()
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *grants('platform:skills', 'use')) as (member, _, _):
         theirs = (await member.get('/api/skills/available')).json()
         assert {row['slug'] for row in mine} == {row['slug'] for row in theirs}
         assert {row['id'] for row in mine}.isdisjoint(row['id'] for row in theirs)
-        assert (
-            await admin.delete(f'/api/skills/{mine[0]["id"]}', headers={'content-type': 'application/json'})
-        ).status_code == 200
-        assert (await member.get(f'/api/skills/{theirs[0]["id"]}')).status_code == 200
-        assert mine[0]['id'] not in {row['id'] for row in (await admin.get('/api/skills/available')).json()}
+        assert {row['revision_id'] for row in mine}.isdisjoint(row['revision_id'] for row in theirs)
+        original = mine[0]
+        personal = next(row for row in theirs if row['slug'] == original['slug'])
+        revision_ids = [UUID(original['revision_id']), UUID(personal['revision_id'])]
+        query = select(SkillRevision.id, SkillRevision.package_bytes).where(SkillRevision.id.in_(revision_ids))
+        async with app.state.container.database.sessions() as session:
+            packages = dict((await session.execute(query)).all())
+        assert len(packages) == 2 and len(set(packages.values())) == 1
+
+        rejected = await admin.delete(f'/api/skills/{original["id"]}', headers={'content-type': 'application/json'})
+        assert rejected.status_code == 403, rejected.text
+        assert rejected.json()['error']['code'] == 'builtin_skill_protected'
+        assert (await member.get(f'/api/skills/{original["id"]}')).status_code == 404
+        assert (await admin.get(f'/api/skills/{personal["id"]}')).status_code == 404
+
+        current = personal
+        for status in ('disabled', 'enabled'):
+            changed = await member.patch(
+                f'/api/skills/{personal["id"]}/status',
+                json={'status': status, 'expected_version': current['version']},
+            )
+            assert changed.status_code == 200, changed.text
+            current = changed.json()
+            assert current['revision_id'] == personal['revision_id']
+            assert current['content_hash'] == personal['content_hash']
+            unchanged = (await admin.get(f'/api/skills/{original["id"]}')).json()
+            assert unchanged['status'] == 'enabled' and unchanged['version'] == original['version']
+            assert unchanged['revision_id'] == original['revision_id']
+            available = {row['id'] for row in (await member.get('/api/skills/available')).json()}
+            assert (personal['id'] in available) == (status == 'enabled')
+            assert original['id'] in {row['id'] for row in (await admin.get('/api/skills/available')).json()}
+
+        async with app.state.container.database.sessions() as session:
+            assert dict((await session.execute(query)).all()) == packages
 
 
 async def test_private_knowledge_owner_only_and_explicit_share_is_read_only(
@@ -91,8 +129,7 @@ async def test_private_knowledge_owner_only_and_explicit_share_is_read_only(
     provider: object,
 ) -> None:
     model = await embedding_model(admin, provider)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *grants('platform:knowledge', 'create', 'share')) as (member, _, _):
         created = await member.post('/api/knowledge/bases', json={'name': 'Member private', 'embed_model_id': model})
         assert created.status_code == 201, created.text
         base = created.json()
@@ -122,8 +159,11 @@ async def test_another_owners_same_slug_agent_does_not_block_deletion(
     model_id: str,
 ) -> None:
     mine = await install(admin, 'referenced-personally')
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(
+        admin,
+        app,
+        *(grants('platform:skills', 'use', 'create', 'update', 'delete') | grants('platform:agents', 'create')),
+    ) as (member, _, _):
         theirs = await install(member, 'referenced-personally')
         created = await member.post('/api/agents', json=config(model_id, skill_slugs=[theirs['slug']]))
         assert created.status_code == 201, created.text
@@ -188,8 +228,16 @@ async def test_administrator_preview_and_work_use_agent_owner_and_frozen_revisio
     from zhiheng.worker.execution import execute_run
 
     await install(admin, 'owned-execution', 'ACTOR MUST NOT SUPPLY THIS CONTENT')
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(
+        admin,
+        app,
+        *(
+            grants('platform:skills', 'use', 'create', 'update')
+            | grants('platform:agents', 'use', 'create', 'publish', 'debug')
+            | grants('platform:developer', 'create')
+            | grants('platform:work', 'create', 'use')
+        ),
+    ) as (member, _, _):
         original = await install(member, 'owned-execution', 'FROZEN OWNER CONTENT')
         agent = await published(member, model_id, skill_slugs=[original['slug']])
         path = f'/api/agents/{agent["id"]}/preview'

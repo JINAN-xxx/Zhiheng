@@ -24,7 +24,7 @@ class SkillsUIRegressions(DeveloperBoundary):
     async def respond(self, route):
         path, method = urlparse(route.request.url).path, route.request.method
         if path == '/api/auth/me':
-            await route.fulfill(json={'id': 'user-1', 'username': 'member' if self.member else 'admin', 'is_admin': not self.member})
+            await route.fulfill(json={'id': 'user-1', 'username': 'member' if self.member else 'admin', 'is_admin': not self.member, 'permissions': [f'platform:skills:{action}' for action in ['enabled','read','use','create','update','delete','toggle']] if self.member else []})
         elif path == '/api/skills':
             await route.fulfill(json={'items': self.items, 'total': len(self.items), 'page': 1, 'page_size': 12})
         elif path == '/api/skills/available':

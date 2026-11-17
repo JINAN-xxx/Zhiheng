@@ -23,7 +23,7 @@ async def assistant(admin: httpx.AsyncClient, model_id: str, **changes: object) 
         },
     )
     assert value.status_code == 201, value.text
-    result = await admin.post('/api/agents/' + value.json()['id'] + '/publish', json={'expected_version': 1})
+    result = await admin.post('/api/agents/' + value.json()['id'] + '/enable', json={'expected_version': 1})
     assert result.status_code == 200, result.text
     return result.json()
 
@@ -55,7 +55,7 @@ async def test_published_conversation_history_is_private_and_new_turns_follow_la
     agent = await assistant(admin, model_id)
     first = await conversation(admin, agent['id'])
     path = f'/api/agents/{agent["id"]}/conversations'
-    assert first['published_version'] == 1 and first['welcome_message'] == 'STATIC WELCOME'
+    assert first['memory_available'] and first['welcome_message'] == 'STATIC WELCOME'
     assert not provider.requests  # Creating a session or reading its greeting is free.
     run = await submit(admin, agent['id'], first['id'], 'FIRST PRIVATE QUESTION')
     assert run['resource_type'] == 'agent_chat'
@@ -77,7 +77,7 @@ async def test_published_conversation_history_is_private_and_new_turns_follow_la
             'expected_version': 2,
         },
     )
-    published = await admin.post('/api/agents/' + agent['id'] + '/publish', json={'expected_version': 3})
+    published = await admin.post('/api/agents/' + agent['id'] + '/enable', json={'expected_version': 3})
     assert published.status_code == 200, published.text
     run = await submit(admin, agent['id'], first['id'], 'SECOND QUESTION')
     await execute_run(app.state.container, UUID(run['id']))
@@ -85,19 +85,20 @@ async def test_published_conversation_history_is_private_and_new_turns_follow_la
     assert wire[0]['content'] == 'NEW SYSTEM'
     assert [row['content'] for row in wire[1:]] == ['FIRST PRIVATE QUESTION', '你好', 'SECOND QUESTION']
     history = (await admin.get(path + '/' + first['id'])).json()
-    assert [turn['published_version'] for turn in history['turns']] == [1, 2]
+    assert all('published_version' not in turn for turn in history['turns'])
     assert [turn['agent_name'] for turn in history['turns']] == ['私人助手', '新版助手']
     assert history['conversation']['welcome_message'] == 'NEW WELCOME'
     fresh = await conversation(admin, agent['id'])
-    assert fresh['published_version'] == 2 and fresh['welcome_message'] == 'NEW WELCOME'
+    assert fresh['memory_available'] and fresh['welcome_message'] == 'NEW WELCOME'
     run = await submit(admin, agent['id'], fresh['id'], 'FRESH SESSION')
     await execute_run(app.state.container, UUID(run['id']))
     assert [row['content'] for row in provider.requests[-1]['messages']] == ['NEW SYSTEM', 'FRESH SESSION']
     other = await assistant(admin, model_id, name='另一个助手')
     assert (await admin.get(f'/api/agents/{other["id"]}/conversations/{first["id"]}')).status_code == 404
     from tests.core.integration.test_platform_module_permissions import grant
+    from tests.core.permission_support import grants
 
-    await grant(app, 'agents')
+    await grant(app, *grants('platform:agents', 'use'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert (await member.get(path)).json() == []
@@ -151,10 +152,10 @@ async def test_draft_is_not_formal_use_and_unpublish_revokes_queued_use(
     agent_id = created.json()['id']
     path = f'/api/agents/{agent_id}/conversations'
     assert (await admin.post(path, json={'client_request_id': str(uuid4())})).status_code == 409
-    await admin.post('/api/agents/' + agent_id + '/publish', json={'expected_version': 1})
+    await admin.post('/api/agents/' + agent_id + '/enable', json={'expected_version': 1})
     chat = await conversation(admin, agent_id)
     run = await submit(admin, agent_id, chat['id'], 'queued')
-    await admin.post('/api/agents/' + agent_id + '/unpublish', json={'expected_version': 2})
+    await admin.post('/api/agents/' + agent_id + '/disable', json={'expected_version': 2})
     await execute_run(app.state.container, UUID(run['id']))
     failed = (await admin.get('/api/runs/' + run['id'])).json()
     assert failed['status'] == 'failed' and failed['usage']['status'] == 'known'
@@ -214,7 +215,7 @@ async def test_accepted_run_retains_its_publication_while_later_turns_use_the_ne
         },
     )
     assert updated.status_code == 200, updated.text
-    published = await admin.post('/api/agents/' + agent['id'] + '/publish', json={'expected_version': 3})
+    published = await admin.post('/api/agents/' + agent['id'] + '/enable', json={'expected_version': 3})
     assert published.status_code == 200, published.text
     await execute_run(app.state.container, UUID(queued['id']))
     assert provider.requests[-1]['messages'][0]['content'] == 'PUBLISHED SYSTEM'
@@ -223,7 +224,7 @@ async def test_accepted_run_retains_its_publication_while_later_turns_use_the_ne
     assert provider.requests[-1]['messages'][0]['content'] == 'NEWLY PUBLISHED'
     detail = (await admin.get(f'/api/agents/{agent["id"]}/conversations/{chat["id"]}')).json()
     assert detail['conversation']['name'] == '最新版助手'
-    assert [row['published_version'] for row in detail['turns']] == [1, 2]
+    assert all('published_version' not in row for row in detail['turns'])
 
 
 async def test_session_rename_delete_versions_privacy_and_original_request_tombstone(
@@ -247,8 +248,9 @@ async def test_session_rename_delete_versions_privacy_and_original_request_tombs
     wrong = f'/api/agents/{other["id"]}/conversations/{original["id"]}'
     assert (await admin.patch(wrong, json={'title': 'steal', 'expected_version': 1})).status_code == 404
     from tests.core.integration.test_platform_module_permissions import grant
+    from tests.core.permission_support import grants
 
-    await grant(app, 'agents')
+    await grant(app, *grants('platform:agents', 'use'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert (await member.patch(endpoint, json={'title': 'steal', 'expected_version': 1})).status_code == 404
@@ -276,7 +278,9 @@ async def test_session_rename_delete_versions_privacy_and_original_request_tombs
     assert (await admin.get('/api/runs/' + run['id'])).status_code == 404
     assert (await admin.get('/api/runs/' + run['id'] + '/events')).status_code == 404
     assert (await admin.post(root, json=request)).status_code == 404  # Original creation ID cannot resurrect it.
-    assert (await admin.post(endpoint + '/runs', json={'message': 'again', 'client_request_id': str(uuid4())})).status_code == 404
+    assert (
+        await admin.post(endpoint + '/runs', json={'message': 'again', 'client_request_id': str(uuid4())})
+    ).status_code == 404
     async with app.state.container.database.sessions() as session:
         row = await session.get(AssistantConversation, UUID(original['id']))
         assert row is not None and row.deleted_at is not None

@@ -8,6 +8,7 @@ from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.files.inputs import FileInputService
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
@@ -49,11 +50,13 @@ class KnowledgeJobs:
         runs: RunStore,
         usage: UsageService,
         vectors: VectorPort,
-        token_limit: int,
+        *,
+        admission: RunAdmission,
     ) -> None:
         self.database, self.knowledge, self.file_inputs, self.files = database, knowledge, file_inputs, files
         self.models, self.runs, self.usage, self.vectors = models, runs, usage, vectors
-        self.store, self.token_limit = BuildStore(knowledge), token_limit
+        self.store = BuildStore(knowledge)
+        self.admission = admission
         self.generations = GenerationStore()
         self.origin_guard: KnowledgeOriginGuard | None = None
         self.document_parsing: DocumentParsing | None = None
@@ -66,7 +69,7 @@ class KnowledgeJobs:
     async def authorize_origin(
         self, session: AsyncSession, claim: BuildClaim, *, models: bool = True
     ) -> APIOrigin | None:
-        await self.knowledge.validate_migration(session, claim.id)
+        await self.knowledge.migration.validate(session, claim.id)
         if self.origin_guard is None:
             return None
         paid = models and not claim.operation.startswith('delete')
@@ -85,7 +88,7 @@ class KnowledgeJobs:
                 else 'update',
             )
         if origin is not None and paid:
-            binding = await self.models.resolve(session, claim.binding.model_id)
+            binding = await self.models.bindings.resolve(session, claim.binding.model_id)
             if binding_fingerprint(binding) != binding_fingerprint(claim.binding):
                 raise AppError('knowledge_preparation_stale', '知识模型绑定已变化', 409)
         if origin is not None:
@@ -118,7 +121,7 @@ class KnowledgeJobs:
                         session, job_id, model_ids=(facts.binding.model_id,) if paid else ()
                     )
                     if origin is not None and paid:
-                        binding = await self.models.resolve(session, facts.binding.model_id)
+                        binding = await self.models.bindings.resolve(session, facts.binding.model_id)
                         if binding_fingerprint(binding) != binding_fingerprint(facts.binding):
                             raise AppError('knowledge_preparation_stale', '知识模型绑定已变化', 409)
                 claim = await self.store.claim(session, job_id)
@@ -182,6 +185,10 @@ class KnowledgeJobs:
                 _, release = await self.runs.cancel(session, run_id, owner_id)
                 if release:
                     await self.usage.settle(session, run_id, rejected_before_execution=True)
+
+    async def cleanup_retired_chunks(self) -> int:
+        async with self.database.sessions.begin() as session:
+            return await self.generations.cleanup_chunks(session)
 
     async def gc(self, generation_id: UUID) -> None:
         async with self.database.sessions.begin() as session:
@@ -262,7 +269,7 @@ class KnowledgeJobs:
                 await lock_billing_admission(session)
                 origin = await self.authorize_origin(session, claim, models=True)
                 owner = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
-                await self.models.resolve(session, claim.binding.model_id)
+                await self.models.bindings.resolve(session, claim.binding.model_id)
                 await self.store.owned(session, claim)
                 request = ModelRequest(
                     binding=claim.binding,
@@ -273,32 +280,16 @@ class KnowledgeJobs:
                 await self.runs.lock_request(session, owner.id, request_id)
                 run = await self.runs.existing_request(session, owner.id, request_id, value)
                 if run is None:
-                    run = await self.runs.create(
+                    run = await self.admission.reserve(
                         session,
-                        owner_id=owner.id,
-                        billing_owner_id=owner.id,
+                        identity=AdmissionIdentity(
+                            owner_id=owner.id, billing_owner_id=owner.id, key_id=origin.key_id if origin else None
+                        ),
                         resource_type='knowledge_embedding',
                         resource_id=claim.id,
-                        request_id=request_id,
+                        client_request_id=request_id,
                         fingerprint=value,
-                        payload=request.model_dump(mode='json'),
-                    )
-                    rate = await self.usage.money_rate(
-                        session, self.models, claim.binding.model_id, required=origin is not None
-                    )
-                    await self.usage.reserve(
-                        session,
-                        user_id=owner.id,
-                        run_id=run.id,
-                        model_id=claim.binding.model_id,
-                        source='knowledge_embedding',
-                        tokens=sum(len(text.encode()) + 16 for text in batch.texts),
-                        estimated_input_tokens=sum(len(text.encode()) + 16 for text in batch.texts),
-                        max_output_tokens=0,
-                        token_limit=self.token_limit,
-                        key_id=origin.key_id if origin else None,
-                        rate=rate,
-                        operation='embedding',
+                        request=request,
                     )
                 await self.store.add_step(session, claim.id, batch.key, run.id, value)
                 await self.store.release(session, claim, 'embedding', 'waiting_model')
@@ -342,8 +333,8 @@ class KnowledgeJobs:
             binding = (
                 claim.binding
                 if claim.operation.startswith('delete')
-                else await self.models.resolve(session, claim.binding.model_id)
+                else await self.models.bindings.resolve(session, claim.binding.model_id)
             )
-            await self.knowledge.validate_migration(session, claim.id, lock=True)
+            await self.knowledge.migration.validate(session, claim.id, lock=True)
             await self.store.publish(session, claim, binding)
-            await self.knowledge.finish_migration(session, claim.id)
+            await self.knowledge.migration.finish(session, claim.id)

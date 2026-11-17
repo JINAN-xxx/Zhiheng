@@ -8,7 +8,7 @@ from developer_regressions import DeveloperBoundary
 
 class PrimaryNavigationRegressions(DeveloperBoundary):
     async def asyncSetUp(self):
-        self.user = {'id': 'nav-user-1', 'username': '导航用户', 'is_admin': False, 'permissions': []}
+        self.user = {'id': 'nav-user-1', 'username': '导航用户', 'is_admin': False, 'permissions': [f'platform:{module}:{action}' for module in ['overview','chat','agents','work','models','knowledge','skills','developer','usage'] for action in ['enabled','read']]}
         await super().asyncSetUp()
 
     async def respond(self, route):

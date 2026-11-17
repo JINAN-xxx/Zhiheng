@@ -69,7 +69,7 @@ class ModelManagementRegressions(DeveloperBoundary):
              'base_url': 'https://provider.example/v1', 'has_api_key': True, 'enabled': True}
             for i in range(1, 4)
         ]
-        await self.page.route('**/api/models/connections', lambda route: route.fulfill(json=connections))
+        await self.page.route('**/api/models/connection-options', lambda route: route.fulfill(json=connections))
         await self.page.goto(self.origin + '/models')
         await self.page.get_by_role('button', name='接入模型', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
@@ -219,8 +219,7 @@ class ModelManagementRegressions(DeveloperBoundary):
         self.assertNotIn('published', self.posts[-1])
 
     async def test_edit_connection_does_not_send_an_empty_replacement_key(self):
-        await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('tab', name='凭据管理', exact=True).click()
+        await self.page.goto(self.origin + '/credentials')
         await self.page.get_by_role('button', name='编辑凭据', exact=True).click()
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_placeholder('例如：团队模型服务').fill('已改名称')

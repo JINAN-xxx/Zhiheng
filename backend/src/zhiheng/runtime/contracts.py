@@ -29,6 +29,18 @@ class RunError(BaseModel):
     message: str
 
 
+class RunFacts(BaseModel):
+    """Opaque execution facts for authorized billing views; contains no business content."""
+
+    id: UUID
+    owner_id: UUID
+    billing_owner_id: UUID
+    resource_type: str
+    status: RunStatus
+    attempt_no: int
+    created_at: datetime
+
+
 class RunSnapshot(BaseModel):
     id: UUID
     resource_type: Literal[
@@ -38,6 +50,7 @@ class RunSnapshot(BaseModel):
         'public',
         'agent_preview',
         'agent_chat',
+        'agent_summary',
         'agent_invocation',
         'work_turn',
         'knowledge_embedding',

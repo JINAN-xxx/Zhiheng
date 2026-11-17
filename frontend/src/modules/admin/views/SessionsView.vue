@@ -14,10 +14,10 @@ const { rows, total, page, search, loading, error, load, find, changePage } = us
   'sessions',
   decodeSession
 )
-const writable = computed(() => hasAdminPermission(identity.value, 'sessions', 'write'))
+const canRevoke = computed(() => hasAdminPermission(identity.value, 'sessions', 'revoke'))
 const saving = ref(false)
 function confirmRevoke(session: Session): void {
-  if (saving.value || session.is_current) return
+  if (saving.value || session.is_current || !canRevoke.value) return
   Modal.confirm({
     title: `强制退出“${session.username}”？`,
     content: '该会话将立即失效，用户需要重新登录。',
@@ -25,7 +25,7 @@ function confirmRevoke(session: Session): void {
     okType: 'danger',
     cancelText: '取消',
     onOk: async () => {
-      if (saving.value) return
+      if (saving.value || !canRevoke.value) return
       saving.value = true
       try {
         await revokeSession(session.session_id, session.version)
@@ -74,7 +74,7 @@ const columns = [
         <span v-else-if="column.key === 'created'">{{ formatAdminTime(record.created_at) }}</span
         ><span v-else-if="column.key === 'expires'">{{ formatAdminTime(record.expires_at) }}</span
         ><AButton
-          v-else-if="column.key === 'actions' && writable"
+          v-else-if="column.key === 'actions' && canRevoke"
           type="link"
           danger
           :disabled="record.is_current || saving"

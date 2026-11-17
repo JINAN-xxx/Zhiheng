@@ -414,7 +414,7 @@ async def inference_context(
         ),
     )
     assert agent.status_code == 201, agent.text
-    published = await admin.post(f'/api/agents/{agent.json()["id"]}/publish', json={'expected_version': 1})
+    published = await admin.post(f'/api/agents/{agent.json()["id"]}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
     target = model_id
     method, endpoint, body = 'GET', '/v1/models', None
@@ -602,7 +602,7 @@ async def test_public_preparation_is_bound_to_original_key_and_agent(
     assert denied.status_code == 404 and 'run' not in denied.json() and 'hits' not in denied.json(), denied.text
     second_agent = await admin.post('/api/agents', json=config(model_id, application_id=owner_app['id']))
     assert second_agent.status_code == 201, second_agent.text
-    published = await admin.post(f'/api/agents/{second_agent.json()["id"]}/publish', json={'expected_version': 1})
+    published = await admin.post(f'/api/agents/{second_agent.json()["id"]}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
     parts = endpoint.split('/')
     parts[3] = second_agent.json()['id']

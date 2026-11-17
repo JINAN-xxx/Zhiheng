@@ -42,6 +42,7 @@ class ModelDefinition(Base):
     upstream_model: Mapped[str] = mapped_column(String(200))
     max_output_tokens: Mapped[int] = mapped_column(BigInteger)
     context_window_tokens: Mapped[int | None] = mapped_column(Integer)
+    capacity_note: Mapped[str] = mapped_column(Text, default='', server_default='')
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     model_type: Mapped[str] = mapped_column(String(16), default='chat')
     vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false')

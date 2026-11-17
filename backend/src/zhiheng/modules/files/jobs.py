@@ -1,7 +1,6 @@
 """Files-specific bounded maintenance; one PostgreSQL session lock serializes manual/periodic runs."""
 
 import asyncio
-import hashlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
@@ -201,7 +200,7 @@ class FileJobs:
                 .limit(1)
             )
             cursor = previous.cursor if previous is not None else ''
-            policy = await self._files.policy(session, principal)
+            policy = await self._files.lifecycle.policy(session, principal)
             if kind == 'expiry':
                 query = select(FileRecord).where(
                     FileRecord.status == 'active',
@@ -322,17 +321,30 @@ class FileJobs:
         for file_id, key, size, sha, observed_status in candidates:
             changed += await self._reconcile_record(job_id, file_id, key, size, sha, observed_status)
         entries = await self._files.storage.entries(after=object_cursor, limit=BATCH_SIZE)
-        for entry in entries:
-            if entry.modified_at > utcnow() - timedelta(hours=1):
+        cutoff = utcnow() - timedelta(hours=1)
+        old_entries = [entry for entry in entries if entry.modified_at <= cutoff]
+        registered: set[str] = set()
+        if old_entries:
+            async with self._transaction() as session:
+                registered = set(
+                    await session.scalars(
+                        select(FileRecord.storage_key).where(FileRecord.storage_key.in_([e.key for e in old_entries]))
+                    )
+                )
+        for entry in old_entries:
+            if entry.key in registered:
+                continue
+            try:
+                stored = await self._files.storage.stat(entry.key)
+            except AppError:
+                continue
+            if stored.modified_at > cutoff:
                 continue
             async with self._transaction() as session:
+                # Registration can commit after the page query; recheck after IO before reporting an orphan.
                 exists = await session.scalar(select(FileRecord.id).where(FileRecord.storage_key == entry.key))
                 if exists is None:
-                    try:
-                        content = await self._files.storage.read(entry.key)
-                    except AppError:
-                        continue
-                    await self._issue(session, job_id, key=entry.key, kind='orphan', file_id=None, size=len(content))
+                    await self._issue(session, job_id, key=entry.key, kind='orphan', file_id=None, size=stored.size)
                     changed += 1
         next_file = str(candidates[-1][0]) if len(candidates) == BATCH_SIZE else ''
         next_object = entries[-1].key if len(entries) == BATCH_SIZE else ''
@@ -348,8 +360,8 @@ class FileJobs:
             return 0
         kind = None
         try:
-            content = await self._files.storage.read(key)
-            if len(content) != size or hashlib.sha256(content).hexdigest() != sha:
+            stored = await self._files.storage.inspect(key)
+            if stored.size != size or stored.sha256 != sha:
                 kind = 'size_or_hash'
         except AppError as error:
             kind = 'invalidkey' if error.code == 'invalid_storage_key' else 'missing'
@@ -409,8 +421,8 @@ class FileJobs:
                     row.storage_status = 'quarantined'
                     issue.status = 'quarantined'
                 else:
-                    content = await self._files.storage.read(row.storage_key)
-                    if len(content) != row.size or hashlib.sha256(content).hexdigest() != row.sha256:
+                    stored = await self._files.storage.inspect(row.storage_key)
+                    if stored.size != row.size or stored.sha256 != row.sha256:
                         raise AppError('file_integrity_error', '内容尚未恢复，不能确认修复', 409)
                     row.storage_status = 'normal'
                     issue.status = 'resolved'

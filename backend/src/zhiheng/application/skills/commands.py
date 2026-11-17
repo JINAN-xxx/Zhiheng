@@ -41,7 +41,7 @@ class SkillCommands:
 
     async def prepare(self, caller: CallerContext, file_id: UUID, key: UUID) -> DraftInfo:
         info, content = await self.files.read(caller.principal, file_id, caller=caller)
-        parsed = SkillPackageParser().parse(content, filename=info.original_filename)
+        parsed = await SkillPackageParser().parse_async(content, filename=info.original_filename)
         resources: tuple[dict[str, str], ...] = ({'kind': 'file', 'id': str(file_id), 'action': 'read'},)
         async with self.database.sessions.begin() as session:
             caller = await self.access.current(session, caller, 'skills:write')
@@ -92,7 +92,9 @@ class SkillCommands:
         async with self.database.sessions.begin() as session:
             await self.authorize_draft(session, caller, draft_id)
             package = await self.skills.draft_package(session, caller.principal.id, draft_id)
-        parsed = SkillPackageParser().parse(package[0], filename=package[1]) if package is not None else None
+        parsed = (
+            await SkillPackageParser().parse_async(package[0], filename=package[1]) if package is not None else None
+        )
         async with self.database.sessions.begin() as session:
             original = await self.authorize_draft(session, caller, draft_id)
             request = await self.access.begin_request(

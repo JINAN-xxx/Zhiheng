@@ -222,7 +222,7 @@ def test_migration_composition_has_an_explicit_inventory_entry(checker: ModuleTy
 @pytest.mark.parametrize(
     'statement',
     [
-        'from zhiheng.modules.knowledge.adapters.native import NativeParser',
+        'from zhiheng.modules.files.adapters.native import NativeParser',
         'from zhiheng.modules.knowledge.adapters.milvus import MilvusStore',
         'from zhiheng.modules.knowledge.adapters.lightrag.sdk import GraphSDK',
         'from zhiheng.modules.models.adapters.factory import create_provider',
@@ -238,8 +238,8 @@ def test_adapter_composition_has_explicit_constructor_entries(
 @pytest.mark.parametrize(
     ('origin', 'statement'),
     [
-        ('bootstrap/container.py', 'from zhiheng.modules.knowledge.adapters.native import NativeParser'),
-        ('bootstrap/adapters.py', 'from zhiheng.modules.knowledge.adapters.native import ParseResult'),
+        ('bootstrap/container.py', 'from zhiheng.modules.files.adapters.native import NativeParser'),
+        ('bootstrap/adapters.py', 'from zhiheng.modules.files.adapters.native import ParseResult'),
         ('bootstrap/adapters.py', 'from zhiheng.modules.models.orm import ModelDefinition'),
     ],
 )

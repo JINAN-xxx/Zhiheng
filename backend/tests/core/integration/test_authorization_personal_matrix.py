@@ -133,7 +133,7 @@ async def test_personal_skill_operation_matrix(
 @pytest.mark.parametrize('actor_admin', [False, True], ids=['member', 'other-admin'])
 @pytest.mark.parametrize(
     'operation',
-    ['list', 'detail', 'messages', 'context', 'context-retry', 'run', 'regenerate', 'patch', 'delete'],
+    ['list', 'detail', 'messages', 'context', 'run', 'regenerate', 'patch', 'delete'],
 )
 async def test_private_conversation_operation_matrix(
     admin: httpx.AsyncClient,
@@ -143,12 +143,16 @@ async def test_private_conversation_operation_matrix(
     actor_admin: bool,
     operation: str,
 ) -> None:
-    base = '/api/chat/conversations/' + saved_chat['conversation_id']
+    conversation_id = saved_chat['conversation_id']
+    if operation == 'run':
+        fresh = await admin.post('/api/chat/conversations', json={})
+        assert fresh.status_code == 201, fresh.text
+        conversation_id = fresh.json()['id']
+    base = '/api/chat/conversations/' + conversation_id
     cases = {
         'detail': ('GET', base, None),
         'messages': ('GET', base + '/messages', None),
         'context': ('GET', base + '/context', None),
-        'context-retry': ('POST', base + '/context/retry', {'client_request_id': str(uuid4())}),
         'run': (
             'POST',
             base + '/runs',
@@ -171,14 +175,12 @@ async def test_private_conversation_operation_matrix(
         method, endpoint, body = cases[operation]
         denied = await stranger.request(method, endpoint, json=body)
         assert denied.status_code == 404, denied.text
-        assert (await admin.get(base)).json()['id'] == saved_chat['conversation_id']
+        assert (await admin.get(base)).json()['id'] == conversation_id
         # The saved immutable message fixture has an intentionally empty execution payload.
         # Real regeneration's positive/provider path is covered by test_chat_regeneration.
         if operation != 'regenerate':
             allowed = await admin.request(method, endpoint, json=body)
-            assert allowed.status_code in ({200, 409} if operation == 'context-retry' else {200, 202, 204}), (
-                allowed.text
-            )
+            assert allowed.status_code in {200, 202, 204}, allowed.text
 
 
 @pytest.mark.parametrize('operation', ['feedback', 'feedback-list', 'preview', 'shares', 'share-create', 'revoke'])
@@ -370,8 +372,8 @@ async def test_agent_owner_member_and_admin_matrix(
         'get': ('GET', path, None),
         'patch': ('PATCH', path, config(model_id, name='Owner edit', expected_version=agent['version'])),
         'delete': ('DELETE', path, {}),
-        'publish': ('POST', path + '/publish', {'expected_version': agent['version']}),
-        'unpublish': ('POST', path + '/unpublish', {'expected_version': agent['version']}),
+        'publish': ('POST', path + '/enable', {'expected_version': agent['version']}),
+        'unpublish': ('POST', path + '/disable', {'expected_version': agent['version']}),
         'preview': (
             'POST',
             path + '/preview',
@@ -442,7 +444,7 @@ async def test_work_owner_and_foreign_member_operation_matrix(
         'upgrade-member': (
             'PATCH',
             path + '/members/' + agent['id'],
-            {'expected_version': owned['version'], 'expected_published_version': agent['published_version']},
+            {'expected_version': owned['version'], 'expected_agent_revision': agent['version']},
         ),
         'remove-member': (
             'DELETE',
@@ -763,7 +765,7 @@ async def test_graph_job_secondary_id_cannot_cross_existing_bases(
 async def test_storage_governance_permissions_do_not_grant_private_file_access(
     admin: httpx.AsyncClient, app: FastAPI, operation: str
 ) -> None:
-    from tests.core.integration.test_ai_management_permissions import account
+    from tests.core.permission_support import account, grants
     from zhiheng.modules.files.orm import FileJob, FileReconcileIssue, FileRecord
 
     file = await source(admin, 'audit-governed.txt', b'Owned private file')
@@ -812,18 +814,18 @@ async def test_storage_governance_permissions_do_not_grant_private_file_access(
     async with account(admin, app) as (stranger, _, _):
         denied = await stranger.request(method, endpoint, json=body)
         assert denied.status_code == 403, denied.text
-    async with account(admin, app, 'ai:storage:read') as (reader, _, _):
+    async with account(admin, app, *grants('ai:storage')) as (reader, _, _):
         response = await reader.request(method, endpoint, json=body)
         expected = 200 if method == 'GET' and operation != 'users' else 403
         assert response.status_code == expected, response.text
         assert (await reader.get('/api/files/' + file['id'])).status_code == 404
-    async with account(admin, app, 'ai:storage:write') as (writer, _, _):
+    async with account(admin, app, *grants('ai:storage', 'configure', 'maintain')) as (writer, _, _):
         allowed = await writer.request(method, endpoint, json=body)
         assert allowed.status_code in ({403} if operation == 'users' else {200, 201, 204}), allowed.text
         assert (await writer.get('/api/files/' + file['id'] + '/download')).status_code == 404
 
     if operation == 'users':
-        async with account(admin, app, 'ai:storage:read', 'system:users:read') as (directory_reader, _, _):
+        async with account(admin, app, *(grants('ai:storage') | grants('system:users'))) as (directory_reader, _, _):
             assert (await directory_reader.get(endpoint)).status_code == 200
             assert (await directory_reader.get('/api/files/' + file['id'])).status_code == 404
 

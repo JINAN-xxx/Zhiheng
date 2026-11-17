@@ -16,7 +16,7 @@ async def accept(page):
 
 
 REFERENCES = [
-    {'kind': 'agent', 'id': 'agent-1', 'name': '研究助手', 'status': 'published', 'path': '/agents/agent-1'},
+    {'kind': 'agent', 'id': 'agent-1', 'name': '研究助手', 'status': 'enabled', 'path': '/agents/agent-1'},
     {'kind': 'work', 'id': None, 'name': '其他用户的工作空间', 'status': 'referenced', 'path': None},
     {'kind': 'future', 'id': 'bad', 'name': '外部路径', 'status': 'active', 'path': '//example.com/private'},
     {'kind': 'future', 'id': 'script', 'name': '无效路径', 'status': 'active', 'path': 'javascript:alert(1)'},
@@ -29,17 +29,25 @@ class LifecycleSkills(SkillsUIRegressions):
     async def test_member_cannot_delete_builtin_skill(self):
         # The builtin template copy belongs to this member; retain the historical node ID.
         self.member = True
-        await self.test_builtin_enabled_skill_deletes_with_one_confirmation()
+        await self.test_builtin_enabled_skill_stays_protected_and_can_be_toggled()
 
-    async def test_builtin_enabled_skill_deletes_with_one_confirmation(self):
+    async def test_builtin_enabled_skill_stays_protected_and_can_be_toggled(self):
         self.skill['source'] = 'builtin'
-        await self.open_skills()
+        deletes = []
+        self.page.on('request', lambda request: deletes.append(request.url) if request.method == 'DELETE' else None)
+        await self.page.goto(self.origin + '/skills')
+        await expect(self.page.get_by_role('heading', name='技能', exact=True)).to_be_visible()
         detail = await self.open_skill_detail()
-        confirmation = await self.open_skill_delete(detail)
-        await expect(confirmation).to_contain_text('历史')
-        await accept(self.page)
-        await expect(self.page.locator('.skill-item')).to_have_count(0)
-        self.assertEqual(self.updates, [])
+        await expect(detail.get_by_role('button', name='更多技能操作', exact=True)).to_have_count(0)
+        toggle = detail.get_by_role('switch')
+        await toggle.click()
+        await expect(toggle).not_to_be_checked()
+        await toggle.click()
+        await expect(toggle).to_be_checked()
+        self.assertEqual(self.updates, [{'status': 'disabled', 'expected_version': 1}, {'status': 'enabled', 'expected_version': 2}])
+        self.assertEqual(self.skill['revision_id'], 'revision-1')
+        self.assertEqual(len(self.items), 1)
+        self.assertEqual(deletes, [])
 
     async def test_skill_dependency_lists_actionable_and_private_references(self):
         async def blocked(route):
@@ -97,7 +105,7 @@ class LifecycleSkills(SkillsUIRegressions):
             return { warnings, text }
         }""")
         self.assertIn('草稿', rendering['text'])
-        self.assertIn('已发布', rendering['text'])
+        self.assertIn('已启用', rendering['text'])
         self.assertFalse(any('Duplicate keys' in warning for warning in rendering['warnings']), rendering['warnings'])
         await references.get_by_role('link', name='研究助手', exact=True).click()
         await expect(self.page).to_have_url(re.compile(r'/agents/agent-1$'))
@@ -228,8 +236,7 @@ class LifecycleModels(ModelManagementRegressions):
                 },
             ),
         )
-        await self.page.goto(self.origin + '/models')
-        await self.page.get_by_role('tab', name='凭据管理', exact=True).click()
+        await self.page.goto(self.origin + '/credentials')
         await self.page.get_by_role('button', name='更多凭据操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='删除凭据', exact=True)).to_be_visible()
         await self.page.get_by_role('menuitem', name='删除凭据', exact=True).click()
@@ -258,11 +265,11 @@ class LifecycleAgents(AgentsUIRegressions):
         await self.page.route('**/api/agents/agent-1', block_delete)
         await self.open_agents()
         await self.choose_agent_action('配置')
-        await self.page.get_by_role('button', name='删除智能体', exact=True).click()
+        await self.page.get_by_role('button', name='删除智能助手', exact=True).click()
         await accept(self.page)
         references = self.page.get_by_role('region', name='使用中的资源', exact=True)
         await expect(references).to_be_visible()
-        await self.page.get_by_label('智能体名称', exact=True).fill('新的名称')
+        await self.page.get_by_label('智能助手名称', exact=True).fill('新的名称')
         await self.page.get_by_role('button', name='保存', exact=True).click()
         await expect(references).to_have_count(0)
 
@@ -296,7 +303,7 @@ class LifecycleAgents(AgentsUIRegressions):
         )
         await self.open_agents()
         await self.choose_agent_action('配置')
-        await self.page.get_by_role('button', name='删除智能体', exact=True).click()
+        await self.page.get_by_role('button', name='删除智能助手', exact=True).click()
         await accept(self.page)
         await expect(
             self.page.get_by_role('region', name='使用中的资源', exact=True).get_by_role(
@@ -305,16 +312,16 @@ class LifecycleAgents(AgentsUIRegressions):
         ).to_have_attribute('href', '/work/work-1')
 
     async def test_published_agent_deletes_directly(self):
-        self.agent.update(status='published', published_version=1, published_config=self.config.copy())
+        self.agent.update({'status': 'enabled', **self.config.copy()})
         await self.open_agents()
         await self.choose_agent_action('配置')
         editor = self.page.locator('.agent-editor--page')
-        await expect(editor.get_by_role('button', name='删除智能体', exact=True)).to_be_enabled()
-        await editor.get_by_role('button', name='删除智能体', exact=True).click()
+        await expect(editor.get_by_role('button', name='删除智能助手', exact=True)).to_be_enabled()
+        await editor.get_by_role('button', name='删除智能助手', exact=True).click()
         await expect(self.page.get_by_role('dialog')).to_contain_text('下线')
-        await expect(self.page.get_by_role('dialog')).to_contain_text('历史')
+        await expect(self.page.get_by_role('dialog')).to_contain_text('运行和用量记录仍会保留')
         await accept(self.page)
-        await expect(self.page.get_by_role('heading', name='智能体', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('heading', name='智能助手', exact=True)).to_be_visible()
         self.assertEqual(self.agents, [])
 
 

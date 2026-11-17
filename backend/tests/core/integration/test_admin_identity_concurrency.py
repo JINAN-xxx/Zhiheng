@@ -113,7 +113,7 @@ async def test_existing_token_observes_committed_role_revocation(pg_identity: tu
             {
                 'code': 'reader',
                 'name': 'Reader',
-                'permissions': ['system:users:read'],
+                'permissions': ['system:users:enabled', 'system:users:read'],
             },
         )
         await service.create(
@@ -127,7 +127,7 @@ async def test_existing_token_observes_committed_role_revocation(pg_identity: tu
             },
         )
         principal, token = await service.identity.login(session, username='reader', password='a-long-test-password')
-        assert principal.permissions == frozenset({'system:users:read'})
+        assert principal.permissions == frozenset({'system:users:enabled', 'system:users:read'})
     async with factory.begin() as session:
         await service.update(session, first, 'roles', role['id'], {'permissions': []}, expected_version=1)
     async with factory() as session:

@@ -50,8 +50,8 @@ async def create(
 
 
 @router.get('/scope-catalog')
-async def scope_catalog(_principal: PrincipalDependency) -> dict[str, object]:
-    return capabilities()
+async def scope_catalog(principal: PrincipalDependency) -> dict[str, object]:
+    return capabilities(principal)
 
 
 @router.get('/{application_id}')

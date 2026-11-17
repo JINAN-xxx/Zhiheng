@@ -215,7 +215,7 @@ async def test_upgrade_preserves_uploaded_facts_and_binds_builtin_archives(setti
             with pytest.raises(AppError, match='所选技能'):
                 await require_frozen_available(session, owner.id, frozen)
             await require_frozen_available(session, other.id, frozen)
-        with pytest.raises(RuntimeError, match='owner boundaries'):
+        with pytest.raises(RuntimeError, match='restore a database backup'):
             await _version(settings, '0013_skill_revision_history', downgrade=True)
     finally:
         await engine.dispose()
@@ -260,7 +260,7 @@ async def test_work_preparation_uses_frozen_member_owner_instead_of_task_owner(
                     agent_id=agent.id,
                     agent_owner_id=owner.id,
                     agent_name_snapshot='Owned agent',
-                    published_version=1,
+                    agent_revision=1,
                     config=agent.config,
                     skills=[{'skill_id': str(skill_id), 'revision_id': str(revision_id), 'slug': 'legacy-owned'}],
                 ),

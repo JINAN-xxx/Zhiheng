@@ -5,8 +5,8 @@ import zipfile
 import httpx
 import pytest
 
-from zhiheng.modules.knowledge.adapters.mineru import MinerUClient, MinerUFailure, unpack_result
-from zhiheng.modules.knowledge.parsing_contracts import ParsingSettingsPatch
+from zhiheng.modules.files.adapters.mineru import MinerUClient, MinerUFailure, unpack_result
+from zhiheng.modules.files.public import ParsingSettingsPatch
 from zhiheng.shared.errors import AppError
 
 
@@ -142,7 +142,7 @@ async def test_native_fallback_refuses_mixed_text_and_image_only_pages() -> None
     from pypdf import PdfWriter
     from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
 
-    from zhiheng.modules.knowledge.adapters.native import NativeParser
+    from zhiheng.modules.files.adapters.native import NativeParser
 
     writer = PdfWriter()
     page = writer.add_blank_page(200, 200)

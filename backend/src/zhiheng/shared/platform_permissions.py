@@ -17,25 +17,6 @@ def platform_catalog() -> list[dict[str, str]]:
 def has_capability(principal: Principal, module: str, action: str = 'read') -> bool:
     if principal.is_admin:
         return True
-    defaults = {
-        'chat': 'use',
-        'agents': 'use',
-        'work': 'use',
-        'knowledge': 'query',
-        'skills': 'use',
-        'developer': 'read',
-        'models': 'read',
-        'usage': 'read',
-        'overview': 'read',
-    }
-    if action == 'access':
-        action = defaults.get(module, 'read')
-    if action == 'use' and module == 'knowledge':
-        action = 'query'
-    if action == 'manage':
-        return is_granted(principal.permissions, f'platform:{module}:manage')
-    if action == 'write':
-        action = 'update'
     return is_granted(principal.permissions, f'platform:{module}:{action}')
 
 
@@ -50,6 +31,7 @@ def require_execution_capabilities(
     module, action = {
         'chat': ('chat', 'use'),
         'chat_summary': ('chat', 'use'),
+        'agent_summary': ('agents', 'use'),
         'agent_chat': ('agents', 'use'),
         'agent_preview': ('agents', 'debug'),
         'work_turn': ('work', 'use'),

@@ -2,6 +2,7 @@
 
 from zhiheng.application.access import ResourceAccessService
 from zhiheng.application.agents.conversations import AssistantConversationService
+from zhiheng.application.agents.execution import AssistantAgentService
 from zhiheng.application.chat.context import ChatContextService
 from zhiheng.application.execution.content_access import RunContentAccess
 from zhiheng.application.knowledge.graph.runs import GraphRuns
@@ -36,8 +37,10 @@ class ModelExecutionAuthorization:
         resource_access: ResourceAccessService,
         files: FileService,
         assistant_conversations: AssistantConversationService,
+        assistant_agent: AssistantAgentService,
     ) -> None:
         self.assistant_conversations = assistant_conversations
+        self.assistant_agent = assistant_agent
         self.database, self.chat_context, self.keys = database, chat_context, keys
         self.graph_runs, self.knowledge_preparation = graph_runs, knowledge_preparation
         self.run_content = run_content
@@ -46,7 +49,7 @@ class ModelExecutionAuthorization:
 
     async def prepare_provider(self, binding: ModelBinding) -> ModelProvider:
         async with self.database.sessions() as session:
-            return await self.models.prepare_provider(session, binding)
+            return await self.models.bindings.provider(session, binding)
 
     async def _require_test(self, claim: ClaimedRun) -> None:
         async with self.database.sessions.begin() as session:
@@ -54,12 +57,12 @@ class ModelExecutionAuthorization:
             expected = ModelRequest.model_validate(claim.payload).binding
             if claim.resource_id != expected.model_id:
                 raise AppError('model_test_changed', '试用请求与模型不匹配', 409)
-            current = await self.models.resolve_for_test(session, principal, expected.model_id)
+            current = await self.models.bindings.resolve_for_test(session, principal, expected.model_id)
             if current.connection_id != expected.connection_id or current.model_type != expected.model_type:
                 raise AppError('model_test_changed', '模型连接已变化，请重新试用', 409)
 
     async def _require_knowledge_run(self, claim: ClaimedRun) -> None:
-        if claim.resource_type in {'chat', 'agent_preview', 'agent_invocation', 'work_turn'}:
+        if claim.resource_type in {'agent_preview', 'agent_invocation', 'work_turn'}:
             async with self.database.sessions.begin() as session:
                 if claim.resource_type in {'agent_preview', 'agent_invocation', 'work_turn'}:
                     principal = await self.identity.principal_for_user(session, claim.owner_id)
@@ -71,6 +74,7 @@ class ModelExecutionAuthorization:
             'chat',
             'chat_summary',
             'agent_chat',
+            'agent_summary',
             'agent_preview',
             'agent_invocation',
             'work_turn',
@@ -78,7 +82,7 @@ class ModelExecutionAuthorization:
             async with self.database.sessions() as session:
                 principal = await self.identity.principal_for_user(session, claim.owner_id)
                 if claim.resource_type == 'agent_invocation':
-                    require_capability(principal, 'agents', 'access')
+                    require_capability(principal, 'agents', 'use')
                 else:
                     require_execution_capabilities(principal, claim.resource_type)
                 for module in ModelRequest.model_validate(claim.payload).required_modules:
@@ -86,11 +90,16 @@ class ModelExecutionAuthorization:
                         principal, module, 'query' if module == 'knowledge' else 'use' if module == 'skills' else 'read'
                     )
 
-    async def require(self, claim: ClaimedRun) -> None:  # noqa: PLR0912 - explicit policies for distinct execution resources
+    async def require(self, claim: ClaimedRun) -> None:  # noqa: PLR0912, PLR0915 - explicit policies for distinct execution resources
         await self._require_platform(claim)
         await self._require_knowledge_run(claim)
+        if claim.resource_type in {'agent_chat', 'agent_preview', 'agent_invocation', 'agent_summary'}:
+            await self.assistant_agent.guard(claim)
+            if claim.resource_type == 'agent_invocation':
+                async with self.database.sessions.begin() as session:
+                    await self.keys.authorize_run(session, claim.id, scope='agents:invoke')
+            return
         guards = {
-            'agent_chat': self.assistant_conversations.guard,
             'connection_test': self._require_test,
             'chat': self.chat_context.guard,
             'chat_summary': self.chat_context.guard,
@@ -161,7 +170,7 @@ class ModelExecutionAuthorization:
                     session, claim.resource_id, claim.id
                 )
                 owner = await self.identity.principal_for_user(session, owner_id)
-                binding = await self.models.resolve(session, expected.model_id)
+                binding = await self.models.bindings.resolve(session, expected.model_id)
                 if origin is None:
                     operation = await self.knowledge_jobs.store.operation(session, claim.resource_id)
                     require_capability(

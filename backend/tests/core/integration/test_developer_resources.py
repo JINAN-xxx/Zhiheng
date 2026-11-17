@@ -128,6 +128,9 @@ async def test_file_usage_survives_unbind_and_admin_does_not_discover_foreign_so
     after = (await admin.get(prefix + '/resource-access')).json()
     assert after['source_count'] == before['source_count'] and after['source_bytes'] == before['source_bytes']
     assert after['items'] == [] and after['application_version'] == removed.json()['version']
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:developer', 'create', 'grant'))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         assert (
             await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})

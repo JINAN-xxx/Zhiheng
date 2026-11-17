@@ -21,8 +21,6 @@ class ChatKnowledgeV2Regressions(ChatFilesUIRegressions):
         self.metadata_reads=[]
         self.lost=False
         self.already=False
-        self.sources=[]
-        self.reference_downloads=[]
         self.targets=[BASE]
         self.join_error_status=0
         self.join_error_code='rejected'
@@ -37,7 +35,7 @@ class ChatKnowledgeV2Regressions(ChatFilesUIRegressions):
     async def respond(self,route):
         path=urlparse(route.request.url).path
         if path=='/api/chat/conversations/c1/messages':
-            await route.fulfill(json=[{'id':'msg-1','role':'user','content':'分析资料','reasoning':'','run_id':None,'created_at':STAMP,'reply_to_message_id':None,'generation_index':1,'is_complete':True,'feedback':None,'knowledge_sources':self.sources,'skill_snapshots':[],'attachments':[{'file_id':'file-1','original_filename':'report.txt','mime':'text/plain','size':12,'sha256':'a'*64,'artifact_file_id':None,'parser_version':None,'owner_id':self.owner}]}])
+            await route.fulfill(json=[{'id':'msg-1','role':'user','content':'分析资料','reasoning':'','run_id':None,'created_at':STAMP,'reply_to_message_id':None,'generation_index':1,'is_complete':True,'feedback':None,'skill_snapshots':[],'attachments':[{'file_id':'file-1','original_filename':'report.txt','mime':'text/plain','size':12,'sha256':'a'*64,'artifact_file_id':None,'parser_version':None,'owner_id':self.owner}]}])
         elif path=='/api/knowledge/bases':
             await route.fulfill(json=self.targets)
         elif path=='/api/knowledge/bases/base-1/attachments':
@@ -48,11 +46,6 @@ class ChatKnowledgeV2Regressions(ChatFilesUIRegressions):
                 await route.fulfill(status=503,json={'error':{'code':'unknown','message':'提交结果待确认'}})
             else:
                 await route.fulfill(json={'document':DOC,'job':JOB,'already_exists':self.already})
-        elif path=='/api/knowledge/bases/base-1/documents/doc-copy/preview':
-            await route.fulfill(json={'document_id':'doc-copy','file_id':'copied-file','text':'共享资料副本','parser_version':'native-v1','chunk_count':1})
-        elif path=='/api/knowledge/bases/base-1/documents/doc-copy/download':
-            self.reference_downloads.append(path)
-            await route.fulfill(body='shared copy',content_type='text/plain')
         elif path=='/api/files/file-1':
             self.metadata_reads.append(path)
             from files_regressions import FILE
@@ -141,20 +134,6 @@ class ChatKnowledgeV2Regressions(ChatFilesUIRegressions):
         await expect(self.page.get_by_role('menuitem',name='下载',exact=True)).to_be_visible()
         self.assertEqual(self.imports,[])
         self.assertEqual(self.metadata_reads,[])
-
-    async def test_shared_reference_download_rechecks_library_document_access(self):
-        self.sources=[{'chunk_id':'chunk-copy','document_id':'doc-copy','file_id':'copied-file',
-            'source_id':'doc-copy','knowledge_base_id':'base-1','index_revision':'r2','title':'共享资料.txt',
-            'content':'共享资料副本','score':0.8}]
-        await self.page.goto(self.origin+'/chat')
-        await self.select_conversation('附件会话')
-        await self.page.get_by_text('知识来源 · 1',exact=True).click()
-        await self.page.get_by_role('button',name='查看来源：共享资料.txt',exact=True).click()
-        modal=self.page.get_by_role('dialog')
-        await expect(modal).to_contain_text('共享资料副本')
-        async with self.page.expect_download():
-            await modal.get_by_role('button',name='下载资料',exact=True).click()
-        self.assertEqual(len(self.reference_downloads),1)
 
     async def test_unknown_acceptance_retries_same_copy_request(self):
         self.lost=True

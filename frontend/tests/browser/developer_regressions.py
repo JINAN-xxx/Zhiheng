@@ -68,7 +68,9 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
             body = {'id': 'user-1', 'username': 'admin', 'is_admin': True}
         elif path == '/api/developer/applications/scope-catalog':
             values = [('models:invoke', '模型调用', True), ('agents:invoke', '智能体调用', True), ('files:read', '读取文件', False), ('files:write', '管理文件', False)]
-            body = json.loads(Path(os.environ['PLATFORM_SCOPE_FIXTURE']).read_text()) if os.environ.get('PLATFORM_SCOPE_FIXTURE') else {'scopes': [item[0] for item in values], 'definitions': [{'scope': scope, 'label': label, 'description': label, 'requires_models': required} for scope, label, required in values], 'caps': {'resource_rpm_min': 1, 'resource_rpm_max': 120}}
+            body = json.loads(Path(os.environ['PLATFORM_SCOPE_FIXTURE']).read_text()) if os.environ.get('PLATFORM_SCOPE_FIXTURE') else {'scopes': [item[0] for item in values], 'definitions': [{'scope': scope, 'label': label, 'description': label, 'requires_models': required, 'grantable': True, 'reason': None} for scope, label, required in values], 'caps': {'resource_rpm_min': 1, 'resource_rpm_max': 120}}
+        elif path == '/api/models/connection-options':
+            body = [{'id': 'connection-1', 'name': '团队服务', 'enabled': True}]
         elif path == '/api/models':
             body = [{'id': 'model-1', 'name': '日常助手', 'connection_id': 'connection-1', 'upstream_model': 'upstream-private', 'max_output_tokens': 512, 'model_type': 'chat', 'published': True, 'enabled': True, 'capabilities': ['chat', 'stream']}]
         elif path == '/api/chat/conversations':

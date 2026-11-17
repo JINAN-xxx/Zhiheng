@@ -144,7 +144,7 @@ async def test_permissions_enforced_for_every_operations_area(session: AsyncSess
         with pytest.raises(AppError) as denied:
             await operation
         assert denied.value.status_code == 403
-    reader = Principal(uuid4(), 'reader', False, frozenset({'system:notices:read'}))
+    reader = Principal(uuid4(), 'reader', False, frozenset({'system:notices:enabled', 'system:notices:read'}))
     assert (await service.list_notices(session, reader)).total == 0
     with pytest.raises(AppError) as denied:
         await service.create_notice(session, reader, CreateNotice(title='越权', content='禁止'))

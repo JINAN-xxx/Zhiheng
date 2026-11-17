@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from tests.core.billing_support import enable_free_billing
+from tests.core.permission_support import grant_member, grants
 from tests.core.unit.test_skill_package import markdown
 
 
@@ -26,6 +27,7 @@ async def install(admin: httpx.AsyncClient, slug: str = 'sample', body: str = 'I
 
 
 async def test_builtins_and_two_phase_owner_cas_and_soft_delete(admin: httpx.AsyncClient, app: object) -> None:
+    await grant_member(admin, grants('platform:skills', 'create'))
     builtin = (await admin.get('/api/skills/available')).json()
     assert {item['slug'] for item in builtin} == {
         'deep-research',

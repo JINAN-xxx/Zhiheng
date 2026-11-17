@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 import httpx
@@ -10,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import active_migration_context
+from tests.core.schema_support import RETIRED_COLUMNS, active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -44,21 +43,10 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for name in tables:
-            selector = ''
-            if name in {'skills', 'skill_revisions'}:
-                identifiers = [json.loads(row)['id'] for row in snapshots[name]]
-                selector = (
-                    ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
-                    if identifiers
-                    else ' WHERE false'
-                )
-
-            old = [r[1] for r in columns if r[0] == name]
-            assert (
-                await connection.execute(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(old)} FROM {name}{selector}) t ORDER BY 1')
-                )
-            ).scalars().all() == snapshots[name]
+            current = (
+                (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {name} t ORDER BY 1'))).scalars().all()
+            )
+            assert_original_rows(snapshots[name], current, name)
         updated = (
             await connection.execute(
                 text(
@@ -66,8 +54,8 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
                 )
             )
         ).all()
-        # 0012 intentionally widens token counters; every value and nullability
-        # still survives, and all other existing column types remain unchanged.
+        # 0012 widens token counters; 0036/0039 explicitly retire fields.
+        # Every remaining value, type and nullability must survive.
         widened = {
             ('models', 'max_output_tokens'),
             ('developer_accounts', 'limit_tokens'),
@@ -76,6 +64,9 @@ async def test_schema5_rows_and_column_types_preserved(app: FastAPI, model_id: s
             ('developer_minute_buckets', 'tokens'),
         }
         for table, name, old_type, nullable in columns:
+            if name in RETIRED_COLUMNS.get(table, frozenset()):
+                assert not any(row[0] == table and row[1] == name for row in updated)
+                continue
             expected_type = 'int8' if (table, name) in widened else old_type
             assert (table, name, expected_type, nullable) in updated
 

@@ -15,6 +15,7 @@ from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import SCOPES, finish, setup
 from tests.core.integration.test_work import member_client
 from tests.core.knowledge_support import knowledge_models, legacy_grant
+from tests.core.permission_support import grant_member, grants
 from tests.core.provider import ProviderServer
 from zhiheng.bootstrap.container import Container
 from zhiheng.modules.billing.orm import Invocation
@@ -171,6 +172,13 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
     readonly = await issue(admin, _owner_app['id'], scopes=['knowledge:read'])
     assert (await admin.get('/api/v1/operations/' + indexed['id'], headers=auth(readonly))).status_code == 200
     envelope(await admin.get('/api/v1/files/' + file.json()['id'] + '/content', headers=auth(readonly)), 403)
+    await grant_member(
+        admin,
+        (
+            grants('platform:knowledge', 'query')
+            | grants('platform:developer', 'create', 'key_create', 'grant', 'invoke')
+        ),
+    )
     async with member_client(app) as member:
         member_id = (await member.get('/api/auth/me')).json()['id']
         await legacy_grant(app, base['id'], member_id)
@@ -343,6 +351,7 @@ async def test_original_source_acl_revoked_while_waiting_for_model_stops_provide
     c = app.state.container
     await set_legacy_policy(app, base['id'])
     actor = (await admin.get('/api/auth/me')).json()['id']
+    await grant_member(admin, grants('ai:storage', 'maintain', 'acl'))
     async with member_client(app) as owner:
         uploaded = await owner.post(
             '/api/files?filename=shared.txt',
@@ -380,7 +389,7 @@ async def test_original_source_acl_revoked_while_waiting_for_model_stops_provide
         async with c.database.sessions() as session:
             child = await session.scalar(select(Run.id).where(Run.status == 'pending'))
         assert child is not None
-        original = c.models.resolve
+        original = c.models.bindings.resolve
         revoked = False
 
         async def resolve(session: AsyncSession, model_id: UUID, **kwargs: bool) -> ModelBinding:
@@ -395,7 +404,7 @@ async def test_original_source_acl_revoked_while_waiting_for_model_stops_provide
                 assert changed.status_code == 200, changed.text
             return binding
 
-        monkeypatch.setattr(c.models, 'resolve', resolve)
+        monkeypatch.setattr(c.models.bindings, 'resolve', resolve)
         await execute_run(c, child)
         assert revoked
         assert provider.requests == [], 'A Key administrator bypassed a revoked actual source ACL after the model wait'
@@ -415,6 +424,13 @@ async def test_cancel_own_shared_query_needs_write_scope_and_current_query_grant
     )
     assert indexed.status_code == 202, indexed.text
     assert (await finish(admin, app, key, indexed.json()))['status'] == 'succeeded'
+    await grant_member(
+        admin,
+        (
+            grants('platform:knowledge', 'query', 'update')
+            | grants('platform:developer', 'create', 'key_create', 'grant', 'invoke')
+        ),
+    )
     async with member_client(app) as member:
         member_id = (await member.get('/api/auth/me')).json()['id']
         sharing_path = '/api/knowledge/bases/' + base['id']
@@ -511,6 +527,7 @@ async def test_admin_query_implicit_foreign_source_checks_current_acl_and_filter
     c = app.state.container
     await set_legacy_policy(app, base['id'])
     actor = (await admin.get('/api/auth/me')).json()['id']
+    await grant_member(admin, grants('ai:storage', 'maintain', 'acl'))
     async with member_client(app) as owner:
         uploaded = await owner.post(
             '/api/files?filename=foreign.txt',

@@ -30,7 +30,7 @@
         >
         <h1>{{ saved?.name || '新建智能助手' }}</h1>
         <div class="editor-status">
-          <a-tag v-if="saved" :color="saved.status === 'published' ? 'green' : 'default'">{{
+          <a-tag v-if="saved" :color="saved.status === 'enabled' ? 'green' : 'default'">{{
             agentStatusLabel(saved)
           }}</a-tag>
           <span v-if="!saved">配置你的智能助手</span>
@@ -46,18 +46,18 @@
           /></a-button>
         </a-tooltip>
         <a-button
-          v-if="saved?.status === 'published' && canUseModule('developer')"
+          v-if="saved?.status === 'enabled' && canUseModule('developer')"
           :disabled="busy"
           aria-label="API 说明"
           @click="apiOpen = true"
           ><ApiOutlined />API 说明</a-button
         >
         <a-button
-          v-if="saved?.status === 'published' && canPublish"
+          v-if="saved?.status === 'enabled' && canToggle"
           :disabled="busy"
-          aria-label="取消发布"
-          @click="unpublish"
-          ><StopOutlined />取消发布</a-button
+          aria-label="停用"
+          @click="disable"
+          ><StopOutlined />停用</a-button
         >
         <a-button
           v-if="!page && saved && canUseCapability('agents', 'debug')"
@@ -74,18 +74,13 @@
           @click="save"
           ><SaveOutlined />保存</a-button
         >
-        <a-tooltip v-if="saved && canPublish" :title="dirty ? '保存后发布' : '发布当前草稿'">
+        <a-tooltip v-if="saved && canToggle" :title="dirty ? '保存后启用' : '启用当前助手'">
           <a-button
             type="primary"
-            :disabled="
-              busy ||
-              dirty ||
-              knowledgePolicyBlocked ||
-              (saved.status === 'published' && !hasUnpublishedAgentChanges(saved))
-            "
-            aria-label="发布"
-            @click="publish"
-            ><CloudUploadOutlined />发布</a-button
+            :disabled="busy || dirty || knowledgePolicyBlocked || saved.status === 'enabled'"
+            aria-label="启用"
+            @click="enable"
+            ><PoweroffOutlined />启用</a-button
           >
         </a-tooltip>
       </div>
@@ -245,7 +240,7 @@
             <section id="agent-config-runtime" class="config-section">
               <div class="config-heading">
                 <span><SettingOutlined /></span>
-                <h2>模型与发布</h2>
+                <h2>模型与启用</h2>
               </div>
               <div class="config-fields">
                 <a-form-item label="模型" name="modelId"
@@ -289,24 +284,10 @@
                     />
                   </a-form-item>
                 </div>
-                <a-form-item
-                  label="上下文轮数"
-                  name="historyRounds"
-                  extra="携带最近的历史问答，0 表示仅发送当前问题。保存后用于调试，发布后用于 API 和工作空间。"
-                >
-                  <div class="history-rounds-control">
-                    <a-slider
-                      v-bind="historySliderAccessibility"
-                      :value="form.historyRounds ?? 20"
-                      :min="0"
-                      :max="20"
-                      :step="1"
-                      :marks="{ 0: '0', 5: '5', 10: '10', 15: '15', 20: '20' }"
-                      :disabled="!canEdit || busy"
-                      @update:value="setHistoryRounds"
-                    />
-                    <span class="history-rounds-value">{{ form.historyRounds ?? 20 }} 轮</span>
-                  </div>
+                <a-form-item label="会话记忆">
+                  <p class="field-description">
+                    正式对话自动整理较早历史，保留近期原文；整理产生的模型用量计入账户。
+                  </p>
                 </a-form-item>
                 <a-form-item label="API 应用" name="applicationId"
                   ><div class="application-field">
@@ -338,22 +319,27 @@
           :model-value="true"
           :agent="saved"
           embedded
-          :disabled="dirty || !saved || loading || !!loadError || !canEdit"
+          :disabled="
+            dirty ||
+            !saved ||
+            loading ||
+            !!loadError ||
+            !canEdit ||
+            !canUseCapability('agents', 'debug')
+          "
           @busy-change="previewBusy = $event"
         />
         <section class="publication-note">
           <ThunderboltOutlined />
           <div>
-            <h3>发布状态</h3>
+            <h3>启用状态</h3>
             <p>
               {{
-                saved?.status === 'published'
-                  ? 'API 使用当前已发布配置。'
-                  : '发布后可通过 API 调用。'
+                saved?.status === 'enabled' ? 'API 使用当前已启用配置。' : '启用后可通过 API 调用。'
               }}
             </p>
             <p>
-              {{ dirty ? '保存更改后可试聊与发布。' : '保存草稿后，需发布才会更新 API 配置。' }}
+              {{ dirty ? '保存更改后可调试和启用。' : '保存后用于后续对话和 API 调用。' }}
             </p>
           </div>
         </section>
@@ -407,7 +393,6 @@ import {
   InputNumber as AInputNumber,
   Modal as AModal,
   Select as ASelect,
-  Slider as ASlider,
   Tag as ATag,
   Textarea as ATextarea,
   Tooltip as ATooltip
@@ -417,7 +402,7 @@ import {
   ApiOutlined,
   ArrowLeftOutlined,
   BookOutlined,
-  CloudUploadOutlined,
+  PoweroffOutlined,
   RobotOutlined,
   SettingOutlined,
   ThunderboltOutlined,
@@ -443,8 +428,8 @@ import {
   deleteAgent,
   getAgent,
   getAgentKnowledgePolicy,
-  publishAgent,
-  unpublishAgent,
+  enableAgent,
+  disableAgent,
   updateAgent
 } from '../api/index.ts'
 import type { Agent, AgentKnowledgePolicy } from '../api/index.ts'
@@ -454,7 +439,6 @@ import {
   agentStatusLabel,
   buildAgentPayload,
   createAgentForm,
-  hasUnpublishedAgentChanges,
   withCurrent
 } from '../presentation.ts'
 import AgentPreviewDrawer from './AgentPreviewDrawer.vue'
@@ -475,7 +459,7 @@ const sections = [
   { id: 'basic', label: '基本信息' },
   { id: 'prompt', label: '提示词' },
   { id: 'resources', label: '技能与知识' },
-  { id: 'runtime', label: '模型与发布' }
+  { id: 'runtime', label: '模型与启用' }
 ]
 const activeSection = ref('basic')
 function scrollToSection(id: string): void {
@@ -526,7 +510,7 @@ const canEdit = computed(
     canUseCapability('agents', saved.value ? 'update' : 'create') &&
     (!saved.value || identity.value?.id === saved.value.ownerId)
 )
-const canPublish = computed(
+const canToggle = computed(
   () => canUseCapability('agents', 'publish') && saved.value?.ownerId === identity.value?.id
 )
 const canCreateApplication = computed(
@@ -608,7 +592,6 @@ const applicationOptions = computed(() =>
 // InputNumber forwards accessibility attributes omitted from its public prop types.
 const maxTokensAccessibility = computed(() => ({ 'aria-invalid': Boolean(maxTokensError.value) }))
 // Slider forwards handle accessibility attributes that its public prop types omit.
-const historySliderAccessibility = { ariaLabelForHandle: '上下文轮数' }
 const rules = {
   name: [{ required: true, whitespace: true, message: '请输入名称' }],
   modelId: [{ required: true, message: '请选择模型' }],
@@ -617,9 +600,6 @@ const rules = {
       validator: () =>
         maxTokensError.value ? Promise.reject(new Error(maxTokensError.value)) : Promise.resolve()
     }
-  ],
-  historyRounds: [
-    { required: true, type: 'integer' as const, min: 0, max: 20, message: '请输入 0–20 的整数' }
   ],
   knowledgeTopK: [
     { required: true, type: 'integer' as const, min: 1, max: 15, message: '请输入 1–15 的整数' }
@@ -652,7 +632,7 @@ async function load(): Promise<void> {
   const results = await Promise.allSettled([
     props.agentId ? getAgent(props.agentId, context.signal) : Promise.resolve(null),
     getModels(context.signal),
-    canUseCapability('skills') ? listAvailableSkills(context.signal) : Promise.resolve([]),
+    canUseCapability('skills', 'use') ? listAvailableSkills(context.signal) : Promise.resolve([]),
     canUseModule('developer') ? allApplications(context.signal) : Promise.resolve([]),
     canUseModule('knowledge')
       ? availableBases(context.signal, props.agentId || undefined)
@@ -676,8 +656,7 @@ async function load(): Promise<void> {
         knowledgeTopK: original.knowledge_top_k ?? 8,
         applicationId: original.application_id,
         temperature: original.temperature,
-        maxTokens: original.max_tokens,
-        historyRounds: original.history_rounds
+        maxTokens: original.max_tokens
       })
     }
   } else if (!isAborted(detail.reason)) loadError.value = errorMessage(detail.reason)
@@ -759,14 +738,11 @@ async function save(): Promise<void> {
     payload.temperature > 2 ||
     !Number.isSafeInteger(payload.max_tokens) ||
     payload.max_tokens < 1 ||
-    !Number.isInteger(payload.history_rounds) ||
-    payload.history_rounds < 0 ||
-    payload.history_rounds > 20 ||
     !Number.isInteger(payload.knowledge_top_k ?? 8) ||
     (payload.knowledge_top_k ?? 8) < 1 ||
     (payload.knowledge_top_k ?? 8) > 15
   ) {
-    error.value = '请填写有效温度、输出上限、上下文轮数和召回片段数'
+    error.value = '请填写有效温度、输出上限和召回片段数'
     return
   }
   const model = models.value.find((item) => item.id === payload.model_id)
@@ -804,16 +780,16 @@ async function save(): Promise<void> {
     if (context.isCurrent()) saving.value = false
   }
 }
-async function publish(): Promise<void> {
+async function enable(): Promise<void> {
   const item = saved.value
-  if (!item || dirty.value || busy.value || !canPublish.value) return
+  if (!item || dirty.value || busy.value || !canToggle.value) return
   errorDetails.value = undefined
   const context = mutationScope.replace()
   actionBusy.value = true
   error.value = ''
   try {
     if (!(await refreshKnowledgePolicy()) || !context.isCurrent()) return
-    const next = await publishAgent(item.agentId, item.version, context.signal)
+    const next = await enableAgent(item.agentId, item.version, context.signal)
     if (context.isCurrent()) acceptAgent(next)
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
@@ -821,20 +797,20 @@ async function publish(): Promise<void> {
     if (context.isCurrent()) actionBusy.value = false
   }
 }
-async function unpublish(): Promise<void> {
+async function disable(): Promise<void> {
   const item = saved.value
-  if (!item || busy.value || !canPublish.value) return
+  if (!item || busy.value || !canToggle.value) return
   errorDetails.value = undefined
   const context = mutationScope.replace()
   if (
-    !(await confirmation.confirm('取消发布后，新的 API 调用将立即停止。继续取消发布？')) ||
+    !(await confirmation.confirm('停用后将暂停新的正式对话和 API 调用。继续停用？')) ||
     !context.isCurrent()
   )
     return
   actionBusy.value = true
   error.value = ''
   try {
-    const next = await unpublishAgent(item.agentId, item.version, context.signal)
+    const next = await disableAgent(item.agentId, item.version, context.signal)
     if (context.isCurrent()) {
       saved.value = next
       emit('changed', next)
@@ -851,7 +827,7 @@ async function remove(): Promise<void> {
   const context = mutationScope.replace()
   if (
     !(await confirmation.confirm(
-      `删除智能助手「${item.name}」？已发布的智能助手将自动下线，历史版本和运行记录仍会保留。`
+      `删除智能助手「${item.name}」？已启用的智能助手将自动下线，已发生的运行和用量记录仍会保留。`
     )) ||
     !context.isCurrent()
   )
@@ -984,9 +960,7 @@ function setTemperature(value: unknown): void {
 function setMaxTokens(value: unknown): void {
   form.maxTokens = typeof value === 'number' ? value : null
 }
-function setHistoryRounds(value: unknown): void {
-  form.historyRounds = typeof value === 'number' ? value : null
-}
+
 function modelChanged(value: unknown): void {
   if (typeof value !== 'string') return
   form.modelId = value
@@ -1222,11 +1196,6 @@ onBeforeUnmount(() => {
 .sampling-fields :deep(.ant-input-number) {
   width: 100%;
 }
-.history-rounds-control {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
 .history-rounds-control :deep(.ant-slider) {
   min-width: 0;
   flex: 1;
@@ -1235,14 +1204,6 @@ onBeforeUnmount(() => {
 .history-rounds-control :deep(.ant-slider-mark-text) {
   color: var(--color-text-secondary);
   font-size: 12px;
-}
-.history-rounds-value {
-  min-width: 44px;
-  color: var(--color-text);
-  font-size: 14px;
-  line-height: 28px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 .application-field {
   display: flex;

@@ -3,7 +3,13 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { object, string } from '../../../shared/validation.ts'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import {
+  isDefiniteRejection,
+  ApiError,
+  errorMessage,
+  isAborted,
+  RequestScope
+} from '../../../shared/http.ts'
 import type { ContextTicket } from '../../../shared/http.ts'
 import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { identity } from '../../identity/public.ts'
@@ -255,11 +261,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
-        configUncertain.value = !(
-          reason instanceof ApiError &&
-          reason.status >= 400 &&
-          reason.status < 500
-        )
+        configUncertain.value = !isDefiniteRejection(reason)
       }
       return false
     } finally {
@@ -271,7 +273,8 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     if (!intent || starting.value || intent.baseId !== baseId.value || !state.value?.can_manage)
       return
     const ticket = writeScope.replace(),
-      epoch = protectedEpoch
+      epoch = protectedEpoch,
+      confirming = uncertain.value
     starting.value = true
     error.value = ''
     try {
@@ -294,7 +297,7 @@ export function useKnowledgeGraph(baseId: Ref<string>, enabled: Ref<boolean>) {
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
-        const rejected = reason instanceof ApiError && reason.status >= 400 && reason.status < 500
+        const rejected = !confirming && isDefiniteRejection(reason)
         if (rejected) {
           pending.value = null
           uncertain.value = false

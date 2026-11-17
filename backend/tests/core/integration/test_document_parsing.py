@@ -19,8 +19,9 @@ from tests.core.integration.test_knowledge_failures import source
 from tests.core.provider import ProviderServer
 from tests.core.unit.test_mineru_transport import result_package
 from zhiheng.application.files.parsing import DocumentParsing
-from zhiheng.modules.knowledge.adapters.mineru import MinerUClient, MinerUFailure
-from zhiheng.modules.knowledge.parsing_orm import ParsingConfiguration, ParsingJob
+from zhiheng.modules.files.adapters.mineru import MinerUClient, MinerUFailure
+from zhiheng.modules.files.parsing_orm import ParsingConfiguration
+from zhiheng.modules.knowledge.parsing_orm import ParsingJob
 from zhiheng.shared.time import utcnow
 
 

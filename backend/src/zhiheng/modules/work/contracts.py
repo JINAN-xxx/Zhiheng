@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
+from zhiheng.modules.agents.public import AgentConfig
 from zhiheng.modules.knowledge.public import Hit
 
 MAX_TEXT_BYTES = 65536
@@ -78,7 +79,7 @@ class AddMember(Input):
 
 class UpgradeMember(Input):
     expected_version: Version
-    expected_published_version: Version
+    expected_agent_revision: Version
 
 
 class WorkTurn(Input):
@@ -111,8 +112,8 @@ class TaskSummary(Input):
 class MemberInfo(Input):
     agent_id: UUID
     agent_name_snapshot: str
-    published_version: int
-    latest_published_version: int | None = None
+    agent_revision: int
+    latest_agent_revision: int | None = None
     available: bool = False
     removed_at: datetime | None = None
 
@@ -130,7 +131,7 @@ class MessageInfo(Input):
     error: dict[str, object] | None
     agent_id: UUID | None
     agent_name_snapshot: str | None
-    published_version: int | None
+    agent_revision: int | None
     sequence: int
     created_at: datetime
 
@@ -145,3 +146,9 @@ class TaskPage(Input):
     total: int
     page: int
     page_size: int
+
+
+class WorkAgentConfig(AgentConfig):
+    """Work retains its bounded input policy and accepted member settings."""
+
+    history_rounds: int = Field(default=20, strict=True, ge=0, le=20)

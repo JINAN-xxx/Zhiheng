@@ -44,12 +44,12 @@ async def test_connection_metadata_preserves_index_binding(
     model = next(m for m in (await admin.get('/api/models')).json() if m['id'] == base['embed_model_id'])
     cid = model['connection_id']
     async with app.state.container.database.sessions() as session:
-        before = await app.state.container.models.resolve(session, UUID(model['id']))
+        before = await app.state.container.models.bindings.resolve(session, UUID(model['id']))
     for fields in ({'name': 'Renamed only'}, {'enabled': False}, {'enabled': True}, {'api_key': 'local-test-key'}):
         result = await admin.patch(f'/api/models/connections/{cid}', json=fields)
         assert result.status_code == 200, result.text
     async with app.state.container.database.sessions() as session:
-        after = await app.state.container.models.resolve(session, UUID(model['id']))
+        after = await app.state.container.models.bindings.resolve(session, UUID(model['id']))
     assert before == after
     assert (await admin.get(f'/api/knowledge/bases/{base["id"]}')).json()['index_status'] == 'ready'
 
@@ -206,6 +206,9 @@ async def test_settings_reject_wrong_type_and_foreign_owner(
             path, json=settings_body(base, use_default_rerank=False, rerank_model_id=base['embed_model_id'])
         )
     ).status_code == 422
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:knowledge', 'update'))
     member = await reader(app)
     try:
         assert (await member.patch(path, json=settings_body(base))).status_code == 404

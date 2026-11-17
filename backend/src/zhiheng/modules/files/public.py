@@ -32,33 +32,74 @@ from zhiheng.modules.files.contracts import (
     VersionRequest,
 )
 from zhiheng.modules.files.jobs import FileJobs
-from zhiheng.modules.files.metadata import file_semantics
-from zhiheng.modules.files.queries import FileBinding, FileReadTicket, resource_page
-from zhiheng.modules.files.service import FileService, validate_filename
+from zhiheng.modules.files.lifecycle import FileLifecycle
+from zhiheng.modules.files.metadata import file_semantics, validate_filename
+from zhiheng.modules.files.parsing import ParsingSettingsService
+from zhiheng.modules.files.parsing_contracts import (
+    MAX_IMAGE_URL_BYTES,
+    MAX_INPUT_BYTES,
+    MAX_TEXT_BYTES,
+    PARSER_VERSION,
+    DocumentSourceValidator,
+    MinerUClientFactory,
+    MinerUClientPort,
+    MinerUFailure,
+    MinerUResultDecoder,
+    ParsePort,
+    ParseResult,
+    ParseTier,
+    ParsingServiceStatus,
+    ParsingSettingsInfo,
+    ParsingSettingsPatch,
+    ParsingStatusInfo,
+)
+from zhiheng.modules.files.queries import FileBinding, FileCatalog, FileReadTicket, resource_page
+from zhiheng.modules.files.references import FileReferences
+from zhiheng.modules.files.service import FileService
 
 __all__ = [
+    'MAX_IMAGE_URL_BYTES',
+    'MAX_INPUT_BYTES',
+    'MAX_TEXT_BYTES',
+    'PARSER_VERSION',
     'AclEntry',
     'AclInfo',
     'AclRequest',
     'AttachmentSummary',
     'AuditInfo',
     'BuiltinPermission',
+    'DocumentSourceValidator',
     'FileAccountingFact',
     'FileAuditPage',
     'FileAuditQuery',
     'FileBinding',
+    'FileCatalog',
     'FileInfo',
     'FileJobs',
+    'FileLifecycle',
     'FilePage',
     'FilePatch',
     'FileQuery',
     'FileReadTicket',
+    'FileReferences',
     'FileService',
     'FileStats',
     'FileStatus',
     'IssueAction',
     'JobInfo',
     'JobKind',
+    'MinerUClientFactory',
+    'MinerUClientPort',
+    'MinerUFailure',
+    'MinerUResultDecoder',
+    'ParsePort',
+    'ParseResult',
+    'ParseTier',
+    'ParsingServiceStatus',
+    'ParsingSettingsInfo',
+    'ParsingSettingsPatch',
+    'ParsingSettingsService',
+    'ParsingStatusInfo',
     'PolicyInfo',
     'PolicyRequest',
     'PreparedAttachment',

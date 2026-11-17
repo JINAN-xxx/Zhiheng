@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 
 from tests.core.billing_support import enable_free_billing
-from tests.core.integration.test_ai_management_permissions import account
 from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.modules.models.orm import ModelDefinition
@@ -31,7 +31,7 @@ async def test_legacy_unpublished_trial_uses_custom_input_existing_ledger_and_id
 ) -> None:
     await enable_free_billing(admin)
     await legacy_unpublished(app, model_id)
-    async with account(admin, app, 'ai:models:test') as (tester, _, _):
+    async with account(admin, app, *(grants('platform:models', 'test') | grants('platform:usage'))) as (tester, _, _):
         actor = admin if admin_actor else tester
         assert model_id in {row['id'] for row in (await actor.get('/api/models')).json()}
         assert model_id in {row['id'] for row in (await actor.get('/api/models?trial=true')).json()}
@@ -61,12 +61,12 @@ async def test_legacy_unpublished_trial_uses_custom_input_existing_ledger_and_id
         assert row['enabled'] and 'published' not in row
 
 
-@pytest.mark.parametrize('permission', [None, 'ai:models:read', 'ai:models:write'])
+@pytest.mark.parametrize('permission', [None, 'config_read', 'update'])
 async def test_configuration_permissions_do_not_grant_trial_access(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer, permission: str | None
 ) -> None:
     await legacy_unpublished(app, model_id)
-    async with account(admin, app, *([permission] if permission else [])) as (actor, _, _):
+    async with account(admin, app, *(grants('platform:models', permission) if permission else ())) as (actor, _, _):
         assert (await actor.get('/api/models?trial=true')).status_code == 403
         assert (
             await actor.post(
@@ -118,7 +118,11 @@ async def test_queued_trial_rechecks_current_authority_before_provider(
 ) -> None:
     await legacy_unpublished(app, model_id)
     container = app.state.container
-    async with account(admin, app, 'ai:models:test') as (actor, role, user):
+    async with account(admin, app, *(grants('platform:models', 'test') | grants('platform:usage'))) as (
+        actor,
+        role,
+        user,
+    ):
         result = await actor.post(
             '/api/models/' + model_id + '/trial', json={'client_request_id': str(uuid4()), 'prompt': 'Never sent'}
         )
@@ -221,7 +225,7 @@ async def test_enabled_legacy_unpublished_model_is_available_to_chat_and_authori
     from tests.core.integration.test_public_protocol import drive
 
     await legacy_unpublished(app, model_id)
-    async with account(admin, app) as (member, _, _):
+    async with account(admin, app, *(grants('platform:models') | grants('platform:chat', 'use'))) as (member, _, _):
         catalog = (await member.get('/api/models')).json()
         row = next(row for row in catalog if row['id'] == model_id)
         assert row['enabled'] and 'published' not in row
@@ -246,9 +250,9 @@ async def test_enabled_legacy_unpublished_model_is_available_to_chat_and_authori
     assert response.status_code == 200, response.text
     assert len(provider.requests) == 2
     async with app.state.container.database.sessions() as session:
-        assert model_id in {str(row.id) for row in await app.state.container.models.billing_models(session)}
-        assert await app.state.container.models.is_public(session, UUID(model_id))
-        assert UUID(model_id) in await app.state.container.models.resolve_many(session, [UUID(model_id)])
+        assert model_id in {str(row.id) for row in await app.state.container.models.catalog.billing_models(session)}
+        assert await app.state.container.models.catalog.is_public(session, UUID(model_id))
+        assert UUID(model_id) in await app.state.container.models.bindings.resolve_many(session, [UUID(model_id)])
 
 
 async def test_publication_is_no_longer_a_model_http_contract(admin: httpx.AsyncClient, model_id: str) -> None:

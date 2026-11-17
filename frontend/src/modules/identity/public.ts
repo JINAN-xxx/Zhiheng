@@ -76,7 +76,7 @@ export async function logout(): Promise<void> {
   await endSession()
 }
 
-export function canUseCapability(module: string, action = 'access'): boolean {
+export function canUseCapability(module: string, action: string): boolean {
   return hasCapability(identity.value, module, action)
 }
 export function canUseModule(module: string): boolean {

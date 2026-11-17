@@ -1,3 +1,3 @@
 export { agentRoutes } from './routes.ts'
 
-export { listAgents } from './api/index.ts'
+export { agentResourcePreview } from './resourcePreview.ts'

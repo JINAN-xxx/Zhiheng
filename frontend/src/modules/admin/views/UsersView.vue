@@ -25,7 +25,15 @@ import ResourceTable from '../../../shared/components/ResourceTable.vue'
 
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<AdminUser, UserPayload>('users', decodeUser)
-const writable = computed(() => hasAdminPermission(identity.value, 'users', 'write'))
+const canEditUser = () =>
+  ['update', 'toggle', 'assign_roles'].some((action) =>
+    hasAdminPermission(identity.value, 'users', action)
+  )
+const hasRowActions = computed(() =>
+  ['update', 'toggle', 'assign_roles', 'reset_password', 'delete'].some((action) =>
+    hasAdminPermission(identity.value, 'users', action)
+  )
+)
 const permissionTarget = ref<AdminUser | null>(null)
 const open = ref(false),
   editing = ref<AdminUser | null>(null),
@@ -59,7 +67,7 @@ function close(): void {
 }
 async function edit(user: AdminUser | null = null): Promise<void> {
   if (!user && !hasAdminPermission(identity.value, 'users', 'create')) return
-  if (user && !canManage(user)) return
+  if (user && (!canManage(user) || !canEditUser())) return
   editing.value = user
   Object.assign(
     form,
@@ -117,6 +125,8 @@ function withExisting(
 }
 async function submit(): Promise<void> {
   if (saving.value || optionsLoading.value) return
+  if (editing.value ? !canEditUser() : !hasAdminPermission(identity.value, 'users', 'create'))
+    return
   formError.value = ''
   if (!form.username.trim()) {
     formError.value = '请填写用户名'
@@ -137,8 +147,27 @@ async function submit(): Promise<void> {
     ...(identity.value?.is_admin ? { is_admin: form.is_admin } : {}),
     ...(!editing.value ? { username: form.username.trim(), password: form.password } : {})
   }
+  const user = editing.value
+  if (user) {
+    if (!canManage(user)) return
+    if (
+      (['display_name', 'email', 'phone', 'department_id', 'remark'] as const).some(
+        (key) => body[key] !== user[key]
+      ) &&
+      !hasAdminPermission(identity.value, 'users', 'update')
+    )
+      return
+    if (body.is_active !== user.is_active && !hasAdminPermission(identity.value, 'users', 'toggle'))
+      return
+  }
+  if (
+    JSON.stringify([...body.role_ids].sort()) !==
+      JSON.stringify([...(user?.role_ids ?? [])].sort()) &&
+    !hasAdminPermission(identity.value, 'users', 'assign_roles')
+  )
+    return
   try {
-    if (await save(editing.value, body)) {
+    if (await save(user, body)) {
       open.value = false
       form.password = ''
       message.success('用户已保存')
@@ -157,7 +186,15 @@ function confirmDelete(user: AdminUser): void {
     okText: '删除用户',
     okType: 'danger',
     cancelText: '取消',
-    onOk: () => remove(user)
+    onOk: () => {
+      if (
+        hasAdminPermission(identity.value, 'users', 'delete') &&
+        canManage(user) &&
+        user.id !== identity.value?.id &&
+        !protectedAdmin(user)
+      )
+        return remove(user)
+    }
   })
 }
 const passwordUser = ref<AdminUser | null>(null),
@@ -260,7 +297,7 @@ const columns = [
         </div>
         <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
         <AdminRowActions
-          v-else-if="column.key === 'actions' && writable"
+          v-else-if="column.key === 'actions' && hasRowActions"
           :primary="{
             key: 'edit',
             label: '编辑',

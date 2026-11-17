@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Personal profile UI with isolated, same-origin API fixtures."""
 import asyncio
 import contextlib
@@ -130,7 +131,7 @@ class ProfileRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_role('textbox', name='账号', exact=True)).to_have_count(0)
 
     async def test_admin_entry_remains_permission_based_in_account_menu(self):
-        self.user['permissions'] = ['system:users:read']
+        self.user['permissions'] = granted_permissions('system:users:read')
         await self.open_profile()
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
         await expect(self.page.get_by_role('menuitem').filter(has_text='后台管理')).to_be_visible()
@@ -265,7 +266,7 @@ class ProfileRegressions(unittest.IsolatedAsyncioTestCase):
         await self.page.get_by_role('textbox', name='账号', exact=True).fill('second')
         await self.page.get_by_label('密码', exact=True).fill('second-password-123')
         await self.page.get_by_role('button', name='登录', exact=True).click()
-        await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page).to_have_url(self.origin + '/access')
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
         await self.page.get_by_role('menuitem').filter(has_text='个人资料').get_by_role('link', name='个人资料', exact=True).click()
         await expect(self.page.get_by_label('显示名称', exact=True)).to_have_value('第二账号')
@@ -275,6 +276,7 @@ class ProfileRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_text('基本资料已保存', exact=True)).to_have_count(0)
 
     async def test_navigation_clears_passwords_and_ignores_late_password_success(self):
+        self.user['permissions'] = granted_permissions('platform:chat:use')
         await self.open_profile()
         await self.fill_passwords()
         self.hold_method = 'PASSWORD'

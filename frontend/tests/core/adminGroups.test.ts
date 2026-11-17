@@ -31,11 +31,10 @@ void test('a delegated department reader lands on departments without seeing use
 void test('retired post grants cannot add or reorder active organization pages', () => {
   const groups = visibleAdminGroups({
     is_admin: false,
-    permissions: grantedPermissions(
+    permissions: [
       'system:posts:read',
-      'system:departments:read',
-      'system:users:read'
-    )
+      ...grantedPermissions('system:departments:read', 'system:users:read')
+    ]
   })
   assert.deepEqual(
     groups[0]?.entries.map((entry) => entry.path),
@@ -44,11 +43,7 @@ void test('retired post grants cannot add or reorder active organization pages',
   assert.deepEqual(
     visibleAdminGroups({
       is_admin: false,
-      permissions: grantedPermissions(
-        'system:posts:read',
-        'system:posts:write',
-        'system:dictionaries:read'
-      )
+      permissions: ['system:posts:read', 'system:posts:write', 'system:dictionaries:read']
     }),
     []
   )

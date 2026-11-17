@@ -38,7 +38,8 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
             max_jobs=limit,
             max_tries=1,
             retry_jobs=False,
-            job_timeout=container.settings.provider_timeout_seconds + 10,
+            # Admitted Agent Runs retain their version when the rollout flag changes.
+            job_timeout=container.settings.provider_timeout_seconds * 2 + 20,
             health_check_interval=5,
             health_check_key=f'{queue_name}:arq-health',
             handle_signals=False,

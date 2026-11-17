@@ -45,11 +45,7 @@ export function hasAdminPermission(
 }
 export function canAccessAdmin(user: AdminIdentity | null): boolean {
   return Boolean(
-    user &&
-      (user.is_admin ||
-        adminNavigation.some(
-          ({ area }) => hasAdminPermission(user, area) || hasAdminPermission(user, area, 'write')
-        ))
+    user && (user.is_admin || adminNavigation.some(({ area }) => hasAdminPermission(user, area)))
   )
 }
 export function visibleAdminNavigation(user: AdminIdentity | null): AdminNavigation[] {
@@ -110,5 +106,5 @@ export function adminEntryLabel(entry: AdminNavigation): string {
 }
 
 export function isActiveAdminPermission(code: string): boolean {
-  return code !== 'ai:skills:write' && !/^system:(menus|dictionaries|posts):/.test(code)
+  return !/^system:(menus|dictionaries|posts):/.test(code)
 }

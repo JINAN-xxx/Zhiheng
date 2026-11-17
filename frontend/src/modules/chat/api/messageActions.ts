@@ -1,6 +1,6 @@
 import { decodeVoid, http } from '../../../shared/http.ts'
 import { list, object, string } from '../../../shared/validation.ts'
-import { parseRunAdmission } from '../../knowledge/public.ts'
+import { parseRunSnapshot } from '../../../shared/stream.ts'
 
 export type FeedbackValue = 'up' | 'down' | null
 export interface MessageFeedback {
@@ -78,7 +78,7 @@ export const regenerateMessage = (
       method: 'POST',
       body: { client_request_id: clientRequestId },
       signal,
-      decode: parseRunAdmission
+      decode: parseRunSnapshot
     }
   )
 export const setMessageFeedback = (messageId: string, value: FeedbackValue, signal: AbortSignal) =>

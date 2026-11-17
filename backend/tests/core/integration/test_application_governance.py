@@ -4,7 +4,9 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from tests.core.integration.test_ai_management_permissions import account
+from tests.core.permission_support import account, grants
+
+OWNER_PERMISSIONS = grants('platform:developer', 'create', 'toggle', 'key_create', 'invoke')
 
 FIELDS = {
     'id',
@@ -29,7 +31,7 @@ async def application(client: httpx.AsyncClient) -> dict:
 async def test_governance_lists_minimal_metadata_and_keeps_personal_routes_private(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    async with account(admin, app) as (owner, _, user):
+    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, user):
         owned = await application(owner)
         await application(admin)
         result = await admin.get('/api/admin/applications', params={'owner_id': user['id'], 'page_size': 1})
@@ -47,11 +49,19 @@ async def test_governance_lists_minimal_metadata_and_keeps_personal_routes_priva
         assert (await admin.get('/api/developer/applications')).json()['total'] == 1
 
 
-@pytest.mark.parametrize('permission', [None, 'system:users:read', 'system:users:write', 'ai:credits:write'])
+@pytest.mark.parametrize(
+    'permissions',
+    [
+        frozenset(),
+        grants('system:users'),
+        grants('system:users', 'create', 'update', 'delete'),
+        grants('ai:credits', 'adjust', 'configure', 'reconcile'),
+    ],
+)
 async def test_governance_is_super_admin_only_even_for_the_application_owner(
-    admin: httpx.AsyncClient, app: FastAPI, permission: str | None
+    admin: httpx.AsyncClient, app: FastAPI, permissions: frozenset[str]
 ) -> None:
-    async with account(admin, app, *([permission] if permission else [])) as (owner, _, _):
+    async with account(admin, app, *(OWNER_PERMISSIONS | permissions)) as (owner, _, _):
         owned = await application(owner)
         base = '/api/admin/applications/' + owned['id']
         assert (await owner.get('/api/admin/applications')).status_code == 403
@@ -69,10 +79,12 @@ async def test_governance_is_super_admin_only_even_for_the_application_owner(
 async def test_platform_suspend_fences_keys_and_cannot_be_reenabled_by_owner(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: object
 ) -> None:
-    async with account(admin, app) as (owner, _, _):
+    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, _):
         owned = await application(owner)
         path = '/api/developer/applications/' + owned['id']
-        issued = await owner.post(path + '/keys', json={'name': 'Client', 'model_ids': [model_id]})
+        issued = await owner.post(
+            path + '/keys', json={'name': 'Client', 'model_ids': [model_id], 'scopes': ['models:invoke']}
+        )
         assert issued.status_code == 201, issued.text
         secret = issued.json()['api_key']
         suspended = await admin.patch(
@@ -84,7 +96,9 @@ async def test_platform_suspend_fences_keys_and_cannot_be_reenabled_by_owner(
         current = (await owner.get(path)).json()
         assert current['status'] == 'disabled' and not current['platform_enabled']
         assert (
-            await owner.post(path + '/keys', json={'name': 'Cannot bypass', 'model_ids': [model_id]})
+            await owner.post(
+                path + '/keys', json={'name': 'Cannot bypass', 'model_ids': [model_id], 'scopes': ['models:invoke']}
+            )
         ).status_code == 409
         rejected = await owner.post(
             '/v1/chat/completions',
@@ -100,7 +114,7 @@ async def test_platform_suspend_fences_keys_and_cannot_be_reenabled_by_owner(
 async def test_platform_restore_preserves_the_owners_disabled_state_and_version(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    async with account(admin, app) as (owner, _, _):
+    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, _):
         owned = await application(owner)
         path = '/api/developer/applications/' + owned['id']
         disabled = await owner.post(path + '/disable', json={})
@@ -119,7 +133,7 @@ async def test_platform_restore_preserves_the_owners_disabled_state_and_version(
 async def test_governance_quota_is_versioned_audited_and_does_not_open_personal_access(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    async with account(admin, app) as (owner, _, _):
+    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, _):
         owned = await application(owner)
         base = '/api/admin/applications/' + owned['id']
         body = {'source_file_limit': 7, 'source_byte_limit': 4096, 'expected_version': 1}
@@ -173,11 +187,11 @@ async def test_platform_suspend_stops_admitted_execution_without_consuming_quota
 
     if metered:
         await enable_free_billing(admin)
-    async with account(admin, app) as (owner, _, _):
+    async with account(admin, app, *OWNER_PERMISSIONS) as (owner, _, _):
         owned = await application(owner)
         issued = await owner.post(
             '/api/developer/applications/' + owned['id'] + '/keys',
-            json={'name': 'Admitted client', 'model_ids': [model_id]},
+            json={'name': 'Admitted client', 'model_ids': [model_id], 'scopes': ['models:invoke']},
         )
         assert issued.status_code == 201, issued.text
         container = app.state.container

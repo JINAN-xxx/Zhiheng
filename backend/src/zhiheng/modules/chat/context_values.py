@@ -1,10 +1,12 @@
-"""Read values and commands crossing the chat memory boundary, without persistence objects."""
+"""Values crossing the ordinary-chat checkpoint and summary boundary."""
 
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from zhiheng.modules.chat.execution import ChatExecutionSpec
 
 
 class ContextValue(BaseModel):
@@ -15,15 +17,14 @@ class ContextStateValue(ContextValue):
     conversation_id: UUID
     owner_id: UUID
     version: int
-    target_covered_count: int
-    dirty: bool
-    summary_task_id: UUID | None
     pending_task_id: UUID | None
-    last_run_id: UUID | None
     error_code: str | None
+    agent_checkpoint_id: str | None = None
+    agent_source_hash: str | None = None
+    checkpoint_cleanup_after: datetime | None = None
 
 
-class SummaryTaskDraft(ContextValue):
+class _SummaryTaskFields(ContextValue):
     id: UUID
     conversation_id: UUID
     owner_id: UUID
@@ -32,12 +33,20 @@ class SummaryTaskDraft(ContextValue):
     source_hash: str
     source_refs: list[dict[str, object]]
     file_refs: list[dict[str, object]]
-    previous_task_id: UUID | None = None
-    retry_request_id: UUID | None = None
     model_binding: dict[str, object]
 
 
-class SummaryTaskValue(SummaryTaskDraft):
+class SummaryTaskDraft(_SummaryTaskFields):
+    """New summaries always belong to a specific parent execution attempt."""
+
+    parent_run_id: UUID
+    parent_attempt_id: UUID
+
+
+class SummaryTaskValue(_SummaryTaskFields):
+    # Completed historical rows remain readable without inventing parent facts.
+    parent_run_id: UUID | None
+    parent_attempt_id: UUID | None
     run_id: UUID | None
     status: Literal['pending', 'failed', 'published']
     summary: str
@@ -48,15 +57,12 @@ class SummaryTaskValue(SummaryTaskDraft):
 class ContextSnapshotDraft(ContextValue):
     conversation_id: UUID
     owner_id: UUID
-    summary_task_id: UUID | None
-    summary_version: int
     source_refs: list[dict[str, object]]
     file_refs: list[dict[str, object]]
-    estimated_tokens: int = Field(ge=0)
-    input_budget: int = Field(ge=0)
-    dropped_turns: int = Field(ge=0)
+    agent_context: ChatExecutionSpec | None = None
 
 
 class ContextSnapshotValue(ContextSnapshotDraft):
+    agent_checkpoint_id: str | None = None
     run_id: UUID
     created_at: datetime

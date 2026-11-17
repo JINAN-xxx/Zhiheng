@@ -43,7 +43,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
             (
                 await connection.execute(
                     text(
-                        "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename!='alembic_version' ORDER BY tablename"
+                        "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('alembic_version','agent_versions') ORDER BY tablename"
                     )
                 )
             )
@@ -59,11 +59,16 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
                     ),
                     {'table': table},
                 )
+                if table != 'developer_accounts' or name not in {'limit_tokens', 'quota_version'}
             )
             for table in tables
         }
         snapshots = {
-            table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
+            table: (
+                await connection.execute(
+                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
+                )
+            )
             .scalars()
             .all()
             for table in tables
@@ -71,6 +76,11 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
+        assert not set(
+            await connection.scalars(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name='developer_accounts'")
+            )
+        ) & {'limit_tokens', 'quota_version'}
         for table in tables:
             selector = ''
             if table in {'skills', 'skill_revisions'}:
@@ -78,7 +88,7 @@ async def test_0003_upgrade_keeps_existing_columns_and_backfills_billing(
 
                 identifiers = [json.loads(row)['id'] for row in snapshots[table]]
                 selector = ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
-            # Compare every original value; new projection and billing columns are verified below.
+            # Preserve every surviving original value; 0039 intentionally retires lifetime quota columns.
             assert (
                 await connection.execute(
                     text(

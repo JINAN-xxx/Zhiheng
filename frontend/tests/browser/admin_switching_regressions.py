@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Switching keeps state and remains bound to current identity authority."""
 import asyncio
 import contextlib
@@ -81,14 +82,20 @@ class AdminSwitchingRegressions(base.AdminRegressions):
         await self.open('roles')
         await expect(self.page.get_by_text('运营员',exact=True)).to_be_visible()
         before=self.count('/api/admin/roles')
+        self.assertEqual(before,1)
         await (await self.group('用户管理')).click()
         await self.page.get_by_role('row').filter(has_text='小艾').get_by_role('button',name='编辑',exact=True).click()
         dialog=self.page.get_by_role('dialog')
         await dialog.get_by_label('显示名称',exact=True).fill('更新用户')
         await dialog.get_by_role('button',name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).to_be_hidden()
-        await (await self.group('角色权限')).click()
-        await expect(self.page.get_by_text('运营员',exact=True)).to_be_visible()
+        self.roles[0]['name']='刷新后的运营员'
+        async with self.page.expect_response(lambda response:urlparse(response.url).path=='/api/admin/roles') as refreshed:
+            await (await self.group('角色权限')).click()
+        response=await refreshed.value
+        self.assertEqual(response.status,200)
+        self.assertEqual((await response.json())['items'][0]['name'],'刷新后的运营员')
+        await expect(self.page.get_by_text('刷新后的运营员',exact=True)).to_be_visible()
         self.assertEqual(self.count('/api/admin/roles'),before+1)
 
     async def test_cached_page_is_not_exposed_after_permission_revocation(self):
@@ -101,9 +108,9 @@ class AdminSwitchingRegressions(base.AdminRegressions):
           window.cacheExposure=false;
           new MutationObserver(()=>{if(document.body.textContent.includes('CACHE_PRIVATE_USER'))window.cacheExposure=true}).observe(document.body,{childList:true,subtree:true});
         }''')
-        self.user={'id':'self','username':'reader','is_admin':False,'permissions':['system:roles:read']}
+        self.user={'id':'self','username':'reader','is_admin':False,'permissions':granted_permissions('system:roles:read')}
         await (await self.group('用户管理')).click()
-        await expect(self.page).to_have_url(self.origin+'/chat')
+        await expect(self.page).to_have_url(self.origin+'/admin/roles')
         self.assertFalse(await self.page.evaluate('window.cacheExposure'))
 
     async def test_failed_switch_keeps_current_page_usable(self):

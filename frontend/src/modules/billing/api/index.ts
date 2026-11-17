@@ -53,7 +53,7 @@ function parseAccount(value: unknown): CreditAccount {
     is_active: boolean(data.is_active)
   }
 }
-function parseLedger(value: unknown): CreditLedgerEntry {
+export function parseLedger(value: unknown): CreditLedgerEntry {
   const data = object(value)
   return {
     id: string(data.id),

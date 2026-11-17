@@ -162,7 +162,7 @@ class WorkerProcess:
         async with self.container.database.sessions() as session:
             if await self.container.runs.has_active_work(session):
                 return False
-            if await self.container.knowledge.has_active_work(session):
+            if await self.container.knowledge.references.has_active_work(session):
                 return False
             if await self.container.chat_context.memory.pending(session):
                 return False

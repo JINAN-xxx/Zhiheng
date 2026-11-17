@@ -1,6 +1,7 @@
 <!-- Adapted from original RecentSessions.vue, MIT licensed. -->
 <script setup lang="ts">
 import { ref } from 'vue'
+import { canUseCapability } from '../../identity/public.ts'
 import {
   Input as AInput,
   Spin as ASpin,
@@ -46,12 +47,23 @@ const renameTitle = ref(''),
 const { confirm } = useConfirmation()
 function menuItems(conversation: Conversation): MenuAction[] {
   return [
-    { command: 'rename', label: '重命名', icon: EditOutlined },
-    { command: 'archive', label: conversation.archived ? '取消归档' : '归档', icon: InboxOutlined },
-    { command: 'delete', label: '删除', icon: DeleteOutlined, danger: true, divided: true }
+    ...(canUseCapability('chat', 'update')
+      ? [
+          { command: 'rename', label: '重命名', icon: EditOutlined },
+          {
+            command: 'archive',
+            label: conversation.archived ? '取消归档' : '归档',
+            icon: InboxOutlined
+          }
+        ]
+      : []),
+    ...(canUseCapability('chat', 'delete')
+      ? [{ command: 'delete', label: '删除', icon: DeleteOutlined, danger: true, divided: true }]
+      : [])
   ]
 }
 async function command(command: string, conversation: Conversation): Promise<void> {
+  if (!canUseCapability('chat', command === 'delete' ? 'delete' : 'update')) return
   if (conversationLocked(conversation.id)) return
   const target = { ...conversation }
   if (command === 'rename') {
@@ -68,7 +80,7 @@ async function command(command: string, conversation: Conversation): Promise<voi
 async function rename(): Promise<void> {
   const target = renameTarget.value,
     title = renameTitle.value.trim()
-  if (!target || renaming.value) return
+  if (!target || renaming.value || !canUseCapability('chat', 'update')) return
   if (!title || [...title].length > 100) {
     renameError.value = '标题需为1–100字'
     return
@@ -134,7 +146,7 @@ async function rename(): Promise<void> {
             }}</small>
           </button>
           <WorkspaceMoreMenu
-            v-if="!conversationLocked(conversation.id)"
+            v-if="!conversationLocked(conversation.id) && menuItems(conversation).length"
             compact
             :items="menuItems(conversation)"
             @command="(value) => command(value, conversation)"

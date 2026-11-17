@@ -1,7 +1,7 @@
 <!-- Adapted from the original chat/index.vue, MIT licensed. -->
 <script setup lang="ts">
 import { canUseCapability } from '../../identity/public.ts'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResizeObserver, useScroll } from '@vueuse/core'
 import {
   Alert as AAlert,
@@ -30,19 +30,15 @@ import ChatGenerationSettingsDialog from '../components/ChatGenerationSettingsDi
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { SkillIdentityIcon, SkillPicker } from '../../skills/public.ts'
 import { formatFileSize } from '../../files/public.ts'
-import { KnowledgeSources } from '../../knowledge/public.ts'
 import AiMessage from '../components/AiMessage.vue'
 import ChatEmptyState from '../components/ChatEmptyState.vue'
 import ChatMessageFiles from '../components/ChatMessageFiles.vue'
 import MessageShareDialog from '../components/MessageShareDialog.vue'
-import { groupMessageVersions } from '../composables/messageVersions.ts'
-import type { ChatMessage } from '../api/index.ts'
+import { useChatMessagePresentation } from '../composables/messagePresentation.ts'
 import { CHAT_FILE_ACCEPT } from '../attachments.ts'
 const {
-  contextInfo,
+  canUseChat,
   contextNotice,
-  contextRetrying,
-  retryChatContext,
   selectConversation,
   selected,
   queuedFiles,
@@ -55,8 +51,6 @@ const {
   messages,
   draft,
   selectedSkills,
-  activeRunSources,
-  preparing,
   skillPickerOpen,
   removeSkill,
   handleSkillSelected,
@@ -98,68 +92,23 @@ const {
   setModelId,
   keydown
 } = useChatWorkspace()
-const selectedVersions = reactive<Record<string, string>>({})
-const messageRows = computed(() =>
-  groupMessageVersions(messages.value).map((row) => {
-    const index = Math.max(
-      0,
-      row.versions.findIndex((item) => item.id === selectedVersions[row.key])
-    )
-    const selectedIndex =
-      selectedVersions[row.key] && row.versions[index]?.id === selectedVersions[row.key]
-        ? index
-        : row.versions.length - 1
-    return { ...row, index: selectedIndex, message: row.versions[selectedIndex]! }
-  })
-)
-const activeRunRepresented = computed(() =>
-  messages.value.some(
-    (message) => message.role === 'assistant' && message.run_id === activeRun.value?.id
-  )
-)
-const unansweredQuestion = computed(() => {
-  if (
-    !activeRun.value ||
-    activeRunRepresented.value ||
-    !['failed', 'cancelled', 'interrupted'].includes(activeRun.value.status)
-  )
-    return null
-  const question = [...messages.value].reverse().find((message) => message.role === 'user')
-  return question?.run_id === activeRun.value.id ? question : null
+const {
+  selectedVersions,
+  messageRows,
+  activeRunRepresented,
+  unansweredQuestion,
+  replyStatus,
+  showRunStatus,
+  shareMessageId,
+  isActive,
+  messageText,
+  regenerateReply
+} = useChatMessagePresentation({
+  messages,
+  activeRun,
+  selected,
+  regenerate
 })
-const replyStatus = computed(() =>
-  activeRun.value?.status === 'failed'
-    ? '生成失败'
-    : activeRun.value
-      ? runStatusLabel[activeRun.value.status]
-      : ''
-)
-const showRunStatus = computed(
-  () =>
-    activeRun.value !== null &&
-    activeRun.value.status !== 'running' &&
-    activeRun.value.status !== 'completed'
-)
-const shareMessageId = ref<string | null>(null)
-function isActive(message: ChatMessage): boolean {
-  return Boolean(
-    message.role === 'assistant' && activeRun.value && message.run_id === activeRun.value.id
-  )
-}
-function messageText(message: ChatMessage): string {
-  return isActive(message) ? activeRun.value!.text : message.content
-}
-async function regenerateReply(message: ChatMessage, key: string): Promise<void> {
-  delete selectedVersions[key]
-  await regenerate(message)
-}
-watch(
-  () => selected.value?.id,
-  () => {
-    shareMessageId.value = null
-    for (const key of Object.keys(selectedVersions)) delete selectedVersions[key]
-  }
-)
 const historyOpen = ref(false)
 const settingsOpen = ref(false)
 async function newConversation(): Promise<void> {
@@ -223,7 +172,7 @@ onBeforeUnmount(() => {
       v-model:open="settingsOpen"
       :settings="generationSettings"
       :model="selectedModel"
-      :disabled="running || sending || loading || listLoading || readOnly || preparing"
+      :disabled="!canUseChat || running || sending || loading || listLoading || readOnly"
       @save="applyGenerationSettings"
     />
     <main class="chat-workspace">
@@ -241,9 +190,11 @@ onBeforeUnmount(() => {
           <HistoryOutlined aria-hidden="true" /><span class="chat-toolbar__label">历史记录</span>
         </button>
         <AButton
+          v-if="canUseChat"
           type="text"
           class="chat-toolbar-action"
           aria-label="新建对话"
+          :disabled="sending"
           title="新建对话"
           @click="newConversation"
           ><PlusOutlined aria-hidden="true" /><span class="chat-toolbar__label">新建对话</span>
@@ -263,16 +214,6 @@ onBeforeUnmount(() => {
       <div v-if="selected" class="chat-session-heading">{{ selected.title }}</div>
       <div v-if="contextNotice" class="chat-context-notice" role="status">
         <span>{{ contextNotice }}</span>
-        <AButton
-          v-if="contextInfo?.status === 'degraded' && !readOnly"
-          type="link"
-          size="small"
-          :loading="contextRetrying"
-          title="使用当前模型和积分重新整理较早对话"
-          @click="retryChatContext"
-        >
-          重试整理
-        </AButton>
       </div>
       <div
         v-if="error || listError || canRetry || canRecover || canRetryRegeneration"
@@ -284,8 +225,9 @@ onBeforeUnmount(() => {
           type="error"
           show-icon
         />
-        <AButton v-if="canRetry" size="small" @click="send(true)">使用原请求重试</AButton
-        ><AButton v-if="canRetryRegeneration" size="small" @click="retryRegeneration"
+        <AButton v-if="canUseChat && canRetry" size="small" @click="send(true)"
+          >使用原请求重试</AButton
+        ><AButton v-if="canUseChat && canRetryRegeneration" size="small" @click="retryRegeneration"
           >使用原重新生成请求重试</AButton
         ><AButton v-if="canRecover" size="small" @click="reconnect">恢复查看</AButton>
       </div>
@@ -332,7 +274,6 @@ onBeforeUnmount(() => {
               {{ activeRun.error.message }}
             </p>
             <ChatMessageFiles :files="row.message.attachments" />
-            <KnowledgeSources :sources="row.message.knowledge_sources" />
             <div v-if="row.message.skill_snapshots.length" class="message-skills">
               <span
                 v-for="skill in row.message.skill_snapshots"
@@ -371,9 +312,9 @@ onBeforeUnmount(() => {
               :key="row.message.id"
               :content="messageText(row.message)"
               :role="row.message.role"
-              :regenerate="row.message.role === 'assistant'"
+              :regenerate="canUseChat && row.message.role === 'assistant'"
               :feedback-enabled="row.message.role === 'assistant'"
-              :share="row.message.role === 'assistant'"
+              :share="canUseCapability('chat', 'share') && row.message.role === 'assistant'"
               :feedback-value="row.message.feedback"
               :feedback-busy="feedbackBusy.has(row.message.id)"
               :regenerate-reason="regenerationReason(row.message)"
@@ -398,7 +339,6 @@ onBeforeUnmount(() => {
               :loading="running"
             />
             <p v-if="activeRun.error" class="run-error">{{ activeRun.error.message }}</p>
-            <KnowledgeSources :sources="activeRunSources" />
             <span v-if="activeRun.usage.status === 'unknown'" class="muted small">用量待核对</span>
             <p v-if="!running && !activeRun.text && !activeRun.error" class="empty-reply">
               {{ activeRun.status === 'cancelled' ? '已停止生成' : '本次回复未生成内容' }}
@@ -406,7 +346,7 @@ onBeforeUnmount(() => {
             <MessageActions
               v-if="activeRun.text || unansweredQuestion"
               :content="activeRun.text"
-              :regenerate="Boolean(unansweredQuestion)"
+              :regenerate="canUseChat && Boolean(unansweredQuestion)"
               :regenerate-reason="unansweredQuestion ? regenerationReason(unansweredQuestion) : ''"
               @regenerate="
                 unansweredQuestion &&
@@ -416,7 +356,7 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </section>
-      <footer class="composer">
+      <footer v-if="canUseChat || running" class="composer">
         <aside v-if="inputIssue" class="composer-notice" role="alert" aria-label="发送提示">
           <AAlert
             type="warning"
@@ -436,21 +376,15 @@ onBeforeUnmount(() => {
           </AAlert>
         </aside>
         <div
-          v-if="(!modelOptions.length && !listLoading) || sending || preparing || showRunStatus"
+          v-if="(!modelOptions.length && !listLoading) || sending || showRunStatus"
           class="composer-context"
         >
           <span v-if="!modelOptions.length && !listLoading" class="muted small"
             >暂无可用模型，请联系管理员配置</span
           >
           <div class="composer-context-actions">
-            <span v-if="sending || preparing || showRunStatus" class="run-state" role="status">{{
-              preparing
-                ? '正在检索知识库'
-                : sending
-                  ? '提交中'
-                  : activeRun
-                    ? runStatusLabel[activeRun.status]
-                    : ''
+            <span v-if="sending || showRunStatus" class="run-state" role="status">{{
+              sending ? '提交中' : activeRun ? runStatusLabel[activeRun.status] : ''
             }}</span>
           </div>
         </div>
@@ -476,11 +410,11 @@ onBeforeUnmount(() => {
           :class="{ 'is-selecting-skills': skillPickerOpen }"
         >
           <SkillPicker
-            v-if="canUseCapability('skills')"
+            v-if="canUseChat && canUseCapability('skills', 'use')"
             ref="skillPicker"
             v-model="selectedSkills"
             v-model:open="skillPickerOpen"
-            :disabled="running || sending || preparing || loading || readOnly"
+            :disabled="running || sending || loading || readOnly"
             @selected="handleSkillSelected"
             @dismiss="focusDraft"
           />
@@ -569,7 +503,7 @@ onBeforeUnmount(() => {
                 <button
                   type="button"
                   :aria-label="`移除技能：${skill.skillName}`"
-                  :disabled="running || sending || preparing || readOnly"
+                  :disabled="running || sending || readOnly"
                   @click="removeSkill(skill.skillSlug)"
                 >
                   <CloseOutlined aria-hidden="true" />
@@ -580,7 +514,7 @@ onBeforeUnmount(() => {
               v-model:value="draft"
               :auto-size="{ minRows: 2, maxRows: 6 }"
               :maxlength="16000"
-              :disabled="sending || preparing || readOnly"
+              :disabled="!canUseChat || sending || readOnly"
               placeholder="输入消息，或选择技能开始"
               aria-label="消息内容"
               @keydown="composerKeydown"
@@ -589,6 +523,7 @@ onBeforeUnmount(() => {
           <div class="composer-actions">
             <div class="composer-tools">
               <AButton
+                v-if="canUseChat"
                 type="text"
                 :disabled="sending || running || loading || readOnly"
                 aria-label="添加图片或附件"
@@ -597,11 +532,11 @@ onBeforeUnmount(() => {
                 ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
               >
               <button
-                v-if="canUseCapability('skills')"
+                v-if="canUseChat && canUseCapability('skills', 'use')"
                 type="button"
                 class="composer-skill-trigger"
                 :class="{ 'is-active': skillPickerOpen }"
-                :disabled="running || sending || preparing || loading || readOnly"
+                :disabled="running || sending || loading || readOnly"
                 aria-label="选择技能"
                 :aria-expanded="skillPickerOpen"
                 title="选择技能，也可输入 @"
@@ -622,7 +557,7 @@ onBeforeUnmount(() => {
                 option-filter-prop="label"
                 aria-label="选择模型"
                 placeholder="选择平台模型"
-                :disabled="running || sending || loading"
+                :disabled="!canUseChat || running || sending || loading"
                 @update:value="setModelId"
               />
               <AButton
@@ -648,6 +583,7 @@ onBeforeUnmount(() => {
                   !historyReady ||
                   !fileQueueReady ||
                   regenerationPending ||
+                  canRetry ||
                   readOnly
                 "
                 aria-label="发送消息"

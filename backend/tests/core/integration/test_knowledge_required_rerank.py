@@ -178,14 +178,12 @@ async def test_successful_query_completes_rerank_exactly_once(
     assert len([request for request in provider.requests if request['model'] == 'rerank']) == 1
 
 
-@pytest.mark.parametrize('entry', ['query', 'chat'])
-async def test_transient_rerank_failure_never_returns_unranked_results_or_admits_chat(
+async def test_transient_rerank_failure_never_returns_unranked_results(
     admin: httpx.AsyncClient,
     app: FastAPI,
     provider: ProviderServer,
     model_id: str,
     monkeypatch: pytest.MonkeyPatch,
-    entry: str,
 ) -> None:
     base = await ready_base(admin, app, provider)
     original = ProviderHandler.structured
@@ -200,22 +198,10 @@ async def test_transient_rerank_failure_never_returns_unranked_results_or_admits
             original(handler, body)
 
     monkeypatch.setattr(ProviderHandler, 'structured', temporary)
-    if entry == 'query':
-        response = await admin.post(
-            '/api/knowledge/bases/' + base['id'] + '/query',
-            json={'query': 'service port', 'client_request_id': str(uuid4())},
-        )
-    else:
-        cid = (await admin.post('/api/chat/conversations', json={})).json()['id']
-        response = await admin.post(
-            '/api/chat/conversations/' + cid + '/runs',
-            json={
-                'model_id': model_id,
-                'message': 'service port',
-                'knowledge_base_ids': [base['id']],
-                'client_request_id': str(uuid4()),
-            },
-        )
+    response = await admin.post(
+        '/api/knowledge/bases/' + base['id'] + '/query',
+        json={'query': 'service port', 'client_request_id': str(uuid4())},
+    )
     assert response.status_code == 202, response.text
     result = await finish_query(admin, app, response.json())
     assert result['status'] == 'failed' and result['error']['code'] == 'knowledge_rerank_failed', result

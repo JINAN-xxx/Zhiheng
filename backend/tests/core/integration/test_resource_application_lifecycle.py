@@ -40,9 +40,7 @@ async def test_reenabling_application_revalidates_usable_key_models(
     application_id, key = await provision(admin, model_id)
     assert (await admin.post(f'/api/developer/applications/{application_id}/disable', json={})).status_code == 200
     async with app.state.container.database.sessions.begin() as session:
-        await session.execute(
-            text('UPDATE models SET deleted_at=now(),enabled=false,published=false WHERE id=:id'), {'id': model_id}
-        )
+        await session.execute(text('UPDATE models SET deleted_at=now(),enabled=false WHERE id=:id'), {'id': model_id})
     rejected = await admin.post(f'/api/developer/applications/{application_id}/enable', json={})
     assert rejected.status_code == 409, rejected.text
     assert rejected.json()['error']['code'] == 'application_dependencies_unavailable'
@@ -62,7 +60,7 @@ async def test_published_agent_deletion_lists_current_work_and_preserves_history
     assert rejected.status_code == 409, rejected.text
     references = rejected.json()['error']['details']['references']
     assert any(row['kind'] == 'work' and row['id'] == work['id'] for row in references)
-    assert (await admin.get(f'/api/agents/{agent["id"]}')).json()['published_version'] == 1
+    assert (await admin.get(f'/api/agents/{agent["id"]}')).json()['status'] == 'enabled'
     removed = await admin.delete(
         f'/api/work/tasks/{work["id"]}',
         params={'expected_version': work['version']},
@@ -73,10 +71,7 @@ async def test_published_agent_deletion_lists_current_work_and_preserves_history
     assert deleted.status_code == 200, deleted.text
     assert (await admin.get(f'/api/agents/{agent["id"]}')).status_code == 404
     async with app.state.container.database.sessions() as session:
-        assert (
-            await session.scalar(text('SELECT count(*) FROM agent_versions WHERE agent_id=:id'), {'id': agent['id']})
-            == 1
-        )
+        assert await session.scalar(text("SELECT to_regclass('public.agent_versions') IS NULL"))
         assert (
             await session.scalar(text('SELECT count(*) FROM work_members WHERE task_id=:id'), {'id': work['id']}) == 1
         )
@@ -103,7 +98,7 @@ async def test_reopening_work_revalidates_frozen_dependencies(
             )
         else:
             await session.execute(
-                text('UPDATE agents SET deleted_at=now(),published_version=NULL WHERE id=:id'), {'id': agent['id']}
+                text('UPDATE agents SET deleted_at=now(),enabled=false WHERE id=:id'), {'id': agent['id']}
             )
     rejected = await admin.patch(
         f'/api/work/tasks/{work["id"]}', json={'expected_version': completed.json()['version'], 'status': 'active'}
@@ -138,7 +133,7 @@ async def test_reopening_work_takes_model_before_task_lock(
     assert completed.status_code == 200
     container = app.state.container
     entered = asyncio.Event()
-    resolve = container.models.resolve_many
+    resolve = container.models.bindings.resolve_many
     async with container.database.sessions() as holder:
 
         async def observe(session: AsyncSession, ids: list[UUID]) -> dict[UUID, ModelBinding]:
@@ -146,7 +141,7 @@ async def test_reopening_work_takes_model_before_task_lock(
                 entered.set()
             return await resolve(session, ids)
 
-        monkeypatch.setattr(container.models, 'resolve_many', observe)
+        monkeypatch.setattr(container.models.bindings, 'resolve_many', observe)
         await holder.begin()
         await resolve(holder, [UUID(model_id)])
         request = asyncio.create_task(

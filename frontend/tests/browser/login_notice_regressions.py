@@ -15,6 +15,7 @@ class LoginNoticeRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         await profile_fixture.ProfileRegressions.asyncSetUp(self)
+        self.user['permissions'] = ['platform:chat:enabled', 'platform:chat:read', 'platform:chat:use']
         self.authenticated = False
         self.identity_failure = None
 

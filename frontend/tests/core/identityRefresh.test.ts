@@ -6,7 +6,11 @@ void test('identity refresh observes grants and revocations without a new login'
   const originalNow = Date.now
   let now = 100000
   let calls = 0
-  let permissions = ['ai:models:read']
+  let permissions = [
+    'platform:models:enabled',
+    'platform:models:read',
+    'platform:models:config_read'
+  ]
   globalThis.fetch = () => {
     calls += 1
     return Promise.resolve(
@@ -25,7 +29,12 @@ void test('identity refresh observes grants and revocations without a new login'
     await restoreIdentity()
     await restoreIdentity()
     assert.equal(calls, 1)
-    permissions = ['ai:models:read', 'ai:models:test']
+    permissions = [
+      'platform:models:enabled',
+      'platform:models:read',
+      'platform:models:config_read',
+      'platform:models:test'
+    ]
     now += 31000
     await restoreIdentity()
     assert.deepEqual(identity.value?.permissions, permissions)

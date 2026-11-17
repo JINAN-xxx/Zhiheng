@@ -19,9 +19,11 @@ import importlib,os
 importlib.import_module(ENTRY)
 assert os.environ.get('GRAPH_LEGACY_ENV_SENTINEL') is None
 assert os.environ.get('ZHIHENG_WORKER_QUEUE') is None
-assert os.environ['PYTHON_DOTENV_DISABLED']=='1'
+if ENTRY == 'zhiheng.cli.main':
+    assert os.environ['PYTHON_DOTENV_DISABLED']=='0'
 from zhiheng.modules.knowledge.adapters.lightrag.registry import register
 from zhiheng.modules.knowledge.adapters.lightrag import policy
+assert os.environ['PYTHON_DOTENV_DISABLED']=='1'
 import configparser,threading
 from pathlib import Path
 from importlib.metadata import distribution

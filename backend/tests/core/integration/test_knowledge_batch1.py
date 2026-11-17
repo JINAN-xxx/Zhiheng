@@ -37,6 +37,11 @@ async def test_shared_owner_lifecycle_blocks_all_content_and_preserves_relations
     deleted: bool,
     model_id: str,
 ) -> None:
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(
+        admin, grants('platform:agents', 'use', 'debug') | grants('platform:work', 'use'), username='joining-one'
+    )
     container = app.state.container
     container.knowledge_jobs.vectors = container.knowledge_preparation.vectors = VectorFixture()
     invitation = await invite(sharing)
@@ -99,7 +104,7 @@ async def test_shared_owner_lifecycle_blocks_all_content_and_preserves_relations
     # Reproduce the interval after retrieval admission but before provider execution.
     claims = []
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, UUID(model_id))
+        binding = await container.models.bindings.resolve(session, UUID(model_id))
         agent = Agent(owner_id=reader_id, config=config(model_id))
         session.add(agent)
         await session.flush()
@@ -113,13 +118,13 @@ async def test_shared_owner_lifecycle_blocks_all_content_and_preserves_relations
         )
         session.add(task)
         await session.flush()
-        for kind in ('chat', 'agent_preview', 'agent_invocation', 'work_turn'):
+        for kind in ('agent_preview', 'agent_invocation', 'work_turn'):
             request = ModelRequest(binding=binding, messages=(ModelMessage('user', 'Frozen protected source context'),))
             run = Run(
                 owner_id=reader_id,
                 billing_owner_id=reader_id,
                 resource_type=kind,
-                resource_id=task.id if kind == 'work_turn' else agent.id if kind.startswith('agent_') else uuid4(),
+                resource_id=task.id if kind == 'work_turn' else agent.id,
                 client_request_id=uuid4(),
                 fingerprint='admitted-owner-gate',
                 payload=request.model_dump(mode='json'),
@@ -197,7 +202,7 @@ async def test_shared_owner_lifecycle_blocks_all_content_and_preserves_relations
     assert (await sharing.first.get('/api/knowledge/preparations/' + result['id'])).status_code == 404
     async with container.database.sessions() as session:
         principal = await container.identity.principal_for_user(session, reader_id)
-        # Chat, Agent, Work and resource API use these same domain and frozen-source gates.
+        # Assistant, Work and resource API use these domain and frozen-source gates.
         assert (
             await container.knowledge_preparation.visible_hits(
                 session, principal, [Hit.model_validate(h) for h in result['hits']]
@@ -323,7 +328,7 @@ async def test_frozen_rerank_binding_protects_both_model_and_connection_without_
     container = app.state.container
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, UUID(model_id))
+        binding = await container.models.bindings.resolve(session, UUID(model_id))
         intent = RetrievalIntent(
             namespace_id=owner_id,
             client_request_id=uuid4(),
@@ -338,11 +343,13 @@ async def test_frozen_rerank_binding_protects_both_model_and_connection_without_
         )
         session.add(intent)
         await session.flush()
-        assert [ref.id for ref in await container.knowledge.model_references(session, binding.model_id)] == [intent.id]
-        assert [ref.id for ref in await container.knowledge.connection_references(session, binding.connection_id)] == [
+        assert [ref.id for ref in await container.knowledge.references.model_references(session, binding.model_id)] == [
             intent.id
         ]
+        assert [
+            ref.id for ref in await container.knowledge.references.connection_references(session, binding.connection_id)
+        ] == [intent.id]
         intent.status = 'completed'
         await session.flush()
-        assert not await container.knowledge.model_references(session, binding.model_id)
-        assert not await container.knowledge.connection_references(session, binding.connection_id)
+        assert not await container.knowledge.references.model_references(session, binding.model_id)
+        assert not await container.knowledge.references.connection_references(session, binding.connection_id)

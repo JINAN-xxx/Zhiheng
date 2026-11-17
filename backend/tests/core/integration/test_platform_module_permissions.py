@@ -8,29 +8,22 @@ import httpx
 from fastapi import FastAPI
 from sqlalchemy import select
 
+from tests.core.permission_support import grants
 from tests.core.provider import ProviderServer
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentityUser
-from zhiheng.shared.permission_policy import upgrade_legacy_permissions
 from zhiheng.shared.platform_permissions import PLATFORM_PERMISSION_CODES
 from zhiheng.worker.execution import execute_run
 
 
-async def grant(app: FastAPI, *modules: str) -> UUID:
+async def grant(app: FastAPI, *permissions: str) -> UUID:
     async with app.state.container.database.sessions.begin() as session:
         user = await session.scalar(select(IdentityUser).where(IdentityUser.username == 'member'))
         assert user is not None
         role = IdentityRole(
             code='module_' + uuid4().hex,
             name='Configured modules',
-            permissions=upgrade_legacy_permissions(
-                [
-                    m
-                    if m.startswith(('platform:', 'ai:', 'system:'))
-                    else ('platform:' + m if ':' in m else f'platform:{m}:access')
-                    for m in modules
-                ]
-            ),
+            permissions=sorted(set(permissions)),
             is_active=True,
         )
         session.add(role)
@@ -79,8 +72,8 @@ async def test_catalog_has_one_switch_per_module_and_no_automatic_grants(
 async def test_modules_combine_across_roles_and_role_disable_revokes_immediately(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    chat_role = await grant(app, 'chat')
-    await grant(app, 'skills')
+    chat_role = await grant(app, *grants('platform:chat', 'use', 'update', 'delete', 'share'))
+    await grant(app, *grants('platform:skills', 'use'))
     async with member(app) as client:
         assert (await client.get('/api/chat/conversations')).status_code == 200
         assert (await client.get('/api/skills')).status_code == 200
@@ -91,8 +84,8 @@ async def test_modules_combine_across_roles_and_role_disable_revokes_immediately
         assert (await client.get('/api/knowledge/bases')).status_code == 403
         user_id = (await client.get('/api/auth/me')).json()['id']
         effective = (await admin.get('/api/admin/users/' + user_id + '/effective-permissions')).json()
-        assert {item['code'] for item in effective['items']} == set(
-            upgrade_legacy_permissions(['platform:chat:access', 'platform:skills:access'])
+        assert {item['code'] for item in effective['items']} == (
+            grants('platform:chat', 'use', 'update', 'delete', 'share') | grants('platform:skills', 'use')
         )
         assert all(item['roles'] == ['Configured modules'] for item in effective['items'])
         assert (await client.get('/api/admin/users/' + user_id + '/effective-permissions')).status_code == 403
@@ -108,7 +101,7 @@ async def test_modules_combine_across_roles_and_role_disable_revokes_immediately
 async def test_revoked_module_blocks_queued_execution_and_run_reads(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
-    role_id = await grant(app, 'chat')
+    role_id = await grant(app, *grants('platform:chat', 'use', 'update', 'delete', 'share'))
     async with member(app) as client:
         conversation = (await client.post('/api/chat/conversations', json={})).json()
         response = await client.post(
@@ -140,7 +133,22 @@ async def test_developer_switch_never_grants_other_users_apps_keys_or_governance
             json={'name': 'Private key', 'model_ids': [model_id]},
         )
     ).json()
-    await grant(app, 'developer', 'developer:manage', 'developer:invoke')
+    await grant(
+        app,
+        *grants(
+            'platform:developer',
+            'create',
+            'update',
+            'delete',
+            'toggle',
+            'key_create',
+            'key_rotate',
+            'key_revoke',
+            'key_delete',
+            'grant',
+            'invoke',
+        ),
+    )
     async with member(app) as client:
         assert (await client.get('/api/developer/applications')).json()['items'] == []
         path = f'/api/developer/applications/{application["id"]}'
@@ -160,7 +168,22 @@ async def test_developer_switch_never_grants_other_users_apps_keys_or_governance
 async def test_api_key_scope_models_revocation_and_console_auth_stay_independent(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    role = await grant(app, 'developer', 'developer:manage', 'developer:invoke')
+    role = await grant(
+        app,
+        *grants(
+            'platform:developer',
+            'create',
+            'update',
+            'delete',
+            'toggle',
+            'key_create',
+            'key_rotate',
+            'key_revoke',
+            'key_delete',
+            'grant',
+            'invoke',
+        ),
+    )
     await admin.post(
         f'/api/models/{model_id}/rate-cards',
         json={'billing_mode': 'token', 'input_price': '0.01', 'output_price': '0.01'},
@@ -191,7 +214,7 @@ async def test_api_key_scope_models_revocation_and_console_auth_stay_independent
         # Owner's key is revoked through the domain to test a saved execution identity, without granting a web module.
         async with app.state.container.database.sessions.begin() as session:
             row = await session.get(IdentityRole, role)
-            row.permissions = upgrade_legacy_permissions(['platform:developer:key_revoke'])
+            row.permissions = sorted(grants('platform:developer', 'key_revoke'))
             principal = await app.state.container.identity.principal_for_user(
                 session, UUID((await client.get('/api/auth/me')).json()['id'])
             )
@@ -202,7 +225,13 @@ async def test_api_key_scope_models_revocation_and_console_auth_stay_independent
 async def test_enabled_module_is_complete_but_keeps_personal_resource_boundaries(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    await grant(app, 'agents', 'agents:manage', 'agents:publish', 'knowledge', 'skills', 'models')
+    await grant(
+        app,
+        *grants('platform:agents', 'use', 'create', 'update', 'delete', 'debug', 'publish'),
+        *grants('platform:knowledge', 'query'),
+        *grants('platform:skills', 'use'),
+        *grants('platform:models'),
+    )
     admin_agent = (
         await admin.post(
             '/api/agents', json={'name': 'Admin private assistant', 'model_id': model_id, 'max_tokens': 32}
@@ -216,7 +245,7 @@ async def test_enabled_module_is_complete_but_keeps_personal_resource_boundaries
             await client.delete('/api/agents/' + admin_agent['id'], headers={'content-type': 'application/json'})
         ).status_code == 404
         assert (
-            await client.post('/api/agents/' + own.json()['id'] + '/publish', json={'expected_version': 1})
+            await client.post('/api/agents/' + own.json()['id'] + '/enable', json={'expected_version': 1})
         ).status_code == 200
         assert (await client.get('/api/models/connections')).status_code == 403
         assert (
@@ -233,7 +262,22 @@ async def test_api_cannot_issue_scope_outside_enabled_modules_and_queued_key_is_
 ) -> None:
     from zhiheng.modules.models.public import ModelMessage
 
-    role_id = await grant(app, 'developer', 'developer:manage', 'developer:invoke')
+    role_id = await grant(
+        app,
+        *grants(
+            'platform:developer',
+            'create',
+            'update',
+            'delete',
+            'toggle',
+            'key_create',
+            'key_rotate',
+            'key_revoke',
+            'key_delete',
+            'grant',
+            'invoke',
+        ),
+    )
     await admin.post(
         f'/api/models/{model_id}/rate-cards',
         json={'billing_mode': 'token', 'input_price': '0.01', 'output_price': '0.01'},
@@ -255,7 +299,6 @@ async def test_api_cannot_issue_scope_outside_enabled_modules_and_queued_key_is_
                 operation='chat',
                 messages=(ModelMessage('user', 'queued API call'),),
                 options={},
-                token_limit=app.state.container.settings.token_limit,
             )
         async with app.state.container.database.sessions.begin() as session:
             role = await session.get(IdentityRole, role_id)
@@ -277,13 +320,21 @@ async def test_api_resource_scope_and_model_allowlist_cannot_reach_foreign_ids(
     assert summary.status_code == 200, summary.text
     await grant(
         app,
-        'developer',
-        'developer:manage',
-        'developer:invoke',
-        'knowledge',
-        'knowledge:manage',
-        'skills',
-        'skills:manage',
+        *grants(
+            'platform:developer',
+            'create',
+            'update',
+            'delete',
+            'toggle',
+            'key_create',
+            'key_rotate',
+            'key_revoke',
+            'key_delete',
+            'grant',
+            'invoke',
+        ),
+        *grants('platform:knowledge', 'query', 'create', 'update', 'delete', 'import', 'rebuild'),
+        *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle'),
     )
     async with member(app) as client:
         application = (await client.post('/api/developer/applications', json={'name': 'Unrelated application'})).json()

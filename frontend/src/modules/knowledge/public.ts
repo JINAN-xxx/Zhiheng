@@ -26,3 +26,5 @@ export type {
 
 export { listBases } from './api/index.ts'
 export { addChatAttachment } from './api/index.ts'
+
+export { knowledgeResourcePreview } from './resourcePreview.ts'

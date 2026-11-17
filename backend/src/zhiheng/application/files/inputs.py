@@ -6,13 +6,20 @@ from pydantic import BaseModel
 
 from zhiheng.application.files.objects import FileObjects
 from zhiheng.infrastructure.database import Database
-from zhiheng.modules.files.public import AttachmentSummary, FileService, PreparedAttachment
-from zhiheng.modules.knowledge.public import PARSER_VERSION, ParsePort, ParseResult
+from zhiheng.modules.files.public import (
+    PARSER_VERSION,
+    AttachmentSummary,
+    FileService,
+    ParsePort,
+    ParseResult,
+    PreparedAttachment,
+)
+from zhiheng.modules.models.public import MAX_CONTEXT_IMAGE_BYTES
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 MAX_TOTAL_ATTACHMENT_BYTES = 50 * 1024 * 1024
-MAX_NORMALIZED_IMAGE_BYTES = 16 * 1024 * 1024
+MAX_NORMALIZED_IMAGE_BYTES = MAX_CONTEXT_IMAGE_BYTES
 
 
 class ParsedFile(BaseModel):

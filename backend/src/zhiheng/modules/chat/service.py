@@ -8,10 +8,9 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, defer, undefer
+from sqlalchemy.orm import aliased, defer
 
 from zhiheng.modules.chat.context_policy import ContextTurn
-from zhiheng.modules.chat.context_store import ContextStore
 from zhiheng.modules.chat.contracts import (
     ChatGenerationConfig,
     ChatRequestContext,
@@ -23,7 +22,6 @@ from zhiheng.modules.chat.contracts import (
 )
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.files.public import AttachmentSummary, PreparedAttachment
-from zhiheng.modules.knowledge.public import Hit
 from zhiheng.modules.models.public import ModelImage, ModelMessage
 from zhiheng.runtime.orm import Run
 from zhiheng.runtime.runs import ACTIVE_STATUSES
@@ -203,7 +201,6 @@ class ChatService:
         return MessageInfo(
             generation_config=generation_config,
             attachments=[AttachmentSummary.model_validate(value) for value in row.attachments],
-            knowledge_sources=[Hit.model_validate(value) for value in row.knowledge_sources],
             id=row.id,
             role=cast("Literal['user', 'assistant']", row.role),
             content=row.content,
@@ -215,17 +212,6 @@ class ChatService:
             generation_index=row.generation_index or 1,
             is_complete=row.is_complete,
         )
-
-    async def context(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        conversation_id: UUID,
-        *,
-        exclude_question_id: UUID | None = None,
-    ) -> tuple[ModelMessage, ...]:
-        rows = await self._context_rows(session, principal, conversation_id, exclude_question_id=exclude_question_id)
-        return tuple(self.context_message(row) for row in rows)
 
     async def _context_rows(
         self,
@@ -257,6 +243,7 @@ class ChatService:
                 reply.conversation_id == conversation_id,
                 reply.role == 'assistant',
                 reply.is_complete.is_(True),
+                func.length(func.trim(reply.content)) > 0,
                 select(Run.id)
                 .where(
                     Run.id == reply.run_id,
@@ -352,69 +339,6 @@ class ChatService:
             for question, reply in zip(rows[::2], rows[1::2], strict=True)
         )
 
-    async def hydrate_turns(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        conversation_id: UUID,
-        turns: Sequence[ContextTurn],
-    ) -> tuple[ContextTurn, ...]:
-        if not turns:
-            return ()
-        rows = await session.scalars(
-            select(ChatMessage)
-            .join(Conversation)
-            .where(
-                Conversation.owner_id == principal.id,
-                ChatMessage.conversation_id == conversation_id,
-                ChatMessage.id.in_([item for turn in turns for item in (turn.question_id, turn.reply_id)]),
-            )
-            .options(undefer(ChatMessage.attachment_inputs), defer(ChatMessage.reasoning))
-            .execution_options(populate_existing=True)
-        )
-        by_id = {row.id: row for row in rows}
-        if len(by_id) != len(turns) * 2:
-            raise AppError('chat_context_stale', '会话上下文来源已变化', 409)
-        return tuple(self._turn(by_id[turn.question_id], by_id[turn.reply_id], load_inputs=True) for turn in turns)
-
-    async def legacy_context_turns(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        conversation_id: UUID,
-        messages: tuple[ModelMessage, ...],
-    ) -> tuple[ContextTurn, ...]:
-        history = [message for message in messages[:-1] if message.role not in {'system', 'developer'}]
-        if len(history) % 2 or any('会话摘要' in item.content for item in history):
-            raise AppError('regeneration_context_unavailable', '原上下文来源无法完整恢复，请重新发送问题', 409)
-        # Legacy requests have no persisted source IDs. Match their immutable
-        # whole pairs; ambiguity in attachment provenance is rejected explicitly.
-        rows = list(
-            await session.scalars(
-                select(ChatMessage)
-                .join(Conversation)
-                .where(
-                    Conversation.owner_id == principal.id,
-                    ChatMessage.conversation_id == conversation_id,
-                )
-            )
-        )
-        restored: list[ContextTurn] = []
-        for question_message, reply_message in zip(history[::2], history[1::2], strict=True):
-            candidates = [
-                self._turn(question, reply, load_inputs=True)
-                for question in rows
-                if question.role == 'user' and self.context_message(question) == question_message
-                for reply in rows
-                if reply.role == 'assistant'
-                and self.context_message(reply) == reply_message
-                and (reply.reply_to_message_id == question.id or reply.run_id == question.run_id)
-            ]
-            if not candidates or len({item.file_refs for item in candidates}) > 1:
-                raise AppError('regeneration_context_unavailable', '原上下文附件来源无法完整恢复，请重新发送问题', 409)
-            restored.append(candidates[0])
-        return tuple(restored)
-
     async def regeneration_skill_snapshots(
         self,
         session: AsyncSession,
@@ -445,7 +369,6 @@ class ChatService:
         content: str,
         skill_snapshots: Sequence[SkillSnapshot] = (),
         attachments: Sequence[PreparedAttachment] = (),
-        knowledge_sources: Sequence[Hit] = (),
         request_context: ChatRequestContext | None = None,
     ) -> None:
         row = ChatMessage(
@@ -454,7 +377,6 @@ class ChatService:
             role='user',
             content=content,
             attachments=[value.summary.model_dump(mode='json') for value in attachments],
-            knowledge_sources=[value.model_dump(mode='json') for value in knowledge_sources],
             attachment_inputs=[value.model_dump(mode='json') for value in attachments],
             skill_snapshots=[value.model_dump(mode='json') for value in skill_snapshots],
             request_context=request_context.model_dump(mode='json') if request_context else {},
@@ -472,9 +394,6 @@ class ChatService:
     async def complete(
         self, session: AsyncSession, *, conversation_id: UUID, run_id: UUID, content: str, reasoning: str = ''
     ) -> None:
-        owner_id = await session.scalar(select(Conversation.owner_id).where(Conversation.id == conversation_id))
-        if owner_id is not None:
-            await ContextStore().mark_completed(session, conversation_id, owner_id, run_id)
         assistant = await session.scalar(
             select(ChatMessage).where(ChatMessage.run_id == run_id, ChatMessage.role == 'assistant')
         )
@@ -496,7 +415,6 @@ class ChatService:
                 role='assistant',
                 content=content,
                 reasoning=reasoning,
-                knowledge_sources=question.knowledge_sources if question else [],
                 request_context=question.request_context if question else {},
                 reply_to_message_id=question.id if question else None,
                 is_complete=True,
@@ -557,6 +475,7 @@ class ChatService:
         if next_generation_index > MAX_REPLY_GENERATIONS:
             raise AppError('regeneration_limit_reached', '每个问题最多保留100个回复版本（含原回复）', 409)
         return RegenerationTarget(
+            context_run_id=target.run_id,
             message_id=target.id,
             question=self._message(latest),
             request_context=latest.request_context,
@@ -593,7 +512,6 @@ class ChatService:
         run_id: UUID,
         target: RegenerationTarget,
         skill_snapshots: Sequence[SkillSnapshot],
-        knowledge_sources: Sequence[Hit],
         request_context: ChatRequestContext | None = None,
     ) -> None:
         session.add(
@@ -605,7 +523,6 @@ class ChatService:
                 reply_to_message_id=target.question.id,
                 generation_index=target.next_generation_index,
                 skill_snapshots=[value.model_dump(mode='json') for value in skill_snapshots],
-                knowledge_sources=[value.model_dump(mode='json') for value in knowledge_sources],
                 request_context=request_context.model_dump(mode='json') if request_context else {},
             )
         )
@@ -631,18 +548,6 @@ class ChatService:
         )
         images = tuple(ModelImage(item.image_data) for item in inputs if item.image_data is not None)
         return ModelMessage(cast("Literal['user', 'assistant']", row.role), row.content + extra, images)
-
-    async def attachment_history(
-        self,
-        session: AsyncSession,
-        principal: Principal,
-        conversation_id: UUID,
-        *,
-        exclude_question_id: UUID | None = None,
-    ) -> tuple[PreparedAttachment, ...]:
-        await self.require_conversation(session, principal, conversation_id)
-        rows = await self._context_rows(session, principal, conversation_id, exclude_question_id=exclude_question_id)
-        return tuple(PreparedAttachment.model_validate(value) for row in rows for value in row.attachment_inputs)
 
     async def edit_conversation(
         self,

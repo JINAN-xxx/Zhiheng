@@ -139,6 +139,7 @@ class SkillDetailModalRegressions(DeveloperBoundary):
             const app = createApp({ render: () => h(SkillDetailModal, {
                 modelValue: true, loading: false, saving: false, deleting: false,
                 error: '', actionError: '', canManage: true,
+                canUpdate: true, canDelete: true, canToggle: true,
                 skill: { skillId: 'skill-1', skillSlug: 'example', skillName: '示例技能',
                     description, status: 'enabled', version: '1.0.0',
                     sourceType: 'upload', fileCount: 1, totalBytes: 123 },

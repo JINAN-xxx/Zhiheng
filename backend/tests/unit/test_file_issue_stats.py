@@ -58,7 +58,7 @@ async def test_issue_stats_counts_real_grouped_results(
     async_session = AsyncMock(spec=AsyncSession)
     async_session.execute.side_effect = issue_session.execute
 
-    assert await service.issue_stats(async_session, admin) == expected
+    assert await service.queries.issue_stats(async_session, admin) == expected
 
 
 async def test_issue_stats_rejects_non_admin(tmp_path: Path) -> None:
@@ -67,6 +67,6 @@ async def test_issue_stats_rejects_non_admin(tmp_path: Path) -> None:
     session = AsyncMock(spec=AsyncSession)
 
     with pytest.raises(AppError) as failure:
-        await service.issue_stats(session, member)
+        await service.queries.issue_stats(session, member)
     assert failure.value.status_code == 403
     session.execute.assert_not_awaited()

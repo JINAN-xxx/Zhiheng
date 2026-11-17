@@ -15,7 +15,7 @@ RUN_ID='7265f4f1-107d-4fb4-afd9-824c60c7f290'
 class ModelTrialRegressions(CompactModels):
     async def asyncSetUp(self):
         await super().asyncSetUp()
-        self.permissions=['ai:models:test']
+        self.permissions=['platform:models:enabled', 'platform:models:read', 'platform:models:test']
         self.rows[0]['published']=False
         self.trial_bodies=[]
         self.model_queries=[]
@@ -60,7 +60,7 @@ class ModelTrialRegressions(CompactModels):
             query=parse_qs(parsed.query);self.model_queries.append(query)
             management=query.get('include_disabled')==['true']
             trial=query.get('trial')==['true']
-            if trial and 'ai:models:test' not in self.permissions:
+            if trial and 'platform:models:test' not in self.permissions:
                 return await route.fulfill(status=403,json={'error':{'code':'forbidden','message':'无试用权限'}})
             rows=self.rows if management else [row for row in self.rows if row['enabled'] and self.connection_enabled]
             return await route.fulfill(json=rows)
@@ -76,7 +76,7 @@ class ModelTrialRegressions(CompactModels):
             return await route.fulfill(json=self.snapshot())
         if path=='/api/runs/'+RUN_ID+'/events':
             if self.withdraw:
-                self.permissions=[]
+                self.permissions=['platform:models:enabled','platform:models:read']
                 return await route.fulfill(content_type='text/event-stream',body='data: '+json.dumps(self.snapshot(),ensure_ascii=False)+'\n\n')
             await self.release_events.wait()
             with contextlib.suppress(Exception):await route.fulfill(status=503,json={'error':{'code':'offline','message':'连接已关闭'}})
@@ -194,7 +194,7 @@ class ModelTrialRegressions(CompactModels):
         self.assertEqual(self.trial_bodies[-1]['documents'],['第一份候选','第二份候选'])
 
     async def test_basic_users_see_enabled_models_but_cannot_trial_them(self):
-        self.permissions=[]
+        self.permissions=['platform:models:enabled','platform:models:read']
         await self.page.goto(self.origin+'/models')
         await expect(self.page.get_by_role('heading',name='模型目录',exact=True)).to_be_visible()
         entry=self.page.get_by_role('button',name='查看模型详情：'+LONG_NAME,exact=True)
@@ -206,7 +206,8 @@ class ModelTrialRegressions(CompactModels):
         self.assertEqual(self.trial_bodies,[])
 
     async def test_enabled_chat_model_is_selectable_without_publication(self):
-        self.permissions=[]
+        self.permissions=['platform:models:enabled','platform:models:read',
+                          'platform:chat:enabled','platform:chat:read','platform:chat:use']
         self.rows[0].pop('published', None)
         await self.page.goto(self.origin+'/chat')
         selector=self.page.locator('.model-select .ant-select-selector')

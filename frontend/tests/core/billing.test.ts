@@ -23,14 +23,35 @@ void test('points preserve exact decimal precision and reject numeric API amount
 void test('credit permissions never follow model administration and switching is superadmin only', async () => {
   const rules = await import('../../src/modules/billing/presentation.ts').catch(() => null)
   assert.ok(rules, 'billing permissions must exist')
-  const modelAdmin = { is_admin: false, permissions: ['ai:models:write', 'ai:rates:write'] }
+  const modelAdmin = {
+    is_admin: false,
+    permissions: [
+      'platform:models:enabled',
+      'platform:models:read',
+      'platform:models:update',
+      'ai:rates:enabled',
+      'ai:rates:read',
+      'ai:rates:create'
+    ]
+  }
   assert.equal(rules.creditAccess(modelAdmin).read, false)
-  assert.equal(rules.creditAccess(modelAdmin).write, false)
-  const manager = rules.creditAccess({ is_admin: false, permissions: ['ai:credits:write'] })
-  assert.deepEqual(manager, { read: true, write: true, switchMode: false })
+  assert.equal(rules.creditAccess(modelAdmin).adjust, false)
+  const manager = rules.creditAccess({
+    is_admin: false,
+    permissions: ['ai:credits:enabled', 'ai:credits:read', 'ai:credits:adjust']
+  })
+  assert.deepEqual(manager, {
+    read: true,
+    adjust: true,
+    configure: false,
+    reconcile: false,
+    switchMode: false
+  })
   assert.deepEqual(rules.creditAccess({ is_admin: true }), {
     read: true,
-    write: true,
+    adjust: true,
+    configure: true,
+    reconcile: true,
     switchMode: true
   })
 })
@@ -200,4 +221,20 @@ void test('cache counts are compared only when input and cache are both known', 
   draft.reason = '保留已知部分'
   assert.equal(rules.reconciliationPayload(row, draft).cache_tokens, 50)
   assert.throws(() => rules.reconciliationPayload({ ...row, input_tokens: 20 }, draft), /缓存/)
+})
+
+void test('billing action rights require their module gate and remain independent', async () => {
+  const { creditAccess } = await import('../../src/modules/billing/presentation.ts')
+  const base = ['ai:credits:enabled', 'ai:credits:read']
+  for (const action of ['adjust', 'configure', 'reconcile'] as const) {
+    const access = creditAccess({ is_admin: false, permissions: [...base, `ai:credits:${action}`] })
+    for (const candidate of ['adjust', 'configure', 'reconcile'] as const)
+      assert.equal(access[candidate], candidate === action)
+    assert.equal(
+      creditAccess({ is_admin: false, permissions: ['ai:credits:read', `ai:credits:${action}`] })[
+        action
+      ],
+      false
+    )
+  }
 })

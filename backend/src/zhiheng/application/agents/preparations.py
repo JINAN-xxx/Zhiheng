@@ -25,7 +25,7 @@ class AgentPreparations:
         identity = await self.keys.authenticate(session, token, lock=lock)
         await self.keys.authorize_identity(session, identity, [], scope='agents:invoke')
         agent = await self.agents.get(session, Principal(identity.owner_id, '', False), agent_id, lock=lock)
-        config = agent.published_config
+        config = agent.configuration if agent.enabled else None
         if config is None or config.application_id != identity.application_id:
             raise AppError('agent_not_found', 'Agent is unavailable', 404)
         return identity

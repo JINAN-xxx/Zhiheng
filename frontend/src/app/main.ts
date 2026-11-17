@@ -4,16 +4,12 @@ import '../shared/styles/console-tokens.css'
 import '../shared/styles/workspace.scss'
 import '../shared/styles/zhiheng.scss'
 import '../shared/styles.css'
-import {
-  clearIdentity,
-  identity,
-  restoreIdentity,
-  firstModulePath
-} from '../modules/identity/public.ts'
+import { clearIdentity, identity, restoreIdentity } from '../modules/identity/public.ts'
 import { http } from '../shared/http.ts'
 import { initializeLightTheme } from '../shared/theme.ts'
 import App from './App.vue'
 import { router } from './router.ts'
+import { accessRedirect } from './access.ts'
 initializeLightTheme()
 http.setUnauthorizedHandler(() => {
   clearIdentity()
@@ -35,7 +31,8 @@ watch(identity, (current, previous) => {
     (current.is_admin !== previous.is_admin ||
       JSON.stringify(current.permissions) !== JSON.stringify(previous.permissions))
   ) {
-    void router.replace(firstModulePath(current))
+    const destination = accessRedirect(router.currentRoute.value, current)
+    if (destination) void router.replace(destination)
   }
 })
 window.setInterval(() => {

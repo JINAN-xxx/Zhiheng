@@ -20,18 +20,26 @@ def get_container(request: Request) -> Container:
 ContainerDependency = Annotated[Container, Depends(get_container)]
 
 
-async def get_session(container: ContainerDependency) -> AsyncIterator[AsyncSession]:
+async def get_ready_container(container: ContainerDependency) -> Container:
+    # FastAPI caches this dependency once per request. Authentication still uses
+    # its own short session; endpoint transactions keep their original ownership.
     await container.database.require_schema()
+    return container
+
+
+ReadyContainerDependency = Annotated[Container, Depends(get_ready_container)]
+
+
+async def get_session(container: ReadyContainerDependency) -> AsyncIterator[AsyncSession]:
     async with container.database.sessions() as session:
         yield session
 
 
 async def get_principal(
     request: Request,
-    container: ContainerDependency,
+    container: ReadyContainerDependency,
     _cookie: Annotated[str | None, Security(console_cookie)] = None,
 ) -> Principal:
-    await container.database.require_schema()
     async with container.database.sessions() as session:
         principal = await container.identity.authenticate(session, request.cookies.get(COOKIE_NAME))
         authorize_console_route(request, principal)

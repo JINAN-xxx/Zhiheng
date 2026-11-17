@@ -1,6 +1,8 @@
 **
 !Dockerfile.core
 !pyproject.toml
+!LICENSE
+!THIRD_PARTY_NOTICES.md
 !requirements-core.in
 !requirements-core.lock
 !src/

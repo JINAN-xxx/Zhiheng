@@ -142,7 +142,7 @@ async def test_paid_resource_knowledge_replay_keeps_original_key_and_both_ledger
     assert operation['status'] == 'succeeded', operation
     container = app.state.container
     async with container.database.sessions() as session:
-        before = await container.credits.summary(session, owner)
+        before = await container.credits.queries.summary(session, owner)
         assert before.used_points > 0 and before.reserved_points == 0
         invoices = list(await session.scalars(select(Invocation)))
         holds = list(await session.scalars(select(CreditHold)))
@@ -160,7 +160,7 @@ async def test_paid_resource_knowledge_replay_keeps_original_key_and_both_ledger
     replayed = await admin.post(endpoint, headers=auth(replay_key, external), json=body)
     assert replayed.status_code == 202 and replayed.json()['id'] == operation['id'], replayed.text
     async with container.database.sessions() as session:
-        assert await container.credits.summary(session, owner) == before
+        assert await container.credits.queries.summary(session, owner) == before
         assert len(list(await session.scalars(select(Invocation)))) == 1
         assert len(list(await session.scalars(select(CreditHold)))) == 1
         assert (

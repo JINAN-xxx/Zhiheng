@@ -10,7 +10,7 @@ class ClipboardRegressions(MessageActionsRegressions):
     async def read_clipboard(self):
         reader = await self.context.new_page()
         try:
-            await reader.goto(os.environ.get('CLIPBOARD_READ_ORIGIN', 'http://127.0.0.1:19080') + '/platform.html')
+            await reader.goto(os.environ.get('CLIPBOARD_READ_ORIGIN', self.origin) + '/platform.html')
             return (await reader.evaluate('navigator.clipboard.readText()')).replace('\r\n', '\n')
         finally:
             await reader.close()

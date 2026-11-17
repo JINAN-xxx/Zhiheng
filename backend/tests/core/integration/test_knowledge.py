@@ -2,8 +2,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
+from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.public import VectorSpec
 
@@ -214,49 +216,7 @@ async def test_index_tick_returns_for_children_and_publishes_complete_generation
     assert repeated.json()['id'] == preparation['id']
     assert len(provider.requests) == 3
     assert provider.requests[-1]['model'] == 'rerank'
-    await assert_chat_preparation(admin, provider, app, base, preparation)
     await assert_agent_work_preparation(admin, provider, app, base, chat_model_id=None)
-
-
-async def assert_chat_preparation(
-    admin: httpx.AsyncClient, provider: ProviderServer, app: FastAPI, base: dict, preparation: dict
-) -> None:
-    from sqlalchemy import select
-
-    from zhiheng.runtime.orm import Run
-    from zhiheng.worker.execution import execute_run
-
-    container = app.state.container
-    chat_model = await __import__('tests.core.integration.test_worker', fromlist=['named_model']).named_model(
-        admin, provider, 'local-text'
-    )
-    conversation = (await admin.post('/api/chat/conversations', json={})).json()
-    body = {
-        'message': 'Which port?',
-        'model_id': chat_model,
-        'knowledge_base_ids': [base['id']],
-        'client_request_id': str(uuid4()),
-    }
-    prepared = await admin.post(f'/api/chat/conversations/{conversation["id"]}/runs', json=body)
-    assert prepared.status_code == 202, prepared.text
-    intent = prepared.json()
-    assert intent['kind'] == 'knowledge_preparation'
-    restored = (await admin.get(f'/api/chat/conversations/{conversation["id"]}')).json()
-    assert restored['preparation_id'] == intent['id']
-    for _ in range(10):
-        await container.knowledge_preparation.tick(UUID(intent['id']))
-        async with container.database.sessions() as session:
-            pending = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
-        for run_id in pending:
-            await execute_run(container, run_id)
-        intent = (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).json()
-        if intent['status'] in {'admitted', 'failed'}:
-            break
-    assert intent['status'] == 'admitted', str(intent)
-    replay = await admin.post(f'/api/chat/conversations/{conversation["id"]}/runs', json=body)
-    assert replay.json()['id'] == intent['run']['id']
-    messages = (await admin.get(f'/api/chat/conversations/{conversation["id"]}/messages')).json()
-    assert messages[0]['knowledge_sources'][0]['document_id'] == preparation['hits'][0]['document_id']
 
 
 async def finish_preparation(
@@ -311,3 +271,6 @@ async def assert_agent_work_preparation(
     await finish_preparation(admin, app, pending.json())
     done = (await admin.get(f'/api/work/tasks/{work["id"]}')).json()
     assert done['preparation_id'] is None and done['messages'][-1]['knowledge_sources']
+
+
+pytestmark = pytest.mark.usefixtures('member_knowledge_permissions')

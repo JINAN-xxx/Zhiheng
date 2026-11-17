@@ -9,9 +9,10 @@ from uuid import UUID, uuid5
 from pydantic import TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.execution.lifecycle import RunLifecycle
 from zhiheng.application.knowledge.preparation import PreparationStart
-from zhiheng.modules.agents.public import AgentConfig, AgentInfo, AgentService, AgentSummary, select_agent_history
+from zhiheng.modules.agents.public import AgentConfig, AgentInfo, AgentService, AgentSummary
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.chat.public import ChatService
 from zhiheng.modules.identity.public import IdentityService
@@ -24,6 +25,7 @@ from zhiheng.modules.skills.public import (
     require_available_groups,
     require_available_set,
     require_frozen_available,
+    resolve_selection,
 )
 from zhiheng.modules.work.public import (
     CreateTask,
@@ -31,8 +33,10 @@ from zhiheng.modules.work.public import (
     TaskDetail,
     TaskSummary,
     UpdateTask,
+    WorkAgentConfig,
     WorkService,
     WorkTurn,
+    select_work_history,
 )
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
@@ -60,6 +64,8 @@ class WorkRunService:
         identity: IdentityService,
         usage: UsageService,
         runs: RunStore,
+        *,
+        admission: RunAdmission,
     ) -> None:
         self.work, self.agents, self.models, self.identity, self.usage, self.runs = (
             work,
@@ -69,6 +75,7 @@ class WorkRunService:
             usage,
             runs,
         )
+        self.admission = admission
         self.knowledge: KnowledgePreparation | None = None
 
     async def owner(self, session: AsyncSession, principal: Principal, task_id: UUID) -> Principal:
@@ -80,11 +87,11 @@ class WorkRunService:
     ) -> list[AgentSummary]:
         if task_id:
             principal = await self.owner(session, principal, task_id)
-        models = {item.id: item for item in await self.models.list_models(session) if item.model_type == 'chat'}
+        models = {item.id: item for item in await self.models.catalog.list(session) if item.model_type == 'chat'}
         result = []
         for summary in await self.agents.summaries(session, principal):
             agent = await self.agents.get(session, principal, summary.id)
-            config = agent.published_config
+            config = agent.configuration if agent.enabled else None
             skills = {item.slug for item in await SkillService().available(session, agent.owner_id)}
             if (
                 config is not None
@@ -113,15 +120,15 @@ class WorkRunService:
         for member in detail.members:
             try:
                 agent = await self.agents.get(session, owner, member.agent_id)
-                member.latest_published_version = agent.published_version
+                member.latest_agent_revision = agent.version if agent.enabled else None
                 config = (
-                    AgentConfig.model_validate((await self.work.member(session, task_id, member.agent_id)).config)
+                    WorkAgentConfig.model_validate((await self.work.member(session, task_id, member.agent_id)).config)
                     if member.removed_at is None
                     else None
                 )
                 member.available = member.removed_at is None and member.agent_id in available
                 if member.available and config is not None:
-                    models = {item.id: item for item in await self.models.list_models(session)}
+                    models = {item.id: item for item in await self.models.catalog.list(session)}
                     skills = {item.slug for item in await SkillService().available(session, agent.owner_id)}
                     member.available = (
                         config.model_id in models
@@ -150,11 +157,13 @@ class WorkRunService:
                 if member.removed_at is None
             ]
             try:
-                configs = [AgentConfig.model_validate(member.config) for member in snapshots]
-                bindings = await self.models.resolve_many(session, sorted({config.model_id for config in configs}))
+                configs = [WorkAgentConfig.model_validate(member.config) for member in snapshots]
+                bindings = await self.models.bindings.resolve_many(
+                    session, sorted({config.model_id for config in configs})
+                )
                 for member, config in zip(snapshots, configs, strict=True):
                     agent = await self.agents.get(session, owner, member.agent_id, lock=True)
-                    if agent.published_version is None:
+                    if not agent.enabled:
                         raise AppError('agent_unavailable', '任务成员智能体已取消发布', 409)
                     self._binding(config, bindings[config.model_id])
             except AppError as error:
@@ -203,10 +212,10 @@ class WorkRunService:
         self, session: AsyncSession, principal: Principal, ids: list[UUID]
     ) -> tuple[dict[UUID, AgentInfo], dict[UUID, ModelBinding]]:
         agents = {agent_id: await self.agents.get(session, principal, agent_id) for agent_id in sorted(ids)}
-        if any(agent.published_config is None for agent in agents.values()):
+        if any((agent.configuration if agent.enabled else None) is None for agent in agents.values()):
             raise AppError('agent_not_found', '智能体不存在或不可用', 404)
-        model_ids = {agent.published_config.model_id for agent in agents.values() if agent.published_config}
-        bindings = await self.models.resolve_many(session, sorted(model_ids))
+        model_ids = {agent.model_id for agent in agents.values()}
+        bindings = await self.models.bindings.resolve_many(session, sorted(model_ids))
         for agent_id, agent in list(agents.items()):
             agents[agent_id] = await self.agents.get(
                 session, principal, agent_id, lock=True, expected_version=agent.version
@@ -216,8 +225,8 @@ class WorkRunService:
     async def _freeze(
         self, session: AsyncSession, principal: Principal, agent: AgentInfo, binding: ModelBinding
     ) -> MemberSnapshot:
-        config = agent.published_config
-        assert config is not None and agent.published_version is not None
+        config = agent.configuration if agent.enabled else None
+        assert config is not None and agent.enabled
         self._binding(config, binding)
         if (
             config.knowledge_base_ids
@@ -226,16 +235,14 @@ class WorkRunService:
         ):
             raise AppError('agent_not_found', '智能体知识范围不可用', 404)
         await require_available(session, agent.owner_id, config.skill_slugs)
-        selection = await self.agents.published_selection(
-            session, Principal(agent.owner_id, '', False), agent.id, agent.published_version
-        )
+        selection = await resolve_selection(session, agent.owner_id, config.skill_slugs)
         await require_frozen_available(session, agent.owner_id, selection)
         skills = [
             {key: str(value) if isinstance(value, UUID) else value for key, value in asdict(item).items()}
             for item in selection.revisions
         ]
         return MemberSnapshot(
-            agent.id, agent.owner_id, config.name, agent.published_version, config.model_dump(mode='json'), skills
+            agent.id, agent.owner_id, config.name, agent.version, config.model_dump(mode='json'), skills
         )
 
     @staticmethod
@@ -256,14 +263,14 @@ class WorkRunService:
         # A task can freeze publications belonging to different owners.
         groups: dict[UUID, set[str]] = {}
         for agent in agents.values():
-            if agent.published_config:
-                groups.setdefault(agent.owner_id, set()).update(agent.published_config.skill_slugs)
+            if agent.configuration if agent.enabled else None:
+                groups.setdefault(agent.owner_id, set()).update(agent.skill_slugs)
         await require_available_groups(session, groups)
         members = []
         for agent_id in body.agent_ids:
             agent = agents[agent_id]
-            assert agent.published_config is not None
-            members.append(await self._freeze(session, principal, agent, bindings[agent.published_config.model_id]))
+            assert (agent.configuration if agent.enabled else None) is not None
+            members.append(await self._freeze(session, principal, agent, bindings[agent.model_id]))
         task_id = await self.work.create(session, principal, body, value, members)
         return await self.detail(session, principal, task_id)
 
@@ -274,7 +281,7 @@ class WorkRunService:
         task_id: UUID,
         agent_id: UUID,
         version: int,
-        published_version: int | None = None,
+        agent_revision: int | None = None,
     ) -> TaskDetail:
         owner = await self.owner(session, principal, task_id)
         await self.ensure_preparation_idle(session, task_id)
@@ -283,13 +290,13 @@ class WorkRunService:
             raise AppError('work_version_conflict', '任务已更新，请刷新后重试', 409)
         agents, bindings = await self._prepare(session, owner, [agent_id])
         agent = agents[agent_id]
-        if published_version is not None and agent.published_version != published_version:
-            raise AppError('agent_version_conflict', '发布版本已更新，请刷新后重试', 409)
+        if agent_revision is not None and agent.version != agent_revision:
+            raise AppError('agent_version_conflict', '助手配置已更新，请刷新后重试', 409)
         await self.work.editable(session, principal, task_id, version, allow_completed=True)
-        assert agent.published_config is not None
-        snapshot = await self._freeze(session, owner, agent, bindings[agent.published_config.model_id])
+        assert (agent.configuration if agent.enabled else None) is not None
+        snapshot = await self._freeze(session, owner, agent, bindings[agent.model_id])
         await self.work.change_member(
-            session, principal, task_id, version, agent_id, snapshot, upgrade=published_version is not None
+            session, principal, task_id, version, agent_id, snapshot, upgrade=agent_revision is not None
         )
         return await self.detail(session, principal, task_id)
 
@@ -299,7 +306,6 @@ class WorkRunService:
         principal: Principal,
         task_id: UUID,
         body: WorkTurn,
-        token_limit: int,
         prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
         await lock_billing_admission(session)
@@ -328,16 +334,16 @@ class WorkRunService:
             session, principal, task_id, body.client_request_id, body.agent_id, body.message
         )
         member = await self.work.member(session, task_id, body.agent_id)
-        config = AgentConfig.model_validate(member.config)
+        config = WorkAgentConfig.model_validate(member.config)
         if config.knowledge_base_ids and prepared is None:
             raise AppError('knowledge_unavailable', '知识准备尚未完成', 409)
         # Model -> connection -> Agent -> Task -> skills. Task busy is checked
         # before touching the account lock used by terminal settlement.
         agent = await self.agents.get(session, owner, body.agent_id)
-        current = agent.published_config
+        current = agent.configuration if agent.enabled else None
         if current is None:
             raise AppError('agent_not_found', '智能体不存在或不可用', 404)
-        bindings = await self.models.resolve_many(session, sorted({config.model_id, current.model_id}))
+        bindings = await self.models.bindings.resolve_many(session, sorted({config.model_id, current.model_id}))
         binding = self._binding(config, bindings[config.model_id])
         self._binding(current, bindings[current.model_id])
         await self.agents.get(session, owner, body.agent_id, lock=True, expected_version=agent.version)
@@ -363,32 +369,14 @@ class WorkRunService:
         if prepared and self.knowledge:
             await self.knowledge.check(session, prepared, owner)
             request = request.model_copy(update={'messages': prepared.apply_context(messages)})
-        run = await self.runs.create(
+        run = await self.admission.reserve(
             session,
-            owner_id=principal.id,
-            billing_owner_id=owner.id,
+            identity=AdmissionIdentity(owner_id=principal.id, billing_owner_id=owner.id),
             resource_type='work_turn',
             resource_id=task_id,
-            request_id=request_id,
+            client_request_id=request_id,
             fingerprint=value,
-            payload=request.model_dump(mode='json'),
-        )
-        input_tokens = sum(
-            len(item.content.encode()) + 16 + sum(image.estimated_tokens for image in item.images)
-            for item in request.messages
-        )
-        await self.usage.reserve(
-            session,
-            user_id=owner.id,
-            run_id=run.id,
-            model_id=config.model_id,
-            source='work_turn',
-            tokens=input_tokens + request.binding.max_output_tokens,
-            estimated_input_tokens=input_tokens,
-            max_output_tokens=request.binding.max_output_tokens,
-            token_limit=token_limit,
-            rate=await self.usage.money_rate(session, self.models, request.binding.model_id),
-            operation='chat',
+            request=request,
         )
         await self.work.admit(
             session,
@@ -407,7 +395,12 @@ class WorkRunService:
         return run
 
     async def _messages(
-        self, session: AsyncSession, task: TaskSummary, body: WorkTurn, config: AgentConfig, selection: SkillSelection
+        self,
+        session: AsyncSession,
+        task: TaskSummary,
+        body: WorkTurn,
+        config: WorkAgentConfig,
+        selection: SkillSelection,
     ) -> tuple[ModelMessage, ...]:
         task_id = task.id
         history = await self.work.context(session, task_id)
@@ -421,14 +414,12 @@ class WorkRunService:
                 item.role == 'user' or item.status in ('completed', 'failed', 'cancelled', 'interrupted')
             ):
                 content = (
-                    f'[Agent: {item.agent_name_snapshot}; publishedVersion: {item.published_version}]\n{item.content}'
-                    if item.role == 'assistant'
-                    else item.content
+                    f'[Agent: {item.agent_name_snapshot}]\n{item.content}' if item.role == 'assistant' else item.content
                 )
                 shared.append(ModelMessage(item.role, content))
         if body.client_request_id != task.create_client_request_id:
             shared.append(ModelMessage('user', body.message))
-        selected = select_agent_history(
+        selected = select_work_history(
             shared, config.history_rounds, max_messages=MAX_CONTEXT_MESSAGES, max_bytes=MAX_CONTEXT_BYTES
         )
         messages = (
@@ -477,9 +468,9 @@ class WorkRunService:
                 return prep.store.info(intent)
             await prep.store.ensure_idle(session, 'work_turn', task_id)
             member = await self.work.member(session, task_id, body.agent_id)
-            config = AgentConfig.model_validate(member.config)
+            config = WorkAgentConfig.model_validate(member.config)
             if not config.knowledge_base_ids:
-                return await self.admit(session, principal, task_id, body, prep.token_limit)
+                return await self.admit(session, principal, task_id, body)
             binding = await prep.binding_for(session, owner, config.model_id, config.knowledge_base_ids)
             version = await self.work.reserve_preparation(session, principal, task_id, body.expected_version)
             admission_body = body.model_copy(update={'expected_version': version})
@@ -517,7 +508,7 @@ class WorkRunService:
             'member_config': member.config,
             'member_skills': member.skills,
             'agent_version': agent.version,
-            'agent_config': agent.published_config.model_dump(mode='json') if agent.published_config else None,
+            'agent_config': agent.configuration.model_dump(mode='json') if agent.enabled else None,
             'context_hash': fingerprint([item.model_dump(mode='json') for item in history]),
             'main_request': ModelRequest(binding=binding, messages=()).model_dump(mode='json'),
         }
@@ -532,7 +523,7 @@ class WorkRunService:
         current = await self._knowledge_dependencies(session, principal, state.resource_id, body, binding)
         if any(current[key] != state.dependencies[key] for key in current):
             raise AppError('knowledge_preparation_stale', 'Work任务或成员依赖已变化', 409)
-        return await self.admit(session, principal, state.resource_id, body, self.knowledge.token_limit, prepared)
+        return await self.admit(session, principal, state.resource_id, body, prepared)
 
     async def ensure_preparation_idle(self, session: AsyncSession, task_id: UUID) -> None:
         if self.knowledge:
@@ -543,7 +534,7 @@ class WorkRunService:
     ) -> bool:
         await self.work.require(session, principal, task_id)
         member = await self.work.member(session, task_id, agent_id)
-        return bool(AgentConfig.model_validate(member.config).knowledge_base_ids)
+        return bool(WorkAgentConfig.model_validate(member.config).knowledge_base_ids)
 
     async def replay(
         self, session: AsyncSession, principal: Principal, task_id: UUID, body: WorkTurn
@@ -564,7 +555,7 @@ class WorkRunService:
         await self.ensure_preparation_idle(session, task_id)
         if self.knowledge:
             run_ids = await self.work.reference_run_ids(session, principal, task_id)
-            await self.knowledge.knowledge.files.release_resources(
+            await self.knowledge.knowledge.files.references.release_resources(
                 session, resource_type='knowledge_run', resource_ids=run_ids, actor_id=principal.id
             )
         await self.work.remove(session, principal, task_id, expected_version)

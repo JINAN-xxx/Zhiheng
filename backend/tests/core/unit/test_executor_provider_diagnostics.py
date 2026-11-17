@@ -35,7 +35,7 @@ async def test_provider_failure_is_correlated_without_changing_settlement(
         except RuntimeError:
             raise error from None
 
-    async def observe(_claim: ClaimedRun) -> str:
+    async def observe(_claim: ClaimedRun, _progress: InferenceProgress | None = None) -> str:
         await asyncio.Event().wait()
         return 'active'
 
@@ -103,7 +103,7 @@ async def test_timeout_is_transient_only_for_started_rerank(
         progress.provider_started = provider_started
         raise TimeoutError('private-provider-input')
 
-    async def observe(_claim: ClaimedRun) -> str:
+    async def observe(_claim: ClaimedRun, _progress: InferenceProgress | None = None) -> str:
         await asyncio.Event().wait()
         return 'active'
 

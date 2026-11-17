@@ -7,7 +7,6 @@ export const fileRoutes: RouteRecordRaw[] = [
     name: 'files',
     component: () => import('./views/FilesView.vue'),
     meta: { title: '存储管理', activeMenu: '/admin' },
-    beforeEnter: () =>
-      hasAnyPermission(identity.value, 'ai:storage:read', 'ai:storage:write') || '/knowledge'
+    beforeEnter: () => hasAnyPermission(identity.value, 'ai:storage:read') || '/knowledge'
   }
 ]

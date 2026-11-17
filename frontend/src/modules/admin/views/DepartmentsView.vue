@@ -22,7 +22,13 @@ import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { validSortOrder } from '../presentation.ts'
 const { rows, total, page, search, loading, error, saving, load, save, remove, find, changePage } =
   useCollection<Department, DepartmentPayload>('departments', decodeDepartment, {}, true)
-const writable = computed(() => hasAdminPermission(identity.value, 'departments', 'write'))
+const canEditDepartment = () =>
+  ['update', 'toggle'].some((action) => hasAdminPermission(identity.value, 'departments', action))
+const hasRowActions = computed(() =>
+  ['create', 'update', 'toggle', 'delete'].some((action) =>
+    hasAdminPermission(identity.value, 'departments', action)
+  )
+)
 interface DepartmentNode extends Department {
   children?: DepartmentNode[]
 }
@@ -72,6 +78,8 @@ const parentOptions = computed(() =>
   rows.value.filter((row) => !editing.value || !descendsFrom(row, editing.value.id))
 )
 function edit(row: Department | null = null, parent = ''): void {
+  if (row ? !canEditDepartment() : !hasAdminPermission(identity.value, 'departments', 'create'))
+    return
   editing.value = row
   Object.assign(
     form,
@@ -100,6 +108,23 @@ function edit(row: Department | null = null, parent = ''): void {
 }
 async function submit(): Promise<void> {
   if (saving.value) return
+  const row = editing.value
+  if (row ? !canEditDepartment() : !hasAdminPermission(identity.value, 'departments', 'create'))
+    return
+  if (row) {
+    if (
+      (['parent_id', 'name', 'sort_order', 'leader', 'phone', 'email'] as const).some(
+        (key) => (key === 'parent_id' ? form[key] || null : form[key]) !== row[key]
+      ) &&
+      !hasAdminPermission(identity.value, 'departments', 'update')
+    )
+      return
+    if (
+      form.is_active !== row.is_active &&
+      !hasAdminPermission(identity.value, 'departments', 'toggle')
+    )
+      return
+  }
   if (!validSortOrder(form.sort_order)) {
     formError.value = '排序必须为 0 至 1000000 之间的整数'
     return
@@ -130,7 +155,9 @@ function confirmDelete(row: Department): void {
       okText: '删除部门',
       okType: 'danger',
       cancelText: '取消',
-      onOk: () => remove(row)
+      onOk: () => {
+        if (hasAdminPermission(identity.value, 'departments', 'delete')) return remove(row)
+      }
     })
 }
 const columns = [
@@ -172,7 +199,7 @@ const columns = [
         </div>
         <AdminState v-else-if="column.key === 'status'" :value="record.is_active" />
         <AdminRowActions
-          v-else-if="column.key === 'actions' && writable"
+          v-else-if="column.key === 'actions' && hasRowActions"
           :primary="{
             key: 'edit',
             label: '编辑',

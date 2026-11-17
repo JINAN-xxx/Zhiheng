@@ -422,3 +422,10 @@ async def test_delete_and_actions_complete_without_deadlocks(
     )
     assert all(result.status_code in {200, 201, 204, 404} for result in results)
     assert (await admin.get(f'/api/shared/messages/{share["token"]}')).status_code == 404
+
+
+@pytest.fixture(autouse=True)
+async def member_chat_permissions(admin: httpx.AsyncClient) -> None:
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:chat', 'use', 'update', 'delete', 'share'))

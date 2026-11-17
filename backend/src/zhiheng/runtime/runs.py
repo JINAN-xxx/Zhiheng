@@ -6,7 +6,15 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.runtime.contracts import ActiveRunReference, ClaimedRun, RunError, RunSnapshot, RunStatus, RunUsage
+from zhiheng.runtime.contracts import (
+    ActiveRunReference,
+    ClaimedRun,
+    RunError,
+    RunFacts,
+    RunSnapshot,
+    RunStatus,
+    RunUsage,
+)
 from zhiheng.runtime.orm import Outbox, Run
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
@@ -100,6 +108,21 @@ class RunStore:
             )
             is not None
         )
+
+    async def facts(self, session: AsyncSession, run_id: UUID, billing_owner_id: UUID) -> RunFacts | None:
+        """Trusted composition only, after the billing domain authorizes its original account."""
+        row = (
+            (
+                await session.execute(
+                    select(*(getattr(Run, name) for name in RunFacts.model_fields)).where(
+                        Run.id == run_id, Run.billing_owner_id == billing_owner_id
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return RunFacts.model_validate(row) if row is not None else None
 
     async def snapshot(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> RunSnapshot:
         row = await session.scalar(select(Run).where(Run.id == run_id, Run.owner_id == owner_id))
@@ -195,9 +218,16 @@ class RunStore:
         row.provider_started = True
         return True
 
-    async def lock_execution(self, session: AsyncSession, run_id: UUID, attempt_id: UUID) -> None:
+    async def lock_execution(
+        self,
+        session: AsyncSession,
+        run_id: UUID,
+        attempt_id: UUID,
+        *,
+        allow_cancel: bool = True,
+    ) -> None:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
-        if not self._owns(row, attempt_id):
+        if not self._owns(row, attempt_id) or (not allow_cancel and row is not None and row.status != 'running'):
             raise AppError('execution_lost', '执行权已失效', 409)
 
     async def project(

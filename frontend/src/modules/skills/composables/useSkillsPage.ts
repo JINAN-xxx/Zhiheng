@@ -30,7 +30,7 @@ export function useSkillsPage() {
   const canUpload = computed(() => canUseCapability('skills', 'create'))
   const canToggleSkill = (item: Skill): boolean =>
     item.sourceType === 'builtin'
-      ? canUseCapability('skills')
+      ? canUseCapability('skills', 'use')
       : canUseCapability('skills', 'toggle')
   const activeTab = ref<'market' | 'mine'>(
     route.query.tab === 'mine' || route.query.action === 'upload' ? 'mine' : 'market'

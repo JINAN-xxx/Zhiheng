@@ -107,4 +107,4 @@ class FileCommands:
                 current = await self.files.get(session, principal, file_id)
                 if current.version != expected_version:
                     raise AppError('precondition_failed', '文件版本已改变', 412)
-            return await self.files.remove(session, principal, file_id, expected_version, restore=restore)
+            return await self.files.lifecycle.remove(session, principal, file_id, expected_version, restore=restore)

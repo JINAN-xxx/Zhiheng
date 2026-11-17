@@ -1,10 +1,10 @@
-"""Canonical module gates, operation permissions and explicit legacy-role conversion."""
+"""Canonical module gates and independently granted operation permissions."""
 
 from collections.abc import Iterable
 
 # Namespace, resource, label, operations. Every operation depends on gate + read.
 MODULE_DEFINITIONS = (
-    ('platform', 'overview', '工作台', ('read',)),
+    ('platform', 'overview', '工作台', ('read', 'platform_stats')),
     ('platform', 'chat', '对话体验', ('read', 'use', 'update', 'delete', 'share')),
     ('platform', 'agents', '智能助手', ('read', 'use', 'create', 'update', 'delete', 'debug', 'publish')),
     ('platform', 'work', '工作空间', ('read', 'use', 'create', 'update', 'delete')),
@@ -49,6 +49,7 @@ PERMISSION_CODES = frozenset(
 )
 ACTION_LABELS = {
     'read': '查看',
+    'platform_stats': '全平台统计',
     'use': '使用',
     'query': '检索',
     'create': '新增',
@@ -58,7 +59,7 @@ ACTION_LABELS = {
     'rebuild': '重建索引',
     'share': '共享管理',
     'debug': '草稿调试',
-    'publish': '发布与撤回',
+    'publish': '启用与停用',
     'toggle': '启用与停用',
     'config_read': '查看配置',
     'test': '试用与连接测试',
@@ -84,7 +85,7 @@ DESCRIPTIONS = {
     'platform:models': '模型目录不包含凭据权限；模型配置和连接测试分别勾选。',
     'ai:credentials': '敏感权限，独立于模型目录；已保存密钥不明文回读。',
     'platform:developer': '仅管理本人应用与 Key；API 调用还受 Scope、模型和资源授权限制。',
-    'platform:agents': '仅操作本人助手；使用、调试与发布独立授权。',
+    'platform:agents': '仅操作本人助手；使用、调试与启停独立授权。',
     'ai:credits': '涉及全平台积分、额度和用量，不等同于查看本人用量。',
 }
 
@@ -118,64 +119,6 @@ def catalog() -> list[dict[str, str]]:
     return result
 
 
-def _bundle(module: str, actions: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted({f'{module}:enabled', f'{module}:read', *(f'{module}:{action}' for action in actions)}))
-
-
-LEGACY_PERMISSIONS: dict[str, tuple[str, ...]] = {}
-for namespace, resource, _, actions in MODULE_DEFINITIONS:
-    module = f'{namespace}:{resource}'
-    # A historical read/publish/share/invoke grant gains only the gate and its read dependency.
-    for action in actions:
-        LEGACY_PERMISSIONS[f'{module}:{action}'] = _bundle(module, (action,))
-    if namespace == 'system' or module in {'ai:credentials', 'ai:rates', 'ai:credits', 'ai:storage'}:
-        LEGACY_PERMISSIONS[f'{module}:write'] = _bundle(module, (action for action in actions if action != 'read'))
-LEGACY_PERMISSIONS.update(
-    {
-        'platform:overview:access': _bundle('platform:overview', ('read',)),
-        'platform:chat:access': _bundle('platform:chat', ('read', 'use', 'update', 'delete', 'share')),
-        'platform:agents:access': _bundle('platform:agents', ('read', 'use')),
-        'platform:agents:manage': _bundle('platform:agents', ('create', 'update', 'delete', 'debug')),
-        'platform:work:access': _bundle('platform:work', ('read', 'use')),
-        'platform:work:manage': _bundle('platform:work', ('create', 'update', 'delete')),
-        'platform:models:access': _bundle('platform:models', ('read',)),
-        'platform:knowledge:access': _bundle('platform:knowledge', ('read', 'query')),
-        'platform:knowledge:manage': _bundle('platform:knowledge', ('create', 'update', 'delete', 'import', 'rebuild')),
-        'platform:skills:access': _bundle('platform:skills', ('read', 'use')),
-        'platform:skills:manage': _bundle('platform:skills', ('create', 'update', 'delete', 'toggle')),
-        'platform:developer:access': _bundle('platform:developer', ('read',)),
-        'platform:developer:manage': _bundle(
-            'platform:developer',
-            ('create', 'update', 'delete', 'toggle', 'key_create', 'key_rotate', 'key_revoke', 'key_delete', 'grant'),
-        ),
-        'platform:usage:access': _bundle('platform:usage', ('read',)),
-        'ai:models:read': _bundle('platform:models', ('config_read',)),
-        'ai:models:write': _bundle('platform:models', ('config_read', 'create', 'update', 'delete', 'toggle')),
-        'ai:models:test': _bundle('platform:models', ('test',)),
-        'ai:skills:write': (),
-    }
-)
-# Internal preconditions remain compatible with their old aggregate names. They never
-# appear as grantable permissions; each HTTP operation and queued command checks its exact action.
-INTERNAL_ALIASES = {
-    key: tuple(code for code in values if not code.endswith((':enabled', ':read')))
-    for key, values in LEGACY_PERMISSIONS.items()
-    if key not in PERMISSION_CODES
-}
-INTERNAL_ALIASES.update(
-    {
-        'ai:models:read': ('platform:models:config_read',),
-        'ai:models:write': (
-            'platform:models:create',
-            'platform:models:update',
-            'platform:models:delete',
-            'platform:models:toggle',
-        ),
-        'ai:models:test': ('platform:models:test',),
-    }
-)
-
-
 def is_granted(permissions: Iterable[str], requested: str) -> bool:
     codes = permissions if isinstance(permissions, (set, frozenset)) else frozenset(permissions)
     if requested in PERMISSION_CODES:
@@ -183,24 +126,12 @@ def is_granted(permissions: Iterable[str], requested: str) -> bool:
         return (
             f'{module}:enabled' in codes and (action == 'enabled' or f'{module}:read' in codes) and requested in codes
         )
-    return any(is_granted(codes, code) for code in INTERNAL_ALIASES.get(requested, ()))
+    return False
 
 
 def effective_permissions(permissions: Iterable[str]) -> frozenset[str]:
     codes = frozenset(permissions)
     return frozenset(code for code in codes if code in PERMISSION_CODES and is_granted(codes, code))
-
-
-def upgrade_legacy_permissions(permissions: Iterable[str]) -> list[str]:
-    result: set[str] = set()
-    for code in permissions:
-        if code in LEGACY_PERMISSIONS:
-            result.update(LEGACY_PERMISSIONS[code])
-        elif code in PERMISSION_CODES:
-            result.add(code)
-        elif code.startswith(('system:posts:', 'system:menus:', 'system:dictionaries:')):
-            continue
-    return sorted(result)
 
 
 def invalid_dependencies(permissions: Iterable[str]) -> bool:

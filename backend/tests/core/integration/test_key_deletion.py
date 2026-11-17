@@ -10,12 +10,12 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
-from tests.core.auth_personal_support import identity_client
 from tests.core.integration.test_billing_http import mutation, point_rate
 from tests.core.integration.test_developer import admitted, provision
 from tests.core.integration.test_resource_files import auth, post
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_resource_knowledge import SCOPES, finish, setup
+from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from zhiheng.modules.billing.orm import CreditHold, CreditLedger, Invocation, UsageAccount
 from zhiheng.modules.developer.orm import APIRequest, DeveloperKey
@@ -73,7 +73,11 @@ async def test_delete_any_key_state_hides_it_and_preserves_identity(
 async def test_key_delete_checks_current_application_authority_and_parent(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    async with identity_client(app) as owner, identity_client(app) as stranger:
+    permissions = grants('platform:developer', 'create', 'key_create', 'key_delete', 'invoke')
+    async with (
+        account(admin, app, *permissions) as (owner, _, _),
+        account(admin, app, *permissions) as (stranger, _, _),
+    ):
         owned, sibling = await application(owner), await application(owner)
         key = await issue(owner, owned['id'], scopes=['files:read'])
         assert (await stranger.get(f'/api/developer/applications/{owned["id"]}')).status_code == 404
@@ -201,12 +205,12 @@ async def test_deletion_keeps_unknown_holds_and_allows_later_reconciliation(
         assert result.status == 'unknown'
         stored = await session.get(Run, run.id)
         stored.status = 'failed'
-        before = await container.credits.summary(session, owner)
+        before = await container.credits.queries.summary(session, owner)
         assert before.reserved_points > 0
         ledger_ids = list(await session.scalars(select(CreditLedger.id).order_by(CreditLedger.id)))
     assert (await remove(admin, app_id, key['id'])).status_code == 204
     async with container.database.sessions.begin() as session:
-        assert await container.credits.summary(session, owner) == before
+        assert await container.credits.queries.summary(session, owner) == before
         assert list(await session.scalars(select(CreditLedger.id).order_by(CreditLedger.id))) == ledger_ids
         invoice = await session.scalar(select(Invocation).where(Invocation.run_id == run.id))
         hold = await session.get(CreditHold, run.id)
@@ -220,7 +224,7 @@ async def test_deletion_keeps_unknown_holds_and_allows_later_reconciliation(
     )
     assert reconciled.status_code == 200, reconciled.text
     async with container.database.sessions() as session:
-        after = await container.credits.summary(session, owner)
+        after = await container.credits.queries.summary(session, owner)
         tokens = await session.get(UsageAccount, owner)
         hold = await session.get(CreditHold, run.id)
         invoice = await session.scalar(select(Invocation).where(Invocation.run_id == run.id))

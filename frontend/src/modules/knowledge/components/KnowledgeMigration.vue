@@ -8,7 +8,7 @@ import {
   Modal as AModal,
   Spin as ASpin
 } from 'ant-design-vue'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { identity } from '../../identity/public.ts'
 import { getMigration, migrateBase } from '../api/index.ts'
 import type { KnowledgeBase, KnowledgeJob, MigrationPreview } from '../api/index.ts'
@@ -81,7 +81,7 @@ async function submit() {
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) {
       error.value = errorMessage(reason)
-      uncertain.value = !(reason instanceof ApiError) || reason.status >= 500
+      uncertain.value = uncertain.value || !isDefiniteRejection(reason)
     }
   } finally {
     if (ticket.isCurrent()) saving.value = false

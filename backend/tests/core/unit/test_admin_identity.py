@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.core.permission_support import grants
 from zhiheng.modules.identity import public
 from zhiheng.modules.identity.admin_contracts import RoleCreate
 from zhiheng.modules.identity.orm import IdentitySession, IdentityUser
@@ -14,19 +15,17 @@ from zhiheng.modules.identity.schema import schema_tables
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
-AI_PERMISSION_CODES = frozenset(
-    {
-        'ai:models:read',
-        'ai:models:write',
-        'ai:models:test',
-        'ai:rates:read',
-        'ai:rates:write',
-        'ai:skills:write',
-        'ai:storage:read',
-        'ai:storage:write',
-        'ai:credits:read',
-        'ai:credits:write',
-    }
+USER_READ = grants('system:users')
+ROLE_MANAGER = grants('system:roles', 'create', 'update', 'delete', 'toggle', 'grant')
+USER_MANAGER = grants('system:users', 'create', 'update', 'delete', 'toggle', 'assign_roles', 'reset_password')
+MODEL_READ = grants('platform:models', 'config_read')
+MODEL_WRITE = grants('platform:models', 'config_read', 'create', 'update', 'delete', 'toggle')
+AI_PERMISSION_CODES = (
+    MODEL_WRITE
+    | grants('platform:models', 'test')
+    | grants('ai:rates', 'create')
+    | grants('ai:storage', 'configure', 'maintain', 'acl', 'transfer', 'delete', 'parse')
+    | grants('ai:credits', 'adjust', 'configure', 'reconcile')
 )
 
 
@@ -68,7 +67,7 @@ async def test_roles_apply_to_existing_sessions_and_disabled_roles_stop_authoriz
         {
             'code': 'reader',
             'name': 'Reader',
-            'permissions': ['system:users:read'],
+            'permissions': sorted(USER_READ),
         },
     )
     user = await admin.create(
@@ -82,7 +81,7 @@ async def test_roles_apply_to_existing_sessions_and_disabled_roles_stop_authoriz
         },
     )
     principal, token = await identity.login(session, username='reader', password='a-long-test-password')
-    assert principal.permissions == frozenset({'system:users:read'})
+    assert principal.permissions == USER_READ
     await admin.update(session, root, 'roles', role['id'], {'is_active': False}, expected_version=1)
     current = await identity.authenticate(session, token)
     assert current.permissions == frozenset()
@@ -141,7 +140,7 @@ async def test_non_admin_cannot_grant_higher_permissions_or_manage_super_admin(
         {
             'code': 'manager',
             'name': 'Manager',
-            'permissions': ['system:users:write', 'system:roles:write'],
+            'permissions': sorted(USER_MANAGER | ROLE_MANAGER),
         },
     )
     user = await admin.create(
@@ -163,7 +162,7 @@ async def test_non_admin_cannot_grant_higher_permissions_or_manage_super_admin(
             {
                 'code': 'escalation',
                 'name': 'Escalation',
-                'permissions': ['system:logs:read'],
+                'permissions': sorted(grants('system:logs')),
             },
         )
     assert escalation.value.status_code == 403
@@ -253,27 +252,24 @@ async def test_retired_resources_and_permission_catalog(context: tuple[AsyncSess
     with pytest.raises(AppError):
         await admin.create(session, root, 'roles', {'name': 'bad', 'permissions': ['system:root:write']})
     catalog = public.permission_catalog()
-    system = [item for item in catalog if item['code'].startswith('system:')]
-    ai = [item for item in catalog if item['code'].startswith('ai:')]
-    assert len(system) == 14
-    assert {item['code'] for item in ai} == AI_PERMISSION_CODES
-    assert len(catalog) == len({item['code'] for item in catalog}) == 24
-    assert all(item['group'].startswith('系统管理 · ') for item in system)
-    assert {item['group'] for item in ai} == {
-        'AI平台 · 模型与凭据',
-        'AI平台 · 费率',
-        'AI平台 · 个人技能',
-        'AI平台 · 存储治理',
-        'AI平台 · 积分',
-    }
-    assert all(item['label'] for item in catalog)
+    codes = {item['code'] for item in catalog}
+    assert len(catalog) == len(codes)
+    assert codes >= USER_MANAGER | ROLE_MANAGER | AI_PERMISSION_CODES
+    assert not any(code.endswith(':write') or code == 'ai:skills:write' for code in codes)
+    assert not any(code.startswith(('system:posts:', 'system:menus:', 'system:dictionaries:')) for code in codes)
+    assert {item['namespace'] for item in catalog} == {'system', 'ai', 'platform'}
+    assert all(item['label'] and item['group'] for item in catalog)
+    for item in catalog:
+        if item['kind'] == 'action':
+            assert item['parent'] == item['module'] + ':enabled'
+            assert item['parent'] in codes
 
 
 async def test_roles_can_create_and_update_with_the_full_permission_catalog(
     context: tuple[AsyncSession, Any, Any, Principal],
 ) -> None:
     session, _, admin, root = context
-    permissions = sorted({item['code'] for item in public.permission_catalog()} | AI_PERMISSION_CODES)
+    permissions = sorted(item['code'] for item in public.permission_catalog())
     role = await admin.create(
         session, root, 'roles', {'code': 'all-permissions', 'name': 'All permissions', 'permissions': permissions}
     )
@@ -317,7 +313,7 @@ async def test_delegated_ai_grants_require_held_permissions_and_cannot_elevate_s
     context: tuple[AsyncSession, Any, Any, Principal],
 ) -> None:
     session, identity, admin, root = context
-    held = {'system:roles:write', 'system:users:write', 'ai:models:read'}
+    held = ROLE_MANAGER | USER_MANAGER | MODEL_READ
     manager_role = await admin.create(
         session, root, 'roles', {'code': 'ai-manager', 'name': 'AI manager', 'permissions': sorted(held)}
     )
@@ -332,18 +328,18 @@ async def test_delegated_ai_grants_require_held_permissions_and_cannot_elevate_s
         session,
         manager,
         'roles',
-        {'code': 'ai-reader', 'name': 'AI reader', 'permissions': ['ai:models:read']},
+        {'code': 'ai-reader', 'name': 'AI reader', 'permissions': sorted(MODEL_READ)},
     )
-    assert granted['permissions'] == ['ai:models:read']
+    assert granted['permissions'] == sorted(MODEL_READ)
     powerful = await admin.create(
-        session, root, 'roles', {'code': 'ai-writer', 'name': 'AI writer', 'permissions': ['ai:models:write']}
+        session, root, 'roles', {'code': 'ai-writer', 'name': 'AI writer', 'permissions': sorted(MODEL_WRITE)}
     )
     with pytest.raises(AppError) as grant:
         await admin.create(
             session,
             manager,
             'roles',
-            {'code': 'forbidden', 'name': 'Forbidden', 'permissions': ['ai:models:write']},
+            {'code': 'forbidden', 'name': 'Forbidden', 'permissions': sorted(MODEL_WRITE)},
         )
     assert grant.value.status_code == 403
     with pytest.raises(AppError) as elevate_role:
@@ -352,7 +348,7 @@ async def test_delegated_ai_grants_require_held_permissions_and_cannot_elevate_s
             manager,
             'roles',
             manager_role['id'],
-            {'permissions': sorted(held | {'ai:models:write'})},
+            {'permissions': sorted(held | MODEL_WRITE)},
             expected_version=1,
         )
     assert elevate_role.value.status_code == 403
@@ -383,7 +379,7 @@ async def test_read_permission_is_required_independently_from_write(
     context: tuple[AsyncSession, Any, Any, Principal],
 ) -> None:
     session, _, admin, root = context
-    member = Principal(root.id, root.username, False, frozenset({'system:users:write'}))
+    member = Principal(root.id, root.username, False, frozenset({'system:users:enabled', 'system:users:update'}))
     with pytest.raises(AppError) as forbidden:
         await admin.list(session, member, 'users')
     assert forbidden.value.status_code == 403
@@ -394,9 +390,9 @@ async def test_user_options_prevent_role_escalation(
 ) -> None:
     session, _, admin, root = context
     await admin.create(
-        session, root, 'roles', {'code': 'powerful', 'name': '高权', 'permissions': ['system:roles:write']}
+        session, root, 'roles', {'code': 'powerful', 'name': '高权', 'permissions': sorted(ROLE_MANAGER)}
     )
-    member = Principal(root.id, root.username, False, frozenset({'system:users:read'}))
+    member = Principal(root.id, root.username, False, USER_READ)
     options = await admin.user_options(session, member)
     assert options['roles'] == []
 
@@ -412,7 +408,7 @@ async def test_password_reset_cannot_take_over_more_powerful_regular_user(
         {
             'code': 'audit',
             'name': '审计',
-            'permissions': ['system:logs:read'],
+            'permissions': sorted(grants('system:logs')),
         },
     )
     user = await admin.create(
@@ -425,7 +421,7 @@ async def test_password_reset_cannot_take_over_more_powerful_regular_user(
             'role_ids': [role['id']],
         },
     )
-    manager = Principal(root.id, 'delegated', False, frozenset({'system:users:write'}))
+    manager = Principal(root.id, 'delegated', False, frozenset({'system:users:enabled', 'system:users:update'}))
     with pytest.raises(AppError) as forbidden:
         await admin.reset_password(session, manager, user['id'], 'takeover-password', expected_version=1)
     assert forbidden.value.status_code == 403
@@ -600,7 +596,7 @@ async def test_retaining_inactive_role_cannot_bypass_operator_permission_scope(
         {
             'code': 'audit',
             'name': 'Audit',
-            'permissions': ['system:logs:read'],
+            'permissions': sorted(grants('system:logs')),
         },
     )
     user = await admin.create(
@@ -614,7 +610,7 @@ async def test_retaining_inactive_role_cannot_bypass_operator_permission_scope(
         },
     )
     await admin.update(session, root, 'roles', role['id'], {'is_active': False}, expected_version=1)
-    operator = Principal(root.id, 'operator', False, frozenset({'system:users:write'}))
+    operator = Principal(root.id, 'operator', False, frozenset({'system:users:enabled', 'system:users:update'}))
     with pytest.raises(AppError) as forbidden:
         await admin.update(
             session,
@@ -628,3 +624,15 @@ async def test_retaining_inactive_role_cannot_bypass_operator_permission_scope(
             expected_version=1,
         )
     assert forbidden.value.status_code == 403
+
+
+async def test_user_options_require_enabled_user_management_even_without_http(
+    context: tuple[AsyncSession, Any, Any, Principal],
+) -> None:
+    session, _, admin, root = context
+    disabled = Principal(root.id, 'disabled-reader', False, frozenset({'system:users:read'}))
+    with pytest.raises(AppError) as error:
+        await admin.user_options(session, disabled)
+    assert error.value.status_code == 403
+    enabled = Principal(root.id, 'enabled-reader', False, grants('system:users'))
+    assert set(await admin.user_options(session, enabled)) == {'departments', 'roles'}

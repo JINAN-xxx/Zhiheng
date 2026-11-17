@@ -1,4 +1,3 @@
-import { permissionAliases } from './permissionAliases.ts'
 export interface PlatformIdentity {
   is_admin: boolean
   permissions?: readonly string[]
@@ -19,8 +18,6 @@ export type PlatformModule = (typeof platformModules)[number]['id']
 export function hasPermission(user: PlatformIdentity | null | undefined, code: string): boolean {
   if (!user) return false
   if (user.is_admin) return true
-  const aliases = permissionAliases[code]
-  if (aliases) return aliases.some((value) => hasPermission(user, value))
   const index = code.lastIndexOf(':'),
     module = code.slice(0, index),
     action = code.slice(index + 1)
@@ -33,26 +30,8 @@ export function hasPermission(user: PlatformIdentity | null | undefined, code: s
 export function hasCapability(
   user: PlatformIdentity | null | undefined,
   module: string,
-  action = 'access'
+  action: string
 ): boolean {
-  if (action === 'access')
-    action =
-      (
-        {
-          overview: 'read',
-          chat: 'use',
-          agents: 'use',
-          work: 'use',
-          models: 'read',
-          credentials: 'read',
-          knowledge: 'query',
-          skills: 'use',
-          developer: 'read',
-          usage: 'read'
-        } as Record<string, string>
-      )[module] ?? 'read'
-  if (action === 'use' && module === 'knowledge') action = 'query'
-  if (action === 'write') action = 'update'
   return hasPermission(user, `${module === 'credentials' ? 'ai' : 'platform'}:${module}:${action}`)
 }
 export function hasModule(user: PlatformIdentity | null | undefined, module: string): boolean {

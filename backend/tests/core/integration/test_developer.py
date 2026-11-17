@@ -3,14 +3,18 @@ from uuid import UUID
 import httpx
 import pytest
 
+from tests.core.permission_support import account, grants
+
 
 @pytest.mark.asyncio
-async def test_application_lifecycle_keys_and_owner_isolation(admin: httpx.AsyncClient, model_id: str) -> None:
+async def test_application_lifecycle_keys_and_owner_isolation(
+    admin: httpx.AsyncClient, model_id: str, app: object
+) -> None:
     created = await admin.post('/api/developer/applications', json={'code': 'test-app', 'name': ' Demo '})
     assert created.status_code == 201, created.text
-    app = created.json()
-    assert app['name'] == 'Demo' and app['version'] == 1
-    app_id = app['id']
+    application = created.json()
+    assert application['name'] == 'Demo' and application['version'] == 1
+    app_id = application['id']
     issued = await admin.post(
         f'/api/developer/applications/{app_id}/keys',
         json={'name': 'SDK', 'model_ids': [model_id], 'rpm_limit': 2, 'monthly_budget': '0'},
@@ -40,8 +44,8 @@ async def test_application_lifecycle_keys_and_owner_isolation(admin: httpx.Async
     assert (
         await admin.post('/api/developer/applications', json={'code': 'test-app', 'name': 'Duplicate'})
     ).status_code == 409
-    await admin.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
-    assert (await admin.get(f'/api/developer/applications/{app_id}')).status_code == 404
+    async with account(admin, app, *grants('platform:developer')) as (member, _, _):
+        assert (await member.get(f'/api/developer/applications/{app_id}')).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -151,7 +155,6 @@ async def admitted(container: object, secret: str, model_id: str) -> object:
             operation='chat',
             messages=(ModelMessage('user', 'Hi'),),
             options={},
-            token_limit=container.settings.token_limit,
         )
 
 
@@ -322,7 +325,7 @@ async def test_cached_tokens_use_frozen_cache_price(admin: httpx.AsyncClient, mo
 
 
 @pytest.mark.asyncio
-async def test_owner_isolation_and_concurrent_cas(admin: httpx.AsyncClient) -> None:
+async def test_owner_isolation_and_concurrent_cas(admin: httpx.AsyncClient, app: object) -> None:
     import asyncio
     from uuid import uuid4
 
@@ -332,17 +335,18 @@ async def test_owner_isolation_and_concurrent_cas(admin: httpx.AsyncClient) -> N
         *(admin.patch(url, json={'name': name, 'expected_version': 1}) for name in ['First', 'Second'])
     )
     assert sorted(result.status_code for result in results) == [200, 409]
-    await admin.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
-    for path in [url, url + '/keys', url + '/usage']:
-        assert (await admin.get(path)).status_code == 404
-    assert (await admin.patch(url, json={'name': 'stolen', 'expected_version': 2})).status_code == 404
-    assert (await admin.post(url + '/disable', json={})).status_code == 404
-    assert (
-        await admin.post(
-            '/api/developer/applications', json={'code': uuid4().hex, 'name': 'X', 'owner_id': application['owner_id']}
-        )
-    ).status_code == 422
-    assert (await admin.get('/api/developer/applications')).json()['total'] == 0
+    async with account(admin, app, *grants('platform:developer', 'create', 'update', 'toggle')) as (member, _, _):
+        for path in [url, url + '/keys', url + '/usage']:
+            assert (await member.get(path)).status_code == 404
+        assert (await member.patch(url, json={'name': 'stolen', 'expected_version': 2})).status_code == 404
+        assert (await member.post(url + '/disable', json={})).status_code == 404
+        assert (
+            await member.post(
+                '/api/developer/applications',
+                json={'code': uuid4().hex, 'name': 'X', 'owner_id': application['owner_id']},
+            )
+        ).status_code == 422
+        assert (await member.get('/api/developer/applications')).json()['total'] == 0
 
 
 @pytest.mark.asyncio

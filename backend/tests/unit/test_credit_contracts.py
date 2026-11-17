@@ -103,14 +103,14 @@ def test_cache_over_total_input_is_rejected() -> None:
 
 
 def test_account_arithmetic_keeps_all_38_digits() -> None:
-    service = import_module('zhiheng.modules.billing.service')
+    projections = import_module('zhiheng.modules.billing.projections')
     account = SimpleNamespace(
         allocated_points=Decimal('99999999999999999999.123456789123456789'),
         reclaimed_points=Decimal('99999999999999999999.123456789123456788'),
         used_points=Decimal(0),
         reserved_points=Decimal(0),
     )
-    assert service._available(account) == Decimal('0.000000000000000001')
+    assert projections.available_points(account) == Decimal('0.000000000000000001')
 
 
 def test_points_json_always_uses_plain_decimal_strings() -> None:

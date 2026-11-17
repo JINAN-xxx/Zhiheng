@@ -75,9 +75,8 @@
       <template #action>
         <a-button
           v-if="
-            canRun &&
             task.status === 'active' &&
-            (canRecover || retryKind === 'uncertain' || (!!retryKind && !locked))
+            (canRecover || (canRun && (retryKind === 'uncertain' || (!!retryKind && !locked))))
           "
           size="small"
           :danger="retryKind !== 'unstarted'"
@@ -91,14 +90,14 @@
     <WorkMessageTimeline :messages="task.messages" />
     <a-alert v-if="task.preparationId" type="info" show-icon message="正在检索知识库" />
 
-    <footer v-if="task.status === 'active' && canRun" class="work-composer">
+    <footer v-if="task.status === 'active' && (canRun || stoppable)" class="work-composer">
       <div class="work-composer__controls">
         <a-select
           :value="selectedAgentId ?? undefined"
           aria-label="执行智能体"
           placeholder="选择执行智能体"
           :options="executorOptions"
-          :disabled="locked"
+          :disabled="locked || !canRun"
           @update:value="setSelectedAgent"
         />
         <span v-if="selectedMember && !selectedMember.available" class="work-composer__unavailable"
@@ -111,7 +110,7 @@
         placeholder="输入要交给当前智能体的工作消息"
         :maxlength="64000"
         :auto-size="{ minRows: 2, maxRows: 7 }"
-        :disabled="locked"
+        :disabled="locked || !canRun"
         @keydown="keydown"
       />
       <div class="work-composer__submit">
@@ -240,7 +239,11 @@ const selectedMember = computed(() =>
   members.value.find((member) => member.agentId === selectedAgentId.value)
 )
 const canSend = computed(
-  () => !props.locked && validateWorkMessage(message.value).valid && selectedMember.value?.available
+  () =>
+    props.canRun &&
+    !props.locked &&
+    validateWorkMessage(message.value).valid &&
+    selectedMember.value?.available
 )
 const statusLabel = computed(
   () => ({ active: '进行中', completed: '已完成', archived: '已归档' })[props.task.status]

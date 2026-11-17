@@ -7,7 +7,7 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 
-from zhiheng.modules.agents.orm import Agent, AgentVersion
+from zhiheng.modules.agents.orm import Agent
 from zhiheng.modules.agents.public import AgentConfig
 from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
@@ -31,7 +31,7 @@ async def test_historical_run_rate_and_invoice_survive_model_and_connection_remo
     )
     assert rate.status_code == 201, rate.text
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, model)
+        binding = await container.models.bindings.resolve(session, model)
         run = Run(
             owner_id=owner_id,
             billing_owner_id=owner_id,
@@ -53,8 +53,7 @@ async def test_historical_run_rate_and_invoice_survive_model_and_connection_remo
             source='connection_test',
             points_enforced=True,
             tokens=100,
-            token_limit=100000,
-            rate=await container.models.latest_rate(session, model),
+            rate=await container.models.rates.latest(session, model),
         )
         await container.usage._meter.settle(session, run.id, input_tokens=10, output_tokens=5)
         run_id, connection_id, revision_id = run.id, binding.connection_id, binding.connection_revision_id
@@ -84,7 +83,7 @@ async def test_inflight_binding_blocks_model_and_connection_removal_with_referen
     container = app.state.container
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, UUID(model_id))
+        binding = await container.models.bindings.resolve(session, UUID(model_id))
         run = Run(
             owner_id=owner_id,
             billing_owner_id=owner_id,
@@ -110,38 +109,29 @@ async def test_inflight_binding_blocks_model_and_connection_removal_with_referen
         ] == [run_id]
 
 
-async def test_agent_references_only_live_draft_and_current_publication(
-    admin: httpx.AsyncClient, app: object, model_id: str
-) -> None:
+async def test_agent_references_only_latest_configuration(admin: httpx.AsyncClient, app: object, model_id: str) -> None:
     container = app.state.container
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     model = UUID(model_id)
     live = {'name': 'Live agent', 'model_id': model_id, 'skill_slugs': ['document-summary']}
-    replacement = {'name': 'New draft', 'model_id': str(uuid4()), 'skill_slugs': []}
+    replacement = {'name': 'Replacement', 'model_id': str(uuid4()), 'skill_slugs': []}
     async with container.database.sessions.begin() as session:
-        agent = Agent(owner_id=owner_id, config=replacement, published_version=1)
+        agent = Agent(owner_id=owner_id, config=live, enabled=True)
         session.add(agent)
         await session.flush()
-        publication = AgentVersion(agent_id=agent.id, version=1, draft_version=1, config=live, skills=[])
-        session.add(publication)
-        await session.flush()
         refs = await container.agents.model_references(session, model)
-        assert [(r.id, r.name, r.status, r.path) for r in refs] == [
-            (agent.id, 'Live agent', 'published', f'/agents/{agent.id}')
-        ]
+        assert [(r.id, r.name, r.status) for r in refs] == [(agent.id, 'Live agent', 'enabled')]
         assert await container.agents.references_skill(session, owner_id, 'document-summary')
-        agent.published_version = None
+        agent.config = replacement
         await session.flush()
         assert not await container.agents.references_model(session, model)
         assert not await container.agents.references_skill(session, owner_id, 'document-summary')
-        agent.config = live
+        agent.config, agent.enabled = live, False
         await session.flush()
-        assert (await container.agents.model_references(session, model))[0].status == 'draft'
+        assert (await container.agents.model_references(session, model))[0].status == 'disabled'
         agent.deleted_at = utcnow()
         await session.flush()
         assert not await container.agents.references_model(session, model)
-        assert not await container.agents.references_skill(session, owner_id, 'document-summary')
-        assert await session.get(AgentVersion, publication.id) is not None
 
 
 @pytest.mark.parametrize('release', ['removed', 'completed', 'archived', 'deleted'])
@@ -169,7 +159,7 @@ async def test_work_releases_historical_member_references(
             agent_id=agent.id,
             agent_owner_id=owner_id,
             agent_name_snapshot='Agent',
-            published_version=1,
+            agent_revision=1,
             config={'model_id': model_id, 'skill_slugs': ['document-summary']},
             skills=[],
         )
@@ -233,11 +223,11 @@ async def test_deleted_knowledge_only_protects_pending_cleanup(
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     model = UUID(model_id)
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, model)
+        binding = await container.models.bindings.resolve(session, model)
         base = KnowledgeBase(owner_id=owner_id, name='Knowledge', embed_model_id=model)
         session.add(base)
         await session.flush()
-        assert await container.knowledge.references_model(session, model)
+        assert await container.knowledge.references.references_model(session, model)
         base.deleted_at = utcnow()
         job = KnowledgeJob(
             base_id=base.id, actor_id=owner_id, client_request_id=uuid4(), fingerprint='delete', operation='delete_base'
@@ -255,10 +245,10 @@ async def test_deleted_knowledge_only_protects_pending_cleanup(
             )
         )
         await session.flush()
-        assert await container.knowledge.references_model(session, model)
+        assert await container.knowledge.references.references_model(session, model)
         job.status = 'completed'
         await session.flush()
-        assert not await container.knowledge.references_model(session, model)
+        assert not await container.knowledge.references.references_model(session, model)
 
 
 async def test_frozen_graph_parent_keeps_model_and_old_connection_until_terminal(
@@ -268,7 +258,7 @@ async def test_frozen_graph_parent_keeps_model_and_old_connection_until_terminal
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     model = UUID(model_id)
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, model)
+        binding = await container.models.bindings.resolve(session, model)
         base = KnowledgeBase(owner_id=owner_id, name='Deleted graph', embed_model_id=model, deleted_at=utcnow())
         session.add(base)
         await session.flush()
@@ -287,14 +277,14 @@ async def test_frozen_graph_parent_keeps_model_and_old_connection_until_terminal
         )
         session.add(job)
         await session.flush()
-        assert [ref.id for ref in await container.knowledge.model_references(session, model)] == [job.id]
-        assert [ref.id for ref in await container.knowledge.connection_references(session, binding.connection_id)] == [
-            job.id
-        ]
+        assert [ref.id for ref in await container.knowledge.references.model_references(session, model)] == [job.id]
+        assert [
+            ref.id for ref in await container.knowledge.references.connection_references(session, binding.connection_id)
+        ] == [job.id]
         job.status = 'cancelled'
         await session.flush()
-        assert not await container.knowledge.model_references(session, model)
-        assert not await container.knowledge.connection_references(session, binding.connection_id)
+        assert not await container.knowledge.references.model_references(session, model)
+        assert not await container.knowledge.references.connection_references(session, binding.connection_id)
         assert job.frozen == frozen
 
 
@@ -306,7 +296,7 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
     owner_id = UUID((await admin.get('/api/auth/me')).json()['id'])
     model, agent_id, task_id = UUID(model_id), uuid4(), uuid4()
     async with container.database.sessions.begin() as session:
-        binding = await container.models.resolve(session, model)
+        binding = await container.models.bindings.resolve(session, model)
         config = {'model_id': model_id, 'skill_slugs': ['document-summary']}
         session.add(Agent(id=agent_id, owner_id=owner_id, config=config))
         await session.flush()
@@ -329,7 +319,7 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
                     agent_id=agent_id,
                     agent_owner_id=owner_id,
                     agent_name_snapshot='Preparing agent',
-                    published_version=1,
+                    agent_revision=1,
                     config=config,
                     skills=[],
                 )
@@ -353,20 +343,25 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
         )
         session.add(intent)
         await session.flush()
-        assert [ref.id for ref in await container.knowledge.model_references(session, model)] == [intent.id]
-        assert [ref.id for ref in await container.knowledge.connection_references(session, binding.connection_id)] == [
+        assert [ref.id for ref in await container.knowledge.references.model_references(session, model)] == [intent.id]
+        assert [
+            ref.id for ref in await container.knowledge.references.connection_references(session, binding.connection_id)
+        ] == [intent.id]
+        assert [
+            ref.id
+            for ref in await container.knowledge.references.skill_references(
+                session, 'document-summary', owner_id=owner_id
+            )
+        ] == [intent.id]
+        assert [ref.id for ref in await container.knowledge.references.agent_references(session, agent_id)] == [
             intent.id
         ]
-        assert [
-            ref.id for ref in await container.knowledge.skill_references(session, 'document-summary', owner_id=owner_id)
-        ] == [intent.id]
-        assert [ref.id for ref in await container.knowledge.agent_references(session, agent_id)] == [intent.id]
         intent.status = 'cancelled'
         await session.flush()
-        assert not await container.knowledge.model_references(session, model)
-        assert not await container.knowledge.connection_references(session, binding.connection_id)
-        assert not await container.knowledge.skill_references(session, 'document-summary', owner_id=owner_id)
-        assert not await container.knowledge.agent_references(session, agent_id)
+        assert not await container.knowledge.references.model_references(session, model)
+        assert not await container.knowledge.references.connection_references(session, binding.connection_id)
+        assert not await container.knowledge.references.skill_references(session, 'document-summary', owner_id=owner_id)
+        assert not await container.knowledge.references.agent_references(session, agent_id)
         intent = RetrievalIntent(
             namespace_id=owner_id,
             client_request_id=uuid4(),
@@ -381,10 +376,10 @@ async def test_preparation_keeps_future_model_skill_and_agent_dependencies(
         )
         session.add(intent)
         await session.flush()
-        assert (await container.knowledge.model_references(session, model))[0].id == intent.id
+        assert (await container.knowledge.references.model_references(session, model))[0].id == intent.id
         intent.status = 'failed'
         await session.flush()
-        assert not await container.knowledge.references_model(session, model)
+        assert not await container.knowledge.references.references_model(session, model)
 
 
 async def test_new_agent_reference_commits_before_waiting_model_delete_checks_references(
@@ -419,7 +414,7 @@ async def test_new_agent_reference_commits_before_waiting_model_delete_checks_re
             for ref in response.json()['error']['details']['references']
         )
         async with container.database.sessions() as session:
-            assert (await container.models.resolve(session, UUID(model_id))).model_id == UUID(model_id)
+            assert (await container.models.bindings.resolve(session, UUID(model_id))).model_id == UUID(model_id)
     finally:
         if deletion is not None:
             deletion.cancel()

@@ -373,7 +373,7 @@ class KnowledgeUploadLifecycle(KnowledgeUIRegressions):
             "test-recovery-password"
         )
         await self.page.get_by_role("button", name="登录", exact=True).click()
-        await expect(self.page).to_have_url(self.origin + "/chat")
+        await expect(self.page).to_have_url(self.origin + "/overview")
         await self.page.go_back()
         await expect(self.page).to_have_url(self.origin + "/knowledge")
         await self.page.get_by_role("button", name="打开知识库：业务知识", exact=True).click()

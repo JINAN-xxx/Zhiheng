@@ -7,6 +7,7 @@ import unittest
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, expect
 from developer_regressions import ChatHistoryInteractions
+from permission_fixture import granted_permissions
 
 class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -36,15 +37,21 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
             await route.fulfill(status=500, json={'error': {'code': 'unexpected_write', 'message': path}})
             return
         config = {'name': '核对助手', 'description': '真实接口夹具', 'model_id': 'm1', 'system_prompt': '核对内容', 'welcome_message': '', 'skill_slugs': [], 'knowledge_base_ids': [], 'application_id': None, 'temperature': 0.7, 'max_tokens': 512}
-        agent = {**config, 'id': 'a1', 'owner_id': 'u1', 'version': 1, 'status': 'draft', 'published_version': None, 'published_config': None}
+        agent = {**config, 'id': 'a1', 'owner_id': 'u1', 'version': 1, 'status': 'disabled'}
         skill = {'id': 's1', 'slug': 'review', 'name': '核对技能', 'description': '按原文核对', 'package_version': '1.0.0', 'version': 1, 'status': 'enabled', 'source': 'builtin', 'revision_id': 'rev1', 'content_hash': 'hash', 'file_count': 1, 'total_bytes': 123}
         kb = {'id': 'k1', 'name': '核对知识库', 'description': '', 'owner_id': 'u1', 'access': 'private', 'version': 1, 'acl_version': 1, 'embed_model_id': 'e1', 'chunk_size': 800, 'chunk_overlap': 100, 'active_revision': None, 'active_job_id': None, 'index_status': 'empty', 'document_count': 0, 'last_error': None, 'enable_knowledge_graph': False, 'llm_model_id': None, 'graph_status': 'disabled', 'created_at': '2026-10-28T01:00:00Z', 'updated_at': '2026-10-28T01:00:00Z', 'can_manage': True}
         if path == '/api/auth/me':
-            body = {'id': 'u1', 'username': 'admin' if self.admin else 'member', 'is_admin': self.admin}
+            body = {'id': 'u1', 'username': 'admin' if self.admin else 'member', 'is_admin': self.admin, 'permissions': granted_permissions('platform:overview:read', 'platform:models:read', 'platform:agents:read', 'platform:knowledge:read', 'platform:skills:read')}
         elif path == '/api/admin/notices/published':
             body = []
+        elif path == '/api/overview':
+            body = {'scope':'platform' if self.admin else 'mine','can_view_platform':self.admin,
+                    'period_days':7,'timezone':'Asia/Shanghai','observed_at':'2026-11-16T03:00:00Z',
+                    'metrics':None,'credits':None,'recent':[],'activities':[],'alerts':[]}
         elif path == '/api/models':
             body = [{'id': 'm1', 'name': '核对模型', 'connection_id': 'c1', 'upstream_model': 'test', 'max_output_tokens': 512, 'enabled': True, 'model_type': 'chat', 'published': True, 'vision_enabled': False, 'capabilities': ['chat', 'stream']}]
+        elif path == '/api/models/connection-options':
+            body = [{'id': 'c1', 'name': '核对连接', 'enabled': True}]
         elif path == '/api/models/connections':
             body = [{'id': 'c1', 'name': '核对连接', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True, 'enabled': True}]
         elif path == '/api/agents':
@@ -64,9 +71,7 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
                 {'id': 'a1', 'role': 'assistant', 'content': '**完整回复**\n\n```text\n保留代码与换行\n```', 'reasoning': '不应混入复制正文的推理', 'run_id': None, 'created_at': '2026-10-28T01:00:01Z'}
             ]
         elif path == '/api/chat/conversations/c1/context':
-            body = {'status': 'full', 'summary_version': 0, 'covered_rounds': 0, 'retained_rounds': 1,
-                    'dirty': False, 'truncated': False, 'dropped_rounds': 0,
-                    'estimated_input_tokens': 100, 'input_budget': 8192, 'reason': None}
+            body = {'status': 'full', 'strategy': 'token', 'effective_memory': {'summary_used': False, 'covered_rounds': 0, 'retained_rounds': 1, 'estimated_tokens': 100}, 'last_run_context': None, 'reason': None}
         elif path == '/api/work/tasks':
             body = {'items': [], 'total': 0}
         elif path in ['/api/skills/available', '/api/knowledge/available', '/api/work/agents', '/api/work/available-agents', '/api/work/agents/available']:
@@ -77,95 +82,21 @@ class ConsoleUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTest
             return
         await route.fulfill(status=200, json=body)
 
-    async def test_workspace_uses_real_counts_and_full_navigation(self):
-        await self.page.goto(self.origin + '/overview')
-        await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible(timeout=8000)
-        for label, value in [('模型', '1'), ('智能助手', '2'), ('知识库', '3'), ('技能', '4')]:
-            group = self.page.get_by_role('region', name=label + '资源', exact=True)
-            await expect(group.locator('.console-resource-count')).to_have_text(value)
-            await expect(group.get_by_role('link', name='查看全部' + label, exact=True)).to_be_visible()
-        navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        for label in ['工作台', '对话体验', '模型目录', '智能助手', '技能', '工作空间', '知识库', '开发接入', '用量与调用']:
-            await expect(navigation.get_by_role('link', name=label, exact=True)).to_be_visible()
-        await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
-        await expect(self.page.locator('.platform-search-trigger')).to_have_count(0)
-        await self.page.keyboard.press('Control+k')
-        await expect(self.page.get_by_role('dialog', name='功能搜索', exact=True)).to_have_count(0)
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.errors, [])
-        self.assertEqual(self.unexpected, [])
 
-    async def test_workspace_handles_partial_failure_and_non_admin_navigation(self):
-        self.admin = False
-        self.fail_knowledge = True
-        await self.page.goto(self.origin + '/overview')
-        await expect(self.page.get_by_role('heading', name='工作台', exact=True)).to_be_visible(timeout=8000)
-        knowledge = self.page.get_by_role('region', name='知识库资源', exact=True)
-        await expect(knowledge.locator('.console-resource-count')).to_have_text('暂不可用')
-        await expect(knowledge.get_by_role('alert')).to_contain_text('知识服务暂不可用')
-        await expect(self.page.get_by_role('region', name='智能体资源', exact=True).locator('.console-resource-count')).to_have_text('2')
-        navigation = self.page.get_by_role('navigation', name='主导航', exact=True)
-        models_link = navigation.get_by_role('link', name='模型目录', exact=True)
-        await expect(models_link).to_be_visible()
-        await expect(models_link).to_have_attribute('href', '/models')
-        await expect(navigation.get_by_role('link', name='文件管理', exact=True)).to_have_count(0)
-        await self.page.set_viewport_size({'width': 390, 'height': 844})
-        await self.page.get_by_role('button', name='打开主菜单', exact=True).click()
-        drawer = self.page.locator('.platform-mobile-drawer')
-        await expect(drawer.get_by_role('link', name='知识库', exact=True)).to_be_visible()
-        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.errors, [])
-        self.assertEqual(self.unexpected, [])
 
-    async def test_resource_overview_groups_previews_without_spreading_long_lists(self):
-        long_name = '用于验证完整名称保留的业务模型' * 3
-        models = [{'id': f'm{index}', 'name': long_name + str(index), 'connection_id': 'c1',
-                   'upstream_model': 'provider-model-' + str(index), 'max_output_tokens': 512,
-                   'enabled': True, 'model_type': 'chat', 'published': True,
-                   'vision_enabled': False, 'capabilities': ['chat', 'stream']} for index in range(8)]
-        await self.page.route(re.compile(r'/api/models(?:\?.*)?$'), lambda route: route.fulfill(json=models))
-        await self.page.goto(self.origin + '/overview')
-        resources = self.page.get_by_role('region', name='资源总览', exact=True)
-        models_group = resources.get_by_role('region', name='模型资源', exact=True)
-        agents = resources.get_by_role('region', name='智能体资源', exact=True)
-        knowledge = resources.get_by_role('region', name='知识库资源', exact=True)
-        skills = resources.get_by_role('region', name='技能资源', exact=True)
-        await expect(models_group.locator('.console-resource-count')).to_have_text('8')
-        await expect(models_group.locator('.console-resource-row')).to_have_count(3)
-        await expect(models_group.get_by_role('link', name=long_name + '0', exact=True)).to_be_visible()
-        await expect(models_group.get_by_role('link', name=long_name + '3', exact=True)).to_have_count(0)
-        await expect(models_group.get_by_role('link', name='查看全部模型', exact=True)).to_have_attribute('href', '/models')
-        first = await models_group.bounding_box()
-        second = await agents.bounding_box()
-        third = await knowledge.bounding_box()
-        fourth = await skills.bounding_box()
-        self.assertGreater(second['x'], first['x'] + first['width'] - 1)
-        self.assertLessEqual(abs(first['y'] - second['y']), 1)
-        self.assertGreater(third['y'], first['y'])
-        self.assertLessEqual(abs(third['y'] - fourth['y']), 1)
-        await self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
-        first = await models_group.bounding_box()
-        second = await agents.bounding_box()
-        self.assertLessEqual(abs(first['x'] - second['x']), 1)
-        self.assertGreater(second['y'], first['y'] + first['height'] - 1)
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.errors, [])
-        self.assertEqual(self.unexpected, [])
 
     async def test_basic_user_can_open_model_directory_from_resource_group(self):
-        self.admin = False
-        await self.page.goto(self.origin + '/overview')
-        link = self.page.get_by_role('region', name='模型资源', exact=True).get_by_role('link', name='查看全部模型', exact=True)
-        await expect(link).to_have_attribute('href', '/models')
+        self.admin=False
+        await self.page.goto(self.origin+'/overview')
+        await expect(self.page.get_by_role('region',name='工作台',exact=True)).to_be_visible()
+        navigation=self.page.get_by_role('navigation',name='主导航',exact=True)
+        link=navigation.get_by_role('link',name='模型目录',exact=True)
+        await expect(link).to_have_attribute('href','/models')
         await link.click()
-        await expect(self.page).to_have_url(self.origin + '/models')
-        await expect(self.page.get_by_role('heading', name='模型目录', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='接入模型', exact=True)).to_have_count(0)
-        self.assertEqual(self.writes, [])
-        self.assertEqual(self.errors, [])
-        self.assertEqual(self.unexpected, [])
+        await expect(self.page.get_by_role('heading',name='模型目录',exact=True)).to_be_visible()
+        self.assertEqual(self.writes,[])
+        self.assertEqual(self.errors,[])
+        self.assertEqual(self.unexpected,[])
 
     async def test_chat_messages_keep_both_roles_and_copy_raw_text(self):
         self.chat_history = True

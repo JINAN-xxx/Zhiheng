@@ -139,7 +139,6 @@ function refresh(): void {
 }
 onMounted(() => {
   void loadPermissions()
-  void load()
 })
 onBeforeUnmount(() => controller.abort())
 function edit(role: Role | null = null): void {

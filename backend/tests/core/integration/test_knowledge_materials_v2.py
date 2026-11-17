@@ -9,6 +9,10 @@ from sqlalchemy import func, select
 
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.integration.test_knowledge_failures import finish_job
+from tests.core.permission_support import (  # noqa: F401 - pytest fixture by name
+    member_agent_work_permissions,
+    member_knowledge_permissions,
+)
 from tests.core.provider import ProviderServer
 from zhiheng.modules.files.orm import FileRecord, FileReference
 from zhiheng.modules.identity.orm import IdentityUser
@@ -171,7 +175,7 @@ async def test_confirmed_delete_discloses_only_counts_and_tombstones_before_clea
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
     base = await library(admin, provider)
-    app.state.container.knowledge.base_references = AsyncMock(return_value={'items': [], 'hidden_count': 2})
+    app.state.container.knowledge.references.base_references = AsyncMock(return_value={'items': [], 'hidden_count': 2})
     preview = await admin.get(f'/api/knowledge/bases/{base["id"]}/references')
     assert preview.json() == {'items': [], 'hidden_count': 2, 'total': 2}
     body = {'expected_version': base['version'], 'client_request_id': str(uuid4())}
@@ -502,6 +506,9 @@ async def test_resource_shared_reader_uses_kb_grant_for_copy_and_revocation_is_i
     provider: ProviderServer,
 ) -> None:
     from tests.core.integration.test_resource_key_scopes import application, issue
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:developer', 'key_create', 'invoke', 'grant'))
 
     base = await library(admin, provider)
     source = await sent_source(admin, app)
@@ -900,11 +907,11 @@ async def test_multi_library_file_admission_locks_all_bases_before_any_files(
             async def admit() -> None:
                 async with container.database.sessions.begin() as session:
                     if operation == 'attach':
-                        await container.files.attach(
+                        await container.files.references.attach(
                             session, owner, attachments, resource_type='chat', resource_id=uuid4()
                         )
                     else:
-                        await container.files.bind_sources(
+                        await container.files.references.bind_sources(
                             session, owner, snapshots, resource_type='knowledge_run', resource_id=uuid4()
                         )
 
@@ -1076,3 +1083,6 @@ async def test_legacy_import_keeps_originals_but_requires_migration_for_library_
             assert len(documents) == 1 and documents[0].file_id == UUID(file_id)
             assert (await session.get(KnowledgeBase, UUID(target['id']))).document_policy == 'legacy'
             assert await session.scalar(select(func.count()).select_from(FileRecord)) == before['files']
+
+
+pytestmark = pytest.mark.usefixtures('member_knowledge_permissions', 'member_agent_work_permissions')

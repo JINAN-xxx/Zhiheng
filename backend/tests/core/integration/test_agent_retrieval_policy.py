@@ -15,7 +15,7 @@ from tests.core.integration.test_knowledge_failures import finish_job, ready_bas
 from tests.core.integration.test_work import published, task, turn
 from tests.core.knowledge_support import knowledge_models
 from tests.core.provider import ProviderHandler, ProviderServer
-from zhiheng.modules.agents.orm import Agent, AgentVersion
+from zhiheng.modules.agents.orm import Agent
 from zhiheng.modules.knowledge.orm import KnowledgeBase, KnowledgeDefaults, RetrievalIntent
 
 
@@ -73,7 +73,7 @@ async def test_save_and_publish_validate_rerank_without_paid_calls(
         async with app.state.container.database.sessions.begin() as session:
             (await session.get(KnowledgeDefaults, 1)).default_rerank_model_id = None
     elif failure == 'disabled':
-        assert (await admin.post(f'/api/models/{ranker}/disable', json={})).status_code == 200
+        assert (await admin.patch(f'/api/models/{ranker}', json={'enabled': False})).status_code == 200
     else:
         connection = (
             await admin.post(
@@ -86,19 +86,19 @@ async def test_save_and_publish_validate_rerank_without_paid_calls(
             )
         ).json()['id']
         assert (await admin.patch(f'/api/models/{ranker}', json={'connection_id': connection})).status_code == 200
-        assert (await admin.post(f'/api/models/connections/{connection}/disable', json={})).status_code == 200
+        assert (await admin.patch(f'/api/models/connections/{connection}', json={'enabled': False})).status_code == 200
     calls = len(provider.requests)
     for response in (
         await admin.post('/api/agents/knowledge-policy', json={'knowledge_base_ids': [base['id']]}),
         await admin.post('/api/agents', json=body),
         await admin.patch(f'/api/agents/{agent["id"]}', json={**body, 'expected_version': 1}),
-        await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1}),
+        await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1}),
     ):
         assert response.status_code == 409, response.text
         assert response.json()['error']['code'] in {'knowledge_rerank_required', 'knowledge_rerank_unavailable'}
     assert len(provider.requests) == calls
     unchanged = (await admin.get(f'/api/agents/{agent["id"]}')).json()
-    assert unchanged['version'] == 1 and unchanged['published_version'] is None
+    assert unchanged['version'] == 1 and unchanged['status'] == 'disabled'
 
 
 @pytest.mark.parametrize(
@@ -171,14 +171,6 @@ async def test_final_limit_reaches_ranker_and_bounds_the_combined_library_result
             )
         ).json()
         headers = {'Authorization': 'Bearer ' + key['api_key']}
-    # Editing a draft must not change the published or frozen work member's limit.
-    if entry != 'preview':
-        edited = await admin.patch(
-            f'/api/agents/{agent["id"]}',
-            json=config(model_id, knowledge_base_ids=base_ids, knowledge_top_k=1, expected_version=2),
-        )
-        assert edited.status_code == 200, edited.text
-        assert edited.json()['published_config']['knowledge_top_k'] == limit
     body = {'messages': [{'role': 'user', 'content': 'service port'}], 'client_request_id': str(uuid4())}
     if entry == 'work':
         work = await task(admin, agent, goal='service port')
@@ -218,11 +210,9 @@ async def test_legacy_draft_and_publication_default_to_eight(
         legacy = {key: value for key, value in row.config.items() if key != 'knowledge_top_k'}
         row.config = legacy
         row.create_fingerprint = hashlib.sha256(json.dumps(legacy, sort_keys=True).encode()).hexdigest()
-        row.published_version = row.publication_count = 1
-        session.add(AgentVersion(agent_id=row.id, version=1, draft_version=1, config=legacy, skills=[]))
     response = await admin.get(f'/api/agents/{agent["id"]}')
     assert response.status_code == 200, response.text
-    assert response.json()['knowledge_top_k'] == response.json()['published_config']['knowledge_top_k'] == 8
+    assert response.json()['knowledge_top_k'] == 8
     replay = await admin.post('/api/agents', json=original)
     assert replay.status_code == 201 and replay.json()['id'] == agent['id'], replay.text
     changed = await admin.post('/api/agents', json={**original, 'knowledge_top_k': 15})

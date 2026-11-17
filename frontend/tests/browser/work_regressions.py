@@ -16,7 +16,7 @@ STAMP = '2026-10-23T00:00:00Z'
 class WorkUIRegressions(DeveloperBoundary):
     async def asyncSetUp(self):
         await super().asyncSetUp()
-        self.available = [{'id': 'agent-a', 'name': '研究助手', 'description': '查证事实', 'published_version': 1}, {'id': 'agent-b', 'name': '写作助手', 'description': '归纳结果', 'published_version': 2}]
+        self.available = [{'id': 'agent-a', 'name': '研究助手', 'description': '查证事实', 'agent_revision': 1}, {'id': 'agent-b', 'name': '写作助手', 'description': '归纳结果', 'agent_revision': 2}]
         self.task = {'id': 'task-1', 'owner_id': 'user-1', 'title': '研究目标', 'goal': '研究目标', 'status': 'active', 'version': 1, 'current_run_id': None, 'active_agent_id': 'agent-a', 'create_client_request_id': 'create-intent', 'created_at': STAMP, 'updated_at': STAMP, 'members': [self.member('agent-a'), self.member('agent-b')], 'messages': []}
         self.tasks = []
         self.runs = []
@@ -26,11 +26,11 @@ class WorkUIRegressions(DeveloperBoundary):
 
     def member(self, agent_id):
         agent = next(item for item in self.available if item['id'] == agent_id)
-        return {'agent_id': agent_id, 'agent_name_snapshot': agent['name'], 'published_version': agent['published_version'], 'latest_published_version': agent['published_version'], 'available': True, 'removed_at': None}
+        return {'agent_id': agent_id, 'agent_name_snapshot': agent['name'], 'agent_revision': agent['agent_revision'], 'latest_agent_revision': agent['agent_revision'], 'available': True, 'removed_at': None}
 
     def message(self, role, body, run=None):
         member = next(item for item in self.task['members'] if item['agent_id'] == body['agent_id'])
-        return {'id': f"msg-{len(self.task['messages']) + 1}", 'client_request_id': body['client_request_id'], 'role': role, 'content': body['message'] if role == 'user' else (run or self.run)['text'], 'reasoning': '' if role == 'user' else (run or self.run)['reasoning'], 'run_id': None if run is None else run['id'], 'status': 'completed' if run is None else run['status'], 'usage': None if run is None else run['usage'], 'error': None if run is None else run['error'], 'agent_id': None if role == 'user' else member['agent_id'], 'agent_name_snapshot': None if role == 'user' else member['agent_name_snapshot'], 'published_version': None if role == 'user' else member['published_version'], 'sequence': len(self.task['messages']) + 1, 'created_at': STAMP}
+        return {'id': f"msg-{len(self.task['messages']) + 1}", 'client_request_id': body['client_request_id'], 'role': role, 'content': body['message'] if role == 'user' else (run or self.run)['text'], 'reasoning': '' if role == 'user' else (run or self.run)['reasoning'], 'run_id': None if run is None else run['id'], 'status': 'completed' if run is None else run['status'], 'usage': None if run is None else run['usage'], 'error': None if run is None else run['error'], 'agent_id': None if role == 'user' else member['agent_id'], 'agent_name_snapshot': None if role == 'user' else member['agent_name_snapshot'], 'agent_revision': None if role == 'user' else member['agent_revision'], 'sequence': len(self.task['messages']) + 1, 'created_at': STAMP}
 
     async def respond(self, route):
         path, method = urlparse(route.request.url).path, route.request.method
@@ -84,7 +84,7 @@ class WorkUIRegressions(DeveloperBoundary):
             if method == 'POST': self.task['members'].append(self.member(agent_id))
             elif method == 'PATCH':
                 member = next(item for item in self.task['members'] if item['agent_id'] == agent_id)
-                member['published_version'] = body['expected_published_version']
+                member['agent_revision'] = body['expected_agent_revision']
             else:
                 next(item for item in self.task['members'] if item['agent_id'] == agent_id)['removed_at'] = STAMP
             self.task['version'] += 1
@@ -405,13 +405,13 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('任务已更新，请刷新后重试', exact=True)).to_be_visible()
 
     async def test_member_upgrade_is_explicit_and_removed_history_is_preserved(self):
-        self.task['members'][0]['latest_published_version'] = 3
+        self.task['members'][0]['latest_agent_revision'] = 3
         await self.open_task()
-        upgrade = self.page.get_by_role('button', name='升级', exact=True)
+        upgrade = self.page.locator('.work-member').filter(has_text='研究助手').get_by_role('button', name='采用最新配置', exact=True)
         await upgrade.click()
-        await self.page.get_by_role('dialog').filter(has_text='确认将“研究助手”').get_by_role('button', name=re.compile(r'^确\s*定$')).click()
-        await expect(upgrade).to_have_count(0)
-        self.assertEqual(self.memberships[0][2], {'expected_version': 1, 'expected_published_version': 3})
+        await self.page.get_by_role('dialog').filter(has_text='确认让“研究助手”采用最新配置').get_by_role('button', name=re.compile(r'^确\s*定$')).click()
+        await expect(upgrade).to_be_visible()
+        self.assertEqual(self.memberships[0][2], {'expected_version': 1, 'expected_agent_revision': 3})
         await self.page.get_by_role('button', name='移除智能体', exact=True).first.click()
         await self.page.get_by_role('dialog').filter(has_text='确定移除“研究助手”').get_by_role('button', name=re.compile(r'^确\s*定$')).click()
         await expect(self.page.locator('.work-member')).to_have_count(1)
@@ -519,7 +519,7 @@ class WorkUIRegressions(DeveloperBoundary):
         finally: release.set()
 
     async def test_readonly_sidebar_and_running_status_are_explicit(self):
-        await self.page.route('**/api/auth/me', lambda route: route.fulfill(json={'id': 'user-1', 'username': 'reader', 'is_admin': False}))
+        await self.page.route('**/api/auth/me', lambda route: route.fulfill(json={'id': 'user-1', 'username': 'reader', 'is_admin': False, 'permissions': ['platform:work:enabled', 'platform:work:read']}))
         self.task['owner_id'] = 'another-owner'
         self.run['status'] = 'cancel_requested'
         self.task['current_run_id'] = self.run['id']
@@ -529,6 +529,11 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.locator('.recent-work__item .workspace-more-menu')).to_have_count(0)
         await self.close_work_history()
         await expect(self.page.locator('.work-message').get_by_text('正在停止', exact=True)).to_be_visible()
+        for action in ['新建工作', '编辑工作信息', '发送', '停止']:
+            await expect(self.page.get_by_role('button', name=action, exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_have_count(0)
+        self.assertEqual(self.runs, [])
+        self.assertEqual(self.posts, [])
 
 
     async def test_ime_enter_commits_text_without_starting_work(self):

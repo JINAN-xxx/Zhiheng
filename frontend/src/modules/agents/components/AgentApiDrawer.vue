@@ -11,10 +11,10 @@
     <template #title
       ><span class="agent-drawer-title">{{ agent?.name || '智能体' }} · API</span></template
     >
-    <WorkspaceState v-if="!access" kind="empty" title="暂无已发布配置" />
+    <WorkspaceState v-if="!access" kind="empty" title="暂无已启用配置" />
     <template v-else>
       <div class="api-published">
-        <a-tag color="green">已发布</a-tag><span>应用 {{ access.applicationId }}</span>
+        <a-tag color="green">已启用</a-tag><span>应用 {{ access.applicationId }}</span>
       </div>
       <section class="api-section">
         <div class="api-section__heading">
@@ -40,7 +40,7 @@
           {{ requiredModelIds.join('、') || access.modelId }}。多轮对话通过 messages 传入，stream 为
           true 时返回 SSE。
         </p>
-        <template v-if="publishedKnowledgeIds.length">
+        <template v-if="knowledgeIds.length">
           <p class="api-contract">
             知识检索需要同时授权向量和重排模型，并计入此密钥的配额与用量。每次请求提供稳定的
             client_request_id；重试使用相同标识。
@@ -110,9 +110,7 @@
                 >{{ developerKeyStatusLabel(item.status)
                 }}<template v-if="hasModelGrant(item)">
                   ·
-                  {{
-                    publishedKnowledgeIds.length ? '已授权全部所需模型' : '已授权此模型'
-                  }}</template
+                  {{ knowledgeIds.length ? '已授权全部所需模型' : '已授权此模型' }}</template
                 ><template v-else-if="requirementsReady">
                   · 模型授权不完整，请创建新密钥</template
                 ></span
@@ -167,12 +165,12 @@ import {
 } from '../../developer/public.ts'
 import type { DeveloperKey, IssuedKey } from '../../developer/public.ts'
 import type { Agent } from '../api/index.ts'
-import { getPublishedAgentAccess } from '../presentation.ts'
+import { getAgentAccess } from '../presentation.ts'
 import { getAgentApiAccess } from '../api/index.ts'
 const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
-const access = computed(() => getPublishedAgentAccess(props.agent))
-const publishedKnowledgeIds = computed(() => props.agent?.publishedConfig?.knowledgeBaseIds ?? [])
+const access = computed(() => getAgentAccess(props.agent))
+const knowledgeIds = computed(() => props.agent?.knowledgeBaseIds ?? [])
 const requiredModelIds = ref<string[]>([]),
   requirementsReady = ref(false)
 const endpoint = computed(() =>
@@ -184,7 +182,7 @@ const requestExample = computed(
   () => `curl '${endpoint.value}' \
   -H 'Authorization: Bearer <DEVELOPER_API_KEY>' \
   -H 'Content-Type: application/json' \
-  -d '${JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: false, ...(publishedKnowledgeIds.value.length ? { client_request_id: '<STABLE_REQUEST_UUID>' } : {}) }, null, 2)}'`
+  -d '${JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: false, ...(knowledgeIds.value.length ? { client_request_id: '<STABLE_REQUEST_UUID>' } : {}) }, null, 2)}'`
 )
 const preparationExample = computed(
   () =>
@@ -216,9 +214,9 @@ async function loadKeys(): Promise<void> {
     ])
     if (
       requirements.applicationId !== binding.applicationId ||
-      requirements.publishedVersion !== props.agent?.publishedVersion
+      requirements.revision !== props.agent?.version
     )
-      throw new Error('发布配置已变化，请刷新智能体后重试')
+      throw new Error('助手配置已变化，请刷新智能体后重试')
     const required = requirements.modelIds
     if (context.isCurrent()) {
       keys.value = result
@@ -256,11 +254,8 @@ async function createKey(): Promise<void> {
   try {
     const latest = await getAgentApiAccess(props.agent!.agentId, context.signal)
     if (!context.isCurrent()) return
-    if (
-      latest.applicationId !== binding.applicationId ||
-      latest.publishedVersion !== props.agent?.publishedVersion
-    )
-      throw new Error('发布配置已变化，请刷新智能体后重试')
+    if (latest.applicationId !== binding.applicationId || latest.revision !== props.agent?.version)
+      throw new Error('助手配置已变化，请刷新智能体后重试')
     if (JSON.stringify(latest.modelIds) !== JSON.stringify(requiredModelIds.value)) {
       requiredModelIds.value = latest.modelIds
       throw new Error('所需模型已变化，请核对上方授权要求后再次创建密钥')
@@ -339,7 +334,7 @@ function close(): void {
   emit('update:modelValue', false)
 }
 watch(
-  () => [props.modelValue, props.agent?.agentId, props.agent?.publishedVersion],
+  () => [props.modelValue, props.agent?.agentId, props.agent?.version],
   () => {
     reset()
     if (props.modelValue) {

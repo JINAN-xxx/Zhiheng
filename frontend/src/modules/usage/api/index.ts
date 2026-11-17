@@ -14,12 +14,10 @@ export interface UsageRecord {
   created_at: string
 }
 export interface UsageSummary {
-  quota_version: number
   points_enabled: boolean
   total: number
   page: number
   page_size: number
-  limit_tokens: number
   used_tokens: number
   reserved_tokens: number
   records: UsageRecord[]
@@ -50,10 +48,8 @@ export interface UsageQuery {
 function parseSummary(value: unknown): UsageSummary {
   const data = object(value)
   return {
-    limit_tokens: number(data.limit_tokens),
     used_tokens: number(data.used_tokens),
     reserved_tokens: number(data.reserved_tokens),
-    quota_version: data.quota_version === undefined ? 0 : number(data.quota_version),
     points_enabled: data.points_enabled === true,
     total: data.total === undefined ? list(parseRecord)(data.records).length : number(data.total),
     page: data.page === undefined ? 1 : number(data.page),
@@ -71,24 +67,3 @@ export const getUsage = (signal: AbortSignal, query: UsageQuery = {}) => {
   if (query.userId) params.set('user_id', query.userId)
   return http.request(`/usage?${params}`, { signal, decode: parseSummary })
 }
-export interface TokenReconciliation {
-  expected_version: number
-  reason: string
-  client_request_id: string
-  rejected_before_execution: boolean
-  input_tokens: number | null
-  output_tokens: number | null
-  cache_tokens: number | null
-  search_units: number | null
-}
-export const reconcileTokenUsage = (
-  runId: string,
-  body: TokenReconciliation,
-  signal: AbortSignal
-) =>
-  http.request(`/usage/${encodeURIComponent(runId)}/reconcile`, {
-    method: 'POST',
-    body,
-    signal,
-    decode: parseRecord
-  })

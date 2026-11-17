@@ -7,10 +7,8 @@ import re
 import unittest
 from urllib.parse import urlparse
 from playwright.async_api import expect
-from files_regressions import FILE
 from knowledge_regressions import KnowledgeUIRegressions
 from knowledge_preparation_regressions import (
-    ChatKnowledgePreparation,
     AgentKnowledgePreparation,
     WorkKnowledgePreparation,
 )
@@ -65,131 +63,6 @@ class Evidence:
     async def asyncTearDown(self):
         self.assertEqual(self.bad_network, [])
         await super().asyncTearDown()
-
-
-class ChatQuality(Evidence, ChatKnowledgePreparation):
-    async def test_confirmed_cancel_is_not_revived_by_inflight_waiting_get(self):
-        started, release, replied = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        reads = []
-        stale = copy.deepcopy(self.preparation)
-
-        async def observe(route):
-            reads.append(route.request.url)
-            if len(reads) == 1:
-                started.set()
-                await release.wait()
-                with contextlib.suppress(Exception):
-                    await route.fulfill(json=stale)
-                replied.set()
-            else:
-                await route.fulfill(
-                    status=503,
-                    json={"error": {"code": "unavailable", "message": "后续观察失败"}},
-                )
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat", observe)
-        try:
-            await self.start_preparation()
-            await asyncio.wait_for(started.wait(), 4)
-            await self.page.get_by_role("button", name="停止生成", exact=True).click()
-            await expect(
-                self.page.get_by_role("button", name="停止生成", exact=True)
-            ).to_have_count(0)
-            release.set()
-            await asyncio.wait_for(replied.wait(), 4)
-            await self.page.wait_for_timeout(850)
-            self.observations.update(
-                cancel_posts=self.cancels,
-                reads=len(reads),
-                stop_buttons=await self.page.get_by_role(
-                    "button", name="停止生成", exact=True
-                ).count(),
-                recover_buttons=await self.page.get_by_role(
-                    "button", name="恢复查看", exact=True
-                ).count(),
-            )
-            self.assertEqual(
-                self.observations["stop_buttons"],
-                0,
-                "Confirmed cancelled preparation was revived by an older waiting GET",
-            )
-            self.assertEqual(self.observations["recover_buttons"], 0)
-        finally:
-            release.set()
-
-    async def test_cancel_requested_is_observed_without_reposting_stop(self):
-        async def cancel(route):
-            self.cancels += 1
-            self.preparation.update(status="cancel_requested", phase="cancel_requested")
-            await route.fulfill(json=self.preparation)
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
-        await self.start_preparation()
-        await self.page.get_by_role("button", name="停止生成", exact=True).click()
-        await self.page.wait_for_timeout(150)
-        stop = self.page.get_by_role("button", name="停止生成", exact=True)
-        if await stop.count() and await stop.is_enabled():
-            await stop.click()
-        await self.page.wait_for_timeout(180)
-        self.observations["cancel_posts"] = self.cancels
-        self.assertEqual(
-            self.cancels,
-            1,
-            "Already accepted cancellation can still be reposted from the visible stop button",
-        )
-
-    async def test_pending_stop_survives_selecting_another_conversation(self):
-        self.run.update(status="pending", revision=4, text="")
-        other = {**self.conversation, "id": "c2", "title": "另一会话"}
-
-        async def list_conversations(route):
-            await route.fulfill(json=[self.conversation, other])
-
-        await self.page.route(re.compile(re.escape(self.origin + "/api/chat/conversations") + r'(?:\?.*)?$'), list_conversations)
-        await self.page.route(
-            re.compile(re.escape(self.origin + "/api/chat/conversations/c2/messages") + r'(?:\?.*)?$'), lambda r: r.fulfill(json=[])
-        )
-        first_cancel = asyncio.Event()
-
-        async def cancel(route):
-            self.cancels += 1
-            first_cancel.set()
-            await route.fulfill(
-                status=503,
-                json={"error": {"code": "unavailable", "message": "取消响应未确认"}},
-            )
-
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
-        main = []
-
-        async def stop_main(route):
-            main.append(route.request.url)
-            self.run.update(status="cancelled", revision=10)
-            await route.fulfill(json=self.run)
-
-        await self.page.route(self.origin + "/api/runs/knowledge-run/cancel", stop_main)
-        await self.start_preparation()
-        await self.page.get_by_role("button", name="停止生成", exact=True).click()
-        await expect(
-            self.page.get_by_text("取消响应未确认", exact=True)
-        ).to_be_visible()
-        await self.select_conversation('另一会话')
-        await expect(
-            self.page.get_by_role("button", name="选择知识库", exact=True)
-        ).to_have_count(0)
-        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_enabled()
-        self.release = True
-        await self.select_conversation('附件会话')
-        await expect(
-            self.page.get_by_role("button", name="停止生成", exact=True)
-        ).to_have_count(0)
-        self.observations.update(
-            preparation_cancels=self.cancels,
-            main_cancels=len(main),
-            paid_posts=len(self.changes),
-        )
-        self.assertEqual(len(main), 1)
-        self.assertEqual(len(self.changes), 1)
 
 
 class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
@@ -513,9 +386,9 @@ class AgentQuality(Evidence, AgentKnowledgePreparation):
         await self.page.route(self.origin + "/api/knowledge/preparations/prep-agent", observe)
         await self.page.route(self.origin + "/api/knowledge/preparations/prep-agent/cancel", cancel)
         await self.open_agents()
-        await self.page.get_by_role("button", name="试聊", exact=True).click()
+        await self.choose_agent_action('调试草稿')
         drawer = self.page.locator(".ant-drawer-open .ant-drawer-content")
-        await drawer.get_by_role("textbox", name="试聊消息", exact=True).fill(
+        await drawer.get_by_role("textbox", name="调试消息", exact=True).fill(
             "工作时间？"
         )
         await drawer.get_by_role("button", name="发送", exact=True).click()
@@ -532,75 +405,6 @@ class AgentQuality(Evidence, AgentKnowledgePreparation):
             self.preparation_cancels,
             1,
             "Recovery reposted cancellation although cancel_requested had already been acknowledged",
-        )
-
-
-class ChatMultiTurnQuality(Evidence, ChatKnowledgePreparation):
-    async def test_previous_terminal_run_does_not_shadow_new_preparation_ack(self):
-        previous = {
-            **self.run,
-            "id": "previous-run",
-            "status": "completed",
-            "text": "上一轮已完成",
-        }
-        history = []
-        admissions = []
-        cancels = []
-
-        async def messages(route):
-            await route.fulfill(json=history)
-
-        async def admit(route):
-            admissions.append(route.request.post_data_json)
-            if len(admissions) == 1:
-                history.append(
-                    {
-                        "id": "previous-answer",
-                        "role": "assistant",
-                        "run_id": previous["id"],
-                        "content": previous["text"],
-                        "reasoning": "",
-                        "created_at": previous["created_at"],
-                        "attachments": [],
-                        "skill_snapshots": [],
-                        "knowledge_sources": [],
-                    }
-                )
-                await route.fulfill(status=202, json=previous)
-            else:
-                self.conversation["preparation_id"] = self.preparation["id"]
-                await route.fulfill(status=202, json=self.preparation)
-
-        async def cancel(route):
-            cancels.append(route.request.url)
-            self.preparation.update(status="cancel_requested", phase="cancel_requested")
-            await route.fulfill(json=self.preparation)
-
-        await self.page.route(re.compile(re.escape(self.origin + "/api/chat/conversations/c1/messages") + r'(?:\?.*)?$'), messages)
-        await self.page.route(self.origin + "/api/chat/conversations/c1/runs", admit)
-        await self.page.route(self.origin + "/api/knowledge/preparations/prep-chat/cancel", cancel)
-        await self.page.goto(self.origin + "/chat")
-        await self.select_conversation('附件会话')
-        text = self.page.get_by_role("textbox", name="消息内容", exact=True)
-        await text.fill("先完成普通对话")
-        await self.page.get_by_role("button", name="发送消息", exact=True).click()
-        await expect(self.page.get_by_text("上一轮已完成", exact=True)).to_be_visible()
-        await expect(self.page.get_by_role("button", name="选择知识库", exact=True)).to_have_count(0)
-        await text.fill("第二轮知识检索")
-        await self.page.get_by_role("button", name="发送消息", exact=True).click()
-        await expect(self.page.locator(".run-state")).to_have_text("正在检索知识库")
-        stop = self.page.get_by_role("button", name="停止生成", exact=True)
-        await stop.click()
-        await self.page.wait_for_timeout(200)
-        self.observations["stop_enabled_after_ack"] = await stop.is_enabled()
-        if await stop.is_enabled():
-            await stop.click()
-        await self.page.wait_for_timeout(150)
-        self.observations.update(run_posts=admissions, cancel_posts=cancels)
-        self.assertEqual(
-            len(cancels),
-            1,
-            "Previous completed activeRun shadows current preparation cancellation acknowledgement",
         )
 
 
@@ -668,9 +472,6 @@ CASES = [
     (KnowledgeQuality, "test_query_cancellation_invalidates_a_delayed_old_get"),
     (WorkQuality, "test_cancel_requested_is_observed_without_reposting_stop"),
     (WorkQuality, "test_confirmed_cancel_replaces_old_observation_scope"),
-    (ChatQuality, "test_confirmed_cancel_is_not_revived_by_inflight_waiting_get"),
-    (ChatQuality, "test_cancel_requested_is_observed_without_reposting_stop"),
-    (ChatQuality, "test_pending_stop_survives_selecting_another_conversation"),
     (
         KnowledgeQuality,
         "test_unavailable_graph_stays_disabled_for_retained_graph_settings",
@@ -689,9 +490,6 @@ def load_tests(loader, tests, pattern):
     return unittest.TestSuite(
         [
             *(cls(name) for cls, name in CASES),
-            ChatMultiTurnQuality(
-                "test_previous_terminal_run_does_not_shadow_new_preparation_ack"
-            ),
             WorkMultiTurnQuality(
                 "test_previous_terminal_run_does_not_shadow_new_preparation_ack"
             ),

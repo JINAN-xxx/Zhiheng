@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Built-in role presentation and user assignment through same-origin API fixtures."""
 import re
 import unittest
@@ -45,23 +46,23 @@ class BuiltinRoleRegressions(unittest.IsolatedAsyncioTestCase):
         await self.open('roles')
         row = self.page.get_by_role('row').filter(has_text='super_admin')
         await expect(row.get_by_text('系统内置', exact=True)).to_be_visible()
-        await expect(row.get_by_text('全部管理权限', exact=True)).to_be_visible()
+        await expect(row.get_by_text('全部功能与管理权限', exact=True)).to_be_visible()
         await expect(row.get_by_text('2', exact=True)).to_be_visible()
         await expect(row.get_by_role('button', name='编辑', exact=True)).to_have_count(0)
         await expect(row.get_by_role('button', name='删除', exact=True)).to_have_count(0)
         await row.get_by_role('button', name='查看', exact=True).click()
         dialog = self.page.get_by_role('dialog')
-        await expect(dialog.get_by_text('全部管理权限', exact=True)).to_be_visible()
+        await expect(dialog.get_by_text('全部功能与管理权限', exact=True)).to_be_visible()
         await expect(dialog.get_by_text('由系统维护', exact=True)).to_be_visible()
         await expect(dialog.locator('input, textarea, select')).to_have_count(0)
         await expect(dialog.get_by_role('button', name=re.compile(r'^保\s*存$'))).to_have_count(0)
         self.assertFalse(any(method in ['PATCH', 'DELETE'] for method, _, _, _ in self.requests))
 
     async def test_role_reader_can_view_builtin_details_without_write_permission(self):
-        self.user = dict(id='reader', username='reader', is_admin=False, permissions=['system:roles:read'])
+        self.user = dict(id='reader', username='reader', is_admin=False, permissions=granted_permissions('system:roles:read'))
         await self.open('roles')
         await self.page.get_by_role('row').filter(has_text='super_admin').get_by_role('button', name='查看', exact=True).click()
-        await expect(self.page.get_by_role('dialog').get_by_text('全部管理权限', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('dialog').get_by_text('全部功能与管理权限', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='新建角色', exact=True)).to_have_count(0)
 
     async def test_admin_user_displays_linked_disabled_system_role_and_can_be_demoted(self):

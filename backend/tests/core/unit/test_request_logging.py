@@ -71,7 +71,7 @@ async def test_actual_uvicorn_logs_redact_share_targets_and_exceptions(
     protocol: Literal['h11', 'httptools'], capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     async with logging_server(protocol) as base_url:
-        async with httpx.AsyncClient(base_url=base_url) as client:
+        async with httpx.AsyncClient(base_url=base_url, trust_env=False) as client:
             for prefix in ('/api/shared/messages/', '/share/'):
                 response = await client.get(prefix + FAKE_SHARE_TOKEN, params={'copy': FAKE_SHARE_TOKEN})
                 assert response.status_code == 204
@@ -136,8 +136,8 @@ def test_serve_cli_passes_redacting_log_config(monkeypatch: pytest.MonkeyPatch) 
         observed.append(log_config)
 
     monkeypatch.setattr(cli, 'Settings', object)
-    monkeypatch.setattr(cli, 'create_app', lambda settings: logging_probe_app)
-    monkeypatch.setattr(cli.uvicorn, 'run', serve)
+    monkeypatch.setattr('zhiheng.api.main.create_app', lambda settings: logging_probe_app)
+    monkeypatch.setattr('uvicorn.run', serve)
     assert cli.main(['serve']) == 0
     assert observed[0]['disable_existing_loggers'] is False
     assert 'share_tokens' in observed[0]['filters']

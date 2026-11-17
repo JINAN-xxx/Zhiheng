@@ -7,6 +7,7 @@ from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.execution.lifecycle import RunLifecycle
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
@@ -72,11 +73,13 @@ class KnowledgePreparation:
         keys: KeyService,
         applications: ApplicationService,
         vectors: VectorPort,
-        token_limit: int,
+        rerank_batch_tokens: int,
+        *,
+        admission: RunAdmission,
     ) -> None:
         self.database, self.knowledge, self.models, self.runs = database, knowledge, models, runs
-        self.usage, self.keys, self.vectors, self.token_limit = usage, keys, vectors, token_limit
-        self.applications = applications
+        self.usage, self.keys, self.vectors, self.rerank_batch_tokens = usage, keys, vectors, rerank_batch_tokens
+        self.applications, self.admission = applications, admission
         self.store, self.steps = RetrievalStore(knowledge), BuildStore(knowledge)
         self.finalizers: dict[
             str, Callable[[AsyncSession, RetrievalState, PreparedKnowledge], Awaitable[RunSnapshot]]
@@ -90,7 +93,7 @@ class KnowledgePreparation:
     ) -> ModelBinding:
         owner = await self.knowledge.identity.principal_for_user(session, owner.id)
         bases = await self.store.snapshot(session, owner, base_ids)
-        bindings = await self.models.resolve_many(
+        bindings = await self.models.bindings.resolve_many(
             session, sorted({model_id, *(base.binding.model_id for base in bases)})
         )
         for base in bases:
@@ -103,7 +106,7 @@ class KnowledgePreparation:
             owner = await self.knowledge.identity.principal_for_user(session, owner_id)
             bases = await self.store.snapshot(session, owner, base_ids)
             for base in bases:
-                current = await self.models.resolve(session, base.binding.model_id, lock=False)
+                current = await self.models.bindings.resolve(session, base.binding.model_id, lock=False)
                 if binding_fingerprint(current) != base.spec.fingerprint:
                     return False
         except AppError:
@@ -141,9 +144,9 @@ class KnowledgePreparation:
         if existing:
             return self.store.info(existing)
         owner = await self.knowledge.identity.principal_for_user(session, owner_id)
-        require_capability(owner, 'knowledge', 'access')
+        require_capability(owner, 'knowledge', 'query')
         bases = await self.store.snapshot(session, owner, base_ids)
-        bindings = await self.models.resolve_many(session, sorted({base.binding.model_id for base in bases}))
+        bindings = await self.models.bindings.resolve_many(session, sorted({base.binding.model_id for base in bases}))
         for base in bases:
             current = bindings[base.binding.model_id]
             if binding_fingerprint(current) != base.spec.fingerprint:
@@ -185,7 +188,7 @@ class KnowledgePreparation:
         if state is None:
             return
         owner = await self.knowledge.identity.principal_for_user(session, state.owner_id)
-        require_capability(owner, 'knowledge', 'access')
+        require_capability(owner, 'knowledge', 'query')
         for base in self.store.bases(state):
             await self.knowledge.authorize_base(session, owner, base.base_id, lock=True)
 
@@ -202,7 +205,7 @@ class KnowledgePreparation:
                 for source in base.sources
                 if any(hit.document_id == source.document_id for hit in prepared.hits)
             )
-            await self.knowledge.files.bind_sources(
+            await self.knowledge.files.references.bind_sources(
                 session, owner, sources, resource_type='knowledge_run', resource_id=run_id
             )
 
@@ -225,7 +228,7 @@ class KnowledgePreparation:
                     if not bases and row.hits:
                         raise AppError('knowledge_preparation_stale', '检索资料依赖已变化，请重新发起检索', 409)
                     main_binding = ModelRequest.model_validate(state.dependencies['main_request']).binding
-                    bindings = await self.models.resolve_many(
+                    bindings = await self.models.bindings.resolve_many(
                         session, sorted({main_binding.model_id, *(base.binding.model_id for base in bases)})
                     )
                     if bindings[main_binding.model_id] != main_binding or any(
@@ -299,7 +302,6 @@ class KnowledgePreparation:
             key_id=identity.key_id,
             model_id=model_id,
             input_tokens=tokens,
-            token_limit=self.token_limit,
         )
 
     @staticmethod
@@ -358,7 +360,7 @@ class KnowledgePreparation:
             model_ids.add(rerank.model_id)
         if main:
             model_ids.add(main.model_id)
-        bindings = await self.models.resolve_many(session, sorted(model_ids))
+        bindings = await self.models.bindings.resolve_many(session, sorted(model_ids))
         if rerank is not None and bindings[rerank.model_id] != rerank:
             raise AppError('knowledge_preparation_stale', '重排模型依赖已变化', 409)
         if main and bindings[main.model_id] != main:
@@ -459,7 +461,7 @@ class KnowledgePreparation:
             hits = await self._recall(state, bases, vectors)
             diagnostics: dict[str, object] = {
                 'candidate_count': len(hits),
-                'rerank_batch_budget': max(1, min(48000, self.token_limit // 2)),
+                'rerank_batch_budget': self.rerank_batch_tokens,
                 'retrieval_modes': {str(base.base_id): 'hybrid' if base.spec.hybrid else 'vector' for base in bases},
                 'rerank_status': 'no_candidates' if not hits else 'pending',
             }
@@ -649,34 +651,17 @@ class KnowledgePreparation:
                 await self.runs.lock_request(session, state.owner_id, request_id)
                 run = await self.runs.existing_request(session, state.owner_id, request_id, value)
                 if run is None:
-                    run = await self.runs.create(
+                    run = await self.admission.reserve(
                         session,
-                        owner_id=state.owner_id,
-                        billing_owner_id=state.owner_id,
+                        identity=AdmissionIdentity(
+                            owner_id=state.owner_id, billing_owner_id=state.owner_id, key_id=state.key_id
+                        ),
                         resource_type='knowledge_rerank',
                         resource_id=state.id,
-                        request_id=request_id,
+                        client_request_id=request_id,
                         fingerprint=value,
-                        payload=request.model_dump(mode='json'),
-                    )
-                    rate = await self.usage.money_rate(
-                        session, self.models, binding.model_id, required=state.key_id is not None
-                    )
-                    input_tokens = sum(len(message.content.encode()) + 16 for message in request.messages)
-                    await self.usage.reserve(
-                        session,
-                        user_id=state.owner_id,
-                        run_id=run.id,
-                        model_id=binding.model_id,
-                        source='knowledge_retrieval',
-                        tokens=input_tokens,
-                        estimated_input_tokens=input_tokens,
-                        max_output_tokens=0,
-                        token_limit=self.token_limit,
-                        key_id=state.key_id,
-                        rate=rate,
-                        operation='rerank',
-                        estimated_search_units=len(candidates),
+                        request=request,
+                        usage_source='knowledge_retrieval',
                     )
                 await self.steps.add_step(session, state.id, step_key, run.id, value)
                 await self.store.diagnostics(
@@ -750,35 +735,17 @@ class KnowledgePreparation:
                     await self.runs.lock_request(session, state.owner_id, request_id)
                     run = await self.runs.existing_request(session, state.owner_id, request_id, value)
                     if run is None:
-                        run = await self.runs.create(
+                        run = await self.admission.reserve(
                             session,
-                            owner_id=state.owner_id,
-                            billing_owner_id=state.owner_id,
+                            identity=AdmissionIdentity(
+                                owner_id=state.owner_id, billing_owner_id=state.owner_id, key_id=state.key_id
+                            ),
                             resource_type='knowledge_embedding',
                             resource_id=state.id,
-                            request_id=request_id,
+                            client_request_id=request_id,
                             fingerprint=value,
-                            payload=request.model_dump(mode='json'),
-                        )
-                        rate = await self.usage.money_rate(
-                            session,
-                            self.models,
-                            base.binding.model_id,
-                            required=state.key_id is not None,
-                        )
-                        await self.usage.reserve(
-                            session,
-                            user_id=state.owner_id,
-                            run_id=run.id,
-                            model_id=base.binding.model_id,
-                            source='knowledge_retrieval',
-                            tokens=len(str(state.request['query']).encode()) + 16,
-                            estimated_input_tokens=len(str(state.request['query']).encode()) + 16,
-                            max_output_tokens=0,
-                            token_limit=self.token_limit,
-                            key_id=state.key_id,
-                            rate=rate,
-                            operation='embedding',
+                            request=request,
+                            usage_source='knowledge_retrieval',
                         )
                     await self.steps.add_step(session, state.id, step_key, run.id, value)
                     await self.store.release(session, state.id, token, 'waiting_models')
@@ -816,10 +783,10 @@ class KnowledgePreparation:
             # Reading a completed result must still enforce current source ACL.
             for hit in row.hits:
                 await self.knowledge.authorize_base(session, owner, UUID(str(hit['knowledge_base_id'])))
-                await self.knowledge.document_info(
+                await self.knowledge.materials.document_info(
                     session, UUID(str(hit['knowledge_base_id'])), UUID(str(hit['document_id']))
                 )
-                await self.knowledge.require_document_source(
+                await self.knowledge.materials.require_document_source(
                     session, owner, UUID(str(hit['knowledge_base_id'])), UUID(str(hit['document_id']))
                 )
         run = await self.runs.projection(session, row.main_run_id) if row.main_run_id else None
@@ -856,8 +823,10 @@ class KnowledgePreparation:
         for hit in hits:
             try:
                 await self.knowledge.authorize_base(session, principal, hit.knowledge_base_id)
-                await self.knowledge.document_info(session, hit.knowledge_base_id, hit.document_id)
-                await self.knowledge.require_document_source(session, principal, hit.knowledge_base_id, hit.document_id)
+                await self.knowledge.materials.document_info(session, hit.knowledge_base_id, hit.document_id)
+                await self.knowledge.materials.require_document_source(
+                    session, principal, hit.knowledge_base_id, hit.document_id
+                )
             except AppError:
                 continue
             visible.append(hit)

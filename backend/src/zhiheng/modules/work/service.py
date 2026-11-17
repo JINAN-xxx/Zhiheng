@@ -32,7 +32,7 @@ class MemberSnapshot:
     agent_id: UUID
     agent_owner_id: UUID
     name: str
-    published_version: int
+    agent_revision: int
     config: dict[str, object]
     skills: list[dict[str, object]]
 
@@ -84,7 +84,7 @@ class WorkService:
                 MemberInfo.model_validate(
                     {
                         key: getattr(row, key)
-                        for key in ('agent_id', 'agent_name_snapshot', 'published_version', 'removed_at')
+                        for key in ('agent_id', 'agent_name_snapshot', 'agent_revision', 'removed_at')
                     }
                 )
                 for row in members
@@ -172,7 +172,7 @@ class WorkService:
             agent_id=member.agent_id,
             agent_owner_id=member.agent_owner_id,
             agent_name_snapshot=member.name,
-            published_version=member.published_version,
+            agent_revision=member.agent_revision,
             config=member.config,
             skills=member.skills,
         )
@@ -245,7 +245,7 @@ class WorkService:
         if row is None:
             raise AppError('work_member_not_found', '智能体不在任务中', 404)
         return MemberSnapshot(
-            row.agent_id, row.agent_owner_id, row.agent_name_snapshot, row.published_version, row.config, row.skills
+            row.agent_id, row.agent_owner_id, row.agent_name_snapshot, row.agent_revision, row.config, row.skills
         )
 
     async def change_member(
@@ -276,9 +276,9 @@ class WorkService:
             if current is None:
                 session.add(self.member_row(task_id, snapshot))
             else:
-                current.agent_name_snapshot, current.published_version, current.config, current.skills = (
+                current.agent_name_snapshot, current.agent_revision, current.config, current.skills = (
                     snapshot.name,
-                    snapshot.published_version,
+                    snapshot.agent_revision,
                     snapshot.config,
                     snapshot.skills,
                 )
@@ -388,7 +388,7 @@ class WorkService:
                 fingerprint=fingerprint,
                 agent_id=member.agent_id,
                 agent_name_snapshot=member.name,
-                published_version=member.published_version,
+                agent_revision=member.agent_revision,
                 audit={'config': member.config, 'skills': member.skills, 'agent_owner_id': str(member.agent_owner_id)},
             )
         )

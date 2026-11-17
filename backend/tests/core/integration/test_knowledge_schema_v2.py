@@ -17,7 +17,12 @@ from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.integration.test_knowledge_materials_v2 import library
 from tests.core.legacy_schema import reconstruct
 from tests.core.provider import ProviderServer
-from tests.core.schema_support import active_migration_context, assert_private_base_backfill
+from tests.core.schema_support import (
+    RETIRED_COLUMNS,
+    active_migration_context,
+    assert_original_rows,
+    assert_private_base_backfill,
+)
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -92,7 +97,11 @@ async def test_populated_schema19_upgrade_keeps_original_knowledge_and_acl(
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
-            names = [column[1] for column in columns if column[0] == table]
+            names = [
+                column[1]
+                for column in columns
+                if column[0] == table and column[1] not in RETIRED_COLUMNS.get(table, frozenset())
+            ]
             current = (
                 (
                     await connection.execute(
@@ -105,7 +114,7 @@ async def test_populated_schema19_upgrade_keeps_original_knowledge_and_acl(
             if table == 'knowledge_bases':
                 assert_private_base_backfill(snapshots[table], current)
             else:
-                assert current == snapshots[table], table
+                assert_original_rows(snapshots[table], current, table)
         assert (await connection.execute(text('SELECT document_policy FROM knowledge_bases'))).scalars().all() == [
             'legacy'
         ]

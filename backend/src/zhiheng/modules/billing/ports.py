@@ -15,7 +15,6 @@ if TYPE_CHECKING:
         KeyUsageFacts,
         MeterReservation,
         UsageOutcome,
-        UsageSummary,
     )
     from zhiheng.modules.developer.public import KeyMeteringReservation
     from zhiheng.modules.models.public import RateInfo
@@ -29,12 +28,11 @@ class MeterPort(Protocol):
         user_id: UUID,
         key_id: UUID,
         tokens: int,
-        token_limit: int,
         rate: RateInfo | None,
         points_enforced: bool,
     ) -> MeterReservation: ...
 
-    async def reserve(  # noqa: PLR0913 - metering admission boundary
+    async def reserve(
         self,
         session: AsyncSession,
         *,
@@ -43,7 +41,6 @@ class MeterPort(Protocol):
         model_id: UUID,
         source: str,
         tokens: int,
-        token_limit: int,
         key_id: UUID | None = None,
         rate: RateInfo | None = None,
         operation: str = 'chat',
@@ -82,8 +79,6 @@ class MeterPort(Protocol):
         search_units: int | None = None,
         cache_tokens: int | None = None,
     ) -> UsageOutcome: ...
-
-    async def summary(self, session: AsyncSession, user_id: UUID, *, token_limit: int) -> UsageSummary: ...
 
     async def application_usage(
         self,

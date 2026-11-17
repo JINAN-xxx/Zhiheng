@@ -40,6 +40,13 @@ assert not loaded, 'Contract import loaded supplier adapters: ' + ', '.join(load
 def test_knowledge_public_exports_capabilities_without_sdk_constructors() -> None:
     from zhiheng.modules.knowledge import public
 
-    assert {'ParsePort', 'VectorPort', 'GraphPort', 'GraphSDKCall', 'GraphSDKOutcome'} <= set(public.__all__)
+    assert {'VectorPort', 'GraphPort', 'GraphSDKCall', 'GraphSDKOutcome'} <= set(public.__all__)
     for name in ('NativeParser', 'MilvusStore', 'GraphSDK', 'SDKCall', 'SDKOutcome'):
         assert not hasattr(public, name), name
+
+
+def test_file_public_owns_parsing_contracts_without_sdk_constructors() -> None:
+    from zhiheng.modules.files import public
+
+    assert {'ParsePort', 'ParseResult', 'ParsingSettingsService', 'MinerUClientPort'} <= set(public.__all__)
+    assert 'NativeParser' not in public.__all__ and 'MinerUClient' not in public.__all__

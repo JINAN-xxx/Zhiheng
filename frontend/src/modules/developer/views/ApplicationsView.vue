@@ -303,8 +303,9 @@
                   v-for="item in scopeCatalog?.definitions ?? []"
                   :key="item.scope"
                   :value="item.scope"
+                  :disabled="!item.grantable"
                   ><span>{{ item.label }}</span
-                  ><small>{{ item.description }}</small></a-checkbox
+                  ><small>{{ item.reason ?? item.description }}</small></a-checkbox
                 >
               </a-checkbox-group></a-spin
             >

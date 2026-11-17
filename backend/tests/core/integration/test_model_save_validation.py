@@ -45,7 +45,7 @@ async def test_catalog_validation_precedes_save_and_supports_large_output_values
     assert provider.requests == []
     model_id = UUID(response.json()['id'])
     async with app.state.container.database.sessions() as session:
-        binding = await app.state.container.models.resolve(session, model_id)
+        binding = await app.state.container.models.bindings.resolve(session, model_id)
         assert binding.max_output_tokens == 3000000000
     assert ChatGenerationSettings(max_output_tokens=262144).max_output_tokens == 262144
     assert (

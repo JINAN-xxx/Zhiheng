@@ -6,6 +6,9 @@ import pytest
 from sqlalchemy import select
 
 from tests.core.integration.test_public_protocol import drive, provision
+from tests.core.permission_support import (
+    member_agent_work_permissions,  # noqa: F401 - registered by pytest through usefixtures
+)
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
@@ -20,14 +23,14 @@ async def test_agent_lifecycle_isolates_publication_and_protects_model(admin: ht
     created = await admin.post('/api/agents', json=config(model_id, application_id=application))
     assert created.status_code == 201, created.text
     agent = created.json()
-    assert agent['version'] == 1 and agent['published_version'] is None
-    published = await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    assert agent['version'] == 1 and agent['status'] == 'disabled'
+    published = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
-    assert published.json()['published_version'] == 1
+    assert published.json()['status'] == 'enabled'
     edited = await admin.patch(f'/api/agents/{agent["id"]}', json=config(model_id, name='草稿', expected_version=2))
     assert edited.status_code == 200, edited.text
-    assert edited.json()['published_config']['name'] == '研究助手'
-    assert (await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': 2})).status_code == 409
+    assert edited.json()['name'] == '草稿' and edited.json()['status'] == 'enabled'
+    assert (await admin.post(f'/api/agents/{agent["id"]}/disable', json={'expected_version': 2})).status_code == 409
     assert (
         await admin.delete(f'/api/agents/{agent["id"]}', headers={'Content-Type': 'application/json'})
     ).status_code == 200
@@ -95,16 +98,17 @@ async def test_public_agent_uses_publication_and_hides_binding(
     headers = {'Authorization': 'Bearer ' + key['api_key']}
     body = {'messages': [{'role': 'user', 'content': 'hello'}]}
     assert (await admin.post(endpoint, headers=headers, json=body)).status_code == 404
-    assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 200
+    assert (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})).status_code == 200
     assert (
         await admin.patch(
-            f'/api/agents/{agent["id"]}', json=config(model_id, expected_version=2, system_prompt='DRAFT')
+            f'/api/agents/{agent["id"]}',
+            json=config(model_id, application_id=application, expected_version=2, system_prompt='LATEST'),
         )
     ).status_code == 200
     response = await drive(app.state.container, asyncio.create_task(admin.post(endpoint, headers=headers, json=body)))
     assert response.status_code == 200, response.text
     assert response.json()['choices'][0]['message']['content'] == '你好'
-    assert provider.requests[-1]['messages'][0]['content'] == 'PUBLISHED'
+    assert provider.requests[-1]['messages'][0]['content'] == 'LATEST'
     async with app.state.container.database.sessions() as session:
         run = await session.scalar(select(Run).where(Run.resource_type == 'agent_invocation'))
         assert str(run.resource_id) == agent['id']
@@ -209,10 +213,8 @@ async def test_admin_cannot_manage_foreign_agent_and_owner_preview_keeps_own_bil
                 f'/api/agents/{agent["id"]}', json=config(model_id, application_id=admin_app, expected_version=1)
             )
         ).status_code == 404
-        assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 404
-        assert (
-            await member.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
-        ).status_code == 200
+        assert (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})).status_code == 404
+        assert (await member.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})).status_code == 200
         request = {'client_request_id': str(uuid4()), 'messages': [{'role': 'user', 'content': 'admin preview'}]}
         assert (await admin.post(f'/api/agents/{agent["id"]}/preview', json=request)).status_code == 404
         preview = await member.post(f'/api/agents/{agent["id"]}/preview', json=request)
@@ -229,36 +231,24 @@ async def test_admin_cannot_manage_foreign_agent_and_owner_preview_keeps_own_bil
             assert run.owner_id == invocation.user_id
 
 
-@pytest.mark.asyncio
-async def test_agent_versions_immutable_republish_and_history_references(
+async def test_latest_configuration_releases_unused_resources_without_publication_history(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
-    from sqlalchemy import update
-    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy import text
 
     from tests.core.integration.test_skills import install
-    from zhiheng.modules.agents.orm import AgentVersion
 
     skill = await install(admin, 'bound-agent')
-    application, _ = await provision(admin, model_id)
-    agent = (
-        await admin.post('/api/agents', json=config(model_id, application_id=application, skill_slugs=[skill['slug']]))
-    ).json()
-    for version, publication in [(1, 1), (2, 2)]:
-        response = await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': version})
-        assert response.status_code == 200 and response.json()['published_version'] == publication
-    await admin.patch(f'/api/agents/{agent["id"]}', json=config(model_id, expected_version=3))
-    await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': 4})
-    await admin.delete(f'/api/agents/{agent["id"]}', headers={'content-type': 'application/json'})
+    agent = (await admin.post('/api/agents', json=config(model_id, skill_slugs=[skill['slug']]))).json()
+    enabled = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
+    assert enabled.status_code == 200, enabled.text
+    changed = await admin.patch(f'/api/agents/{agent["id"]}', json=config(model_id, expected_version=2))
+    assert changed.status_code == 200 and changed.json()['status'] == 'enabled'
     await admin.patch(f'/api/skills/{skill["id"]}/status', json={'status': 'disabled', 'expected_version': 1})
     response = await admin.delete(f'/api/skills/{skill["id"]}', headers={'content-type': 'application/json'})
     assert response.status_code == 200, response.text
-    async with app.state.container.database.sessions.begin() as session:
-        with pytest.raises(DBAPIError):
-            async with session.begin_nested():
-                await session.execute(
-                    update(AgentVersion).where(AgentVersion.agent_id == UUID(agent['id'])).values(config={})
-                )
+    async with app.state.container.database.sessions() as session:
+        assert await session.scalar(text("SELECT to_regclass('public.agent_versions') IS NULL"))
 
 
 @pytest.mark.asyncio
@@ -287,12 +277,12 @@ async def test_publish_concurrent_with_model_disable_is_serialized(
     container = app.state.container
     async with container.database.sessions.begin() as session:
         principal = await container.identity.authenticate(session, admin.cookies['zhiheng_session'])
-        await container.models.update_model(session, principal, UUID(model_id), {'enabled': False})
-        task = asyncio.create_task(admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1}))
+        await container.models.catalog.update(session, principal, UUID(model_id), {'enabled': False})
+        task = asyncio.create_task(admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1}))
         await asyncio.sleep(0.05)
         assert not task.done()
     assert (await asyncio.wait_for(task, 2)).status_code == 404
-    assert (await admin.get(f'/api/agents/{agent["id"]}')).json()['published_version'] is None
+    assert (await admin.get(f'/api/agents/{agent["id"]}')).json()['status'] == 'disabled'
 
 
 @pytest.mark.asyncio
@@ -302,7 +292,7 @@ async def test_public_agent_reasoning_json_sse_and_revocation(
     await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'reasoning'})
     application, key = await provision(admin, model_id)
     agent = (await admin.post('/api/agents', json=config(model_id, application_id=application))).json()
-    await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
     headers = {'Authorization': 'Bearer ' + key['api_key']}
     for stream in (False, True):
@@ -323,7 +313,7 @@ async def test_public_agent_reasoning_json_sse_and_revocation(
             assert response.text.endswith('data: [DONE]\n\n')
         else:
             assert response.json()['choices'][0]['message']['reasoning_content'] == '先思考'
-    await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': 2})
+    await admin.post(f'/api/agents/{agent["id"]}/disable', json={'expected_version': 2})
     assert (
         await admin.post(endpoint, headers=headers, json={'messages': [{'role': 'user', 'content': 'q'}]})
     ).status_code == 404
@@ -407,6 +397,7 @@ async def test_reasoning_partial_terminal_results_keep_bounded_utf8(
             provider_factory=factory,
             lease_seconds=3,
             timeout_seconds=2,
+            assistant_agent=container.assistant_agent,
         ).execute(run_id)
     result = (await admin.get(f'/api/runs/{run_id}')).json()
     assert result['status'] == ('interrupted' if outcome == 'interrupted' else 'failed'), result
@@ -429,7 +420,7 @@ async def test_public_governance_precedes_knowledge_context(
             '/api/agents', json=config(model_id, application_id=application, knowledge_base_ids=[base['id']])
         )
     ).json()
-    await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
     body = {'messages': [{'role': 'user', 'content': 'q'}]}
     assert (await admin.post(endpoint, headers={'Authorization': 'Bearer invalid'}, json=body)).status_code == 401
@@ -450,7 +441,7 @@ async def test_public_governance_precedes_knowledge_context(
             KeyMinuteBucket(key_id=UUID(limited['id']), minute=int(utcnow().timestamp()) // 60, requests=1, tokens=0)
         )
     plain = (await admin.post('/api/agents', json=config(model_id, application_id=application))).json()
-    await admin.post(f'/api/agents/{plain["id"]}/publish', json={'expected_version': 1})
+    await admin.post(f'/api/agents/{plain["id"]}/enable', json={'expected_version': 1})
     quota = await admin.post(
         f'/v1/agents/{plain["id"]}/chat/completions',
         headers={'Authorization': 'Bearer ' + limited['api_key']},
@@ -485,7 +476,7 @@ async def test_concurrent_publish_and_skill_disable_have_no_deadlock(
     async with container.database.sessions.begin() as session:
         principal = await container.identity.authenticate(session, admin.cookies['zhiheng_session'])
         await container.skills.set_status(session, principal, UUID(skill['id']), status='disabled', expected_version=1)
-        task = asyncio.create_task(admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1}))
+        task = asyncio.create_task(admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1}))
         await asyncio.sleep(0.05)
         assert not task.done()
     response = await asyncio.wait_for(task, 2)
@@ -493,7 +484,7 @@ async def test_concurrent_publish_and_skill_disable_have_no_deadlock(
     await admin.patch(f'/api/skills/{skill["id"]}/status', json={'status': 'enabled', 'expected_version': 2})
     pair = await asyncio.wait_for(
         asyncio.gather(
-            *(admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1}) for _ in range(2))
+            *(admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1}) for _ in range(2))
         ),
         2,
     )
@@ -508,9 +499,9 @@ async def test_available_directory_excludes_unusable_configs_and_hides_prompt(
     agent = (
         await admin.post('/api/agents', json=config(model_id, application_id=application, system_prompt='PRIVATE'))
     ).json()
-    await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     directory = (await admin.get('/api/agents/available')).json()
-    assert directory == [{'id': agent['id'], 'name': '研究助手', 'description': '', 'published_version': 1}]
+    assert directory == [{'id': agent['id'], 'name': '研究助手', 'description': ''}]
     await admin.patch(f'/api/models/{model_id}', json={'max_output_tokens': 16})
     assert (await admin.get('/api/agents/available')).json() == []
 
@@ -539,13 +530,12 @@ async def test_queue_freezes_model_connection_and_skill_audit(
     ).status_code == 404
     await execute_run(app.state.container, UUID(preview['id']))
     result = (await admin.get(f'/api/runs/{preview["id"]}')).json()
-    assert result['status'] == 'completed', result
-    assert provider.requests[0]['model'] == 'local-text'
-    assert provider.request_headers[0]['authorization'] == 'Bearer local-test-key'
+    assert result['status'] == 'failed', result
+    assert result['usage']['input_tokens'] == 0 and not provider.requests
     async with app.state.container.database.sessions() as session:
         run = await session.get(Run, UUID(preview['id']))
         audit = await session.get(AgentRunAudit, UUID(preview['id']))
-        assert audit.config_version == 1 and audit.skills[0]['revision_id'] == skill['revision_id']
+        assert audit.config['system_prompt'] == 'FROZEN' and audit.skills[0]['revision_id'] == skill['revision_id']
         assert audit.skills[0]['content_hash'] == skill['content_hash']
         assert audit.skills[0]['content'] == run.payload['messages'][1]['content']
 
@@ -558,7 +548,7 @@ async def test_inactive_application_blocks_publish_but_allows_owner_draft_previe
     assert (await admin.post(f'/api/developer/applications/{application}/disable', json={})).status_code == 200
     agent = await admin.post('/api/agents', json=config(model_id, application_id=application))
     assert agent.status_code == 201, agent.text
-    published = await admin.post(f'/api/agents/{agent.json()["id"]}/publish', json={'expected_version': 1})
+    published = await admin.post(f'/api/agents/{agent.json()["id"]}/enable', json={'expected_version': 1})
     assert published.status_code == 409
     preview = await admin.post(
         f'/api/agents/{agent.json()["id"]}/preview',
@@ -581,7 +571,7 @@ async def test_stale_agent_cas_precedes_changed_dependency_errors(admin: httpx.A
         response = (
             (await admin.patch(f'/api/agents/{agent["id"]}', json=config(model_id, expected_version=1)))
             if operation == 'update'
-            else (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1}))
+            else (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1}))
         )
         assert response.status_code == 409 and response.json()['error']['code'] == 'agent_version_conflict', (
             response.text
@@ -603,7 +593,7 @@ async def switch_current_skill_revision(app: object, skill: dict, replacement: d
 
 
 @pytest.mark.asyncio
-async def test_public_skill_content_changes_only_after_republish(
+async def test_next_public_call_uses_latest_skill_revision_and_revocation_blocks_queued_run(
     admin: httpx.AsyncClient, model_id: str, app: object, provider: object
 ) -> None:
     from tests.core.integration.test_skills import install
@@ -619,7 +609,7 @@ async def test_public_skill_content_changes_only_after_republish(
         )
     ).json()
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
-    assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 200
+    assert (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})).status_code == 200
     await switch_current_skill_revision(app, original, current)
     body = {'messages': [{'role': 'user', 'content': 'q'}]}
     preview = await admin.post(f'/api/agents/{agent["id"]}/preview', json={**body, 'client_request_id': str(uuid4())})
@@ -631,22 +621,25 @@ async def test_public_skill_content_changes_only_after_republish(
         asyncio.create_task(admin.post(endpoint, headers={'Authorization': 'Bearer ' + key['api_key']}, json=body)),
     )
     assert public.status_code == 200, public.text
-    assert 'PUBLISHED SKILL CONTENT' in provider.requests[-1]['messages'][0]['content']
+    assert 'CURRENT SKILL CONTENT' in provider.requests[-1]['messages'][0]['content']
     async with app.state.container.database.sessions() as session:
-        published_audit = await session.scalar(select(AgentRunAudit).where(AgentRunAudit.published_version == 1))
+        published_audit = await session.scalar(
+            select(AgentRunAudit)
+            .join(Run, Run.id == AgentRunAudit.run_id)
+            .where(Run.resource_type == 'agent_invocation')
+        )
         preview_audit = await session.get(AgentRunAudit, UUID(preview.json()['id']))
-        assert str(published_audit.skills[0]['revision_id']) == original['revision_id']
-        assert published_audit.skills[0]['content_hash'] == original['content_hash']
+        assert str(published_audit.skills[0]['revision_id']) == current['revision_id']
+        assert published_audit.skills[0]['content_hash'] == current['content_hash']
         assert str(preview_audit.skills[0]['revision_id']) == current['revision_id']
         assert preview_audit.skills[0]['content_hash'] == current['content_hash']
-    assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 2})).status_code == 200
+    assert (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 2})).status_code == 200
     async with app.state.container.database.sessions.begin() as session:
         queued, _, _ = await app.state.container.agent_runs.public(
             session,
             key['api_key'],
             UUID(agent['id']),
             PreviewRequest(messages=body['messages'], client_request_id=uuid4()),
-            app.state.container.settings.token_limit,
         )
     disabled = await admin.patch(
         f'/api/skills/{original["id"]}/status', json={'status': 'disabled', 'expected_version': 2}
@@ -655,16 +648,18 @@ async def test_public_skill_content_changes_only_after_republish(
     assert (
         await admin.post(endpoint, headers={'Authorization': 'Bearer ' + key['api_key']}, json=body)
     ).status_code == 404
+    prior_calls = len(provider.requests)
     await execute_run(app.state.container, queued.id)
-    assert 'CURRENT SKILL CONTENT' in provider.requests[-1]['messages'][0]['content']
+    assert len(provider.requests) == prior_calls
+    assert (await admin.get(f'/api/runs/{queued.id}')).json()['status'] == 'failed'
     async with app.state.container.database.sessions() as session:
         audit = await session.get(AgentRunAudit, queued.id)
-        assert audit.published_version == 2 and str(audit.skills[0]['revision_id']) == current['revision_id']
+        assert str(audit.skills[0]['revision_id']) == current['revision_id']
         assert audit.skills[0]['content_hash'] == current['content_hash']
 
 
 @pytest.mark.asyncio
-async def test_current_skill_size_does_not_change_published_context_budget(
+async def test_latest_skill_revision_capacity_applies_to_every_new_entry(
     admin: httpx.AsyncClient, model_id: str, app: object, provider: object
 ) -> None:
     from tests.core.integration.test_skills import install
@@ -677,12 +672,12 @@ async def test_current_skill_size_does_not_change_published_context_budget(
             '/api/agents', json=config(model_id, application_id=application, skill_slugs=[original['slug']])
         )
     ).json()
-    assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})).status_code == 200
+    assert (await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})).status_code == 200
     await switch_current_skill_revision(app, original, oversized)
     body = {'messages': [{'role': 'user', 'content': 'q'}]}
     preview = await admin.post(f'/api/agents/{agent["id"]}/preview', json={**body, 'client_request_id': str(uuid4())})
     assert preview.status_code == 422 and preview.json()['error']['code'] == 'skill_context_too_long'
-    republish = await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 2})
+    republish = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 2})
     assert republish.status_code == 422 and republish.json()['error']['code'] == 'skill_context_too_long'
     response = await drive(
         app.state.container,
@@ -694,5 +689,8 @@ async def test_current_skill_size_does_not_change_published_context_budget(
             )
         ),
     )
-    assert response.status_code == 200, response.text
-    assert 'SMALL FROZEN CONTENT' in provider.requests[-1]['messages'][0]['content']
+    assert response.status_code == 422 and response.json()['error']['code'] == 'skill_context_too_long', response.text
+    assert not provider.requests
+
+
+pytestmark = pytest.mark.usefixtures('member_agent_work_permissions')

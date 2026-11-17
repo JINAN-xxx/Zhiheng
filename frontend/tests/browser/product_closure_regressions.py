@@ -5,6 +5,7 @@ import unittest
 from urllib.parse import urlparse,parse_qs
 from playwright.async_api import expect
 from billing_regressions import BillingRegressions
+from invocation_trace_fixture import credit_trace
 from agents_regressions import AgentsUIRegressions
 from work_regressions import WorkUIRegressions
 from knowledge_v2_regressions import KnowledgeV2Regressions
@@ -12,7 +13,7 @@ from knowledge_v2_regressions import KnowledgeV2Regressions
 class TokenClosureUI(BillingRegressions):
     async def asyncSetUp(self):
         self.token_calls=[];self.token_writes=[];self.commands={};self.fail_once=False;self.deny=False
-        self.tokens={'limit_tokens':100000,'quota_version':0,'points_enabled':False,'used_tokens':0,'reserved_tokens':99,
+        self.tokens={'points_enabled':False,'used_tokens':0,'reserved_tokens':99,
                      'records':[{'id':'u1','run_id':'unknown1','model_id':'model-1','source':'knowledge_retrieval','status':'unknown',
                                  'version':2,'points_enforced':False,'input_tokens':None,'output_tokens':None,'charged_tokens':None,'created_at':'2026-11-09T01:00:00Z'}]}
         await super().asyncSetUp()
@@ -21,19 +22,23 @@ class TokenClosureUI(BillingRegressions):
         if path=='/api/usage':
             query=parse_qs(parsed.query);self.token_calls.append(query)
             await route.fulfill(json={**self.tokens,'total':125,'page':int(query.get('page',['1'])[0]),'page_size':20})
+        elif path == '/api/billing/usage/unknown1':
+            token = self.tokens['records'][0]
+            hold = {**self.usage, 'run_id': token['run_id']}
+            body = credit_trace(hold)
+            body['billing']['invocation'].update(token, user_id='user-1', cache_tokens=None, reasoning_tokens=None,
+                search_units=None, reserved_tokens=99, operation='chat')
+            body['billing']['reservation'] = None
+            await route.fulfill(json=body)
         elif path.startswith('/api/usage/'):
             body=route.request.post_data_json;self.token_writes.append(body)
             if self.deny:
                 return await route.fulfill(status=403,json={'error':{'code':'permission_denied','message':'权限已撤销'}})
             key=body['client_request_id']
             if key not in self.commands:
-                if path.endswith('/quota'):
-                    self.tokens.update(limit_tokens=body['limit_tokens'],quota_version=1)
-                    result=dict(self.tokens,total=125,page=1,page_size=20)
-                else:
-                    self.tokens.update(used_tokens=10,reserved_tokens=0)
-                    self.tokens['records'][0].update(status='known',input_tokens=8,output_tokens=2,charged_tokens=10,version=3)
-                    result=dict(self.tokens['records'][0])
+                self.tokens.update(used_tokens=10,reserved_tokens=0)
+                self.tokens['records'][0].update(status='known',input_tokens=8,output_tokens=2,charged_tokens=10,version=3)
+                result=dict(self.tokens['records'][0])
                 self.commands[key]=result
             if self.fail_once:
                 self.fail_once=False
@@ -74,8 +79,9 @@ class TokenClosureUI(BillingRegressions):
         await modal.get_by_label('核对依据',exact=True).fill('检查权限变化')
         self.user['permissions']=[];self.deny=True
         await modal.locator('.ant-modal-footer .ant-btn-primary').click()
-        await expect(self.page).to_have_url(self.origin+'/chat')
-        self.assertEqual(self.tokens['quota_version'],0)
+        await expect(self.page).to_have_url(self.origin+'/access?denied=usage')
+        self.assertEqual(self.tokens['used_tokens'],0)
+        self.assertEqual(self.tokens['records'][0]['status'],'unknown')
     async def test_user_account_token_entry_opens_requested_account(self):
         await self.page.goto(self.origin+'/usage')
         await self.page.get_by_role('tab',name='用户积分',exact=True).click()
@@ -83,9 +89,15 @@ class TokenClosureUI(BillingRegressions):
         await expect(self.page.get_by_role('heading',name='积分管理员的 Token 用量',exact=True)).to_be_visible()
         self.assertEqual(self.token_calls[-1]['user_id'],['user-1'])
     async def test_readonly_operator_cannot_adjust_or_reconcile(self):
-        self.user['permissions']=['ai:credits:read']
+        self.user['permissions']=['platform:usage:enabled','platform:usage:read','ai:credits:enabled','ai:credits:read']
         await self.open_tokens()
         await expect(self.page.get_by_role('button',name='调整 Token 额度',exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button',name='核对用量',exact=True)).to_have_count(0)
+        self.assertEqual(self.token_writes,[])
+
+    async def test_adjust_permission_does_not_allow_token_reconciliation(self):
+        self.user['permissions']=['platform:usage:enabled','platform:usage:read','ai:credits:enabled','ai:credits:read','ai:credits:adjust']
+        await self.open_tokens()
         await expect(self.page.get_by_role('button',name='核对用量',exact=True)).to_have_count(0)
         self.assertEqual(self.token_writes,[])
 
@@ -102,7 +114,7 @@ class WorkClosureUI(WorkUIRegressions):
 
 class AgentClosureUI(AgentsUIRegressions):
     async def test_pending_creation_survives_reload_and_reuses_original_body(self):
-        original={**self.config,'history_rounds':20,'client_request_id':'11111111-1111-4111-8111-111111111111'}
+        original={**self.config, 'client_request_id': '11111111-1111-4111-8111-111111111111'}
         pending=json.dumps({'owner':'user-1','body':original})
         await self.page.add_init_script('sessionStorage.setItem("zhiheng:agent-create:user-1",'+json.dumps(pending)+')')
         calls=[]
@@ -123,8 +135,8 @@ class AgentClosureUI(AgentsUIRegressions):
         await expect(self.page).to_have_url(self.origin+'/agents/agent-1')
         self.assertEqual(calls,[original,original])
     async def test_api_drawer_creates_key_with_required_ranker(self):
-        self.agent.update(status='published',published_version=1,published_config={**self.config,'model_id':'published-model','application_id':'app-1','knowledge_base_ids':['base-1']})
-        await self.page.route('**/api/agents/agent-1/api-access',lambda route:route.fulfill(json={'application_id':'app-1','published_version':1,'model_ids':['published-model','embed-1','rank-1']}))
+        self.agent.update({'status': 'enabled', **{**self.config, 'model_id': 'published-model', 'application_id': 'app-1', 'knowledge_base_ids': ['base-1']}})
+        await self.page.route('**/api/agents/agent-1/api-access',lambda route:route.fulfill(json={'application_id':'app-1','revision':self.agent['version'],'model_ids':['published-model','embed-1','rank-1']}))
         await self.open_agents();await self.choose_agent_action('API')
         drawer=self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button',name='创建密钥',exact=True).click()

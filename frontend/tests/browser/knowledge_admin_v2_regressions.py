@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Knowledge defaults and storage navigation with fixture-only HTTP boundaries."""
 
 import asyncio
@@ -80,8 +81,7 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
                            ('/admin/storage', '存储管理', 'ai:storage:read')]
             items = [{'path': page, 'name': label, 'permission': permission, 'sort_order': index,
                       'is_visible': True} for index, (page, label, permission) in enumerate(definitions)
-                     if self.user['is_admin'] or permission in self.user['permissions']
-                     or (page == '/admin/storage' and 'ai:storage:write' in self.user['permissions'])]
+                     if self.user['is_admin'] or permission in self.user['permissions']]
             for item in items:
                 override = next((menu for menu in self.menu_configs if menu['path'] == item['path']), None)
                 if override:
@@ -101,6 +101,13 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
                     result = dict(self.defaults)
             else:
                 result = dict(self.defaults)
+        elif path == '/api/knowledge/settings/parsing' and request.method == 'GET':
+            result = {'version': 1, 'local_url': None, 'has_local_key': False,
+                      'cloud_enabled': False, 'cloud_url': None, 'has_cloud_key': False,
+                      'tier': 'standard', 'timeout_seconds': 900, 'queue_timeout_seconds': 120}
+        elif path == '/api/knowledge/settings/parsing/status' and request.method == 'GET':
+            result = {'local': {'configured': False, 'available': False, 'version': None, 'device': None},
+                      'cloud': None, 'cloud_enabled': False, 'native_available': True}
         elif path == '/api/models':
             result = self.models
         elif path == '/api/files':
@@ -194,7 +201,7 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
         self.assertEqual(self.patches(), [])
 
     async def test_configs_reader_sees_values_but_no_write_controls(self):
-        self.user.update(is_admin=False, permissions=['system:configs:read'])
+        self.user.update(is_admin=False, permissions=granted_permissions('system:configs:read'))
         await self.open_settings()
         await expect(self.page.get_by_role('button', name='保存配置', exact=True)).to_have_count(0)
         for label in ['默认向量模型', '默认重排模型']:
@@ -266,18 +273,18 @@ class KnowledgeAdminV2Regressions(DeveloperBoundary):
             await self.page.screenshot(path=str(self.evidence / ('storage-' + path.strip('/').replace('/', '-') + '.png')), full_page=True)
 
     async def test_retired_menu_route_preserves_storage_reader_permissions(self):
-        self.user.update(username='storage-operator', is_admin=False, permissions=['ai:storage:read'])
+        self.user.update(username='storage-operator', is_admin=False, permissions=granted_permissions('ai:storage:read'))
         await self.page.goto(self.origin + '/admin/menus')
         await expect(self.page).to_have_url(self.origin + '/admin/storage')
         await self.assert_storage()
         self.assertFalse(any(item['path']=='/api/admin/menus' for item in self.requests))
 
     async def test_storage_reader_gets_account_entry_navigation_and_no_knowledge_service(self):
-        self.user.update(username='storage-operator', is_admin=False, permissions=['ai:storage:read'])
+        self.user.update(username='storage-operator', is_admin=False, permissions=granted_permissions('ai:storage:read'))
         await self.assert_storage_role_access()
 
     async def test_storage_writer_gets_account_entry_navigation_and_no_knowledge_service(self):
-        self.user.update(username='storage-writer', is_admin=False, permissions=['ai:storage:write'])
+        self.user.update(username='storage-writer', is_admin=False, permissions=granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse'))
         await self.assert_storage_role_access()
         for path in ['/files', '/knowledge/storage', '/system/file']:
             await self.page.goto(self.origin + path)

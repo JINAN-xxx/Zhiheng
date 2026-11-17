@@ -27,6 +27,8 @@ python ../tools/check_architecture.py src/zhiheng
 python -m pytest tests/unit -q
 ~~~
 
+CI 的 Foundation 在 Python 3.10 和 3.13 上执行全部 `tests/unit`，并校验源码发布选择、wheel 内容、全部迁移和许可；Platform 在 Python 3.12 上执行全部 `tests/core`、前端检查、真实 API E2E 和完整浏览器回归。两组检查共同构成门禁。
+
 ## 前端检查
 
 ~~~bash
@@ -40,7 +42,7 @@ npm run build:platform
 
 ## 构建验证
 
-后端使用标准 Python wheel；tools/check_core_wheel.py 核对轮子文件、迁移和独立入口。Docker 构建上下文只包含源码和运行所需配置，不包含真实环境文件、过程记录或本机数据。
+后端使用标准 Python wheel；tools/check_core_wheel.py 核对轮子文件、迁移、独立入口及 MIT 许可元数据和文本；传入 --source-root backend/src 可逐个核对 Python 文件清单与内容，CI 默认启用该检查。重复本机构建前应清理 backend/build，避免 setuptools 缓存把已删除的代码重新打入安装包。backend 中的 LICENSE 与 THIRD_PARTY_NOTICES.md 必须与根目录逐字节一致，构建检查会拒绝漂移的副本。Docker 构建上下文只包含源码和运行所需配置，不包含真实环境文件、过程记录或本机数据。
 
 ## 后端集成测试
 
@@ -64,12 +66,30 @@ npm run build:platform
 
 `frontend/tests/browser/run_regressions.py` 发现所有 `*regressions.py` 中本地声明的测试方法，避免把继承来的同一用例重复计数。默认单进程串行执行；失败保留原始结果，不自动重试。
 
+先在仓库根目录导出当前公开 API schema。该命令只执行 ASGI OpenAPI 端点，不启动应用服务，也不连接数据库或供应商。
+
+```bash
+export PLATFORM_SCHEMA_FIXTURES=/tmp/zhiheng-browser/schema
+PYTHONPATH=backend/src python tools/export_openapi.py --output "$PLATFORM_SCHEMA_FIXTURES"
+```
+
+完成前端构建后，在 `frontend/` 的两个独立终端使用相同的 `PLATFORM_SCHEMA_FIXTURES`，分别启动构建站点与源码服务：
+
+```bash
+node node_modules/vite/bin/vite.js preview --config tests/browser/vite.config.ts --host 127.0.0.1 --port 15191 --strictPort
+node node_modules/vite/bin/vite.js --config tests/browser/vite.config.ts --host 127.0.0.1 --port 15192 --strictPort
+```
+
+该测试配置固定让 `/api` 与 `/v1` 返回 404，并从导出目录提供两份公开 schema。保持两个服务运行，再从仓库根目录执行：
+
 ```bash
 python frontend/tests/browser/run_regressions.py \
   --base-url http://127.0.0.1:15191 \
   --source-url http://127.0.0.1:15192 \
   --output /tmp/platform-browser-results
 ```
+
+结束后停止两个终端中的服务。CI 使用相同入口，分别保留服务日志、schema、用例清单、JSONL 与截图；真实 API E2E 在单独的普通 preview 上先行执行，API 与 Worker 从已安装的 wheel 启动。
 
 `--base-url` 使用当前前端构建的独立静态站点。站点的 `/api` 与 `/v1` 应返回 404，不能代理正常业务实例；用例自行提供受控 HTTP/SSE 响应。`--source-url` 是同一源码的 Vite 服务，只用于直接导入 `/src/` 的组件测试。静态站点还应提供 `/openapi/resources-v1.json` 与 `/openapi/inference-v1.json`。该层验证真实浏览器交互与接口边界，API、Worker、数据库及真实模型协议需要另做集成测试。
 
@@ -79,7 +99,7 @@ python frontend/tests/browser/run_regressions.py \
 
 使用 Windows Python 安装的 Playwright，可通过 `--executable-path` 指定 Chrome 或 Edge。`--map-host lan-check.test` 仅给该测试浏览器添加 `lan-check.test → 127.0.0.1` 映射，不修改系统 DNS。配合 `--base-url http://lan-check.test:端口` 验证非安全上下文；必须另外核实 `window.isSecureContext === false`，不能打开“把不安全地址视为安全”的浏览器开关。
 
-读取复制结果需要同一端口的可信 localhost 页面。设置 `PLATFORM_CLIPBOARD_READER_URL=http://127.0.0.1:端口/platform.html` 和 `CLIPBOARD_READ_ORIGIN=http://127.0.0.1:端口`。读取端验证浏览器的真实剪贴板，不给受测页面补造 `navigator.clipboard`。
+读取复制结果需要同一端口的可信 localhost 页面。runner 默认把 `CLIPBOARD_READ_ORIGIN` 设为 `--base-url`；局域网 HTTP 测试应显式设置 `PLATFORM_CLIPBOARD_READER_URL=http://127.0.0.1:端口/platform.html` 和 `CLIPBOARD_READ_ORIGIN=http://127.0.0.1:端口`。读取端验证浏览器的真实剪贴板，不给受测页面补造 `navigator.clipboard`。
 
 浏览器内的 HTTP 探针使用页面的同源 fetch；Playwright 独立 APIRequestContext 不继承浏览器 DNS 映射。此方式验证浏览器限制，不代表实际另一台设备的网络、防火墙和路由也已通过。真实跨设备入口须单独检查。
 

@@ -4,6 +4,8 @@
 
 ## 使用平台
 
+- [工作台运行总览](api/workbench.md)：真实统计、趋势、提醒与个人资源动态。
+
 - [使用与操作](usage.md)：接入模型、知识入库、智能助手、工作空间与任务恢复。
 - [私人智能助手与正式对话](api/assistant-conversations.md)。
 - [后台管理](api/admin-console-ui.md)：当前菜单、账号、角色、应用治理、公告、存储和系统运维。

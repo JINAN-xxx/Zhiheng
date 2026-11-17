@@ -39,7 +39,7 @@ export default tseslint.config(
     rules: { 'vue/block-lang': ['error', { script: { lang: 'ts' } }] }
   },
   {
-    files: ['tests/core/**/*.ts', 'vite.platform.config.ts'],
+    files: ['tests/core/**/*.ts', 'vite.platform.config.ts', 'tests/browser/vite.config.ts'],
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },

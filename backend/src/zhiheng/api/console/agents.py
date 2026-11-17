@@ -30,7 +30,7 @@ async def list_agents(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str, Query(max_length=100)] = '',
-    status: Literal['draft', 'published'] | None = None,
+    status: Literal['enabled', 'disabled'] | None = None,
 ) -> AgentPage:
     return await container.agents.list_agents(
         session, principal, page=page, page_size=page_size, search=search, status=status
@@ -86,8 +86,8 @@ async def update(
         return await container.agent_management.update(session, principal, agent_id, body)
 
 
-@router.post('/{agent_id}/publish')
-async def publish(
+@router.post('/{agent_id}/enable')
+async def enable(
     agent_id: UUID,
     body: VersionRequest,
     container: ContainerDependency,
@@ -95,11 +95,11 @@ async def publish(
     session: SessionDependency,
 ) -> AgentInfo:
     async with session.begin():
-        return await container.agent_management.publish(session, principal, agent_id, body.expected_version)
+        return await container.agent_management.enable(session, principal, agent_id, body.expected_version)
 
 
-@router.post('/{agent_id}/unpublish')
-async def unpublish(
+@router.post('/{agent_id}/disable')
+async def disable(
     agent_id: UUID,
     body: VersionRequest,
     container: ContainerDependency,
@@ -107,7 +107,7 @@ async def unpublish(
     session: SessionDependency,
 ) -> AgentInfo:
     async with session.begin():
-        return await container.agents.unpublish(session, principal, agent_id, body.expected_version)
+        return await container.agents.set_enabled(session, principal, agent_id, body.expected_version, False)
 
 
 @router.delete('/{agent_id}')
@@ -135,7 +135,7 @@ async def preview(
     if agent.knowledge_base_ids:
         return await container.agent_runs.prepare_knowledge_agent(principal, agent_id, body)
     async with session.begin():
-        return await container.agent_runs.preview(session, principal, agent_id, body, container.settings.token_limit)
+        return await container.agent_runs.preview(session, principal, agent_id, body)
 
 
 @router.get('/{agent_id}/api-access')

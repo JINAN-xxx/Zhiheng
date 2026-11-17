@@ -133,11 +133,18 @@ async def test_existing_cookie_and_role_edits_ignore_stored_retired_codes(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
     role = await admin.post(
-        '/api/admin/roles', json={'name': 'Legacy permissions', 'permissions': ['system:notices:read']}
+        '/api/admin/roles',
+        json={'name': 'Legacy permissions', 'permissions': ['system:notices:enabled', 'system:notices:read']},
     )
     assert role.status_code == 201
     identifier = UUID(role.json()['id'])
-    legacy = ['system:notices:read', 'system:posts:read', 'system:menus:write', 'system:dictionaries:write']
+    legacy = [
+        'system:notices:enabled',
+        'system:notices:read',
+        'system:posts:read',
+        'system:menus:write',
+        'system:dictionaries:write',
+    ]
     async with app.state.container.database.sessions.begin() as session:
         await session.execute(update(IdentityRole).where(IdentityRole.id == identifier).values(permissions=legacy))
         user = await session.scalar(text("SELECT id FROM identity_users WHERE username='member'"))
@@ -148,17 +155,26 @@ async def test_existing_cookie_and_role_edits_ignore_stored_retired_codes(
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         login = await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         assert login.status_code == 200
-        assert login.json()['user']['permissions'] == ['system:notices:read']
+        assert login.json()['user']['permissions'] == ['system:notices:enabled', 'system:notices:read']
         edited = await admin.patch(
             f'/api/admin/roles/{identifier}', json={'expected_version': 1, 'name': 'Renamed legacy role'}
         )
-        assert edited.status_code == 200 and edited.json()['permissions'] == ['system:notices:read']
+        assert edited.status_code == 200 and edited.json()['permissions'] == [
+            'system:notices:enabled',
+            'system:notices:read',
+        ]
         async with app.state.container.database.sessions() as session:
             assert await session.scalar(select(IdentityRole.permissions).where(IdentityRole.id == identifier)) == legacy
         cleaned = await admin.patch(
             f'/api/admin/roles/{identifier}', json={'expected_version': 2, 'permissions': legacy}
         )
-        assert cleaned.status_code == 200 and cleaned.json()['permissions'] == ['system:notices:read']
-        assert (await member.get('/api/auth/me')).json()['permissions'] == ['system:notices:read']
+        assert cleaned.status_code == 200 and cleaned.json()['permissions'] == [
+            'system:notices:enabled',
+            'system:notices:read',
+        ]
+        assert (await member.get('/api/auth/me')).json()['permissions'] == [
+            'system:notices:enabled',
+            'system:notices:read',
+        ]
     denied = await admin.post('/api/admin/roles', json={'name': 'Cannot revive', 'permissions': ['system:posts:write']})
     assert denied.status_code == 400

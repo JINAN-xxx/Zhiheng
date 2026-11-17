@@ -26,7 +26,13 @@ function refreshPage(): void {
   void load()
   void visibility.value?.refresh()
 }
-const writable = computed(() => hasAdminPermission(identity.value, 'notices', 'write'))
+const canEditNotice = () =>
+  ['update', 'publish'].some((action) => hasAdminPermission(identity.value, 'notices', action))
+const hasRowActions = computed(() =>
+  ['update', 'publish', 'delete'].some((action) =>
+    hasAdminPermission(identity.value, 'notices', action)
+  )
+)
 const open = ref(false),
   editing = ref<Notice | null>(null),
   preview = ref<Notice | null>(null),
@@ -39,6 +45,7 @@ const form = reactive({
   remark: ''
 })
 function edit(row: Notice | null = null): void {
+  if (row ? !canEditNotice() : !hasAdminPermission(identity.value, 'notices', 'create')) return
   editing.value = row
   Object.assign(
     form,
@@ -57,6 +64,19 @@ function edit(row: Notice | null = null): void {
 }
 async function submit(): Promise<void> {
   if (saving.value) return
+  const row = editing.value
+  if (row ? !canEditNotice() : !hasAdminPermission(identity.value, 'notices', 'create')) return
+  if (
+    row &&
+    (['title', 'content', 'kind', 'remark'] as const).some((key) => form[key] !== row[key]) &&
+    !hasAdminPermission(identity.value, 'notices', 'update')
+  )
+    return
+  if (
+    form.status !== (row?.status ?? 'draft') &&
+    !hasAdminPermission(identity.value, 'notices', 'publish')
+  )
+    return
   if (!form.title.trim() || !form.content.trim()) {
     formError.value = '请填写公告标题和正文'
     return
@@ -76,7 +96,9 @@ function confirmDelete(row: Notice): void {
       okText: '删除公告',
       okType: 'danger',
       cancelText: '取消',
-      onOk: () => remove(row)
+      onOk: () => {
+        if (hasAdminPermission(identity.value, 'notices', 'delete')) return remove(row)
+      }
     })
 }
 const columns = [
@@ -121,7 +143,7 @@ const columns = [
           v-else-if="column.key === 'actions'"
           :primary="{ key: 'preview', label: '查看' }"
           :more="
-            writable
+            hasRowActions
               ? [
                   {
                     key: 'edit',

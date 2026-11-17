@@ -2,7 +2,13 @@ import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import type { Ref } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import {
+  isDefiniteRejection,
+  ApiError,
+  errorMessage,
+  isAborted,
+  RequestScope
+} from '../../../shared/http.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/index.ts'
 import type { KnowledgeBase, KnowledgeJob } from '../api/index.ts'
@@ -245,7 +251,8 @@ export function useKnowledgeUpload({
     }
     const ticket = writeScope.replace(),
       id = baseId.value,
-      destinationFolder = uploadFolderId.value
+      destinationFolder = uploadFolderId.value,
+      confirming = awaitingAdmission
     uploading.value = true
     uploadError.value = ''
     try {
@@ -292,7 +299,7 @@ export function useKnowledgeUpload({
         } catch (error) {
           if (!ticket.isCurrent() || isAborted(error)) return
           item.status = 'failed'
-          item.stageUncertain = !(error instanceof ApiError) || error.status >= 500
+          item.stageUncertain = !isDefiniteRejection(error)
           if (error instanceof ApiError && error.code === 'knowledge_upload_expired') {
             item.id = createRequestId()
             item.file = null
@@ -333,7 +340,7 @@ export function useKnowledgeUpload({
         uploadError.value = errorMessage(error)
         uncertain.value =
           uploadItems.value.every((item) => !!item.fileId) &&
-          (!(error instanceof ApiError) || error.status >= 500)
+          (confirming || !isDefiniteRejection(error))
         awaitingAdmission = uncertain.value
         saveDraft()
       }

@@ -36,7 +36,7 @@ async def test_core_rejection_cannot_erase_any_confirmed_positive_usage(
     hold = await reserve(credit_env)
     async with factory.begin() as session:
         unknown = await service.settle(session, hold.run_id, **known)
-        before = await service.summary(session, user)
+        before = await service.queries.summary(session, user)
     async with factory.begin() as session:
         with pytest.raises(AppError) as conflict:
             await service.reconcile(
@@ -52,12 +52,12 @@ async def test_core_rejection_cannot_erase_any_confirmed_positive_usage(
             )
         assert conflict.value.code == 'usage_conflict' and conflict.value.status_code == 409
     async with factory() as session:
-        assert (await service.summary(session, user)) == before
+        assert (await service.queries.summary(session, user)) == before
         stored = await session.scalar(
             text('SELECT usage_snapshot FROM billing_reservations WHERE run_id=:id'), {'id': hold.run_id}
         )
         assert all(stored[name] == value for name, value in known.items())
-        assert (await service.reservations(session, actor, user_id=user))['items'][0]['status'] == 'unknown'
+        assert (await service.queries.reservations(session, actor, user_id=user))['items'][0]['status'] == 'unknown'
 
 
 async def test_core_late_settle_rejection_cannot_claim_known_usage_never_executed(credit_env: tuple[Any, ...]) -> None:
@@ -71,7 +71,7 @@ async def test_core_late_settle_rejection_cannot_claim_known_usage_never_execute
             await service.settle(session, hold.run_id, rejected_before_execution=True)
         assert conflict.value.code == 'usage_conflict'
     async with factory() as session:
-        assert (await service.summary(session, user)).reserved_points == Decimal('0.6')
+        assert (await service.queries.summary(session, user)).reserved_points == Decimal('0.6')
         assert (
             await session.scalar(
                 text('SELECT input_tokens FROM billing_reservations WHERE run_id=:id'), {'id': hold.run_id}
@@ -102,7 +102,7 @@ async def test_core_reconciliation_only_fills_unknown_counters(
     hold = await reserve(credit_env)
     async with factory.begin() as session:
         unknown = await service.settle(session, hold.run_id, **known)
-        before = await service.summary(session, user)
+        before = await service.queries.summary(session, user)
     async with factory.begin() as session:
         with pytest.raises(AppError) as conflict:
             await service.reconcile(
@@ -118,7 +118,7 @@ async def test_core_reconciliation_only_fills_unknown_counters(
             )
         assert conflict.value.code == 'usage_conflict'
     async with factory() as session:
-        assert (await service.summary(session, user)) == before
+        assert (await service.queries.summary(session, user)) == before
         snapshot = await session.scalar(
             text('SELECT usage_snapshot FROM billing_reservations WHERE run_id=:id'), {'id': hold.run_id}
         )
@@ -152,7 +152,7 @@ async def test_core_known_values_can_be_replayed_and_missing_values_can_be_compl
         with pytest.raises(AppError) as conflict:
             await service.settle(session, hold.run_id, rejected_before_execution=True)
         assert conflict.value.code == 'usage_conflict'
-        assert (await service.summary(session, user)).used_points == Decimal('0.2')
+        assert (await service.queries.summary(session, user)).used_points == Decimal('0.2')
 
 
 async def test_core_confirmed_non_execution_can_release_when_no_positive_fact_exists(
@@ -184,7 +184,7 @@ async def test_core_confirmed_non_execution_can_release_when_no_positive_fact_ex
             == final.reasoning_tokens
             == 0
         )
-        balance = await service.summary(session, user)
+        balance = await service.queries.summary(session, user)
         assert balance.available_points == Decimal('100') and balance.reserved_points == 0
 
 
@@ -219,7 +219,6 @@ async def test_http_core_conflict_rolls_back_legacy_settlement_and_both_meters(
             model_id=UUID(model_id),
             source='test',
             tokens=2000,
-            token_limit=10000,
             estimated_input_tokens=1000,
             max_output_tokens=1000,
         )

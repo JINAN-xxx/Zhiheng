@@ -6,7 +6,6 @@ from fastapi import APIRouter, Query
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.modules.billing.public import (
     TokenManagementService,
-    TokenQuotaPatch,
     TokenReconcile,
     UsageRecord,
     UsageSummary,
@@ -28,44 +27,18 @@ async def usage(
 ) -> UsageSummary:
     target = user_id or principal.id
     if target != principal.id:
-        principal.require_any_permission('ai:credits:read', 'ai:credits:write')
+        principal.require_permission('ai:credits:read')
         await container.identity.directory_user(session, principal, target)
     result = await container.metering.summary(
         session,
         target,
-        token_limit=container.settings.token_limit,
         page=page,
         page_size=page_size,
         source=source,
         status=status,
     )
-    result.points_enabled = (await container.credits.state(session)).enabled
+    result.points_enabled = (await container.credits.queries.state(session)).enabled
     return result
-
-
-@router.patch('/accounts/{user_id}/quota')
-async def quota(
-    user_id: UUID,
-    body: TokenQuotaPatch,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> UsageSummary:
-    principal.require_permission('ai:credits:write')
-    async with session.begin():
-        await container.identity.directory_user(session, principal, user_id)
-        result = await TokenManagementService(container.metering).quota(
-            session, principal, user_id, body, token_limit=container.settings.token_limit
-        )
-        await container.operations.record(
-            session,
-            principal=principal,
-            action='usage.quota',
-            resource_type='user',
-            resource_id=str(user_id),
-            message='Token 额度已调整',
-        )
-        return result
 
 
 @router.post('/{run_id}/reconcile')
@@ -76,7 +49,7 @@ async def reconcile(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> UsageRecord:
-    principal.require_permission('ai:credits:write')
+    principal.require_permission('ai:credits:reconcile')
     async with session.begin():
         result = await TokenManagementService(container.metering).reconcile(session, principal, run_id, body)
         await container.operations.record(

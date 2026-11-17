@@ -14,6 +14,7 @@ export interface RunSnapshot {
   resource_type:
     | 'chat'
     | 'chat_summary'
+    | 'agent_summary'
     | 'connection_test'
     | 'public'
     | 'agent_preview'
@@ -55,6 +56,7 @@ export function parseRunSnapshot(value: unknown): RunSnapshot {
     if (
       resourceType !== 'chat' &&
       resourceType !== 'chat_summary' &&
+      resourceType !== 'agent_summary' &&
       resourceType !== 'connection_test' &&
       resourceType !== 'public' &&
       resourceType !== 'agent_preview' &&

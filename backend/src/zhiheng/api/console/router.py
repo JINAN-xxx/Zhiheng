@@ -19,12 +19,14 @@ from zhiheng.api.console.knowledge_sharing import router as knowledge_sharing_ro
 from zhiheng.api.console.message_actions import public_router as shared_messages_router
 from zhiheng.api.console.message_actions import router as message_actions_router
 from zhiheng.api.console.models import router as models_router
+from zhiheng.api.console.overview import router as overview_router
 from zhiheng.api.console.runs import router as runs_router
 from zhiheng.api.console.skills import router as skills_router
 from zhiheng.api.console.usage import router as usage_router
 from zhiheng.api.console.work import router as work_router
 
 router = APIRouter()
+router.include_router(overview_router)
 router.include_router(assistant_conversations_router)
 router.include_router(admin_applications_router)
 router.include_router(admin_identity_router)

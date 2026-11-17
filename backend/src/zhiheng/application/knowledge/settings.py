@@ -26,7 +26,7 @@ class KnowledgeConfiguration:
         value = fingerprint(['knowledge_settings', str(base_id), body.model_dump(mode='json')])
         async with self.database.sessions.begin() as session:
             await lock_billing_admission(session)
-            existing = await self.knowledge.existing_job(session, principal, body.client_request_id, value)
+            existing = await self.knowledge.builds.existing_job(session, principal, body.client_request_id, value)
             base = await self.knowledge.authorize_base(session, principal, base_id, manage=True)
             if base.owner_id != principal.id:
                 raise AppError('knowledge_not_found', '知识库不存在', 404)
@@ -36,8 +36,8 @@ class KnowledgeConfiguration:
                 session, use_default=body.use_default_rerank, model_id=body.rerank_model_id
             )
             identifiers = {body.embed_model_id, ranker_id}
-            bindings = await self.models.resolve_many(session, sorted(identifiers))
+            bindings = await self.models.bindings.resolve_many(session, sorted(identifiers))
             binding = bindings[body.embed_model_id]
             if binding.model_type != 'embedding' or bindings[ranker_id].model_type != 'rerank':
                 raise AppError('invalid_knowledge_model', '请选择对应类型的已启用模型', 422)
-            return await self.knowledge.configure(session, principal, base_id, body, binding, value)
+            return await self.knowledge.builds.configure(session, principal, base_id, body, binding, value)

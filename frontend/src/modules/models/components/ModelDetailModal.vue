@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons-vue'
 import ResourceReferences from '../../../shared/components/ResourceReferences.vue'
 import type { ChatModel } from '../api/index.ts'
-import { modelTypeLabel } from '../presentation.ts'
+import { modelTypeLabel, modelCapacityLabel, modelUnavailableReason } from '../presentation.ts'
 import ModelIdentityIcon from './ModelIdentityIcon.vue'
 
 const props = defineProps<{
@@ -51,7 +51,12 @@ const emit = defineEmits<{
 }>()
 
 const testDisabled = computed(
-  () => props.testBusy || props.pending || !props.model?.enabled || Boolean(props.connectionIssue)
+  () =>
+    props.testBusy ||
+    props.pending ||
+    !props.model?.enabled ||
+    props.model?.availability?.available === false ||
+    Boolean(props.connectionIssue)
 )
 
 function toggle(): void {
@@ -141,6 +146,24 @@ function control(action: 'delete'): void {
           <dd>{{ model.enabled ? '已启用' : '已停用' }}</dd>
         </div>
         <div class="detail-field">
+          <dt>平台可用性</dt>
+          <dd>
+            {{
+              modelUnavailableReason(model) ||
+              connectionIssue ||
+              (model.availability?.available
+                ? '模型与连接配置可用'
+                : model.enabled
+                  ? '状态待确认'
+                  : '模型已停用')
+            }}
+          </dd>
+        </div>
+        <div class="detail-field">
+          <dt>容量状态</dt>
+          <dd>{{ modelCapacityLabel(model) }}</dd>
+        </div>
+        <div class="detail-field">
           <dt>上游模型</dt>
           <dd>
             <code>{{ model.upstream_model }}</code>
@@ -152,9 +175,34 @@ function control(action: 'delete'): void {
             <dd>
               {{
                 model.context_window_tokens == null
-                  ? '使用平台输入预算'
+                  ? '未知，请按接入服务文档或部署配置填写'
                   : `${model.context_window_tokens.toLocaleString()} Token`
               }}
+            </dd>
+          </div>
+          <div class="detail-field">
+            <dt>默认输入预算</dt>
+            <dd>
+              {{
+                model.chat_input_budget?.limit_tokens == null
+                  ? '未配置，无法在本地确认输入上限'
+                  : `${model.chat_input_budget.limit_tokens.toLocaleString()} Token`
+              }}
+            </dd>
+          </div>
+          <div v-if="model.chat_input_budget?.limit_tokens != null" class="detail-field">
+            <dt>预算依据</dt>
+            <dd>
+              {{
+                model.chat_input_budget.source === 'platform'
+                  ? '平台输入预算'
+                  : model.chat_input_budget.source === 'model_window_and_platform'
+                    ? '模型窗口与平台预算取较小值'
+                    : '模型窗口'
+              }}；默认输出预留
+              {{ model.chat_input_budget.reserved_output_tokens.toLocaleString() }} Token，安全余量
+              {{ model.chat_input_budget.safety_margin_tokens }}
+              Token。调整本轮输出长度后，输入预算会重新计算。
             </dd>
           </div>
           <div class="detail-field">
@@ -174,6 +222,12 @@ function control(action: 'delete'): void {
                 ? '用于文本向量化与知识检索'
                 : '用于检索结果相关性排序'
             }}
+          </dd>
+        </div>
+        <div class="detail-field">
+          <dt>容量依据</dt>
+          <dd class="capacity-note">
+            {{ model.capacity_note || '未记录，请补充实际接入服务的文档或部署限制' }}
           </dd>
         </div>
         <div v-if="canReadConnections" class="detail-field">
@@ -381,5 +435,12 @@ function control(action: 'delete'): void {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--gray-150);
+}
+</style>
+
+<style scoped>
+.capacity-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>

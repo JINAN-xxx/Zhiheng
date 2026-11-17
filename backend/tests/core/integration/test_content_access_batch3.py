@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from tests.core.integration.test_agents import config
 from tests.core.integration.test_work import published, task
+from tests.core.permission_support import grant_member, grants
 from zhiheng.modules.files.orm import FileRecord
 from zhiheng.modules.knowledge.orm import RetrievalIntent
 from zhiheng.modules.models.public import ModelMessage, ModelRequest
@@ -39,6 +40,15 @@ async def upload(client: httpx.AsyncClient) -> dict:
 async def test_admin_configuration_rights_do_not_enumerate_or_mutate_private_resources(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
+    await grant_member(
+        admin,
+        (
+            grants('platform:agents', 'use', 'create', 'publish')
+            | grants('platform:work', 'create', 'use')
+            | grants('platform:developer', 'create', 'key_create')
+            | grants('ai:storage', 'maintain')
+        ),
+    )
     owner = await owner_client(app)
     try:
         agent = await published(owner, model_id, name='PRIVATE_AGENT', system_prompt='PRIVATE_PROMPT')
@@ -130,6 +140,7 @@ async def test_admin_configuration_rights_do_not_enumerate_or_mutate_private_res
 async def test_explicit_file_share_allows_admin_read_without_management_authority(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
+    await grant_member(admin, grants('ai:storage', 'maintain', 'parse', 'acl'))
     owner = await owner_client(app)
     try:
         file = await upload(owner)
@@ -169,6 +180,14 @@ async def test_explicit_file_share_allows_admin_read_without_management_authorit
 async def test_historical_admin_actor_loses_foreign_resource_snapshot_cancel_and_execution(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
+    await grant_member(
+        admin,
+        (
+            grants('platform:agents', 'use', 'create', 'publish')
+            | grants('platform:work', 'create', 'use')
+            | grants('platform:developer', 'create')
+        ),
+    )
     owner = await owner_client(app)
     try:
         agent = await published(owner, model_id, name='PRIVATE_LEGACY')
@@ -177,7 +196,7 @@ async def test_historical_admin_actor_loses_foreign_resource_snapshot_cancel_and
         container = app.state.container
         for kind, resource_id in [('agent_preview', agent['id']), ('work_turn', work['id'])]:
             async with container.database.sessions.begin() as session:
-                binding = await container.models.resolve(session, UUID(model_id))
+                binding = await container.models.bindings.resolve(session, UUID(model_id))
                 request = ModelRequest(binding=binding, messages=(ModelMessage('user', 'PRIVATE frozen context'),))
                 run = Run(
                     owner_id=admin_id,
@@ -232,6 +251,7 @@ async def test_historical_admin_actor_loses_foreign_resource_snapshot_cancel_and
 async def test_platform_maintenance_purges_expired_foreign_files_without_granting_content_access(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
+    await grant_member(admin, grants('ai:storage', 'maintain'))
     owner = await owner_client(app)
     try:
         file = await upload(owner)

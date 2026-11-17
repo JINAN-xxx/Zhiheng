@@ -2,9 +2,12 @@ from redis.asyncio import Redis
 
 from zhiheng.application.access import ResourceAccessService
 from zhiheng.application.agents.conversations import AssistantConversationService
+from zhiheng.application.agents.execution import AssistantAgentService
 from zhiheng.application.agents.management import AgentManagementService
 from zhiheng.application.agents.preparations import AgentPreparations
 from zhiheng.application.agents.runs import AgentRunService
+from zhiheng.application.billing.trace import InvocationTraceService
+from zhiheng.application.chat.agent import ChatAgentService
 from zhiheng.application.chat.context import ChatContextConfig, ChatContextService
 from zhiheng.application.chat.runs import ChatRunService
 from zhiheng.application.developer.management import DeveloperManagementService
@@ -36,6 +39,7 @@ from zhiheng.application.knowledge.queries import KnowledgeQueries
 from zhiheng.application.knowledge.settings import KnowledgeConfiguration
 from zhiheng.application.models.configuration import ModelConfigurationService
 from zhiheng.application.models.management import ModelManagementService
+from zhiheng.application.models.trials import ModelTrialService
 from zhiheng.application.operations.cancellation import OperationCancellation
 from zhiheng.application.operations.queries import OperationQueries
 from zhiheng.application.skills.commands import SkillCommands
@@ -43,6 +47,10 @@ from zhiheng.application.skills.management import PreparationSkillOwners, SkillM
 from zhiheng.application.skills.queries import SkillQueries
 from zhiheng.application.work.runs import WorkRunService
 from zhiheng.bootstrap.adapters import (
+    create_assistant_agent_factory,
+    create_assistant_checkpoint_cleanup,
+    create_chat_agent_factory,
+    create_chat_checkpoint_cleanup,
     create_document_parsing_support,
     create_graph,
     create_models,
@@ -54,7 +62,13 @@ from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
 from zhiheng.infrastructure.file_storage import LocalFileStorage
 from zhiheng.modules.agents.public import AgentService, AssistantConversations
-from zhiheng.modules.billing.public import CreditService, MeteringService, UsageFactsService, UsageService
+from zhiheng.modules.billing.public import (
+    BillingTraceQueries,
+    CreditService,
+    MeteringService,
+    UsageFactsService,
+    UsageService,
+)
 from zhiheng.modules.chat.public import ChatService, MessageActionService
 from zhiheng.modules.developer.public import (
     APIRequestService,
@@ -64,7 +78,7 @@ from zhiheng.modules.developer.public import (
     ResourceGrantService,
     ResourceLimitService,
 )
-from zhiheng.modules.files.public import FileJobs, FileService
+from zhiheng.modules.files.public import FileJobs, FileService, ParsingSettingsService
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
 from zhiheng.modules.knowledge.public import (
     GraphService,
@@ -72,8 +86,8 @@ from zhiheng.modules.knowledge.public import (
     KnowledgeDefaultsService,
     KnowledgeService,
     KnowledgeSharing,
-    ParsingSettingsService,
 )
+from zhiheng.modules.models.public import SummaryPolicy
 from zhiheng.modules.operations.public import OperationsService
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.modules.work.public import WorkService
@@ -116,8 +130,8 @@ class Container:
             self.models,
             preparation_skill_owner=PreparationSkillOwners(self.agents, self.work).resolve,
         )
-        self.files.library_access = self.knowledge.authorize_library_file
-        self.files.library_locks = self.knowledge.lock_library_sources
+        self.files.library_access = self.knowledge.materials.authorize_library_file
+        self.files.library_locks = self.knowledge.materials.lock_library_sources
         self.knowledge_sharing = KnowledgeSharing(
             self.knowledge, self.identity, settings.credential_key.get_secret_value().encode()
         )
@@ -133,8 +147,11 @@ class Container:
         self._configure_resource_access()
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()
+        self.run_admission = RunAdmission(self.models, self.usage, self.runs)
         self.run_references = RunReferences(self.runs)
-        self.work_runs = WorkRunService(self.work, self.agents, self.models, self.identity, self.usage, self.runs)
+        self.work_runs = WorkRunService(
+            self.work, self.agents, self.models, self.identity, self.usage, self.runs, admission=self.run_admission
+        )
         self.model_management = ModelManagementService(
             self.models, self.run_references, self.keys, self.agents, knowledge=self.knowledge
         )
@@ -143,18 +160,13 @@ class Container:
             self.agents, self.applications, self.models, self.work, self.run_references, self.knowledge
         )
         self.agent_runs = AgentRunService(
-            self.agents, self.agent_management, self.keys, self.models, self.usage, self.runs, self.identity
+            self.agents, self.agent_management, self.keys, self.runs, self.identity, admission=self.run_admission
         )
         self.chat = ChatService()
         self.run_lifecycle = RunLifecycle(self.chat, self.work)
-        self.run_admission = RunAdmission(self.models, self.usage, self.runs)
         self.run_recovery = RunRecovery(self.database.sessions, self.runs, self.usage, self.run_lifecycle)
         self.skill_management = SkillManagementService(
             self.skills, self.agents, self.work, self.knowledge, chat=self.chat
-        )
-        self.message_actions, self.admission = (
-            MessageActionService(self.chat, self.identity),
-            ChatRunService(self.chat, self.models, self.usage, self.runs, self.files, admission=self.run_admission),
         )
         self.chat_context = ChatContextService(
             self.database,
@@ -163,17 +175,42 @@ class Container:
             self.identity,
             self.files,
             self.run_admission,
-            settings.token_limit,
             runs=self.runs,
             usage=self.usage,
             config=ChatContextConfig(
                 settings.chat_context_input_tokens,
-                settings.chat_summary_trigger_rounds,
-                settings.chat_summary_keep_rounds,
                 settings.chat_summary_output_tokens,
+                settings.chat_summary_trigger_tokens,
+                settings.chat_summary_keep_tokens,
             ),
         )
-        self.admission.context = self.chat_context
+        self.invocation_traces = InvocationTraceService(
+            self.database, BillingTraceQueries(), self.runs, self.chat_context.memory, self.agents
+        )
+        self.chat_agent = ChatAgentService(
+            self.chat_context,
+            create_chat_agent_factory(settings),
+            create_chat_checkpoint_cleanup(settings),
+            trigger_tokens=settings.chat_summary_trigger_tokens,
+            keep_tokens=settings.chat_summary_keep_tokens,
+            timeout_seconds=settings.provider_timeout_seconds,
+            summary_input_tokens=settings.chat_summary_input_tokens,
+        )
+        self.model_trials = ModelTrialService(self.models, self.runs, self.run_admission)
+        self.message_actions, self.admission = (
+            MessageActionService(self.chat, self.identity),
+            ChatRunService(
+                self.chat,
+                self.models,
+                self.usage,
+                self.runs,
+                self.files,
+                admission=self.run_admission,
+                database=self.database,
+                file_inputs=self.file_inputs,
+                agent=self.chat_agent,
+            ),
+        )
         self.vectors = create_vector_store(settings)
         self.knowledge_jobs = KnowledgeJobs(
             self.database,
@@ -184,7 +221,7 @@ class Container:
             self.runs,
             self.usage,
             self.vectors,
-            settings.token_limit,
+            admission=self.run_admission,
         )
         self.knowledge_preparation = KnowledgePreparation(
             self.database,
@@ -195,9 +232,32 @@ class Container:
             self.keys,
             self.applications,
             self.vectors,
-            settings.token_limit,
+            settings.knowledge_rerank_batch_tokens,
+            admission=self.run_admission,
         )
         self._configure_resource_facades()
+        self.assistant_agent = AssistantAgentService(
+            self.database,
+            self.agents,
+            AssistantConversations(),
+            self.models,
+            self.identity,
+            self.runs,
+            self.run_admission,
+            self.usage,
+            self.knowledge_preparation,
+            create_assistant_agent_factory(settings),
+            create_assistant_checkpoint_cleanup(settings),
+            SummaryPolicy(
+                settings.chat_summary_trigger_tokens,
+                settings.chat_summary_keep_tokens,
+                settings.chat_summary_input_tokens,
+                settings.chat_summary_output_tokens,
+            ),
+            input_tokens=settings.chat_context_input_tokens,
+            timeout_seconds=settings.provider_timeout_seconds + 10,
+        )
+        self.agent_runs.execution = self.assistant_agent
         self.assistant_conversations = AssistantConversationService(
             self.database,
             AssistantConversations(),
@@ -207,13 +267,12 @@ class Container:
             self.usage,
             self.knowledge_preparation,
             self.identity,
-            settings.token_limit,
+            self.assistant_agent,
+            self.agents,
         )
         self.knowledge_preparation.finalizers['agent_chat'] = self.assistant_conversations.finalize
         self.knowledge_preparation.dependency_guards['agent_chat'] = self.assistant_conversations.check_preparation
         self.agent_preparations = AgentPreparations(self.database, self.keys, self.agents, self.knowledge_preparation)
-        self.admission.knowledge, self.admission.file_inputs = self.knowledge_preparation, self.file_inputs
-        self.knowledge_preparation.finalizers['chat'] = self.admission.finalize_knowledge
         self.agent_runs.knowledge = self.knowledge_preparation
         self.agent_management.knowledge = self.knowledge_preparation
         self.knowledge_preparation.finalizers['agent_preview'] = self.agent_runs.finalize_knowledge
@@ -223,7 +282,6 @@ class Container:
         self.knowledge_preparation.terminal_callbacks['work_turn'] = self.work_runs.release_knowledge
         self.knowledge_preparation.dependency_guards.update(
             {
-                'chat': self.admission.check_knowledge_dependencies,
                 'agent_preview': self.agent_runs.check_knowledge_dependencies,
                 'agent_invocation': self.agent_runs.check_knowledge_dependencies,
                 'work_turn': self.work_runs.check_knowledge_dependencies,
@@ -232,13 +290,18 @@ class Container:
         self.graph = GraphService(self.knowledge)
         self.graph_store = GraphStore(self.graph)
         self.graph_runs = GraphRuns(
-            self.database, self.graph_store, self.models, self.runs, self.usage, settings.token_limit
+            self.database,
+            self.graph_store,
+            self.models,
+            self.runs,
+            self.usage,
+            admission=self.run_admission,
         )
         self.run_content = RunContentAccess(self.agents, self.work, self.graph_runs, self.knowledge_preparation)
         self.graph_sdk = create_graph(settings)
         self.graph_jobs = GraphJobs(self.database, self.graph_store, self.graph_runs, self.graph_sdk)
         self.outbox = OutboxStore()
-        self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs)
+        self.public_runs = PublicRunService(self.keys, self.models, self.usage, self.runs, admission=self.run_admission)
         self.execution_authorization = ModelExecutionAuthorization(
             database=self.database,
             chat_context=self.chat_context,
@@ -253,6 +316,7 @@ class Container:
             resource_access=self.resource_access,
             files=self.files,
             assistant_conversations=self.assistant_conversations,
+            assistant_agent=self.assistant_agent,
         )
         self.run_executor = InferenceExecutor(
             sessions=self.database.sessions,
@@ -264,6 +328,8 @@ class Container:
             timeout_seconds=settings.provider_timeout_seconds,
             lifecycle=self.run_lifecycle,
             before_provider=self.execution_authorization.require,
+            chat_agent=self.chat_agent,
+            assistant_agent=self.assistant_agent,
         )
 
     def _configure_resource_facades(self) -> None:
@@ -296,7 +362,7 @@ class Container:
         self.knowledge_queries.document_workflows = self.knowledge_documents
         self.knowledge_commands.documents = self.knowledge_documents
         self.knowledge_dependencies = KnowledgeDependencies(self.agents, self.work, self.resource_grants)
-        self.knowledge.base_references = self.knowledge_dependencies.inspect
+        self.knowledge.references.base_references = self.knowledge_dependencies.inspect
 
     def _configure_resource_access(self) -> None:
         self.resource_grants = ResourceGrantService(self.applications)
@@ -313,8 +379,12 @@ class Container:
         self.file_jobs.after_purge = self.file_enrollments.release
 
     async def close(self) -> None:
+        # Each resource gets a close attempt. Native finally scopes preserve
+        # earlier close failures in the exception chain if another closer fails.
         try:
             await self.graph_sdk.close()
-            await self.redis.aclose()
         finally:
-            await self.database.close()
+            try:
+                await self.redis.aclose()
+            finally:
+                await self.database.close()

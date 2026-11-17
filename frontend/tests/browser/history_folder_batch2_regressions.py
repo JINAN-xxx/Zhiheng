@@ -44,7 +44,7 @@ class HistoryPaging(DeveloperBoundary):
                 cursor='message-next'
             return await route.fulfill(json=rows,headers={'X-Next-Cursor':cursor})
         if url.path.endswith('/context'):
-            return await route.fulfill(json={'status':'full','summary_version':0,'covered_rounds':0,'retained_rounds':0,'dirty':False,'truncated':False,'dropped_rounds':0,'estimated_input_tokens':None,'input_budget':None,'reason':None})
+            return await route.fulfill(json={'status':'full','strategy':'token','effective_memory':{'summary_used':False,'covered_rounds':0,'retained_rounds':0,'estimated_tokens':0},'last_run_context':None,'reason':None})
         return await super().respond(route)
 
     async def test_load_more_and_full_search_respect_archive_filter(self):

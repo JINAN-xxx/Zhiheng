@@ -1,7 +1,13 @@
 import { createRequestId } from '../../../shared/requestId.ts'
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import {
+  isDefiniteRejection,
+  ApiError,
+  errorMessage,
+  isAborted,
+  RequestScope
+} from '../../../shared/http.ts'
 import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { object, string } from '../../../shared/validation.ts'
 import { identity } from '../../identity/public.ts'
@@ -88,7 +94,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
       }
     }
   }
-  async function send(): Promise<void> {
+  async function send(confirming = false): Promise<void> {
     if (!intent) return
     const id = baseId.value,
       ticket = scope.replace()
@@ -103,11 +109,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
       if (ticket.isCurrent() && !isAborted(reason)) {
         error.value = errorMessage(reason)
         busy.value = false
-        recoverable.value = !(
-          reason instanceof ApiError &&
-          reason.status >= 400 &&
-          reason.status < 500
-        )
+        recoverable.value = confirming || !isDefiniteRejection(reason)
         if (!recoverable.value) {
           intent = null
           persist()
@@ -144,7 +146,7 @@ export function useGraphQuery(baseId: Readonly<Ref<string>>) {
           recoverable.value = true
         }
       }
-    } else await send()
+    } else await send(true)
   }
   async function stop(): Promise<void> {
     if (!current || cancelRequested) return

@@ -1,3 +1,4 @@
+import { hasPermission } from '../../shared/platformAccess.ts'
 import type { CreditRateInput } from './api/types.ts'
 import { parsePoints } from './contracts.ts'
 export function validPoints(value: string, positive = false): boolean {
@@ -10,13 +11,15 @@ export function formatPoints(value: string): string {
   return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${trimmed ? `.${trimmed}` : ''}`
 }
 export function creditAccess(user: { is_admin: boolean; permissions?: readonly string[] } | null) {
-  const write = Boolean(user?.is_admin || user?.permissions?.includes('ai:credits:write'))
   return {
-    read: write || Boolean(user?.permissions?.includes('ai:credits:read')),
-    write,
+    read: hasPermission(user, 'ai:credits:read'),
+    adjust: hasPermission(user, 'ai:credits:adjust'),
+    configure: hasPermission(user, 'ai:credits:configure'),
+    reconcile: hasPermission(user, 'ai:credits:reconcile'),
     switchMode: Boolean(user?.is_admin)
   }
 }
+
 export function rateError(rate: CreditRateInput): string {
   const values = [rate.input_points, rate.output_points, rate.cache_points, rate.search_points]
   if (values.some((value) => !validPoints(value))) return '积分单价须为非负十进制数，最多 18 位小数'
@@ -74,6 +77,7 @@ export const creditSource = (source: string): string =>
   ({
     chat: '对话',
     chat_summary: '会话摘要',
+    agent_summary: '助手摘要',
     connection_test: '模型测试',
     public: '开发接入',
     agent_preview: '助手调试',

@@ -5,8 +5,7 @@ export interface PreviewHistoryMessage extends PreviewMessage {
 }
 
 export function selectPreviewMessages(
-  messages: readonly PreviewHistoryMessage[],
-  historyRounds: number
+  messages: readonly PreviewHistoryMessage[]
 ): PreviewMessage[] {
   const current = messages.at(-1)
   if (!current) return []
@@ -24,8 +23,5 @@ export function selectPreviewMessages(
       group.push({ role: message.role, content: message.content })
   }
   if (group.some((item) => item.role === 'assistant')) rounds.push(group)
-  return [
-    ...(historyRounds ? rounds.slice(-historyRounds).flat() : []),
-    { role: current.role, content: current.content }
-  ]
+  return [...rounds.flat(), { role: current.role, content: current.content }]
 }

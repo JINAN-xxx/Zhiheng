@@ -6,17 +6,17 @@ import httpx
 from fastapi import FastAPI
 
 from tests.core.integration.test_platform_module_permissions import grant, member
+from tests.core.permission_support import grants
 from tests.core.provider import ProviderServer
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.identity.admin_orm import IdentityRole
-from zhiheng.shared.permission_policy import upgrade_legacy_permissions
 from zhiheng.worker.execution import execute_run
 
 
 async def test_model_directory_cannot_read_credentials_configure_or_test(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    await grant(app, 'models')
+    await grant(app, *grants('platform:models'))
     async with member(app) as client:
         visible = await client.get('/api/models')
         assert visible.status_code == 200
@@ -43,7 +43,7 @@ async def test_model_directory_cannot_read_credentials_configure_or_test(
 async def test_model_configuration_uses_minimal_choices_without_credential_authority(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    await grant(app, 'ai:models:write')
+    await grant(app, *grants('platform:models', 'config_read', 'create', 'update', 'delete', 'toggle'))
     async with member(app) as client:
         options = await client.get('/api/models/connection-options')
         assert options.status_code == 200 and options.json()
@@ -71,7 +71,7 @@ async def test_model_configuration_uses_minimal_choices_without_credential_autho
 async def test_credentials_and_connection_test_are_independent(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    credential_role = await grant(app, 'ai:credentials:read')
+    credential_role = await grant(app, *grants('ai:credentials'))
     async with member(app) as client:
         connections = await client.get('/api/models/connections')
         assert connections.status_code == 200 and connections.json()
@@ -82,13 +82,13 @@ async def test_credentials_and_connection_test_are_independent(
         ).status_code == 403
         async with app.state.container.database.sessions.begin() as session:
             role = await session.get(IdentityRole, credential_role)
-            role.permissions = upgrade_legacy_permissions(['ai:models:test'])
+            role.permissions = sorted(grants('platform:models', 'test'))
         assert (await client.get('/api/models/connections')).status_code == 403
         test = await client.post('/api/models/' + model_id + '/test', json={'client_request_id': str(uuid4())})
         assert test.status_code == 202, test.text
         async with app.state.container.database.sessions.begin() as session:
             role = await session.get(IdentityRole, credential_role)
-            role.permissions = upgrade_legacy_permissions([])
+            role.permissions = []
         await execute_run(app.state.container, UUID(test.json()['id']))
 
 
@@ -98,14 +98,14 @@ async def test_knowledge_use_maintenance_and_sharing_are_three_distinct_grants(
     from tests.core.integration.test_knowledge import embedding_model
 
     embed_id = await embedding_model(admin, provider)
-    role_id = await grant(app, 'knowledge')
+    role_id = await grant(app, *grants('platform:knowledge', 'query'))
     async with member(app) as client:
         assert (await client.get('/api/knowledge/bases')).status_code == 200
         payload = {'name': 'Private knowledge', 'embed_model_id': embed_id}
         assert (await client.post('/api/knowledge/bases', json=payload)).status_code == 403
         async with app.state.container.database.sessions.begin() as session:
             role = await session.get(IdentityRole, role_id)
-            role.permissions = upgrade_legacy_permissions(['platform:knowledge:manage'])
+            role.permissions = sorted(grants('platform:knowledge', 'create', 'update', 'delete', 'import', 'rebuild'))
         base = await client.post('/api/knowledge/bases', json=payload)
         assert base.status_code == 201, base.text
         root = '/api/knowledge/bases/' + base.json()['id']
@@ -115,7 +115,7 @@ async def test_knowledge_use_maintenance_and_sharing_are_three_distinct_grants(
         ).status_code == 403
         async with app.state.container.database.sessions.begin() as session:
             role = await session.get(IdentityRole, role_id)
-            role.permissions = upgrade_legacy_permissions(['platform:knowledge:share'])
+            role.permissions = sorted(grants('platform:knowledge', 'share'))
         assert (await client.get(root + '/invitations')).status_code == 200
         assert (
             await client.patch(root, json={'name': 'not permitted', 'expected_version': base.json()['version']})
@@ -125,24 +125,24 @@ async def test_knowledge_use_maintenance_and_sharing_are_three_distinct_grants(
 async def test_assistant_maintenance_does_not_publish_or_formally_use(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    await grant(app, 'agents:manage')
+    await grant(app, *grants('platform:agents', 'create', 'update', 'delete', 'debug'))
     async with member(app) as client:
         created = await client.post('/api/agents', json={'name': 'Own draft', 'model_id': model_id, 'max_tokens': 32})
         assert created.status_code == 201, created.text
         root = '/api/agents/' + created.json()['id']
-        assert (await client.post(root + '/publish', json={'expected_version': 1})).status_code == 403
+        assert (await client.post(root + '/enable', json={'expected_version': 1})).status_code == 403
         assert (await client.post(root + '/conversations', json={'client_request_id': str(uuid4())})).status_code == 403
-        await grant(app, 'agents:publish')
-        assert (await client.post(root + '/publish', json={'expected_version': 1})).status_code == 200
+        await grant(app, *grants('platform:agents', 'publish'))
+        assert (await client.post(root + '/enable', json={'expected_version': 1})).status_code == 200
         assert (await client.post(root + '/conversations', json={'client_request_id': str(uuid4())})).status_code == 403
-        await grant(app, 'agents')
+        await grant(app, *grants('platform:agents', 'use'))
         assert (await client.post(root + '/conversations', json={'client_request_id': str(uuid4())})).status_code == 201
 
 
 async def test_skill_use_can_enable_own_preset_but_cannot_upload_or_delete(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    await grant(app, 'skills')
+    await grant(app, *grants('platform:skills', 'use'))
     async with member(app) as client:
         listing = await client.get('/api/skills')
         assert listing.status_code == 200, listing.text
@@ -166,11 +166,25 @@ async def test_skill_use_can_enable_own_preset_but_cannot_upload_or_delete(
 async def test_developer_read_manage_and_api_invoke_are_independent(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
-    await grant(app, 'developer')
+    await grant(app, *grants('platform:developer'))
     async with member(app) as client:
         assert (await client.get('/api/developer/applications')).status_code == 200
         assert (await client.post('/api/developer/applications', json={'name': 'forged'})).status_code == 403
-        await grant(app, 'developer:manage')
+        await grant(
+            app,
+            *grants(
+                'platform:developer',
+                'create',
+                'update',
+                'delete',
+                'toggle',
+                'key_create',
+                'key_rotate',
+                'key_revoke',
+                'key_delete',
+                'grant',
+            ),
+        )
         application = (await client.post('/api/developer/applications', json={'name': 'Own SDK app'})).json()
         path = '/api/developer/applications/' + application['id']
         key = await client.post(
@@ -179,13 +193,13 @@ async def test_developer_read_manage_and_api_invoke_are_independent(
         assert key.status_code == 201, key.text
         headers = {'Authorization': 'Bearer ' + key.json()['api_key']}
         assert (await client.get('/v1/models', headers=headers)).status_code == 403
-        await grant(app, 'developer:invoke')
+        await grant(app, *grants('platform:developer', 'invoke'))
         assert (await client.get('/v1/models', headers=headers)).status_code == 200
         for scope in ('knowledge:write', 'skills:write', 'agents:invoke'):
             assert (
                 await client.post(path + '/keys', json={'name': 'forged', 'scopes': [scope], 'model_ids': [model_id]})
             ).status_code == 403
-        await grant(app, 'knowledge')
+        await grant(app, *grants('platform:knowledge', 'query'))
         assert (
             await client.post(path + '/keys', json={'name': 'forged', 'scopes': ['knowledge:write'], 'model_ids': []})
         ).status_code == 403
@@ -205,7 +219,12 @@ async def test_no_cross_layer_wildcard_and_unknown_permissions_rejected(admin: h
 async def test_feature_use_does_not_grant_generic_file_acl_transfer_or_purge(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    await grant(app, 'chat', 'knowledge', 'developer')
+    await grant(
+        app,
+        *grants('platform:chat', 'use', 'update', 'delete', 'share'),
+        *grants('platform:knowledge', 'query'),
+        *grants('platform:developer'),
+    )
     async with member(app) as client:
         target = str(uuid4())
         for method, path in (

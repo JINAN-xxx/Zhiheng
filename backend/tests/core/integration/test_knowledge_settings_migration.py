@@ -13,6 +13,7 @@ from sqlalchemy.engine import Connection
 
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.integration.test_knowledge_materials_v2 import library
+from tests.core.legacy_schema import reconstruct
 from tests.core.provider import ProviderServer
 from tests.core.schema_support import active_migration_context
 from zhiheng.bootstrap.migrations import migrate, migration_directory
@@ -38,10 +39,10 @@ async def test_settings_upgrade_preserves_populated_and_shared_legacy_libraries(
 
     def previous(connection: Connection) -> None:
         config.attributes['connection'] = connection
-        command.downgrade(config, '0020_knowledge_library')
+        command.upgrade(config, '0020_knowledge_library')
 
     async with container.database.engine.begin() as connection:
-        await connection.run_sync(previous)
+        await reconstruct(connection, previous, preserve_personal_skills=True)
         await connection.execute(
             text("UPDATE knowledge_bases SET access='public' WHERE id=:id"), {'id': UUID(shared['id'])}
         )

@@ -3,11 +3,11 @@
 from sqlalchemy import Table
 
 from zhiheng.infrastructure.database import Base
-from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AgentVersion, AssistantConversation, AssistantTurn
+from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AssistantConversation, AssistantSummary, AssistantTurn
 
 
 def schema_tables() -> tuple[Table, ...]:
     return tuple(
         Base.metadata.tables[row.__tablename__]
-        for row in (Agent, AgentVersion, AgentRunAudit, AssistantConversation, AssistantTurn)
+        for row in (Agent, AssistantSummary, AgentRunAudit, AssistantConversation, AssistantTurn)
     )

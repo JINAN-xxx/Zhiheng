@@ -1,9 +1,9 @@
-"""Durable memory state, summary publication facts and frozen per-Run context facts."""
+"""Effective chat heads, summary child facts and frozen per-Run inputs."""
 
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,27 +16,31 @@ class ContextState(Base):
     conversation_id: Mapped[UUID] = mapped_column(ForeignKey('chat_conversations.id'), primary_key=True)
     owner_id: Mapped[UUID] = mapped_column(Uuid)
     version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
-    target_covered_count: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
-    dirty: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true', index=True)
-    summary_task_id: Mapped[UUID | None] = mapped_column(Uuid)
     pending_task_id: Mapped[UUID | None] = mapped_column(Uuid)
-    last_run_id: Mapped[UUID | None] = mapped_column(ForeignKey('runtime_runs.id'))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    agent_checkpoint_id: Mapped[str | None] = mapped_column(Text)
+    agent_source_hash: Mapped[str | None] = mapped_column(String(64))
+    checkpoint_cleanup_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SummaryTask(Base):
     __tablename__ = 'chat_summary_tasks'
-    __table_args__ = (UniqueConstraint('owner_id', 'retry_request_id', name='uq_chat_summary_retry_request'),)
+    __table_args__ = (
+        CheckConstraint(
+            '(parent_run_id IS NULL) = (parent_attempt_id IS NULL)', name='ck_chat_summary_parent_identity'
+        ),
+        CheckConstraint("status <> 'pending' OR parent_run_id IS NOT NULL", name='ck_chat_summary_pending_parent'),
+    )
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     conversation_id: Mapped[UUID] = mapped_column(ForeignKey('chat_conversations.id'), index=True)
     owner_id: Mapped[UUID] = mapped_column(Uuid)
+    parent_run_id: Mapped[UUID | None] = mapped_column(ForeignKey('runtime_runs.id'), index=True)
+    parent_attempt_id: Mapped[UUID | None] = mapped_column(Uuid)
     expected_version: Mapped[int] = mapped_column(Integer)
     covered_count: Mapped[int] = mapped_column(Integer)
     source_hash: Mapped[str] = mapped_column(String(64))
     source_refs: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
     file_refs: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
-    previous_task_id: Mapped[UUID | None] = mapped_column(Uuid)
-    retry_request_id: Mapped[UUID | None] = mapped_column(Uuid)
     run_id: Mapped[UUID | None] = mapped_column(ForeignKey('runtime_runs.id'), unique=True)
     model_binding: Mapped[dict[str, object]] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(24), default='pending')
@@ -47,14 +51,12 @@ class SummaryTask(Base):
 
 class ContextSnapshot(Base):
     __tablename__ = 'chat_context_snapshots'
+    __table_args__ = (Index('ix_chat_context_snapshots_checkpoint', 'conversation_id', 'agent_checkpoint_id'),)
     run_id: Mapped[UUID] = mapped_column(ForeignKey('runtime_runs.id'), primary_key=True)
     conversation_id: Mapped[UUID] = mapped_column(ForeignKey('chat_conversations.id'), index=True)
     owner_id: Mapped[UUID] = mapped_column(Uuid)
-    summary_task_id: Mapped[UUID | None] = mapped_column(Uuid)
-    summary_version: Mapped[int] = mapped_column(Integer)
     source_refs: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
     file_refs: Mapped[list[dict[str, object]]] = mapped_column(JSONB)
-    estimated_tokens: Mapped[int] = mapped_column(Integer)
-    input_budget: Mapped[int] = mapped_column(Integer)
-    dropped_turns: Mapped[int] = mapped_column(Integer)
+    agent_context: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    agent_checkpoint_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

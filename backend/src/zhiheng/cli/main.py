@@ -1,25 +1,23 @@
+# ruff: noqa: PLC0415 -- Each CLI command imports only its own runtime dependencies.
 import argparse
 import asyncio
 import getpass
+import os
 import sys
 from pathlib import Path
 
-import uvicorn
 from pydantic import ValidationError
 
-from zhiheng.api.main import create_app
-from zhiheng.api.request_logging import uvicorn_log_config
-from zhiheng.application.identity.accounts import AccountService
-from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
-from zhiheng.infrastructure.database import Database
-from zhiheng.modules.identity.public import IdentityService
-from zhiheng.modules.skills.public import SkillService
 from zhiheng.shared.errors import AppError
-from zhiheng.worker.main import run_worker
 
 
 async def create_admin(settings: Settings, username: str, password: str) -> None:
+    from zhiheng.application.identity.accounts import AccountService
+    from zhiheng.infrastructure.database import Database
+    from zhiheng.modules.identity.public import IdentityService
+    from zhiheng.modules.skills.public import SkillService
+
     database = Database(settings.database_url.get_secret_value())
     try:
         await database.require_schema()
@@ -51,7 +49,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f'配置无效，请检查：{fields}', file=sys.stderr)
         return 2
     try:
+        requirements = os.getenv('ZHIHENG_SOURCE_REQUIREMENTS')
+        if requirements:
+            from zhiheng.bootstrap.preflight import require_dependencies, require_source_schema
+
+            require_dependencies(Path(requirements))
+            if args.command in {'serve', 'worker'}:
+                asyncio.run(require_source_schema(settings))
         if args.command == 'serve':
+            import uvicorn
+
+            from zhiheng.api.main import create_app
+            from zhiheng.api.request_logging import uvicorn_log_config
+
             if args.reload:
                 uvicorn.run(
                     'zhiheng.api.main:create_configured_app',
@@ -72,8 +82,12 @@ def main(argv: list[str] | None = None) -> int:
                     log_config=uvicorn_log_config(),
                 )
         elif args.command == 'worker':
+            from zhiheng.worker.main import run_worker
+
             asyncio.run(run_worker(settings))
         elif args.command == 'migrate':
+            from zhiheng.bootstrap.migrations import migrate
+
             asyncio.run(migrate(settings))
         else:
             password = sys.stdin.readline().rstrip('\r\n') if args.password_stdin else getpass.getpass('管理员密码：')

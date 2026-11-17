@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
 
+BACKEND_SOURCE_PATH = str(Path(__file__).resolve().parents[2] / 'src')
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -117,6 +119,8 @@ async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and 
 ) -> AsyncIterator['Settings']:
     from zhiheng.bootstrap.settings import Settings
 
+    # Native parser subprocesses must import the same source tree as pytest.
+    monkeypatch.setenv('PYTHONPATH', BACKEND_SOURCE_PATH)
     database_url = os.getenv('ZHIHENG_TEST_DATABASE_URL')
     redis_url = os.getenv('ZHIHENG_TEST_REDIS_URL')
     if not database_url or not redis_url:

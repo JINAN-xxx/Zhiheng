@@ -6,8 +6,22 @@ import * as docs from '../../src/modules/developer/apiDocs.ts'
 const capabilities = {
   scopes: ['files:read', 'models:invoke'],
   definitions: [
-    { scope: 'files:read', label: '文件', description: '读取', requires_models: false },
-    { scope: 'models:invoke', label: '模型', description: '推理', requires_models: true }
+    {
+      scope: 'files:read',
+      label: '文件',
+      description: '读取',
+      requires_models: false,
+      grantable: true,
+      reason: null
+    },
+    {
+      scope: 'models:invoke',
+      label: '模型',
+      description: '推理',
+      requires_models: true,
+      grantable: true,
+      reason: null
+    }
   ],
   caps: { resource_rpm_min: 1, resource_rpm_max: 120 }
 }
@@ -175,4 +189,27 @@ void test('documentation requires one authoritative curl sample and never invent
       })
     )
   }
+})
+
+void test('server denies scope issuance without hiding read-only scope definitions', () => {
+  const catalog = api.parseScopeCatalog({
+    ...capabilities,
+    definitions: capabilities.definitions.map((item) => ({
+      ...item,
+      grantable: item.scope !== 'files:read',
+      reason: item.scope === 'files:read' ? '权限已撤销' : null
+    }))
+  })
+  assert.equal(catalog.definitions[0]?.grantable, false)
+  assert.equal(catalog.definitions[0]?.reason, '权限已撤销')
+  assert.match(api.keySelectionError(['files:read'], [], catalog), /权限/)
+  assert.throws(() =>
+    api.parseScopeCatalog({
+      ...capabilities,
+      definitions: [
+        { ...capabilities.definitions[0], grantable: undefined },
+        capabilities.definitions[1]
+      ]
+    })
+  )
 })

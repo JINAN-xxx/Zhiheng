@@ -189,7 +189,7 @@ async def upload_status(
 async def documents(
     base_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> DocumentPage:
-    return await container.knowledge.documents(session, principal, base_id)
+    return await container.knowledge.materials.documents(session, principal, base_id)
 
 
 @router.delete('/bases/{base_id}/uploads/{upload_id}', status_code=204)
@@ -202,7 +202,7 @@ async def remove_upload(
     session: SessionDependency,
 ) -> Response:
     async with session.begin():
-        await container.knowledge.remove_upload(session, principal, base_id, upload_id)
+        await container.knowledge.materials.remove_upload(session, principal, base_id, upload_id)
     return Response(status_code=204)
 
 
@@ -244,7 +244,7 @@ async def rechunk(
 async def get_job(
     job_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> JobInfo:
-    return await container.knowledge.get_job_info(session, principal, job_id)
+    return await container.knowledge.builds.get_job_info(session, principal, job_id)
 
 
 @router.post('/jobs/{job_id}/cancel')
@@ -256,7 +256,7 @@ async def cancel_job(
     session: SessionDependency,
 ) -> JobInfo:
     async with session.begin():
-        return await container.knowledge.cancel_job(session, principal, job_id)
+        return await container.knowledge.builds.cancel_job(session, principal, job_id)
 
 
 @router.get('/bases/{base_id}/documents/{document_id}/preview')
@@ -306,7 +306,7 @@ async def cancel_preparation(
 async def jobs(
     base_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[JobInfo]:
-    return await container.knowledge.jobs(session, principal, base_id)
+    return await container.knowledge.builds.jobs(session, principal, base_id)
 
 
 @router.post('/bases/{base_id}/rebuild', status_code=202)
@@ -432,7 +432,7 @@ async def references(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> dict[str, object]:
-    return await container.knowledge.references(session, principal, base_id)
+    return await container.knowledge.references.for_base(session, principal, base_id)
 
 
 @router.get('/bases/{base_id}/migration')
@@ -442,7 +442,7 @@ async def migration_preview(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> dict[str, object]:
-    return await container.knowledge.migration_preview(session, principal, base_id)
+    return await container.knowledge.migration.preview(session, principal, base_id)
 
 
 @router.post('/bases/{base_id}/migration', status_code=202)
@@ -463,4 +463,4 @@ async def pending_uploads(
     session: SessionDependency,
     folder_id: UUID | None = None,
 ) -> dict[str, object]:
-    return await container.knowledge.pending_uploads(session, principal, base_id, folder_id)
+    return await container.knowledge.materials.pending_uploads(session, principal, base_id, folder_id)

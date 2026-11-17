@@ -1,15 +1,19 @@
-import { canUseCapability } from '../../identity/public.ts'
+import { canUseCapability, canUseModule } from '../../identity/public.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message as notice } from 'ant-design-vue'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import {
+  isDefiniteRejection,
+  ApiError,
+  errorMessage,
+  isAborted,
+  RequestScope
+} from '../../../shared/http.ts'
 import type { ContextTicket } from '../../../shared/http.ts'
 import { waitForBackgroundObservation } from '../../../shared/backgroundObservation.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
-import type { ManagedFile } from '../../files/public.ts'
-import { getFile } from '../../files/public.ts'
 import * as api from '../api/index.ts'
 import type {
   KnowledgeBase,
@@ -95,7 +99,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     pollScope = new RequestScope(),
     optionsScope = new RequestScope(),
     previewScope = new RequestScope(),
-    sourceScope = new RequestScope(),
     referencesScope = new RequestScope(),
     accessScope = new RequestScope()
   const notifiedJobs = new Set<string>()
@@ -117,7 +120,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
   const busy = computed(
     () => actionBusy.value || uploading.value || !!selected.value?.active_job_id
   )
-  const sourceAclFile = ref<ManagedFile | null>(null)
   let disposed = false
   const editor = reactive({
     open: false,
@@ -185,7 +187,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     pollScope.replace()
     detailScope.replace()
     previewScope.replace()
-    sourceScope.replace()
     writeScope.replace()
     selected.value = null
     documents.value = []
@@ -194,7 +195,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     const unavailable = error instanceof ApiError && error.code === 'knowledge_owner_unavailable'
     bases.value = bases.value.filter((base) => base.id !== baseId.value)
     if (unavailable && refreshList) void loadList(true)
-    sourceAclFile.value = null
     folderId.value = null
     Object.assign(preview, { open: false, loading: false, text: '', error: '' })
     Object.assign(editor, {
@@ -519,7 +519,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
         editorError.value = errorMessage(error)
-        uncertain.value = !(error instanceof ApiError) || error.status >= 500
+        uncertain.value = uncertain.value || !isDefiniteRejection(error)
       }
     } finally {
       if (ticket.isCurrent()) actionBusy.value = false
@@ -600,7 +600,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
         actionError.value = errorMessage(error)
-        uncertain.value = !(error instanceof ApiError) || error.status >= 500
+        uncertain.value = uncertain.value || !isDefiniteRejection(error)
       }
     } finally {
       if (ticket.isCurrent()) actionBusy.value = false
@@ -612,6 +612,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     const ticket = writeScope.replace()
     actionBusy.value = true
     actionError.value = ''
+    const confirming = retryIntents.has(doc.id)
     const intent = retryIntents.get(doc.id) ?? {
       document: { ...doc },
       requestId: createRequestId()
@@ -633,7 +634,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       }
     } catch (reason) {
       if (ticket.isCurrent() && !isAborted(reason)) {
-        const unknown = !(reason instanceof ApiError) || reason.status >= 500
+        const unknown = confirming || !isDefiniteRejection(reason)
         if (!unknown) retryIntents.delete(doc.id)
         actionError.value = errorMessage(reason) + (unknown ? '；再次重试会确认原提交。' : '')
       }
@@ -691,17 +692,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       if (ticket.isCurrent()) preview.loading = false
     }
   }
-  async function showSourceAcl(doc: KnowledgeDocument): Promise<void> {
-    const ticket = sourceScope.replace(),
-      id = baseId.value
-    actionError.value = ''
-    try {
-      const file = await getFile(doc.file_id, ticket.signal)
-      if (ticket.isCurrent() && id === baseId.value) sourceAclFile.value = file
-    } catch (error) {
-      if (ticket.isCurrent() && !isAborted(error)) actionError.value = errorMessage(error)
-    }
-  }
   watch(
     baseId,
     async (id) => {
@@ -710,9 +700,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       pollScope.replace()
       query.resetQuery()
       previewScope.replace()
-      sourceScope.replace()
       writeScope.replace()
-      sourceAclFile.value = null
       actionBusy.value = false
       resetUpload()
       uncertain.value = false
@@ -792,10 +780,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     api.getCapabilities(initial.signal).then((value) => {
       if (initial.isCurrent()) capabilities.value = value
     }),
-    (canUseCapability('knowledge') || canUseCapability('knowledge', 'manage')
-      ? getModels(initial.signal)
-      : Promise.resolve([])
-    ).then((value) => {
+    (canUseModule('knowledge') ? getModels(initial.signal) : Promise.resolve([])).then((value) => {
       if (initial.isCurrent()) models.value = value
     })
   ]).then((results) => {
@@ -824,7 +809,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       pollScope,
       optionsScope,
       previewScope,
-      sourceScope,
       referencesScope,
       accessScope
     ])
@@ -858,7 +842,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     editorError,
     deletion,
     preview,
-    sourceAclFile,
     uploadOpen,
     uploadDiscovering,
     uploading,
@@ -882,7 +865,6 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     cancelJob,
     retryDocument,
     showPreview,
-    showSourceAcl,
     openUpload,
     selectUploadFolder,
     closeUpload,

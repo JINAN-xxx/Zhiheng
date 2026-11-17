@@ -16,6 +16,24 @@ ARCHIVED_TABLES = frozenset(
 )
 
 
+# Frozen migrations0036/0039 explicitly removed these values. Everything else
+# in an original row remains part of the preservation assertion.
+RETIRED_COLUMNS = {
+    'agents': frozenset({'publication_count', 'published_version'}),
+    'agent_run_audits': frozenset({'config_version', 'published_version'}),
+    'assistant_conversations': frozenset({'published_version'}),
+    'assistant_turns': frozenset({'published_version'}),
+    'developer_accounts': frozenset({'limit_tokens', 'quota_version'}),
+    'chat_messages': frozenset({'knowledge_sources'}),
+    'chat_context_states': frozenset({'target_covered_count', 'dirty', 'summary_task_id', 'last_run_id'}),
+    'chat_context_snapshots': frozenset(
+        {'summary_task_id', 'summary_version', 'estimated_tokens', 'input_budget', 'dropped_turns'}
+    ),
+    'chat_summary_tasks': frozenset({'previous_task_id', 'retry_request_id'}),
+    'knowledge_graph_attempts': frozenset({'elapsed_seconds'}),
+}
+
+
 def include_active_object(obj: Any, name: str | None, kind: str, reflected: bool, compare_to: Any) -> bool:
     table = obj if kind == 'table' else getattr(obj, 'table', None)
     return not (reflected and getattr(table, 'name', None) in ARCHIVED_TABLES)
@@ -31,6 +49,25 @@ def assert_original_rows(before: list[str], after: list[str], table: str) -> Non
 
     old = [json.loads(row) for row in before]
     new = [json.loads(row) for row in after]
+    retired = RETIRED_COLUMNS.get(table, frozenset())
+    assert all(not (retired & set(row)) for row in new), table
+    old = [{key: value for key, value in row.items() if key not in retired} for row in old]
+    if table in {'work_members', 'work_messages'}:
+        for row in old:
+            if 'published_version' in row:
+                row['agent_revision'] = row.pop('published_version')
+    if table in {'agents', 'assistant_conversations'}:
+        for row in old:
+            if isinstance(row.get('config'), dict):
+                row['config'].pop('history_rounds', None)
+    if table == 'chat_messages':
+        for row in new:
+            context = row.get('request_context')
+            assert not isinstance(context, dict) or 'knowledge_base_ids' not in context, table
+        for row in old:
+            context = row.get('request_context')
+            if isinstance(context, dict):
+                context.pop('knowledge_base_ids', None)
     growing = table in {'skills', 'skill_revisions', 'skill_legacy_bindings'}
     if not old:
         assert growing or not new, table

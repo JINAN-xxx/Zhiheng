@@ -1,12 +1,12 @@
 """Durable graph callbacks use the same Run, outbox, reservation and executor."""
 
 import asyncio
-from contextlib import suppress
 from dataclasses import dataclass
 from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.knowledge.public import (
@@ -41,16 +41,17 @@ class GraphRuns:
         models: ModelService,
         runs: RunStore,
         usage: UsageService,
-        token_limit: int,
+        *,
+        admission: RunAdmission,
     ) -> None:
-        self.database, self.store, self.models, self.runs, self.usage, self.token_limit = (
+        self.database, self.store, self.models, self.runs, self.usage = (
             database,
             store,
             models,
             runs,
             usage,
-            token_limit,
         )
+        self.admission = admission
         self._semaphores: dict[UUID, asyncio.Semaphore] = {}
         self._active: dict[UUID, set[asyncio.Task[object]]] = {}
         self._accepting: set[UUID] = set()
@@ -137,41 +138,17 @@ class GraphRuns:
                 ordinal = await self.store.next_step(session, claim)
                 request_id = uuid5(claim.attempt_id, f'{call.role}:{call.operation}:{ordinal}')
                 await self.runs.lock_request(session, claim.owner_id, request_id)
-                run = await self.runs.create(
+                run = await self.admission.reserve(
                     session,
-                    owner_id=claim.owner_id,
-                    billing_owner_id=claim.owner_id,
+                    identity=AdmissionIdentity(owner_id=claim.owner_id, billing_owner_id=claim.owner_id),
                     resource_type='knowledge_graph',
                     resource_id=claim.attempt_id,
-                    request_id=request_id,
+                    client_request_id=request_id,
                     fingerprint=digest,
-                    payload=request.model_dump(mode='json'),
-                )
-                rate = None
-                with suppress(AppError):
-                    rate = await self.models.latest_rate(session, binding.model_id)
-                input_tokens = sum(
-                    len(m.content.encode()) + 16 + sum(image.estimated_tokens for image in m.images)
-                    for m in request.messages
-                )
-                output_tokens = binding.max_output_tokens if call.role not in {'embedding', 'rerank'} else 0
-                await self.usage.reserve(
-                    session,
-                    user_id=claim.owner_id,
-                    run_id=run.id,
-                    model_id=binding.model_id,
-                    source='knowledge_graph',
-                    tokens=input_tokens + output_tokens,
-                    estimated_input_tokens=input_tokens,
-                    max_output_tokens=output_tokens,
-                    token_limit=self.token_limit,
-                    rate=rate,
-                    operation='rerank'
-                    if call.role == 'rerank'
-                    else 'embedding'
-                    if call.role == 'embedding'
-                    else 'chat',
-                    estimated_search_units=len(request.messages) - 1 if call.role == 'rerank' else 0,
+                    request=request,
+                    # Graph callbacks may carry no candidates; preserve their
+                    # exact zero estimate rather than the public API minimum.
+                    search_unit_estimate=len(request.messages) - 1 if call.role == 'rerank' else 0,
                 )
                 await self.store.add_step(
                     session,
@@ -218,7 +195,7 @@ class GraphRuns:
             request = ModelRequest.model_validate(claim.payload)
             if request.binding.model_type == 'rerank':
                 expected = ModelBinding.model_validate(graph.request.get('_rerank_binding'))
-                current = await self.models.resolve(session, expected.model_id)
+                current = await self.models.bindings.resolve(session, expected.model_id)
                 allowed = {chunk.content for chunk in graph.frozen.chunks}
                 if (
                     current != expected

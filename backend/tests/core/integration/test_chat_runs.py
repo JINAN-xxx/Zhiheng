@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from tests.core.permission_support import grant_member, grants
 from tests.core.provider import ProviderServer
 
 
@@ -89,6 +90,7 @@ async def test_duplicate_delivery_and_request_do_not_repeat_model_call(
 
 
 async def test_other_users_cannot_read_chat_or_run(admin: httpx.AsyncClient, model_id: str, app: object) -> None:
+    await grant_member(admin, grants('platform:chat'))
     conversation_id, run = await admit(admin, model_id)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
@@ -117,7 +119,6 @@ async def test_pending_cancel_releases_reservation_without_calling_provider(
 async def test_unbilled_parallel_runs_are_not_blocked_by_a_lifetime_token_quota(
     admin: httpx.AsyncClient, model_id: str, app: object
 ) -> None:
-    app.state.container.settings.token_limit = 100
     conversations = [(await admin.post('/api/chat/conversations', json={})).json() for _ in range(2)]
     results = await asyncio.gather(
         *[

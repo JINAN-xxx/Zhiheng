@@ -11,6 +11,8 @@ from zhiheng.bootstrap.migrations import migrate
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 
+GOVERNANCE_REVISION = '0029_application_governance'
+
 
 async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactivate_suspended_apps(
     settings: Settings,
@@ -61,7 +63,7 @@ async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactiv
                     )
                 ).all()
             )
-        await migrate(settings)
+        await _version(settings, GOVERNANCE_REVISION)
         async with engine.connect() as connection:
             for table in tables:
                 assert (
@@ -88,7 +90,7 @@ async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactiv
                 await connection.execute(text('SELECT platform_enabled FROM developer_applications'))
             ).scalars().all() == [True, True]
         await _version(settings, '0028_document_parsing', downgrade=True)
-        await migrate(settings)
+        await _version(settings, GOVERNANCE_REVISION)
         async with engine.begin() as connection:
             await connection.execute(
                 text('UPDATE developer_applications SET platform_enabled=false WHERE id=:id'), {'id': active}
@@ -102,6 +104,15 @@ async def test_governance_upgrade_preserves_records_and_downgrade_cannot_reactiv
                 )
                 is False
             )
+            assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == GOVERNANCE_REVISION
+        await migrate(settings)
+        async with engine.connect() as connection:
             assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
+            assert (
+                await connection.scalar(
+                    text('SELECT platform_enabled FROM developer_applications WHERE id=:id'), {'id': active}
+                )
+                is False
+            )
     finally:
         await engine.dispose()

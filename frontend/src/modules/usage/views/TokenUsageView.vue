@@ -1,15 +1,8 @@
 <script setup lang="ts">
-import { createRequestId } from '../../../shared/requestId.ts'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
-  Checkbox as ACheckbox,
-  Form as AForm,
-  FormItem as AFormItem,
-  Input as AInput,
-  InputNumber as AInputNumber,
-  Modal as AModal,
   Pagination as APagination,
   Select as ASelect,
   Tag as ATag
@@ -18,22 +11,25 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { identity, hasAnyPermission } from '../../identity/public.ts'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { getUsage, reconcileTokenUsage } from '../api/index.ts'
-import type { UsageRecord, UsageSummary, TokenReconciliation } from '../api/index.ts'
+import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { getUsage } from '../api/index.ts'
+import type { UsageSummary } from '../api/index.ts'
+import { InvocationTraceDialog, acceptedAge } from '../../billing/public.ts'
 const props = defineProps<{ accountId?: string | undefined; accountName?: string | undefined }>()
-const canWrite = computed(() => hasAnyPermission(identity.value, 'ai:credits:write'))
+const canWrite = computed(() => hasAnyPermission(identity.value, 'ai:credits:reconcile'))
 const summary = ref<UsageSummary | null>(null),
   error = ref(''),
   loading = ref(false),
   page = ref(1)
 const source = ref(''),
   status = ref('')
-const scope = new RequestScope(),
-  writes = new RequestScope()
+const scope = new RequestScope()
+const selectedRun = ref<string | null>(null),
+  reconcileOnOpen = ref(false)
 const sourceNames: Record<string, string> = {
   chat: '对话',
   chat_summary: '会话摘要',
+  agent_summary: '助手摘要',
   connection_test: '模型测试',
   public: '开发接入',
   agent_preview: '助手调试',
@@ -63,7 +59,7 @@ const columns = [
   { title: '运行', key: 'run', width: 170 },
   { title: '输入 / 输出 Token', key: 'tokens' },
   { title: '状态', key: 'status', width: 100 },
-  { title: '操作', key: 'actions', width: 100 }
+  { title: '操作', key: 'actions', width: 170 }
 ]
 const count = (value: number | null) => (value === null ? '待核对' : value.toLocaleString())
 async function load() {
@@ -88,6 +84,7 @@ async function load() {
 watch(
   () => [props.accountId, identity.value?.id],
   () => {
+    selectedRun.value = null
     summary.value = null
     page.value = 1
     void load()
@@ -102,100 +99,12 @@ function changePage(value: number) {
   page.value = value
   void load()
 }
-const dialog = ref<'reconcile' | null>(null),
-  current = ref<UsageRecord | null>(null),
-  saving = ref(false),
-  formError = ref('')
-const form = reactive({
-  reason: '',
-  input: null as number | null,
-  output: null as number | null,
-  cache: null as number | null,
-  search: null as number | null,
-  rejected: false
-})
-let retrySignature = '',
-  retryBody: TokenReconciliation | null = null
-watch(
-  () => [props.accountId, identity.value],
-  () => {
-    writes.replace()
-    dialog.value = null
-    current.value = null
-    saving.value = false
-    retryBody = null
-  }
-)
-function openReconcile(row: UsageRecord) {
-  if (!canWrite.value || row.points_enforced || row.status !== 'unknown' || saving.value) return
-  Object.assign(form, {
-    reason: '',
-    input: row.input_tokens,
-    output: row.output_tokens,
-    cache: null,
-    search: null,
-    rejected: false
-  })
-  current.value = row
-  formError.value = ''
-  retryBody = null
-  dialog.value = 'reconcile'
-}
-async function submit() {
-  if (!canWrite.value || saving.value || !summary.value || !dialog.value) return
-  formError.value = ''
-  const reason = form.reason.trim()
-  if (!reason) {
-    formError.value = '请填写核对依据'
-    return
-  }
-  const record = current.value
-  if (
-    dialog.value === 'reconcile' &&
-    !form.rejected &&
-    (!Number.isSafeInteger(form.input) ||
-      !Number.isSafeInteger(form.output) ||
-      form.input! < 0 ||
-      form.output! < 0)
-  ) {
-    formError.value = '请输入完整的实际输入、输出 Token'
-    return
-  }
-  const payload = {
-    expected_version: record!.version,
-    reason,
-    rejected_before_execution: form.rejected,
-    input_tokens: form.rejected ? null : form.input,
-    output_tokens: form.rejected ? null : form.output,
-    cache_tokens: form.rejected ? null : form.cache,
-    search_units: form.rejected ? null : form.search
-  }
-  const signature = JSON.stringify([dialog.value, props.accountId, record?.run_id, payload])
-  if (!retryBody || signature !== retrySignature) {
-    retrySignature = signature
-    retryBody = { ...payload, client_request_id: createRequestId() }
-  }
-  const ticket = writes.replace()
-  saving.value = true
-  try {
-    await reconcileTokenUsage(record!.run_id, retryBody, ticket.signal)
-    if (ticket.isCurrent()) {
-      dialog.value = null
-      retryBody = null
-      await load()
-    }
-  } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) {
-      formError.value = errorMessage(reason)
-      if (reason instanceof ApiError && reason.status === 409) await load()
-    }
-  } finally {
-    if (ticket.isCurrent()) saving.value = false
-  }
+function openTrace(runId: string, reconcile = false) {
+  selectedRun.value = runId
+  reconcileOnOpen.value = reconcile
 }
 onBeforeUnmount(() => {
   scope.dispose()
-  writes.dispose()
 })
 </script>
 <template>
@@ -260,20 +169,21 @@ onBeforeUnmount(() => {
             <span v-else-if="column.key === 'tokens'" :title="record.run_id"
               >{{ count(record.input_tokens) }} / {{ count(record.output_tokens) }}</span
             >
-            <ATag v-else-if="column.key === 'status'">{{
-              statusNames[record.status] ?? record.status
-            }}</ATag>
-            <AButton
-              v-else-if="
-                column.key === 'actions' &&
-                canWrite &&
-                record.status === 'unknown' &&
-                !record.points_enforced
-              "
-              type="link"
-              @click="openReconcile(record)"
-              >核对用量</AButton
-            >
+            <div v-else-if="column.key === 'status'">
+              <ATag>{{ statusNames[record.status] ?? record.status }}</ATag
+              ><small v-if="record.status === 'unknown'"
+                >距受理 {{ acceptedAge(record.created_at) }}</small
+              >
+            </div>
+            <div v-else-if="column.key === 'actions'">
+              <AButton type="link" @click="openTrace(record.run_id)">调用详情</AButton>
+              <AButton
+                v-if="canWrite && record.status === 'unknown'"
+                type="link"
+                @click="openTrace(record.run_id, true)"
+                >核对用量</AButton
+              >
+            </div>
           </template>
         </ResourceTable>
       </div>
@@ -288,10 +198,14 @@ onBeforeUnmount(() => {
           <p>
             输入 {{ count(record.input_tokens) }} / 输出 {{ count(record.output_tokens) }} Token
           </p>
+          <small v-if="record.status === 'unknown'"
+            >距受理 {{ acceptedAge(record.created_at) }}</small
+          >
+          <AButton type="link" @click="openTrace(record.run_id)">调用详情</AButton>
           <AButton
-            v-if="canWrite && record.status === 'unknown' && !record.points_enforced"
+            v-if="canWrite && record.status === 'unknown'"
             type="link"
-            @click="openReconcile(record)"
+            @click="openTrace(record.run_id, true)"
             >核对用量</AButton
           >
         </article>
@@ -310,70 +224,12 @@ onBeforeUnmount(() => {
         @change="changePage"
       />
     </template>
-    <AModal
-      :open="dialog !== null"
-      title="核对未知 Token 用量"
-      :confirm-loading="saving"
-      :mask-closable="!saving"
-      :closable="!saving"
-      :cancel-button-props="{ disabled: saving }"
-      @cancel="dialog = null"
-      @ok="submit"
-    >
-      <AAlert v-if="formError" :message="formError" type="error" show-icon />
-      <AForm layout="vertical">
-        <AFormItem
-          ><ACheckbox v-model:checked="form.rejected" :disabled="saving"
-            >已核实在执行前被拒绝，没有发生消耗</ACheckbox
-          ></AFormItem
-        >
-        <template v-if="!form.rejected">
-          <AFormItem label="实际输入 Token"
-            ><AInputNumber
-              aria-label="实际输入 Token"
-              :value="form.input ?? ''"
-              :min="0"
-              :precision="0"
-              :disabled="saving || current?.input_tokens !== null"
-              @update:value="form.input = typeof $event === 'number' ? $event : null"
-          /></AFormItem>
-          <AFormItem label="实际输出 Token"
-            ><AInputNumber
-              aria-label="实际输出 Token"
-              :value="form.output ?? ''"
-              :min="0"
-              :precision="0"
-              :disabled="saving || current?.output_tokens !== null"
-              @update:value="form.output = typeof $event === 'number' ? $event : null"
-          /></AFormItem>
-          <AFormItem label="缓存 Token（如有）"
-            ><AInputNumber
-              aria-label="缓存 Token"
-              :value="form.cache ?? ''"
-              :min="0"
-              :precision="0"
-              :disabled="saving"
-              @update:value="form.cache = typeof $event === 'number' ? $event : null"
-          /></AFormItem>
-          <AFormItem label="检索单元（重排调用需填写）"
-            ><AInputNumber
-              aria-label="检索单元"
-              :value="form.search ?? ''"
-              :min="0"
-              :precision="0"
-              :disabled="saving"
-              @update:value="form.search = typeof $event === 'number' ? $event : null"
-          /></AFormItem>
-        </template>
-        <AFormItem label="依据" required
-          ><AInput.TextArea
-            v-model:value="form.reason"
-            aria-label="核对依据"
-            :maxlength="1000"
-            :disabled="saving"
-        /></AFormItem>
-      </AForm>
-    </AModal>
+    <InvocationTraceDialog
+      :run-id="selectedRun"
+      :reconcile="reconcileOnOpen"
+      @close="selectedRun = null"
+      @changed="load"
+    />
   </section>
 </template>
 <style scoped>
