@@ -14,8 +14,9 @@ class ModelConfigurationService:
 
     async def save(self, principal: Principal, fields: dict[str, object], model_id: UUID | None = None) -> ModelInfo:
         async with self.database.sessions() as session:
-            check = await self.models.prepare_save(session, principal, fields, model_id)
-        await check.provider.validate()
+            check = await self.models.configuration.prepare(session, principal, fields, model_id)
+        if check.provider is not None:
+            await check.provider.validate()
         async with self.database.sessions.begin() as session:
             current = await self.identity.principal_for_user(session, principal.id)
-            return await self.models.save_verified(session, current, check)
+            return await self.models.configuration.save_verified(session, current, check)

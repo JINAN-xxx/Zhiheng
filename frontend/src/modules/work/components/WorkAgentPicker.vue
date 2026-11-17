@@ -27,9 +27,9 @@
             @change="toggle(agent.agentId, $event.target?.checked ?? false)"
             >{{ agent.name }}</a-checkbox
           >
-          <span>{{ agent.description || '已发布智能体' }}</span>
+          <span>{{ agent.description || '已启用智能助手' }}</span>
         </div>
-        <a-empty v-if="!loading && !agents.length" description="暂无已发布智能体" />
+        <a-empty v-if="!loading && !agents.length" description="暂无已启用智能助手" />
       </div>
     </a-spin>
   </a-modal>

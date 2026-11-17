@@ -64,7 +64,7 @@ class KnowledgeDefaultsService:
         for field, model_type in (('default_embed_model_id', 'embedding'), ('default_rerank_model_id', 'rerank')):
             value = getattr(body, field)
             if field in body.model_fields_set and value is not None:
-                binding = await self.models.resolve(session, value)
+                binding = await self.models.bindings.resolve(session, value)
                 if binding.model_type != model_type:
                     raise AppError('invalid_knowledge_model', '请选择对应类型的已启用模型', 422)
         ranker_id = (
@@ -74,7 +74,7 @@ class KnowledgeDefaultsService:
         )
         if ranker_id is None:
             raise AppError('knowledge_rerank_required', '必须配置默认重排模型，不能清空', 422)
-        ranker = await self.models.resolve(session, ranker_id)
+        ranker = await self.models.bindings.resolve(session, ranker_id)
         if ranker.model_type != 'rerank':
             raise AppError('invalid_knowledge_model', '请选择已启用的重排模型', 422)
         size = body.chunk_size if body.chunk_size is not None else row.chunk_size

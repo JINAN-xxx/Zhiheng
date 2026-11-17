@@ -31,7 +31,7 @@ class NativeKnowledgeCommands:
         require_capability(principal, 'knowledge', 'create')
         body = await self.knowledge.creation_parameters(session, body)
         assert body.embed_model_id is not None
-        binding = await self.models.resolve(session, body.embed_model_id)
+        binding = await self.models.bindings.resolve(session, body.embed_model_id)
         return await self.knowledge.create(session, principal, body, binding)
 
     async def patch(self, session: AsyncSession, principal: Principal, base_id: UUID, body: BasePatch) -> BaseInfo:
@@ -65,19 +65,21 @@ class NativeKnowledgeCommands:
         )
         self.knowledge.idle(base)
         if operation == 'delete_base':
-            await self.knowledge.confirm_deletion(session, principal, base_id, confirmed=selection.confirm_references)
+            await self.knowledge.references.confirm_deletion(
+                session, principal, base_id, confirmed=selection.confirm_references
+            )
         if operation in {'rebuild', 'delete_base'}:
             assert version is not None
             self.knowledge.version(base.version, version)
             return replace(
                 selection,
-                document_ids=await self.knowledge.all_document_ids(
+                document_ids=await self.knowledge.materials.all_document_ids(
                     session, base_id, include_tombstoned=operation == 'delete_base'
                 ),
             )
         if operation in {'rechunk', 'delete_document'}:
             assert child_id is not None and version is not None
-            document = await self.knowledge.document_info(
+            document = await self.knowledge.materials.document_info(
                 session, base_id, child_id, include_deleted=operation.startswith('delete')
             )
             self.knowledge.version(document.version, version)
@@ -88,7 +90,8 @@ class NativeKnowledgeCommands:
             assert folder is not None
             self.knowledge.version(folder.version, version)
             return replace(
-                selection, document_ids=await self.knowledge.deletion_scope(session, principal, base_id, child_id)
+                selection,
+                document_ids=await self.knowledge.materials.deletion_scope(session, principal, base_id, child_id),
             )
         return selection
 
@@ -114,7 +117,7 @@ class NativeKnowledgeCommands:
             if operation == 'rebuild'
             else 'update',
         )
-        return await self.knowledge.queue(
+        return await self.knowledge.builds.queue(
             session,
             principal,
             base_id,
@@ -146,16 +149,18 @@ class NativeKnowledgeCommands:
         if child_id is not None:
             parts.append(str(child_id))
         value = fingerprint([*parts, payload])
-        existing = await self.knowledge.existing_job(session, principal, request_id, value)
+        existing = await self.knowledge.builds.existing_job(session, principal, request_id, value)
         if existing is not None:
             return existing
         binding = (
-            await self.knowledge.deletion_binding(session, base_id)
+            await self.knowledge.builds.deletion_binding(session, base_id)
             if operation.startswith('delete')
-            else await self.models.resolve(session, base.embed_model_id)
+            else await self.models.bindings.resolve(session, base.embed_model_id)
         )
         if operation == 'import':
             roots = await self.knowledge.files.source_root_ids(session, tuple(selection.file_ids or []))
-            await self.knowledge.lock_library_sources(session, principal, roots, additional_base_ids=(base_id,))
+            await self.knowledge.materials.lock_library_sources(
+                session, principal, roots, additional_base_ids=(base_id,)
+            )
         selected = await self.select(session, principal, base_id, operation, selection, version, child_id)
         return await self.queue(session, principal, base_id, operation, request_id, value, binding, selected)

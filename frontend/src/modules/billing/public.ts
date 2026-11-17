@@ -11,3 +11,8 @@ export type { CreditState } from './api/index.ts'
 export const CreditBillingControl = defineAsyncComponent(
   () => import('./components/CreditBillingControl.vue')
 )
+
+export const InvocationTraceDialog = defineAsyncComponent(
+  () => import('./components/InvocationTraceDialog.vue')
+)
+export { acceptedAge } from './trace.ts'

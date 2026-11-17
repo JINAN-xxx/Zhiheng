@@ -203,6 +203,9 @@ async def test_personal_upload_rejects_other_admin_and_preserves_owner_and_uploa
     app: FastAPI,
     provider: ProviderServer,
 ) -> None:
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:knowledge', 'create', 'import'))
     model = await embedding_model(admin, provider)
     async with member_client(app) as owner:
         owner_id = (await owner.get('/api/auth/me')).json()['id']

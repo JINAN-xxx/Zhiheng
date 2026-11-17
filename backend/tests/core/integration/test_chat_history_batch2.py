@@ -8,12 +8,14 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
+from tests.core.permission_support import grant_member, grants
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
 from zhiheng.modules.identity.orm import IdentityUser
 from zhiheng.runtime.orm import Run
 
 
 async def test_conversations_page_search_activity_and_scope(admin: httpx.AsyncClient, app: FastAPI) -> None:
+    await grant_member(admin, grants('platform:chat'))
     container = app.state.container
     owner = UUID((await admin.get('/api/auth/me')).json()['id'])
     stamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -159,6 +161,7 @@ async def seed_messages(
 async def test_message_paging_preserves_whole_rounds_versions_and_attachments(
     admin: httpx.AsyncClient, app: FastAPI, rounds: int, versions: int, limit: int
 ) -> None:
+    await grant_member(admin, grants('platform:chat'))
     conversation, expected = await seed_messages(admin, app, rounds=rounds, versions=versions)
     endpoint = f'/api/chat/conversations/{conversation}/messages'
     seen = []

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -81,7 +81,6 @@ class GraphAttempt(Base):
     deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     next_ordinal: Mapped[int] = mapped_column(Integer, default=0)
     writer_stopped: Mapped[bool] = mapped_column(Boolean, default=False)
-    elapsed_seconds: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

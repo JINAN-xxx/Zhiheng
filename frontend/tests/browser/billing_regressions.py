@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
+from invocation_trace_fixture import credit_trace
 
 
 class BillingRegressions(unittest.IsolatedAsyncioTestCase):
@@ -17,7 +18,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.user = {'id': 'user-1', 'username': 'credit-manager', 'is_admin': False,
-                     'permissions': ['ai:credits:read', 'ai:credits:write']}
+                     'permissions': ['platform:usage:enabled', 'platform:usage:read', 'ai:credits:enabled', 'ai:credits:read', 'ai:credits:adjust', 'ai:credits:configure', 'ai:credits:reconcile']}
         self.account = {'user_id': 'user-1', 'username': 'credit-manager', 'display_name': '积分管理员',
                         'is_active': True, 'enabled': True, 'version': 3,
                         'allocated_points': '100', 'reclaimed_points': '0', 'used_points': '0.2',
@@ -64,6 +65,8 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
             body = {'items': [], 'total': 0, 'page': 1, 'page_size': 10}
         elif path.endswith('/usage') and path.startswith('/api/billing/'):
             body = {'items': [self.usage], 'total': 1, 'page': 1, 'page_size': 10}
+        elif path == '/api/billing/usage/run-unknown':
+            body = credit_trace(self.usage)
         elif path == '/api/billing/usage/run-unknown/reconcile':
             payload = route.request.post_data_json
             self.posts.append(payload)
@@ -93,7 +96,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         elif path == '/api/models/model-1/rate-cards':
             body = []
         elif path == '/api/usage':
-            body = {'limit_tokens': 1000, 'used_tokens': 5, 'reserved_tokens': 0,
+            body = {'used_tokens': 5, 'reserved_tokens': 0,
                     'points_enabled': self.state['enabled'], 'records': []}
         else:
             return await DeveloperBoundary.respond(self, route)
@@ -241,6 +244,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await self.save_evidence('search-only-consumption.png')
 
     async def test_key_monthly_point_limit_uses_string_and_does_not_add_balance(self):
+        self.user['permissions'] = ['platform:developer:enabled', 'platform:developer:read', 'platform:developer:key_create']
         await self.open_details()
         await self.page.get_by_role('tab', name='访问密钥', exact=True).click()
         await self.page.get_by_role('button', name='创建密钥', exact=True).click()
@@ -256,7 +260,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('allocated_points', self.posts[-1])
 
     async def test_basic_user_sees_own_credits_without_management_requests(self):
-        self.user['permissions'] = []
+        self.user['permissions'] = ['platform:usage:enabled', 'platform:usage:read']
         self.state['enabled'] = True
         await self.page.goto(self.origin + '/usage')
         await expect(self.page.locator('.available-points')).to_have_text('99.2')
@@ -272,14 +276,14 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(method == 'GET' for method, _ in self.billing_requests))
 
     async def test_model_manager_cannot_grant_credits(self):
-        self.user['permissions'] = ['ai:models:write', 'ai:rates:write']
+        self.user['permissions'] = ['platform:usage:enabled', 'platform:usage:read', 'platform:models:enabled', 'platform:models:read', 'platform:models:update', 'ai:rates:enabled', 'ai:rates:read', 'ai:rates:create']
         await self.page.goto(self.origin + '/usage')
         await expect(self.page.locator('.available-points')).to_be_visible()
         await expect(self.page.get_by_role('tab', name='用户积分', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='计费设置', exact=True)).to_have_count(0)
 
     async def test_credit_reader_cannot_adjust_pause_or_reconcile(self):
-        self.user['permissions'] = ['ai:credits:read']
+        self.user['permissions'] = ['platform:usage:enabled', 'platform:usage:read', 'ai:credits:enabled', 'ai:credits:read']
         await self.page.goto(self.origin + '/usage')
         await self.page.get_by_role('tab', name='用户积分', exact=True).click()
         await expect(self.page.get_by_role('button', name='发放', exact=True)).to_have_count(0)
@@ -360,7 +364,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
 
     async def test_point_rate_requires_explicit_free_and_sends_per_million_strings(self):
         self.fail_rate_once = True
-        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        self.user['permissions'] = ['ai:rates:enabled', 'ai:rates:read', 'ai:rates:create', 'platform:models:enabled', 'platform:models:read', 'platform:models:config_read']
         await self.page.goto(self.origin + '/models')
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
@@ -386,7 +390,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         await self.save_evidence('model-credit-rates.png')
 
     async def test_point_rate_can_save_without_note(self):
-        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        self.user['permissions'] = ['ai:rates:enabled', 'ai:rates:read', 'ai:rates:create', 'platform:models:enabled', 'platform:models:read', 'platform:models:config_read']
         await self.page.goto(self.origin + '/models')
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         await self.page.get_by_role('button', name='更多模型操作', exact=True).click()
@@ -400,7 +404,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.rate_posts[-1]['client_request_id'])
 
     async def test_current_price_prefills_exact_values_and_keeps_history_folded(self):
-        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        self.user['permissions'] = ['ai:rates:enabled', 'ai:rates:read', 'ai:rates:create', 'platform:models:enabled', 'platform:models:read', 'platform:models:config_read']
         original = dict(id='rate-1', model_id='model-1', version=1, created_at='2026-10-28T01:00:00Z',
                         billing_mode='token', is_free=False, input_points='1', output_points='1', cache_points='0', search_points='0')
         current = {**original, 'id': 'rate-2', 'version': 2, 'input_points': '0.000000000000000001', 'output_points': '2.000000000000000000'}
@@ -430,7 +434,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
     async def test_price_readers_cannot_edit_or_save_current_prices(self):
-        self.user['permissions'] = ['ai:rates:read', 'ai:models:read']
+        self.user['permissions'] = ['ai:rates:enabled', 'ai:rates:read', 'platform:models:enabled', 'platform:models:read', 'platform:models:config_read']
         self.point_rates = [dict(id='rate-1', model_id='model-1', version=1, created_at='2026-10-28T01:00:00Z',
                                 billing_mode='token', is_free=False, input_points='1', output_points='2', cache_points='0', search_points='0')]
         await self.page.goto(self.origin + '/models')
@@ -445,7 +449,7 @@ class BillingRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.rate_posts, [])
 
     async def test_failed_price_loading_cannot_save_unknown_current_price(self):
-        self.user['permissions'] = ['ai:rates:read', 'ai:rates:write', 'ai:models:read']
+        self.user['permissions'] = ['ai:rates:enabled', 'ai:rates:read', 'ai:rates:create', 'platform:models:enabled', 'platform:models:read', 'platform:models:config_read']
         await self.page.route(self.origin + '/api/billing/models/model-1/rates', lambda route: route.fulfill(status=503, json={
             'error': {'code': 'unavailable', 'message': '价格暂不可用'}}))
         await self.page.goto(self.origin + '/models')

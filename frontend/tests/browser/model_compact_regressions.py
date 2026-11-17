@@ -11,6 +11,7 @@ import model_card_regressions as fixture
 
 MODEL_ID, LONG_NAME = fixture.MODEL_ID, fixture.LONG_NAME
 from playwright.async_api import expect
+from permission_fixture import granted_permissions
 
 
 class CompactModels(unittest.IsolatedAsyncioTestCase):
@@ -39,7 +40,7 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
 
     async def detail(self, name=LONG_NAME):
         await self.row(name).get_by_role('button', name='查看模型详情：' + name, exact=True).click()
-        dialog = self.page.locator('.model-detail-modal[role="dialog"]')
+        dialog = self.page.locator(fixture.DETAIL_SELECTOR)
         await expect(dialog).to_be_visible()
         return dialog
 
@@ -67,8 +68,8 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
         await expect(dialog).to_contain_text('provider/chat-with-a-very-long-upstream-model-code')
         await expect(dialog).to_contain_text('65,536')
         await expect(dialog).to_contain_text('32,768')
-        await expect(dialog.locator('.ant-modal')).to_have_css('transform', 'none')
-        bounds = await dialog.locator('.ant-modal').bounding_box()
+        await expect(self.page.locator('.model-detail-modal .ant-modal')).to_have_css('transform', 'none')
+        bounds = await self.page.locator('.model-detail-modal .ant-modal').bounding_box()
         self.assertLessEqual(bounds['width'], 720)
         self.assertLess(abs(bounds['x'] + bounds['width']/2 - 960), 20)
 
@@ -182,8 +183,9 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
         await expect(self.row('知识向量')).to_be_visible()
 
     async def test_navigation_closes_pending_confirmation_without_submission(self):
+        self.permissions += granted_permissions('platform:developer:read')
         await self.page.goto(self.origin + '/developer')
-        await self.page.get_by_role('link', name='模型目录', exact=True).click()
+        await self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='模型目录', exact=True).click()
         await expect(self.page.locator('.model-item')).to_have_count(3)
         await self.row().get_by_role('switch').click()
         await expect(self.page.locator('.ant-modal-confirm')).to_be_visible()
@@ -257,7 +259,7 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.locator('.ai-model-center .ant-alert-error')).to_have_count(0)
 
     async def test_readonly_model_manager_can_distinguish_disabled_models(self):
-        self.permissions = ['ai:models:read']
+        self.permissions = ['platform:models:config_read', 'platform:models:enabled', 'platform:models:read']
         await self.open_models()
         await expect(self.row('结果重排序').get_by_role('switch')).to_have_count(0)
         await expect(self.row('结果重排序')).to_contain_text('已停用')

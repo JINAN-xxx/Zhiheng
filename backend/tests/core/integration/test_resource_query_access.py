@@ -97,7 +97,7 @@ async def test_query_only_key_runs_original_metered_embedding_with_real_vectors(
             await asyncio.wait_for(
                 c.knowledge.authorize_base(other, caller.principal, UUID(base['id']), lock=True), timeout=2
             )
-        await c.models.resolve_many(session, [UUID(model)])
+        await c.models.bindings.resolve_many(session, [UUID(model)])
         await c.resource_access.require(session, caller, 'knowledge_base', UUID(base['id']), 'query', lock=True)
         request = await c.resource_access.begin_request(
             session,

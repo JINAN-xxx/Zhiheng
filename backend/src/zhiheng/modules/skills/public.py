@@ -24,6 +24,7 @@ from zhiheng.modules.skills.service import (
     require_frozen_available,
     resolve_selection,
 )
+from zhiheng.modules.skills.workbench import WorkbenchSkills
 
 __all__ = [
     'MAX_SELECTION_BYTES',
@@ -43,6 +44,7 @@ __all__ = [
     'SkillSlug',
     'SkillSource',
     'SkillStatus',
+    'WorkbenchSkills',
     'require_available',
     'require_available_groups',
     'require_available_set',

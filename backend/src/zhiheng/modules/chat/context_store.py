@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.chat.context_orm import ContextSnapshot, ContextState, SummaryTask
 from zhiheng.modules.chat.orm import Conversation
+from zhiheng.shared.time import utcnow
 
 
 class ContextStore:
@@ -32,15 +33,6 @@ class ContextStore:
         )
         return result
 
-    async def retry_request(self, session: AsyncSession, owner_id: UUID, request_id: UUID) -> SummaryTask | None:
-        result: SummaryTask | None = await session.scalar(
-            select(SummaryTask).where(
-                SummaryTask.owner_id == owner_id,
-                SummaryTask.retry_request_id == request_id,
-            )
-        )
-        return result
-
     async def state(
         self, session: AsyncSession, conversation_id: UUID, owner_id: UUID, *, lock: bool = False
     ) -> ContextState:
@@ -56,32 +48,36 @@ class ContextStore:
         assert state is not None
         return state
 
-    async def mark_completed(self, session: AsyncSession, conversation_id: UUID, owner_id: UUID, run_id: UUID) -> None:
-        await session.execute(
-            insert(ContextState)
-            .values(
-                conversation_id=conversation_id,
-                owner_id=owner_id,
-                dirty=True,
-                last_run_id=run_id,
-            )
-            .on_conflict_do_update(
-                index_elements=[ContextState.conversation_id], set_={'dirty': True, 'last_run_id': run_id}
-            )
-        )
-
     async def pending(self, session: AsyncSession) -> list[tuple[UUID, UUID]]:
         return list(
             (
                 await session.execute(
                     select(ContextState.conversation_id, ContextState.owner_id)
-                    .where(
-                        or_(ContextState.dirty.is_(True), ContextState.pending_task_id.is_not(None)),
-                    )
+                    .where(ContextState.pending_task_id.is_not(None))
                     .order_by(ContextState.conversation_id)
                     .limit(100)
                 )
             ).tuples()
+        )
+
+    async def summary_run_ids(
+        self, session: AsyncSession, parent_run_id: UUID, owner_id: UUID, *, limit: int
+    ) -> list[UUID]:
+        rows = await session.scalars(
+            select(SummaryTask.run_id)
+            .where(
+                SummaryTask.parent_run_id == parent_run_id,
+                SummaryTask.owner_id == owner_id,
+                SummaryTask.run_id.is_not(None),
+            )
+            .order_by(SummaryTask.created_at, SummaryTask.id)
+            .limit(limit)
+        )
+        return [value for value in rows if value is not None]
+
+    async def summary_parent_id(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> UUID | None:
+        return await session.scalar(
+            select(SummaryTask.parent_run_id).where(SummaryTask.run_id == run_id, SummaryTask.owner_id == owner_id)
         )
 
     async def task(self, session: AsyncSession, task_id: UUID) -> SummaryTask | None:
@@ -101,3 +97,62 @@ class ContextStore:
             .limit(1)
         )
         return result
+
+    async def checkpoint_snapshot(
+        self,
+        session: AsyncSession,
+        conversation_id: UUID,
+        checkpoint_id: str,
+    ) -> ContextSnapshot | None:
+        row: ContextSnapshot | None = await session.scalar(
+            select(ContextSnapshot)
+            .where(
+                ContextSnapshot.conversation_id == conversation_id,
+                ContextSnapshot.agent_checkpoint_id == checkpoint_id,
+            )
+            .order_by(ContextSnapshot.created_at.desc())
+            .limit(1)
+        )
+        return row
+
+    async def deleted_checkpoints(self, session: AsyncSession) -> list[tuple[UUID, UUID]]:
+        return list(
+            (
+                await session.execute(
+                    select(ContextState.conversation_id, ContextState.owner_id)
+                    .join(Conversation, Conversation.id == ContextState.conversation_id)
+                    .where(
+                        Conversation.deleted_at.is_not(None),
+                        Conversation.owner_id == ContextState.owner_id,
+                        or_(
+                            ContextState.checkpoint_cleanup_after.is_(None),
+                            ContextState.checkpoint_cleanup_after <= utcnow(),
+                        ),
+                    )
+                    .order_by(ContextState.checkpoint_cleanup_after.asc().nullsfirst(), ContextState.conversation_id)
+                    .limit(25)
+                )
+            ).tuples()
+        )
+
+    async def deleted_checkpoint_state(
+        self, session: AsyncSession, conversation_id: UUID, owner_id: UUID, *, due: bool = False
+    ) -> ContextState | None:
+        query = (
+            select(ContextState)
+            .join(Conversation, Conversation.id == ContextState.conversation_id)
+            .where(
+                ContextState.conversation_id == conversation_id,
+                ContextState.owner_id == owner_id,
+                Conversation.owner_id == owner_id,
+                Conversation.deleted_at.is_not(None),
+            )
+            .with_for_update(of=[Conversation.id, ContextState.conversation_id])
+            .execution_options(populate_existing=True)
+        )
+        if due:
+            query = query.where(
+                or_(ContextState.checkpoint_cleanup_after.is_(None), ContextState.checkpoint_cleanup_after <= utcnow())
+            )
+        rows = await session.scalars(query)
+        return rows.one_or_none()

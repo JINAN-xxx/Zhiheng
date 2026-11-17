@@ -9,13 +9,14 @@ import unittest
 from urllib.parse import urlparse
 from playwright.async_api import expect
 from knowledge_v2_regressions import KnowledgeV2Regressions
+from permission_fixture import granted_permissions
 
 TOKEN='A'*43
 
 class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
     async def asyncSetUp(self):
         await super().asyncSetUp()
-        self.actor={'id':'user-1','username':'owner','is_admin':False,'permissions':[]}
+        self.actor={'id':'user-1','username':'owner','is_admin':False,'permissions':granted_permissions('platform:knowledge:share')}
         self.signed_in=True
         self.accepted=False
         self.raw_requests=[]
@@ -102,7 +103,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         await self.page.screenshot(path=str(destination/'invitation-owner.png'),full_page=True,animations='disabled')
 
     async def test_pasted_link_opens_preview_and_still_requires_acceptance(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]}
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')}
         await self.page.goto(self.origin+'/knowledge')
         await self.page.get_by_role('button',name='加入知识库',exact=True).click()
         modal=self.page.get_by_role('dialog',name='加入知识库',exact=True)
@@ -153,7 +154,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         self.assertEqual(self.create_bodies[0],self.create_bodies[1])
 
     async def test_logged_out_invitation_returns_after_login_and_requires_acceptance(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]};self.signed_in=False
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')};self.signed_in=False
         await self.page.goto(self.origin+'/knowledge/join#'+TOKEN)
         await expect(self.page.get_by_role('button',name='登录后继续',exact=True)).to_be_visible()
         await expect(self.page.get_by_text('业务知识',exact=True)).to_have_count(0)
@@ -173,7 +174,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         self.assertEqual(await self.page.evaluate('sessionStorage.getItem("zhiheng:pending-knowledge-invitation")'),None)
 
     async def test_recipient_accepts_once_even_with_a_slow_response(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]};self.hold_accept=True
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')};self.hold_accept=True
         await self.page.goto(self.origin+'/knowledge/join#'+TOKEN)
         button=self.page.get_by_role('button',name='接受邀请并进入',exact=True)
         await expect(button).to_be_visible()
@@ -185,7 +186,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         await expect(self.page).to_have_url(re.compile('/knowledge/base-1/documents$'))
 
     async def test_late_acceptance_cannot_redirect_a_different_invitation(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]};self.hold_accept=True
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')};self.hold_accept=True
         await self.page.goto(self.origin+'/knowledge/join#'+TOKEN)
         await self.page.get_by_role('button',name='接受邀请并进入',exact=True).click()
         await asyncio.wait_for(self.accept_started.wait(),timeout=5)
@@ -198,7 +199,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         self.assertTrue(self.page.url.endswith('/knowledge/join#bad'))
 
     async def test_mobile_recipient_page_has_no_horizontal_overflow(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]}
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')}
         await self.page.set_viewport_size({'width':390,'height':844})
         await self.page.goto(self.origin+'/knowledge/join#'+TOKEN)
         await expect(self.page.get_by_role('button',name='接受邀请并进入',exact=True)).to_be_visible()
@@ -208,7 +209,7 @@ class KnowledgeInvitationRegressions(KnowledgeV2Regressions):
         await self.page.screenshot(path=str(destination/'invitation-recipient-mobile.png'),full_page=True,animations='disabled')
 
     async def test_expired_or_revoked_invitation_does_not_show_private_metadata(self):
-        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':[]};self.invalid=True
+        self.actor={'id':'user-2','username':'recipient','is_admin':False,'permissions':granted_permissions('platform:knowledge:query')};self.invalid=True
         await self.page.goto(self.origin+'/knowledge/join#'+TOKEN)
         await expect(self.page.get_by_text('邀请无效、已过期、已使用或已撤销',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button',name='接受邀请并进入',exact=True)).to_have_count(0)

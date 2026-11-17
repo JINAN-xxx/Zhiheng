@@ -18,6 +18,7 @@ from tests.core.billing_support import enable_free_billing
 from tests.core.integration.test_knowledge_failures import finish_job, ready_base, source
 from tests.core.integration.test_work import member_client
 from tests.core.knowledge_support import legacy_grant
+from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
 from zhiheng.application.knowledge.graph.runs import GraphModelCall
@@ -30,6 +31,7 @@ from zhiheng.shared.time import utcnow
 from zhiheng.worker.main import build_worker
 
 
+@pytest.mark.usefixtures('member_knowledge_permissions')
 async def test_real_single_arq_slot_graph_runs_and_atomic_publish(  # noqa: PLR0912, PLR0915 - one live worker and active namespace establish publish, fencing and GC invariants
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:

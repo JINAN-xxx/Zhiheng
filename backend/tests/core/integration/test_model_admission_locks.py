@@ -18,11 +18,11 @@ from zhiheng.shared.errors import AppError
 
 async def _binding_read(container: Any, session: Any, operation: str, model: UUID) -> None:
     if operation == 'resolve':
-        await container.models.resolve(session, model)
+        await container.models.bindings.resolve(session, model)
     elif operation == 'resolve_many':
-        await container.models.resolve_many(session, [model])
+        await container.models.bindings.resolve_many(session, [model])
     else:
-        await container.models.lock_many(session, [model])
+        await container.models.bindings.lock_many(session, [model])
 
 
 async def _blocked_by(observer: Any, holder: int, contender: int, task: asyncio.Task[Any]) -> bool:
@@ -137,7 +137,7 @@ async def test_key_creation_and_single_model_admission_do_not_form_lock_cycle(  
     async def admit_one() -> None:
         async with container.database.sessions.begin() as session:
             admission_pid.set_result(await session.scalar(text('SELECT pg_backend_pid()')))
-            await container.models.resolve(session, model_ids[1])
+            await container.models.bindings.resolve(session, model_ids[1])
             admission_read.set()
             await release_admission.wait()
 
@@ -228,7 +228,7 @@ async def test_binding_validation_allows_concurrent_usage_settlement(
     )
     assert response.status_code == 201, response.text
     async with container.database.sessions.begin() as session:
-        rate = await container.models.latest_rate(session, model)
+        rate = await container.models.rates.latest(session, model)
         await container.usage.reserve(
             session,
             user_id=owner,
@@ -236,7 +236,6 @@ async def test_binding_validation_allows_concurrent_usage_settlement(
             model_id=model,
             source='connection_test',
             tokens=100,
-            token_limit=100000,
             rate=rate,
             estimated_input_tokens=100,
             max_output_tokens=0,
@@ -256,9 +255,9 @@ async def test_binding_validation_allows_concurrent_usage_settlement(
     try:
         async with container.database.sessions.begin() as admission:
             if batch:
-                await container.models.resolve_many(admission, [model])
+                await container.models.bindings.resolve_many(admission, [model])
             else:
-                await container.models.resolve(admission, model)
+                await container.models.bindings.resolve(admission, model)
             # Another request's metadata validation must allow a completed call
             # to settle before this admission reserves the shared account.
             task = asyncio.create_task(settle())
@@ -270,7 +269,6 @@ async def test_binding_validation_allows_concurrent_usage_settlement(
                 model_id=model,
                 source='connection_test',
                 tokens=100,
-                token_limit=100000,
                 rate=rate,
                 estimated_input_tokens=100,
                 max_output_tokens=0,
@@ -339,10 +337,10 @@ async def test_binding_validation_still_excludes_model_configuration_changes(
         async with container.database.sessions() as session:
             if resource == 'connection' and delete:
                 # The write lock is acquired before the service checks model references.
-                await container.models.resolve(session, model)
+                await container.models.bindings.resolve(session, model)
             else:
                 with pytest.raises(AppError, match='模型不存在或不可用'):
-                    await container.models.resolve(session, model)
+                    await container.models.bindings.resolve(session, model)
     finally:
         if mutation is not None:
             mutation.cancel()

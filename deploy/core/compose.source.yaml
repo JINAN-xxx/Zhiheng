@@ -3,7 +3,9 @@ services:
   api:
     environment:
       PYTHONPATH: /app/src
+      ZHIHENG_SOURCE_REQUIREMENTS: /app/requirements-core.in
     volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/requirements-core.in:/app/requirements-core.in:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
     command:
@@ -11,13 +13,17 @@ services:
   worker:
     environment:
       PYTHONPATH: /app/src
+      ZHIHENG_SOURCE_REQUIREMENTS: /app/requirements-core.in
     volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/requirements-core.in:/app/requirements-core.in:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
   migrator:
     environment:
       PYTHONPATH: /app/src
+      ZHIHENG_SOURCE_REQUIREMENTS: /app/requirements-core.in
     volumes:
+      - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/requirements-core.in:/app/requirements-core.in:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/src:/app/src:ro"
       - "${CORE_SOURCE_ROOT:?Set CORE_SOURCE_ROOT}/backend/migrations:/app/migrations:ro"
   ui-source:

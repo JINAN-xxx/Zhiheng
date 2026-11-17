@@ -158,7 +158,7 @@ async def test_resource_key_cannot_invoke_public_agent_with_or_without_request_i
     agent = await admin.post('/api/agents', json=config(model_id, application_id=owner_app['id']))
     assert agent.status_code == 201, agent.text
     agent_id = agent.json()['id']
-    published = await admin.post(f'/api/agents/{agent_id}/publish', json={'expected_version': 1})
+    published = await admin.post(f'/api/agents/{agent_id}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
     for extra in ({}, {'client_request_id': str(uuid4())}):
         result = await admin.post(

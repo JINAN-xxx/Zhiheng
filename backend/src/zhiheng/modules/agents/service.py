@@ -6,12 +6,12 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from pydantic import TypeAdapter
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select, text, update
+from sqlalchemy.orm import aliased
 
 from zhiheng.modules.agents.contracts import AgentConfig, AgentInfo, AgentPage, AgentSummary, safe_text
-from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AgentVersion
-from zhiheng.modules.skills.public import MAX_SELECTION_BYTES, SkillSelection
+from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AssistantConversation, AssistantSummary
+from zhiheng.runtime.contracts import TERMINAL_STATUSES, ClaimedRun
 from zhiheng.runtime.orm import Run
 from zhiheng.runtime.runs import ACTIVE_STATUSES
 from zhiheng.shared.errors import AppError
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
     from sqlalchemy.sql.elements import ColumnElement
 
+    from zhiheng.modules.skills.public import SkillSelection
     from zhiheng.shared.principal import Principal
 
 
@@ -64,24 +65,13 @@ class AgentService:
         row = await self._row(session, principal, agent_id, lock=lock)
         if expected_version is not None and row.version != expected_version:
             raise AppError('agent_version_conflict', '智能体已更新，请刷新后重试', 409)
-        published = (
-            await session.scalar(
-                select(AgentVersion).where(
-                    AgentVersion.agent_id == row.id, AgentVersion.version == row.published_version
-                )
-            )
-            if row.published_version is not None
-            else None
-        )
         return AgentInfo.model_validate(
             {
                 **row.config,
                 'id': row.id,
                 'owner_id': row.owner_id,
                 'version': row.version,
-                'status': 'published' if published else 'draft',
-                'published_version': row.published_version,
-                'published_config': published.config if published else None,
+                'status': 'enabled' if row.enabled else 'disabled',
                 'created_at': row.created_at,
                 'updated_at': row.updated_at,
             }
@@ -109,56 +99,18 @@ class AgentService:
         await session.flush()
         return await self.get(session, principal, agent_id)
 
-    async def publish(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, expected_version: int, skills: SkillSelection
+    async def set_enabled(
+        self, session: AsyncSession, principal: Principal, agent_id: UUID, expected_version: int, enabled: bool
     ) -> AgentInfo:
         await self.get(session, principal, agent_id, lock=True, expected_version=expected_version)
         row = await self._row(session, principal, agent_id)
-        row.publication_count += 1
-        row.published_version = row.publication_count
-        session.add(
-            AgentVersion(
-                agent_id=row.id,
-                version=row.publication_count,
-                draft_version=row.version,
-                config=row.config,
-                skills=skill_values(skills),
-            )
-        )
-        row.version, row.updated_at = row.version + 1, utcnow()
+        row.enabled = enabled
+        if enabled:
+            row.enabled_at = utcnow()
+        row.version += 1
+        row.updated_at = utcnow()
         await session.flush()
-        return await self.get(session, principal, agent_id)
-
-    async def published_selection(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, published_version: int
-    ) -> SkillSelection:
-        row = await self._row(session, principal, agent_id)
-        if row.published_version != published_version:
-            raise AppError('agent_version_conflict', '智能体已更新，请刷新后重试', 409)
-        publication = await session.scalar(
-            select(AgentVersion).where(AgentVersion.agent_id == agent_id, AgentVersion.version == published_version)
-        )
-        if publication is None:
-            raise AppError('agent_publication_unavailable', '智能体发布版本不可用', 503)
-        try:
-            selection = TypeAdapter(SkillSelection).validate_python({'revisions': publication.skills})
-            config = AgentConfig.model_validate(publication.config)
-            if [item.slug for item in selection.revisions] != config.skill_slugs or sum(
-                len(item.content.encode('utf-8')) for item in selection.revisions
-            ) > MAX_SELECTION_BYTES:
-                raise ValueError('Invalid published skill selection')
-        except ValueError:
-            raise AppError('agent_publication_unavailable', '智能体发布版本不可用', 503) from None
-        return selection
-
-    async def unpublish(
-        self, session: AsyncSession, principal: Principal, agent_id: UUID, expected_version: int
-    ) -> AgentInfo:
-        await self.get(session, principal, agent_id, lock=True, expected_version=expected_version)
-        row = await self._row(session, principal, agent_id)
-        row.published_version, row.version, row.updated_at = None, row.version + 1, utcnow()
-        await session.flush()
-        return await self.get(session, principal, agent_id)
+        return await self.get(session, principal, row.id)
 
     async def remove(
         self,
@@ -173,15 +125,22 @@ class AgentService:
             raise AppError('agent_referenced', '智能体仍被当前任务引用', 409)
         row = await self._row(session, principal, agent_id)
         row.deleted_at = row.updated_at = utcnow()
-        row.published_version = None
+        await session.execute(
+            update(AssistantConversation)
+            .where(
+                AssistantConversation.agent_id == agent_id,
+                AssistantConversation.owner_id == principal.id,
+                AssistantConversation.deleted_at.is_(None),
+            )
+            .values(deleted_at=row.deleted_at)
+        )
+        row.enabled = False
         row.version += 1
         return info.model_copy(
             update={
                 'version': row.version,
                 'updated_at': row.updated_at,
-                'published_version': None,
-                'published_config': None,
-                'status': 'draft',
+                'status': 'disabled',
             }
         )
 
@@ -193,7 +152,7 @@ class AgentService:
         page: int,
         page_size: int,
         search: str,
-        status: Literal['draft', 'published'] | None,
+        status: Literal['enabled', 'disabled'] | None,
     ) -> AgentPage:
         try:
             safe_text(search)
@@ -207,9 +166,7 @@ class AgentService:
                 or_(Agent.config['name'].astext.ilike(pattern), Agent.config['description'].astext.ilike(pattern))
             )
         if status is not None:
-            query = query.where(
-                Agent.published_version.is_not(None) if status == 'published' else Agent.published_version.is_(None)
-            )
+            query = query.where(Agent.enabled.is_(status == 'enabled'))
         total = await session.scalar(select(func.count()).select_from(query.subquery()))
         ids = await session.scalars(
             query.order_by(Agent.created_at.desc(), Agent.id).offset((page - 1) * page_size).limit(page_size)
@@ -222,56 +179,34 @@ class AgentService:
         )
 
     async def summaries(self, session: AsyncSession, principal: Principal) -> list[AgentSummary]:
-        rows = (await self.list_agents(session, principal, page=1, page_size=1000, search='', status='published')).items
+        rows = (await self.list_agents(session, principal, page=1, page_size=1000, search='', status='enabled')).items
         return [
             AgentSummary(
                 id=row.id,
-                name=row.published_config.name,
-                description=row.published_config.description,
-                published_version=row.published_version,
+                name=row.name,
+                description=row.description,
             )
             for row in rows
-            if row.published_version is not None and row.published_config is not None
         ]
 
     async def _configuration_references(
-        self,
-        session: AsyncSession,
-        draft_match: ColumnElement[bool],
-        published_match: ColumnElement[bool],
+        self, session: AsyncSession, match: ColumnElement[bool]
     ) -> list[ResourceReference]:
-        draft = await session.scalars(select(Agent).where(Agent.deleted_at.is_(None), draft_match).order_by(Agent.id))
-        references = [
-            ResourceReference(
-                'agent', row.id, str(row.config.get('name', '智能体')), 'draft', row.owner_id, f'/agents/{row.id}'
-            )
-            for row in draft
-        ]
-        published = await session.execute(
-            select(Agent, AgentVersion)
-            .join(AgentVersion, (AgentVersion.agent_id == Agent.id) & (AgentVersion.version == Agent.published_version))
-            .where(Agent.deleted_at.is_(None), published_match)
-            .order_by(Agent.id)
-        )
-        references.extend(
+        rows = await session.scalars(select(Agent).where(Agent.deleted_at.is_(None), match).order_by(Agent.id))
+        return [
             ResourceReference(
                 'agent',
                 row.id,
-                str(version.config.get('name', '智能体')),
-                'published',
+                str(row.config.get('name', '智能助手')),
+                'enabled' if row.enabled else 'disabled',
                 row.owner_id,
                 f'/agents/{row.id}',
             )
-            for row, version in published
-        )
-        return references
+            for row in rows
+        ]
 
     async def model_references(self, session: AsyncSession, model_id: UUID) -> list[ResourceReference]:
-        return await self._configuration_references(
-            session,
-            Agent.config['model_id'].astext == str(model_id),
-            AgentVersion.config['model_id'].astext == str(model_id),
-        )
+        return await self._configuration_references(session, Agent.config['model_id'].astext == str(model_id))
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))
@@ -281,7 +216,6 @@ class AgentService:
         return await self._configuration_references(
             session,
             Agent.config['knowledge_base_ids'].contains([str(base_id)]),
-            AgentVersion.config['knowledge_base_ids'].contains([str(base_id)]),
         )
 
     async def skill_references(
@@ -295,7 +229,6 @@ class AgentService:
         references = await self._configuration_references(
             session,
             (Agent.owner_id == owner_id) & Agent.config['skill_slugs'].contains([slug]),
-            (Agent.owner_id == owner_id) & AgentVersion.config['skill_slugs'].contains([slug]),
         )
         runs = await session.scalars(
             select(Run)
@@ -324,28 +257,18 @@ class AgentService:
         agent: AgentInfo,
         config: AgentConfig,
         skills: SkillSelection,
-        published: bool,
         knowledge: list[dict[str, object]],
+        execution: dict[str, object] | None = None,
     ) -> None:
-        config_version = agent.version
-        if published:
-            publication = await session.scalar(
-                select(AgentVersion).where(
-                    AgentVersion.agent_id == agent.id, AgentVersion.version == agent.published_version
-                )
-            )
-            assert publication is not None
-            config_version = publication.draft_version
         session.add(
             AgentRunAudit(
                 run_id=run_id,
                 agent_id=agent.id,
                 owner_id=agent.owner_id,
-                config_version=config_version,
-                published_version=agent.published_version if published else None,
                 config=config.model_dump(mode='json'),
                 skills=skill_values(skills),
                 knowledge=knowledge,
+                execution=execution,
             )
         )
 
@@ -371,3 +294,65 @@ class AgentService:
         if row.create_fingerprint not in hashes:
             raise AppError('idempotency_conflict', '原创建标识不能用于不同配置', 409)
         return await self.get(session, principal, row.id)
+
+    async def attach_summary(self, session: AsyncSession, parent: ClaimedRun, run_id: UUID) -> None:
+        session.add(
+            AssistantSummary(
+                parent_run_id=parent.id,
+                parent_attempt_id=parent.attempt_id,
+                run_id=run_id,
+                conversation_id=parent.resource_id,
+                owner_id=parent.owner_id,
+            )
+        )
+        await session.flush()
+
+    async def summary_for_parent(self, session: AsyncSession, run_id: UUID) -> AssistantSummary | None:
+        return await session.get(AssistantSummary, run_id)
+
+    async def summary_for_run(self, session: AsyncSession, run_id: UUID) -> AssistantSummary | None:
+        result: AssistantSummary | None = await session.scalar(
+            select(AssistantSummary).where(AssistantSummary.run_id == run_id)
+        )
+        return result
+
+    async def orphan_summaries(self, session: AsyncSession) -> list[tuple[UUID, UUID]]:
+        parent, child = aliased(Run), aliased(Run)
+        return list(
+            (
+                await session.execute(
+                    select(AssistantSummary.run_id, AssistantSummary.owner_id)
+                    .join(parent, parent.id == AssistantSummary.parent_run_id)
+                    .join(child, child.id == AssistantSummary.run_id)
+                    .where(parent.status.in_(TERMINAL_STATUSES), child.status.not_in(TERMINAL_STATUSES))
+                    .limit(100)
+                )
+            ).tuples()
+        )
+
+    async def conversation_agent(self, session: AsyncSession, conversation_id: UUID, owner_id: UUID) -> UUID | None:
+        result: UUID | None = await session.scalar(
+            select(AssistantConversation.agent_id).where(
+                AssistantConversation.id == conversation_id, AssistantConversation.owner_id == owner_id
+            )
+        )
+        return result
+
+    async def summary_run_ids(
+        self, session: AsyncSession, parent_id: UUID, owner_id: UUID, *, limit: int
+    ) -> list[UUID]:
+        return list(
+            await session.scalars(
+                select(AssistantSummary.run_id)
+                .where(AssistantSummary.parent_run_id == parent_id, AssistantSummary.owner_id == owner_id)
+                .limit(limit)
+            )
+        )
+
+    async def summary_parent_id(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> UUID | None:
+        result: UUID | None = await session.scalar(
+            select(AssistantSummary.parent_run_id).where(
+                AssistantSummary.run_id == run_id, AssistantSummary.owner_id == owner_id
+            )
+        )
+        return result

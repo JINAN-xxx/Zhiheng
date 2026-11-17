@@ -1,4 +1,3 @@
-from zhiheng.modules.agents.context import KnowledgeContext, KnowledgeContextProvider, knowledge_context
 from zhiheng.modules.agents.contracts import (
     AgentConfig,
     AgentCreate,
@@ -15,11 +14,13 @@ from zhiheng.modules.agents.conversations import (
     AssistantConversationInfo,
     AssistantConversations,
     AssistantConversationValue,
+    AssistantRunValue,
 )
-from zhiheng.modules.agents.history import select_agent_history
 from zhiheng.modules.agents.service import AgentService
+from zhiheng.modules.agents.workbench import WorkbenchAgents
 
 __all__ = [
+    'AgentCompletion',
     'AgentConfig',
     'AgentCreate',
     'AgentInfo',
@@ -32,10 +33,11 @@ __all__ = [
     'AssistantConversationInfo',
     'AssistantConversationValue',
     'AssistantConversations',
-    'KnowledgeContext',
-    'KnowledgeContextProvider',
+    'AssistantExecutionSpec',
+    'AssistantRunValue',
     'PreviewRequest',
     'VersionRequest',
-    'knowledge_context',
-    'select_agent_history',
+    'WorkbenchAgents',
 ]
+
+from zhiheng.modules.agents.execution import AgentCompletion, AssistantExecutionSpec

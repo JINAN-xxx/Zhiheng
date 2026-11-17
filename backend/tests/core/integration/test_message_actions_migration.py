@@ -1,4 +1,3 @@
-import json
 from uuid import uuid4
 
 from alembic import command
@@ -8,6 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 
 from tests.core.integration.test_builtin_role_migration import _version
+from tests.core.schema_support import RETIRED_COLUMNS, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.modules.chat.orm import Conversation
@@ -19,10 +19,14 @@ def quoted(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-async def snapshot(connection: AsyncConnection, columns: dict[tuple[str, str], list[str]]) -> dict[str, list[str]]:
+async def snapshot(
+    connection: AsyncConnection, columns: dict[tuple[str, str], list[str]], *, active: bool = False
+) -> dict[str, list[str]]:
     result = {}
     for (schema, table), names in columns.items():
-        projection = ','.join(quoted(name) for name in names)
+        projection = ','.join(
+            quoted(name) for name in names if not active or name not in RETIRED_COLUMNS.get(table, frozenset())
+        )
         qualified = quoted(schema) + '.' + quoted(table)
         result[schema + '.' + table] = list(
             await connection.scalars(
@@ -118,12 +122,9 @@ async def test_message_actions_upgrade_preserves_all_original_columns_and_rows(s
             assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0008_graph'
         await migrate(settings)
         async with engine.connect() as connection:
-            after = await snapshot(connection, columns)
+            after = await snapshot(connection, columns, active=True)
             for name, original_rows in before.items():
-                if name in {'public.skills', 'public.skill_revisions'}:
-                    identifiers = {json.loads(row)['id'] for row in original_rows}
-                    after[name] = [row for row in after[name] if json.loads(row)['id'] in identifiers]
-            assert after == before
+                assert_original_rows(original_rows, after[name], name.split('.')[-1])
             assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
     finally:
         await engine.dispose()

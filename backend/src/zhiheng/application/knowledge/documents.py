@@ -81,7 +81,7 @@ class KnowledgeDocuments:
     ) -> dict[str, object]:
         value = fingerprint([str(base_id), filename, str(folder_id), hashlib.sha256(content).hexdigest()])
         async with self.database.sessions.begin() as session:
-            previous = await self.knowledge.upload_receipt(session, principal, base_id, request_id, value)
+            previous = await self.knowledge.materials.upload_receipt(session, principal, base_id, request_id, value)
             if previous is not None:
                 return previous
             base = await self.knowledge.authorize_base(session, principal, base_id, manage=True)
@@ -106,8 +106,8 @@ class KnowledgeDocuments:
                 storage_key=key,
                 purpose='knowledge_document',
             )
-            upload_id = await self.knowledge.register_upload(session, principal, base_id, file, folder_id)
-            await self.knowledge.remember_upload(
+            upload_id = await self.knowledge.materials.register_upload(session, principal, base_id, file, folder_id)
+            await self.knowledge.materials.remember_upload(
                 session, principal, base_id, request_id, value, file.id, upload_id, folder_id
             )
             file = await self.files.get(session, principal, file.id)
@@ -115,31 +115,31 @@ class KnowledgeDocuments:
 
     async def upload_status(self, principal: Principal, base_id: UUID, request_id: UUID) -> dict[str, object]:
         async with self.serialize_import(principal.id, request_id), self.database.sessions() as session:
-            return await self.knowledge.find_upload_receipt(session, principal, base_id, request_id)
+            return await self.knowledge.materials.find_upload_receipt(session, principal, base_id, request_id)
 
     async def cleanup_uploads(self) -> None:
         async with self.database.sessions() as session:
-            expired = await self.knowledge.expired_uploads(session, utcnow() - timedelta(hours=24))
+            expired = await self.knowledge.materials.expired_uploads(session, utcnow() - timedelta(hours=24))
         for base_id, owner_id, upload_id in expired:
             async with self.database.sessions.begin() as session:
                 try:
-                    await self.knowledge.remove_upload(
+                    await self.knowledge.materials.remove_upload(
                         session, Principal(owner_id, 'knowledge-upload-maintenance', False), base_id, upload_id
                     )
-                    await self.knowledge.finish_upload(session, upload_id, 'expired')
+                    await self.knowledge.materials.finish_upload(session, upload_id, 'expired')
                 except AppError as error:
                     if error.code not in {'knowledge_busy', 'knowledge_upload_not_found', 'knowledge_not_found'}:
                         raise
 
     async def prepare_import(self, principal: Principal, base_id: UUID, selection: BuildSelection) -> BuildSelection:
         async with self.database.sessions.begin() as session:
-            sources = await self.knowledge.import_sources(
+            sources = await self.knowledge.materials.import_sources(
                 session, principal, base_id, selection.file_ids or [], selection.folder_id
             )
         mapping = {}
         for source in sources:
             async with self.database.sessions.begin() as session:
-                existing = await self.knowledge.existing_attachment(session, principal, base_id, source.id)
+                existing = await self.knowledge.materials.existing_attachment(session, principal, base_id, source.id)
             if existing is not None:
                 mapping[source.id] = existing.document.file_id
                 continue
@@ -148,13 +148,13 @@ class KnowledgeDocuments:
             content = await self.files.read_content(ticket)
             key = await self.files.storage.put(content)
             async with self.objects.registration(key) as session:
-                await self.knowledge.lock_library_sources(
+                await self.knowledge.materials.lock_library_sources(
                     session, principal, (source.id,), additional_base_ids=(base_id,)
                 )
                 current = await self.files.require(session, principal, source.id, active=True, lock=True)
                 if current.owner_id != principal.id or current.sha256 != source.sha256:
                     raise AppError('source_snapshot_changed', '原附件已变化，请重试', 409)
-                copied = await self.knowledge.copied_source_file(
+                copied = await self.knowledge.materials.copied_source_file(
                     session, principal, base_id, source.id, selection.folder_id
                 )
                 if copied is not None:
@@ -169,7 +169,7 @@ class KnowledgeDocuments:
                     storage_key=key,
                     purpose='knowledge_document',
                 )
-                await self.knowledge.register_copy_upload(
+                await self.knowledge.materials.register_copy_upload(
                     session, principal, base_id, current, file, selection.folder_id
                 )
                 mapping[source.id] = file.id
@@ -185,7 +185,7 @@ class KnowledgeDocuments:
         value = fingerprint(['import', str(base_id), payload])
         async with self.database.sessions.begin() as session:
             await self.knowledge.authorize_base(session, principal, base_id, manage=True)
-            existing = await self.knowledge.existing_job(session, principal, body.client_request_id, value)
+            existing = await self.knowledge.builds.existing_job(session, principal, body.client_request_id, value)
             if existing is not None:
                 return existing
         selection = await self.prepare_import(
@@ -199,7 +199,9 @@ class KnowledgeDocuments:
             ),
         )
         async with self.database.sessions.begin() as session:
-            imported = await self.knowledge.imported_files_job(session, principal, base_id, selection.file_ids or [])
+            imported = await self.knowledge.materials.imported_files_job(
+                session, principal, base_id, selection.file_ids or []
+            )
             if imported is not None:
                 return imported
             return await native.console_job(
@@ -208,11 +210,11 @@ class KnowledgeDocuments:
 
     async def add_attachment(self, principal: Principal, base_id: UUID, body: AttachmentImport) -> AttachmentImportInfo:
         async with self.database.sessions.begin() as session:
-            await self.files.require_sent_attachment(session, principal, body.file_id)
+            await self.files.references.require_sent_attachment(session, principal, body.file_id)
             base = await self.knowledge.require(session, principal, base_id, manage=True)
             if base.document_policy != 'library':
                 raise AppError('knowledge_migration_required', '请先迁移此知识库后再加入聊天附件', 409)
-            existing = await self.knowledge.existing_attachment(session, principal, base_id, body.file_id)
+            existing = await self.knowledge.materials.existing_attachment(session, principal, base_id, body.file_id)
             if existing is not None:
                 return existing
             size, overlap = base.chunk_size, base.chunk_overlap
@@ -229,18 +231,18 @@ class KnowledgeDocuments:
         )
         async with self.database.sessions.begin() as session:
             # Recheck the source and target after storage IO, without disclosing the origin to readers.
-            await self.files.require_sent_attachment(session, principal, body.file_id)
-            result = await self.knowledge.existing_attachment(session, principal, base_id, body.file_id)
+            await self.files.references.require_sent_attachment(session, principal, body.file_id)
+            result = await self.knowledge.materials.existing_attachment(session, principal, base_id, body.file_id)
             assert result is not None
             return result.model_copy(update={'job': job, 'already_exists': False})
 
     async def download(self, principal: Principal, base_id: UUID, document_id: UUID) -> tuple[FileInfo, bytes]:
         async with self.database.sessions.begin() as session:
-            file = await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            file = await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
             ticket = await self.files.read_ticket(session, principal, file.id)
         content = await self.files.read_content(ticket)
         async with self.database.sessions.begin() as session:
-            await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
         return file, content
 
     async def migrate(self, principal: Principal, base_id: UUID, body: MigrationRequest) -> JobInfo:
@@ -251,22 +253,22 @@ class KnowledgeDocuments:
         value = fingerprint(['migration', str(base_id), body.model_dump(mode='json')])
         async with self.database.sessions.begin() as session:
             await self.knowledge.authorize_base(session, principal, base_id, manage=True)
-            existing = await self.knowledge.existing_job(session, principal, body.client_request_id, value)
+            existing = await self.knowledge.builds.existing_job(session, principal, body.client_request_id, value)
             if existing is not None:
                 return existing
-            sources = await self.knowledge.migration_sources(session, principal, base_id, body)
+            sources = await self.knowledge.migration.sources(session, principal, base_id, body)
         document_ids: list[UUID] = []
         identities: list[dict[str, object]] = []
         for source in sources:
             async with self.database.sessions.begin() as session:
                 snapshot = await self.files.source_snapshot(session, principal, source.file_id)
-                existing_copy = await self.knowledge.existing_migration_copy(session, base_id, source, snapshot.sha256)
+                existing_copy = await self.knowledge.migration.existing_copy(session, base_id, source, snapshot.sha256)
                 ticket = await self.files.read_ticket(session, principal, source.file_id)
             if existing_copy is None:
                 content = await self.files.read_content(ticket)
                 key = await self.files.storage.put(content)
                 async with self.objects.registration(key) as session:
-                    await self.knowledge.lock_library_sources(
+                    await self.knowledge.materials.lock_library_sources(
                         session, principal, (source.file_id,), additional_base_ids=(base_id,)
                     )
                     current = await self.files.source_snapshot(session, principal, source.file_id, lock=True)
@@ -281,7 +283,7 @@ class KnowledgeDocuments:
                         storage_key=key,
                         purpose='knowledge_document',
                     )
-                    existing_copy = await self.knowledge.migration_copy(session, principal, base_id, source, file)
+                    existing_copy = await self.knowledge.migration.copy(session, principal, base_id, source, file)
             document_ids.append(existing_copy)
             identities.append(
                 {
@@ -292,15 +294,15 @@ class KnowledgeDocuments:
                 }
             )
         async with self.database.sessions.begin() as session:
-            return await self.knowledge.queue_migration(session, principal, base_id, body, document_ids, identities)
+            return await self.knowledge.migration.queue(session, principal, base_id, body, document_ids, identities)
 
     async def preview(self, principal: Principal, base_id: UUID, document_id: UUID) -> dict[str, object]:
         async with self.database.sessions.begin() as session:
             await self.knowledge.authorize_base(session, principal, base_id)
-            document = await self.knowledge.document_info(session, base_id, document_id)
-            await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            document = await self.knowledge.materials.document_info(session, base_id, document_id)
+            await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
             file_id, size, overlap = document.file_id, document.chunk_size, document.chunk_overlap
-            artifact_id = (await self.knowledge.document(session, base_id, document_id)).artifact_file_id
+            artifact_id = (await self.knowledge.materials.document(session, base_id, document_id)).artifact_file_id
         parsed = (
             await self.inputs.parse_artifact(principal, file_id, artifact_id)
             if artifact_id is not None
@@ -314,8 +316,8 @@ class KnowledgeDocuments:
             raise AppError('invalid_chunks', '知识分块无效或超过2000块', 422) from None
         async with self.database.sessions.begin() as session:
             await self.knowledge.authorize_base(session, principal, base_id)
-            await self.knowledge.document_info(session, base_id, document_id)
-            await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            await self.knowledge.materials.document_info(session, base_id, document_id)
+            await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
         return {
             'document_id': document_id,
             'file_id': file_id,

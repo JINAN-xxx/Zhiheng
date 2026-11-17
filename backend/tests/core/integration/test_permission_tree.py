@@ -11,7 +11,7 @@ from tests.core.integration.test_platform_module_permissions import member
 from tests.core.provider import ProviderServer
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentityUser
-from zhiheng.shared.permission_policy import PERMISSION_CODES, upgrade_legacy_permissions
+from zhiheng.shared.permission_policy import PERMISSION_CODES
 
 
 async def allow(app: FastAPI, module: str, *actions: str, enabled: bool = True) -> UUID:
@@ -187,17 +187,6 @@ async def test_api_knowledge_write_scope_cannot_bypass_create_only_role(
         assert (await client.get(target, headers=headers)).status_code == 403
 
 
-def test_legacy_conversion_preserves_scope_without_credential_escalation() -> None:
-    used = upgrade_legacy_permissions(['platform:knowledge:access', 'platform:models:access'])
-    assert 'platform:knowledge:query' in used and 'platform:knowledge:delete' not in used
-    assert not any(code.startswith('ai:credentials:') for code in used)
-    managed = upgrade_legacy_permissions(['platform:knowledge:manage'])
-    assert {'platform:knowledge:create', 'platform:knowledge:delete', 'platform:knowledge:import'} <= set(managed)
-    assert 'platform:knowledge:query' not in managed and 'platform:knowledge:share' not in managed
-    system = upgrade_legacy_permissions(['system:users:write'])
-    assert {'system:users:create', 'system:users:delete', 'system:users:assign_roles'} <= set(system)
-
-
 async def test_user_edit_and_role_edit_cannot_escalate_assignment(admin: httpx.AsyncClient, app: FastAPI) -> None:
     await allow(app, 'system:users', 'update')
     await allow(app, 'system:roles', 'update')
@@ -277,7 +266,7 @@ def test_disabled_module_children_never_become_effective_without_gate() -> None:
 
     children = {'platform:knowledge:read', 'platform:knowledge:create', 'platform:knowledge:delete'}
     assert effective_permissions(children) == frozenset()
-    assert not is_granted(children, 'platform:knowledge:manage')
+    assert not is_granted(children, 'platform:knowledge:create')
     enabled = children | {'platform:knowledge:enabled'}
     assert is_granted(enabled, 'platform:knowledge:create') and is_granted(enabled, 'platform:knowledge:delete')
     assert not is_granted(enabled, 'platform:knowledge:query')

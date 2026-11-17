@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -14,550 +12,56 @@ import {
   BorderOutlined,
   HistoryOutlined
 } from '@ant-design/icons-vue'
+import { useRouter } from 'vue-router'
 import { AiMessage } from '../../chat/public.ts'
+import { KnowledgeSources, preparationFinished } from '../../knowledge/public.ts'
+import { identity } from '../../identity/public.ts'
+import { isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import AssistantWelcome from '../components/AssistantWelcome.vue'
 import AssistantHistoryDialog from '../components/AssistantHistoryDialog.vue'
-import {
-  KnowledgeSources,
-  cancelPreparation,
-  getPreparation,
-  isPreparation,
-  observePreparation,
-  preparationFinished
-} from '../../knowledge/public.ts'
-import type { KnowledgePreparation } from '../../knowledge/public.ts'
-import { identity, canUseCapability } from '../../identity/public.ts'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { createRequestId } from '../../../shared/requestId.ts'
-import { cancelRun, observeRun } from '../../../shared/runs.ts'
-import { acceptSnapshot, isTerminal, runStatusLabel } from '../../../shared/stream.ts'
-import type { RunSnapshot } from '../../../shared/stream.ts'
-import { getAgent } from '../api/index.ts'
-import type { Agent } from '../api/index.ts'
-import {
-  createAssistantConversation,
-  getAssistantConversation,
-  getAssistantConversations,
-  sendAssistantMessage
-} from '../api/conversations.ts'
-import type { AssistantConversation, AssistantTurn } from '../api/conversations.ts'
+import { useAssistantWorkspace } from '../composables/useAssistantWorkspace.ts'
 
-const route = useRoute(),
-  router = useRouter()
-const agentId = String(route.params.id)
-const agent = ref<Agent | null>(null)
-const conversations = ref<AssistantConversation[]>([])
-const selected = ref<AssistantConversation | null>(null)
-const turns = ref<AssistantTurn[]>([])
-const older = ref<number | null>(null)
-const hasMore = ref(false)
-const historyOpen = ref(false),
-  listLoading = ref(false),
-  olderLoading = ref(false)
-const draft = ref(''),
-  error = ref(''),
-  listError = ref('')
-const loading = ref(false),
-  sending = ref(false),
-  disconnected = ref(false),
-  stopping = ref(false)
-const activeRun = ref<RunSnapshot | null>(null)
-const preparation = ref<KnowledgePreparation | null>(null)
-interface OutgoingTurn {
-  requestId: string
-  conversationId: string | null
-  content: string
-  stage: 'submitting' | 'preparing' | 'replying' | 'uncertain' | 'failed' | 'cancelled'
-  runId: string | null
-  error: string
-}
-const outgoing = ref<OutgoingTurn | null>(null)
-const outgoingVisible = computed(() =>
-  Boolean(
-    outgoing.value &&
-      !turns.value.some(
-        (turn) =>
-          turn.requestId === outgoing.value?.requestId || turn.run.id === outgoing.value?.runId
-      )
-  )
-)
-const outgoingRun = computed(() =>
-  activeRun.value?.id === outgoing.value?.runId ? activeRun.value : null
-)
-const preparationLabel = computed(() => {
-  if (preparation.value?.status === 'cancel_requested') return '正在停止检索…'
-  if (preparation.value?.phase.includes('rerank')) return '正在整理相关资料…'
-  return '正在检索知识库…'
-})
-const history = ref<HTMLElement | null>(null)
-const pageScope = new RequestScope(),
-  conversationScope = new RequestScope()
-let identityController: AbortController | null = null
-const published = computed(() => agent.value?.publishedConfig ?? null)
-const name = computed(
-  () => selected.value?.name ?? published.value?.name ?? agent.value?.name ?? '智能助手'
-)
-const welcome = computed(
-  () => selected.value?.welcomeMessage ?? published.value?.welcomeMessage ?? ''
-)
-const running = computed(() =>
-  Boolean(
-    (activeRun.value && !isTerminal(activeRun.value)) ||
-      (preparation.value && !preparationFinished(preparation.value))
-  )
-)
-const canSend = computed(
-  () =>
-    canUseCapability('agents') &&
-    agent.value?.status === 'published' &&
-    !recoveryBlocked.value &&
-    (!route.query.conversation || selected.value?.id === route.query.conversation) &&
-    !loading.value &&
-    !sending.value &&
-    !running.value
-)
-interface PendingSend {
-  owner: string
-  agent: string
-  conversationId: string | null
-  createId: string
-  requestId: string
-  message: string
-}
-const pending = ref<PendingSend | null>(null)
-const recoveryBlocked = ref(false)
-const pendingKey = () => `zhiheng:assistant:${identity.value?.id ?? ''}:${agentId}:pending`
-function showOutgoing(
-  requestId: string,
-  content: string,
-  conversationId: string | null,
-  stage: OutgoingTurn['stage']
-): void {
-  outgoing.value = { requestId, content, conversationId, stage, runId: null, error: '' }
-}
-function savePending(value: PendingSend): void {
-  sessionStorage.setItem(pendingKey(), JSON.stringify(value))
-  pending.value = value
-}
-function clearPending(): void {
-  sessionStorage.removeItem(pendingKey())
-  pending.value = null
-}
-function restorePending(): void {
-  try {
-    const raw = sessionStorage.getItem(pendingKey())
-    if (!raw) return
-    const d: unknown = JSON.parse(raw)
-    if (typeof d !== 'object' || d === null) throw new Error('invalid')
-    const v = d as Record<string, unknown>
-    if (
-      typeof v.owner !== 'string' ||
-      v.owner !== identity.value?.id ||
-      v.agent !== agentId ||
-      typeof v.createId !== 'string' ||
-      typeof v.requestId !== 'string' ||
-      typeof v.message !== 'string' ||
-      !(v.conversationId === null || typeof v.conversationId === 'string')
-    )
-      throw new Error('invalid')
-    pending.value = {
-      owner: v.owner,
-      agent: agentId,
-      createId: v.createId,
-      requestId: v.requestId,
-      message: v.message,
-      conversationId: v.conversationId
-    }
-  } catch {
-    recoveryBlocked.value = true
-    error.value = '无法读取原提交，请先核对历史对话及浏览器会话存储，再刷新重试。'
-  }
-}
-function restorePendingOutgoing(): void {
-  const value = pending.value
-  if (value && !value.conversationId && !route.query.conversation) {
-    showOutgoing(value.requestId, value.message, null, 'uncertain')
-  }
-}
-async function scroll(): Promise<void> {
-  await nextTick()
-  history.value?.scrollTo({ top: history.value.scrollHeight })
-}
-function project(run: RunSnapshot): void {
-  if (acceptSnapshot(activeRun.value, run)) activeRun.value = run
-  turns.value = turns.value.map((turn) =>
-    turn.run.id === run.id && acceptSnapshot(turn.run, run) ? { ...turn, run } : turn
-  )
-  void scroll()
-}
-async function refreshList(append = false): Promise<void> {
-  const ticket = pageScope.replace()
-  listError.value = ''
-  listLoading.value = true
-  try {
-    const cursor = append ? conversations.value.at(-1)?.id : undefined
-    const rows = await getAssistantConversations(agentId, ticket.signal, cursor)
-    if (!ticket.isCurrent()) return
-    conversations.value = append ? [...conversations.value, ...rows] : rows
-    hasMore.value = rows.length === 50
-  } catch (e) {
-    if (ticket.isCurrent() && !isAborted(e)) listError.value = errorMessage(e)
-  } finally {
-    if (ticket.isCurrent()) listLoading.value = false
-  }
-}
-async function readDetail(
-  id: string,
-  ticket: ReturnType<RequestScope['current']>
-): Promise<AssistantConversation | undefined> {
-  const result = await getAssistantConversation(agentId, id, ticket.signal)
-  if (!ticket.isCurrent()) return
-  selected.value = result.conversation
-  turns.value = result.turns
-  older.value = result.nextBefore
-  const outstanding = [...result.turns].reverse().find((t) => !isTerminal(t.run))
-  activeRun.value = outstanding?.run ?? null
-  if (
-    outgoing.value &&
-    result.turns.some(
-      (turn) =>
-        turn.requestId === outgoing.value?.requestId || turn.run.id === outgoing.value?.runId
-    )
-  )
-    outgoing.value = null
-  if (
-    result.preparingMessage &&
-    !result.turns.some((turn) => turn.requestId === result.preparingMessage?.requestId)
-  ) {
-    showOutgoing(
-      result.preparingMessage.requestId,
-      result.preparingMessage.content,
-      id,
-      'preparing'
-    )
-  } else if (
-    !outgoing.value &&
-    pending.value?.conversationId === id &&
-    !result.turns.some((turn) => turn.requestId === pending.value?.requestId)
-  ) {
-    showOutgoing(pending.value.requestId, pending.value.message, id, 'uncertain')
-  }
-  return result.conversation
-}
-async function follow(
-  run: RunSnapshot,
-  ticket: ReturnType<RequestScope['current']>
-): Promise<void> {
-  if (run.resource_type !== 'agent_chat' || run.resource_id !== selected.value?.id)
-    throw new Error('助手运行与当前对话不匹配')
-  activeRun.value = run
-  project(run)
-  await observeRun(
-    run,
-    (value) => {
-      if (ticket.isCurrent()) project(value)
-    },
-    ticket.signal
-  )
-  if (ticket.isCurrent() && selected.value) {
-    await readDetail(selected.value.id, ticket)
-    void refreshList()
-    await scroll()
-  }
-}
-async function followKnowledge(
-  value: KnowledgePreparation,
-  ticket: ReturnType<RequestScope['current']>
-): Promise<void> {
-  if (value.resource_type !== 'agent_chat' || value.resource_id !== selected.value?.id)
-    throw new Error('知识准备与当前助手对话不匹配')
-  preparation.value = value
-  const result = await observePreparation(
-    value,
-    (incoming) => {
-      if (ticket.isCurrent()) preparation.value = incoming
-    },
-    ticket.signal
-  )
-  if (!ticket.isCurrent()) return
-  if (!result.run) {
-    if (outgoing.value) {
-      outgoing.value.stage = result.status === 'cancelled' ? 'cancelled' : 'failed'
-      outgoing.value.error =
-        result.status === 'cancelled' ? '' : (result.error?.message ?? '知识准备未完成')
-    } else error.value = result.error?.message ?? '知识准备未完成'
-    void refreshList()
-    await scroll()
-    return
-  }
-  preparation.value = null
-  activeRun.value = result.run
-  if (outgoing.value) {
-    outgoing.value.stage = 'replying'
-    outgoing.value.runId = result.run.id
-  }
-  await readDetail(selected.value.id, ticket)
-  if (ticket.isCurrent()) await follow(result.run, ticket)
-}
-async function openConversation(id: string): Promise<void> {
-  const ticket = conversationScope.replace()
-  turns.value = []
-  selected.value = null
-  activeRun.value = null
-  preparation.value = null
-  outgoing.value = null
-  older.value = null
-  olderLoading.value = false
-  draft.value = ''
-  error.value = ''
-  disconnected.value = false
-  stopping.value = false
-  loading.value = Boolean(id)
-  sending.value = false
-  if (!id) return
-  try {
-    const loaded = await readDetail(id, ticket)
-    if (!ticket.isCurrent()) return
-    await scroll()
-    if (loaded?.preparationId) {
-      const value = await getPreparation(loaded.preparationId, ticket.signal)
-      if (ticket.isCurrent()) {
-        loading.value = false
-        await followKnowledge(value, ticket)
-      }
-    } else {
-      loading.value = false
-      if (activeRun.value) await follow(activeRun.value, ticket)
-    }
-  } catch (e) {
-    if (ticket.isCurrent() && !isAborted(e)) {
-      error.value = errorMessage(e)
-      disconnected.value = running.value
-    }
-  } finally {
-    if (ticket.isCurrent()) loading.value = false
-  }
-}
-function select(id?: string): void {
-  void router.replace({
-    name: 'assistant-chat',
-    params: { id: agentId },
-    query: id ? { conversation: id } : {}
-  })
-}
-async function send(retry = false): Promise<void> {
-  if (sending.value || loading.value || running.value || !identity.value) return
-  if (!retry && (!canSend.value || pending.value || !draft.value.trim())) return
-  const intent = retry
-    ? pending.value
-    : {
-        owner: identity.value.id,
-        agent: agentId,
-        conversationId: selected.value?.id ?? null,
-        createId: createRequestId(),
-        requestId: createRequestId(),
-        message: draft.value.trim()
-      }
-  if (!intent) return
-  // Persist the original identity before any mutation, so an uncertain response can be retried safely.
-  try {
-    savePending(intent)
-  } catch {
-    error.value = '无法保存提交恢复信息，请检查浏览器存储后重试'
-    return
-  }
-  if (intent.conversationId && intent.conversationId !== selected.value?.id) {
-    await router.replace({
-      name: 'assistant-chat',
-      params: { id: agentId },
-      query: { conversation: intent.conversationId }
-    })
-    await openConversation(intent.conversationId)
-    if (running.value) return
-  }
-  const ticket = conversationScope.current()
-  sending.value = true
-  error.value = ''
-  disconnected.value = false
-  showOutgoing(intent.requestId, intent.message, intent.conversationId, 'submitting')
-  draft.value = ''
-  void scroll()
-  try {
-    if (!intent.conversationId) {
-      const value = await createAssistantConversation(agentId, intent.createId, ticket.signal)
-      if (!ticket.isCurrent()) return
-      selected.value = value
-      intent.conversationId = value.id
-      if (outgoing.value) outgoing.value.conversationId = value.id
-      savePending(intent)
-      // Replace the URL without reloading the just-created session before its first submission.
-      skipConversation = value.id
-      await router.replace({
-        name: 'assistant-chat',
-        params: { id: agentId },
-        query: { conversation: value.id }
-      })
-    }
-    const result = await sendAssistantMessage(
-      agentId,
-      intent.conversationId,
-      intent.message,
-      intent.requestId,
-      ticket.signal
-    )
-    if (!ticket.isCurrent()) return
-    clearPending()
-    sending.value = false
-    void refreshList()
-    if (isPreparation(result)) {
-      if (outgoing.value) outgoing.value.stage = 'preparing'
-      await followKnowledge(result, ticket)
-    } else {
-      activeRun.value = result
-      if (outgoing.value) {
-        outgoing.value.stage = 'replying'
-        outgoing.value.runId = result.id
-      }
-      await readDetail(intent.conversationId, ticket)
-      if (ticket.isCurrent()) await follow(result, ticket)
-    }
-  } catch (e) {
-    if (ticket.isCurrent() && !isAborted(e)) {
-      const definitive = e instanceof ApiError && e.status < 500 && e.status !== 408
-      if (definitive) clearPending()
-      if (outgoing.value) {
-        outgoing.value.error = errorMessage(e)
-        outgoing.value.stage = pending.value ? 'uncertain' : 'failed'
-      } else error.value = errorMessage(e)
-      disconnected.value = running.value
-    }
-  } finally {
-    if (ticket.isCurrent()) sending.value = false
-  }
-}
-async function recover(): Promise<void> {
-  if (selected.value) await openConversation(selected.value.id)
-}
-async function stop(): Promise<void> {
-  if (stopping.value) return
-  const ticket = conversationScope.current()
-  stopping.value = true
-  try {
-    if (preparation.value && !preparationFinished(preparation.value)) {
-      const value = await cancelPreparation(preparation.value.id, ticket.signal)
-      if (ticket.isCurrent()) preparation.value = value
-    } else if (activeRun.value) {
-      const value = await cancelRun(activeRun.value.id, ticket.signal)
-      if (ticket.isCurrent()) project(value)
-    }
-  } catch (e) {
-    if (ticket.isCurrent() && !isAborted(e)) error.value = errorMessage(e)
-  } finally {
-    if (ticket.isCurrent()) stopping.value = false
-  }
-}
-async function loadOlder(): Promise<void> {
-  if (!selected.value || older.value === null || olderLoading.value) return
-  const ticket = conversationScope.current()
-  olderLoading.value = true
-  try {
-    const value = await getAssistantConversation(
-      agentId,
-      selected.value.id,
-      ticket.signal,
-      older.value
-    )
-    if (ticket.isCurrent()) {
-      turns.value = [...value.turns, ...turns.value]
-      older.value = value.nextBefore
-    }
-  } catch (e) {
-    if (ticket.isCurrent() && !isAborted(e)) error.value = errorMessage(e)
-  } finally {
-    if (ticket.isCurrent()) olderLoading.value = false
-  }
-}
-function renamed(value: AssistantConversation): void {
-  pageScope.replace()
-  listLoading.value = false
-  conversations.value = conversations.value.map((item) => (item.id === value.id ? value : item))
-  if (selected.value?.id === value.id) selected.value = value
-}
-function removed(id: string): void {
-  pageScope.replace()
-  listLoading.value = false
-  conversations.value = conversations.value.filter((item) => item.id !== id)
-  if (selected.value?.id === id || route.query.conversation === id) {
-    conversationScope.replace()
-    turns.value = []
-    selected.value = null
-    activeRun.value = null
-    preparation.value = null
-    outgoing.value = null
-    select()
-  }
-}
-let skipConversation = ''
-watch(
-  () => route.query.conversation,
-  (value) => {
-    const id = typeof value === 'string' ? value : ''
-    if (id && id === skipConversation) {
-      skipConversation = ''
-      return
-    }
-    void openConversation(id)
-  },
-  { immediate: true }
-)
-watch(
-  () => identity.value?.id,
-  async (owner) => {
-    pageScope.replace()
-    conversationScope.replace()
-    historyOpen.value = false
-    agent.value = null
-    selected.value = null
-    turns.value = []
-    conversations.value = []
-    activeRun.value = null
-    preparation.value = null
-    outgoing.value = null
-    pending.value = null
-    recoveryBlocked.value = false
-    draft.value = ''
-    error.value = ''
-    listError.value = ''
-    listLoading.value = false
-    loading.value = false
-    sending.value = false
-    older.value = null
-    identityController?.abort()
-    if (!owner) return
-    restorePending()
-    restorePendingOutgoing()
-    const controller = new AbortController()
-    identityController = controller
-    try {
-      const value = await getAgent(agentId, controller.signal)
-      if (!controller.signal.aborted) agent.value = value
-    } catch (e) {
-      if (!controller.signal.aborted && !isAborted(e)) error.value = errorMessage(e)
-    }
-    if (!controller.signal.aborted) {
-      void refreshList()
-      const id = route.query.conversation
-      if (typeof id === 'string') void openConversation(id)
-    }
-  },
-  { immediate: true }
-)
-onBeforeUnmount(() => {
-  pageScope.dispose()
-  conversationScope.dispose()
-  identityController?.abort()
-  draft.value = ''
-})
+const router = useRouter()
+const {
+  agentId,
+  agent,
+  conversations,
+  selected,
+  turns,
+  older,
+  hasMore,
+  historyOpen,
+  listLoading,
+  olderLoading,
+  error,
+  listError,
+  loading,
+  history,
+  configuration,
+  name,
+  welcome,
+  canSend,
+  outgoing,
+  draft,
+  sending,
+  pending,
+  outgoingVisible,
+  outgoingRun,
+  preparation,
+  disconnected,
+  stopping,
+  stopAcknowledged,
+  running,
+  preparationLabel,
+  send,
+  stop,
+  select,
+  refreshList,
+  loadOlder,
+  recover,
+  renamed,
+  removed
+} = useAssistantWorkspace()
 </script>
 
 <template>
@@ -624,7 +128,7 @@ onBeforeUnmount(() => {
       <article v-if="!loading && agent" class="message-row assistant assistant-chat__welcome">
         <div class="message-body">
           <AssistantWelcome
-            :text="welcome || published?.description || '你好，有什么可以帮你？'"
+            :text="welcome || configuration?.description || '你好，有什么可以帮你？'"
             :animate="!selected && !turns.length && !outgoing"
           />
         </div>
@@ -713,11 +217,11 @@ onBeforeUnmount(() => {
       </article>
     </section>
     <footer class="composer">
-      <div v-if="agent?.status === 'draft'" class="composer-notice">
+      <div v-if="agent?.status === 'disabled'" class="composer-notice">
         <AAlert
-          v-if="agent?.status === 'draft'"
+          v-if="agent?.status === 'disabled'"
           type="info"
-          message="助手尚未发布，发布后可开始正式对话。草稿可在配置页调试。"
+          message="助手尚未启用，启用后可开始正式对话。"
           show-icon
         />
       </div>
@@ -738,6 +242,7 @@ onBeforeUnmount(() => {
             v-if="running"
             class="composer-submit"
             :loading="stopping"
+            :disabled="stopAcknowledged"
             aria-label="停止生成"
             title="停止生成"
             @click="stop"

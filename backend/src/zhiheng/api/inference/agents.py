@@ -56,11 +56,11 @@ async def chat(
             agent = await container.agents.get(session, principal, agent_id)
         except AppError:
             raise AppError('agent_not_found', 'Agent is unavailable', 404) from None
-        config = agent.published_config
+        config = agent.configuration if agent.enabled else None
         if config is None or config.application_id != identity.application_id:
             raise AppError('agent_not_found', 'Agent is unavailable', 404)
         if request_id is None:
-            await container.models.resolve(session, config.model_id)
+            await container.models.bindings.resolve(session, config.model_id)
             await container.keys.authorize_identity(
                 session, identity, [config.model_id], scope='agents:invoke', lock=True
             )
@@ -91,7 +91,6 @@ async def chat(
             token,
             agent_id,
             PreviewRequest(messages=body.messages, client_request_id=uuid4()),
-            container.settings.token_limit,
         )
     return await chat_response(
         container, request, run, identity.owner_id, token, model_id, stream=body.stream, scope='agents:invoke'

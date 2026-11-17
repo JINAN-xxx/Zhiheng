@@ -28,7 +28,8 @@ from zhiheng.modules.knowledge.graph.contracts import (
 )
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphConfiguration, GraphGeneration, GraphJob, GraphPin
 from zhiheng.modules.knowledge.orm import IndexGeneration, KnowledgeBase, KnowledgeChunk, KnowledgeDocument
-from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerprint, fingerprint
+from zhiheng.modules.knowledge.service import KnowledgeService
+from zhiheng.modules.knowledge.values import binding_fingerprint, fingerprint
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.runtime.contracts import RunError
 from zhiheng.shared.errors import AppError
@@ -64,7 +65,7 @@ class GraphService:
 
     async def patch(self, session: AsyncSession, principal: Principal, base_id: UUID, body: GraphConfigPatch) -> None:
         await self.knowledge.require(session, principal, base_id, manage=True)
-        binding = await self.knowledge.models.resolve(session, body.llm_model_id)
+        binding = await self.knowledge.models.bindings.resolve(session, body.llm_model_id)
         await self.knowledge.require(session, principal, base_id, manage=True, lock=True)
         if binding.model_type != 'chat':
             raise AppError('graph_chat_required', '图谱抽取需要聊天模型', 422)
@@ -95,7 +96,7 @@ class GraphService:
         if document.deleted_at is not None or document.active_revision is None or document.base_id != base_id:
             raise AppError('graph_source_stale', '图谱来源已变化', 409)
         for actor in (owner,) if owner.id == principal.id else (owner, principal):
-            source = await self.knowledge.document_source_snapshot(session, actor, document, lock=True)
+            source = await self.knowledge.materials.document_source_snapshot(session, actor, document, lock=True)
         if source.sha256 != document.source_sha256:
             raise AppError('graph_source_stale', '图谱来源已变化', 409)
         if document.artifact_file_id is None:
@@ -118,7 +119,7 @@ class GraphService:
 
     async def lock_models(self, session: AsyncSession, frozen: GraphFrozen, rerank: ModelBinding | None = None) -> None:
         """Lock the original model set; stopped-writer proof needs no live model."""
-        await self.knowledge.models.lock_many(
+        await self.knowledge.models.bindings.lock_many(
             session,
             sorted(
                 {
@@ -147,7 +148,7 @@ class GraphService:
         ):
             raise AppError('graph_stale', '图谱来源、模型或配置已变化，请重新构建', 409)
         model_ids = sorted({config.llm_model_id, embedding_id})
-        await self.knowledge.models.lock_many(session, model_ids)
+        await self.knowledge.models.bindings.lock_many(session, model_ids)
         base = await self.knowledge.require(session, principal, base_id, lock=True)
         config_row = await session.scalar(
             select(GraphConfiguration)
@@ -162,7 +163,7 @@ class GraphService:
             raise AppError('graph_stale', '图谱来源、模型或配置已变化，请重新构建', 409)
         # These rows and their connections are already locked. Never extend the
         # model set while owning the base, including after a concurrent rebind.
-        bindings = await self.knowledge.models.resolve_many(session, model_ids)
+        bindings = await self.knowledge.models.bindings.resolve_many(session, model_ids)
         return base, config, bindings
 
     async def freeze(

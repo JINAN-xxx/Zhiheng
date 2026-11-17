@@ -12,6 +12,13 @@ export class ApiError extends Error {
     this.details = details
   }
 }
+// A timeout may arrive after acceptance; confirm it with the original request ID.
+// This classifies this attempt, never disproves an earlier unknown acceptance.
+export function isDefiniteRejection(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408
+  )
+}
 export function isAborted(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }

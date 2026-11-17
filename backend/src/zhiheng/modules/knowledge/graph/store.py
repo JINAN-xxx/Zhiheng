@@ -119,7 +119,7 @@ class GraphStore:
         # This same check guards terminal callback consumption and final publish.
         await self.service.lock_models(session, claim.frozen, rerank)
         if rerank is not None:
-            current = await self.service.knowledge.models.resolve(session, rerank.model_id, lock=False)
+            current = await self.service.knowledge.models.bindings.resolve(session, rerank.model_id, lock=False)
             if current != rerank:
                 raise AppError('graph_rerank_stale', '图谱重排模型绑定已变化', 409)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)

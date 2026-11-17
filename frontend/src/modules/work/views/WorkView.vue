@@ -125,7 +125,7 @@ const canEdit = computed(
 const capabilities = computed(() => ({
   edit: canEdit.value,
   canRun:
-    canUseCapability('work') &&
+    canUseCapability('work', 'use') &&
     (!workStore.currentTask || workStore.currentTask.ownerId === identity.value?.id),
   canManageMembers: canEdit.value,
   canCreate: canUseCapability('work', 'create')
@@ -188,9 +188,7 @@ async function setStatus(status: WorkStatus): Promise<void> {
 async function addMembers(ids: string[]): Promise<void> {
   error.value = ''
   try {
-    for (const id of ids) {
-      if (!(await workStore.addMember(id))) break
-    }
+    await workStore.addMembers(ids)
   } catch (reason) {
     display(reason)
   }
@@ -216,9 +214,7 @@ async function upgradeMember(member: WorkMember): Promise<void> {
   const task = workStore.currentTask
   if (!task) return
   if (
-    !(await confirmation.confirm(
-      `确认将“${member.agentNameSnapshot}”从 v${member.publishedVersion} 升级到 v${member.latestPublishedVersion}？`
-    )) ||
+    !(await confirmation.confirm(`确认让“${member.agentNameSnapshot}”采用最新配置？`)) ||
     taskId.value !== task.taskId ||
     workStore.currentTask?.version !== task.version
   )

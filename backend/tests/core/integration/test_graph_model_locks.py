@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from tests.core.graph_fixtures import evidence, graph_base
 from tests.core.integration.test_knowledge_milvus import real_vectors  # noqa: F401
 from tests.core.knowledge_support import legacy_grant, remove_library_member, share_library
+from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.graph.contracts import GraphBuildRequest, GraphConfigPatch
 from zhiheng.modules.knowledge.graph.orm import GraphAttempt, GraphConfiguration
@@ -397,6 +398,7 @@ async def test_callback_guard_refreshes_fence_after_waiting_for_models(
 
 @pytest.mark.usefixtures('real_vectors')
 @pytest.mark.parametrize('revocation', ['deny', 'delete'])
+@pytest.mark.usefixtures('member_knowledge_permissions')
 async def test_freeze_refreshes_cached_base_grant_after_waiting_for_models(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, revocation: str
 ) -> None:

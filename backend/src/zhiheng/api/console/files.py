@@ -63,7 +63,7 @@ async def files(
     session: SessionDependency,
     filters: Annotated[FileQuery, Query()],
 ) -> FilePage:
-    return await container.files.list_files(session, principal, filters)
+    return await container.files.queries.list_files(session, principal, filters)
 
 
 @router.get('/stats')
@@ -73,7 +73,7 @@ async def stats(
     session: SessionDependency,
     filters: Annotated[FileQuery, Query()],
 ) -> FileStats:
-    return await container.files.stats(session, principal, filters)
+    return await container.files.queries.stats(session, principal, filters)
 
 
 @router.get('/users')
@@ -83,14 +83,14 @@ async def users(
     session: SessionDependency,
     search: Annotated[str, Query(max_length=80)] = '',
 ) -> list[IdentityInfo]:
-    return await container.files.users(session, principal, search=search)
+    return await container.files.queries.users(session, principal, search=search)
 
 
 @router.get('/policy')
 async def policy(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> PolicyInfo:
-    return await container.files.policy(session, principal)
+    return await container.files.lifecycle.policy(session, principal)
 
 
 @router.patch('/policy')
@@ -98,14 +98,14 @@ async def update_policy(
     body: PolicyRequest, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> PolicyInfo:
     async with session.begin():
-        return await container.files.set_policy(session, principal, body)
+        return await container.files.lifecycle.set_policy(session, principal, body)
 
 
 @router.get('/policies')
 async def policies(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[RetentionPolicyInfo]:
-    return await container.files.retention_policies(session, principal)
+    return await container.files.lifecycle.retention_policies(session, principal)
 
 
 @router.post('/policies', status_code=201)
@@ -116,7 +116,7 @@ async def create_policy(
     session: SessionDependency,
 ) -> RetentionPolicyInfo:
     async with session.begin():
-        return await container.files.set_retention(session, principal, body)
+        return await container.files.lifecycle.set_retention(session, principal, body)
 
 
 @router.patch('/policies/{resource_type}')
@@ -128,7 +128,7 @@ async def patch_policy(
     session: SessionDependency,
 ) -> RetentionPolicyInfo:
     async with session.begin():
-        return await container.files.set_retention(
+        return await container.files.lifecycle.set_retention(
             session,
             principal,
             RetentionPolicyRequest(resource_type=resource_type, **body.model_dump(exclude={'expected_version'})),
@@ -145,7 +145,7 @@ async def delete_policy(
     session: SessionDependency,
 ) -> Response:
     async with session.begin():
-        await container.files.set_retention(
+        await container.files.lifecycle.set_retention(
             session,
             principal,
             RetentionPolicyRequest(resource_type=resource_type, retention_days=1),
@@ -159,7 +159,7 @@ async def delete_policy(
 async def jobs(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[JobInfo]:
-    return await container.files.jobs(session, principal)
+    return await container.files.queries.jobs(session, principal)
 
 
 @router.post('/jobs/{kind}')
@@ -173,7 +173,7 @@ async def run_job(
 async def reminders(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[ReminderInfo]:
-    return await container.files.reminders(session, principal)
+    return await container.files.lifecycle.reminders(session, principal)
 
 
 @router.post('/reminders/{reminder_id}/read')
@@ -185,7 +185,7 @@ async def read_reminder(
     _body: EmptyRequest,
 ) -> ReminderInfo:
     async with session.begin():
-        return await container.files.read_reminder(session, principal, reminder_id)
+        return await container.files.lifecycle.read_reminder(session, principal, reminder_id)
 
 
 @router.get('/reconcile/issues')
@@ -195,14 +195,14 @@ async def issues(
     session: SessionDependency,
     status: Literal['open', 'resolved', 'ignored', 'quarantined'] = 'open',
 ) -> list[ReconcileIssueInfo]:
-    return await container.files.issues(session, principal, status=status)
+    return await container.files.queries.issues(session, principal, status=status)
 
 
 @router.get('/reconcile/stats')
 async def issue_stats(
     container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> dict[str, int]:
-    return await container.files.issue_stats(session, principal)
+    return await container.files.queries.issue_stats(session, principal)
 
 
 @router.post('/reconcile/issues/{issue_id}/actions')
@@ -326,7 +326,7 @@ async def extend(
     session: SessionDependency,
 ) -> FileInfo:
     async with session.begin():
-        return await container.files.extend(session, principal, file_id, body)
+        return await container.files.lifecycle.extend(session, principal, file_id, body)
 
 
 @router.post('/{file_id}/dispose-expired')
@@ -338,21 +338,21 @@ async def dispose(
     session: SessionDependency,
 ) -> FileInfo:
     async with session.begin():
-        return await container.files.dispose_expired(session, principal, file_id, body.expected_version)
+        return await container.files.lifecycle.dispose_expired(session, principal, file_id, body.expected_version)
 
 
 @router.get('/{file_id}/references')
 async def references(
     file_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[ReferenceInfo]:
-    return await container.files.references(session, principal, file_id)
+    return await container.files.references.list(session, principal, file_id)
 
 
 @router.get('/{file_id}/audit')
 async def audits(
     file_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> list[AuditInfo]:
-    return await container.files.audits(session, principal, file_id)
+    return await container.files.queries.audits(session, principal, file_id)
 
 
 @router.post('/{file_id}/parse')
@@ -370,4 +370,4 @@ async def audit_page(
     session: SessionDependency,
     filters: Annotated[FileAuditQuery, Query()],
 ) -> FileAuditPage:
-    return await container.files.audit_page(session, principal, file_id, filters)
+    return await container.files.queries.audit_page(session, principal, file_id, filters)

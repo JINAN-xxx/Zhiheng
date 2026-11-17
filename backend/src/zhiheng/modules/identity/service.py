@@ -158,7 +158,7 @@ class IdentityService:
         page_size: int = 20,
     ) -> IdentityDirectoryPage:
         """Include inactive and never-used accounts without exposing profile or credential fields."""
-        principal.require_any_permission('ai:credits:read', 'ai:credits:write')
+        principal.require_permission('ai:credits:read')
         if page < 1 or not 1 <= page_size <= MAX_DIRECTORY_PAGE_SIZE:
             raise AppError('invalid_pagination', '分页参数无效', 422)
         if len(search) > MAX_DIRECTORY_SEARCH_LENGTH or '\x00' in search:
@@ -193,7 +193,7 @@ class IdentityService:
         require_active: bool = False,
         lock: bool = False,
     ) -> IdentityDirectoryEntry:
-        principal.require_any_permission('ai:credits:read', 'ai:credits:write')
+        principal.require_permission('ai:credits:read')
         query = select(IdentityUser).where(IdentityUser.id == user_id, IdentityUser.deleted_at.is_(None))
         if lock:
             query = query.with_for_update(read=True)

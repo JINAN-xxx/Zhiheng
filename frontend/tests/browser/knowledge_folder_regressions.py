@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 from knowledge_regressions import STAMP
 from knowledge_upload_regressions import KnowledgeUploadLifecycle
 from playwright.async_api import expect
+from permission_fixture import granted_permissions
 
 
 class KnowledgeFolderRegressions(KnowledgeUploadLifecycle):
@@ -113,7 +114,7 @@ class KnowledgeFolderRegressions(KnowledgeUploadLifecycle):
     async def test_shared_reader_browses_folders_without_management_actions(self):
         self.base.update(can_manage=False, owner_id='another-owner', sharing_scope='users')
         await self.page.route('**/api/auth/me', lambda route: route.fulfill(
-            json={'id': 'user-1', 'username': 'reader', 'is_admin': False}))
+            json={'id': 'user-1', 'username': 'reader', 'is_admin': False, 'permissions': granted_permissions('platform:knowledge:read')}))
         await self.open_documents()
         await expect(self.page.get_by_role('button', name='新建文件夹', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='添加资料', exact=True)).to_have_count(0)

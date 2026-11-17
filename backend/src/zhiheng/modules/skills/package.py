@@ -1,5 +1,6 @@
 """In-memory skill package validation; rules adapted from the MIT legacy parser."""
 
+import asyncio
 import hashlib
 import io
 import json
@@ -11,7 +12,7 @@ import zlib
 from dataclasses import dataclass
 from typing import cast
 
-import yaml  # type: ignore[import-untyped]  # PyYAML is bounded and narrowed to object below.
+import yaml  # PyYAML is bounded and narrowed to object below.
 
 from zhiheng.modules.skills.validation import is_valid_slug
 from zhiheng.shared.errors import AppError
@@ -63,6 +64,12 @@ class ParsedSkillPackage:
 
 
 class SkillPackageParser:
+    async def parse_async(self, payload: bytes, *, filename: str) -> ParsedSkillPackage:
+        """Bounded pure parsing runs off the event loop and never touches a DB session."""
+        if not payload or len(payload) > UPLOAD_BYTES:
+            raise invalid()
+        return await asyncio.to_thread(self.parse, payload, filename=filename)
+
     def parse(self, payload: bytes, *, filename: str) -> ParsedSkillPackage:
         if not payload or len(payload) > UPLOAD_BYTES:
             raise invalid()

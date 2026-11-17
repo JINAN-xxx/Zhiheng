@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Switch as ASwitch } from 'ant-design-vue'
 import type { ChatModel } from '../api/index.ts'
-import { modelTypeLabel } from '../presentation.ts'
+import { modelTypeLabel, modelCapacityLabel } from '../presentation.ts'
 import ModelIdentityIcon from './ModelIdentityIcon.vue'
 
 const props = defineProps<{
@@ -40,6 +40,9 @@ function toggle(model: ChatModel): void {
                 · {{ connectionLabels[model.id] }}</template
               >
             </span>
+            <span v-if="model.model_type === 'chat'" class="model-item__description">{{
+              modelCapacityLabel(model)
+            }}</span>
             <span
               v-if="(!model.enabled && !canWrite) || connectionIssues[model.id]"
               class="model-item__notices"

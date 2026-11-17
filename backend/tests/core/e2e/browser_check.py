@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -57,7 +58,7 @@ def add_model(page: Page, name: str, upstream: str) -> None:
     dialog = page.locator('.ant-drawer-open .ant-drawer-content')
     dialog.get_by_placeholder('例如：日常助手').fill(name)
     dialog.get_by_placeholder('填写服务商提供的模型 ID').fill(upstream)
-    dialog.locator('.ant-input-number-input').fill('64')
+    dialog.locator('.ant-form-item').filter(has_text='最大输出 tokens').get_by_role('spinbutton').fill('64')
     with page.expect_response(
         lambda result: result.url.endswith('/api/models') and result.request.method == 'POST'
     ) as request:
@@ -69,8 +70,8 @@ def add_model(page: Page, name: str, upstream: str) -> None:
 def configure_models(
     page: Page, provider: ProviderServer, artifacts: Path, provider_base_url: str | None = None
 ) -> None:
-    page.get_by_role('link', name='模型目录', exact=True).click()
-    page.get_by_role('tab', name='凭据管理').click()
+    page.get_by_role('link', name='凭据管理', exact=True).click()
+    expect(page).to_have_url(re.compile(r'/credentials$'))
     page.get_by_role('button', name='新增凭据').click()
     dialog = page.locator('.ant-drawer-open .ant-drawer-content')
     dialog.get_by_placeholder('例如：团队模型服务').fill('本地协议服务')
@@ -85,9 +86,14 @@ def configure_models(
     assert request.value.status == 201, request.value.text()
     assert 'local-test-key' not in request.value.text()
     expect(dialog).not_to_be_visible()
+    page.get_by_role('link', name='模型目录', exact=True).click()
     add_model(page, '日常助手', 'local-text')
-    page.get_by_role('button', name='测试连接', exact=True).click()
-    expect(page.locator('.test-result').get_by_text('已完成', exact=True)).to_be_visible(timeout=15000)
+    page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
+    detail = page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
+    detail.get_by_role('button', name='测试连接', exact=True).click()
+    expect(page.locator('.ant-message-success')).to_have_text('测试成功', timeout=15000)
+    detail.get_by_role('button', name='Close', exact=True).click()
+    expect(detail).not_to_be_visible()
     page.screenshot(path=str(artifacts / 'models.png'), full_page=True)
     add_model(page, '慢速助手', 'silent')
 
@@ -98,8 +104,11 @@ def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None
     for question, expected_replies in [('第一轮真实聊天', 1), ('第二轮沿用同一连接', 2)]:
         composer.fill(question)
         page.get_by_role('button', name='发送消息', exact=True).click()
-        expect(page.locator('.run-state')).to_have_text('已完成', timeout=15000)
-        expect(page.locator('.message-content').filter(has_text='你好')).to_have_count(expected_replies)
+        expect(page.locator('.message-row.assistant .message-content').filter(has_text='你好')).to_have_count(
+            expected_replies, timeout=15000
+        )
+        expect(page.get_by_role('button', name='停止生成', exact=True)).to_have_count(0)
+        expect(page.locator('.run-state')).to_have_count(0)
     page.screenshot(path=str(artifacts / 'chat-desktop.png'), full_page=True)
     page.reload()
     page.get_by_role('button', name='历史记录', exact=True).click()
@@ -123,13 +132,16 @@ def exercise_chat(page: Page, provider: ProviderServer, artifacts: Path) -> None
 
 def usage_and_logout(page: Page, base_url: str, artifacts: Path) -> None:
     page.get_by_role('link', name='用量与调用', exact=True).click()
-    page.get_by_role('tab', name='历史 Token', exact=True).click()
-    expect(page.locator('.usage-table tbody tr.ant-table-row')).to_have_count(4)
-    expect(page.locator('.usage-table').get_by_text('待核对')).not_to_have_count(0)
+    page.get_by_role('tab', name='Token 用量', exact=True).click()
+    records = page.locator('.token-desktop-records')
+    expect(records.locator('tbody tr.ant-table-row')).to_have_count(4)
+    expect(records.get_by_text('待核对', exact=True)).not_to_have_count(0)
     page.screenshot(path=str(artifacts / 'usage.png'), full_page=True)
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='打开主菜单').click()
     page.locator('.ant-drawer-open .ant-drawer-content').get_by_role('link', name='对话体验', exact=True).click()
+    expect(page.locator('.platform-mobile-drawer .ant-drawer-content-wrapper')).not_to_be_visible()
+    expect(page.locator('.platform-mobile-drawer .ant-drawer-mask')).not_to_be_visible()
     expect(page.get_by_role('textbox', name='消息内容')).to_be_visible()
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     page.screenshot(path=str(artifacts / 'chat-mobile.png'), full_page=True)
@@ -151,12 +163,19 @@ def browser_flow(base_url: str, provider: ProviderServer, artifacts: Path) -> No
             page.goto(f'{base_url}/login')
             page.get_by_placeholder('账号', exact=True).fill('admin')
             page.get_by_placeholder('密码', exact=True).fill('browser-test-password')
-            with page.expect_response(
-                lambda result: result.url.endswith('/api/auth/login') and result.request.method == 'POST'
-            ) as login_request:
+            with (
+                page.expect_response(
+                    lambda result: result.url.endswith('/api/auth/login') and result.request.method == 'POST'
+                ) as login_request,
+                page.expect_response(
+                    lambda result: '/api/overview?' in result.url and result.request.method == 'GET'
+                ) as overview_request,
+            ):
                 page.get_by_role('button', name='登录', exact=True).click()
             assert login_request.value.status == 200, login_request.value.text()
-            expect(page).to_have_url(f'{base_url}/chat')
+            assert overview_request.value.status == 200, overview_request.value.text()
+            expect(page).to_have_url(f'{base_url}/overview')
+            expect(page.get_by_role('region', name='工作台', exact=True)).to_be_visible()
             configure_models(page, provider, artifacts)
             exercise_chat(page, provider, artifacts)
             usage_and_logout(page, base_url, artifacts)

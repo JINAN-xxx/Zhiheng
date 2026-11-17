@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   firstModulePath,
   hasModule,
+  hasPermission,
   hasCapability,
   moduleForPath,
   platformModules
@@ -13,7 +14,7 @@ void test('module grants are explicit and an empty role gets no platform access'
   const empty = { is_admin: false, permissions: grantedPermissions() }
   assert.equal(firstModulePath(empty), '/access')
   assert.ok(platformModules.every((module) => !hasModule(empty, module.id)))
-  const chatOnly = { is_admin: false, permissions: grantedPermissions('platform:chat:access') }
+  const chatOnly = { is_admin: false, permissions: grantedPermissions('platform:chat:use') }
   assert.equal(hasModule(chatOnly, 'chat'), true)
   assert.equal(hasModule(chatOnly, 'knowledge'), false)
   assert.equal(hasModule(chatOnly, 'models'), false)
@@ -40,7 +41,7 @@ void test('deep routes, new modules and administrator recovery use the same deci
   assert.equal(
     firstModulePath({
       is_admin: false,
-      permissions: grantedPermissions('platform:knowledge:access')
+      permissions: grantedPermissions('platform:knowledge:query')
     }),
     '/knowledge'
   )
@@ -54,15 +55,22 @@ void test('deep routes, new modules and administrator recovery use the same deci
 void test('maintenance grants navigation but never imply use, sharing or credentials', () => {
   const maintainer = {
     is_admin: false,
-    permissions: grantedPermissions('platform:knowledge:manage', 'platform:agents:manage')
+    permissions: grantedPermissions(
+      'platform:knowledge:update',
+      'platform:knowledge:import',
+      'platform:agents:debug'
+    )
   }
   assert.equal(hasModule(maintainer, 'knowledge'), true)
-  assert.equal(hasCapability(maintainer, 'knowledge', 'manage'), true)
-  assert.equal(hasCapability(maintainer, 'knowledge'), false)
+  assert.equal(hasCapability(maintainer, 'knowledge', 'update'), true)
+  assert.equal(hasCapability(maintainer, 'knowledge', 'query'), false)
   assert.equal(hasCapability(maintainer, 'knowledge', 'share'), false)
   assert.equal(hasCapability(maintainer, 'agents', 'publish'), false)
   assert.equal(
-    hasModule({ is_admin: false, permissions: grantedPermissions('ai:models:write') }, 'models'),
+    hasModule(
+      { is_admin: false, permissions: grantedPermissions('platform:models:update') },
+      'models'
+    ),
     true
   )
 })
@@ -74,4 +82,46 @@ void test('stored child operations are inactive when their module is off', () =>
   }
   assert.equal(hasModule(disabled, 'knowledge'), false)
   assert.equal(hasCapability(disabled, 'knowledge', 'create'), false)
+})
+
+void test('read prerequisites and exact operations remain independent', () => {
+  const user = {
+    is_admin: false,
+    permissions: ['platform:agents:enabled', 'platform:agents:create']
+  }
+  assert.equal(hasCapability(user, 'agents', 'create'), false)
+  user.permissions.push('platform:agents:read')
+  assert.equal(hasCapability(user, 'agents', 'create'), true)
+  assert.equal(hasCapability(user, 'agents', 'update'), false)
+  assert.equal(hasCapability(user, 'agents', 'use'), false)
+  assert.equal(hasPermission(user, 'platform:agents:manage'), false)
+  assert.equal(hasPermission(user, 'platform:agents:access'), false)
+})
+
+void test('stored historical aggregates never grant current operations or module entry', () => {
+  const user = {
+    is_admin: false,
+    permissions: [
+      'platform:knowledge:manage',
+      'platform:chat:access',
+      'ai:models:write',
+      'ai:skills:write'
+    ]
+  }
+  assert.equal(firstModulePath(user), '/access')
+  assert.equal(hasCapability(user, 'knowledge', 'update'), false)
+  assert.equal(hasCapability(user, 'chat', 'use'), false)
+  assert.equal(hasCapability(user, 'models', 'update'), false)
+  assert.equal(hasCapability(user, 'skills', 'create'), false)
+})
+
+void test('test grants reject aggregates and unknown operations instead of expanding them', () => {
+  for (const code of [
+    'platform:chat:access',
+    'platform:knowledge:manage',
+    'ai:models:write',
+    'system:invented:read'
+  ])
+    assert.throws(() => grantedPermissions(code), /canonical permission/)
+  assert.deepEqual(grantedPermissions('platform:chat:enabled'), ['platform:chat:enabled'])
 })

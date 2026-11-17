@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.core.permission_support import grants
 from zhiheng.api.common.dependencies import get_container, get_principal, get_session
 from zhiheng.api.common.errors import install_error_handlers
 from zhiheng.api.console.admin_identity import router
@@ -179,7 +180,7 @@ async def test_explicit_invalid_role_codes_are_rejected(api: tuple[Any, ...], co
 async def test_ai_only_permissions_do_not_open_the_system_permission_directory(api: tuple[Any, ...]) -> None:
     client, _, _, app = api
     app.dependency_overrides[get_principal] = lambda: Principal(
-        uuid4(), 'ai-operator', False, frozenset({'ai:models:write', 'ai:storage:read'})
+        uuid4(), 'ai-operator', False, grants('platform:models', 'create', 'update') | grants('ai:storage')
     )
     for path in ('/api/admin/permissions', '/api/admin/roles'):
         response = await client.get(path)

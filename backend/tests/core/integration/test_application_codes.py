@@ -6,6 +6,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from tests.core.permission_support import account, grants
+
 
 async def test_application_codes_are_generated_uniquely_for_same_names(admin: httpx.AsyncClient) -> None:
     results = await asyncio.gather(
@@ -63,8 +65,7 @@ async def test_name_only_application_creation_preserves_real_owner_and_isolation
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
     original = (await admin.post('/api/developer/applications', json={'code': '123', 'name': '原应用'})).json()
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *grants('platform:developer', 'create')) as (member, _, _):
         owner = (await member.get('/api/auth/me')).json()['id']
         generated = await member.post('/api/developer/applications', json={'name': '成员应用'})
         assert generated.status_code == 201, generated.text

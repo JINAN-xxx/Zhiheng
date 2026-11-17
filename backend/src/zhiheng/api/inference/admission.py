@@ -29,6 +29,5 @@ async def admit(
             operation=operation,
             messages=messages,
             options=options,
-            token_limit=container.settings.token_limit,
         )
     return run, identity.owner_id, token

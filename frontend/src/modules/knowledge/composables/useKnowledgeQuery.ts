@@ -1,7 +1,7 @@
 import { createRequestId } from '../../../shared/requestId.ts'
 import { onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { object, string } from '../../../shared/validation.ts'
 import { identity } from '../../identity/public.ts'
 import * as api from '../api/index.ts'
@@ -118,7 +118,7 @@ export function useKnowledgeQuery(
       }
     }
   }
-  async function submitQuery(text: string): Promise<void> {
+  async function submitQuery(text: string, confirming = false): Promise<void> {
     if (queryBusy.value || queryRecoverable.value || !selected.value || !text.trim()) return
     const id = baseId.value,
       ticket = queryScope.replace()
@@ -149,7 +149,7 @@ export function useKnowledgeQuery(
       if (ticket.isCurrent() && !isAborted(error)) {
         queryError.value = errorMessage(error)
         queryBusy.value = false
-        queryRecoverable.value = !(error instanceof ApiError) || error.status >= 500
+        queryRecoverable.value = confirming || !isDefiniteRejection(error)
         if (!queryRecoverable.value) {
           queryIntent = null
           try {
@@ -175,7 +175,7 @@ export function useKnowledgeQuery(
       } else if (queryIntent) {
         queryRecoverable.value = false
         queryBusy.value = false
-        await submitQuery(queryIntent.query)
+        await submitQuery(queryIntent.query, true)
       }
     } catch (error) {
       if (ticket.isCurrent() && !isAborted(error)) {
@@ -272,7 +272,7 @@ export function useKnowledgeQuery(
       if (ticket.isCurrent() && !isAborted(error)) {
         queryError.value = errorMessage(error)
         queryBusy.value = false
-        queryRecoverable.value = !(error instanceof ApiError) || error.status >= 500
+        queryRecoverable.value = !isDefiniteRejection(error)
       }
     }
   }

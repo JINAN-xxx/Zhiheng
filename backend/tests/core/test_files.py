@@ -5,10 +5,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from tests.core.permission_support import member_file_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.bootstrap.container import Container
 from zhiheng.shared.principal import Principal
-from zhiheng.shared.storage import StorageEntry
+from zhiheng.shared.storage import StorageEntry, StorageInspection
 
 
 async def test_files_upload_permissions_range_cas_and_retention(admin: httpx.AsyncClient, app: FastAPI) -> None:
@@ -277,7 +278,7 @@ async def test_purge_reservation_blocks_new_references_and_crash_reenters(
     assert current['status'] == 'purging'
     async with container.database.sessions.begin() as session:
         with pytest.raises(AppError):
-            await container.files.attach(
+            await container.files.references.attach(
                 session, await _principal(container), (prepared,), resource_type='chat', resource_id=uuid4()
             )
     monkeypatch.setattr(container.files.storage, 'delete', original_delete)
@@ -493,6 +494,9 @@ async def test_derived_permission_tracks_owner_transfer_without_uploader_backdoo
     container = app.state.container
     async with container.database.sessions.begin() as session:
         target = await container.identity.create_user(session, username='another', password='platform-test-password')
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('ai:storage', 'acl'), username='another')
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
         await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
         fid = (
@@ -761,6 +765,8 @@ async def test_historical_and_new_images_share_admitted_context_budget(
     first = await admin.post(f'/api/chat/conversations/{cid}/runs', json=body)
     assert first.status_code == 202, first.text
     await execute_run(container, UUID(first.json()['id']))
+    completed = (await admin.get(f'/api/runs/{first.json()["id"]}')).json()
+    assert completed['status'] == 'completed', completed
     async with container.database.sessions() as session:
         before = {table: await session.scalar(text(f'SELECT count(*) FROM {table}')) for table in tables}
     usage_before = (await admin.get('/api/usage')).json()
@@ -802,15 +808,15 @@ async def test_lost_job_connection_fences_stale_scan_and_success_cursor(
     path.write_bytes(b'original')
     started = asyncio.Event()
     release = asyncio.Event()
-    original_read = container.files.storage.read
+    original_inspect = container.files.storage.inspect
 
-    async def paused(storage_key: str) -> bytes:
+    async def paused(storage_key: str) -> StorageInspection:
         if storage_key == key:
             started.set()
             await release.wait()
-        return await original_read(storage_key)
+        return await original_inspect(storage_key)
 
-    monkeypatch.setattr(container.files.storage, 'read', paused)
+    monkeypatch.setattr(container.files.storage, 'inspect', paused)
     task = asyncio.create_task(container.file_jobs.run(await _principal(container), 'reconcile'))
     try:
         await asyncio.wait_for(started.wait(), 3)
@@ -947,7 +953,7 @@ async def test_reminder_kind_is_current_and_obsolete_expiry_keys_are_hidden(
 
     from sqlalchemy import select
 
-    from zhiheng.modules.files import service as files_service
+    from zhiheng.modules.files import lifecycle as files_lifecycle
     from zhiheng.modules.files.orm import FileReminder
 
     now = datetime.now(timezone.utc)
@@ -977,7 +983,7 @@ async def test_reminder_kind_is_current_and_obsolete_expiry_keys_are_hidden(
     read = await admin.post(f'/api/files/reminders/{future["id"]}/read', json={})
     assert read.status_code == 200 and read.json()['kind'] == 'expiring', read.text
     with monkeypatch.context() as clock:
-        clock.setattr(files_service, 'utcnow', lambda: now + timedelta(days=2))
+        clock.setattr(files_lifecycle, 'utcnow', lambda: now + timedelta(days=2))
         assert all(r['kind'] == 'expired' for r in (await admin.get('/api/files/reminders')).json())
         assert (await admin.post(f'/api/files/reminders/{future["id"]}/read', json={})).json()['kind'] == 'expired'
     assert (
@@ -997,3 +1003,6 @@ async def test_reminder_kind_is_current_and_obsolete_expiry_keys_are_hidden(
     async with app.state.container.database.sessions() as session:
         rows = list(await session.scalars(select(FileReminder).where(FileReminder.file_id == UUID(ids[1]))))
         assert len(rows) == 2 and all(r.kind == 'expiry' for r in rows)
+
+
+pytestmark = pytest.mark.usefixtures('member_file_permissions')

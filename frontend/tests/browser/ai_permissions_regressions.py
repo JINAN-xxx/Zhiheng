@@ -5,11 +5,12 @@ from urllib.parse import parse_qs, urlparse
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
 from files_regressions import FILE
+from permission_fixture import granted_permissions
 
 
 class AIPermissionsRegressions(DeveloperBoundary):
     async def asyncSetUp(self):
-        self.permissions = []
+        self.permissions = granted_permissions('platform:models:read')
         self.requests = []
         self.file_rows = []
         await super().asyncSetUp()
@@ -21,7 +22,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         if path == '/api/auth/me':
             return await route.fulfill(json={'id': 'user-1', 'username': 'member', 'is_admin': False, 'permissions': self.permissions})
         if path == '/api/models/connections':
-            if not any(code in self.permissions for code in ['ai:models:read', 'ai:models:write']):
+            if 'ai:credentials:read' not in self.permissions:
                 return await route.fulfill(status=403, json={'error': {'code': 'forbidden', 'message': '无模型管理权限'}})
             return await route.fulfill(json=[{'id': 'connection-1', 'name': '团队服务', 'provider': 'openai_compatible', 'base_url': 'http://provider.example/v1', 'has_api_key': True, 'enabled': True}])
         if path == '/api/billing/models/model-1/rates' and request.method == 'GET':
@@ -96,7 +97,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertFalse(any('rate-cards' in path for _, path, _ in self.requests))
 
     async def test_model_reader_sees_credentials_without_mutation_or_test_controls(self):
-        self.permissions = ['ai:models:read']
+        self.permissions = granted_permissions('platform:models:config_read', 'ai:credentials:read')
         await self.open_models()
         await expect(self.page.get_by_text('日常助手', exact=True)).to_be_visible()
         for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作', '更多模型操作']:
@@ -109,13 +110,13 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(detail.get_by_role('switch')).to_have_count(0)
         await detail.get_by_role('button', name='Close', exact=True).click()
         await expect(detail).to_be_hidden()
-        await self.page.get_by_role('tab', name='凭据管理', exact=True).click()
+        await self.page.goto(self.origin + '/credentials')
         await expect(self.page.get_by_role('tabpanel', name='凭据管理', exact=True).get_by_text('团队服务', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='编辑凭据', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='更多凭据操作', exact=True)).to_have_count(0)
 
     async def test_rates_reader_can_view_history_but_cannot_create_a_price(self):
-        self.permissions = ['ai:rates:read']
+        self.permissions = granted_permissions('platform:models:read', 'ai:rates:read')
         await self.open_models()
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
@@ -131,7 +132,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
     async def test_model_writer_can_onboard_without_receiving_test_or_rate_permissions(self):
-        self.permissions = ['ai:models:write']
+        self.permissions = granted_permissions('platform:models:create', 'platform:models:update', 'platform:models:delete', 'platform:models:toggle')
         await self.open_models()
         await expect(self.page.get_by_role('button', name='接入模型', exact=True)).to_be_enabled()
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
@@ -142,7 +143,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('menuitem', name='费率配置', exact=True)).to_have_count(0)
 
     async def test_storage_reader_sees_policy_and_reconcile_without_write_controls(self):
-        self.permissions = ['ai:storage:read']
+        self.permissions = granted_permissions('ai:storage:read')
         await self.page.goto(self.origin + '/admin/storage')
         await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
@@ -160,7 +161,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
     async def test_model_tester_can_test_without_model_or_rate_management(self):
-        self.permissions = ['ai:models:test']
+        self.permissions = granted_permissions('platform:models:test')
         await self.open_models()
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
@@ -175,8 +176,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertTrue(any(method == 'POST' and path.endswith('/test') for method, path, _ in self.requests))
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
-    async def test_skill_basic_user_can_read_but_has_no_upload_or_mutation_controls(self):
-        # Keep the historical node ID while checking personal management without platform permissions.
+    async def test_skill_writer_upload_route_opens_personal_skill_controls(self):
+        self.permissions = granted_permissions('platform:skills:create', 'platform:skills:update', 'platform:skills:delete', 'platform:skills:toggle')
         await self.page.goto(self.origin + '/skills?action=upload')
         await expect(self.page.get_by_text('示例技能', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_be_enabled()
@@ -196,8 +197,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_skill_writer_has_upload_and_status_controls_without_admin_identity(self):
-        self.permissions = ['ai:skills:write']
-        await self.page.goto(self.origin + '/skills')
+        self.permissions = granted_permissions('platform:skills:create', 'platform:skills:update', 'platform:skills:delete', 'platform:skills:toggle')
+        await self.page.goto(self.origin + '/skills?tab=mine')
         await expect(self.page.get_by_role('button', name='上传技能', exact=True)).to_be_visible()
         await self.page.locator('.skill-item').get_by_role('button', name='示例技能', exact=True).click()
         detail = self.page.locator('.skill-detail-modal[role="dialog"]')
@@ -207,7 +208,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.assertTrue(any(method == 'PATCH' and path.endswith('/status') for method, path, _ in self.requests))
 
     async def test_storage_writer_can_open_new_and_legacy_paths_without_system_admin_access(self):
-        self.permissions = ['ai:storage:write']
+        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse')
         for path in ['/knowledge/storage', '/files', '/system/file']:
             with self.subTest(path=path):
                 await self.page.goto(self.origin + path)
@@ -219,7 +220,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='开始对账', exact=True)).to_be_visible()
 
     async def test_storage_writer_cannot_manage_another_owners_visible_file(self):
-        self.permissions = ['ai:storage:write']
+        self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse')
         self.file_rows = [{**FILE, 'owner_id': 'another-user', 'access': 'public'}]
         await self.page.goto(self.origin + '/knowledge/storage')
         await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()
@@ -231,17 +232,18 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='查看文件：业务报告', exact=True).click()
         await expect(self.page.get_by_role('button', name='编辑文件信息', exact=True)).to_have_count(0)
 
-    async def test_storage_reader_keeps_owner_management_for_own_file(self):
-        self.permissions = ['ai:storage:read']
+    async def test_storage_reader_cannot_mutate_even_owned_files(self):
+        self.permissions = granted_permissions('ai:storage:read')
         self.file_rows = [dict(FILE)]
         await self.page.goto(self.origin + '/knowledge/storage')
         await self.page.get_by_role('button', name='更多操作：业务报告', exact=True).click()
-        await expect(self.page.get_by_role('menuitem', name='访问权限：业务报告', exact=True)).to_be_enabled()
-        await expect(self.page.get_by_role('menuitem', name='转移文件：业务报告', exact=True)).to_be_enabled()
+        for label in ['访问权限：业务报告', '转移文件：业务报告']:
+            await expect(self.page.get_by_role('menuitem', name=label, exact=True)).to_have_count(0)
         await self.page.keyboard.press('Escape')
-        await expect(self.page.get_by_role('button', name='删除文件：业务报告', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('button', name='删除文件：业务报告', exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='查看文件：业务报告', exact=True).click()
-        await expect(self.page.get_by_role('button', name='编辑文件信息', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='编辑文件信息', exact=True)).to_have_count(0)
+        self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
 
 if __name__ == '__main__':

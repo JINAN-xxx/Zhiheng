@@ -1,10 +1,9 @@
 import type { Agent, AgentConfig, AgentPayload } from './api/index.ts'
 export { selectPreviewMessages } from './history.ts'
 export interface AgentForm
-  extends Omit<AgentConfig, 'temperature' | 'maxTokens' | 'historyRounds' | 'knowledgeTopK'> {
+  extends Omit<AgentConfig, 'temperature' | 'maxTokens' | 'knowledgeTopK'> {
   temperature: number | null
   maxTokens: number | null
-  historyRounds: number | null
   knowledgeTopK: number | null
 }
 export function createAgentForm(value?: AgentConfig): AgentForm {
@@ -21,8 +20,7 @@ export function createAgentForm(value?: AgentConfig): AgentForm {
         knowledgeTopK: 8,
         applicationId: null,
         temperature: 0.7,
-        maxTokens: 2048,
-        historyRounds: 20
+        maxTokens: 2048
       }
 }
 export function buildAgentPayload(value: AgentConfig | AgentForm): AgentPayload {
@@ -37,24 +35,14 @@ export function buildAgentPayload(value: AgentConfig | AgentForm): AgentPayload 
     knowledge_top_k: value.knowledgeTopK ?? Number.NaN,
     application_id: value.applicationId || null,
     temperature: value.temperature ?? Number.NaN,
-    max_tokens: value.maxTokens ?? Number.NaN,
-    history_rounds: value.historyRounds ?? Number.NaN
+    max_tokens: value.maxTokens ?? Number.NaN
   }
 }
-export const hasUnpublishedAgentChanges = (value: Agent): boolean =>
-  value.status === 'published' &&
-  value.publishedConfig !== null &&
-  JSON.stringify(buildAgentPayload(value)) !==
-    JSON.stringify(buildAgentPayload(value.publishedConfig))
 export const agentStatusLabel = (value: Agent): string =>
-  value.status === 'published'
-    ? hasUnpublishedAgentChanges(value)
-      ? '已发布 · 有未发布更改'
-      : '已发布'
-    : '草稿'
-export const getPublishedAgentAccess = (value: Agent | null) =>
-  value?.status === 'published' && value.publishedConfig?.applicationId
-    ? { applicationId: value.publishedConfig.applicationId, modelId: value.publishedConfig.modelId }
+  value.status === 'enabled' ? '已启用' : '未启用'
+export const getAgentAccess = (value: Agent | null) =>
+  value?.status === 'enabled' && value.applicationId
+    ? { applicationId: value.applicationId, modelId: value.modelId }
     : null
 export function withCurrent(
   options: { value: string; label: string; disabled?: boolean }[],

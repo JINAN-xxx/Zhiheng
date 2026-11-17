@@ -42,13 +42,16 @@ jobs:
       - name: Check core typing and dependency directions
         run: |
           python -m mypy --config-file pyproject.toml
+          MYPYPATH=src python -m mypy --config-file pyproject.toml ../tools/export_openapi.py
           python ../tools/check_architecture.py src/zhiheng
+      - name: Check source publication selection
+        run: python ../tools/export_source.py --check
       - name: Run isolated core tests
         run: python -m pytest tests/unit -q
       - name: Verify platform wheel and independent CLI
         run: |
           python -m pip wheel --no-deps --no-build-isolation --wheel-dir "$RUNNER_TEMP/zhiheng-core-wheel" .
-          python ../tools/check_core_wheel.py "$RUNNER_TEMP/zhiheng-core-wheel"
+          python ../tools/check_core_wheel.py "$RUNNER_TEMP/zhiheng-core-wheel" --source-root src
           python -m pip install --no-deps "$RUNNER_TEMP/zhiheng-core-wheel"/zhiheng_platform-*.whl
           python -m zhiheng --help
           zhiheng --help

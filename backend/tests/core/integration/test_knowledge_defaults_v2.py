@@ -111,12 +111,19 @@ async def test_chat_upload_is_temporary_until_actual_message_attachment(
     assert messages[0]['attachments'][0]['owner_id'] == info['owner_id']
 
 
-@pytest.mark.parametrize('permission', ['ai:storage:read', 'ai:storage:write'])
+@pytest.mark.parametrize('permission', ['read', 'maintain'])
 async def test_storage_operator_has_only_the_corresponding_admin_entry(
     admin: httpx.AsyncClient, app: FastAPI, permission: str
 ) -> None:
+    from tests.core.permission_support import grants
+
     role = await admin.post(
-        '/api/admin/roles', json={'code': 'storage-only', 'name': 'Storage operator', 'permissions': [permission]}
+        '/api/admin/roles',
+        json={
+            'code': 'storage-only',
+            'name': 'Storage operator',
+            'permissions': sorted(grants('ai:storage', permission)),
+        },
     )
     assert role.status_code == 201, role.text
     user = await admin.post(

@@ -17,13 +17,12 @@ export interface WorkAgent {
   agentId: string
   name: string
   description: string
-  publishedVersion: number
 }
 export interface WorkMember {
   agentId: string
   agentNameSnapshot: string
-  publishedVersion: number
-  latestPublishedVersion: number | null
+  agentRevision: number
+  latestAgentRevision: number | null
   available: boolean
   removedAt: string | null
 }
@@ -40,7 +39,7 @@ export interface WorkMessage {
   errorSnapshot: RunSnapshot['error']
   agentId: string | null
   agentNameSnapshot: string | null
-  publishedVersion: number | null
+  agentRevision: number | null
   sequence: number
   createdAt: string
 }
@@ -135,7 +134,7 @@ function parseMessage(value: unknown): WorkMessage {
       error === null ? null : { code: string(error.code), message: string(error.message) },
     agentId: nullableString(data.agent_id),
     agentNameSnapshot: nullableString(data.agent_name_snapshot),
-    publishedVersion: nullableNumber(data.published_version),
+    agentRevision: nullableNumber(data.agent_revision),
     sequence: number(data.sequence),
     createdAt: string(data.created_at)
   }
@@ -149,8 +148,8 @@ function parseTask(value: unknown): WorkTask {
       return {
         agentId: string(item.agent_id),
         agentNameSnapshot: string(item.agent_name_snapshot),
-        publishedVersion: number(item.published_version),
-        latestPublishedVersion: nullableNumber(item.latest_published_version),
+        agentRevision: number(item.agent_revision),
+        latestAgentRevision: nullableNumber(item.latest_agent_revision),
         available: boolean(item.available),
         removedAt: nullableString(item.removed_at)
       }
@@ -180,8 +179,7 @@ export const availableAgents = (taskId: string | null, signal: AbortSignal) =>
       return {
         agentId: string(item.id),
         name: string(item.name),
-        description: string(item.description),
-        publishedVersion: number(item.published_version)
+        description: string(item.description)
       }
     })
   })
@@ -218,7 +216,7 @@ export const upgradeMember = (
 ) =>
   http.request(`${taskPath(id)}/members/${encodeURIComponent(agentId)}`, {
     method: 'PATCH',
-    body: { expected_version: version, expected_published_version: publication },
+    body: { expected_version: version, expected_agent_revision: publication },
     signal,
     decode: parseTask
   })

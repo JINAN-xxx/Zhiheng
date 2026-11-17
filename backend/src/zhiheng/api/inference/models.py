@@ -15,7 +15,7 @@ async def models(request: Request, container: ContainerDependency) -> dict[str, 
         identity = await container.keys.authenticate(session, token)
         await container.keys.authorize_identity(session, identity, [], scope='models:invoke')
         key = await container.keys.info_for_identity(session, identity)
-        rows = await container.models.list_models(session)
+        rows = await container.models.catalog.list(session)
         visible = []
         for row in rows:
             if row.id not in key.model_ids:

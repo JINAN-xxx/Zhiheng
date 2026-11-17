@@ -12,7 +12,7 @@ async def test_role_permissions_apply_to_existing_sessions_and_monitor(admin: ht
         json={
             'code': 'auditor',
             'name': '审计查看',
-            'permissions': ['system:monitor:read', 'system:logs:read'],
+            'permissions': ['system:monitor:enabled', 'system:monitor:read', 'system:logs:enabled', 'system:logs:read'],
         },
     )
     assert role.status_code == 201, role.text
@@ -34,7 +34,12 @@ async def test_role_permissions_apply_to_existing_sessions_and_monitor(admin: ht
             },
         )
         assert login.status_code == 200
-        assert login.json()['user']['permissions'] == ['system:logs:read', 'system:monitor:read']
+        assert login.json()['user']['permissions'] == [
+            'system:logs:enabled',
+            'system:logs:read',
+            'system:monitor:enabled',
+            'system:monitor:read',
+        ]
         monitor = await member.get('/api/admin/monitor')
         assert monitor.status_code == 200, monitor.text
         assert monitor.json()['database']['status'] == 'ok'

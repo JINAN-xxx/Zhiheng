@@ -5,7 +5,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from zhiheng.modules.files.public import AttachmentSummary
-from zhiheng.modules.knowledge.public import Hit
 from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 
@@ -14,21 +13,35 @@ class ConversationInfo(BaseModel):
     title: str
     version: int = 1
     archived: bool = False
-    preparation_id: UUID | None = None
     created_at: datetime
     last_activity_at: datetime | None = None
 
 
-class ChatContextInfo(BaseModel):
-    status: Literal['full', 'summarizing', 'summarized', 'degraded'] = 'full'
-    summary_version: int = 0
+class ChatEffectiveMemory(BaseModel):
+    """Only the accepted business head contributes to the next turn's memory."""
+
+    summary_used: bool = False
     covered_rounds: int = 0
     retained_rounds: int = 0
-    dirty: bool = False
-    truncated: bool = False
-    dropped_rounds: int = 0
-    estimated_input_tokens: int | None = None
-    input_budget: int | None = None
+    estimated_tokens: int | None = None
+
+
+class ChatLastRunContext(BaseModel):
+    """Latest execution preparation; actual input stays unknown until measured."""
+
+    run_id: UUID
+    summary_prepared: bool
+    estimated_input_tokens: int | None
+    input_budget: int | None
+    summary_trigger_tokens: int
+    retained_token_budget: int
+
+
+class ChatContextInfo(BaseModel):
+    strategy: Literal['token'] = 'token'
+    status: Literal['full', 'summarizing', 'summarized', 'degraded'] = 'full'
+    effective_memory: ChatEffectiveMemory = Field(default_factory=ChatEffectiveMemory)
+    last_run_context: ChatLastRunContext | None = None
     reason: str | None = None
 
 
@@ -76,7 +89,6 @@ class MessageInfo(BaseModel):
     id: UUID
     skill_snapshots: list[SkillSnapshot] = Field(default_factory=list)
     attachments: list[AttachmentSummary] = Field(default_factory=list)
-    knowledge_sources: list[Hit] = Field(default_factory=list)
     role: Literal['user', 'assistant']
     content: str
     reasoning: str = ''
@@ -100,10 +112,10 @@ class ChatRequestContext(ChatGenerationConfig):
     model_config = ConfigDict(extra='forbid')
     skill_slugs: list[str] = Field(default_factory=list)
     file_ids: list[UUID] = Field(default_factory=list)
-    knowledge_base_ids: list[UUID] = Field(default_factory=list)
 
 
 class RegenerationTarget(BaseModel):
+    context_run_id: UUID
     message_id: UUID
     question: MessageInfo
     request_context: dict[str, object]

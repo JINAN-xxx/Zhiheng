@@ -28,7 +28,7 @@
 | 标识符 | 使用业务名称，如 model_id、run_id、invocation_id，不使用无上下文的 data1、obj2 |
 | 状态和事件 | 使用枚举或 Literal/判别联合；状态迁移集中定义 |
 
-ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 service.py 或 services/，数据访问使用 repository.py 或 repositories/。只有职责复杂后才拆成目录。
+沿用现有命名：公开契约使用 contracts.py，持久化使用 orm.py 或职责明确的 *_orm.py；服务与存取文件按实际业务职责命名。仅在确有复杂职责时拆目录，不为统一后缀批量移动源码，也不为每个方法创建Repository或Manager。
 
 评审时关注组件/函数是否承担多个职责；行数用于提示，不作为强制拆分成碎片的理由。避免以“便于扩展”为由预建未使用的抽象。
 
@@ -61,7 +61,7 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 1. 一次用例只有一个事务所有者：单模块命令服务或跨模块 application 用例。
 2. Repository 接收 session，不自行 commit/rollback，也不在异常时替调用者更换 session。
 3. 外部模型请求、解析器调用、向量库请求不占用业务数据库长事务。
-4. 请求接入和待投递事实同事务落库；提交后投递队列。投递失败由 outbox publisher 补发。
+4. 模型调用由领域完成授权、冻结和请求锁后，统一调用 application/execution/RunAdmission 创建Run、Outbox与费用预占；显式保留操作人、付费人和原Key。提交后投递队列，投递失败由outbox publisher补发。
 5. PostgreSQL 保存业务事实；Redis 维护投递、事件和可重建协调状态。跨存储一致性使用明确的补偿与幂等设计。
 6. 金额和费率使用 Decimal；分别记录实际用量、上游成本和平台计费结果，不用 float 计算金额。
 7. 时间字段使用带时区 UTC 时间。未来独立数据导入若涉及无时区字段，必须显式指定来源时区。
@@ -103,6 +103,7 @@ ORM 使用 orm.py 或 orm/，请求响应使用 schemas.py，业务服务使用 
 ## 8. 测试与审查
 
 - 单元测试覆盖纯规则和状态迁移；集成测试覆盖真实 PostgreSQL/Redis 并发语义；浏览器测试覆盖构建后的真实页面链路。
+- 权限测试使用显式canonical模块开关、read和具体action；所有权测试先授予所需功能权限，再断言非owner拒绝。不能因旧夹具无权限就放宽生产授权或改掉ACL断言。
 - 测试断言对用户或调用者可见的行为，不用源码正则代替运行、Vue 挂载、事务与网络取消语义。
 - 静态依赖检查、权限声明完整性等结构约束可以使用 AST/源码契约测试，并明确它们的验证范围。
 - 模型契约测试使用固定本地 mock provider，覆盖 JSON、流式、图片、tool call、结构化输出、usage、错误和取消。

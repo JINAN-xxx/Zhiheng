@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.modules.agents.public import AgentService, AssistantConversations
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.contracts import RunSnapshot
+from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 
@@ -25,8 +26,8 @@ class RunContentAccess:
     async def require_personal(self, session: AsyncSession, principal: Principal, kind: str, resource_id: UUID) -> None:
         if kind in {'chat', 'chat_summary'}:
             require_capability(principal, 'chat')
-        elif kind == 'agent_chat':
-            require_capability(principal, 'agents', 'access')
+        elif kind in {'agent_chat', 'agent_summary'}:
+            require_capability(principal, 'agents', 'use')
         elif kind == 'agent_preview':
             require_capability(principal, 'agents', 'read')
         elif kind == 'work_turn':
@@ -35,6 +36,11 @@ class RunContentAccess:
             await self.agents.get(session, principal, resource_id)
         elif kind == 'agent_chat':
             await AssistantConversations().authorize(session, principal, resource_id)
+        elif kind == 'agent_summary':
+            link = await self.agents.summary_for_parent(session, resource_id)
+            if link is None or link.owner_id != principal.id:
+                raise AppError('run_not_found', '运行不存在', 404)
+            await AssistantConversations().authorize(session, principal, link.conversation_id)
         elif kind == 'work_turn':
             await self.work.require(session, principal, resource_id)
 
@@ -43,7 +49,7 @@ class RunContentAccess:
         if value.resource_type in {'public', 'agent_invocation'}:
             require_capability(principal, 'developer', 'read')
         elif value.resource_type == 'connection_test':
-            principal.require_permission('ai:models:test')
+            principal.require_permission('platform:models:test')
         elif value.resource_type in {'knowledge_embedding', 'knowledge_rerank'}:
             require_capability(principal, 'knowledge', 'read')
             state = await self.knowledge.store.find_state(session, value.resource_id)

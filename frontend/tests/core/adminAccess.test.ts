@@ -13,7 +13,7 @@ void test('admin entry requires a real system permission and preserves super adm
   assert.equal(
     canAccessAdmin({
       is_admin: false,
-      permissions: grantedPermissions('chat:read', 'system:invented:read')
+      permissions: ['chat:read', 'system:invented:read']
     }),
     false
   )
@@ -26,7 +26,7 @@ void test('admin entry requires a real system permission and preserves super adm
     hasAdminPermission(
       { is_admin: false, permissions: grantedPermissions('system:users:read') },
       'users',
-      'write'
+      'update'
     ),
     false
   )
@@ -54,14 +54,14 @@ void test('retired feature permissions do not grant a console entry and retired 
   assert.equal(
     canAccessAdmin({
       is_admin: false,
-      permissions: grantedPermissions(
+      permissions: [
         'system:menus:read',
         'system:menus:write',
         'system:dictionaries:read',
         'system:dictionaries:write',
         'system:posts:read',
         'system:posts:write'
-      )
+      ]
     }),
     false
   )

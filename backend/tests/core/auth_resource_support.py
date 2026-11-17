@@ -174,7 +174,7 @@ async def domain_facts(app: FastAPI) -> tuple[tuple[Any, ...], ...]:
             Invocation.reserved_cost,
             Invocation.billable_cost,
         ),
-        (UsageAccount.user_id, UsageAccount.limit_tokens, UsageAccount.used_tokens, UsageAccount.reserved_tokens),
+        (UsageAccount.user_id, UsageAccount.used_tokens, UsageAccount.reserved_tokens),
         (
             CreditAccount.user_id,
             CreditAccount.version,

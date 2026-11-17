@@ -1,7 +1,12 @@
 """Finite, issuance-time capabilities; model allowlists are an additional restriction."""
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Literal
+
+from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import require_capability
+from zhiheng.shared.principal import Principal
 
 Scope = Literal[
     'models:invoke',
@@ -57,9 +62,35 @@ def validate_actions(kind: ResourceKind, actions: tuple[ResourceAction, ...]) ->
         raise ValueError('Invalid resource actions')
 
 
-def scope_catalog() -> dict[str, object]:
+def require_key_capabilities(principal: Principal, scopes: Sequence[str] = (), *, operation: str = 'invoke') -> None:
+    """The same functional gate applies to catalog projection, issuance and use."""
+    require_capability(principal, 'developer', operation)
+    for scope in scopes:
+        namespace, action = scope.split(':')
+        if namespace not in {'knowledge', 'skills', 'agents'}:
+            continue
+        if action == 'write':
+            operations = (
+                ('create', 'update', 'delete', 'import', 'rebuild')
+                if namespace == 'knowledge'
+                else ('create', 'update', 'delete', 'toggle')
+            )
+            principal.require_any_permission(*(f'platform:{namespace}:{item}' for item in operations))
+        else:
+            require_capability(principal, namespace, 'use' if action == 'invoke' else action)
+
+
+def scope_catalog(principal: Principal) -> dict[str, object]:
+    definitions: list[dict[str, object]] = []
+    for item in SCOPE_DEFINITIONS:
+        reason = None
+        try:
+            require_key_capabilities(principal, (item.scope,), operation='key_create')
+        except AppError:
+            reason = f'当前账号没有签发“{item.label}”的权限'
+        definitions.append({**asdict(item), 'grantable': reason is None, 'reason': reason})
     return {
         'scopes': SCOPES,
-        'definitions': [asdict(item) for item in SCOPE_DEFINITIONS],
+        'definitions': definitions,
         'caps': {'resource_rpm_min': 1, 'resource_rpm_max': RESOURCE_RPM_MAX},
     }

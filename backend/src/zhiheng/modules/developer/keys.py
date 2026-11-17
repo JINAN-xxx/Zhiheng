@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
+from zhiheng.modules.developer.scopes import require_key_capabilities
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.references import ResourceReference
@@ -53,8 +54,8 @@ class KeyService:
         app = await self._applications.require(session, principal, application_id, lock=True)
         if app.status != 'active' or not app.platform_enabled:
             raise AppError('application_conflict', '应用已停用', 409)
-        self._require_modules(principal, body.scopes, invoke=False)
-        await self._models.resolve_many(session, body.model_ids)
+        require_key_capabilities(principal, body.scopes, operation='key_create')
+        await self._models.bindings.resolve_many(session, body.model_ids)
         return await self._issue(session, application_id, body)
 
     async def _issue(self, session: AsyncSession, application_id: UUID, body: KeyCreate) -> IssuedKey:
@@ -118,7 +119,7 @@ class KeyService:
             or (app.status != 'active' or not app.platform_enabled)
         ):
             raise AppError('key_conflict', '密钥不可轮换', 409)
-        self._require_modules(principal, tuple(row.scopes), invoke=False, operation='key_rotate')
+        require_key_capabilities(principal, tuple(row.scopes), operation='key_rotate')
         row.status = 'revoked' if grace == 0 else 'retiring'
         row.retire_at = utcnow() + timedelta(seconds=grace) if grace > 0 else None
         body = KeyCreate(
@@ -171,7 +172,7 @@ class KeyService:
             or not await self._identity.is_active(session, app.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
-        self._require_modules(await self._identity.principal_for_user(session, app.owner_id))
+        require_key_capabilities(await self._identity.principal_for_user(session, app.owner_id))
         return DeveloperIdentity(app.id, key.id, app.owner_id)
 
     async def revalidate(self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False) -> KeyInfo:
@@ -195,7 +196,7 @@ class KeyService:
             or not await self._identity.is_active(session, identity.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
-        self._require_modules(await self._identity.principal_for_user(session, identity.owner_id))
+        require_key_capabilities(await self._identity.principal_for_user(session, identity.owner_id))
         return self.info(key)
 
     async def authorize_identity(
@@ -211,29 +212,9 @@ class KeyService:
         key = await self.revalidate(session, identity, lock=lock)
         if scope not in key.scopes:
             raise AppError('insufficient_scope', 'Key lacks the required scope', 403)
-        self._require_modules(await self._identity.principal_for_user(session, identity.owner_id), (scope,))
+        require_key_capabilities(await self._identity.principal_for_user(session, identity.owner_id), (scope,))
         if not set(model_ids) <= set(key.model_ids):
             raise AppError('model_not_found', 'Model is unavailable', 404)
-
-    @staticmethod
-    def _require_modules(
-        principal: Principal, scopes: Sequence[str] = (), *, invoke: bool = True, operation: str = 'key_create'
-    ) -> None:
-        require_capability(principal, 'developer', 'invoke' if invoke else operation)
-        for scope in scopes:
-            namespace, action = scope.split(':')
-            module = {'knowledge': 'knowledge', 'skills': 'skills', 'agents': 'agents'}.get(namespace)
-            if module is None:
-                continue
-            if action == 'write':
-                operations = (
-                    ('create', 'update', 'delete', 'import', 'rebuild')
-                    if module == 'knowledge'
-                    else ('create', 'update', 'delete', 'toggle')
-                )
-                principal.require_any_permission(*(f'platform:{module}:{operation}' for operation in operations))
-            else:
-                require_capability(principal, module, 'use' if action == 'invoke' else action)
 
     async def info_for_identity(self, session: AsyncSession, identity: DeveloperIdentity) -> KeyInfo:
         row = await session.get(DeveloperKey, identity.key_id, populate_existing=True)

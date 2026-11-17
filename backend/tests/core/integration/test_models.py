@@ -55,13 +55,13 @@ async def test_new_account_usage_is_empty(admin: httpx.AsyncClient) -> None:
     response = await admin.get('/api/usage')
     assert response.status_code == 200
     data = response.json()
-    assert {name: data[name] for name in ('limit_tokens', 'used_tokens', 'reserved_tokens', 'records')} == {
-        'limit_tokens': 100000,
+    assert {name: data[name] for name in ('used_tokens', 'reserved_tokens', 'records')} == {
         'used_tokens': 0,
         'reserved_tokens': 0,
         'records': [],
     }
-    assert data['points_enabled'] is False and data['quota_version'] == 0
+    assert data['points_enabled'] is False
+    assert 'limit_tokens' not in data and 'quota_version' not in data
     assert data['page'] == 1 and data['total'] == 0
 
 

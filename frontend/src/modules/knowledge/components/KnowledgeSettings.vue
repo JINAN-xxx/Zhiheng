@@ -15,7 +15,7 @@ import {
 import { identity } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
 import type { ChatModel } from '../../models/public.ts'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { boolean, number, object, string } from '../../../shared/validation.ts'
 import { configureKnowledge, getBase, getCapabilities } from '../api/index.ts'
 import type { KnowledgeBase, KnowledgeJob, KnowledgeSettingsInput } from '../api/index.ts'
@@ -198,7 +198,7 @@ async function save() {
     emit('saved', result.base, result.job)
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason)) {
-      uncertain.value = !(reason instanceof ApiError) || reason.status >= 500
+      uncertain.value = uncertain.value || !isDefiniteRejection(reason)
       if (!uncertain.value) {
         sessionStorage.removeItem(storageKey)
         pending = null

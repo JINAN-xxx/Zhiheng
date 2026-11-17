@@ -527,3 +527,69 @@ void test('identical gateway messages cannot make observation recovery clear a c
   assert.equal(workspace.recoverable.value, true)
   assert.equal(fixture.count('/jobs/preview-1/cancel'), 1)
 })
+
+void test('a request timeout preserves graph preview identity and original configuration version', async (t) => {
+  const fixture = new Fixture(t),
+    workspace = await fixture.mount(t)
+  const posted: Record<string, unknown>[] = []
+  fixture.handle = (path, init) => {
+    if (path !== '/preview' || init?.method !== 'POST') return
+    assert.ok(typeof init.body === 'string')
+    posted.push(JSON.parse(init.body) as Record<string, unknown>)
+    if (posted.length === 1)
+      return response({ error: { code: 'gateway_timeout', message: 'Acceptance unknown' } }, 408)
+    if (posted.length === 2)
+      return response(
+        { error: { code: 'version_conflict', message: 'Confirmation rejected' } },
+        409
+      )
+    fixture.rows = [job()]
+    return response(fixture.rows[0], 202)
+  }
+  await workspace.start({ ...fixture.config.config! }, 'preview')
+  assert.equal(workspace.uncertain.value, true)
+  assert.equal(posted[0]?.expected_version, fixture.config.config!.version)
+  await workspace.recover()
+  assert.equal(workspace.uncertain.value, true)
+  await workspace.recover()
+  assert.equal(posted.length, 3)
+  assert.ok(posted.every((body) => JSON.stringify(body) === JSON.stringify(posted[0])))
+  assert.equal(workspace.uncertain.value, false)
+  assert.equal(workspace.preview.value?.status, 'completed')
+})
+
+void test('a request timeout preserves the original graph query during explicit confirmation', async (t) => {
+  const fixture = new Fixture(t),
+    warnings = t.mock.method(console, 'warn', () => undefined),
+    query = useGraphQuery(ref('base-1'))
+  warnings.mock.restore()
+  t.after(() => query.reset())
+  fixture.current = job('completed', {
+    operation: 'query',
+    result: { context: 'Confirmed original query', entities: [], relationships: [], sources: [] }
+  })
+  const posted: Record<string, unknown>[] = []
+  fixture.handle = (path, init) => {
+    if (path !== '/query' || init?.method !== 'POST') return
+    assert.ok(typeof init.body === 'string')
+    posted.push(JSON.parse(init.body) as Record<string, unknown>)
+    if (posted.length === 1)
+      return response({ error: { code: 'gateway_timeout', message: 'Acceptance unknown' } }, 408)
+    if (posted.length === 2)
+      return response(
+        { error: { code: 'forbidden', message: 'Permission temporarily unavailable' } },
+        403
+      )
+    return response(fixture.current, 202)
+  }
+  await query.submit('Original query', 'mix')
+  assert.equal(query.recoverable.value, true)
+  await query.submit('Replacement must not overwrite the unknown request', 'global')
+  assert.equal(posted.length, 1)
+  await query.recover()
+  assert.equal(query.recoverable.value, true)
+  await query.recover()
+  assert.equal(posted.length, 3)
+  assert.ok(posted.every((body) => JSON.stringify(body) === JSON.stringify(posted[0])))
+  assert.equal(query.result.value?.context, 'Confirmed original query')
+})

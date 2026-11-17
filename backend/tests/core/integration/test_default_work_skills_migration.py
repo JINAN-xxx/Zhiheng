@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.core.integration.test_builtin_role_migration import _version
+from tests.core.permission_support import grants
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.application.identity.accounts import AccountService
 from zhiheng.bootstrap.migrations import migrate
@@ -10,6 +11,7 @@ from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.skills.orm import Skill, SkillRevision
 from zhiheng.modules.skills.package import SkillPackageParser
 from zhiheng.modules.skills.public import SkillService
+from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
 NEW_SKILLS = {'meeting-minutes', 'requirements-clarification', 'writing-polish'}
@@ -25,6 +27,7 @@ async def test_upgrade_adds_personal_copies_and_keeps_existing_skill_state(setti
     try:
         async with factory.begin() as session:
             owner = await accounts.create_user(session, username='before-upgrade', password='platform-test-password')
+            owner = Principal(owner.id, owner.username, False, grants('platform:skills', 'create', 'update'))
             for slug, deleted in [('meeting-minutes', False), ('writing-polish', True)]:
                 payload = markdown(slug, 'Existing personal instructions')
                 draft = await skills.prepare(session, owner, payload, filename='SKILL.md')

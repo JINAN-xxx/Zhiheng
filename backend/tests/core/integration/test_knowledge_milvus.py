@@ -226,7 +226,7 @@ async def test_public_accepted_replay_still_requires_current_authorization(
         response = None
     elif revoke == 'agent':
         agent = (await admin.get('/api/agents/' + context['agent']['id'])).json()
-        response = await admin.post(f'/api/agents/{agent["id"]}/unpublish', json={'expected_version': agent['version']})
+        response = await admin.post(f'/api/agents/{agent["id"]}/disable', json={'expected_version': agent['version']})
     elif revoke == 'rebind':
         from tests.core.integration.test_agents import config
 
@@ -245,7 +245,7 @@ async def test_public_accepted_replay_still_requires_current_authorization(
         )
         assert edited.status_code == 200, edited.text
         response = await admin.post(
-            f'/api/agents/{agent["id"]}/publish', json={'expected_version': edited.json()['version']}
+            f'/api/agents/{agent["id"]}/enable', json={'expected_version': edited.json()['version']}
         )
     else:
         key = (
@@ -395,7 +395,14 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
 
     from tests.core.integration.test_knowledge import finish_preparation
     from tests.core.integration.test_work import member_client, published
+    from tests.core.permission_support import grant_member, grants
 
+    await grant_member(
+        admin,
+        grants('platform:agents', 'use', 'create', 'publish')
+        | grants('platform:developer', 'invoke', 'create', 'key_create')
+        | grants('platform:knowledge', 'query'),
+    )
     context = completed_public_knowledge
     hit = context['intent']['hits'][0]
     async with member_client(app) as member:
@@ -409,15 +416,15 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
         )
         assert granted.status_code == 200, granted.text
         agent = await published(member, context['model_id'], knowledge_base_ids=[base_id])
-        key = (
-            await member.post(
-                f'/api/developer/applications/{agent["application_id"]}/keys',
-                json={
-                    'name': 'Owner ACL',
-                    'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
-                },
-            )
-        ).json()
+        issued = await member.post(
+            f'/api/developer/applications/{agent["application_id"]}/keys',
+            json={
+                'name': 'Owner ACL',
+                'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
+            },
+        )
+        assert issued.status_code == 201, issued.text
+        key = issued.json()
         headers = {'Authorization': 'Bearer ' + key['api_key']}
         response = await member.post(
             f'/v1/agents/{agent["id"]}/chat/completions',

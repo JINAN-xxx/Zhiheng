@@ -1,9 +1,9 @@
 from zhiheng.modules.knowledge.build import BuildClaim, BuildStore
+from zhiheng.modules.knowledge.build_admission import KnowledgeBuildAdmission
 from zhiheng.modules.knowledge.chunks import split_chunks, validate_vectors
 from zhiheng.modules.knowledge.contracts import (
     JOB_TERMINAL,
     NATIVE_FORMATS,
-    PARSER_VERSION,
     PREPARATION_TERMINAL,
     AttachmentImport,
     AttachmentImportInfo,
@@ -27,8 +27,6 @@ from zhiheng.modules.knowledge.contracts import (
     JobRequest,
     KnowledgeSettings,
     MigrationRequest,
-    ParsePort,
-    ParseResult,
     PreparationInfo,
     QueryRequest,
     RechunkRequest,
@@ -65,21 +63,10 @@ from zhiheng.modules.knowledge.graph.contracts import (
 from zhiheng.modules.knowledge.graph.ports import GraphPort
 from zhiheng.modules.knowledge.graph.service import GraphService
 from zhiheng.modules.knowledge.graph.store import GraphClaim, GraphStore
-from zhiheng.modules.knowledge.parsing import ParsingSettingsService, ParsingStore
-from zhiheng.modules.knowledge.parsing_contracts import (
-    PARSE_TERMINAL,
-    DocumentSourceValidator,
-    MinerUClientFactory,
-    MinerUClientPort,
-    MinerUFailure,
-    MinerUResultDecoder,
-    ParsingClaim,
-    ParsingPending,
-    ParsingServiceStatus,
-    ParsingSettingsInfo,
-    ParsingSettingsPatch,
-    ParsingStatusInfo,
-)
+from zhiheng.modules.knowledge.materials import KnowledgeMaterials
+from zhiheng.modules.knowledge.migration import KnowledgeMigration
+from zhiheng.modules.knowledge.parsing import ParsingStore
+from zhiheng.modules.knowledge.parsing_contracts import PARSE_TERMINAL, ParsingClaim, ParsingPending
 from zhiheng.modules.knowledge.ranking import (
     FINAL_HITS,
     MAX_FINAL_HITS,
@@ -87,6 +74,7 @@ from zhiheng.modules.knowledge.ranking import (
     balance_candidates,
     rank_candidates,
 )
+from zhiheng.modules.knowledge.references import KnowledgeReferences
 from zhiheng.modules.knowledge.retrieval import (
     PreparedKnowledge,
     RetrievalAdmission,
@@ -94,7 +82,7 @@ from zhiheng.modules.knowledge.retrieval import (
     RetrievalState,
     RetrievalStore,
 )
-from zhiheng.modules.knowledge.service import BuildSelection, KnowledgeService, binding_fingerprint, fingerprint
+from zhiheng.modules.knowledge.service import KnowledgeService
 from zhiheng.modules.knowledge.sharing import (
     CreatedInvitation,
     InvitationAccepted,
@@ -106,14 +94,15 @@ from zhiheng.modules.knowledge.sharing import (
     MemberRemoval,
     SharingMember,
 )
+from zhiheng.modules.knowledge.values import BuildSelection, binding_fingerprint, fingerprint
 from zhiheng.modules.knowledge.vector import VectorPort, VectorSpec
+from zhiheng.modules.knowledge.workbench import WorkbenchKnowledge
 
 __all__ = [
     'FINAL_HITS',
     'JOB_TERMINAL',
     'MAX_FINAL_HITS',
     'NATIVE_FORMATS',
-    'PARSER_VERSION',
     'PARSE_TERMINAL',
     'PER_BASE_CANDIDATES',
     'PREPARATION_TERMINAL',
@@ -134,7 +123,6 @@ __all__ = [
     'DocumentInfo',
     'DocumentPage',
     'DocumentResult',
-    'DocumentSourceValidator',
     'FolderCreate',
     'FolderInfo',
     'FolderPatch',
@@ -173,27 +161,20 @@ __all__ = [
     'InvitationToken',
     'JobInfo',
     'JobRequest',
+    'KnowledgeBuildAdmission',
     'KnowledgeDefaultsInfo',
     'KnowledgeDefaultsPatch',
     'KnowledgeDefaultsService',
+    'KnowledgeMaterials',
+    'KnowledgeMigration',
+    'KnowledgeReferences',
     'KnowledgeService',
     'KnowledgeSettings',
     'KnowledgeSharing',
     'MemberRemoval',
     'MigrationRequest',
-    'MinerUClientFactory',
-    'MinerUClientPort',
-    'MinerUFailure',
-    'MinerUResultDecoder',
-    'ParsePort',
-    'ParseResult',
     'ParsingClaim',
     'ParsingPending',
-    'ParsingServiceStatus',
-    'ParsingSettingsInfo',
-    'ParsingSettingsPatch',
-    'ParsingSettingsService',
-    'ParsingStatusInfo',
     'ParsingStore',
     'PreparationInfo',
     'PreparedKnowledge',
@@ -210,6 +191,7 @@ __all__ = [
     'VectorPort',
     'VectorSpec',
     'Version',
+    'WorkbenchKnowledge',
     'balance_candidates',
     'binding_fingerprint',
     'fingerprint',

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.application.billing.management import BillingManagementService
+from zhiheng.application.billing.trace import InvocationTrace
 from zhiheng.modules.billing.public import (
     CreditAccountStatePatch,
     CreditAdjustment,
@@ -43,7 +44,7 @@ async def state(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> CreditState:
-    return await container.credits.state(session)
+    return await container.credits.queries.state(session)
 
 
 @router.patch('/state')
@@ -63,7 +64,7 @@ async def me(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> CreditSummary:
-    return await container.credits.summary(session, principal.id)
+    return await container.credits.queries.summary(session, principal.id)
 
 
 @router.get('/me/ledger')
@@ -74,7 +75,7 @@ async def my_ledger(
     page: PageNumber = 1,
     page_size: PageSize = 20,
 ) -> dict[str, object]:
-    return await container.credits.ledger(session, principal, page=page, page_size=page_size)
+    return await container.credits.queries.ledger(session, principal, page=page, page_size=page_size)
 
 
 @router.get('/me/usage')
@@ -86,7 +87,9 @@ async def my_usage(
     page_size: PageSize = 20,
     status: UsageStatus | None = None,
 ) -> dict[str, object]:
-    return await container.credits.reservations(session, principal, page=page, page_size=page_size, status=status)
+    return await container.credits.queries.reservations(
+        session, principal, page=page, page_size=page_size, status=status
+    )
 
 
 @router.get('/accounts')
@@ -182,6 +185,16 @@ async def quote(
     session: SessionDependency,
 ) -> CreditRateInfo | None:
     return await _management(container).quote(session, principal, model_id)
+
+
+@router.get('/usage/{run_id}')
+async def invocation_trace(
+    run_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    ledger_page: PageNumber = 1,
+) -> InvocationTrace:
+    return await container.invocation_traces.detail(principal, run_id, ledger_page=ledger_page)
 
 
 @router.post('/usage/{run_id}/reconcile')

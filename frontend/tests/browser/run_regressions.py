@@ -52,6 +52,10 @@ def run_worker(args: argparse.Namespace) -> int:
     expect.set_options(timeout=15000)
     sys.path.insert(0, str(TEST_ROOT))
     cases = json.loads(Path(args.batch).read_text())
+    screenshots = args.output / 'screenshots' / f'worker-{args.worker_index}'
+    screenshots.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault('PLATFORM_RESOURCE_SCREENSHOTS', str(screenshots))
+    os.environ.setdefault('CLIPBOARD_READ_ORIGIN', args.base_url)
     result_file = args.output / f'worker-{args.worker_index}-results.jsonl'
     result_file.write_text('')
     active = {'id': ''}

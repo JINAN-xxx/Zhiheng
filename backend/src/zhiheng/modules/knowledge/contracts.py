@@ -1,31 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from zhiheng.modules.files.public import AclEntry, BuiltinPermission
 from zhiheng.runtime.contracts import RunError, RunSnapshot
-
-PARSER_VERSION = 'native-2'
-MAX_INPUT_BYTES = 20 * 1024 * 1024
-MAX_TEXT_BYTES = 2_000_000
-MAX_IMAGE_URL_BYTES = 2_000_000
-
-
-class ParseResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
-    text: str
-    metadata: dict[str, str | int]
-    parser_version: str = PARSER_VERSION
-    image_data: str | None = None
-    source_sha256: str | None = None
-
-
-class ParsePort(Protocol):
-    async def parse(self, content: bytes, *, filename: str) -> ParseResult: ...
-
 
 NATIVE_FORMATS = ('pdf', 'docx', 'xlsx', 'txt', 'md', 'csv', 'json', 'html', 'htm')
 JOB_TERMINAL = frozenset({'completed', 'partial', 'failed', 'cancelled', 'interrupted'})

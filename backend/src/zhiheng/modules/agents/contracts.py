@@ -33,7 +33,6 @@ class AgentConfig(BaseModel):
     application_id: UUID | None = None
     temperature: float = Field(default=0.7, strict=True, ge=0, le=2, allow_inf_nan=False)
     max_tokens: int = Field(default=2048, strict=True, ge=1, le=MAX_SAFE_INTEGER)
-    history_rounds: int = Field(default=20, strict=True, ge=0, le=20)
 
     @field_validator('name', 'description', 'system_prompt', 'welcome_message')
     @classmethod
@@ -80,11 +79,17 @@ class AgentInfo(AgentConfig):
     id: UUID
     owner_id: UUID
     version: int
-    status: Literal['draft', 'published']
-    published_version: int | None
-    published_config: AgentConfig | None
+    status: Literal['enabled', 'disabled']
     created_at: datetime
     updated_at: datetime
+
+    @property
+    def enabled(self) -> bool:
+        return self.status == 'enabled'
+
+    @property
+    def configuration(self) -> AgentConfig:
+        return AgentConfig.model_validate(self.model_dump(include=set(AgentConfig.model_fields)))
 
 
 class AgentPage(BaseModel):
@@ -98,7 +103,6 @@ class AgentSummary(BaseModel):
     id: UUID
     name: str
     description: str
-    published_version: int
 
 
 class AgentMessage(BaseModel):

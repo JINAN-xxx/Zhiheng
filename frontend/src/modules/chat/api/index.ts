@@ -3,12 +3,10 @@ import { parseManagedFile } from '../../files/public.ts'
 import { generationRequest, parseGenerationConfig } from '../generationSettings.ts'
 import type { ChatGenerationConfig, ChatGenerationRequest } from '../generationSettings.ts'
 import { decodeVoid, http } from '../../../shared/http.ts'
-import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
-import type { KnowledgeHit } from '../../knowledge/public.ts'
+import { parseRunSnapshot } from '../../../shared/stream.ts'
 import { boolean, list, number, object, string } from '../../../shared/validation.ts'
 export interface Conversation {
   last_activity_at?: string
-  preparation_id: string | null
   version: number
   archived: boolean
   id: string
@@ -31,7 +29,6 @@ export interface ChatMessage {
   generation_index: number
   is_complete: boolean
   feedback: 'up' | 'down' | null
-  knowledge_sources: KnowledgeHit[]
   attachments: ChatAttachment[]
   id: string
   role: 'user' | 'assistant'
@@ -44,7 +41,6 @@ export interface ChatMessage {
 function parseConversation(value: unknown): Conversation {
   const data = object(value)
   return {
-    preparation_id: data.preparation_id == null ? null : string(data.preparation_id),
     id: string(data.id),
     title: string(data.title),
     created_at: string(data.created_at),
@@ -69,8 +65,6 @@ export function parseMessage(value: unknown): ChatMessage {
     generation_index: generation,
     is_complete: data.is_complete === undefined ? true : boolean(data.is_complete),
     feedback,
-    knowledge_sources:
-      data.knowledge_sources === undefined ? [] : list(parseKnowledgeHit)(data.knowledge_sources),
     attachments:
       data.attachments === undefined
         ? []
@@ -176,7 +170,6 @@ export const sendMessage = (
     client_request_id: string
     skill_slugs?: readonly string[]
     file_ids?: readonly string[]
-    knowledge_base_ids?: readonly string[]
   },
   signal: AbortSignal
 ) =>
@@ -187,7 +180,7 @@ export const sendMessage = (
       return { ...base, ...generationRequest({ system_prompt, temperature, max_output_tokens }) }
     })(),
     signal,
-    decode: parseRunAdmission
+    decode: parseRunSnapshot
   })
 export { getRun, cancelRun, observeRun } from '../../../shared/runs.ts'
 
@@ -217,13 +210,6 @@ export const deleteConversation = (conversation: Conversation, signal: AbortSign
 
 export const getContextInfo = (id: string, signal: AbortSignal) =>
   http.request(`/chat/conversations/${encodeURIComponent(id)}/context`, {
-    signal,
-    decode: parseContextInfo
-  })
-export const retryContext = (id: string, client_request_id: string, signal: AbortSignal) =>
-  http.request(`/chat/conversations/${encodeURIComponent(id)}/context/retry`, {
-    method: 'POST',
-    body: { client_request_id },
     signal,
     decode: parseContextInfo
   })

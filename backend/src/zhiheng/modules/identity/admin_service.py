@@ -409,7 +409,12 @@ class IdentityAdminService:
         expected_version: int,
     ) -> dict[str, Any]:
         self._model(kind)
-        principal.require_permission(f'system:{kind}:write')
+        actions = {
+            'users': ('update', 'toggle', 'assign_roles'),
+            'roles': ('update', 'toggle', 'grant'),
+            'departments': ('update', 'toggle'),
+        }[kind]
+        principal.require_any_permission(*(f'system:{kind}:{action}' for action in actions))
         values = self._validated(kind, fields, expected_version=expected_version)
         admins = await self._admin_guard(session) if kind == 'users' else []
         if kind == 'departments':
@@ -523,9 +528,7 @@ class IdentityAdminService:
         return await self._dto(session, 'users', row)
 
     async def user_options(self, session: AsyncSession, principal: Principal) -> dict[str, Any]:
-        if not principal.is_admin and not principal.permissions.intersection(
-            {'system:users:read', 'system:users:write'}
-        ):
+        if not principal.has_any_permission('system:users:read'):
             raise _error('forbidden', '需要用户管理权限', 403)
         result: dict[str, Any] = {}
         for kind, model in (('departments', IdentityDepartment), ('roles', IdentityRole)):

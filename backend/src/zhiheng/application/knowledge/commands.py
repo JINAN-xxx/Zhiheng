@@ -204,7 +204,7 @@ class KnowledgeCommands:
                     await self.access.authorize_request(session, caller, pending)
                     return await self.operations.project(session, caller, pending)
                 roots = await self.knowledge.files.source_root_ids(session, tuple(selection.file_ids or []))
-                await self.knowledge.lock_library_sources(
+                await self.knowledge.materials.lock_library_sources(
                     session, caller.principal, roots, additional_base_ids=(base_id,)
                 )
                 for item in inputs:
@@ -247,16 +247,16 @@ class KnowledgeCommands:
             )
             base = await self.knowledge.authorize_base(session, caller.principal, base_id, manage=True)
             if operation.startswith('delete'):
-                binding = await self.knowledge.deletion_binding(session, base_id)
+                binding = await self.knowledge.builds.deletion_binding(session, base_id)
             else:
                 await self.access.keys.authorize_identity(
                     session, caller.identity, [base.embed_model_id], scope='knowledge:write', lock=True
                 )
-                binding = (await self.models.resolve_many(session, [base.embed_model_id]))[base.embed_model_id]
+                binding = (await self.models.bindings.resolve_many(session, [base.embed_model_id]))[base.embed_model_id]
                 await self.preparation.admission_rate(session, base.embed_model_id, caller.identity)
             if operation == 'import':
                 roots = await self.knowledge.files.source_root_ids(session, tuple(selection.file_ids or []))
-                await self.knowledge.lock_library_sources(
+                await self.knowledge.materials.lock_library_sources(
                     session, caller.principal, roots, additional_base_ids=(base_id,)
                 )
             await self.access.require(
@@ -269,7 +269,7 @@ class KnowledgeCommands:
                 self.precondition(base.version, expected_version)
             elif operation in {'rechunk', 'delete_document'}:
                 assert child_id is not None and expected_version is not None
-                document = await self.knowledge.document_info(session, base_id, child_id)
+                document = await self.knowledge.materials.document_info(session, base_id, child_id)
                 self.precondition(document.version, expected_version)
             elif operation == 'delete_folder':
                 assert child_id is not None and expected_version is not None
@@ -284,7 +284,9 @@ class KnowledgeCommands:
                 for document_id in selection.document_ids or []:
                     sources.add(
                         (
-                            await self.knowledge.document_info(session, base_id, document_id, include_deleted=True)
+                            await self.knowledge.materials.document_info(
+                                session, base_id, document_id, include_deleted=True
+                            )
                         ).file_id
                     )
             resources = (
@@ -341,7 +343,7 @@ class KnowledgeCommands:
             await self.access.keys.authorize_identity(
                 session, caller.identity, [base.embed_model_id], scope='knowledge:query', lock=True
             )
-            await self.models.resolve_many(session, [base.embed_model_id])
+            await self.models.bindings.resolve_many(session, [base.embed_model_id])
             await self.preparation.admission_rate(
                 session, base.embed_model_id, caller.identity, len(body.query.encode()) + 16
             )

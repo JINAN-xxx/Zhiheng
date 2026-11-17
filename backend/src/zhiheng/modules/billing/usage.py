@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from zhiheng.modules.billing.contracts import CreditReconcile, CreditReservation, UsageOutcome, UsageSummary
+    from zhiheng.modules.billing.contracts import CreditReconcile, CreditReservation, UsageOutcome
     from zhiheng.modules.billing.ports import MeterPort
     from zhiheng.modules.billing.service import CreditService
     from zhiheng.modules.models.public import ModelService, RateInfo
@@ -25,7 +25,7 @@ class UsageService:
 
     async def points_enabled(self, session: AsyncSession) -> bool:
         await lock_billing_admission(session)
-        return (await self._credits.state(session)).enabled
+        return (await self._credits.queries.state(session)).enabled
 
     async def money_rate(
         self,
@@ -37,7 +37,7 @@ class UsageService:
     ) -> RateInfo | None:
         """Optional legacy prices; unbilled admission never freezes or applies them."""
         try:
-            return await models.latest_rate(session, model_id)
+            return await models.rates.latest(session, model_id)
         except AppError as error:
             if error.code != 'model_not_found':
                 raise
@@ -52,7 +52,6 @@ class UsageService:
         model_id: UUID,
         source: str,
         tokens: int,
-        token_limit: int,
         key_id: UUID | None = None,
         rate: RateInfo | None = None,
         operation: str = 'chat',
@@ -74,7 +73,6 @@ class UsageService:
                 model_id=model_id,
                 source=source,
                 tokens=tokens if enabled else 0,
-                token_limit=token_limit,
                 key_id=key_id,
                 rate=rate if enabled else None,
                 operation=operation,
@@ -97,7 +95,7 @@ class UsageService:
 
     async def require_model_price(self, session: AsyncSession, models: ModelService, model_id: UUID) -> None:
         """Reject unpriced API model steps before accepting durable work; reserve still freezes the actual price."""
-        if await self.points_enabled(session) and await self._credits.quote(session, model_id) is None:
+        if await self.points_enabled(session) and await self._credits.rates.quote(session, model_id) is None:
             raise AppError('credit_rate_missing', '模型尚未配置积分费率', 409)
 
     async def preflight(
@@ -109,7 +107,6 @@ class UsageService:
         key_id: UUID,
         model_id: UUID,
         input_tokens: int,
-        token_limit: int,
     ) -> None:
         await self.require_model_price(session, models, model_id)
         enabled = await self.points_enabled(session)
@@ -119,7 +116,6 @@ class UsageService:
             user_id=user_id,
             key_id=key_id,
             tokens=input_tokens if enabled else 0,
-            token_limit=token_limit,
             rate=rate,
             points_enforced=enabled,
         )
@@ -207,9 +203,6 @@ class UsageService:
                 rejected_before_execution=data.rejected_before_execution,
             )
             return await self._credits.reconcile(session, actor, run_id, data)
-
-    async def summary(self, session: AsyncSession, user_id: UUID, *, token_limit: int) -> UsageSummary:
-        return await self._meter.summary(session, user_id, token_limit=token_limit)
 
     async def application_usage(
         self,

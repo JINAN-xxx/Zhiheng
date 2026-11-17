@@ -552,3 +552,48 @@ void test('a direct content denial refreshes the gray entry and stale responses 
   assert.equal(workspace.detailError.value, '创建者已删除')
   assert.equal(workspace.bases.value[0]?.availability, 'owner_deleted')
 })
+
+void test('a request timeout preserves knowledge query admission without allowing a replacement', async (t) => {
+  const fixture = new Fixture(t),
+    warnings = t.mock.method(console, 'warn', () => undefined),
+    query = useKnowledgeQuery(ref('base-1'), ref(base()))
+  warnings.mock.restore()
+  t.after(() => query.resetQuery())
+  const posted: Record<string, unknown>[] = []
+  fixture.override = (path, init) => {
+    if (path !== '/api/knowledge/bases/base-1/query' || init?.method !== 'POST') return
+    assert.ok(typeof init.body === 'string')
+    posted.push(JSON.parse(init.body) as Record<string, unknown>)
+    if (posted.length === 1)
+      return response({ error: { code: 'gateway_timeout', message: 'Acceptance unknown' } }, 408)
+    if (posted.length === 2)
+      return response({ error: { code: 'invalid_request', message: 'Confirmation rejected' } }, 422)
+    return response(
+      {
+        kind: 'knowledge_preparation',
+        id: 'confirmed-query',
+        resource_type: 'query',
+        resource_id: 'base-1',
+        status: 'completed',
+        phase: 'completed',
+        run: null,
+        hits: [],
+        error: null,
+        created_at: stamp,
+        updated_at: stamp
+      },
+      202
+    )
+  }
+  await query.submitQuery('Original knowledge query')
+  assert.equal(query.queryRecoverable.value, true)
+  await query.submitQuery('Replacement must not overwrite the unknown request')
+  assert.equal(posted.length, 1)
+  await query.recoverQuery()
+  assert.equal(query.queryRecoverable.value, true)
+  await query.recoverQuery()
+  assert.equal(posted.length, 3)
+  assert.ok(posted.every((body) => JSON.stringify(body) === JSON.stringify(posted[0])))
+  assert.equal(query.queryRecoverable.value, false)
+  assert.equal(query.queryResult.value?.items.length, 0)
+})

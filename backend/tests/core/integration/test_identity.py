@@ -2,6 +2,9 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+from tests.core.permission_support import grants
+from zhiheng.shared.permission_policy import PERMISSION_CODES
+
 
 @pytest.mark.asyncio
 async def test_empty_database_is_not_initialized_by_api(settings: object) -> None:
@@ -61,16 +64,12 @@ async def test_session_tokens_and_passwords_are_not_stored_in_plaintext(admin: h
 
 
 async def test_ai_role_changes_refresh_existing_http_sessions(admin: httpx.AsyncClient, app: object) -> None:
-    permissions = [
-        'ai:models:read',
-        'ai:models:write',
-        'ai:models:test',
-        'ai:rates:read',
-        'ai:rates:write',
-        'ai:skills:write',
-        'ai:storage:read',
-        'ai:storage:write',
-    ]
+    permissions = sorted(
+        grants('platform:models', 'config_read', 'create', 'update', 'delete', 'toggle', 'test')
+        | grants('ai:rates', 'create')
+        | grants('platform:skills', 'create', 'update', 'delete', 'toggle')
+        | grants('ai:storage', 'configure', 'maintain', 'acl', 'transfer', 'delete', 'parse')
+    )
     created = await admin.post('/api/admin/roles', json={'name': 'AI operator'})
     assert created.status_code == 201, created.text
     role = created.json()
@@ -115,7 +114,7 @@ async def test_full_system_and_ai_permission_catalog_can_be_granted_over_http(ad
     response = await admin.get('/api/admin/permissions')
     assert response.status_code == 200
     permissions = sorted(item['code'] for item in response.json()['items'])
-    assert len(permissions) == 24
+    assert set(permissions) == PERMISSION_CODES
     created = await admin.post('/api/admin/roles', json={'name': 'All permissions', 'permissions': permissions})
     assert created.status_code == 201, created.text
     role = created.json()

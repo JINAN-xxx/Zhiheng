@@ -9,7 +9,7 @@ from zhiheng.shared.principal import Principal
 ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
     'chat': {
         **dict.fromkeys(('conversations', 'messages', 'context_info', 'conversation_detail'), 'chat:read'),
-        **dict.fromkeys(('create_conversation', 'create_run', 'regenerate_message', 'retry_context'), 'chat:use'),
+        **dict.fromkeys(('create_conversation', 'create_run', 'regenerate_message'), 'chat:use'),
         'edit_conversation': 'chat:update',
         'delete_conversation': 'chat:delete',
     },
@@ -26,8 +26,8 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'knowledge_policy': 'agents:read',
         'create': 'agents:create',
         'update': 'agents:update',
-        'publish': 'agents:publish',
-        'unpublish': 'agents:publish',
+        'enable': 'agents:publish',
+        'disable': 'agents:publish',
         'remove': 'agents:delete',
         'preview': 'agents:debug',
         'api_access': 'agents:read',
@@ -188,6 +188,9 @@ def _authorize_administration(request: Request, principal: Principal, module: st
 
 def authorize_console_route(request: Request, principal: Principal) -> None:  # noqa: PLR0911, PLR0912 - explicit policies for shared adapters
     module, name = route_identity(request)
+    if module == 'overview':
+        principal.require_permission('platform:overview:read')
+        return
     if _authorize_administration(request, principal, module, name):
         return
     if module == 'models':
@@ -226,7 +229,7 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
         principal.require_any_permission('platform:usage:read', 'ai:credits:read')
         return
     if module == 'usage':
-        principal.require_permission('ai:credits:configure' if name == 'quota' else 'ai:credits:reconcile')
+        principal.require_permission('ai:credits:reconcile')
         return
     if module == 'billing':
         policy = {
@@ -243,6 +246,14 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
         }
         if name in policy:
             principal.require_permission(policy[name])
+        elif name == 'invocation_trace':
+            principal.require_any_permission(
+                'platform:usage:read',
+                'platform:chat:read',
+                'platform:agents:read',
+                'platform:work:read',
+                'ai:credits:read',
+            )
         elif name in {'me', 'my_ledger', 'my_usage'}:
             principal.require_any_permission(
                 'platform:usage:read', 'platform:chat:read', 'platform:agents:read', 'platform:work:read'

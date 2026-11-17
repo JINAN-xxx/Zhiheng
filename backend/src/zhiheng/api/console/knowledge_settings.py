@@ -3,13 +3,8 @@
 from fastapi import APIRouter
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
-from zhiheng.modules.knowledge.public import (
-    KnowledgeDefaultsInfo,
-    KnowledgeDefaultsPatch,
-    ParsingSettingsInfo,
-    ParsingSettingsPatch,
-    ParsingStatusInfo,
-)
+from zhiheng.modules.files.public import ParsingSettingsInfo, ParsingSettingsPatch, ParsingStatusInfo
+from zhiheng.modules.knowledge.public import KnowledgeDefaultsInfo, KnowledgeDefaultsPatch
 
 router = APIRouter(prefix='/api/knowledge/settings', tags=['knowledge'])
 

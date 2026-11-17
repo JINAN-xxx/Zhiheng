@@ -51,7 +51,7 @@ class BillingManagementService:
         page_size: int = 20,
     ) -> dict[str, object]:
         directory = await self._identity.directory_page(session, actor, search=search, page=page, page_size=page_size)
-        summaries = await self._credits.summaries(session, [entry.id for entry in directory.items])
+        summaries = await self._credits.queries.summaries(session, [entry.id for entry in directory.items])
         return {
             'items': [
                 {
@@ -101,11 +101,11 @@ class BillingManagementService:
         return result
 
     async def _before_switch(self, session: AsyncSession, enabled: bool) -> None:
-        if await self._runs.has_active_work(session) or await self._knowledge.has_active_work(session):
+        if await self._runs.has_active_work(session) or await self._knowledge.references.has_active_work(session):
             raise AppError('billing_switch_busy', '仍有进行中的运行或知识任务，请等待完成后再切换积分计费', 409)
         if enabled:
-            models = await self._models.billing_models(session)
-            missing = [model.name for model in models if await self._credits.quote(session, model.id) is None]
+            models = await self._models.catalog.billing_models(session)
+            missing = [model.name for model in models if await self._credits.rates.quote(session, model.id) is None]
             if missing:
                 raise AppError('credit_rates_incomplete', f'以下已启用模型尚未配置积分费率：{"、".join(missing)}', 409)
 
@@ -119,7 +119,7 @@ class BillingManagementService:
         page_size: int = 20,
     ) -> dict[str, object]:
         await self._target(session, actor, user_id)
-        return await self._credits.ledger(session, actor, user_id=user_id, page=page, page_size=page_size)
+        return await self._credits.queries.ledger(session, actor, user_id=user_id, page=page, page_size=page_size)
 
     async def reservations(
         self,
@@ -132,19 +132,19 @@ class BillingManagementService:
         status: str | None = None,
     ) -> dict[str, object]:
         await self._target(session, actor, user_id)
-        return await self._credits.reservations(
+        return await self._credits.queries.reservations(
             session, actor, user_id=user_id, page=page, page_size=page_size, status=status
         )
 
     async def _target(self, session: AsyncSession, actor: Principal, user_id: UUID) -> None:
         if user_id != actor.id:
-            actor.require_any_permission('ai:credits:read', 'ai:credits:write')
+            actor.require_permission('ai:credits:read')
             await self._identity.directory_user(session, actor, user_id)
 
     async def rates(self, session: AsyncSession, actor: Principal, model_id: UUID) -> list[CreditRateInfo]:
-        actor.require_any_permission('ai:rates:read', 'ai:rates:write')
-        await self._models.billing_metadata(session, model_id)
-        return await self._credits.rates(session, actor, model_id)
+        actor.require_permission('ai:rates:read')
+        await self._models.catalog.billing_metadata(session, model_id)
+        return await self._credits.rates.list(session, actor, model_id)
 
     async def create_rate(
         self,
@@ -153,18 +153,25 @@ class BillingManagementService:
         model_id: UUID,
         data: CreditRateCreate,
     ) -> CreditRateInfo:
-        actor.require_permission('ai:rates:write')
-        model = await self._models.billing_metadata(session, model_id)
-        result = await self._credits.create_rate(session, actor, model_id, data, model_type=model.model_type)
+        actor.require_permission('ai:rates:create')
+        model = await self._models.catalog.billing_metadata(session, model_id)
+        result = await self._credits.rates.create(session, actor, model_id, data, model_type=model.model_type)
         await self._record(session, actor, 'billing.rate_create', model_id)
         return result
 
     async def quote(self, session: AsyncSession, actor: Principal, model_id: UUID) -> CreditRateInfo | None:
-        if not await self._models.is_public(session, model_id):
-            if not actor.has_any_permission('ai:rates:read', 'ai:rates:write', 'ai:models:read', 'ai:models:write'):
+        if not await self._models.catalog.is_public(session, model_id):
+            if not actor.has_any_permission(
+                'ai:rates:read',
+                'platform:models:config_read',
+                'platform:models:create',
+                'platform:models:update',
+                'platform:models:delete',
+                'platform:models:toggle',
+            ):
                 raise AppError('model_not_found', '模型不可用', 404)
-            await self._models.billing_metadata(session, model_id)
-        return await self._credits.quote(session, model_id)
+            await self._models.catalog.billing_metadata(session, model_id)
+        return await self._credits.rates.quote(session, model_id)
 
     async def reconcile(
         self,

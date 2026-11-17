@@ -123,7 +123,8 @@ class SkillService:
     ) -> DraftInfo:
         if len(filename) > MAX_FILENAME_LENGTH or '\x00' in filename:
             raise AppError('invalid_skill_package', '技能包文件名无效', 422)
-        parsed = parsed or SkillPackageParser().parse(payload, filename=filename)
+        if parsed is None:
+            parsed = await SkillPackageParser().parse_async(payload, filename=filename)
         await self._lock_slug(session, principal.id, parsed.slug)
         skill = await session.scalar(
             select(Skill).where(Skill.owner_id == principal.id, Skill.slug == parsed.slug).with_for_update(read=True)
@@ -205,7 +206,9 @@ class SkillService:
     ) -> SkillConfirmation:
         if parsed is None:
             package = await self.draft_package(session, principal.id, draft_id)
-            parsed = SkillPackageParser().parse(package[0], filename=package[1]) if package is not None else None
+            parsed = (
+                await SkillPackageParser().parse_async(package[0], filename=package[1]) if package is not None else None
+            )
         draft = await session.scalar(
             select(SkillDraft)
             .where(SkillDraft.id == draft_id, SkillDraft.owner_id == principal.id)
@@ -306,6 +309,9 @@ class SkillService:
         draft.confirmed_skill_id = skill.id
         draft.confirmed_revision_id = revision.id
         draft.confirmed_info = info.model_dump(mode='json')
+        # Immutable revisions own the package. The receipt retains its hashes and
+        # original result, so replay never needs a second copy of the upload.
+        draft.package_bytes = b''
         await session.flush()
         return info
 
@@ -360,7 +366,7 @@ class SkillService:
                 .order_by(Skill.slug, Skill.id)
             )
         ).all()
-        return [await self.resource_info(session, owner_id, skill.id, include_deleted=True) for skill, _ in rows]
+        return [self._resource_info(skill, revision, owner_id) for skill, revision in rows]
 
     async def available(self, session: AsyncSession, owner_id: UUID) -> list[SkillInfo]:
         rows = (
@@ -425,7 +431,13 @@ class SkillService:
         receipt: SkillInfo | None = None,
     ) -> ResourceSkillInfo:
         skill, revision = await self._row(session, owner_id, skill_id, include_deleted=include_deleted)
-        info = receipt or self._info(skill, revision)
+        return self._resource_info(skill, revision, owner_id, receipt=receipt)
+
+    @staticmethod
+    def _resource_info(
+        skill: Skill, revision: SkillRevision, owner_id: UUID, *, receipt: SkillInfo | None = None
+    ) -> ResourceSkillInfo:
+        info = receipt or SkillService._info(skill, revision)
         return ResourceSkillInfo(
             id=info.id,
             owner_id=owner_id,
@@ -444,13 +456,23 @@ class SkillService:
     async def resource_items(
         self, session: AsyncSession, owner_id: UUID, ids: list[UUID], *, after: tuple[datetime, UUID] | None, limit: int
     ) -> list[ResourceSkillInfo]:
-        query = select(Skill.id).where(Skill.owner_id == owner_id, Skill.id.in_(ids), Skill.deleted_at.is_(None))
+        query = (
+            select(Skill, SkillRevision)
+            .outerjoin(SkillRevision, Skill.revision_id == SkillRevision.id)
+            .options(revision_columns())
+            .where(Skill.owner_id == owner_id, Skill.id.in_(ids), Skill.deleted_at.is_(None))
+        )
         if after is not None:
             query = query.where(
                 (Skill.created_at < after[0]) | ((Skill.created_at == after[0]) & (Skill.id < after[1]))
             )
-        found = await session.scalars(query.order_by(Skill.created_at.desc(), Skill.id.desc()).limit(limit))
-        return [await self.resource_info(session, owner_id, identifier) for identifier in found]
+        rows = await session.execute(query.order_by(Skill.created_at.desc(), Skill.id.desc()).limit(limit))
+        result = []
+        for skill, revision in rows:
+            if revision is None:
+                raise AppError('skill_not_found', '技能不存在', 404)
+            result.append(self._resource_info(skill, revision, owner_id))
+        return result
 
     async def revisions(
         self,

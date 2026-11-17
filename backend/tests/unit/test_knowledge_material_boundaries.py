@@ -83,7 +83,7 @@ async def test_file_authority_is_not_library_authority_after_document_removed() 
         get=AsyncMock(return_value=SimpleNamespace(deleted_at=True)),
     )
     with pytest.raises(AppError):
-        await service.authorize_library_file(session, user, uuid4())
+        await service.materials.authorize_library_file(session, user, uuid4())
 
 
 async def test_chat_attachment_requires_actual_sent_reference_even_for_admin_owner() -> None:
@@ -93,7 +93,7 @@ async def test_chat_attachment_requires_actual_sent_reference_even_for_admin_own
     service._require = AsyncMock(return_value=row)
     session = SimpleNamespace(scalar=AsyncMock(return_value=None))
     with pytest.raises(AppError) as error:
-        await service.require_sent_attachment(session, user, row.id)
+        await service.references.require_sent_attachment(session, user, row.id)
     assert error.value.code == 'attachment_not_sent'
 
 
@@ -109,8 +109,8 @@ async def test_private_dependencies_are_counts_and_confirmed_delete_is_allowed()
         base_references=AsyncMock(return_value={'items': [foreign], 'hidden_count': 2}),
     )
     service.require = AsyncMock(return_value=SimpleNamespace(deleted_at=None))
-    summary = await service.references(SimpleNamespace(), user, uuid4())
+    summary = await service.references.for_base(SimpleNamespace(), user, uuid4())
     assert summary == {'items': [], 'hidden_count': 3, 'total': 3}
-    await service.confirm_deletion(SimpleNamespace(), user, uuid4(), confirmed=True)
+    await service.references.confirm_deletion(SimpleNamespace(), user, uuid4(), confirmed=True)
     with pytest.raises(AppError):
-        await service.confirm_deletion(SimpleNamespace(), user, uuid4(), confirmed=False)
+        await service.references.confirm_deletion(SimpleNamespace(), user, uuid4(), confirmed=False)

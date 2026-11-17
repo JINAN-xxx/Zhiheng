@@ -9,7 +9,6 @@ from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDepend
 from zhiheng.api.common.pagination import MAX_CURSOR_LENGTH, decode_cursor, encode_cursor
 from zhiheng.application.chat.runs import PreparedChatInputs
 from zhiheng.modules.chat.public import ChatContextInfo, ChatGenerationSettings, ConversationInfo, MessageInfo
-from zhiheng.modules.knowledge.public import PreparationInfo
 from zhiheng.modules.skills.public import SkillSlug
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.shared.errors import AppError
@@ -34,7 +33,6 @@ class ChatRequest(ChatGenerationSettings):
     message: str = Field(min_length=1, max_length=16000)
     client_request_id: UUID
     file_ids: list[UUID] = Field(default_factory=list)
-    knowledge_base_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
     @field_validator('message')
     @classmethod
@@ -49,13 +47,6 @@ class ChatRequest(ChatGenerationSettings):
     def unique_files(cls, value: list[UUID]) -> list[UUID]:
         if len(set(value)) != len(value):
             raise ValueError('Duplicate attachment')
-        return value
-
-    @field_validator('knowledge_base_ids')
-    @classmethod
-    def unique_knowledge(cls, value: list[UUID]) -> list[UUID]:
-        if len(set(value)) != len(value):
-            raise ValueError('Duplicate knowledge bases')
         return value
 
     skill_slugs: list[SkillSlug] = Field(default_factory=list, max_length=5)
@@ -94,8 +85,6 @@ async def conversations(
     response.headers['X-Next-Cursor'] = (
         encode_cursor(binding, values[-1].last_activity_at or values[-1].created_at, values[-1].id) if more else ''
     )
-    for value in values:
-        value.preparation_id = await container.knowledge_preparation.store.current(session, 'chat', value.id)
     return values
 
 
@@ -131,10 +120,6 @@ async def messages(
     )
     for value in values:
         value.feedback = feedback.get(value.id)
-    for value in values:
-        value.knowledge_sources = await container.knowledge_preparation.visible_hits(
-            session, principal, value.knowledge_sources
-        )
     return values
 
 
@@ -149,18 +134,6 @@ async def context_info(
         return await container.chat_context.info(session, principal, conversation_id)
 
 
-@router.post('/{conversation_id}/context/retry', status_code=202)
-async def retry_context(
-    conversation_id: UUID,
-    body: RegenerateRequest,
-    container: ContainerDependency,
-    principal: PrincipalDependency,
-    session: SessionDependency,
-) -> ChatContextInfo:
-    async with session.begin():
-        return await container.chat_context.retry(session, principal, conversation_id, body.client_request_id)
-
-
 @router.post('/{conversation_id}/runs', status_code=202)
 async def create_run(
     conversation_id: UUID,
@@ -168,9 +141,7 @@ async def create_run(
     container: ContainerDependency,
     principal: PrincipalDependency,
     session: SessionDependency,
-) -> RunSnapshot | PreparationInfo:
-    if body.knowledge_base_ids:
-        return await container.admission.prepare_knowledge_chat(principal, conversation_id, **body.model_dump())
+) -> RunSnapshot:
     async with session.begin():
         await container.chat.require_conversation(session, principal, conversation_id)
         fingerprint = container.admission.fingerprint(
@@ -185,7 +156,7 @@ async def create_run(
         existing = await container.runs.existing_request(session, principal.id, body.client_request_id, fingerprint)
         if existing is not None:
             return existing
-        binding = await container.models.resolve(session, body.model_id)
+        binding = await container.models.bindings.resolve(session, body.model_id)
         container.admission.generation_binding(binding, body)
     attachments = await container.file_inputs.prepare_many(principal, body.file_ids)
     async with session.begin():
@@ -199,7 +170,6 @@ async def create_run(
             file_ids=body.file_ids,
             prepared=PreparedChatInputs(binding, attachments),
             client_request_id=body.client_request_id,
-            token_limit=container.settings.token_limit,
             **body.generation_settings(),
         )
 
@@ -211,13 +181,12 @@ async def regenerate_message(
     body: RegenerateRequest,
     container: ContainerDependency,
     principal: PrincipalDependency,
-) -> RunSnapshot | PreparationInfo:
+) -> RunSnapshot:
     return await container.admission.regenerate_chat(
         principal,
         conversation_id,
         message_id,
         client_request_id=body.client_request_id,
-        token_limit=container.settings.token_limit,
     )
 
 
@@ -242,8 +211,7 @@ async def conversation_detail(
     conversation_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
 ) -> ConversationInfo:
     value = await container.chat.require_conversation(session, principal, conversation_id)
-    preparation_id = await container.knowledge_preparation.store.current(session, 'chat', conversation_id)
-    return value.model_copy(update={'preparation_id': preparation_id})
+    return value
 
 
 @router.patch('/{conversation_id}')

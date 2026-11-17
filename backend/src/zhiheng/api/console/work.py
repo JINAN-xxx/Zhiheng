@@ -114,7 +114,7 @@ async def upgrade_member(
 ) -> TaskDetail:
     async with session.begin():
         return await container.work_runs.change_member(
-            session, principal, task_id, agent_id, body.expected_version, body.expected_published_version
+            session, principal, task_id, agent_id, body.expected_version, body.expected_agent_revision
         )
 
 
@@ -150,7 +150,7 @@ async def admit(
     if knowledge:
         return await container.work_runs.prepare_knowledge_work(principal, task_id, body)
     async with session.begin():
-        return await container.work_runs.admit(session, principal, task_id, body, container.settings.token_limit)
+        return await container.work_runs.admit(session, principal, task_id, body)
 
 
 @router.get('/tasks/{task_id}/runs/{run_id}')

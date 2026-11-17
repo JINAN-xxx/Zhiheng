@@ -19,7 +19,7 @@
   >
     <header class="preview-heading">
       <h2>
-        <MessageOutlined />{{ embedded ? '草稿调试' : `${agent?.name || '智能助手'} · 调试` }}
+        <MessageOutlined />{{ embedded ? '配置调试' : `${agent?.name || '智能助手'} · 调试` }}
       </h2>
       <a-tooltip title="清空对话"
         ><a-button
@@ -57,7 +57,7 @@
       <WorkspaceState
         v-else-if="!messages.length && !sending"
         kind="empty"
-        :title="agent?.name || '草稿调试'"
+        :title="agent?.name || '配置调试'"
         :message="agent ? '发送消息，体验已保存草稿。' : '保存智能助手后可开始对话。'"
       />
       <article
@@ -153,7 +153,8 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
-import { admitPreview, cancelRun, getRun, nextPreviewIntent, observeRun } from '../api/index.ts'
+import { cancelRun, getRun, observeRun } from '../../../shared/runs.ts'
+import { admitPreview, nextPreviewIntent } from '../api/index.ts'
 import type { Agent, PreviewIntent, PreviewMessage } from '../api/index.ts'
 import {
   KnowledgeSources,
@@ -310,8 +311,7 @@ async function send(event?: Event): Promise<void> {
       content: item.content,
       ...(item.status === undefined ? {} : { status: item.status })
     })),
-    () => createRequestId(),
-    agent.historyRounds
+    () => createRequestId()
   )
   pending = intent
   const context = scope.replace()

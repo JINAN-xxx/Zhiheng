@@ -15,7 +15,7 @@ from zhiheng.modules.agents.public import (
 from zhiheng.modules.developer.public import ApplicationService
 from zhiheng.modules.knowledge.public import KnowledgeService, RerankPolicy
 from zhiheng.modules.models.public import ModelBinding, ModelService
-from zhiheng.modules.skills.public import SkillSelection, SkillService, resolve_selection
+from zhiheng.modules.skills.public import SkillService, resolve_selection
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
@@ -63,7 +63,7 @@ class AgentManagementService:
             conversation_ids = await AssistantConversations().conversation_ids(current, target)
             references.extend(await self._runs.assistant_references(current, target, conversation_ids))
             if self._knowledge_resources is not None:
-                references.extend(await self._knowledge_resources.agent_references(current, target))
+                references.extend(await self._knowledge_resources.references.agent_references(current, target))
             if references:
                 raise reference_conflict(
                     'agent_referenced', '智能体仍被当前任务使用，请先解除引用', principal, references
@@ -84,7 +84,7 @@ class AgentManagementService:
         binding = (
             await self.knowledge.binding_for(session, principal, config.model_id, config.knowledge_base_ids)
             if config.knowledge_base_ids and self.knowledge
-            else await self._models.resolve(session, config.model_id)
+            else await self._models.bindings.resolve(session, config.model_id)
         )
         if binding.model_type != 'chat':
             raise AppError('model_unavailable', '智能体仅支持聊天模型', 422)
@@ -108,30 +108,29 @@ class AgentManagementService:
     async def update(self, session: AsyncSession, principal: Principal, agent_id: UUID, body: AgentUpdate) -> AgentInfo:
         agent = await self._agents.get(session, principal, agent_id, expected_version=body.expected_version)
         config = AgentConfig.model_validate(body.model_dump(exclude={'expected_version'}))
-        await self.validate(session, owner(agent), config)
+        await self.validate(session, owner(agent), config, publish=agent.enabled)
         await self._agents.get(session, principal, agent_id, lock=True, expected_version=body.expected_version)
         await resolve_selection(session, agent.owner_id, config.skill_slugs)
         return await self._agents.update(session, principal, agent_id, config, body.expected_version)
 
-    async def publish(
+    async def enable(
         self, session: AsyncSession, principal: Principal, agent_id: UUID, expected_version: int
     ) -> AgentInfo:
         agent = await self._agents.get(session, principal, agent_id, expected_version=expected_version)
         config = AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
         await self.validate(session, owner(agent), config, publish=True)
         await self._agents.get(session, principal, agent_id, lock=True, expected_version=expected_version)
-        selection: SkillSelection = await resolve_selection(session, agent.owner_id, config.skill_slugs)
-        return await self._agents.publish(session, principal, agent_id, expected_version, selection)
+        await resolve_selection(session, agent.owner_id, config.skill_slugs)
+        return await self._agents.set_enabled(session, principal, agent_id, expected_version, True)
 
     async def available(self, session: AsyncSession, principal: Principal) -> list[AgentSummary]:
         # A directory is a read: do not accumulate row locks across unrelated owners/models.
-        models = {row.id: row for row in await self._models.list_models(session) if row.model_type == 'chat'}
+        models = {row.id: row for row in await self._models.catalog.list(session) if row.model_type == 'chat'}
         result = []
         for summary in await self._agents.summaries(session, principal):
             agent = await self._agents.get(session, principal, summary.id)
-            config = agent.published_config
+            config = agent.configuration
             skills = {row.slug for row in await SkillService().available(session, agent.owner_id)}
-            assert config is not None
             if (
                 config.model_id not in models
                 or config.max_tokens > models[config.model_id].max_output_tokens
@@ -156,9 +155,9 @@ class AgentManagementService:
 
     async def api_access(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> dict[str, object]:
         agent = await self._agents.get(session, principal, agent_id)
-        config = agent.published_config
-        if config is None or config.application_id is None:
-            raise AppError('agent_not_published', '智能体尚未发布', 409)
+        config = agent.configuration
+        if not agent.enabled or config.application_id is None:
+            raise AppError('agent_disabled', '请先启用智能助手', 409)
         actor = owner(agent)
         await self._applications.require_active_owned(session, actor.id, config.application_id, lock=False)
         model_ids = {config.model_id}
@@ -170,6 +169,6 @@ class AgentManagementService:
             model_ids.add(ranker.model_id)
         return {
             'application_id': config.application_id,
-            'published_version': agent.published_version,
+            'revision': agent.version,
             'model_ids': sorted(model_ids),
         }

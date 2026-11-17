@@ -53,9 +53,7 @@ import FileStatistics from '../components/FileStatistics.vue'
 import FileTable from '../components/FileTable.vue'
 import FileTransferDialog from '../components/FileTransferDialog.vue'
 import { canManageFile } from '../access.ts'
-const canReadStorage = computed(() =>
-  hasAnyPermission(identity.value, 'ai:storage:read', 'ai:storage:write')
-)
+const canReadStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:read'))
 interface StorageReadState {
   query: ReturnType<typeof emptyQuery>
   dates: [string, string] | null

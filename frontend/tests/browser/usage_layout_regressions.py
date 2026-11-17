@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Usage layouts preserve precise balances, permissions and unknown consumption."""
 
 import re
@@ -29,6 +30,7 @@ class UsageLayoutRegressions(BillingRegressions):
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
     async def test_mobile_unknown_consumption_does_not_become_zero(self):
+        self.user['permissions'] = granted_permissions('platform:usage:read')
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await self.page.goto(self.origin + '/usage')
         card = self.page.locator('.credit-mobile-list .credit-usage-card')
@@ -39,7 +41,7 @@ class UsageLayoutRegressions(BillingRegressions):
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
     async def test_readonly_mobile_accounts_do_not_expose_mutations(self):
-        self.user['permissions'] = ['ai:credits:read']
+        self.user['permissions'] = granted_permissions('platform:usage:read', 'ai:credits:read')
         await self.page.set_viewport_size({'width': 320, 'height': 844})
         await self.page.goto(self.origin + '/usage')
         await self.page.get_by_role('tab', name='用户积分', exact=True).click()

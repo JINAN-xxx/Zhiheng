@@ -1,12 +1,10 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
+from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.modules.files.public import IssueAction, PolicyRequest, RetentionPolicyRequest
@@ -15,32 +13,10 @@ from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 
-@asynccontextmanager
-async def account(
-    admin: httpx.AsyncClient, app: FastAPI, *permissions: str
-) -> AsyncIterator[tuple[httpx.AsyncClient, dict[str, Any], dict[str, Any]]]:
-    suffix = uuid4().hex[:12]
-    role = await admin.post('/api/admin/roles', json={'code': suffix, 'name': suffix, 'permissions': list(permissions)})
-    assert role.status_code == 201, role.text
-    user = await admin.post(
-        '/api/admin/users',
-        json={'username': suffix, 'password': 'platform-test-password', 'role_ids': [role.json()['id']]},
-    )
-    assert user.status_code == 201, user.text
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url='http://test', headers={'content-type': 'application/json'}
-    ) as client:
-        login = await client.post('/api/auth/login', json={'username': suffix, 'password': 'platform-test-password'})
-        assert login.status_code == 200, login.text
-        assert login.json()['user']['is_admin'] is False
-        assert set(login.json()['user']['permissions']) == set(permissions)
-        yield client, role.json(), user.json()
-
-
 async def test_model_management_read_write_and_basic_usage_are_independent(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
-    async with account(admin, app) as (member, _, _):
+    async with account(admin, app, *(grants('platform:models') | grants('platform:chat', 'use'))) as (member, _, _):
         assert (await member.get('/api/models')).status_code == 200
         assert (await member.get('/api/models?include_disabled=true')).status_code == 403
         assert (await member.get('/api/models/connections')).status_code == 403
@@ -51,7 +27,11 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
             json={'model_id': model_id, 'message': 'hello', 'client_request_id': str(uuid4())},
         )
         assert run.status_code == 202, run.text
-    async with account(admin, app, 'ai:models:read') as (reader, _, _):
+    async with account(admin, app, *(grants('platform:models', 'config_read') | grants('ai:credentials'))) as (
+        reader,
+        _,
+        _,
+    ):
         connections = await reader.get('/api/models/connections')
         assert connections.status_code == 200, connections.text
         assert 'local-test-key' not in connections.text and 'encrypted_api_key' not in connections.text
@@ -74,7 +54,14 @@ async def test_model_management_read_write_and_basic_usage_are_independent(
             await reader.get(f'/api/models/{model_id}/rate-cards'),
         ]:
             assert response.status_code == 403, response.text
-    async with account(admin, app, 'ai:models:write') as (writer, _, _):
+    async with account(
+        admin,
+        app,
+        *(
+            grants('platform:models', 'config_read', 'create', 'update', 'delete', 'toggle')
+            | grants('ai:credentials', 'create', 'update', 'delete', 'toggle')
+        ),
+    ) as (writer, _, _):
         assert (await writer.get('/api/models/connections')).status_code == 200
         assert (await writer.get('/api/models?include_disabled=true')).status_code == 200
         connection = await writer.post(
@@ -120,7 +107,11 @@ async def test_model_testing_uses_existing_quota_ledger_idempotency_and_current_
     await enable_free_billing(admin)
     from zhiheng.worker.execution import execute_run
 
-    async with account(admin, app, 'ai:models:test') as (tester, role, _):
+    async with account(admin, app, *(grants('platform:models', 'test') | grants('platform:usage'))) as (
+        tester,
+        role,
+        _,
+    ):
         path = f'/api/models/{model_id}/test'
         body = {'client_request_id': str(uuid4())}
         result = await tester.post(path, json=body)
@@ -149,14 +140,14 @@ async def test_rate_read_and_write_do_not_grant_model_configuration_or_testing(
 ) -> None:
     path = f'/api/models/{model_id}/rate-cards'
     body = {'billing_mode': 'token', 'input_price': '0.01'}
-    async with account(admin, app, 'ai:rates:read') as (reader, _, _):
+    async with account(admin, app, *grants('ai:rates')) as (reader, _, _):
         assert (await reader.get(path)).status_code == 200
         assert (await reader.post(path, json=body)).status_code == 403
         assert (await reader.get('/api/models/connections')).status_code == 403
         assert (
             await reader.post(f'/api/models/{model_id}/test', json={'client_request_id': str(uuid4())})
         ).status_code == 403
-    async with account(admin, app, 'ai:rates:write') as (writer, _, _):
+    async with account(admin, app, *grants('ai:rates', 'create')) as (writer, _, _):
         assert (await writer.get(path)).status_code == 200
         created = await writer.post(path, json=body)
         assert created.status_code == 201 and created.json()['version'] == 1, created.text
@@ -171,7 +162,11 @@ async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
     # Keep this historical node ID while enforcing the personal-resource contract.
-    async with account(admin, app) as (writer, _, _):
+    async with account(admin, app, *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')) as (
+        writer,
+        _,
+        _,
+    ):
         draft = await writer.post(
             '/api/skills/import/prepare?filename=SKILL.md',
             content=markdown('delegated'),
@@ -179,9 +174,17 @@ async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
         )
         assert draft.status_code == 201, draft.text
         confirm_path = f'/api/skills/import/{draft.json()["draft_id"]}/confirm'
-        async with account(admin, app, 'ai:skills:write') as (other, _, _):
+        async with account(admin, app, *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')) as (
+            other,
+            _,
+            _,
+        ):
             assert (await other.post(confirm_path, json={})).status_code == 404
-        async with account(admin, app) as (member, _, _):
+        async with account(admin, app, *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')) as (
+            member,
+            _,
+            _,
+        ):
             assert (await member.get('/api/skills/available')).status_code == 200
             assert (
                 await member.post(
@@ -194,7 +197,11 @@ async def test_shared_skills_require_write_and_drafts_remain_bound_to_creator(
         installed = await writer.post(confirm_path, json={})
         assert installed.status_code == 201, installed.text
         identifier = installed.json()['id']
-        async with account(admin, app) as (member, _, _):
+        async with account(admin, app, *grants('platform:skills', 'use', 'create', 'update', 'delete', 'toggle')) as (
+            member,
+            _,
+            _,
+        ):
             assert (
                 await member.patch(
                     f'/api/skills/{identifier}/status', json={'status': 'disabled', 'expected_version': 1}
@@ -227,6 +234,7 @@ async def test_storage_governance_read_write_preserve_private_file_acl(admin: ht
     async with account(admin, app) as (member, _, _):
         for path in reads:
             assert (await member.get(path)).status_code == 403, path
+    async with account(admin, app, *grants('ai:storage', 'maintain', 'delete')) as (member, _, _):
         own_file = await member.post(
             '/api/files?filename=own.txt',
             content=b'own-source',
@@ -240,8 +248,9 @@ async def test_storage_governance_read_write_preserve_private_file_acl(admin: ht
             f'/api/files/{own_id}/restore', json={'expected_version': removed.json()['version']}
         )
         assert restored.status_code == 200, restored.text
-    for permission in ['ai:storage:read', 'ai:storage:write']:
-        async with account(admin, app, permission) as (operator, _, user):
+    for actions in [(), ('configure', 'maintain', 'acl', 'transfer', 'delete', 'parse')]:
+        permissions = grants('ai:storage', *actions)
+        async with account(admin, app, *permissions) as (operator, _, user):
             for path in reads:
                 response = await operator.get(path)
                 assert response.status_code == (403 if path == '/api/files/users' else 200), f'{path}: {response.text}'
@@ -249,23 +258,24 @@ async def test_storage_governance_read_write_preserve_private_file_acl(admin: ht
             assert (await operator.get('/api/files/stats')).json()['total_count'] == 0
             for suffix in ['', '/download', '/acl', '/references', '/audits']:
                 assert (await operator.get(f'/api/files/{identifier}{suffix}')).status_code == 404
-            assert (await operator.post(f'/api/files/{identifier}/parse', json={})).status_code == 404
+            denied_operation = 404 if actions else 403
+            assert (await operator.post(f'/api/files/{identifier}/parse', json={})).status_code == denied_operation
             assert (
                 await operator.patch(f'/api/files/{identifier}', json={'display_name': 'deny', 'expected_version': 1})
-            ).status_code == 404
+            ).status_code == denied_operation
             assert (
                 await operator.patch(
                     f'/api/files/{identifier}/acl', json={'access': 'public', 'entries': [], 'expected_version': 1}
                 )
-            ).status_code == 404
+            ).status_code == denied_operation
             assert (
                 await operator.post(
                     f'/api/files/{identifier}/transfer',
                     json={'owner_id': user['id'], 'expected_version': 1, 'uploader_access_enabled': False},
                 )
-            ).status_code == 404
+            ).status_code == denied_operation
             assert (await operator.get('/api/admin/users')).status_code == 403
-            expected = 403 if permission.endswith(':read') else 200
+            expected = 200 if actions else 403
             changed = await operator.patch(
                 '/api/files/policy', json={'retention_days': 31, 'reminder_days': 7, 'expected_version': 1}
             )
@@ -284,7 +294,7 @@ async def test_storage_governance_read_write_preserve_private_file_acl(admin: ht
                 f'/api/files/reconcile/issues/{uuid4()}/actions', json={'action': 'ignore', 'expected_version': 1}
             )
             assert issue.status_code == (403 if expected == 403 else 404), issue.text
-            principal = Principal(UUID(user['id']), user['username'], False, frozenset({permission}))
+            principal = Principal(UUID(user['id']), user['username'], False, permissions)
             async with app.state.container.database.sessions.begin() as session:
                 with pytest.raises(AppError) as denied:
                     await app.state.container.files.create_owned(
@@ -340,7 +350,7 @@ async def test_storage_jobs_keep_owner_checks_for_purge_and_file_repairs(
         session.add(issue)
         await session.flush()
         issue_id = issue.id
-    async with account(admin, app, 'ai:storage:write') as (operator, _, _):
+    async with account(admin, app, *grants('ai:storage', 'maintain', 'delete')) as (operator, _, _):
         purged = await operator.post('/api/files/jobs/purge', json={})
         assert purged.status_code == 200 and purged.json()['changed'] == 1, purged.text
         for info in records:
@@ -375,37 +385,35 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
 
     async with container.database.sessions() as session:
         reads = [
-            lambda: container.models.list_connections(session, principal),
-            lambda: container.models.list_models(session, principal=principal, include_disabled=True),
-            lambda: container.models.rates(session, principal, identifier),
-            lambda: container.files.policy(session, principal),
-            lambda: container.files.users(session, principal),
-            lambda: container.files.retention_policies(session, principal),
-            lambda: container.files.jobs(session, principal),
-            lambda: container.files.issues(session, principal),
-            lambda: container.files.issue_stats(session, principal),
+            lambda: container.models.connections.list(session, principal),
+            lambda: container.models.catalog.list(session, principal=principal, include_disabled=True),
+            lambda: container.models.rates.list(session, principal, identifier),
+            lambda: container.files.lifecycle.policy(session, principal),
+            lambda: container.files.queries.users(session, principal),
+            lambda: container.files.lifecycle.retention_policies(session, principal),
+            lambda: container.files.queries.jobs(session, principal),
+            lambda: container.files.queries.issues(session, principal),
+            lambda: container.files.queries.issue_stats(session, principal),
         ]
         writes = [
-            lambda: container.models.resolve_for_test(session, principal, identifier),
-            lambda: container.models.list_models(session, principal=principal, for_test=True),
-            lambda: container.models.create_connection(
+            lambda: container.models.bindings.resolve_for_test(session, principal, identifier),
+            lambda: container.models.catalog.list(session, principal=principal, for_test=True),
+            lambda: container.models.connections.create(
                 session, principal, name='deny', base_url='http://localhost', api_key='secret'
             ),
-            lambda: container.models.update_connection(session, principal, identifier, {}),
-            lambda: container.models.delete_connection(session, principal, identifier, reference_check=unreferenced),
-            lambda: container.models.create_model(
+            lambda: container.models.connections.update(session, principal, identifier, {}),
+            lambda: container.models.connections.remove(session, principal, identifier, reference_check=unreferenced),
+            lambda: container.models.catalog.create(
                 session, principal, name='deny', connection_id=identifier, upstream_model='deny', max_output_tokens=1
             ),
-            lambda: container.models.update_model(session, principal, identifier, {}),
-            lambda: container.models.delete_model(session, principal, identifier, reference_check=unreferenced),
-            lambda: container.models.add_rate(session, principal, identifier, RateCreate(billing_mode='token')),
-            lambda: container.admission.admit_test(
-                session, principal, model_id=identifier, client_request_id=uuid4(), token_limit=1000
-            ),
-            lambda: container.files.set_policy(
+            lambda: container.models.catalog.update(session, principal, identifier, {'name': 'denied'}),
+            lambda: container.models.catalog.remove(session, principal, identifier, reference_check=unreferenced),
+            lambda: container.models.rates.create(session, principal, identifier, RateCreate(billing_mode='token')),
+            lambda: container.model_trials.admit(session, principal, model_id=identifier, client_request_id=uuid4()),
+            lambda: container.files.lifecycle.set_policy(
                 session, principal, PolicyRequest(retention_days=1, reminder_days=1, expected_version=1)
             ),
-            lambda: container.files.set_retention(
+            lambda: container.files.lifecycle.set_retention(
                 session, principal, RetentionPolicyRequest(resource_type='chat', retention_days=1)
             ),
             lambda: container.file_jobs.run(principal, 'reconcile'),
@@ -418,14 +426,18 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
                 await operation()
             assert denied.value.status_code == 403
         with pytest.raises(AppError) as missing_principal:
-            await container.models.list_models(session, include_disabled=True)
+            await container.models.catalog.list(session, include_disabled=True)
         assert missing_principal.value.status_code == 403
-        assert await container.models.list_models(session) == []
+        assert await container.models.catalog.list(session) == []
         principal = Principal(
             principal.id,
             'read-only',
             False,
-            frozenset({'ai:models:read', 'ai:rates:read', 'ai:storage:read', 'system:users:read'}),
+            grants('ai:credentials')
+            | grants('platform:models', 'config_read')
+            | grants('ai:rates')
+            | grants('ai:storage')
+            | grants('system:users'),
         )
         for operation in reads:
             await operation()
@@ -434,10 +446,14 @@ async def test_services_enforce_ai_permissions_without_http_routes(admin: httpx.
                 await operation()
             assert denied.value.status_code == 403
 
-    async with account(admin, app) as (_, _, user):
-        owner = Principal(UUID(user['id']), user['username'], False)
-    async with account(admin, app, 'ai:skills:write') as (_, _, user):
-        other = Principal(UUID(user['id']), user['username'], False, frozenset({'ai:skills:write'}))
+    async with account(admin, app, *grants('platform:skills', 'create', 'update', 'delete', 'toggle')) as (_, _, user):
+        owner = Principal(
+            UUID(user['id']), user['username'], False, grants('platform:skills', 'create', 'update', 'delete', 'toggle')
+        )
+    async with account(admin, app, *grants('platform:skills', 'create', 'update', 'delete', 'toggle')) as (_, _, user):
+        other = Principal(
+            UUID(user['id']), user['username'], False, grants('platform:skills', 'create', 'update', 'delete', 'toggle')
+        )
     async with container.database.sessions.begin() as session:
         draft = await container.skills.prepare(session, owner, markdown(), filename='SKILL.md')
         with pytest.raises(AppError) as foreign_draft:

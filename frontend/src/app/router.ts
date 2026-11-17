@@ -9,13 +9,9 @@ import { skillRoutes } from '../modules/skills/public.ts'
 import { agentRoutes } from '../modules/agents/public.ts'
 import { workRoutes } from '../modules/work/public.ts'
 import { knowledgeRoutes } from '../modules/knowledge/public.ts'
-import { adminRoutes, canAccessAdmin } from '../modules/admin/public.ts'
-import {
-  moduleForPath,
-  hasModule,
-  hasCapability,
-  firstModulePath
-} from '../shared/platformAccess.ts'
+import { adminRoutes } from '../modules/admin/public.ts'
+import { firstModulePath } from '../shared/platformAccess.ts'
+import { accessRedirect } from './access.ts'
 import { errorMessage } from '../shared/http.ts'
 declare module 'vue-router' {
   interface RouteMeta {
@@ -68,22 +64,7 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { reason: errorMessage(error) } }
   }
   if (!user) return '/login'
-  const module = moduleForPath(to.path)
-  if (module && !to.meta.permission && !hasModule(user, module))
-    return { path: '/access', query: { denied: module } }
-  if (
-    (to.name === 'agent-create' && !hasCapability(user, 'agents', 'create')) ||
-    (to.name === 'agent-editor' && !hasCapability(user, 'agents', 'read')) ||
-    (to.name === 'assistant-chat' && !hasCapability(user, 'agents'))
-  )
-    return { path: '/access', query: { denied: 'agents' } }
-  if (module === 'knowledge' && to.params.view === 'query' && !hasCapability(user, 'knowledge'))
-    return { path: '/access', query: { denied: 'knowledge' } }
-  if (to.meta.admin && !user.is_admin) return firstModulePath(user)
-  if (to.meta.console && !canAccessAdmin(user)) return firstModulePath(user)
-  if (to.meta.permission && !user.is_admin && !user.permissions?.includes(to.meta.permission))
-    return '/admin'
-  return true
+  return accessRedirect(to, user) ?? true
 })
 router.afterEach((to) => {
   document.title = `${to.meta.title ?? '工作空间'} · 智衡`

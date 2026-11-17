@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
 from files_regressions import FILE
+from permission_fixture import granted_permissions
 
 
 STAMP = '2026-10-23T00:00:00Z'
@@ -139,7 +140,7 @@ class KnowledgeUIRegressions(DeveloperBoundary):
 
     async def test_non_admin_owner_shares_without_querying_user_directory(self):
         directories, file_acl = [], []
-        await self.page.route('**/api/auth/me', lambda route: route.fulfill(json={'id': 'user-1', 'username': 'owner', 'is_admin': False}))
+        await self.page.route('**/api/auth/me', lambda route: route.fulfill(json={'id': 'user-1', 'username': 'owner', 'is_admin': False, 'permissions': granted_permissions('platform:knowledge:share')}))
         async def directory(route):
             directories.append(urlparse(route.request.url).path)
             await route.fulfill(json=[])

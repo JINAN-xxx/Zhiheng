@@ -15,6 +15,7 @@ from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.integration.test_work import member_client, published, task
 from tests.core.integration.test_worker import named_model
+from tests.core.permission_support import grant_member, grants
 from tests.core.provider import ProviderServer
 from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.runtime.orm import Run
@@ -75,26 +76,36 @@ async def test_unknown_token_usage_can_be_reconciled_exactly_once(
     assert conflict.status_code == 409
 
 
-async def test_quota_updates_are_authorized_versioned_and_idempotent(admin: httpx.AsyncClient, app: FastAPI) -> None:
-    owner = (await admin.get('/api/auth/me')).json()['id']
-    body = {'expected_version': 0, 'limit_tokens': 200000, 'reason': 'allocation', 'client_request_id': str(uuid4())}
+async def test_retired_lifetime_quota_is_absent_and_cannot_change_historical_accounts(
+    admin: httpx.AsyncClient, app: FastAPI
+) -> None:
+    from sqlalchemy import func
+
+    from zhiheng.modules.billing.orm import TokenCommand, UsageAccount
+
+    owner = UUID((await admin.get('/api/auth/me')).json()['id'])
+    async with app.state.container.database.sessions.begin() as session:
+        session.add(UsageAccount(user_id=owner, used_tokens=5, reserved_tokens=3))
+    path = f'/api/usage/accounts/{owner}/quota'
+    body = {'expected_version': 7, 'limit_tokens': 200000, 'reason': 'obsolete', 'client_request_id': str(uuid4())}
     async with member_client(app) as member:
-        assert (await member.patch('/api/usage/accounts/' + owner + '/quota', json=body)).status_code == 403
-        assert (await member.get('/api/usage', params={'user_id': owner})).status_code == 403
-    result = await admin.patch('/api/usage/accounts/' + owner + '/quota', json=body)
-    assert result.status_code == 200, result.text
-    assert result.json()['quota_version'] == 1 and result.json()['limit_tokens'] == 200000
-    assert (await admin.patch('/api/usage/accounts/' + owner + '/quota', json=body)).json() == result.json()
-    stale = await admin.patch(
-        '/api/usage/accounts/' + owner + '/quota',
-        json={**body, 'client_request_id': str(uuid4()), 'limit_tokens': 300000},
-    )
-    assert stale.status_code == 409
-    bodies = [
-        {**body, 'expected_version': 1, 'limit_tokens': 300000 + i, 'client_request_id': str(uuid4())} for i in range(2)
-    ]
-    responses = await asyncio.gather(*(admin.patch('/api/usage/accounts/' + owner + '/quota', json=b) for b in bodies))
-    assert sorted(r.status_code for r in responses) == [200, 409]
+        assert (await member.patch(path, json=body)).status_code == 404
+        assert (await member.get('/api/usage', params={'user_id': str(owner)})).status_code == 403
+    assert (await admin.patch(path, json=body)).status_code == 404
+    assert (await admin.patch(path, json=body)).status_code == 404
+    schema = (await admin.get('/openapi.json')).json()
+    assert '/api/usage/accounts/{user_id}/quota' not in schema['paths']
+    assert 'TokenQuotaPatch' not in schema['components']['schemas']
+    response = await admin.get('/api/usage')
+    assert response.status_code == 200
+    result = response.json()
+    assert result['used_tokens'] == 5 and result['reserved_tokens'] == 3
+    assert 'limit_tokens' not in result and 'quota_version' not in result
+    async with app.state.container.database.sessions() as session:
+        row = await session.get(UsageAccount, owner)
+        assert row is not None
+        assert (row.used_tokens, row.reserved_tokens) == (5, 3)
+        assert await session.scalar(select(func.count()).select_from(TokenCommand)) == 0
 
 
 async def test_usage_server_pagination_and_filters_keep_old_records(
@@ -188,6 +199,7 @@ async def test_agent_access_inventory_includes_effective_ranker(
 async def test_pending_uploads_can_be_discovered_without_browser_state(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
+    await grant_member(admin, grants('platform:knowledge'))
     embed = await embedding_model(admin, provider)
     base = (await admin.post('/api/knowledge/bases', json={'name': 'Recovery', 'embed_model_id': embed})).json()
     path = '/api/knowledge/bases/' + base['id'] + '/uploads'
@@ -332,9 +344,9 @@ async def test_schema25_upgrade_preserves_existing_usage_and_agent_data(
     created = await admin.post('/api/agents', json=config(model_id))
     assert created.status_code == 201, created.text
     columns = {
-        'developer_accounts': 'user_id,limit_tokens,used_tokens,reserved_tokens',
+        'developer_accounts': 'user_id,used_tokens,reserved_tokens',
         'developer_invocations': 'id,run_id,user_id,model_id,source,status,reserved_tokens,input_tokens,output_tokens,charged_tokens',
-        'agents': 'id,owner_id,config,version,publication_count,published_version,created_at,updated_at,deleted_at',
+        'agents': 'id,owner_id,config,version,created_at,updated_at,deleted_at',
     }
     async with c.database.sessions.begin() as session:
         before = {

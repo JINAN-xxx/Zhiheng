@@ -16,7 +16,7 @@ DETAIL_SELECTOR = '.model-detail-modal[role="dialog"], .model-detail-modal [role
 
 class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.permissions = ['ai:models:write', 'ai:models:test', 'ai:rates:write']
+        self.permissions = ['ai:rates:create', 'ai:rates:enabled', 'ai:rates:read', 'platform:models:config_read', 'platform:models:create', 'platform:models:delete', 'platform:models:enabled', 'platform:models:read', 'platform:models:test', 'platform:models:toggle', 'platform:models:update']
         self.requests = []
         self.connection_enabled = True
         self.rows = [
@@ -47,6 +47,9 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
                                             'is_admin': False, 'permissions': self.permissions})
         if path == '/api/models':
             return await route.fulfill(json=self.rows)
+        if path == '/api/models/connection-options':
+            return await route.fulfill(json=[{'id': 'connection-1', 'name': '团队服务',
+                'enabled': self.connection_enabled}])
         if path == '/api/models/connections':
             return await route.fulfill(json=[{'id': 'connection-1', 'name': '团队服务',
                 'provider': 'openai_compatible', 'base_url': 'https://provider.example/v1',
@@ -201,7 +204,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(self.page.get_by_role('menuitem', name='测试连接', exact=True)).to_be_disabled()
 
     async def test_tester_without_connection_read_permission_keeps_legitimate_test_access(self):
-        self.permissions = ['ai:models:test']
+        self.permissions = ['platform:models:enabled', 'platform:models:read', 'platform:models:test']
         await self.open_models()
         item = self.page.locator('.model-item').first
         await expect(item).not_to_contain_text('团队服务')
@@ -215,7 +218,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
     async def test_rate_reader_has_only_rate_menu_and_readonly_rate_dialog(self):
-        self.permissions = ['ai:rates:read']
+        self.permissions = ['ai:rates:enabled', 'ai:rates:read', 'platform:models:enabled', 'platform:models:read']
         await self.open_models()
         detail = await self.open_details(self.page.locator('.model-item').first)
         await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
@@ -228,7 +231,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
     async def test_writer_keeps_management_without_test_or_rate_access(self):
-        self.permissions = ['ai:models:write']
+        self.permissions = ['platform:models:config_read', 'platform:models:create', 'platform:models:delete', 'platform:models:enabled', 'platform:models:read', 'platform:models:toggle', 'platform:models:update']
         await self.open_models()
         detail = await self.open_details(self.page.locator('.model-item').first)
         await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
@@ -237,7 +240,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(menu.get_by_role('menuitem', name='费率配置', exact=True)).to_have_count(0)
 
     async def test_basic_user_has_details_without_management_requests_or_actions(self):
-        self.permissions = []
+        self.permissions = ['platform:models:enabled', 'platform:models:read']
         await self.open_models()
         item = self.page.locator('.model-item').first
         await expect(item).not_to_contain_text('团队服务')

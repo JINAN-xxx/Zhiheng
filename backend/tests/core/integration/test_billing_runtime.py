@@ -17,6 +17,9 @@ from tests.core.integration.test_knowledge_failures import finish_job
 from tests.core.integration.test_knowledge_failures import source as upload_source
 from tests.core.integration.test_public_protocol import drive
 from tests.core.integration.test_work import member_client, published, task, turn
+from tests.core.permission_support import (
+    member_agent_work_permissions,  # noqa: F401 - registered by pytest through usefixtures
+)
 from zhiheng.modules.billing.contracts import CreditAdjustment, CreditRateCreate, CreditReconcile, CreditStatePatch
 from zhiheng.modules.billing.orm import CreditHold, Invocation, UsageAccount
 from zhiheng.modules.developer.orm import KeyMinuteBucket
@@ -59,7 +62,7 @@ async def prepare(
                 ),
             )
         if priced:
-            await container.credits.create_rate(
+            await container.credits.rates.create(
                 session,
                 actor,
                 UUID(model_id),
@@ -74,7 +77,7 @@ async def prepare(
                 ),
                 model_type='chat',
             )
-        state = await container.credits.state(session)
+        state = await container.credits.queries.state(session)
         if not state.enabled:
             await container.credits.set_state(
                 session,
@@ -101,7 +104,6 @@ async def reserve(
             model_id=UUID(model_id),
             source='connection_test',
             tokens=2000,
-            token_limit=1,
             estimated_input_tokens=1000,
             max_output_tokens=1000,
             key_id=key_id,
@@ -127,15 +129,15 @@ async def test_unified_example_bypasses_old_token_gate_but_preserves_statistics(
     container = app.state.container
     run = await reserve(container, actor, model_id)
     async with container.database.sessions.begin() as session:
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert summary.reserved_points == Decimal('0.6') and summary.available_points == Decimal('99.4')
         result = await container.usage.settle(session, run, input_tokens=1000, output_tokens=200)
         assert result.points_enforced and result.status == 'known'
     async with container.database.sessions() as session:
-        summary = await container.credits.summary(session, actor.id)
-        legacy = await container.usage.summary(session, actor.id, token_limit=1)
+        summary = await container.credits.queries.summary(session, actor.id)
+        legacy = await container.metering.summary(session, actor.id)
         assert summary.used_points == Decimal('0.2') and summary.available_points == Decimal('99.8')
-        assert legacy.used_tokens == 1200 and legacy.reserved_tokens == 0 and legacy.limit_tokens == 1
+        assert legacy.used_tokens == 1200 and legacy.reserved_tokens == 0
 
 
 @pytest.mark.parametrize('source', ['chat', 'connection_test', 'agent_preview', 'work_turn', 'public'])
@@ -178,7 +180,6 @@ async def test_each_user_entry_reserves_from_frozen_input_then_local_worker_sett
                 operation='chat',
                 messages=(ModelMessage('user', 'hello'),),
                 options={},
-                token_limit=1,
             )
             run = snapshot.model_dump(mode='json')
     run_id = UUID(run['id'])
@@ -196,7 +197,7 @@ async def test_each_user_entry_reserves_from_frozen_input_then_local_worker_sett
     async with container.database.sessions() as session:
         hold = await session.get(CreditHold, run_id)
         assert hold.status == 'settled' and hold.charged_points == Decimal('0.0018')
-        assert (await container.credits.summary(session, actor.id)).reserved_points == 0
+        assert (await container.credits.queries.summary(session, actor.id)).reserved_points == 0
     assert len(provider.requests) == 1
 
 
@@ -224,7 +225,7 @@ async def test_empty_wallet_missing_rate_and_explicit_free_admission(
         run = await reserve(app.state.container, actor, model_id)
         async with app.state.container.database.sessions.begin() as session:
             await app.state.container.usage.settle(session, run, input_tokens=1000, output_tokens=200)
-            assert (await app.state.container.credits.summary(session, actor.id)).used_points == 0
+            assert (await app.state.container.credits.queries.summary(session, actor.id)).used_points == 0
     assert provider.requests == []
 
 
@@ -257,7 +258,7 @@ async def test_unknown_reconcile_releases_both_ledgers_and_rolls_back_bad_versio
     async with container.database.sessions() as session:
         account = await session.get(UsageAccount, actor.id)
         assert account.reserved_tokens == 0 and account.used_tokens == 1200
-        assert (await container.credits.summary(session, actor.id)).available_points == Decimal('99.8')
+        assert (await container.credits.queries.summary(session, actor.id)).available_points == Decimal('99.8')
 
 
 async def test_key_points_limit_rotation_and_shared_parent_concurrency(
@@ -331,7 +332,7 @@ async def test_points_public_embedding_and_rerank_use_their_own_units(
         assert created.status_code == 201, created.text
         model = created.json()['id']
         async with container.database.sessions.begin() as session:
-            await container.credits.create_rate(
+            await container.credits.rates.create(
                 session,
                 actor,
                 UUID(model),
@@ -404,7 +405,7 @@ async def test_points_index_embedding_and_retrieval_embedding_are_both_metered(
         holds = list(await session.scalars(select(CreditHold)))
         assert {hold.source for hold in holds} == {'knowledge_embedding', 'knowledge_retrieval'}
         assert len(holds) == 3 and all(hold.status == 'settled' for hold in holds)
-        assert (await container.credits.summary(session, actor.id)).used_points == Decimal('0.0012')
+        assert (await container.credits.queries.summary(session, actor.id)).used_points == Decimal('0.0012')
     assert len(provider.requests) == 3
 
 
@@ -471,16 +472,16 @@ async def test_mode_switch_does_not_retroactively_bill_old_calls_or_release_exis
     container, actor, old = app.state.container, await owner(admin), uuid4()
     async with container.database.sessions.begin() as session:
         await container.usage.reserve(
-            session, user_id=actor.id, run_id=old, model_id=UUID(model_id), source='chat', tokens=20, token_limit=100
+            session, user_id=actor.id, run_id=old, model_id=UUID(model_id), source='chat', tokens=20
         )
     await prepare(admin, app, model_id)
     async with container.database.sessions.begin() as session:
         await container.usage.require_reservation(session, old, actor.id, UUID(model_id))
         assert not (await container.usage.settle(session, old, input_tokens=10, output_tokens=2)).points_enforced
-        assert (await container.credits.summary(session, actor.id)).used_points == 0
+        assert (await container.credits.queries.summary(session, actor.id)).used_points == 0
     new = await reserve(container, actor, model_id)
     async with container.database.sessions.begin() as session:
-        state = await container.credits.state(session)
+        state = await container.credits.queries.state(session)
         await container.credits.set_state(
             session,
             actor,
@@ -494,7 +495,7 @@ async def test_mode_switch_does_not_retroactively_bill_old_calls_or_release_exis
     async with container.database.sessions.begin() as session:
         await container.usage.require_reservation(session, new, actor.id, UUID(model_id))
         await container.usage.settle(session, new, input_tokens=1000, output_tokens=200)
-        assert (await container.credits.summary(session, actor.id)).used_points == Decimal('0.2')
+        assert (await container.credits.queries.summary(session, actor.id)).used_points == Decimal('0.2')
 
 
 async def test_failed_credit_admission_restores_key_bucket_inside_the_callers_transaction(
@@ -511,7 +512,6 @@ async def test_failed_credit_admission_restores_key_bucket_inside_the_callers_tr
             'model_id': UUID(model_id),
             'source': 'public',
             'tokens': 2000,
-            'token_limit': 1,
             'key_id': UUID(key['id']),
             'estimated_input_tokens': 1000,
             'max_output_tokens': 1000,
@@ -542,7 +542,7 @@ async def test_public_agent_can_use_points_price_without_historical_money_rate(
     created = await admin.post('/api/agents', json=config(model_id, application_id=key['application_id']))
     assert created.status_code == 201, created.text
     agent = created.json()
-    published_agent = await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    published_agent = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     assert published_agent.status_code == 200, published_agent.text
     response = await drive(
         app.state.container,
@@ -579,18 +579,18 @@ async def test_admin_work_turn_keeps_original_owners_wallet_and_resource_authori
                 member_id,
                 CreditAdjustment(kind='grant', points='1', reason='Owner allocation', client_request_id=uuid4().hex),
             )
-            before = await container.credits.summary(session, member_id)
+            before = await container.credits.queries.summary(session, member_id)
         denied = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
         assert denied.status_code == 404, denied.text
         async with container.database.sessions() as session:
-            assert await container.credits.summary(session, member_id) == before
+            assert await container.credits.queries.summary(session, member_id) == before
         response = await member.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
         assert response.status_code == 202, response.text
         await execute_run(container, UUID(response.json()['id']))
         async with container.database.sessions() as session:
             hold = await session.get(CreditHold, UUID(response.json()['id']))
             assert hold.user_id == member_id and hold.charged_points == Decimal('0.0018')
-            assert (await container.credits.summary(session, actor.id)).used_points == 0
+            assert (await container.credits.queries.summary(session, actor.id)).used_points == 0
 
 
 async def test_rerank_search_units_settle_points_and_money_without_fabricating_tokens(
@@ -613,7 +613,7 @@ async def test_rerank_search_units_settle_points_and_money_without_fabricating_t
     assert response.status_code == 201, response.text
     model = response.json()['id']
     async with container.database.sessions.begin() as session:
-        await container.credits.create_rate(
+        await container.credits.rates.create(
             session,
             actor,
             UUID(model),
@@ -650,7 +650,7 @@ async def test_rerank_search_units_settle_points_and_money_without_fabricating_t
         assert invocation.billable_cost == Decimal('0.50')
         account = await session.get(UsageAccount, actor.id)
         assert account.reserved_tokens == invocation.reserved_tokens and account.used_tokens == 0
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert summary.reserved_points == 0 and summary.used_points == Decimal('20')
     with pytest.raises(AppError) as limited:
         async with container.database.sessions.begin() as session:
@@ -661,7 +661,6 @@ async def test_rerank_search_units_settle_points_and_money_without_fabricating_t
                 operation='rerank',
                 messages=(ModelMessage('user', 'first'), ModelMessage('user', 'first'), ModelMessage('user', 'second')),
                 options={},
-                token_limit=1,
             )
     assert limited.value.code == 'rate_limit_exceeded'
 
@@ -682,7 +681,6 @@ async def test_points_mode_continues_bounded_calls_after_historical_counters_exc
         'model_id': UUID(model_id),
         'source': 'public',
         'tokens': 20,
-        'token_limit': 1,
         'key_id': UUID(key['id']),
         'estimated_input_tokens': 10,
         'max_output_tokens': 10,
@@ -693,7 +691,6 @@ async def test_points_mode_continues_bounded_calls_after_historical_counters_exc
         account = await session.get(UsageAccount, actor.id)
         bucket = await session.scalar(select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == UUID(key['id'])))
         # Seed historical aggregate counters; every newly executed call remains 8/2 Tokens.
-        account.limit_tokens = 2**31 + 100
         account.used_tokens = account.reserved_tokens = bucket.tokens = 2**31 - 5
     async with container.database.sessions.begin() as session:
         await container.usage.reserve(session, run_id=second, **fields)
@@ -705,7 +702,9 @@ async def test_points_mode_continues_bounded_calls_after_historical_counters_exc
     async with container.database.sessions() as session:
         account = await session.get(UsageAccount, actor.id)
         bucket = await session.scalar(select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == UUID(key['id'])))
-        assert account.limit_tokens == 2**31 + 100
         assert account.used_tokens == bucket.tokens == 2**31 + 5
         assert account.reserved_tokens == 2**31 - 5
-        assert (await container.credits.summary(session, actor.id)).used_points == Decimal('0.0036')
+        assert (await container.credits.queries.summary(session, actor.id)).used_points == Decimal('0.0036')
+
+
+pytestmark = pytest.mark.usefixtures('member_agent_work_permissions')

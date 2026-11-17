@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Governance controls never load private application details or keys."""
 import re
 from urllib.parse import urlparse
@@ -70,12 +71,12 @@ class ApplicationGovernanceRegressions(AdminRegressions):
         self.assertEqual(self.private_reads,[])
 
     async def test_delegated_user_manager_has_no_governance_route_or_requests(self):
-        self.user.update(is_admin=False,permissions=['system:users:read','system:users:write'])
+        self.user.update(is_admin=False,permissions=granted_permissions('system:users:update'))
         await self.page.goto(self.origin + '/admin/users')
         await expect(self.page.get_by_role('heading',name='用户管理',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('link',name='应用治理',exact=True)).to_have_count(0)
         await self.page.goto(self.origin + '/admin/applications')
-        await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page).to_have_url(self.origin + '/admin/users')
         self.assertEqual(self.governance_reads,0)
         self.assertEqual(self.private_reads,[])
 

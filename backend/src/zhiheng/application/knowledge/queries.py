@@ -57,18 +57,20 @@ class KnowledgeQueries:
     async def documents(self, caller: CallerContext, base_id: UUID) -> list[DocumentInfo]:
         async with self.database.sessions.begin() as session:
             await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
-            return (await self.knowledge.documents(session, self.access.personal(caller.principal), base_id)).items
+            return (
+                await self.knowledge.materials.documents(session, self.access.personal(caller.principal), base_id)
+            ).items
 
     async def download(self, caller: CallerContext, base_id: UUID, document_id: UUID) -> tuple[FileInfo, bytes]:
         async with self.database.sessions.begin() as session:
             await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
             principal = self.access.personal(caller.principal)
-            file = await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            file = await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
             ticket = await self.knowledge.files.read_ticket(session, principal, file.id)
         content = await self.knowledge.files.read_content(ticket)
         async with self.database.sessions.begin() as session:
             await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
-            await self.knowledge.require_document_source(session, principal, base_id, document_id)
+            await self.knowledge.materials.require_document_source(session, principal, base_id, document_id)
         return file, content
 
     async def preview(self, caller: CallerContext, base_id: UUID, document_id: UUID) -> dict[str, object]:
@@ -78,7 +80,7 @@ class KnowledgeQueries:
         result = await self.document_workflows.preview(self.access.personal(caller.principal), base_id, document_id)
         async with self.database.sessions.begin() as session:
             await self.access.require(session, caller, 'knowledge_base', base_id, 'read', lock=False)
-            await self.knowledge.require_document_source(
+            await self.knowledge.materials.require_document_source(
                 session, self.access.personal(caller.principal), base_id, document_id
             )
         return result

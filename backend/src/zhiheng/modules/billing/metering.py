@@ -42,7 +42,6 @@ class MeteringService:
         user_id: UUID,
         key_id: UUID,
         tokens: int,
-        token_limit: int,
         rate: RateInfo | None,
         points_enforced: bool,
     ) -> MeterReservation:
@@ -82,7 +81,7 @@ class MeteringService:
             )
         return MeterReservation(bool(invocation.points_enforced), invocation.key_id, key_limit)
 
-    async def reserve(  # noqa: PLR0913 - metering admission boundary
+    async def reserve(
         self,
         session: AsyncSession,
         *,
@@ -91,7 +90,6 @@ class MeteringService:
         model_id: UUID,
         source: str,
         tokens: int,
-        token_limit: int,
         key_id: UUID | None = None,
         rate: RateInfo | None = None,
         operation: str = 'chat',
@@ -106,9 +104,10 @@ class MeteringService:
         )
         cost = key.reserved_cost if key else reserved_cost(rate, reserved_tokens) if rate is not None else None
 
+        # Create usage counters once; the row lock serializes reservation and settlement.
         await session.execute(
             insert(UsageAccount)
-            .values(user_id=user_id, limit_tokens=token_limit, used_tokens=0, reserved_tokens=0)
+            .values(user_id=user_id, used_tokens=0, reserved_tokens=0)
             .on_conflict_do_nothing(index_elements=['user_id'])
         )
         account = await session.scalar(
@@ -358,7 +357,6 @@ class MeteringService:
         session: AsyncSession,
         user_id: UUID,
         *,
-        token_limit: int,
         page: int = 1,
         page_size: int = 100,
         source: str | None = None,
@@ -377,8 +375,6 @@ class MeteringService:
             .limit(page_size)
         )
         return UsageSummary(
-            limit_tokens=account.limit_tokens if account else token_limit,
-            quota_version=account.quota_version if account else 0,
             used_tokens=account.used_tokens if account else 0,
             reserved_tokens=account.reserved_tokens if account else 0,
             total=total,

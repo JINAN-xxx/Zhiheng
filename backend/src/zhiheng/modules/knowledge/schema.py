@@ -29,14 +29,13 @@ from zhiheng.modules.knowledge.orm import (
     KnowledgeUploadReceipt,
     RetrievalIntent,
 )
-from zhiheng.modules.knowledge.parsing_orm import ParsingConfiguration, ParsingJob
+from zhiheng.modules.knowledge.parsing_orm import ParsingJob
 
 
 def schema_tables() -> tuple[Table, ...]:
     return tuple(
         Base.metadata.tables[model.__tablename__]
         for model in (
-            ParsingConfiguration,
             ParsingJob,
             GraphConfiguration,
             GraphJob,

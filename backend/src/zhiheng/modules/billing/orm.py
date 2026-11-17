@@ -148,11 +148,11 @@ class CreditLedger(Base):
 
 class UsageAccount(Base):
     __tablename__ = 'developer_accounts'
-    quota_version: Mapped[int] = mapped_column(Integer, default=0, server_default='0')
-    __table_args__ = (CheckConstraint('used_tokens >= 0 AND reserved_tokens >= 0 AND limit_tokens > 0'),)
+    __table_args__ = (
+        CheckConstraint('used_tokens >= 0 AND reserved_tokens >= 0', name='ck_usage_accounts_nonnegative'),
+    )
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'), primary_key=True)
-    limit_tokens: Mapped[int] = mapped_column(BigInteger)
     used_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
     reserved_tokens: Mapped[int] = mapped_column(BigInteger, default=0)
 

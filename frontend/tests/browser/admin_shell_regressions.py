@@ -1,3 +1,4 @@
+from permission_fixture import granted_permissions
 """Platform entry and published announcements with controlled HTTP boundaries."""
 import unittest
 from urllib.parse import urlparse
@@ -115,7 +116,7 @@ class AdminShellRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('heading', name='用户管理', exact=True)).to_be_visible()
 
     async def test_reader_enters_console_from_account_menu(self):
-        self.user_override = {'id': 'reader', 'username': 'reader', 'is_admin': False, 'permissions': ['system:users:read']}
+        self.user_override = {'id': 'reader', 'username': 'reader', 'is_admin': False, 'permissions': granted_permissions('system:users:read')}
         await self.page.goto(self.origin + '/chat')
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
         await self.page.get_by_role('menuitem').filter(has_text='后台管理').get_by_role('link', name='后台管理', exact=True).click()
@@ -129,7 +130,7 @@ class AdminShellRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='用户菜单', exact=True).click()
         await expect(self.page.get_by_role('menuitem').filter(has_text='后台管理')).to_have_count(0)
         await self.page.goto(self.origin + '/admin')
-        await expect(self.page).to_have_url(self.origin + '/chat')
+        await expect(self.page).to_have_url(self.origin + '/access')
         self.assertEqual(self.admin_reads, [])
 
 

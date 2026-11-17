@@ -1,3 +1,5 @@
+import type { RunSnapshot } from '../../src/shared/stream.ts'
+import { fullChatContext } from './chatContextFixture.ts'
 import { grantedPermissions } from './permissionFixture.ts'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
@@ -28,7 +30,6 @@ const conversation = (id: string) => ({
   id,
   title: id,
   created_at: stamp,
-  preparation_id: null,
   version: 1,
   archived: false
 })
@@ -63,14 +64,14 @@ class Fixture {
           id: 'user-1',
           username: 'test',
           is_admin: false,
-          permissions: grantedPermissions('platform:chat:access')
+          permissions: grantedPermissions('platform:chat:use')
         })
       if (url.pathname === '/api/models') return response([])
       if (url.pathname === '/api/chat/conversations')
         return response([conversation('recent')], 'next-conversations')
       if (url.pathname.endsWith('/messages'))
         return response([message('recent-message', 30)], 'older-messages')
-      if (url.pathname.endsWith('/context')) return response({ status: 'full' })
+      if (url.pathname.endsWith('/context')) return response(fullChatContext)
       throw new Error('Unexpected request: ' + url.toString())
     }
   }
@@ -240,7 +241,7 @@ void test('a generation refresh cannot discard an older page loaded while its re
         id: 'user-1',
         username: 'test',
         is_admin: false,
-        permissions: grantedPermissions('platform:chat:access')
+        permissions: grantedPermissions('platform:chat:use')
       })
     if (url.pathname === '/api/models')
       return response([
@@ -307,4 +308,73 @@ void test('a generation refresh cannot discard an older page loaded while its re
     ['old-message', 'recent-message', 'new-message']
   )
   assert.equal(state.olderCursor.value, null)
+})
+
+const activeSnapshot = (id: string, conversationId: string): RunSnapshot => ({
+  id,
+  resource_type: 'chat',
+  resource_id: conversationId,
+  status: 'running' as const,
+  attempt_id: 'attempt-' + id,
+  attempt_no: 1,
+  revision: 1,
+  projection_seq: 1,
+  text: 'partial',
+  error: null,
+  created_at: stamp,
+  usage: { input_tokens: null, output_tokens: null, status: 'pending' as const }
+})
+
+void test('a lost stop response is confirmed by reconnect without repeating the cancellation', async (t) => {
+  const fixture = new Fixture(),
+    state = await fixture.mount(t)
+  await state.selectConversation(conversation('recent'))
+  const running = activeSnapshot('active-run', 'recent')
+  state.activeRun.value = running
+  state.draft.value = 'next draft'
+  let writes = 0
+  fixture.override = (url) => {
+    if (url.pathname === '/api/runs/active-run/cancel') {
+      writes++
+      throw new TypeError('response lost')
+    }
+    if (url.pathname === '/api/runs/active-run')
+      return response({ ...running, status: 'cancelled', revision: 2, projection_seq: 2 })
+    return undefined
+  }
+  await state.stop()
+  assert.equal(state.running.value, true)
+  assert.equal(state.canRecover.value, true)
+  await state.reconnect()
+  assert.equal(state.activeRun.value?.status, 'cancelled')
+  assert.equal(state.running.value, false)
+  assert.equal(state.canRecover.value, false)
+  assert.equal(writes, 1)
+  assert.equal(state.draft.value, 'next draft')
+})
+
+void test('a late stop acknowledgement cannot overwrite a different conversation Run', async (t) => {
+  const fixture = new Fixture(),
+    state = await fixture.mount(t)
+  await state.selectConversation(conversation('recent'))
+  const old = activeSnapshot('old-run', 'recent')
+  state.activeRun.value = old
+  let release!: (value: Response) => void
+  fixture.override = (url) =>
+    url.pathname === '/api/runs/old-run/cancel'
+      ? new Promise((resolve) => {
+          release = resolve
+        })
+      : undefined
+  const stopping = state.stop()
+  await flush()
+  await state.selectConversation(conversation('other'))
+  const current = activeSnapshot('new-run', 'other')
+  state.activeRun.value = current
+  release(response({ ...old, status: 'cancelled', revision: 2, projection_seq: 2 }))
+  await stopping
+  assert.equal(state.selected.value?.id, 'other')
+  assert.equal(state.activeRun.value?.id, 'new-run')
+  assert.equal(state.activeRun.value?.status, 'running')
+  assert.equal(state.stopping.value, false)
 })

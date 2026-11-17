@@ -75,7 +75,9 @@ class OperationQueries:
     async def project(self, session: AsyncSession, caller: CallerContext, request: APIRequestInfo) -> OperationInfo:
         assert request.result_id is not None
         if request.result_kind == 'knowledge_job':
-            job = await self.knowledge.get_job_info(session, self.access.personal(caller.principal), request.result_id)
+            job = await self.knowledge.builds.get_job_info(
+                session, self.access.personal(caller.principal), request.result_id
+            )
             visible = []
             for document in job.document_results:
                 try:

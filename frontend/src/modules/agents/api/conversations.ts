@@ -1,5 +1,5 @@
 import { decodeVoid, http } from '../../../shared/http.ts'
-import { list, number, object, string } from '../../../shared/validation.ts'
+import { list, number, object, string, boolean } from '../../../shared/validation.ts'
 import { parseRunSnapshot } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import { parseKnowledgeHit, parseRunAdmission } from '../../knowledge/public.ts'
@@ -14,16 +14,16 @@ export interface AssistantConversation {
   name: string
   description: string
   welcomeMessage: string
-  publishedVersion: number
   createdAt: string
   preparationId: string | null
+  memoryAvailable: boolean
+  summaryUsed: boolean
 }
 export interface AssistantTurn {
   id: string
   requestId: string | null
   sequence: number
   agentName: string
-  publishedVersion: number
   content: string
   run: RunSnapshot
   sources: KnowledgeHit[]
@@ -39,7 +39,8 @@ function parseConversation(value: unknown): AssistantConversation {
     name: string(d.name),
     description: string(d.description),
     welcomeMessage: string(d.welcome_message),
-    publishedVersion: number(d.published_version),
+    memoryAvailable: boolean(d.memory_available),
+    summaryUsed: boolean(d.summary_used),
     createdAt: string(d.created_at),
     preparationId: d.preparation_id == null ? null : string(d.preparation_id)
   }
@@ -60,7 +61,6 @@ function parseDetail(value: unknown) {
         requestId: row.request_id == null ? null : string(row.request_id),
         sequence: number(row.sequence),
         agentName: string(row.agent_name),
-        publishedVersion: number(row.published_version),
         content: string(row.content),
         run: parseRunSnapshot(row.run),
         sources: list(parseKnowledgeHit)(row.sources)

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.core.integration.test_builtin_role_migration import _version
 from tests.core.integration.test_skills import install
+from tests.core.permission_support import grant_member, grants
 from tests.core.unit.test_skill_package import markdown
 from zhiheng.application.identity.accounts import AccountService
 from zhiheng.bootstrap.migrations import migrate
@@ -18,12 +19,14 @@ from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.skills.orm import Skill, SkillDraft
 from zhiheng.modules.skills.package import SkillPackageParser
 from zhiheng.modules.skills.public import SkillService
+from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
 
 async def test_market_and_mine_filter_before_pagination_and_keep_ownership(
     admin: httpx.AsyncClient, app: object
 ) -> None:
+    await grant_member(admin, grants('platform:skills'))
     uploaded = await install(admin, 'personal-upload')
     market = (await admin.get('/api/skills', params={'source': 'builtin', 'page_size': 2})).json()
     assert market['total'] == 5 and len(market['items']) == 2
@@ -102,6 +105,7 @@ async def test_upgrade_restores_deleted_presets_disabled_without_rewriting_conte
             owner = await AccountService(IdentityService(), service).create_user(
                 session, username='before-market', password='platform-test-password'
             )
+            owner = Principal(owner.id, owner.username, False, grants('platform:skills', 'create', 'update'))
             row = await session.scalar(select(Skill).where(Skill.owner_id == owner.id, Skill.source == 'builtin'))
             assert row is not None
             row.deleted_at = utcnow()

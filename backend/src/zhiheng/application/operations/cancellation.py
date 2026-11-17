@@ -18,7 +18,7 @@ class OperationCancellation:
             request = await self.queries.access.requests.get(session, caller.identity.application_id, request_id)
             await self.queries.authorize(session, caller, request, cancel=True)
             if request.result_kind == 'knowledge_job' and request.result_id is not None:
-                await self.queries.knowledge.cancel_job(
+                await self.queries.knowledge.builds.cancel_job(
                     session, self.queries.access.personal(caller.principal), request.result_id
                 )
             elif request.result_kind == 'knowledge_preparation' and request.result_id is not None:

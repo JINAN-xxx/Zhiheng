@@ -7,28 +7,28 @@ import { hasAdminPermission } from '../../src/modules/admin/access.ts'
 void test('AI capabilities require an exact granted code, with an administrator bypass', () => {
   assert.equal(typeof identity.hasAnyPermission, 'function')
   const { hasAnyPermission } = identity
-  assert.equal(hasAnyPermission(null, 'ai:models:write'), false)
-  assert.equal(hasAnyPermission({ is_admin: false }, 'ai:models:write'), false)
-  assert.equal(hasAnyPermission({ is_admin: true }, 'ai:models:write'), true)
+  assert.equal(hasAnyPermission(null, 'platform:models:update'), false)
+  assert.equal(hasAnyPermission({ is_admin: false }, 'platform:models:update'), false)
+  assert.equal(hasAnyPermission({ is_admin: true }, 'platform:models:update'), true)
   assert.equal(
     hasAnyPermission(
-      { is_admin: false, permissions: grantedPermissions('ai:models:read') },
-      'ai:models:write'
+      { is_admin: false, permissions: grantedPermissions('platform:models:config_read') },
+      'platform:models:update'
     ),
     false
   )
   assert.equal(
     hasAnyPermission(
-      { is_admin: false, permissions: grantedPermissions('ai:models:write') },
-      'ai:models:read',
-      'ai:models:write'
+      { is_admin: false, permissions: grantedPermissions('platform:models:update') },
+      'platform:models:config_read',
+      'platform:models:update'
     ),
     true
   )
   assert.equal(
     hasAnyPermission(
-      { is_admin: false, permissions: grantedPermissions('ai:models:*', 'system:models:write') },
-      'ai:models:write'
+      { is_admin: false, permissions: ['ai:models:*', 'system:models:write', 'ai:models:write'] },
+      'platform:models:update'
     ),
     false
   )
@@ -37,9 +37,9 @@ void test('AI capabilities require an exact granted code, with an administrator 
 void test('AI capabilities do not imply system administration permissions', () => {
   assert.equal(
     hasAdminPermission(
-      { is_admin: false, permissions: grantedPermissions('ai:models:write') },
+      { is_admin: false, permissions: grantedPermissions('platform:models:update') },
       'roles',
-      'write'
+      'update'
     ),
     false
   )
@@ -52,7 +52,15 @@ void test('storage governance does not grant control of another users file', asy
   assert.equal(access.canManageFile(null, file), false)
   assert.equal(
     access.canManageFile(
-      { id: 'reader', is_admin: false, permissions: grantedPermissions('ai:storage:write') },
+      {
+        id: 'reader',
+        is_admin: false,
+        permissions: grantedPermissions(
+          'ai:storage:delete',
+          'ai:storage:acl',
+          'ai:storage:transfer'
+        )
+      },
       file
     ),
     false

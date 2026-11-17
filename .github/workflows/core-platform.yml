@@ -16,7 +16,7 @@ concurrency:
 jobs:
   platform:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:16-alpine
@@ -104,7 +104,7 @@ jobs:
       - name: Start the built platform preview
         working-directory: frontend
         run: |
-          npm run preview:platform -- --host 127.0.0.1 --port 15191 --strictPort > "$RUNNER_TEMP/core-preview.log" 2>&1 &
+          node node_modules/vite/bin/vite.js preview --config vite.platform.config.ts --host 127.0.0.1 --port 15191 --strictPort > "$RUNNER_TEMP/core-preview.log" 2>&1 &
           preview_pid=$!
           echo "$preview_pid" > "$RUNNER_TEMP/core-preview.pid"
           for attempt in {1..30}; do
@@ -119,47 +119,97 @@ jobs:
           done
           cat "$RUNNER_TEMP/core-preview.log"
           exit 1
-      - name: Exercise the real platform in Chromium
+      - name: Exercise the installed platform in Chromium
         working-directory: backend
-        run: python tests/core/e2e/browser_check.py --base-url http://127.0.0.1:15191 --api-port 19090
-      - name: Check controlled HTTP and SSE UI regressions
+        run: |
+          ZHIHENG_E2E_PYTHON="$(command -v python)" python tests/core/e2e/browser_check.py \
+            --base-url http://127.0.0.1:15191 --api-port 19090 \
+            --artifacts-dir "$RUNNER_TEMP/core-e2e"
+      - name: Stop the real API preview before fixture regressions
+        run: |
+          preview_pid="$(cat "$RUNNER_TEMP/core-preview.pid")"
+          kill "$preview_pid"
+          for attempt in {1..30}; do
+            if ! kill -0 "$preview_pid" 2>/dev/null; then
+              rm "$RUNNER_TEMP/core-preview.pid"
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "The real API preview did not stop" >&2
+          exit 1
+      - name: Export public schema fixtures without starting application services
+        run: |
+          python tools/export_openapi.py --output "$RUNNER_TEMP/core-schema-fixtures"
+          echo "PLATFORM_SCHEMA_FIXTURES=$RUNNER_TEMP/core-schema-fixtures" >> "$GITHUB_ENV"
+      - name: Start built and source fixture hosts
         working-directory: frontend
         run: |
-          python tests/browser/ui_regressions.py
-          python tests/browser/developer_regressions.py
-          python tests/browser/model_management_regressions.py
-          python tests/browser/skills_regressions.py
-          python tests/browser/agents_regressions.py
-          python tests/browser/work_regressions.py
-          python tests/browser/files_regressions.py
-          python tests/browser/chat_files_regressions.py
-          python tests/browser/knowledge_regressions.py
-          python tests/browser/knowledge_background_regressions.py
-          python tests/browser/knowledge_file_ui_regressions.py
-          python tests/browser/knowledge_preparation_regressions.py
-          python tests/browser/knowledge_lifecycle_regressions.py
-          python tests/browser/knowledge_upload_regressions.py
-          python tests/browser/knowledge_folder_regressions.py
-          python tests/browser/graph_regressions.py
-      - name: Stop the preview
+          node node_modules/vite/bin/vite.js preview --config tests/browser/vite.config.ts --host 127.0.0.1 --port 15191 --strictPort > "$RUNNER_TEMP/core-built-fixture.log" 2>&1 &
+          built_pid=$!
+          echo "$built_pid" > "$RUNNER_TEMP/core-built-fixture.pid"
+          node node_modules/vite/bin/vite.js --config tests/browser/vite.config.ts --host 127.0.0.1 --port 15192 --strictPort > "$RUNNER_TEMP/core-source-fixture.log" 2>&1 &
+          source_pid=$!
+          echo "$source_pid" > "$RUNNER_TEMP/core-source-fixture.pid"
+          for port in 15191 15192; do
+            ready=false
+            for attempt in {1..30}; do
+              if ! kill -0 "$built_pid" 2>/dev/null || ! kill -0 "$source_pid" 2>/dev/null; then
+                cat "$RUNNER_TEMP/core-built-fixture.log" "$RUNNER_TEMP/core-source-fixture.log"
+                exit 1
+              fi
+              if curl --fail --silent "http://127.0.0.1:$port/platform.html" > /dev/null && \
+                 curl --fail --silent "http://127.0.0.1:$port/openapi/resources-v1.json" > /dev/null && \
+                 curl --fail --silent "http://127.0.0.1:$port/openapi/inference-v1.json" > /dev/null; then
+                ready=true
+                break
+              fi
+              sleep 1
+            done
+            if [[ "$ready" != true ]]; then
+              cat "$RUNNER_TEMP/core-built-fixture.log" "$RUNNER_TEMP/core-source-fixture.log"
+              exit 1
+            fi
+            for path in api v1; do
+              status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/$path")"
+              if [[ "$status" != 404 ]]; then
+                echo "Fixture host $port unexpectedly serves /$path with HTTP $status" >&2
+                exit 1
+              fi
+            done
+          done
+      - name: Check every declared HTTP and SSE browser regression
+        run: |
+          python frontend/tests/browser/run_regressions.py \
+            --base-url http://127.0.0.1:15191 --source-url http://127.0.0.1:15192 \
+            --output "$RUNNER_TEMP/core-browser-results" --workers 1
+      - name: Stop preview and fixture hosts
         if: always()
         run: |
-          if [[ -f "$RUNNER_TEMP/core-preview.pid" ]]; then
-            preview_pid="$(cat "$RUNNER_TEMP/core-preview.pid")"
-            if kill -0 "$preview_pid" 2>/dev/null; then
-              kill "$preview_pid"
+          for name in core-preview core-built-fixture core-source-fixture; do
+            if [[ -f "$RUNNER_TEMP/$name.pid" ]]; then
+              preview_pid="$(cat "$RUNNER_TEMP/$name.pid")"
+              if kill -0 "$preview_pid" 2>/dev/null; then
+                kill "$preview_pid"
+              fi
             fi
-          fi
+          done
       - name: Remove the independent CI vector service
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/core-vector.env" && -f "$RUNNER_TEMP/core-vector-ports.yml" ]]; then
             docker compose --env-file "$RUNNER_TEMP/core-vector.env" -f deploy/core/compose.yaml -f "$RUNNER_TEMP/core-vector-ports.yml" -p zhiheng-ci-vectors down --volumes
           fi
-      - name: Preserve preview diagnostics on failure
+      - name: Preserve browser and service diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: core-preview-log
-          path: ${{ runner.temp }}/core-preview.log
+          name: core-browser-diagnostics
+          path: |
+            ${{ runner.temp }}/core-preview.log
+            ${{ runner.temp }}/core-built-fixture.log
+            ${{ runner.temp }}/core-source-fixture.log
+            ${{ runner.temp }}/core-browser-results
+            ${{ runner.temp }}/core-e2e
+            ${{ runner.temp }}/core-schema-fixtures
           if-no-files-found: ignore

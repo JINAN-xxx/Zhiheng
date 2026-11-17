@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createRequestId } from '../../../shared/requestId.ts'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, useId } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -126,8 +126,27 @@ const columns = computed(() => [
   { title: '预占 / 已消费', key: 'usage', width: 180 },
   { title: '累计发放 / 回收', key: 'allocated', width: 190 },
   { title: '账户状态', key: 'state', width: 130 },
-  { title: '操作', key: 'actions', width: access.value.write ? 250 : 90 }
+  {
+    title: '操作',
+    key: 'actions',
+    width: access.value.adjust || access.value.configure ? 250 : 150
+  }
 ])
+watch(
+  () => identity.value,
+  () => {
+    scope.replace()
+    mutation.replace()
+    dialog.value = null
+    saving.value = false
+    selectedAccount.value = null
+    accounts.value = []
+    summary.value = null
+    hasData.value = false
+    success.value = ''
+    void load()
+  }
+)
 onMounted(() => {
   void load()
 })
@@ -171,7 +190,7 @@ async function load(): Promise<void> {
   }
 }
 function open(kind: NonNullable<typeof dialog.value>, account?: CreditAccount): void {
-  if (!access.value.write) return
+  if (kind === 'account' ? !access.value.configure : !access.value.adjust) return
   target.value = account ?? null
   dialog.value = kind
   form.points = ''
@@ -189,7 +208,8 @@ function close(): void {
 async function save(): Promise<void> {
   const kind = dialog.value,
     account = target.value
-  if (!kind || !account || saving.value || !access.value.write) return
+  if (!kind || !account || saving.value) return
+  if (kind === 'account' ? !access.value.configure : !access.value.adjust) return
   formError.value = ''
   if (!form.reason.trim()) {
     formError.value = '请填写操作原因'
@@ -305,7 +325,7 @@ function searchAccounts(): void {
           </div>
         </article>
       </div>
-      <CreditActivity ref="activity" @changed="load" />
+      <CreditActivity ref="activity" :can-reconcile="access.reconcile" @changed="load" />
     </template>
     <template v-else-if="management && access.read">
       <div class="accounts-heading">
@@ -360,12 +380,18 @@ function searchAccounts(): void {
           <footer class="account-buttons">
             <AButton type="link" @click="selectedAccount = account">明细</AButton
             ><AButton type="link" @click="openTokens(account)">Token 用量</AButton>
-            <template v-if="access.write"
-              ><AButton type="link" @click="open('grant', account)">发放</AButton
-              ><AButton type="link" @click="open('reclaim', account)">回收</AButton
-              ><AButton type="link" :danger="account.enabled" @click="open('account', account)">{{
-                account.enabled ? '暂停' : '恢复'
-              }}</AButton></template
+            <template v-if="access.adjust || access.configure"
+              ><AButton v-if="access.adjust" type="link" @click="open('grant', account)"
+                >发放</AButton
+              ><AButton v-if="access.adjust" type="link" @click="open('reclaim', account)"
+                >回收</AButton
+              ><AButton
+                v-if="access.configure"
+                type="link"
+                :danger="account.enabled"
+                @click="open('account', account)"
+                >{{ account.enabled ? '暂停' : '恢复' }}</AButton
+              ></template
             >
           </footer>
         </article>
@@ -426,12 +452,18 @@ function searchAccounts(): void {
             <div v-else-if="column.key === 'actions'" class="account-buttons">
               <AButton type="link" @click="selectedAccount = record">明细</AButton
               ><AButton type="link" @click="openTokens(record)">Token 用量</AButton
-              ><template v-if="access.write"
-                ><AButton type="link" @click="open('grant', record)">发放</AButton
-                ><AButton type="link" @click="open('reclaim', record)">回收</AButton
-                ><AButton type="link" :danger="record.enabled" @click="open('account', record)">{{
-                  record.enabled ? '暂停' : '恢复'
-                }}</AButton></template
+              ><template v-if="access.adjust || access.configure"
+                ><AButton v-if="access.adjust" type="link" @click="open('grant', record)"
+                  >发放</AButton
+                ><AButton v-if="access.adjust" type="link" @click="open('reclaim', record)"
+                  >回收</AButton
+                ><AButton
+                  v-if="access.configure"
+                  type="link"
+                  :danger="record.enabled"
+                  @click="open('account', record)"
+                  >{{ record.enabled ? '暂停' : '恢复' }}</AButton
+                ></template
               >
             </div>
           </template>
@@ -455,7 +487,7 @@ function searchAccounts(): void {
         </div>
         <CreditActivity
           :account-id="selectedAccount.user_id"
-          :can-write="access.write"
+          :can-reconcile="access.reconcile"
           @changed="load"
       /></template>
     </ADrawer>

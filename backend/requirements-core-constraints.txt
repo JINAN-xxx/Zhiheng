@@ -41,6 +41,7 @@ langchain-openai==1.7.2
 langchain-protocol==0.0.20
 langgraph==1.2.16
 langgraph-checkpoint==4.3.0
+langgraph-checkpoint-postgres==3.2.0
 langgraph-prebuilt==1.1.1
 langgraph-sdk==0.4.8
 langsmith==0.14.12
@@ -56,6 +57,9 @@ packaging==26.3
 pandas==2.3.3
 pillow==12.3.0
 protobuf==5.29.5
+psycopg==3.3.9
+psycopg-binary==3.3.9
+psycopg-pool==3.3.3
 pycparser==3.11 ; python_full_version < '3.11' and implementation_name != 'PyPy'
 pycparser==3.12 ; python_full_version >= '3.11' and implementation_name != 'PyPy'
 pydantic==2.12.3

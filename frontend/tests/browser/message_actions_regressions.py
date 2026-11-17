@@ -3,6 +3,7 @@ from browser_clipboard import read_clipboard
 import asyncio
 import contextlib
 import copy
+import json
 import re
 import unittest
 from urllib.parse import parse_qs, urlparse
@@ -142,7 +143,7 @@ class MessageActionsRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='发送消息', exact=True).click()
         await expect(self.page.get_by_text('受控接纳失败', exact=True)).to_be_visible()
         self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0].get('knowledge_base_ids', []), [])
+        self.assertNotIn('knowledge_base_ids', requests[0])
 
     async def test_feedback_is_mutually_exclusive_clearable_and_survives_reload(self):
         await self.open_chat()
@@ -361,23 +362,63 @@ class MessageActionsRegressions(DeveloperBoundary):
         await expect(textarea).to_have_value('输入法中的内容')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
 
-    async def test_regeneration_knowledge_reconnect_preserves_next_draft(self):
-        prep = {'kind': 'knowledge_preparation', 'id': 'regen-prep', 'resource_type': 'chat', 'resource_id': 'c1', 'status': 'waiting_models', 'phase': 'embedding', 'run': None, 'hits': [], 'error': None, 'created_at': STAMP, 'updated_at': STAMP}
-        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/a1/regenerate', lambda route: route.fulfill(status=202, json=prep))
+    async def test_regeneration_run_reconnect_preserves_next_draft(self):
+        self.run.update(status='running', text='', revision=1,
+                        usage={'input_tokens': None, 'output_tokens': None, 'status': 'pending'})
+        async def regenerate(route):
+            self.regenerate_calls.append(route.request.post_data_json)
+            self.history.append(chat_message('a2', 'assistant', '', reply_to_message_id='q1',
+                                             generation_index=2, run_id='regen-run', is_complete=False))
+            await route.fulfill(status=202, json=self.run)
         async def failed(route):
-            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '检索观察断开'}})
-        await self.page.route(self.origin + '/api/knowledge/preparations/regen-prep', failed)
+            await route.fulfill(status=503, json={'error': {'code': 'unavailable', 'message': '生成观察断开'}})
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages/a1/regenerate', regenerate)
+        await self.page.route(self.origin + '/api/runs/regen-run/events', failed)
         await self.open_chat()
-        await self.page.get_by_role('textbox', name='消息内容').fill('检索过程中要保留的下一条草稿')
+        await self.page.get_by_role('textbox', name='消息内容').fill('生成过程中要保留的下一条草稿')
         await self.page.get_by_role('button', name='重新生成', exact=True).click()
-        await expect(self.page.get_by_text('检索观察断开', exact=True)).to_be_visible()
-        self.history.append(chat_message('a2', 'assistant', '新回复', reply_to_message_id='q1', generation_index=2, run_id='regen-run'))
-        prep.update(status='admitted', phase='admitted', run=self.run, updated_at='2026-10-28T00:00:01Z')
-        await self.page.unroute(self.origin + '/api/knowledge/preparations/regen-prep', failed)
-        await self.page.route(self.origin + '/api/knowledge/preparations/regen-prep', lambda route: route.fulfill(json=prep))
+        await expect(self.page.get_by_text('生成观察断开', exact=True)).to_be_visible()
+        self.run.update(status='completed', text='新回复', revision=3,
+                        usage={'input_tokens': 2, 'output_tokens': 3, 'status': 'known'})
+        self.history[-1].update(content='新回复', is_complete=True)
+        await self.page.unroute(self.origin + '/api/runs/regen-run/events', failed)
         await self.page.get_by_role('button', name='恢复查看', exact=True).click()
         await expect(self.page.get_by_text('新回复', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('检索过程中要保留的下一条草稿')
+        await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('生成过程中要保留的下一条草稿')
+        self.assertEqual(len(self.regenerate_calls), 1)
+
+    async def test_running_regeneration_stops_only_its_run_and_keeps_next_draft(self):
+        self.run.update(status='running', text='部分回复', revision=1,
+                        usage={'input_tokens': None, 'output_tokens': None, 'status': 'pending'})
+        release = asyncio.Event()
+        cancels = []
+        async def stream(route):
+            await release.wait()
+            with contextlib.suppress(Exception):
+                await route.fulfill(content_type='text/event-stream', body='event: snapshot\ndata: ' + json.dumps(self.run) + '\n\n')
+        async def cancel(route):
+            cancels.append(route.request.post_data_json)
+            self.run.update(status='cancel_requested', revision=2)
+            await route.fulfill(json=self.run)
+        await self.page.route(self.origin + '/api/runs/regen-run/events', stream)
+        await self.page.route(self.origin + '/api/runs/regen-run/cancel', cancel)
+        try:
+            await self.open_chat()
+            await self.page.get_by_role('textbox', name='消息内容').fill('停止后仍保留的下一条草稿')
+            await self.page.get_by_role('button', name='重新生成', exact=True).click()
+            stop = self.page.get_by_role('button', name='停止生成', exact=True)
+            await expect(stop).to_be_visible()
+            await stop.click()
+            await expect(stop).to_be_disabled()
+            self.assertEqual(cancels, [{}])
+            self.run.update(status='cancelled', revision=3,
+                            usage={'input_tokens': None, 'output_tokens': None, 'status': 'unknown'})
+            release.set()
+            await expect(stop).to_have_count(0)
+            await expect(self.page.get_by_role('textbox', name='消息内容')).to_have_value('停止后仍保留的下一条草稿')
+            self.assertEqual(len(self.regenerate_calls), 1)
+        finally:
+            release.set()
 
     async def test_failed_regeneration_can_retry_feedback_and_share_partial_text(self):
         self.run.update(status='failed', text='中途失败的内容', error={'code': 'provider_error', 'message': '受控模型失败'})

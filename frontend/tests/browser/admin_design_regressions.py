@@ -36,14 +36,14 @@ class AdminDesignRegressions(base.AdminRegressions):
         await expect(self.page.get_by_role('navigation',name='后台管理导航').get_by_role('link',name='参数管理',exact=True)).to_have_count(0)
 
     async def test_notice_reader_never_fetches_or_changes_configuration(self):
-        self.user={'id':'self','username':'notice-reader','is_admin':False,'permissions':['system:notices:read']}
+        self.user={'id':'self','username':'notice-reader','is_admin':False,'permissions':base.granted_permissions('system:notices:read')}
         await self.open('notices')
         await expect(self.page.get_by_text('维护安排',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('switch',name='在平台展示公告')).to_have_count(0)
         self.assertFalse(any(path.startswith('/api/admin/configs') for _,path,_,_ in self.requests))
 
     async def test_configuration_only_reader_uses_notice_group_without_notice_requests(self):
-        self.user={'id':'self','username':'config-reader','is_admin':False,'permissions':['system:configs:read']}
+        self.user={'id':'self','username':'config-reader','is_admin':False,'permissions':base.granted_permissions('system:configs:read')}
         await self.page.goto(self.origin+'/admin')
         await expect(self.page).to_have_url(self.origin+'/admin/configs')
         await expect(self.page.get_by_role('navigation',name='后台管理导航').get_by_role('link')).to_have_count(1)
@@ -92,15 +92,15 @@ class AdminDesignRegressions(base.AdminRegressions):
 
 
     async def test_permission_selection_preserves_existing_codes_outside_the_catalog(self):
-        self.roles[0]['permissions']=['historical:permission','system:notices:read']
+        self.roles[0]['permissions']=['historical:permission', *base.granted_permissions('system:notices:read')]
         await self.open('roles')
         await self.page.get_by_role('button',name='编辑',exact=True).click()
         dialog=self.page.get_by_role('dialog')
-        await dialog.get_by_label('管理公告',exact=True).check()
+        await dialog.get_by_role('checkbox',name='通知公告：编辑',exact=True).check()
         await dialog.get_by_role('button',name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).to_be_hidden()
         body=next(body for method,path,_,body in self.requests if method=='PATCH' and path.endswith('/role-1'))
-        self.assertEqual(body['permissions'],['historical:permission','system:notices:read','system:notices:write'])
+        self.assertEqual(set(body['permissions']),{'historical:permission', *base.granted_permissions('system:notices:update')})
 
     async def test_empty_sort_is_validated_before_a_create_request(self):
         await self.open('departments')
@@ -152,13 +152,13 @@ class AdminDesignRegressions(base.AdminRegressions):
             with self.subTest(permission=permission):
                 self.user={'id':'self','username':'former-dictionary-admin','is_admin':False,'permissions':[permission]}
                 await self.page.goto(self.origin+'/admin/dictionaries')
-                await expect(self.page).to_have_url(self.origin+'/chat')
+                await expect(self.page).to_have_url(self.origin+'/access')
                 await self.page.get_by_role('button',name='用户菜单',exact=True).click()
                 await expect(self.page.get_by_role('menuitem').filter(has_text='后台管理')).to_have_count(0)
         self.assertFalse(any(path.startswith('/api/admin/dictionaries') for _,path,_,_ in self.requests))
 
     async def test_dictionary_legacy_link_respects_the_remaining_role_permissions(self):
-        self.user={'id':'self','username':'role-reader','is_admin':False,'permissions':['system:dictionaries:read','system:roles:read']}
+        self.user={'id':'self','username':'role-reader','is_admin':False,'permissions':['system:dictionaries:read', *base.granted_permissions('system:roles:read')]}
         await self.page.goto(self.origin+'/admin/dictionaries')
         await expect(self.page).to_have_url(self.origin+'/admin/roles')
         await expect(self.page.get_by_text('运营员',exact=True)).to_be_visible()
@@ -166,26 +166,26 @@ class AdminDesignRegressions(base.AdminRegressions):
         self.assertFalse(any(path.startswith('/api/admin/dictionaries') or path=='/api/admin/users' for _,path,_,_ in self.requests))
 
     async def test_retired_permission_choices_are_hidden_and_old_codes_are_not_resubmitted(self):
-        self.roles[0]['permissions']=['system:dictionaries:read','system:menus:write','system:posts:read','system:notices:read']
+        self.roles[0]['permissions']=['system:dictionaries:read','system:menus:write','system:posts:read', *base.granted_permissions('system:notices:read')]
         items=[{'code':code,'label':label,'group':group} for code,label,group in [
             ('system:dictionaries:read','查看字典','字典管理'),('system:dictionaries:write','维护字典','字典管理'),
             ('system:menus:read','查看导航','导航配置'),('system:menus:write','维护导航','导航配置'),
             ('system:posts:read','查看岗位','岗位管理'),('system:posts:write','维护岗位','岗位管理'),
-            ('system:notices:read','查看公告','通知公告'),('system:notices:write','管理公告','通知公告')]]
+            ]] + [item for item in base.PERMISSION_CATALOG if item['module']=='system:notices']
         await self.page.route('**/api/admin/permissions',lambda route:route.fulfill(json={'items':items}))
         await self.open('roles')
         await self.page.get_by_role('button',name='编辑',exact=True).click()
         dialog=self.page.get_by_role('dialog')
         for label in ['查看字典','维护字典','查看导航','维护导航','查看岗位','维护岗位']:
             await expect(dialog.get_by_label(label,exact=True)).to_have_count(0)
-        await dialog.get_by_label('管理公告',exact=True).check()
+        await dialog.get_by_role('checkbox',name='通知公告：编辑',exact=True).check()
         await dialog.get_by_role('button',name=re.compile(r'^保\s*存$')).click()
         await expect(dialog).to_be_hidden()
         body=next(body for method,path,_,body in self.requests if method=='PATCH' and path.endswith('/role-1'))
-        self.assertEqual(body['permissions'],['system:notices:read','system:notices:write'])
+        self.assertEqual(set(body['permissions']),set(base.granted_permissions('system:notices:update')))
 
     async def test_post_legacy_link_respects_active_permissions_and_never_reads_posts(self):
-        self.user={'id':'self','username':'department-reader','is_admin':False,'permissions':['system:posts:read','system:departments:read']}
+        self.user={'id':'self','username':'department-reader','is_admin':False,'permissions':['system:posts:read', *base.granted_permissions('system:departments:read')]}
         await self.page.goto(self.origin+'/admin/posts')
         await expect(self.page).to_have_url(self.origin+'/admin/departments')
         await expect(self.page.get_by_role('heading',name='部门管理',exact=True)).to_be_visible()
@@ -197,7 +197,7 @@ class AdminDesignRegressions(base.AdminRegressions):
             with self.subTest(permission=permission):
                 self.user={'id':'self','username':'former-post-admin','is_admin':False,'permissions':[permission]}
                 await self.page.goto(self.origin+'/admin/posts')
-                await expect(self.page).to_have_url(self.origin+'/chat')
+                await expect(self.page).to_have_url(self.origin+'/access')
                 await self.page.get_by_role('button',name='用户菜单',exact=True).click()
                 await expect(self.page.get_by_role('menuitem').filter(has_text='后台管理')).to_have_count(0)
         self.assertFalse(any(path=='/api/admin/posts' for _,path,_,_ in self.requests))

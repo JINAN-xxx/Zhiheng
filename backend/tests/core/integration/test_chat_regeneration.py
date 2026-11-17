@@ -7,8 +7,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select, text, update
 
 from tests.core.integration.test_chat_runs import admit
-from tests.core.integration.test_knowledge import finish_preparation
-from tests.core.integration.test_knowledge_failures import ready_base, source
+from tests.core.integration.test_knowledge_failures import source
 from tests.core.integration.test_skills import install
 from tests.core.provider import ProviderServer
 from zhiheng.modules.chat.orm import ChatMessage
@@ -199,37 +198,15 @@ async def test_regeneration_requires_owner_and_unarchived_conversation(
     assert (await admin.post(endpoint, json={'client_request_id': str(uuid4())})).status_code == 409
 
 
-@pytest.mark.parametrize('with_knowledge', [False, True])
 async def test_archived_conversation_replays_admitted_regeneration_but_not_new_requests(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer, with_knowledge: bool
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
-    if with_knowledge:
-        base = await ready_base(admin, app, provider)
-        conversation_id = (await admin.post('/api/chat/conversations', json={})).json()['id']
-        sent = await admin.post(
-            f'/api/chat/conversations/{conversation_id}/runs',
-            json={
-                'model_id': model_id,
-                'message': 'Which port?',
-                'client_request_id': str(uuid4()),
-                'knowledge_base_ids': [base['id']],
-            },
-        )
-        assert sent.status_code == 202, sent.text
-        prepared = await finish_preparation(admin, app, sent.json())
-        await execute_run(app.state.container, UUID(prepared['run']['id']))
-        original = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
-    else:
-        conversation_id, original = await completed_round(admin, app, model_id)
+    conversation_id, original = await completed_round(admin, app, model_id)
     endpoint = f'/api/chat/conversations/{conversation_id}/messages/{original[-1]["id"]}/regenerate'
     key = str(uuid4())
     accepted = await admin.post(endpoint, json={'client_request_id': key})
     assert accepted.status_code == 202, accepted.text
-    if with_knowledge:
-        admitted = await finish_preparation(admin, app, accepted.json())
-        run_id = admitted['run']['id']
-    else:
-        run_id = accepted.json()['id']
+    run_id = accepted.json()['id']
     await execute_run(app.state.container, UUID(run_id))
     usage_before = (await admin.get('/api/usage')).json()
     request_count = len(provider.requests)
@@ -338,72 +315,12 @@ async def test_failed_regeneration_keeps_partial_reply_and_preserves_completed_c
     assert messages[1]['content'] == original[1]['content'] and messages[1]['is_complete'] is True
     owner = Principal(UUID((await admin.get('/api/auth/me')).json()['id']), 'admin', True)
     async with app.state.container.database.sessions() as session:
-        context = await app.state.container.chat.context(session, owner, UUID(conversation_id))
-    assert [message.content for message in context] == [original[0]['content'], original[1]['content']]
+        turns = await app.state.container.chat.context_turns(session, owner, UUID(conversation_id))
+    assert [message.content for turn in turns for message in (turn.question, turn.reply)] == [
+        original[0]['content'],
+        original[1]['content'],
+    ]
     assert len(provider.requests) == 2
-
-
-async def test_legacy_plain_request_context_is_recovered_without_duplicating_question(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str
-) -> None:
-    conversation_id, original = await completed_round(admin, app, model_id)
-    async with app.state.container.database.sessions.begin() as session:
-        await session.execute(
-            update(ChatMessage).where(ChatMessage.id == UUID(original[0]['id'])).values(request_context={})
-        )
-        await session.execute(
-            update(ChatMessage).where(ChatMessage.id == UUID(original[1]['id'])).values(reply_to_message_id=None)
-        )
-    messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
-    assert messages[1]['reply_to_message_id'] == original[0]['id']
-    response = await admin.post(
-        f'/api/chat/conversations/{conversation_id}/messages/{original[-1]["id"]}/regenerate',
-        json={'client_request_id': str(uuid4())},
-    )
-    assert response.status_code == 202, response.text
-
-
-async def test_knowledge_regeneration_retrieves_again_and_keeps_original_provenance(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
-) -> None:
-    base = await ready_base(admin, app, provider)
-    conversation_id = (await admin.post('/api/chat/conversations', json={})).json()['id']
-    sent = await admin.post(
-        f'/api/chat/conversations/{conversation_id}/runs',
-        json={
-            'model_id': model_id,
-            'message': 'Which port?',
-            'client_request_id': str(uuid4()),
-            'knowledge_base_ids': [base['id']],
-        },
-    )
-    assert sent.status_code == 202, sent.text
-    prepared = await finish_preparation(admin, app, sent.json())
-    await execute_run(app.state.container, UUID(prepared['run']['id']))
-    original = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
-    assert original[-1]['knowledge_sources']
-    endpoint = f'/api/chat/conversations/{conversation_id}/messages/{original[-1]["id"]}/regenerate'
-    key = str(uuid4())
-    regenerated = await admin.post(endpoint, json={'client_request_id': key})
-    assert regenerated.status_code == 202 and regenerated.json()['kind'] == 'knowledge_preparation', regenerated.text
-    replay = await admin.post(endpoint, json={'client_request_id': key})
-    assert replay.json()['id'] == regenerated.json()['id']
-    rejected = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
-    assert rejected.status_code == 409
-    admitted = await finish_preparation(admin, app, regenerated.json())
-    await execute_run(app.state.container, UUID(admitted['run']['id']))
-    messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
-    assert len(messages) == 3 and messages[-1]['knowledge_sources'] == original[-1]['knowledge_sources']
-    assert messages[-1]['run_id'] != original[-1]['run_id']
-    replay = await admin.post(endpoint, json={'client_request_id': key})
-    assert replay.json()['id'] == admitted['run']['id']
-    async with app.state.container.database.sessions.begin() as session:
-        await session.execute(
-            update(ChatMessage).where(ChatMessage.id == UUID(original[0]['id'])).values(request_context={})
-        )
-    incomplete = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
-    assert incomplete.status_code == 409
-    assert incomplete.json()['error']['code'] == 'regeneration_context_unavailable'
 
 
 async def seed_historical_versions(app: FastAPI, conversation_id: str, question: dict, *, count: int) -> None:
@@ -461,6 +378,9 @@ async def test_version_limit_counts_original_and_history_window_keeps_whole_roun
     assert len(messages) == 101 and messages[0]['id'] == original[0]['id']
     rejected = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
     assert rejected.status_code == 409 and rejected.json()['error']['code'] == 'regeneration_limit_reached'
+    # Raw history fixtures intentionally have no matching checkpoint. Build both
+    # real rounds before seeding the independent pagination fixture.
+    conversation_id, first = await completed_round(admin, app, model_id)
     sent = await admin.post(
         f'/api/chat/conversations/{conversation_id}/runs',
         json={'model_id': model_id, 'message': 'second question', 'client_request_id': str(uuid4())},
@@ -469,6 +389,7 @@ async def test_version_limit_counts_original_and_history_window_keeps_whole_roun
     await execute_run(app.state.container, UUID(sent.json()['id']))
     messages = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
     question = next(row for row in messages if row['run_id'] == sent.json()['id'] and row['role'] == 'user')
+    await seed_historical_versions(app, conversation_id, first[0], count=100)
     await seed_historical_versions(app, conversation_id, question, count=100)
     bounded = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
     assert len(bounded) == 101 and bounded[0]['id'] == question['id']
@@ -479,3 +400,10 @@ async def test_version_limit_counts_original_and_history_window_keeps_whole_roun
             select(func.count(ChatMessage.id)).where(ChatMessage.conversation_id == UUID(conversation_id))
         )
     assert count == 202
+
+
+@pytest.fixture(autouse=True)
+async def member_chat_permissions(admin: httpx.AsyncClient) -> None:
+    from tests.core.permission_support import grant_member, grants
+
+    await grant_member(admin, grants('platform:chat', 'use', 'update', 'delete', 'share'))

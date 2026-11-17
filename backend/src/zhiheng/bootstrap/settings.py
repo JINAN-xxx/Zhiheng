@@ -25,20 +25,38 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     allowed_origins: tuple[str, ...] = ()
     resource_rpm_limit: int = Field(default=120, ge=1, le=120)
-    token_limit: int = Field(default=100000, ge=1)
+    knowledge_rerank_batch_tokens: int = Field(default=48000, ge=1, le=48000)
     chat_context_input_tokens: int | None = Field(default=None, ge=256, le=2097152)
-    chat_summary_trigger_rounds: int = Field(default=30, ge=2, le=1000)
-    chat_summary_keep_rounds: int = Field(default=15, ge=1, le=999)
-    chat_summary_output_tokens: int = Field(default=1024, ge=64, le=4096)
+    chat_summary_trigger_tokens: int | None = Field(default=None, ge=256, le=2097152)
+    chat_summary_keep_tokens: int | None = Field(default=None, ge=64, le=2097151)
+    chat_summary_input_tokens: int | None = Field(default=None, ge=256, le=2097152)
+    chat_summary_output_tokens: int | None = Field(default=None, ge=64, le=4096)
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
 
     @model_validator(mode='after')
     def valid_chat_memory(self) -> 'Settings':
-        if self.chat_summary_trigger_rounds <= self.chat_summary_keep_rounds:
-            raise ValueError('Chat summary trigger must exceed retained rounds')
+        if (
+            self.chat_summary_trigger_tokens is not None
+            and self.chat_summary_keep_tokens is not None
+            and self.chat_summary_trigger_tokens <= self.chat_summary_keep_tokens
+        ):
+            raise ValueError('Chat summary trigger tokens must exceed retained tokens')
         return self
+
+    @field_validator(
+        'chat_summary_trigger_tokens',
+        'chat_summary_keep_tokens',
+        'chat_summary_input_tokens',
+        'chat_summary_output_tokens',
+        mode='before',
+    )
+    @classmethod
+    def automatic_chat_summary(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in {'', 'auto'}:
+            return None
+        return value
 
     @field_validator('graph_database_url', mode='before')
     @classmethod

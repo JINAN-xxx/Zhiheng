@@ -209,12 +209,10 @@ class UsageRecord(BaseModel):
 
 
 class UsageSummary(BaseModel):
-    quota_version: int = 0
     points_enabled: bool = False
     total: int = 0
     page: int = 1
     page_size: int = 100
-    limit_tokens: int
     used_tokens: int
     reserved_tokens: int
     records: list[UsageRecord]
@@ -257,11 +255,6 @@ class InvocationIdentity:
     key_id: UUID | None
     user_id: UUID
     model_id: UUID
-
-
-class TokenQuotaPatch(CreditWrite):
-    expected_version: int = Field(strict=True, ge=0)
-    limit_tokens: int = Field(strict=True, ge=1, le=10**12)
 
 
 class TokenReconcile(CreditReconcile):

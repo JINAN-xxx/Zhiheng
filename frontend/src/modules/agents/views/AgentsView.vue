@@ -4,7 +4,7 @@
     <WorkspaceToolbar
       class="agent-toolbar"
       title="智能助手"
-      subtitle="创建、配置并发布智能助手，支持绑定技能与知识库"
+      subtitle="创建、配置并启用智能助手，支持绑定技能与知识库"
     >
       <template #actions>
         <RefreshButton label="刷新智能助手" :loading="loading" @click="load" />
@@ -20,7 +20,7 @@
     <section class="agent-content" :aria-busy="loading">
       <div class="agent-controls">
         <div class="agent-filter-summary">
-          <div class="agent-status-filters" role="group" aria-label="按发布状态筛选智能助手">
+          <div class="agent-status-filters" role="group" aria-label="按启用状态筛选智能助手">
             <button
               v-for="item in statusFilters"
               :key="item.value"
@@ -60,7 +60,7 @@
         "
         :message="
           statusFilter !== 'all' || query.keyword.trim()
-            ? '调整发布状态或搜索关键词后重试'
+            ? '调整启用状态或搜索关键词后重试'
             : '创建一个智能助手，配置模型、技能与知识库后即可开始使用'
         "
       />
@@ -72,9 +72,9 @@
             :key="agent.agentId"
             class="agent-card"
             :title="agent.name"
-            :status="agent.status === 'published' ? '已发布' : '草稿'"
-            :tone="agent.status === 'published' ? 'positive' : 'neutral'"
-            :icon-tone="agent.status === 'published' ? 'primary' : 'neutral'"
+            :status="agent.status === 'enabled' ? '已启用' : '未启用'"
+            :tone="agent.status === 'enabled' ? 'positive' : 'neutral'"
+            :icon-tone="agent.status === 'enabled' ? 'primary' : 'neutral'"
             interactive
             :open-label="`配置${agent.name}`"
             @open="openEditor(agent)"
@@ -87,7 +87,6 @@
               <span><ThunderboltOutlined />{{ agent.skillSlugs.length }} 个技能</span>
               <span><DatabaseOutlined />{{ agent.knowledgeBaseIds.length }} 个知识库</span>
             </div>
-            <p v-if="hasUnpublishedAgentChanges(agent)" class="agent-pending">有未发布更改</p>
             <template #footer-info>
               <span :title="agent.updatedAt ? formatUpdatedAt(agent.updatedAt, true) : ''">
                 {{ agent.updatedAt ? `更新于 ${formatUpdatedAt(agent.updatedAt)}` : '已保存' }}
@@ -95,7 +94,7 @@
             </template>
             <template #actions>
               <a-button
-                v-if="canUseCapability('agents')"
+                v-if="canUseCapability('agents', 'use')"
                 size="small"
                 type="text"
                 class="resource-card-primary"
@@ -179,7 +178,6 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getAgent, listAgents } from '../api/index.ts'
 import type { Agent } from '../api/index.ts'
 import { identity, canUseCapability, canUseModule } from '../../identity/public.ts'
-import { hasUnpublishedAgentChanges } from '../presentation.ts'
 import AgentPreviewDrawer from '../components/AgentPreviewDrawer.vue'
 import AgentApiDrawer from '../components/AgentApiDrawer.vue'
 import AgentIdentityIcon from '../components/AgentIdentityIcon.vue'
@@ -191,16 +189,16 @@ const query = reactive({ keyword: '', pageNum: 1, pageSize: 12 })
 type StatusFilter = 'all' | Agent['status']
 const statusFilters: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: '全部' },
-  { value: 'published', label: '已发布' },
-  { value: 'draft', label: '草稿' }
+  { value: 'enabled', label: '已启用' },
+  { value: 'disabled', label: '未启用' }
 ]
 const statusFilter = ref<StatusFilter>('all')
 const displayedQuery = reactive({ status: 'all' as StatusFilter, keyword: '' })
 let countedKeyword = ''
 const statusCounts = reactive<Record<StatusFilter, number | null>>({
   all: null,
-  published: null,
-  draft: null
+  enabled: null,
+  disabled: null
 })
 const route = useRoute(),
   router = useRouter()
@@ -226,9 +224,9 @@ function agentActions(agent: Agent): MenuAction[] {
       ? [{ command: 'configure', label: '配置', icon: SettingOutlined }]
       : []),
     ...(canUseCapability('agents', 'debug')
-      ? [{ command: 'preview', label: '调试草稿', icon: MessageOutlined }]
+      ? [{ command: 'preview', label: '调试配置', icon: MessageOutlined }]
       : []),
-    ...(canUseModule('developer') && agent.status === 'published'
+    ...(canUseModule('developer') && agent.status === 'enabled'
       ? [{ command: 'api', label: 'API', icon: ApiOutlined }]
       : [])
   ]
@@ -236,7 +234,7 @@ function agentActions(agent: Agent): MenuAction[] {
 function agentCommand(command: string, agent: Agent): void {
   if (command === 'configure') openEditor(agent)
   else if (command === 'preview') void openAgentTool(agent, 'preview')
-  else if (command === 'api' && agent.status === 'published') void openAgentTool(agent, 'api')
+  else if (command === 'api' && agent.status === 'enabled') void openAgentTool(agent, 'api')
 }
 async function load(): Promise<void> {
   toolScope.replace()
@@ -267,8 +265,8 @@ async function load(): Promise<void> {
       return
     }
     if (filter === 'all' && page.rows.length === page.total) {
-      statusCounts.published = page.rows.filter((agent) => agent.status === 'published').length
-      statusCounts.draft = page.total - statusCounts.published
+      statusCounts.enabled = page.rows.filter((agent) => agent.status === 'enabled').length
+      statusCounts.disabled = page.total - statusCounts.enabled
     } else {
       const otherFilters = statusFilters.filter((item) => item.value !== filter)
       void Promise.allSettled(
@@ -308,7 +306,7 @@ function search(): void {
 }
 function openEditor(agent?: Agent): void {
   if (!canUseCapability('agents', 'read')) {
-    if (agent && canUseCapability('agents'))
+    if (agent && canUseCapability('agents', 'use'))
       void router.push(`/agents/${encodeURIComponent(agent.agentId)}/chat`)
     return
   }
@@ -401,7 +399,7 @@ onBeforeUnmount(() => {
 }
 .agent-status-filters {
   display: grid;
-  grid-template-columns: 76px 90px 76px;
+  grid-template-columns: 76px 90px 90px;
   gap: 3px;
   padding: 3px;
   border-radius: 10px;
@@ -409,6 +407,7 @@ onBeforeUnmount(() => {
 }
 .agent-status-filter {
   display: inline-flex;
+  white-space: nowrap;
   min-width: 0;
   min-height: 30px;
   align-items: center;

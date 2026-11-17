@@ -8,6 +8,9 @@ import pytest
 from sqlalchemy import select
 
 from tests.core.integration.test_agents import config
+from tests.core.permission_support import (
+    member_agent_work_permissions,  # noqa: F401 - registered by pytest through usefixtures
+)
 from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
@@ -19,7 +22,7 @@ async def published(admin: httpx.AsyncClient, model_id: str, **kwargs) -> dict:
     assert created.status_code == 201, created.text
     application = created.json()['id']
     agent = (await admin.post('/api/agents', json=config(model_id, application_id=application, **kwargs))).json()
-    response = await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 1})
+    response = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -108,7 +111,7 @@ async def test_work_turn_replay_shared_attribution_and_pending_cancel(
     async with app.state.container.database.sessions() as session:
         row = await session.get(Run, UUID(r2.json()['id']))
         text = str(row.payload['messages'])
-        assert '[Agent: 研究助手; publishedVersion: 1]' in text
+        assert '[Agent: 研究助手]' in text
         assert '先思考' not in text and 'FROZEN SYSTEM' in text
     cancel = await admin.post(endpoint + '/runs/' + r2.json()['id'] + '/cancel', json={})
     assert cancel.json()['usage']['status'] == 'known'
@@ -126,14 +129,14 @@ async def test_members_publication_upgrade_and_state_cas(admin: httpx.AsyncClien
         '/api/agents/' + a['id'],
         json=config(model_id, application_id=a['application_id'], name='新版', expected_version=2),
     )
-    await admin.post('/api/agents/' + a['id'] + '/publish', json={'expected_version': 3})
+    await admin.post('/api/agents/' + a['id'] + '/enable', json={'expected_version': 3})
     old = (await admin.get(url)).json()
-    assert old['members'][0]['published_version'] == 1 and old['members'][0]['latest_published_version'] == 2
+    assert old['members'][0]['agent_revision'] == 2 and old['members'][0]['latest_agent_revision'] == 4
     assert (
-        await admin.patch(url + '/members/' + a['id'], json={'expected_version': 1, 'expected_published_version': 1})
+        await admin.patch(url + '/members/' + a['id'], json={'expected_version': 1, 'expected_agent_revision': 1})
     ).status_code == 409
     upgraded = await admin.patch(
-        url + '/members/' + a['id'], json={'expected_version': 1, 'expected_published_version': 2}
+        url + '/members/' + a['id'], json={'expected_version': 1, 'expected_agent_revision': 4}
     )
     assert upgraded.status_code == 200, upgraded.text
     assert upgraded.json()['members'][0]['agent_name_snapshot'] == '新版'
@@ -151,7 +154,7 @@ async def test_members_publication_upgrade_and_state_cas(admin: httpx.AsyncClien
     added = await admin.post(
         url + '/members', json={'expected_version': removed.json()['version'], 'agent_id': a['id']}
     )
-    assert added.status_code == 200 and added.json()['members'][-1]['published_version'] == 2
+    assert added.status_code == 200 and added.json()['members'][-1]['agent_revision'] == 4
 
 
 @pytest.mark.asyncio
@@ -165,7 +168,7 @@ async def test_concurrent_runs_single_admission_and_unpublish_guard(admin: httpx
     assert sorted(r.status_code for r in pair) == [202, 409]
     admitted = next(r.json() for r in pair if r.status_code == 202)
     await admin.post(url + '/runs/' + admitted['id'] + '/cancel', json={})
-    await admin.post('/api/agents/' + a['id'] + '/unpublish', json={'expected_version': 2})
+    await admin.post('/api/agents/' + a['id'] + '/disable', json={'expected_version': 2})
     current = (await admin.get(url)).json()
     result = await admin.post(url + '/runs', json={**turn(current, a), 'client_request_id': str(uuid4())})
     assert result.status_code == 404, result.text
@@ -450,7 +453,7 @@ async def test_batch_freeze_locks_all_models_before_shared_connection(
         )
         await asyncio.sleep(0.1)
         # A batch waiting for B must not already hold the shared connection.
-        await asyncio.wait_for(container.models.resolve(session, UUID(b)), 0.4)
+        await asyncio.wait_for(container.models.bindings.resolve(session, UUID(b)), 0.4)
     result = await asyncio.wait_for(creation, 2)
     assert result.status_code == 201, result.text
 
@@ -487,7 +490,7 @@ async def test_latest_publication_unavailable_cannot_be_bypassed_by_frozen_membe
         '/api/agents/' + a['id'], json=config(future, application_id=a['application_id'], expected_version=2)
     )
     assert updated.status_code == 200
-    await admin.post('/api/agents/' + a['id'] + '/publish', json={'expected_version': 3})
+    await admin.post('/api/agents/' + a['id'] + '/enable', json={'expected_version': 3})
     await admin.patch('/api/models/' + future, json={'enabled': False})
     response = await admin.post('/api/work/tasks/' + t['id'] + '/runs', json=turn(t, a))
     assert response.status_code == 404, response.text
@@ -562,7 +565,7 @@ async def test_bounded_context_preserves_last_user_and_full_audit_history(
                     status='failed',
                     agent_id=UUID(a['id']),
                     agent_name_snapshot='旧成员',
-                    published_version=1,
+                    agent_revision=1,
                 )
             )
     old_goal = await admin.post(url + '/runs', json=turn(t, a))
@@ -712,7 +715,7 @@ async def test_frozen_and_latest_publication_skill_sets_have_independent_limits(
         ),
     )
     assert edited.status_code == 200, edited.text
-    assert (await admin.post('/api/agents/' + a['id'] + '/publish', json={'expected_version': 3})).status_code == 200
+    assert (await admin.post('/api/agents/' + a['id'] + '/enable', json={'expected_version': 3})).status_code == 200
     url = '/api/work/tasks/' + t['id']
     admitted = await admin.post(url + '/runs', json=turn(t, a))
     assert admitted.status_code == 202, admitted.text
@@ -809,6 +812,9 @@ async def test_foreign_work_is_denied_before_request_lock_or_model_admission(
         pytest.fail('A denied caller reached Work request locking or model admission')
 
     monkeypatch.setattr(container.runs, 'lock_request', must_not_enter)
-    monkeypatch.setattr(container.models, 'resolve_many', must_not_enter)
+    monkeypatch.setattr(container.models.bindings, 'resolve_many', must_not_enter)
     response = await admin.post('/api/work/tasks/' + owned['id'] + '/runs', json=turn(owned, agent))
     assert response.status_code == 404, response.text
+
+
+pytestmark = pytest.mark.usefixtures('member_agent_work_permissions')

@@ -65,7 +65,7 @@ async function signOut(): Promise<void> {
   <AConfigProvider :theme="lightTheme">
     <AAlert v-if="error" :message="error" type="error" closable @close="error = ''" />
     <RouterView v-if="route.meta.public" />
-    <ChatWorkspaceProvider v-else-if="identity">
+    <ChatWorkspaceProvider v-else-if="identity" :key="identity.id">
       <WorkWorkspaceProvider>
         <div class="platform-shell" :class="{ 'is-collapsed': collapsed }">
           <div v-show="!isMobile" class="platform-shell__sidebar">

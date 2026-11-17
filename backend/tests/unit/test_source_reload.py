@@ -1,4 +1,5 @@
 import pytest
+import uvicorn
 from cryptography.fernet import Fernet
 
 from zhiheng.cli import main as cli
@@ -13,7 +14,7 @@ def test_source_reload_uses_factory_and_preserves_private_request_logging(monkey
     def capture(application: str, **options: object) -> None:
         calls.append((application, options))
 
-    monkeypatch.setattr(cli.uvicorn, 'run', capture)
+    monkeypatch.setattr(uvicorn, 'run', capture)
     assert cli.main(['serve', '--reload', '--port', '19999']) == 0
     application, options = calls[0]
     assert application == 'zhiheng.api.main:create_configured_app'

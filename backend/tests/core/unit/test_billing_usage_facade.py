@@ -31,7 +31,7 @@ def services(enabled: bool) -> tuple[UsageService, SimpleNamespace, SimpleNamesp
         reconcile=AsyncMock(),
     )
     credit_service = SimpleNamespace(
-        state=AsyncMock(return_value=SimpleNamespace(enabled=enabled)),
+        queries=SimpleNamespace(state=AsyncMock(return_value=SimpleNamespace(enabled=enabled))),
         reserve=AsyncMock(),
         require_reservation=AsyncMock(),
         settle=AsyncMock(),
@@ -51,7 +51,6 @@ async def test_mode_is_frozen_during_admission_and_uses_separate_estimates(enabl
         model_id=model,
         source='chat',
         tokens=2000,
-        token_limit=100,
         estimated_input_tokens=1000,
         max_output_tokens=1000,
     )
@@ -82,18 +81,18 @@ async def test_execution_requires_points_only_for_the_persisted_scheme(enabled: 
     await service.require_reservation(session, run, user, model)
     meter.require_reservation.assert_awaited_once_with(session, run, user, model)
     assert credit_service.require_reservation.await_count == int(enabled)
-    credit_service.state.assert_not_awaited()
+    credit_service.queries.state.assert_not_awaited()
 
 
 @pytest.mark.parametrize('enabled', [False, True])
 async def test_settlement_uses_admission_scheme_even_after_mode_changes(enabled: bool) -> None:
     service, credit_service, _ = services(enabled)
-    credit_service.state.return_value.enabled = not enabled
+    credit_service.queries.state.return_value.enabled = not enabled
     session, run = Session(), uuid4()
     result = await service.settle(session, run, input_tokens=1000, output_tokens=200)
     assert result.status == 'known'
     assert credit_service.settle.await_count == int(enabled)
-    credit_service.state.assert_not_awaited()
+    credit_service.queries.state.assert_not_awaited()
 
 
 async def test_reconciliation_passes_the_real_actor_to_both_ledgers() -> None:
@@ -127,9 +126,11 @@ async def test_missing_currency_price_is_optional_in_both_modes() -> None:
     from zhiheng.shared.errors import AppError
 
     service, credit_service, _ = services(False)
-    models = SimpleNamespace(latest_rate=AsyncMock(side_effect=AppError('model_not_found', 'missing', 404)))
+    models = SimpleNamespace(
+        rates=SimpleNamespace(latest=AsyncMock(side_effect=AppError('model_not_found', 'missing', 404)))
+    )
     assert await service.money_rate(Session(), models, uuid4(), required=True) is None
-    credit_service.state.return_value.enabled = True
+    credit_service.queries.state.return_value.enabled = True
     assert await service.money_rate(Session(), models, uuid4(), required=True) is None
 
 
@@ -142,7 +143,6 @@ async def test_disabled_billing_public_admission_records_usage_without_any_prepa
         model_id=uuid4(),
         source='public',
         tokens=20,
-        token_limit=100,
         key_id=uuid4(),
         rate=None,
         estimated_input_tokens=10,
@@ -169,5 +169,5 @@ async def test_billing_mode_is_read_only_after_the_shared_transaction_gate() -> 
         assert session.gated
         return SimpleNamespace(enabled=True)
 
-    credit_service.state.side_effect = state
+    credit_service.queries.state.side_effect = state
     assert await service.points_enabled(session)

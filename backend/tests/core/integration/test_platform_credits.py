@@ -16,6 +16,7 @@ from sqlalchemy import Column, MetaData, Table, Uuid, text
 from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.core.permission_support import grants
 from zhiheng.modules.billing.orm import (
     CreditAccount,
     CreditCommand,
@@ -82,7 +83,7 @@ async def fund(credit_env: tuple[Any, ...], points: str = '100') -> None:
                 kind='grant', points=points, reason='test allocation', client_request_id='initial-grant'
             ),
         )
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -116,11 +117,11 @@ async def reserve(credit_env: tuple[Any, ...], run_id: UUID | None = None, **kwa
 async def test_zero_default_and_platform_mode_require_super_admin(credit_env: tuple[Any, ...]) -> None:
     factory, service, c, actor, user, *_ = credit_env
     async with factory.begin() as session:
-        state = await service.state(session)
-        summary = await service.summary(session, user)
+        state = await service.queries.state(session)
+        summary = await service.queries.summary(session, user)
         assert state.model_dump() == {'enabled': False, 'version': 0}
         assert summary.available_points == Decimal(0) and summary.version == 0 and summary.enabled
-        writer = Principal(actor.id, 'writer', False, frozenset({'ai:credit_env:write'}))
+        writer = Principal(actor.id, 'writer', False, grants('ai:credits', 'configure'))
         with pytest.raises(AppError) as denied:
             await service.set_state(
                 session,
@@ -140,7 +141,7 @@ async def test_grant_idempotency_and_payload_conflict_with_real_concurrency(cred
 
     await asyncio.wait_for(asyncio.gather(grant(), grant(), grant()), 10)
     async with factory.begin() as session:
-        assert (await service.summary(session, user)).allocated_points == Decimal(100)
+        assert (await service.queries.summary(session, user)).allocated_points == Decimal(100)
         with pytest.raises(AppError) as conflict:
             await service.adjust(session, actor, user, body.model_copy(update={'points': Decimal(101)}))
         assert conflict.value.status_code == 409
@@ -155,7 +156,7 @@ async def test_example_reserves_point_six_and_charges_point_two(credit_env: tupl
         result = await service.settle(session, reservation.run_id, input_tokens=1000, output_tokens=200)
         repeated = await service.settle(session, reservation.run_id, input_tokens=1, output_tokens=0)
         assert result.charged_points == repeated.charged_points == Decimal('0.2')
-        summary = await service.summary(session, user)
+        summary = await service.queries.summary(session, user)
         assert summary.available_points == Decimal('99.8') and summary.reserved_points == 0
 
 
@@ -200,7 +201,7 @@ async def test_locked_price_snapshot_survives_new_rate(credit_env: tuple[Any, ..
     first = await reserve(credit_env)
     factory, service, c, actor, _, model, *_ = credit_env
     async with factory.begin() as session:
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -225,7 +226,7 @@ async def test_unknown_keeps_reservation_until_versioned_admin_reconciliation(cr
     async with factory.begin() as session:
         unknown = await service.settle(session, row.run_id, input_tokens=1000)
         assert unknown.status == 'unknown'
-        assert (await service.summary(session, user)).reserved_points == Decimal('0.6')
+        assert (await service.queries.summary(session, user)).reserved_points == Decimal('0.6')
     body = c.CreditReconcile(
         expected_version=unknown.version,
         reason='provider confirmed',
@@ -245,7 +246,7 @@ async def test_pause_blocks_reserve_but_existing_settlement_completes(credit_env
     row = await reserve(credit_env)
     factory, service, c, actor, user, *_ = credit_env
     async with factory.begin() as session:
-        summary = await service.summary(session, user)
+        summary = await service.queries.summary(session, user)
         await service.set_account_state(
             session,
             actor,
@@ -267,7 +268,7 @@ async def test_actual_overrun_is_recorded_and_blocks_next_call(credit_env: tuple
     factory, service, _, _, user, *_ = credit_env
     async with factory.begin() as session:
         await service.settle(session, row.run_id, input_tokens=1000, output_tokens=4000)
-        assert (await service.summary(session, user)).available_points == Decimal('-1.1')
+        assert (await service.queries.summary(session, user)).available_points == Decimal('-1.1')
     with pytest.raises(AppError) as insufficient:
         await reserve(credit_env)
     assert insufficient.value.code == 'credits_insufficient'
@@ -293,7 +294,7 @@ async def test_zero_key_limit_rejects_even_free_calls(credit_env: tuple[Any, ...
     await fund(credit_env)
     factory, service, c, actor, _, model, key_a, _ = credit_env
     async with factory.begin() as session:
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -314,7 +315,7 @@ async def test_reservation_idempotency_does_not_double_hold_and_conflicts_on_pay
     await reserve(credit_env, run_id)
     factory, service, _, _, user, model, *_ = credit_env
     async with factory.begin() as session:
-        assert (await service.summary(session, user)).reserved_points == Decimal('0.6')
+        assert (await service.queries.summary(session, user)).reserved_points == Decimal('0.6')
         with pytest.raises(AppError) as conflict:
             await service.reserve(
                 session,
@@ -369,21 +370,21 @@ async def test_admin_write_and_cross_user_history_permissions_are_enforced_in_co
                 user,
                 c.CreditAccountStatePatch(enabled=False, expected_version=0, reason='x', client_request_id='x'),
             ),
-            lambda: service.create_rate(
+            lambda: service.rates.create(
                 session,
                 member,
                 model,
                 c.CreditRateCreate(billing_mode='token', is_free=True, reason='x', client_request_id='x'),
                 model_type='chat',
             ),
-            lambda: service.rates(session, member, model),
-            lambda: service.ledger(session, member, user_id=user),
-            lambda: service.reservations(session, member, user_id=user),
+            lambda: service.rates.list(session, member, model),
+            lambda: service.queries.ledger(session, member, user_id=user),
+            lambda: service.queries.reservations(session, member, user_id=user),
         ):
             with pytest.raises(AppError) as denied:
                 await invoke()
             assert denied.value.status_code == 403
-        assert (await service.ledger(session, member))['total'] == 0
+        assert (await service.queries.ledger(session, member))['total'] == 0
 
 
 async def test_migration_adds_zero_default_credit_scheme_without_changing_old_units(
@@ -452,7 +453,7 @@ async def test_unpriced_models_fail_and_explicit_free_models_use_zero_balance(cr
         await reserve(credit_env)
     assert missing.value.code == 'credit_rate_missing'
     async with factory.begin() as session:
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -466,14 +467,14 @@ async def test_unpriced_models_fail_and_explicit_free_models_use_zero_balance(cr
         assert result.charged_points == Decimal(0)
         with pytest.raises(AppError):
             await service.require_reservation(session, row.run_id, user, model)
-        assert (await service.summary(session, user)).available_points == Decimal(0)
+        assert (await service.queries.summary(session, user)).available_points == Decimal(0)
 
 
 async def test_rerank_search_units_and_rejection_release_unknown_holds(credit_env: tuple[Any, ...]) -> None:
     await fund(credit_env)
     factory, service, c, actor, user, model, *_ = credit_env
     async with factory.begin() as session:
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -503,7 +504,7 @@ async def test_rerank_search_units_and_rejection_release_unknown_holds(credit_en
             ),
         )
         assert result.charged_points == 0
-        assert (await service.summary(session, user)).available_points == Decimal('99.6')
+        assert (await service.queries.summary(session, user)).available_points == Decimal('99.6')
 
 
 async def test_parallel_settlement_writes_one_charge_and_balanced_ledger(credit_env: tuple[Any, ...]) -> None:
@@ -518,11 +519,11 @@ async def test_parallel_settlement_writes_one_charge_and_balanced_ledger(credit_
     results = await asyncio.wait_for(asyncio.gather(settle(), settle(), settle()), 10)
     assert all(result.charged_points == Decimal('0.2') for result in results)
     async with factory() as session:
-        entries = (await service.ledger(session, actor, user_id=user))['items']
+        entries = (await service.queries.ledger(session, actor, user_id=user))['items']
         assert len(entries) == 3
         assert sum(Decimal(entry['available_delta']) for entry in entries) == Decimal('99.8')
         assert sum(Decimal(entry['reserved_delta']) for entry in entries) == 0
-        assert (await service.summary(session, user)).used_points == Decimal('0.2')
+        assert (await service.queries.summary(session, user)).used_points == Decimal('0.2')
 
 
 async def test_state_versions_audit_and_idempotency(credit_env: tuple[Any, ...]) -> None:

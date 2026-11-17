@@ -2,18 +2,20 @@
 
 import hashlib
 import json
+from dataclasses import asdict
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.application.execution.admission import RunAdmission
+from zhiheng.application.agents.execution import AssistantAgentService
+from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.knowledge.preparation import KnowledgePreparation, PreparationStart
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.agents.public import (
+    AgentService,
     AssistantConversationInfo,
     AssistantConversations,
     AssistantConversationValue,
-    select_agent_history,
 )
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
 from zhiheng.modules.identity.public import IdentityService
@@ -35,6 +37,17 @@ def message_fingerprint(conversation_id: UUID, message: str) -> str:
     ).hexdigest()
 
 
+def configuration_fingerprint(value: AssistantConversationValue) -> str:
+    """Preparation freezes the actual latest input, not a publication identifier."""
+    return hashlib.sha256(
+        json.dumps(
+            [value.config.model_dump(mode='json'), [asdict(item) for item in value.skills.revisions]],
+            sort_keys=True,
+            default=str,
+        ).encode()
+    ).hexdigest()
+
+
 class AssistantConversationService:
     def __init__(
         self,
@@ -46,11 +59,12 @@ class AssistantConversationService:
         usage: UsageService,
         knowledge: KnowledgePreparation,
         identity: IdentityService,
-        token_limit: int,
+        execution: AssistantAgentService,
+        agents: AgentService,
     ) -> None:
         self.database, self.store, self.models, self.runs = database, store, models, runs
         self.admission, self.usage, self.knowledge, self.identity = admission, usage, knowledge, identity
-        self.token_limit = token_limit
+        self.execution, self.agents = execution, agents
 
     async def create(self, principal: Principal, agent_id: UUID, request_id: UUID) -> AssistantConversationInfo:
         async with self.database.sessions.begin() as session:
@@ -132,13 +146,12 @@ class AssistantConversationService:
         require_execution_capabilities(
             principal, 'agent_chat', knowledge=bool(config.knowledge_base_ids), skills=bool(config.skill_slugs)
         )
-        binding = await self.models.resolve(session, config.model_id)
+        binding = await self.models.bindings.resolve(session, config.model_id)
         if binding.model_type != 'chat' or config.max_tokens > binding.max_output_tokens:
             raise AppError('assistant_model_unavailable', '助手所用模型或输出配置已不可用', 409)
-        # New messages follow the latest publication. Already-admitted Runs retain their own snapshot.
-        version, _, _ = await self.store.publication(session, principal, value.info.agent_id, lock=lock)
-        if latest and version != value.info.published_version:
-            raise AppError('assistant_configuration_changed', '助手刚刚发布了更新，请重新发送', 409)
+        current, _ = await self.store.current(session, principal, value.info.agent_id, lock=lock)
+        if current != config:
+            raise AppError('assistant_configuration_changed', '助手配置刚刚更新，请重新发送', 409)
         await require_frozen_available(session, principal.id, value.skills)
         return binding.model_copy(
             update={'max_output_tokens': config.max_tokens, 'options': ModelOptions(temperature=config.temperature)}
@@ -171,7 +184,9 @@ class AssistantConversationService:
             if prior is not None:
                 return self.knowledge.store.info(prior)
             binding = await self._validate(session, principal, conversation, lock=True)
-            conversation = await self.store.require(session, principal, agent_id, conversation_id, lock=True)
+            config, skills = await self.store.current(session, principal, agent_id)
+            conversation = AssistantConversationValue(conversation.info, config, skills)
+            await self.store.authorize(session, principal, conversation_id, lock=True)
             await self._idle(session, conversation)
             if not conversation.config.knowledge_base_ids:
                 return await self._admit(session, principal, conversation, message, request_id, binding)
@@ -194,12 +209,12 @@ class AssistantConversationService:
                     base_ids=conversation.config.knowledge_base_ids,
                     dependencies={
                         'agent_id': str(agent_id),
-                        'published_version': conversation.info.published_version,
+                        'configuration': configuration_fingerprint(conversation),
                         'main_request': ModelRequest(
                             binding=binding.model_copy(
                                 update={
                                     'max_output_tokens': (
-                                        await self.models.resolve(session, conversation.config.model_id)
+                                        await self.models.bindings.resolve(session, conversation.config.model_id)
                                     ).max_output_tokens,
                                     'options': ModelOptions(),
                                 }
@@ -221,25 +236,24 @@ class AssistantConversationService:
         prepared: PreparedKnowledge | None = None,
     ) -> RunSnapshot:
         number = await self._idle(session, value, prepared.intent_id if prepared else None)
-        history: list[ModelMessage] = []
-        for turn in await self.store.turns(session, value.info.id, limit=20):
-            run = await self.runs.resource_snapshot(session, turn.run_id, 'agent_chat', value.info.id)
-            if run.status == 'completed':
-                history.extend((ModelMessage('user', turn.content), ModelMessage('assistant', run.text)))
-        selected = select_agent_history(
-            (*history, ModelMessage('user', message)), value.config.history_rounds, max_bytes=65536, max_messages=96
-        )
         messages = (
             *((ModelMessage('system', value.config.system_prompt),) if value.config.system_prompt else ()),
             *(ModelMessage('system', skill.content) for skill in value.skills.revisions),
-            *selected,
+            ModelMessage('user', message),
         )
         if prepared:
             await self.knowledge.check(session, prepared, principal)
-            messages = prepared.apply_context(messages)
+            messages = (prepared.agent_prefix(), *messages)
+        metadata = await self.execution.prepare(session, principal, value, binding, messages, request_id, number)
+        require_execution_capabilities(
+            principal,
+            'agent_chat',
+            knowledge=bool(value.config.knowledge_base_ids),
+            skills=bool(value.skills.revisions),
+        )
         run = await self.admission.reserve(
             session,
-            principal,
+            identity=AdmissionIdentity(owner_id=principal.id, billing_owner_id=principal.id),
             resource_type='agent_chat',
             resource_id=value.info.id,
             client_request_id=request_id,
@@ -256,7 +270,7 @@ class AssistantConversationService:
                     if used
                 ),
             ),
-            token_limit=self.token_limit,
+            input_token_estimate=metadata.reservation_input_tokens,
         )
         await self.store.add_turn(
             session,
@@ -267,8 +281,17 @@ class AssistantConversationService:
             run.id,
             number,
             [hit.model_dump(mode='json') for hit in prepared.hits] if prepared else [],
-            value.info.published_version,
             value.config.name,
+        )
+        agent = await self.agents.get(session, principal, value.info.agent_id)
+        await self.agents.audit(
+            session,
+            run_id=run.id,
+            agent=agent,
+            config=value.config,
+            skills=value.skills,
+            knowledge=[hit.model_dump(mode='json') for hit in prepared.hits] if prepared else [],
+            execution=metadata.model_dump(mode='json'),
         )
         if prepared:
             await self.knowledge.bind(session, prepared, principal, run.id)
@@ -280,9 +303,11 @@ class AssistantConversationService:
             session, principal, UUID(str(state.dependencies['agent_id'])), state.resource_id
         )
         binding = await self._validate(session, principal, value, lock=True)
-        if value.info.published_version != state.dependencies['published_version']:
-            raise AppError('knowledge_preparation_stale', '知识准备期间助手已发布更新，请重新发送', 409)
-        value = await self.store.require(session, principal, value.info.agent_id, value.info.id, lock=True)
+        config, skills = await self.store.current(session, principal, value.info.agent_id)
+        value = AssistantConversationValue(value.info, config, skills)
+        if configuration_fingerprint(value) != state.dependencies['configuration']:
+            raise AppError('knowledge_preparation_stale', '知识准备期间助手配置已变化，请重新发送', 409)
+        await self.store.authorize(session, principal, value.info.id, lock=True)
         return await self._admit(
             session,
             principal,
@@ -299,24 +324,10 @@ class AssistantConversationService:
             session, principal, UUID(str(state.dependencies['agent_id'])), state.resource_id
         )
         await self._validate(session, principal, value)
-        if value.info.published_version != state.dependencies['published_version']:
-            raise AppError('knowledge_preparation_stale', '知识准备期间助手已发布更新，请重新发送', 409)
+        config, skills = await self.store.current(session, principal, value.info.agent_id)
+        value = AssistantConversationValue(value.info, config, skills)
+        if configuration_fingerprint(value) != state.dependencies['configuration']:
+            raise AppError('knowledge_preparation_stale', '知识准备期间助手配置已变化，请重新发送', 409)
 
     async def guard(self, claim: ClaimedRun) -> None:
-        async with self.database.sessions.begin() as session:
-            principal = await self.identity.principal_for_user(session, claim.owner_id)
-            value = await self.store.for_run(session, principal, claim.id)
-            binding = await self._validate(session, principal, value, latest=False)
-            expected = ModelRequest.model_validate(claim.payload).binding
-            if binding.connection_id != expected.connection_id or binding.upstream_model != expected.upstream_model:
-                raise AppError('assistant_model_changed', '助手模型配置已变化，请重新发送', 409)
-            turn = await self.store.turn_for_run(session, principal, claim.id)
-            if turn.sources:
-                hits = [Hit.model_validate(row) for row in turn.sources]
-                visible = await self.knowledge.visible_hits(session, principal, hits)
-                if len(visible) != len(hits):
-                    raise AppError('assistant_source_unavailable', '助手资料权限已变化，请重新发送', 409)
-            if value.config.knowledge_base_ids:
-                # Recheck current KB grants before a queued response uses frozen retrieval input.
-                for base_id in value.config.knowledge_base_ids:
-                    await self.knowledge.knowledge.require(session, principal, base_id)
+        await self.execution.guard(claim)

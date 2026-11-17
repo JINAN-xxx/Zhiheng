@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy import select, text
 
 from tests.core.billing_support import enable_free_billing
-from tests.core.integration.test_chat_context_memory import seed_history
+from tests.core.chat_support import execute_with_summaries
 from tests.core.integration.test_chat_runs import admit
 from tests.core.provider import ProviderServer
 from zhiheng.modules.chat.orm import ChatMessage, Conversation
@@ -34,7 +34,15 @@ async def test_chat_model_test_and_summary_share_run_admission(
         return result
 
     monkeypatch.setattr(container.run_admission, 'reserve', record)
-    await seed_history(admin, app, model_id)
+    container.chat_agent.trigger_tokens, container.chat_agent.keep_tokens = 256, 64
+    conversation_id = (await admin.post('/api/chat/conversations', json={})).json()['id']
+    for content in ('older context ' * 80, 'another request ' * 80):
+        response = await admin.post(
+            f'/api/chat/conversations/{conversation_id}/runs',
+            json={'model_id': model_id, 'message': content, 'client_request_id': str(uuid4())},
+        )
+        assert response.status_code == 202, response.text
+        await execute_with_summaries(app, response.json()['id'])
     result = await admin.post(f'/api/models/{model_id}/test', json={'client_request_id': str(uuid4())})
     assert result.status_code == 202, result.text
     assert set(admitted) == {'chat', 'chat_summary', 'connection_test'}

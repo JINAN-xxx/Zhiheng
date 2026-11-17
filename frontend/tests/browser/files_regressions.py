@@ -10,6 +10,7 @@ import re
 
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
+from permission_fixture import granted_permissions
 
 
 FILE = {
@@ -149,7 +150,7 @@ class FilesUIRegressions(DeveloperBoundary):
                 await expect(self.page.get_by_role('button', name='查看文件：业务报告', exact=True)).to_be_visible()
 
     async def test_members_cannot_enter_storage_using_new_or_old_links(self):
-        await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={'id': 'member-1', 'username': 'member', 'is_admin': False}))
+        await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={'id': 'member-1', 'username': 'member', 'is_admin': False, 'permissions': granted_permissions('platform:knowledge:read')}))
         await self.page.goto(self.origin + '/knowledge')
         await expect(self.page.get_by_role('heading', name='知识库', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='存储管理', exact=True)).to_have_count(0)

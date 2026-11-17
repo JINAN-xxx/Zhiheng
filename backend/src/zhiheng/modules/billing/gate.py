@@ -14,3 +14,7 @@ async def lock_billing_admission(session: AsyncSession) -> None:
 async def lock_billing_switch(session: AsyncSession) -> None:
     """Exclude new admission while checking quiescence and changing the mode."""
     await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': MODE_GATE})
+
+
+async def lock_credit(session: AsyncSession, key: str) -> None:
+    await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': f'billing:{key}'})

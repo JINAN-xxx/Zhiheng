@@ -7,31 +7,13 @@ from urllib.parse import urlparse
 
 from playwright.async_api import expect
 from admin_regressions import AdminRegressions
-
-MODULES = [
-    ('overview', '工作台', '平台应用'), ('chat', '对话体验', '平台应用'),
-    ('agents', '智能助手', '平台应用'), ('work', '工作空间', '平台应用'),
-    ('models', '模型目录', '资源能力'), ('knowledge', '知识库', '资源能力'),
-    ('skills', '技能', '资源能力'), ('developer', '开发接入', '开发与用量'),
-    ('usage', '用量与调用', '开发与用量'),
-]
+from permission_fixture import granted_permissions
 
 class PlatformModuleRegressions(AdminRegressions):
     async def respond(self, route):
         path = urlparse(route.request.url).path
         if path == '/api/admin/users/user-2/effective-permissions':
-            return await route.fulfill(json={'items': [{'code':'platform:chat:access', 'label':'对话体验', 'group':'对话体验', 'roles':['研发人员','自定义角色']} ]})
-        if path == '/api/admin/permissions':
-            items = [
-                {'code': f'platform:{module}:access', 'label': {'chat':'使用对话体验','knowledge':'使用知识库'}.get(module,title), 'group': title, 'section': '功能使用', 'description': '使用功能，不包含维护与凭据管理'}
-                for module, title, section in MODULES
-            ]
-            items += [{'code':'platform:knowledge:manage','label':'维护本人知识库','group':'知识库','section':'资源维护'},
-                      {'code':'platform:knowledge:share','label':'共享知识库','group':'知识库','section':'发布与共享'},
-                      {'code':'ai:models:write','label':'管理平台模型','group':'模型配置','section':'平台管理'},
-                      {'code':'ai:credentials:read','label':'查看凭据连接信息','group':'凭据管理','section':'平台管理'},
-                      {'code':'ai:credentials:write','label':'管理模型凭据','group':'凭据管理','section':'平台管理'}]
-            return await route.fulfill(json={'items': items})
+            return await route.fulfill(json={'items': [{'code':'platform:chat:use', 'label':'对话体验', 'group':'对话体验', 'roles':['研发人员','自定义角色']} ]})
         if path == '/api/chat/conversations':
             return await route.fulfill(json=[])
         if path == '/api/models':
@@ -42,24 +24,26 @@ class PlatformModuleRegressions(AdminRegressions):
         await self.page.goto(self.origin + '/admin/roles')
         await self.page.get_by_role('button', name='新建角色', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='新建角色', exact=True)
-        await expect(dialog.get_by_role('switch', name='工作台', exact=True)).not_to_be_checked()
-        await expect(dialog.get_by_role('switch', name='使用对话体验', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('switch', name='开启工作台', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('switch', name='开启对话体验', exact=True)).not_to_be_checked()
         await dialog.get_by_role('textbox', name='角色名称', exact=True).fill('按需开启')
-        await dialog.get_by_role('switch', name='使用对话体验', exact=True).click()
-        await dialog.get_by_role('switch', name='使用知识库', exact=True).click()
-        await expect(dialog.get_by_role('switch', name='使用对话体验', exact=True)).to_be_checked()
-        await expect(dialog.get_by_role('switch', name='智能助手', exact=True)).not_to_be_checked()
-        await expect(dialog.get_by_role('switch', name='维护本人知识库', exact=True)).not_to_be_checked()
-        await expect(dialog.get_by_role('switch', name='共享知识库', exact=True)).not_to_be_checked()
-        await expect(dialog.get_by_role('switch', name='管理模型凭据', exact=True)).not_to_be_checked()
-        await expect(dialog.get_by_role('switch', name='查看凭据连接信息', exact=True)).not_to_be_checked()
+        await dialog.get_by_role('switch', name='开启对话体验', exact=True).click()
+        await dialog.get_by_role('switch', name='开启知识库', exact=True).click()
+        await dialog.get_by_role('checkbox', name='对话体验：使用', exact=True).check()
+        await dialog.get_by_role('checkbox', name='知识库：检索', exact=True).check()
+        await expect(dialog.get_by_role('switch', name='开启对话体验', exact=True)).to_be_checked()
+        await expect(dialog.get_by_role('switch', name='开启智能助手', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('checkbox', name='知识库：编辑', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('checkbox', name='知识库：共享管理', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('switch', name='开启凭据管理', exact=True)).not_to_be_checked()
+        await expect(dialog.get_by_role('switch', name='开启模型目录', exact=True)).not_to_be_checked()
         await dialog.get_by_role('button', name=re.compile(r'保\s*存')).click()
         await expect(dialog).to_be_hidden()
-        self.assertEqual(set(self.roles[-1]['permissions']), {'platform:chat:access', 'platform:knowledge:access'})
-        self.assertNotIn('platform:overview:access', self.roles[-1]['permissions'])
+        self.assertEqual(set(self.roles[-1]['permissions']), set(granted_permissions('platform:chat:use', 'platform:knowledge:query')))
+        self.assertNotIn('platform:overview:enabled', self.roles[-1]['permissions'])
 
     async def test_ordinary_navigation_and_denied_direct_route(self):
-        self.user = {'id': 'member', 'username': 'member', 'is_admin': False, 'permissions': ['platform:chat:access']}
+        self.user = {'id': 'member', 'username': 'member', 'is_admin': False, 'permissions': granted_permissions('platform:chat:use')}
         await self.page.goto(self.origin + '/chat')
         nav = self.page.get_by_role('navigation', name='主导航', exact=True)
         await expect(nav.get_by_role('link', name='对话体验', exact=True)).to_be_visible()
@@ -93,12 +77,13 @@ class PlatformModuleRegressions(AdminRegressions):
         await self.page.get_by_role('button',name='新建角色',exact=True).click()
         dialog=self.page.get_by_role('dialog',name='新建角色',exact=True)
         await dialog.get_by_role('textbox',name='角色名称',exact=True).fill('知识库维护人员')
-        await dialog.get_by_role('switch',name='维护本人知识库',exact=True).click()
-        await dialog.get_by_role('switch',name='共享知识库',exact=True).click()
-        await expect(dialog.get_by_role('switch',name='使用知识库',exact=True)).not_to_be_checked()
+        await dialog.get_by_role('switch',name='开启知识库',exact=True).click()
+        await dialog.get_by_role('checkbox',name='知识库：编辑',exact=True).check()
+        await dialog.get_by_role('checkbox',name='知识库：共享管理',exact=True).check()
+        await expect(dialog.get_by_role('checkbox',name='知识库：检索',exact=True)).not_to_be_checked()
         await dialog.get_by_role('button',name=re.compile(r'保\s*存')).click()
         await expect(dialog).to_be_hidden()
-        self.assertEqual(set(self.roles[-1]['permissions']),{'platform:knowledge:manage','platform:knowledge:share'})
+        self.assertEqual(set(self.roles[-1]['permissions']),set(granted_permissions('platform:knowledge:update', 'platform:knowledge:share')))
 
 if __name__ == '__main__':
     os.environ.setdefault('PLATFORM_BROWSER_URL', 'http://127.0.0.1:19080')

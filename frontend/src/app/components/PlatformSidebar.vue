@@ -17,6 +17,8 @@ import {
 } from '@ant-design/icons-vue'
 import PlatformAccountMenu from './PlatformAccountMenu.vue'
 import BrandMark from '../../shared/components/BrandMark.vue'
+import { navigationGroups, primaryNavigation } from '../navigation.ts'
+import type { NavigationGroup } from '../navigation.ts'
 import { identity, canUseModule } from '../../modules/identity/public.ts'
 const props = withDefaults(
   defineProps<{ collapsed: boolean; showCollapseControl?: boolean; leaving?: boolean }>(),
@@ -25,45 +27,20 @@ const props = withDefaults(
 const emit = defineEmits<{ 'toggle-collapse': []; navigate: []; logout: [] }>()
 const route = useRoute()
 const navigationId = useId()
-const allGroups = [
-  {
-    id: 'applications',
-    title: '应用',
-    items: [
-      { path: '/chat', label: '对话体验', icon: MessageOutlined },
-      { path: '/agents', label: '智能助手', icon: RobotOutlined },
-      { path: '/work', label: '工作空间', icon: TeamOutlined }
-    ]
-  },
-  {
-    id: 'resources',
-    title: '资源',
-    items: [
-      { path: '/models', label: '模型目录', icon: AppstoreOutlined },
-      { path: '/credentials', label: '凭据管理', icon: ApiOutlined },
-      { path: '/knowledge', label: '知识库', icon: DatabaseOutlined },
-      { path: '/skills', label: '技能', icon: ThunderboltOutlined }
-    ]
-  },
-  {
-    id: 'development',
-    title: '开发与用量',
-    items: [
-      { path: '/developer', label: '开发接入', icon: ApiOutlined },
-      { path: '/usage', label: '用量与调用', icon: BarChartOutlined }
-    ]
-  }
-]
-const groups = computed(() =>
-  allGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => canUseModule(item.path.slice(1)))
-    }))
-    .filter((group) => group.items.length)
-)
-type NavigationGroup = (typeof allGroups)[number]
-const groupIds = new Set(allGroups.map((group) => group.id))
+const moduleIcons = {
+  overview: HomeOutlined,
+  chat: MessageOutlined,
+  agents: RobotOutlined,
+  work: TeamOutlined,
+  models: AppstoreOutlined,
+  credentials: ApiOutlined,
+  knowledge: DatabaseOutlined,
+  skills: ThunderboltOutlined,
+  developer: ApiOutlined,
+  usage: BarChartOutlined
+}
+const groups = computed(() => primaryNavigation(identity.value))
+const groupIds = new Set(navigationGroups.map((group) => group.id))
 const closedGroups = ref<string[]>([])
 const preferenceKey = computed(() =>
   identity.value ? `zhiheng:primary-navigation:${encodeURIComponent(identity.value.id)}` : null
@@ -178,7 +155,7 @@ function toggleGroup(group: NavigationGroup): void {
             :title="collapsed ? item.label : undefined"
             @click="emit('navigate')"
           >
-            <component :is="item.icon" /><span v-if="!collapsed">{{ item.label }}</span>
+            <component :is="moduleIcons[item.id]" /><span v-if="!collapsed">{{ item.label }}</span>
           </RouterLink>
         </div>
       </div>

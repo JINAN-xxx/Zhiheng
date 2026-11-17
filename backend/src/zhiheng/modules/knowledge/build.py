@@ -23,7 +23,8 @@ from zhiheng.modules.knowledge.orm import (
 )
 from zhiheng.modules.knowledge.parsing_contracts import PARSE_TERMINAL
 from zhiheng.modules.knowledge.parsing_orm import ParsingJob
-from zhiheng.modules.knowledge.service import KnowledgeService, binding_fingerprint
+from zhiheng.modules.knowledge.service import KnowledgeService
+from zhiheng.modules.knowledge.values import binding_fingerprint
 from zhiheng.modules.knowledge.vector import VectorSpec
 from zhiheng.modules.models.public import ModelBinding
 from zhiheng.shared.errors import AppError
@@ -125,7 +126,7 @@ class BuildStore:
             or step is None
         ):
             raise AppError('knowledge_execution_cancelled', '知识模型步骤已失效', 409)
-        document = await self.knowledge.document(session, base.id, UUID(step.step_key.split(':')[1]))
+        document = await self.knowledge.materials.document(session, base.id, UUID(step.step_key.split(':')[1]))
         return base.owner_id, ModelBinding.model_validate(generation.binding), document.file_id, document.source_sha256
 
     async def children(self, session: AsyncSession, parent_id: UUID) -> list[UUID]:
@@ -256,7 +257,7 @@ class BuildStore:
 
     async def source(self, session: AsyncSession, claim: BuildClaim, document_id: UUID) -> tuple[UUID, int, int]:
         await self.owned(session, claim)
-        row = await self.knowledge.document(session, claim.base_id, document_id)
+        row = await self.knowledge.materials.document(session, claim.base_id, document_id)
         return row.file_id, row.chunk_size, row.chunk_overlap
 
     async def parsed(
@@ -268,11 +269,11 @@ class BuildStore:
         source: SourceSnapshot,
     ) -> None:
         job = await self.owned(session, claim)
-        row = await self.knowledge.document(session, claim.base_id, document_id)
+        row = await self.knowledge.materials.document(session, claim.base_id, document_id)
         principal = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
         if source.sha256 != row.source_sha256:
             raise AppError('source_snapshot_changed', '知识来源已变化', 409)
-        await self.knowledge.files.bind_sources(
+        await self.knowledge.files.references.bind_sources(
             session, principal, (source,), resource_type='knowledge_document', resource_id=row.id
         )
         row.artifact_file_id = source.artifact_file_id
@@ -304,7 +305,7 @@ class BuildStore:
         self, session: AsyncSession, claim: BuildClaim, document_id: UUID, error: AppError
     ) -> None:
         job = await self.owned(session, claim)
-        row = await self.knowledge.document(session, claim.base_id, document_id)
+        row = await self.knowledge.materials.document(session, claim.base_id, document_id)
         row.status, row.error = 'failed', {'code': error.code, 'message': error.message}
         await session.execute(
             delete(KnowledgeChunk).where(
@@ -478,7 +479,7 @@ class BuildStore:
                 document.chunk_count = int(str(entry['chunk_count']))
                 if claim.operation.startswith('delete'):
                     document.status, document.active_revision = 'deleted', None
-                    await self.knowledge.files.release_resources(
+                    await self.knowledge.files.references.release_resources(
                         session,
                         resource_type='knowledge_document',
                         resource_ids=(document.id,),

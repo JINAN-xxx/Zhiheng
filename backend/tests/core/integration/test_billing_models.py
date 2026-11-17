@@ -20,12 +20,12 @@ async def test_billing_model_inventory_has_no_catalog_page_limit_and_keeps_visib
         session.add(ModelDefinition(name='Unpublished model', published=False, **fields))
         session.add(ModelDefinition(name='Disabled model', enabled=False, **fields))
         await session.flush()
-        assert len(await container.models.list_models(session)) == 1000
-        inventory = await container.models.billing_models(session)
+        assert len(await container.models.catalog.list(session)) == 1000
+        inventory = await container.models.catalog.billing_models(session)
         assert len(inventory) == 1002
         assert all(row.enabled for row in inventory)
         assert 'Unpublished model' in {row.name for row in inventory}
         connection = await session.scalar(select(ModelConnection).where(ModelConnection.id == original.connection_id))
         connection.enabled = False
         await session.flush()
-        assert await container.models.billing_models(session) == []
+        assert await container.models.catalog.billing_models(session) == []

@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection
 
 from tests.core.integration.test_resource_requests import setup_access, upload
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import active_migration_context
+from tests.core.schema_support import active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -51,13 +51,8 @@ async def test_schema15_original_rows_preserved_with_file_purpose(admin: httpx.A
     async with c.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
-            projection = ','.join('"' + column + '"' for name, column in columns if name == table)
-            after = list(
-                await connection.scalars(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {projection} FROM "{table}") t ORDER BY 1')
-                )
-            )
-            assert after == before[table], table
+            after = list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{table}" t ORDER BY 1')))
+            assert_original_rows(before[table], after, table)
         assert await connection.scalar(text('SELECT purpose FROM files')) == 'general'
         assert (
             await connection.run_sync(lambda sync: compare_metadata(active_migration_context(sync), schema_metadata()))

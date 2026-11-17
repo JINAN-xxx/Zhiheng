@@ -9,16 +9,16 @@
         </div>
         <a-tag v-if="!member.available" color="error">不可用</a-tag>
         <a-tooltip
-          v-if="canManage && (member.latestPublishedVersion ?? 0) > member.publishedVersion"
-          title="确认后升级冻结版本"
+          v-if="canManage && member.latestAgentRevision !== null"
+          title="为本任务采用助手最新配置和技能"
         >
           <a-button
-            aria-label="升级"
+            aria-label="采用最新配置"
             type="text"
             size="small"
             :disabled="locked"
             @click="emit('upgrade', member)"
-            >升级</a-button
+            >采用最新配置</a-button
           >
         </a-tooltip>
         <a-button

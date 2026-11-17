@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from tests.core.integration.test_resource_key_scopes import application, issue
 from tests.core.knowledge_support import share_library
+from tests.core.permission_support import account, grant_member, grants
 from tests.core.provider import ProviderServer
 from zhiheng.application.access import CallerContext
 from zhiheng.bootstrap.container import Container
@@ -105,8 +106,6 @@ async def upload(client: Any, content: Any = b'four') -> dict[str, Any]:
 
 
 async def test_app_grants_cas_isolation_current_acl_and_owner_forgery(admin: httpx.AsyncClient, app: FastAPI) -> None:
-    import httpx
-
     c, owner_app, _key, caller = await setup_access(admin, app)
     file = await upload(admin)
     second = await application(admin)
@@ -137,8 +136,11 @@ async def test_app_grants_cas_isolation_current_acl_and_owner_forgery(admin: htt
                 expected_version=1,
             )
         assert error.value.status_code == 409
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *(grants('ai:storage', 'maintain') | grants('platform:developer', 'create'))) as (
+        member,
+        _,
+        _,
+    ):
         theirs = await upload(member)
         async with c.database.sessions.begin() as session:
             with pytest.raises(AppError) as error:
@@ -170,11 +172,10 @@ async def test_app_grants_cas_isolation_current_acl_and_owner_forgery(admin: htt
 async def test_shared_file_read_delegation_never_expands_to_write_and_revocation_is_current(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
-    import httpx
-
     file = await upload(admin)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(
+        admin, app, *(grants('ai:storage') | grants('platform:developer', 'create', 'key_create', 'grant', 'invoke'))
+    ) as (member, _, _):
         c, owner_app, _key, caller = await setup_access(member, app)
         acl = await admin.patch(
             f'/api/files/{file["id"]}/acl',
@@ -459,16 +460,13 @@ async def test_server_request_id_is_stable_and_unresolved_admission_is_explicit(
 async def test_autobind_never_claims_shared_knowledge_but_explicit_read_query_binding_works(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
-    import httpx
-
     from tests.core.integration.test_knowledge import embedding_model
 
     model = await embedding_model(admin, provider)
     c, owner_app, _key, caller = await setup_access(
         admin, app, ['files:read', 'knowledge:read', 'knowledge:write', 'knowledge:query']
     )
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    async with account(admin, app, *grants('platform:knowledge', 'create', 'share')) as (member, _, _):
         response = await member.post('/api/knowledge/bases', json={'name': 'Shared', 'embed_model_id': model})
         assert response.status_code == 201, response.text
         base = response.json()
@@ -576,8 +574,10 @@ async def test_file_transfer_invalidates_old_binding_even_when_acl_remains_and_o
         third = await IdentityService().create_user(
             session, username='transfer-target', password='platform-test-password', is_admin=False
         )
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as member:
-        await member.post('/api/auth/login', json={'username': 'member', 'password': 'platform-test-password'})
+    await grant_member(admin, grants('ai:storage', 'transfer'), username='transfer-target')
+    async with account(
+        admin, app, *(grants('ai:storage') | grants('platform:developer', 'create', 'key_create', 'grant', 'invoke'))
+    ) as (member, _, _):
         c, owner_app, _key, caller = await setup_access(member, app)
         acl = await admin.patch(
             f'/api/files/{file["id"]}/acl',

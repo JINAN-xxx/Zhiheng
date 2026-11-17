@@ -83,3 +83,6 @@ Thumbs.db
 
 # Generated source archive manifest
 /SOURCE_MANIFEST.json
+
+# Local verification reports, screenshots, wheels and recovery artifacts.
+/outputs/

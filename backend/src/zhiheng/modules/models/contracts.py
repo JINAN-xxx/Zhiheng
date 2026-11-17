@@ -11,15 +11,19 @@ from pydantic import (
     ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
+    ValidationError,
+    computed_field,
     field_validator,
     model_serializer,
     model_validator,
 )
 
+from zhiheng.modules.models.capacity import SAFETY_MARGIN, CapacityStatus, capacity_evidence_status
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.numbers import MAX_SAFE_INTEGER
 
 MAX_IMAGE_SNAPSHOT_BYTES = 2_000_000
+MAX_CONTEXT_IMAGE_BYTES = 16 * 1024 * 1024
 MAX_TRIAL_PROMPT_CHARS = 4000
 MAX_TRIAL_DOCUMENT_CHARS = 1000
 MAX_TRIAL_DOCUMENTS = 8
@@ -280,6 +284,17 @@ class ConnectionInfo(BaseModel):
     enabled: bool = True
 
 
+class ModelAvailability(BaseModel):
+    """Platform model/connection state; no claim about upstream reachability."""
+
+    model_config = ConfigDict(frozen=True)
+    available: bool
+    reason: (
+        Literal['model_disabled', 'model_deleted', 'connection_missing', 'connection_disabled', 'connection_deleted']
+        | None
+    ) = None
+
+
 class ModelInfo(BaseModel):
     id: UUID
     name: str
@@ -287,21 +302,79 @@ class ModelInfo(BaseModel):
     upstream_model: str
     max_output_tokens: int
     context_window_tokens: int | None = None
+    capacity_note: str = ''
+    availability: ModelAvailability | None = None
     enabled: bool
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)
     capabilities: tuple[Literal['chat', 'stream', 'embedding', 'rerank', 'vision'], ...] = ('chat', 'stream')
 
+    @computed_field  # type: ignore[prop-decorator]  # read-only Pydantic serialization property.
+    @property
+    def capacity_status(self) -> CapacityStatus:
+        return capacity_evidence_status(self.model_type, self.context_window_tokens, self.capacity_note)
+
 
 class ModelConfiguration(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
-    name: str = Field(min_length=1, max_length=80)
+    name: str = Field(strict=True, min_length=1, max_length=80)
     connection_id: UUID
-    upstream_model: str = Field(min_length=1, max_length=200)
+    upstream_model: str = Field(strict=True, min_length=1, max_length=200)
     max_output_tokens: int = Field(default=512, strict=True, ge=1, le=MAX_SAFE_INTEGER)
     context_window_tokens: int | None = Field(default=None, strict=True, ge=256, le=2097152)
+    capacity_note: str = Field(default='', strict=True, max_length=2000)
     model_type: Literal['chat', 'embedding', 'rerank'] = 'chat'
     vision_enabled: bool = Field(default=False, strict=True)
+
+    @field_validator('name', 'upstream_model', 'capacity_note')
+    @classmethod
+    def valid_text(cls, value: str) -> str:
+        value.encode('utf-8')
+        value = value.strip()
+        if '\x00' in value:
+            raise ValueError('文本不能包含空字符')
+        return value
+
+    @field_validator('name', 'upstream_model')
+    @classmethod
+    def nonblank(cls, value: str) -> str:
+        if not value:
+            raise ValueError('名称和上游模型标识不能为空')
+        return value
+
+    @classmethod
+    def from_fields(cls, values: dict[str, object]) -> 'ModelConfiguration':
+        try:
+            return cls.model_validate(values)
+        except ValidationError as error:
+            fields = sorted({str(item['loc'][0]) for item in error.errors() if item['loc']})
+            raise AppError(
+                'invalid_model_configuration',
+                '模型配置字段无效，请检查名称、模型标识、容量和依据',
+                422,
+                details={'fields': fields},
+            ) from error
+
+    @model_validator(mode='after')
+    def valid_context_capacity(self) -> 'ModelConfiguration':
+        if self.vision_enabled and self.model_type != 'chat':
+            raise AppError('unsupported_capability', '仅聊天模型支持vision能力', 422)
+        if (
+            self.model_type == 'chat'
+            and self.context_window_tokens is not None
+            and self.max_output_tokens + SAFETY_MARGIN >= self.context_window_tokens
+        ):
+            raise AppError(
+                'invalid_model_capacity',
+                '最大输出与256 Token安全余量占满上下文窗口，请调整输出上限或窗口',
+                422,
+                details={
+                    'max_output_tokens': self.max_output_tokens,
+                    'context_window_tokens': self.context_window_tokens,
+                    'safety_margin_tokens': SAFETY_MARGIN,
+                },
+            )
+        return self
 
 
 @dataclass(frozen=True)
@@ -310,7 +383,7 @@ class ModelSaveCheck:
     binding: ModelBinding
     previous: ModelInfo | None
     enabled: bool | None
-    provider: ModelProvider
+    provider: ModelProvider | None
     required_actions: tuple[str, ...] = ('update',)
 
 

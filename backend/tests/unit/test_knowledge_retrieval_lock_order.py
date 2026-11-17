@@ -24,13 +24,7 @@ async def test_revalidate_locks_all_libraries_before_any_source() -> None:
         documents[document_id] = SimpleNamespace(version=1, status='ready', source=source)
     by_id = {base.base_id: base for base in bases}
 
-    class Knowledge:
-        async def require(self, session: Any, principal: Any, base_id: UUID, *, lock: bool) -> Any:
-            assert lock
-            events.append(('kb', base_id))
-            frozen = by_id[base_id]
-            return SimpleNamespace(active_revision=frozen.spec.revision, version=1, acl_version=1)
-
+    class Materials:
         async def document(self, session: Any, base_id: UUID, document_id: UUID) -> Any:
             return documents[document_id]
 
@@ -38,6 +32,16 @@ async def test_revalidate_locks_all_libraries_before_any_source() -> None:
             assert lock
             events.append(('file', document.source.file_id))
             return document.source
+
+    class Knowledge:
+        def __init__(self) -> None:
+            self.materials = Materials()
+
+        async def require(self, session: Any, principal: Any, base_id: UUID, *, lock: bool) -> Any:
+            assert lock
+            events.append(('kb', base_id))
+            frozen = by_id[base_id]
+            return SimpleNamespace(active_revision=frozen.spec.revision, version=1, acl_version=1)
 
     await RetrievalStore(Knowledge()).revalidate(None, None, bases, lock=True)
     ordered = sorted(bases, key=lambda base: base.base_id)

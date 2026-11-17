@@ -1,4 +1,5 @@
-import json
+"""Preserve schema6 history and reject unfrozen legacy chat before provider execution."""
+
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -11,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from tests.core.legacy_schema import reconstruct
-from tests.core.schema_support import active_migration_context
+from tests.core.schema_support import active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 from zhiheng.infrastructure.database import SCHEMA_REVISION
@@ -19,7 +20,7 @@ from zhiheng.runtime.orm import Run
 from zhiheng.worker.execution import execute_run
 
 
-async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
+async def test_schema6_history_survives_and_unfrozen_chat_fails_before_provider(
     admin: httpx.AsyncClient,
     app: FastAPI,
     model_id: str,
@@ -63,28 +64,10 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
     async with container.database.engine.connect() as connection:
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
         for table in tables:
-            selector = ''
-            if table in {'skills', 'skill_revisions'}:
-                identifiers = [json.loads(row)['id'] for row in snapshots[table]]
-                selector = (
-                    ' WHERE id IN (' + ','.join("'" + value + "'" for value in identifiers) + ')'
-                    if identifiers
-                    else ' WHERE false'
-                )
-
-            names = [column[1] for column in columns if column[0] == table]
             current = (
-                (
-                    await connection.execute(
-                        text(
-                            f'SELECT to_jsonb(t)::text FROM (SELECT {",".join(names)} FROM {table}{selector}) t ORDER BY 1'
-                        )
-                    )
-                )
-                .scalars()
-                .all()
+                (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))).scalars().all()
             )
-            assert current == snapshots[table]
+            assert_original_rows(snapshots[table], current, table)
 
         def compare(sync: Connection) -> list[Any]:
             return compare_metadata(active_migration_context(sync), schema_metadata())
@@ -93,6 +76,27 @@ async def test_populated_schema6_and_old_payload_replay_survive_upgrade(
     await execute_run(container, UUID(admitted['id']))
     replay = await admin.post(endpoint, json=body)
     assert replay.status_code == 202 and replay.json()['id'] == admitted['id']
-    assert replay.json()['status'] == 'completed'
-    assert len(provider.requests) == 1
-    assert len((await admin.get('/api/usage')).json()['records']) == 1
+    snapshot = replay.json()
+    assert snapshot['status'] == 'failed'
+    assert snapshot['error']['code'] == 'chat_context_unavailable'
+    assert snapshot['usage'] == {'status': 'known', 'input_tokens': 0, 'output_tokens': 0}
+    assert not provider.requests
+    usage = (await admin.get('/api/usage')).json()
+    assert usage['reserved_tokens'] == usage['used_tokens'] == 0
+    assert len(usage['records']) == 1
+    async with container.database.sessions() as session:
+        run = await session.get(Run, UUID(admitted['id']))
+        assert run is not None and run.payload == payload and not run.provider_started
+        record = (
+            await session.execute(
+                text(
+                    'SELECT status,input_tokens,output_tokens,charged_tokens FROM developer_invocations WHERE run_id=:id'
+                ),
+                {'id': run.id},
+            )
+        ).one()
+        assert tuple(record) == ('known', 0, 0, 0)
+        assert (
+            await session.scalar(text('SELECT count(*) FROM billing_reservations WHERE run_id=:id'), {'id': run.id})
+            == 0
+        )

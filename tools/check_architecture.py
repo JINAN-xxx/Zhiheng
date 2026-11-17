@@ -97,18 +97,18 @@ def _rule(source: str, target: str) -> str | None:
             and destination[3:] == ['schema', 'schema_tables']
         )
         adapter_constructor = source == PACKAGE + '.bootstrap.adapters' and target in {
-            PACKAGE + '.modules.knowledge.adapters.native.NativeParser',
-            PACKAGE + '.modules.knowledge.adapters.native.validate_document_source',
-            PACKAGE + '.modules.knowledge.adapters.mineru.MinerUClient',
-            PACKAGE + '.modules.knowledge.adapters.mineru_cloud.create_mineru_client',
-            PACKAGE + '.modules.knowledge.adapters.mineru.unpack_result',
+            PACKAGE + '.modules.files.adapters.native.NativeParser',
+            PACKAGE + '.modules.files.adapters.native.validate_document_source',
+            PACKAGE + '.modules.files.adapters.mineru.MinerUClient',
+            PACKAGE + '.modules.files.adapters.mineru_cloud.create_mineru_client',
+            PACKAGE + '.modules.files.adapters.mineru.unpack_result',
             PACKAGE + '.modules.knowledge.adapters.milvus.MilvusStore',
             PACKAGE + '.modules.knowledge.adapters.lightrag.sdk.GraphSDK',
             PACKAGE + '.modules.models.adapters.factory.create_provider',
         }
         if not same_module and not public_interface and not migration_inventory and not adapter_constructor:
             return 'module-private-import'
-    if root in {'pypdf', 'PIL', 'openpyxl'} and origin[:4] != [PACKAGE, 'modules', 'knowledge', 'adapters']:
+    if root in {'pypdf', 'PIL', 'openpyxl'} and origin[:4] != [PACKAGE, 'modules', 'files', 'adapters']:
         return 'parser-sdk-outside-owning-adapter'
     if _supplier_import(target) and 'adapters' not in origin[DOMAIN_PATH_DEPTH:]:
         return 'sdk-outside-adapter'

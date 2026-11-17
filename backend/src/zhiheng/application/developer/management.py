@@ -22,7 +22,7 @@ class DeveloperManagementService:
         if action == 'enable':
             model_ids = await self._keys.application_model_ids(session, application_id)
             try:
-                await self._models.resolve_many(session, model_ids)
+                await self._models.bindings.resolve_many(session, model_ids)
             except AppError as error:
                 raise reference_conflict(
                     'application_dependencies_unavailable',

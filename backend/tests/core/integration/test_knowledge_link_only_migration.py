@@ -16,12 +16,19 @@ from sqlalchemy.exc import IntegrityError
 
 from tests.core.integration.test_knowledge_failures import ready_base
 from tests.core.integration.test_knowledge_materials_v2 import reader
+from tests.core.legacy_schema import reconstruct
+from tests.core.permission_support import (  # noqa: F401 - pytest fixture by name
+    grant_member,
+    grants,
+    member_knowledge_permissions,
+)
 from tests.core.provider import ProviderServer
 from tests.core.schema_support import active_migration_context, assert_original_rows
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.schema import schema_metadata
 
 
+@pytest.mark.usefixtures('member_knowledge_permissions')
 async def test_link_only_upgrade_closes_global_access_without_changing_members_or_materials(  # noqa: PLR0915 - keep downgrade, upgrade and preservation checks in one fixture lifecycle
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
@@ -39,6 +46,7 @@ async def test_link_only_upgrade_closes_global_access_without_changing_members_o
             await container.accounts.create_user(
                 session, username='not-invited', password='platform-test-password', is_admin=False
             )
+        await grant_member(admin, grants('platform:knowledge'), username='not-invited')
         assert (
             await outsider.post(
                 '/api/auth/login', json={'username': 'not-invited', 'password': 'platform-test-password'}
@@ -62,10 +70,10 @@ async def test_link_only_upgrade_closes_global_access_without_changing_members_o
 
         def previous(connection: Connection) -> None:
             config.attributes['connection'] = connection
-            command.downgrade(config, '0022_knowledge_invitations')
+            command.upgrade(config, '0022_knowledge_invitations')
 
         async with container.database.engine.begin() as connection:
-            await connection.run_sync(previous)
+            await reconstruct(connection, previous, preserve_personal_skills=True)
             await connection.execute(
                 text("UPDATE knowledge_bases SET access='public' WHERE id=:id"), {'id': UUID(base['id'])}
             )
@@ -78,7 +86,7 @@ async def test_link_only_upgrade_closes_global_access_without_changing_members_o
             tables = list(
                 await connection.scalars(
                     text(
-                        "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename!='alembic_version' ORDER BY tablename"
+                        "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename NOT IN ('alembic_version','agent_versions') ORDER BY tablename"
                     )
                 )
             )

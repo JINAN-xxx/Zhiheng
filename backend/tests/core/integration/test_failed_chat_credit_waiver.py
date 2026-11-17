@@ -32,6 +32,9 @@ class FailureProvider:
     def __init__(self, delta: ModelDelta | None = None) -> None:
         self.delta = delta
 
+    async def validate(self) -> None:
+        pass
+
     async def stream(self, _messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]:
         if self.delta is not None:
             yield self.delta
@@ -51,6 +54,7 @@ def executor(container: Container, delta: ModelDelta | None = None) -> Inference
         lease_seconds=3,
         timeout_seconds=2,
         lifecycle=container.run_lifecycle,
+        chat_agent=container.chat_agent,
     )
 
 
@@ -77,7 +81,7 @@ async def test_executor_waives_empty_failed_chat_and_preserves_unknown_provider_
         hold = await session.get(CreditHold, run_id)
         meter = await session.scalar(select(Invocation).where(Invocation.run_id == run_id))
         run = await session.get(Run, run_id)
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert hold.status == 'settled' and hold.charged_points == 0
         assert hold.input_tokens is None and hold.output_tokens is None
         assert meter.status == run.usage_status == 'unknown'
@@ -110,7 +114,7 @@ async def test_partial_output_remains_pending_reconciliation(
     async with container.database.sessions() as session:
         hold = await session.get(CreditHold, run_id)
         assert hold.status == 'unknown' and hold.charged_points is None
-        assert (await container.credits.summary(session, actor.id)).reserved_points == hold.reserved_points
+        assert (await container.credits.queries.summary(session, actor.id)).reserved_points == hold.reserved_points
 
 
 async def test_confirmed_usage_is_charged_even_when_chat_fails_without_text(
@@ -124,7 +128,7 @@ async def test_confirmed_usage_is_charged_even_when_chat_fails_without_text(
     async with container.database.sessions() as session:
         hold = await session.get(CreditHold, run_id)
         assert hold.status == 'settled' and hold.charged_points == Decimal('0.2')
-        assert (await container.credits.summary(session, actor.id)).used_points == Decimal('0.2')
+        assert (await container.credits.queries.summary(session, actor.id)).used_points == Decimal('0.2')
     assert await container.run_recovery.recover_failed_chat_holds() == 0
 
 
@@ -142,7 +146,7 @@ async def test_later_meter_confirmation_does_not_release_the_same_estimate_twice
     async with container.database.sessions() as session:
         account = await session.get(UsageAccount, actor.id)
         assert account.reserved_tokens == 0 and account.used_tokens == 1200
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert summary.available_points == 100 and summary.used_points == 0
 
 
@@ -173,7 +177,7 @@ async def test_failed_waiver_and_confirmed_settlement_share_one_account_without_
 
     await asyncio.wait_for(asyncio.gather(failed(), confirmed()), timeout=5)
     async with container.database.sessions() as session:
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert summary.reserved_points == 0 and summary.used_points == Decimal('0.2')
         assert summary.available_points == Decimal('99.8')
         assert (await session.get(UsageAccount, actor.id)).reserved_tokens == 0
@@ -197,7 +201,7 @@ async def test_historical_deleted_chat_waiver_is_concurrent_and_idempotent(
     assert sorted(results) == [False, True]
     assert await container.run_recovery.recover_failed_chat_holds() == 0
     async with container.database.sessions() as session:
-        summary = await container.credits.summary(session, actor.id)
+        summary = await container.credits.queries.summary(session, actor.id)
         assert summary.available_points == 100 and summary.reserved_points == summary.used_points == 0
         count = await session.scalar(
             select(func.count())
@@ -235,4 +239,4 @@ async def test_recovery_leaves_other_reservations_unchanged(
     async with container.database.sessions() as session:
         hold = await session.get(CreditHold, run_id)
         assert hold.status == 'unknown' and hold.charged_points is None
-        assert (await container.credits.summary(session, actor.id)).reserved_points == hold.reserved_points
+        assert (await container.credits.queries.summary(session, actor.id)).reserved_points == hold.reserved_points

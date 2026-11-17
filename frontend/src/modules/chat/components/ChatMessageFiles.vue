@@ -29,7 +29,7 @@ import { downloadFile, formatFileSize, getFile, saveBlob } from '../../files/pub
 import { addChatAttachment, listBases } from '../../knowledge/public.ts'
 import type { KnowledgeBase } from '../../knowledge/public.ts'
 import { identity } from '../../identity/public.ts'
-import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
 import { imagePreviewBlob } from '../attachments.ts'
 import type { ChatAttachment } from '../api/index.ts'
@@ -255,8 +255,7 @@ async function submitJoin() {
       joinError.value = errorMessage(reason)
       joinUncertain.value =
         wasUncertain ||
-        !(reason instanceof ApiError) ||
-        reason.status >= 500 ||
+        !isDefiniteRejection(reason) ||
         (reason.status === 409 && reason.code === 'request_pending')
       if (!joinUncertain.value) {
         clearJoinDraft(file)

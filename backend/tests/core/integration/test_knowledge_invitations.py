@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 
 from tests.core.integration.test_knowledge import embedding_model
+from tests.core.permission_support import grants
 from tests.core.provider import ProviderServer
 from zhiheng.modules.identity.admin_orm import IdentityRole, IdentityUserRole
 from zhiheng.modules.identity.orm import IdentityUser
@@ -45,6 +46,14 @@ async def sharing(admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServ
             await app.state.container.accounts.create_user(
                 session, username=name, password='platform-test-password', is_admin=False
             )
+    from tests.core.permission_support import grant_member
+
+    for username in ('member', 'joining-one', 'joining-two'):
+        await grant_member(
+            admin,
+            grants('platform:knowledge', 'query', 'create', 'update', 'delete', 'import', 'rebuild', 'share'),
+            username=username,
+        )
     clients = []
     for name in ('member', 'joining-one', 'joining-two'):
         client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
@@ -96,7 +105,7 @@ async def test_resource_ownership_does_not_grant_a_user_directory(sharing: Shari
             id=uuid4(),
             code='storage-without-directory',
             name='Storage operator',
-            permissions=['ai:storage:read'],
+            permissions=sorted(grants('ai:storage')),
             is_active=True,
         )
         session.add(role)

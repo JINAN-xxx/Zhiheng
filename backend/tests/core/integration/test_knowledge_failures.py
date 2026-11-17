@@ -2,11 +2,13 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
 from tests.core.knowledge_support import knowledge_models
+from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
 from zhiheng.modules.knowledge.orm import KnowledgeBase
 from zhiheng.runtime.orm import Run
@@ -205,74 +207,6 @@ async def test_work_selection_rechecks_knowledge_availability(
     assert response.status_code == 404, response.text
 
 
-async def test_retrieval_deadline_is_persisted_before_blocking_sdk_drain(
-    admin: httpx.AsyncClient,
-    app: FastAPI,
-    provider: ProviderServer,
-    model_id: str,
-) -> None:
-    import asyncio
-    import threading
-    from datetime import timedelta
-
-    from zhiheng.modules.knowledge.adapters.milvus import drain_thread
-    from zhiheng.modules.knowledge.orm import RetrievalIntent
-    from zhiheng.shared.time import utcnow
-
-    base = await ready_base(admin, app, provider)
-    container = app.state.container
-    conversation = (await admin.post('/api/chat/conversations', json={})).json()
-    intent = (
-        await admin.post(
-            f'/api/chat/conversations/{conversation["id"]}/runs',
-            json={
-                'message': 'Which port?',
-                'model_id': model_id,
-                'knowledge_base_ids': [base['id']],
-                'client_request_id': str(uuid4()),
-            },
-        )
-    ).json()
-    await container.knowledge_preparation.tick(UUID(intent['id']))
-    async with container.database.sessions() as session:
-        pending = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
-    for run_id in pending:
-        await execute_run(container, run_id)
-    started, release, closed = threading.Event(), threading.Event(), threading.Event()
-
-    class BlockingVectors(VectorFixture):
-        async def search(self, *args, **kwargs) -> list[dict[str, Any]]:
-            assert kwargs['timeout_seconds'] <= 0.3
-
-            def operation() -> list[dict[str, Any]]:
-                started.set()
-                try:
-                    release.wait(4)
-                    return []
-                finally:
-                    closed.set()
-
-            return await drain_thread(operation)
-
-    container.knowledge_preparation.vectors = BlockingVectors()
-    async with container.database.sessions.begin() as session:
-        row = await session.get(RetrievalIntent, UUID(intent['id']))
-        row.deadline = utcnow() + timedelta(seconds=0.3)
-    task = asyncio.create_task(container.knowledge_preparation.tick(UUID(intent['id'])))
-    try:
-        assert await asyncio.to_thread(started.wait, 1)
-        await asyncio.sleep(0.4)
-        failed = (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).json()
-        assert failed['status'] == 'failed' and failed['error']['code'] == 'knowledge_timeout', str(failed)
-        assert not task.done() and not closed.is_set()
-    finally:
-        release.set()
-        await asyncio.wait_for(task, 2)
-    assert closed.is_set()
-    async with container.database.sessions() as session:
-        assert await session.scalar(select(Run.id).where(Run.resource_type == 'chat')) is None
-
-
 async def test_rebuild_is_atomic_and_cleanup_does_not_require_live_embedding(
     admin: httpx.AsyncClient,
     app: FastAPI,
@@ -351,51 +285,6 @@ async def test_rebuild_is_atomic_and_cleanup_does_not_require_live_embedding(
     assert rebuilt['status'] == 'completed', str(rebuilt)
 
 
-async def test_concurrent_prepare_and_rejected_final_admission_keep_one_paid_child(
-    admin: httpx.AsyncClient,
-    app: FastAPI,
-    provider: ProviderServer,
-    model_id: str,
-) -> None:
-    import asyncio
-
-    base = await ready_base(admin, app, provider)
-    container = app.state.container
-    conversation = (await admin.post('/api/chat/conversations', json={})).json()
-    endpoint = f'/api/chat/conversations/{conversation["id"]}/runs'
-    body = {
-        'message': 'Which port?',
-        'model_id': model_id,
-        'knowledge_base_ids': [base['id']],
-        'client_request_id': str(uuid4()),
-    }
-    replies = await asyncio.gather(admin.post(endpoint, json=body), admin.post(endpoint, json=body))
-    assert [reply.status_code for reply in replies] == [202, 202]
-    intents = [reply.json() for reply in replies]
-    assert intents[0]['id'] == intents[1]['id']
-    intent_id = UUID(intents[0]['id'])
-    await container.knowledge_preparation.tick(intent_id)
-    async with container.database.sessions() as session:
-        children = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
-    assert len(children) == 1
-    await execute_run(container, children[0])
-    document = (await admin.get(f'/api/knowledge/bases/{base["id"]}/documents')).json()['items'][0]
-    changed = await admin.patch(
-        f'/api/files/{document["file_id"]}', json={'expected_version': 1, 'display_name': 'Changed source'}
-    )
-    assert changed.status_code == 200, changed.text
-    await container.knowledge_preparation.tick(intent_id)
-    failed = (await admin.get(f'/api/knowledge/preparations/{intent_id}')).json()
-    assert failed['status'] == 'failed' and failed['run'] is None
-    assert failed['error']['code'] == 'knowledge_preparation_stale', str(failed)
-    replay = await admin.post(endpoint, json=body)
-    assert replay.status_code == 202 and replay.json()['id'] == str(intent_id)
-    assert replay.json()['status'] == 'failed'
-    assert len(provider.requests) == 2
-    async with container.database.sessions() as session:
-        assert await session.scalar(select(Run.id).where(Run.resource_type == 'chat')) is None
-
-
 async def test_failed_rechunk_keeps_old_active_document_and_real_preview(
     admin: httpx.AsyncClient,
     app: FastAPI,
@@ -426,3 +315,112 @@ async def test_failed_rechunk_keeps_old_active_document_and_real_preview(
     assert preview.status_code == 200 and preview.json()['text'] == 'The service listens on port 8080.'
     assert preview.json()['chunk_count'] == 1
     provider.embedding_zero = False
+
+
+async def test_retrieval_deadline_is_persisted_before_blocking_sdk_drain(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+) -> None:
+    import asyncio
+    import threading
+    from datetime import timedelta
+
+    from zhiheng.modules.knowledge.adapters.milvus import drain_thread
+    from zhiheng.modules.knowledge.orm import RetrievalIntent
+    from zhiheng.shared.time import utcnow
+
+    base = await ready_base(admin, app, provider)
+    container = app.state.container
+    response = await admin.post(
+        f'/api/knowledge/bases/{base["id"]}/query',
+        json={'query': 'Which port?', 'client_request_id': str(uuid4())},
+    )
+    assert response.status_code == 202, response.text
+    intent = response.json()
+    await container.knowledge_preparation.tick(UUID(intent['id']))
+    async with container.database.sessions() as session:
+        pending = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
+    for run_id in pending:
+        await execute_run(container, run_id)
+    started, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+    class BlockingVectors(VectorFixture):
+        async def search(self, *args, **kwargs) -> list[dict[str, Any]]:
+            assert kwargs['timeout_seconds'] <= 0.3
+
+            def operation() -> list[dict[str, Any]]:
+                started.set()
+                try:
+                    release.wait(4)
+                    return []
+                finally:
+                    closed.set()
+
+            return await drain_thread(operation)
+
+    container.knowledge_preparation.vectors = BlockingVectors()
+    async with container.database.sessions.begin() as session:
+        row = await session.get(RetrievalIntent, UUID(intent['id']))
+        row.deadline = utcnow() + timedelta(seconds=0.3)
+    task = asyncio.create_task(container.knowledge_preparation.tick(UUID(intent['id'])))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        await asyncio.sleep(0.4)
+        failed = (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).json()
+        assert failed['status'] == 'failed' and failed['error']['code'] == 'knowledge_timeout', str(failed)
+        assert not task.done() and not closed.is_set()
+    finally:
+        release.set()
+        await asyncio.wait_for(task, 2)
+    assert closed.is_set()
+    async with container.database.sessions() as session:
+        assert await session.scalar(select(Run.id).where(Run.resource_type == 'agent_preview')) is None
+
+
+async def test_concurrent_prepare_and_rejected_final_admission_keep_one_paid_child(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    provider: ProviderServer,
+    model_id: str,
+) -> None:
+    import asyncio
+
+    base = await ready_base(admin, app, provider)
+    container = app.state.container
+    from tests.core.integration.test_work import published
+
+    agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
+    endpoint = f'/api/agents/{agent["id"]}/preview'
+    body = {
+        'messages': [{'role': 'user', 'content': 'Which port?'}],
+        'client_request_id': str(uuid4()),
+    }
+    replies = await asyncio.gather(admin.post(endpoint, json=body), admin.post(endpoint, json=body))
+    assert [reply.status_code for reply in replies] == [202, 202]
+    intents = [reply.json() for reply in replies]
+    assert intents[0]['id'] == intents[1]['id']
+    intent_id = UUID(intents[0]['id'])
+    await container.knowledge_preparation.tick(intent_id)
+    async with container.database.sessions() as session:
+        children = list(await session.scalars(select(Run.id).where(Run.status == 'pending')))
+    assert len(children) == 1
+    await execute_run(container, children[0])
+    document = (await admin.get(f'/api/knowledge/bases/{base["id"]}/documents')).json()['items'][0]
+    changed = await admin.patch(
+        f'/api/files/{document["file_id"]}', json={'expected_version': 1, 'display_name': 'Changed source'}
+    )
+    assert changed.status_code == 200, changed.text
+    await container.knowledge_preparation.tick(intent_id)
+    failed = (await admin.get(f'/api/knowledge/preparations/{intent_id}')).json()
+    assert failed['status'] == 'failed' and failed['run'] is None
+    assert failed['error']['code'] == 'knowledge_preparation_stale', str(failed)
+    replay = await admin.post(endpoint, json=body)
+    assert replay.status_code == 202 and replay.json()['id'] == str(intent_id)
+    assert replay.json()['status'] == 'failed'
+    assert len(provider.requests) == 2
+    async with container.database.sessions() as session:
+        assert await session.scalar(select(Run.id).where(Run.resource_type == 'agent_preview')) is None
+
+
+pytestmark = pytest.mark.usefixtures('member_knowledge_permissions')

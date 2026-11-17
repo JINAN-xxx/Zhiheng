@@ -1,4 +1,4 @@
-import { canUseCapability } from '../../identity/public.ts'
+import { canUseCapability, identity } from '../../identity/public.ts'
 import { copyText } from '../../../shared/clipboard.ts'
 import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -217,16 +217,11 @@ export function useApplications() {
     catalogError.value = ''
     try {
       const result = await getScopeCatalog(context.signal)
-      result.definitions = result.definitions.filter((item) => {
-        const module = item.scope.split(':')[0]
-        return (
-          (module !== 'agents' && module !== 'knowledge' && module !== 'skills') ||
-          canUseCapability(module, item.scope.endsWith(':write') ? 'manage' : 'access')
-        )
-      })
-      result.scopes = result.definitions.map((item) => item.scope)
       if (context.isCurrent()) {
         scopeCatalog.value = result
+        keyForm.scopes = keyForm.scopes.filter((scope) =>
+          result.definitions.some((item) => item.scope === scope && item.grantable)
+        )
         if (keyFormOpen.value) initializeKeyDefaults(result)
       }
     } catch (reason) {
@@ -386,6 +381,17 @@ export function useApplications() {
     },
     { immediate: true }
   )
+  watch(
+    () =>
+      JSON.stringify([identity.value?.id, identity.value?.is_admin, identity.value?.permissions]),
+    () => {
+      scopes.catalog.replace()
+      scopeCatalog.value = null
+      closeForms()
+      saving.value = false
+      if (canUseCapability('developer', 'read')) void loadScopeCatalog()
+    }
+  )
   onMounted(() => {
     void loadApplications()
     void loadScopeCatalog()
@@ -528,7 +534,7 @@ export function useApplications() {
   function initializeKeyDefaults(catalog: ScopeCatalog): void {
     if (!keyScopesEdited)
       keyForm.scopes = catalog.definitions
-        .filter((item) => item.requiresModels)
+        .filter((item) => item.requiresModels && item.grantable)
         .map((item) => item.scope)
     if (!keyResourceRpmEdited) keyForm.resourceRpmLimit = catalog.resourceRpmMax
   }

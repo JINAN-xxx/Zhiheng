@@ -24,12 +24,13 @@ async def remove(admin: httpx.AsyncClient, skill: dict) -> httpx.Response:
     return await admin.delete(f'/api/skills/{skill["id"]}', headers={'Content-Type': 'application/json'})
 
 
-async def test_enabled_builtin_and_upload_can_be_removed_with_revisions_retained(
-    admin: httpx.AsyncClient, app: object
-) -> None:
+async def test_builtin_is_protected_and_upload_removal_keeps_revisions(admin: httpx.AsyncClient, app: object) -> None:
     builtin = (await admin.get('/api/skills/available')).json()[0]
     uploaded = await install(admin, 'direct-remove')
-    for skill in [builtin, uploaded]:
+    blocked = await remove(admin, builtin)
+    assert blocked.status_code == 403 and blocked.json()['error']['code'] == 'builtin_skill_protected'
+    assert (await admin.get(f'/api/skills/{builtin["id"]}')).json() == builtin
+    for skill in [uploaded]:
         response = await remove(admin, skill)
         assert response.status_code == 200, response.text
         assert (await admin.get(f'/api/skills/{skill["id"]}')).status_code == 404
@@ -218,7 +219,7 @@ async def test_removed_work_member_and_old_publication_keep_history_without_bloc
         json=config(model_id, application_id=first['application_id'], expected_version=2),
     )
     assert response.status_code == 200, response.text
-    assert (await admin.post(f'/api/agents/{first["id"]}/publish', json={'expected_version': 3})).status_code == 200
+    assert (await admin.post(f'/api/agents/{first["id"]}/enable', json={'expected_version': 3})).status_code == 200
     blocked = await remove(admin, skill)
     assert blocked.status_code == 409, blocked.text
     assert any(item['id'] == work['id'] for item in blocked.json()['error']['details']['references'])
@@ -232,40 +233,50 @@ async def test_removed_work_member_and_old_publication_keep_history_without_bloc
     assert response.status_code == 200, response.text
 
 
-async def test_package_update_preserves_published_and_work_member_content_until_republish(
+async def test_package_update_affects_next_assistant_run_but_preserves_work_input(
     admin: httpx.AsyncClient, app: object, model_id: str, provider: object
 ) -> None:
     from tests.core.integration.test_work import published, task, turn
-    from zhiheng.modules.agents.orm import AgentVersion
+    from zhiheng.modules.agents.orm import AgentRunAudit
     from zhiheng.modules.work.orm import WorkMember
     from zhiheng.worker.execution import execute_run
 
-    original = await install(admin, 'frozen-package', 'ORIGINAL PUBLISHED INSTRUCTION')
+    original = await install(admin, 'frozen-package', 'ORIGINAL INSTRUCTION')
     agent = await published(admin, model_id, skill_slugs=[original['slug']])
     work = await task(admin, agent)
-    response = await confirm(admin, await prepare(admin, original['slug'], 'UPDATED PUBLISHED INSTRUCTION'))
+    response = await confirm(admin, await prepare(admin, original['slug'], 'UPDATED INSTRUCTION'))
     assert response.status_code == 201, response.text
     updated = response.json()
-    async with app.state.container.database.sessions() as session:
-        publication = await session.scalar(select(AgentVersion).where(AgentVersion.agent_id == UUID(agent['id'])))
-        member = await session.scalar(select(WorkMember).where(WorkMember.task_id == UUID(work['id'])))
-        assert publication.skills[0]['revision_id'] == member.skills[0]['revision_id'] == original['revision_id']
-        assert 'ORIGINAL PUBLISHED INSTRUCTION' in publication.skills[0]['content']
     response = await admin.post(f'/api/work/tasks/{work["id"]}/runs', json=turn(work, agent))
     assert response.status_code == 202, response.text
     await execute_run(app.state.container, UUID(response.json()['id']))
-    assert 'ORIGINAL PUBLISHED INSTRUCTION' in str(provider.requests[-1])
-    assert 'UPDATED PUBLISHED INSTRUCTION' not in str(provider.requests[-1])
-    assert (await admin.post(f'/api/agents/{agent["id"]}/publish', json={'expected_version': 2})).status_code == 200
+    assert 'ORIGINAL INSTRUCTION' in str(provider.requests[-1])
+    preview = await admin.post(
+        f'/api/agents/{agent["id"]}/preview',
+        json={'client_request_id': str(uuid4()), 'messages': [{'role': 'user', 'content': 'latest skill'}]},
+    )
+    assert preview.status_code == 202, preview.text
+    await execute_run(app.state.container, UUID(preview.json()['id']))
+    assert 'UPDATED INSTRUCTION' in str(provider.requests[-1])
     async with app.state.container.database.sessions() as session:
-        publications = (
-            await session.scalars(
-                select(AgentVersion).where(AgentVersion.agent_id == UUID(agent['id'])).order_by(AgentVersion.version)
-            )
-        ).all()
         member = await session.scalar(select(WorkMember).where(WorkMember.task_id == UUID(work['id'])))
-        assert publications[0].skills[0]['revision_id'] == member.skills[0]['revision_id'] == original['revision_id']
-        assert publications[1].skills[0]['revision_id'] == updated['revision_id']
+        audit = await session.get(AgentRunAudit, UUID(preview.json()['id']))
+        assert member.skills[0]['revision_id'] == original['revision_id']
+        assert audit.skills[0]['revision_id'] == updated['revision_id']
+        assert 'UPDATED INSTRUCTION' in audit.skills[0]['content']
+
+    # Updating a skill does not require saving/publishing the assistant again.
+    latest = (await admin.get(f'/api/agents/{agent["id"]}')).json()
+    assert latest['version'] == agent['version']
+    detail = (await admin.get(f'/api/work/tasks/{work["id"]}')).json()
+    adopted = await admin.patch(
+        f'/api/work/tasks/{work["id"]}/members/{agent["id"]}',
+        json={'expected_version': detail['version'], 'expected_agent_revision': latest['version']},
+    )
+    assert adopted.status_code == 200, adopted.text
+    async with app.state.container.database.sessions() as session:
+        member = await session.scalar(select(WorkMember).where(WorkMember.task_id == UUID(work['id'])))
+        assert member.skills[0]['revision_id'] == updated['revision_id']
 
 
 async def test_downgrade_rejects_multiple_revisions_without_losing_history(
@@ -365,4 +376,4 @@ async def test_0012_upgrade_freezes_legacy_confirmation_and_rejects_stale_legacy
         assert await container.skills.confirm(session, principal, confirmed_id) == frozen
         with pytest.raises(AppError) as error:
             await container.skills.confirm(session, principal, preview_id)
-        assert error.value.code == 'skill_version_conflict'
+        assert error.value.code == 'builtin_skill_protected' and error.value.status_code == 403

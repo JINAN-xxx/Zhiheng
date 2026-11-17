@@ -21,6 +21,24 @@ export interface ChatModel {
   connection_id: string
   upstream_model: string
   max_output_tokens: number
+  chat_input_budget?: {
+    limit_tokens: number | null
+    source: 'model_window' | 'platform' | 'model_window_and_platform' | 'unknown'
+    reserved_output_tokens: number
+    safety_margin_tokens: number
+  } | null
+  capacity_note?: string
+  capacity_status?: 'unknown' | 'unverified' | 'documented' | 'not_applicable'
+  availability?: {
+    available: boolean
+    reason:
+      | 'model_disabled'
+      | 'model_deleted'
+      | 'connection_missing'
+      | 'connection_disabled'
+      | 'connection_deleted'
+      | null
+  } | null
   context_window_tokens?: number | null
   enabled: boolean
   model_type: 'chat' | 'embedding' | 'rerank'
@@ -40,6 +58,40 @@ function parseConnection(value: unknown): ModelConnection {
     enabled: boolean(data.enabled)
   }
 }
+function parseChatInputBudget(value: unknown): NonNullable<ChatModel['chat_input_budget']> {
+  const data = object(value)
+  if (
+    !['model_window', 'platform', 'model_window_and_platform', 'unknown'].includes(
+      string(data.source)
+    )
+  )
+    throw new Error('模型输入预算来源无效')
+  return {
+    limit_tokens: data.limit_tokens === null ? null : number(data.limit_tokens),
+    source: data.source as NonNullable<ChatModel['chat_input_budget']>['source'],
+    reserved_output_tokens: number(data.reserved_output_tokens),
+    safety_margin_tokens: number(data.safety_margin_tokens)
+  }
+}
+function parseAvailability(value: unknown): NonNullable<ChatModel['availability']> {
+  const data = object(value),
+    reason = data.reason == null ? null : string(data.reason)
+  if (
+    reason !== null &&
+    ![
+      'model_disabled',
+      'model_deleted',
+      'connection_missing',
+      'connection_disabled',
+      'connection_deleted'
+    ].includes(reason)
+  )
+    throw new Error('模型可用性原因无效')
+  return {
+    available: boolean(data.available),
+    reason: reason as NonNullable<ChatModel['availability']>['reason']
+  }
+}
 function parseModel(value: unknown): ChatModel {
   const data = object(value)
   const capabilities = list((value) => {
@@ -55,7 +107,18 @@ function parseModel(value: unknown): ChatModel {
   })(data.capabilities)
   if (data.model_type !== 'chat' && data.model_type !== 'embedding' && data.model_type !== 'rerank')
     throw new Error('不支持的模型类型')
+  const capacityStatus = data.capacity_status
+  if (
+    capacityStatus !== undefined &&
+    !['unknown', 'unverified', 'documented', 'not_applicable'].includes(string(capacityStatus))
+  )
+    throw new Error('模型容量依据状态无效')
   return {
+    capacity_note: data.capacity_note == null ? '' : string(data.capacity_note),
+    ...(capacityStatus === undefined
+      ? {}
+      : { capacity_status: capacityStatus as NonNullable<ChatModel['capacity_status']> }),
+    availability: data.availability == null ? null : parseAvailability(data.availability),
     id: string(data.id),
     name: string(data.name),
     connection_id: string(data.connection_id),
@@ -63,6 +126,8 @@ function parseModel(value: unknown): ChatModel {
     max_output_tokens: number(data.max_output_tokens),
     context_window_tokens:
       data.context_window_tokens == null ? null : number(data.context_window_tokens),
+    chat_input_budget:
+      data.chat_input_budget == null ? null : parseChatInputBudget(data.chat_input_budget),
     enabled: boolean(data.enabled),
     model_type: data.model_type,
     vision_enabled: data.vision_enabled === undefined ? false : boolean(data.vision_enabled),
@@ -104,6 +169,7 @@ export const createModel = (
     upstream_model: string
     max_output_tokens: number
     context_window_tokens?: number | null
+    capacity_note?: string
     model_type?: 'chat' | 'embedding' | 'rerank'
     vision_enabled?: boolean
   },
@@ -142,6 +208,7 @@ export const updateModel = (
     upstream_model: string
     max_output_tokens: number
     context_window_tokens?: number | null
+    capacity_note?: string
     vision_enabled?: boolean
   },
   signal: AbortSignal
@@ -170,10 +237,6 @@ export const startModelTest = (id: string, client_request_id: string, signal: Ab
     signal,
     decode: parseRunSnapshot
   })
-export {
-  cancelRun as cancelModelTest,
-  observeRun as observeModelTest
-} from '../../../shared/runs.ts'
 
 export const getConnectionOptions = (signal: AbortSignal) =>
   http.request('/models/connection-options', {

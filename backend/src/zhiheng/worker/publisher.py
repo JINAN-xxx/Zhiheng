@@ -12,7 +12,7 @@ async def publish_outbox(container: Container, queue: ArqRedis) -> None:
     for delivery in pending:
         queue_name = (
             container.settings.worker_short_queue
-            if execution_lane(delivery.hint) == 'short'
+            if delivery.resource_type in {'chat_summary', 'agent_summary'} or execution_lane(delivery.hint) == 'short'
             else container.settings.worker_queue
         )
         await queue.enqueue_job('execute_chat', str(delivery.run_id), _job_id=str(delivery.id), _queue_name=queue_name)

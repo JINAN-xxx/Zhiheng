@@ -14,13 +14,29 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from tests.core.integration.test_ai_management_permissions import account
 from tests.core.integration.test_billing_http import mutation, point_rate
 from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.permission_support import account, grant_member, grants
 
 PASSWORD = 'platform-test-password'
 NEW_PASSWORD = 'authorization-new-password'
 JSON_HEADERS = {'content-type': 'application/json'}
+PERSONAL_PERMISSIONS = (
+    grants(
+        'platform:developer',
+        'create',
+        'update',
+        'delete',
+        'toggle',
+        'key_create',
+        'key_rotate',
+        'key_revoke',
+        'grant',
+        'invoke',
+    )
+    | grants('ai:storage', 'maintain')
+    | grants('platform:usage')
+)
 
 
 def check(response: httpx.Response, status: int, case_id: str) -> httpx.Response:
@@ -29,7 +45,8 @@ def check(response: httpx.Response, status: int, case_id: str) -> httpx.Response
 
 
 @asynccontextmanager
-async def member(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+async def member(app: FastAPI, admin: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
+    await grant_member(admin, PERSONAL_PERMISSIONS)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url='http://test', headers=JSON_HEADERS
     ) as client:
@@ -76,15 +93,21 @@ async def test_system_crud_minimum_roles_existing_targets(
         kwargs['params'] = {'expected_version': 1}
     case_id = f'system-{area}-{operation}'
     async with (
-        member(app) as basic,
-        account(admin, app, f'system:{permission_area}:read') as (reader, _, _),
-        account(admin, app, f'system:{permission_area}:write') as (writer, _, _),
+        member(app, admin) as basic,
+        account(admin, app, *grants(f'system:{permission_area}')) as (reader, _, _),
+        account(
+            admin,
+            app,
+            *grants(f'system:{permission_area}', {'patch': 'update', 'delete': 'delete'}.get(operation, 'create')),
+        ) as (writer, _, _),
     ):
         before = (await admin.get(collection)).json()
         check(await basic.request(verb, path, **kwargs), 403, case_id + '-basic-denied')
-        denied = writer if operation in ('list', 'detail') else reader
         allowed = reader if operation in ('list', 'detail') else writer
-        check(await denied.request(verb, path, **kwargs), 403, case_id + '-opposite-role-denied')
+        if operation in ('list', 'detail'):
+            check(await writer.request(verb, path, **kwargs), 200, case_id + '-action-includes-read-dependency')
+        else:
+            check(await reader.request(verb, path, **kwargs), 403, case_id + '-reader-denied')
         # A denial must preserve a real object; a 403 alone could mask partial writes.
         if target is not None:
             assert check(await admin.get(collection + '/' + target['id']), 200, case_id).json() == target
@@ -127,7 +150,10 @@ async def test_system_crud_minimum_roles_existing_targets(
 async def test_system_special_reads_require_their_current_permission(
     admin: httpx.AsyncClient, app: FastAPI, path: str, permission: str
 ) -> None:
-    async with member(app) as basic, account(admin, app, permission) as (allowed, role, _):
+    async with (
+        member(app, admin) as basic,
+        account(admin, app, *grants(*permission.rsplit(':', 1))) as (allowed, role, _),
+    ):
         check(await basic.get(path), 403, path + '-basic')
         response = check(await allowed.get(path), 200, path + '-minimum-role')
         assert PASSWORD not in response.text and 'token_hash' not in response.text
@@ -144,9 +170,12 @@ async def test_system_special_reads_require_their_current_permission(
 async def test_delegated_user_and_role_writers_cannot_elevate_or_take_over(
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
+    manager_permissions = grants(
+        'system:users', 'create', 'update', 'delete', 'toggle', 'reset_password', 'assign_roles'
+    ) | grants('system:roles', 'create', 'update', 'delete', 'toggle', 'grant')
     async with (
-        account(admin, app, 'system:users:write', 'system:roles:write') as (manager, role, user),
-        account(admin, app, 'system:logs:read') as (powerful, powerful_role, powerful_user),
+        account(admin, app, *manager_permissions) as (manager, role, user),
+        account(admin, app, *grants('system:logs')) as (powerful, powerful_role, powerful_user),
     ):
         before = (await admin.get(f'/api/admin/users/{powerful_user["id"]}')).json()
         attacks = [
@@ -161,11 +190,11 @@ async def test_delegated_user_and_role_writers_cannot_elevate_or_take_over(
                 'PATCH',
                 f'/api/admin/roles/{role["id"]}',
                 {
-                    'permissions': ['system:users:write', 'system:roles:write', 'system:logs:read'],
+                    'permissions': sorted(manager_permissions | grants('system:logs')),
                     'expected_version': 1,
                 },
             ),
-            ('POST', '/api/admin/roles', {**create_fields('roles'), 'permissions': ['system:logs:read']}),
+            ('POST', '/api/admin/roles', {**create_fields('roles'), 'permissions': sorted(grants('system:logs'))}),
             ('PATCH', f'/api/admin/users/{powerful_user["id"]}', {'display_name': 'takeover', 'expected_version': 1}),
             (
                 'POST',
@@ -176,11 +205,8 @@ async def test_delegated_user_and_role_writers_cannot_elevate_or_take_over(
         for verb, path, payload in attacks:
             check(await manager.request(verb, path, json=payload), 403, 'no-escalation-' + path)
         assert (await admin.get(f'/api/admin/users/{powerful_user["id"]}')).json() == before
-        assert (await powerful.get('/api/auth/me')).json()['permissions'] == ['system:logs:read']
-        assert set((await manager.get('/api/auth/me')).json()['permissions']) == {
-            'system:users:write',
-            'system:roles:write',
-        }
+        assert set((await powerful.get('/api/auth/me')).json()['permissions']) == grants('system:logs')
+        assert set((await manager.get('/api/auth/me')).json()['permissions']) == manager_permissions
 
 
 async def test_password_reset_and_session_revocation_obey_target_boundaries(
@@ -188,8 +214,8 @@ async def test_password_reset_and_session_revocation_obey_target_boundaries(
 ) -> None:
     async with (
         account(admin, app) as (target, _, target_user),
-        account(admin, app, 'system:sessions:write') as (kicker, _, kicker_user),
-        account(admin, app, 'system:users:write') as (resetter, _, _),
+        account(admin, app, *grants('system:sessions', 'revoke')) as (kicker, _, kicker_user),
+        account(admin, app, *grants('system:users', 'reset_password')) as (resetter, _, _),
     ):
         sessions = (await admin.get('/api/admin/sessions')).json()['items']
         victim = next(row for row in sessions if row['user_id'] == target_user['id'])
@@ -249,7 +275,7 @@ async def test_password_reset_and_session_revocation_obey_target_boundaries(
 async def test_developer_application_owner_isolation_and_explicit_admin_management(
     admin: httpx.AsyncClient, app: FastAPI, operation: str
 ) -> None:
-    async with member(app) as owner, account(admin, app) as (other, _, _):
+    async with member(app, admin) as owner, account(admin, app, *PERSONAL_PERMISSIONS) as (other, _, _):
         pairs = [(client, await application(client)) for client in (owner, other, admin)]
         if operation == 'enable':
             for client, row in pairs:
@@ -328,7 +354,7 @@ async def test_developer_application_owner_isolation_and_explicit_admin_manageme
 async def test_developer_keys_require_application_owner_and_matching_parent(
     admin: httpx.AsyncClient, app: FastAPI, operation: str
 ) -> None:
-    async with member(app) as owner, account(admin, app) as (other, _, _):
+    async with member(app, admin) as owner, account(admin, app, *PERSONAL_PERMISSIONS) as (other, _, _):
         clients = (owner, other, admin)
         apps = [await application(client) for client in clients]
         keys = [
@@ -393,7 +419,7 @@ async def test_developer_keys_require_application_owner_and_matching_parent(
 async def test_developer_resource_ownership_and_quota_admin_exception(
     admin: httpx.AsyncClient, app: FastAPI, operation: str
 ) -> None:
-    async with member(app) as owner, account(admin, app) as (other, _, _):
+    async with member(app, admin) as owner, account(admin, app, *PERSONAL_PERMISSIONS) as (other, _, _):
         clients = (owner, other)
         apps = [await application(client) for client in clients]
         files = []
@@ -494,7 +520,7 @@ async def test_developer_resource_ownership_and_quota_admin_exception(
 async def test_authentication_self_routes_reject_other_user_fields_and_preserve_other_session(
     admin: httpx.AsyncClient, app: FastAPI, operation: str
 ) -> None:
-    async with member(app) as owner, account(admin, app) as (other, _, other_user):
+    async with member(app, admin) as owner, account(admin, app, *PERSONAL_PERMISSIONS) as (other, _, other_user):
         before = (await other.get('/api/auth/profile')).json()
         mine = (await owner.get('/api/auth/profile')).json()
         assert (
@@ -550,10 +576,10 @@ async def test_billing_real_foreign_accounts_read_write_and_nonempty_self_projec
     admin: httpx.AsyncClient, app: FastAPI
 ) -> None:
     async with (
-        member(app) as owner,
-        account(admin, app, 'ai:credits:read') as (reader, _, _),
-        account(admin, app, 'ai:credits:write') as (writer, _, _),
-        account(admin, app) as (other, _, other_user),
+        member(app, admin) as owner,
+        account(admin, app, *grants('ai:credits')) as (reader, _, _),
+        account(admin, app, *grants('ai:credits', 'adjust', 'configure')) as (writer, _, _),
+        account(admin, app, *PERSONAL_PERMISSIONS) as (other, _, other_user),
     ):
         identifier = other_user['id']
         path = f'/api/billing/accounts/{identifier}'
@@ -592,9 +618,9 @@ async def test_billing_unknown_usage_reconciliation_requires_exact_write_permiss
 ) -> None:
     await point_rate(admin, model_id)
     async with (
-        account(admin, app) as (owner, _, owner_user),
-        account(admin, app, 'ai:credits:read') as (reader, _, _),
-        account(admin, app, 'ai:credits:write') as (writer, _, _),
+        account(admin, app, *PERSONAL_PERMISSIONS) as (owner, _, owner_user),
+        account(admin, app, *grants('ai:credits')) as (reader, _, _),
+        account(admin, app, *grants('ai:credits', 'reconcile')) as (writer, _, _),
     ):
         identifier = UUID(owner_user['id'])
         check(
@@ -616,7 +642,6 @@ async def test_billing_unknown_usage_reconciliation_requires_exact_write_permiss
                 model_id=UUID(model_id),
                 source='test',
                 tokens=2000,
-                token_limit=10000,
                 estimated_input_tokens=1000,
                 max_output_tokens=1000,
             )
@@ -649,14 +674,15 @@ async def test_model_credentials_rates_and_admin_only_switches_stay_separate(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str
 ) -> None:
     async with (
-        account(admin, app, 'ai:models:read') as (reader, _, _),
-        account(admin, app, 'ai:rates:read') as (rates_reader, _, _),
-        account(admin, app, 'ai:rates:write') as (rates_writer, _, _),
+        account(admin, app, *(grants('ai:credentials') | grants('platform:models', 'config_read'))) as (reader, _, _),
+        account(admin, app, *grants('ai:rates')) as (rates_reader, _, _),
+        account(admin, app, *grants('ai:rates', 'create')) as (rates_writer, _, _),
     ):
         connection = check(await reader.get('/api/models/connections'), 200, 'model-reader-connections')
         assert 'local-test-key' not in connection.text and 'encrypted_api_key' not in connection.text
         assert all(
-            set(row) == {'id', 'name', 'provider', 'base_url', 'has_api_key', 'enabled'} for row in connection.json()
+            set(row) == {'id', 'name', 'provider', 'base_url', 'has_api_key', 'enabled', 'model_count'}
+            for row in connection.json()
         )
         check(
             await rates_reader.post(
@@ -680,7 +706,7 @@ async def test_model_credentials_rates_and_admin_only_switches_stay_separate(
                 ).json()
                 == rate.json()
             )
-        async with member(app) as basic:
+        async with member(app, admin) as basic:
             check(await basic.get(f'/api/billing/models/{model_id}/quote'), 404, 'basic-cannot-quote-disabled-model')
         catalog = (await admin.get('/api/admin/permissions')).json()['items']
         async with account(admin, app, *(row['code'] for row in catalog)) as (all_permissions, _, _):

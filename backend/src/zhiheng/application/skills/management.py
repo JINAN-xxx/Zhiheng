@@ -70,7 +70,7 @@ class SkillManagementService:
             ]
             if self._knowledge is not None:
                 references.extend(
-                    await self._knowledge.skill_references(
+                    await self._knowledge.references.skill_references(
                         locked_session, slug, owner_id=principal.id, skill_ids=skill_ids
                     )
                 )

@@ -57,7 +57,7 @@ async def test_search_unit_settlement_keeps_missing_token_counts_optional(credit
     await fund(credit_env)
     factory, service, c, actor, _, model, *_ = credit_env
     async with factory.begin() as session:
-        await service.create_rate(
+        await service.rates.create(
             session,
             actor,
             model,
@@ -85,14 +85,14 @@ async def test_state_refreshes_committed_mode_with_a_warm_session(credit_env: tu
         )
     async with factory() as warm:
         retained = await warm.get(orm.CreditControl, 1)
-        assert retained is not None and not (await service.state(warm)).enabled
+        assert retained is not None and not (await service.queries.state(warm)).enabled
         async with factory.begin() as other:
             await service.set_state(
                 other,
                 actor,
                 c.CreditStatePatch(enabled=True, expected_version=1, reason='enable', client_request_id='enable'),
             )
-        current = await service.state(warm)
+        current = await service.queries.state(warm)
         assert current.enabled and current.version == 2
 
 

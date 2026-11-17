@@ -6,6 +6,7 @@ from alembic.config import Config
 from sqlalchemy import text
 
 from tests.core.legacy_schema import reconstruct
+from tests.core.schema_support import assert_original_rows
 
 
 async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_ledger(
@@ -51,18 +52,6 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
     async with container.database.engine.begin() as connection:
         await reconstruct(connection, downgrade)
         assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == '0002_developer'
-        original_columns = {
-            table: ','.join(
-                f'"{name}"'
-                for name in await connection.scalars(
-                    text(
-                        "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=:table ORDER BY ordinal_position"
-                    ),
-                    {'table': table},
-                )
-            )
-            for table in tables
-        }
         snapshots = {
             table: (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1')))
             .scalars()
@@ -72,10 +61,9 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
     await migrate(container.settings)
     async with container.database.engine.connect() as connection:
         for table in tables:
-            assert (
-                await connection.execute(
-                    text(f'SELECT to_jsonb(t)::text FROM (SELECT {original_columns[table]} FROM {table}) t ORDER BY 1')
-                )
-            ).scalars().all() == snapshots[table]
+            current = (
+                (await connection.execute(text(f'SELECT to_jsonb(t)::text FROM {table} t ORDER BY 1'))).scalars().all()
+            )
+            assert_original_rows(snapshots[table], current, table)
         assert await connection.scalar(text('SELECT COUNT(*) FROM skills WHERE owner_id IS NULL')) == 5
         assert await connection.scalar(text('SELECT skill_snapshots FROM chat_messages LIMIT 1')) == []

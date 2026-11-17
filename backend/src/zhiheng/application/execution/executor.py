@@ -3,10 +3,11 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from time import monotonic
+from typing import Protocol
 from uuid import UUID
 
 from sqlalchemy.exc import DBAPIError
@@ -16,8 +17,8 @@ from zhiheng.application.execution.failures import database_sqlstate, exception_
 from zhiheng.application.execution.lifecycle import RunLifecycle
 from zhiheng.modules.billing.public import UsageService
 from zhiheng.modules.chat.public import ChatService
-from zhiheng.modules.models.public import ModelBinding, ModelProvider, ModelRequest, ProviderError
-from zhiheng.runtime.contracts import ClaimedRun, RunError, RunStatus, RunUsage
+from zhiheng.modules.models.public import ModelBinding, ModelDelta, ModelProvider, ModelRequest, ProviderError
+from zhiheng.runtime.contracts import ClaimedRun, RunError, RunSnapshot, RunStatus, RunUsage
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
@@ -71,6 +72,8 @@ class InferenceProgress:
     projection_bytes: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
+    agent_result: dict[str, object] | None = None
+    provider_started_at: float | None = None
     provider_started: bool = False
     completion_seen: bool = False
     finish_reason: str | None = None
@@ -79,9 +82,45 @@ class InferenceProgress:
     cache_tokens: int | None = None
     reasoning_tokens: int | None = None
 
+    def append(self, chunk: ModelDelta, *, agent_execution: bool) -> None:
+        chunk_bytes = len(chunk.text.encode('utf-8')) + len(chunk.reasoning.encode('utf-8'))
+        if self.projection_bytes + chunk_bytes > MAX_PROJECTION_BYTES:
+            raise ProviderError(reason='projection_limit')
+        self.projection_bytes += chunk_bytes
+        self.text += chunk.text
+        self.reasoning += chunk.reasoning
+        for name in ('input_tokens', 'output_tokens', 'search_units', 'cache_tokens', 'reasoning_tokens'):
+            value = getattr(chunk, name)
+            if value is not None:
+                setattr(self, name, value)
+        if chunk.finish_reason is not None:
+            self.completion_seen, self.finish_reason = True, chunk.finish_reason
+        if chunk.result is not None:
+            if agent_execution:
+                self.agent_result = chunk.result
+            else:
+                self.result = chunk.result
+
+
+class AgentExecution(Protocol):
+    def provider(
+        self,
+        claim: ClaimedRun,
+        request: ModelRequest,
+        provider: ModelProvider,
+        on_model_start: Callable[[], Awaitable[None]],
+    ) -> AbstractAsyncContextManager[ModelProvider]: ...
+
+    async def finish(
+        self,
+        session: AsyncSession,
+        snapshot: RunSnapshot,
+        result: dict[str, object] | None,
+    ) -> None: ...
+
 
 class InferenceExecutor:
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit model/agent handlers and native execution resources
         self,
         *,
         sessions: async_sessionmaker[AsyncSession],
@@ -93,11 +132,19 @@ class InferenceExecutor:
         timeout_seconds: float,
         lifecycle: RunLifecycle | None = None,
         before_provider: Callable[[ClaimedRun], Awaitable[None]] | None = None,
+        chat_agent: AgentExecution | None = None,
+        assistant_agent: AgentExecution | None = None,
     ) -> None:
         self._sessions, self._runs, self._usage, self._chat = sessions, runs, usage, chat
         self._lifecycle = lifecycle or RunLifecycle(chat)
         self._provider_factory, self._lease_seconds, self._timeout = provider_factory, lease_seconds, timeout_seconds
         self._before_provider = before_provider
+        self._agents = {
+            'chat': chat_agent,
+            'agent_chat': assistant_agent,
+            'agent_preview': assistant_agent,
+            'agent_invocation': assistant_agent,
+        }
 
     async def _claim(self, run_id: UUID) -> ClaimedRun | None:
         try:
@@ -117,7 +164,7 @@ class InferenceExecutor:
             return
         progress = InferenceProgress()
         consume = asyncio.create_task(self._consume(claim, progress))
-        observe = asyncio.create_task(self._observe(claim))
+        observe = asyncio.create_task(self._observe(claim, progress))
         status: RunStatus = 'completed'
         error: RunError | None = None
         rejected = False
@@ -242,64 +289,73 @@ class InferenceExecutor:
         if self._before_provider is not None:
             await self._before_provider(claim)
         provider = await self._provider_factory(request.binding)
-        async with self._sessions.begin() as session:
-            if request.execution_deadline is not None and request.execution_deadline <= utcnow():
-                raise AppError('execution_deadline_exceeded', '模型执行期限已过', 409)
-            started = await self._runs.start_provider(session, claim.id, claim.attempt_id)
-        if not started:
-            raise AppError('execution_lost', '执行权已失效', 409)
-        progress.provider_started = True
-        last_projection = 0.0
 
-        async def read_stream() -> None:
-            nonlocal last_projection
-            async for chunk in provider.stream(request.messages):
-                # Preserve the last bounded projection on overflow, including reasoning-only streams.
-                chunk_bytes = len(chunk.text.encode('utf-8')) + len(chunk.reasoning.encode('utf-8'))
-                if progress.projection_bytes + chunk_bytes > MAX_PROJECTION_BYTES:
-                    raise ProviderError(reason='projection_limit')
-                progress.projection_bytes += chunk_bytes
-                progress.text += chunk.text
-                progress.reasoning += chunk.reasoning
-                if chunk.input_tokens is not None:
-                    progress.input_tokens = chunk.input_tokens
-                if chunk.output_tokens is not None:
-                    progress.output_tokens = chunk.output_tokens
-                if chunk.finish_reason is not None:
-                    progress.completion_seen = True
-                    progress.finish_reason = chunk.finish_reason
-                if chunk.result is not None:
-                    progress.result = chunk.result
-                if chunk.search_units is not None:
-                    progress.search_units = chunk.search_units
-                if chunk.cache_tokens is not None:
-                    progress.cache_tokens = chunk.cache_tokens
-                if chunk.reasoning_tokens is not None:
-                    progress.reasoning_tokens = chunk.reasoning_tokens
-                if (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
-                    async with self._sessions.begin() as session:
-                        if not await self._runs.project(
-                            session, claim.id, claim.attempt_id, progress.text, progress.reasoning
-                        ):
-                            raise AppError('execution_lost', '执行权已失效', 409)
-                        await self._lifecycle.project(session, await self._runs.projection(session, claim.id))
-                    last_projection = monotonic()
-            if not progress.completion_seen:
-                raise ProviderError(reason='incomplete_stream')
+        async def start_model() -> None:
+            if progress.provider_started:
+                raise AppError('execution_already_started', '本次模型调用已经开始', 409)
+            if self._before_provider is not None:
+                await self._before_provider(claim)
+            async with self._sessions.begin() as session:
+                if request.execution_deadline is not None and request.execution_deadline <= utcnow():
+                    raise AppError('execution_deadline_exceeded', '模型执行期限已过', 409)
+                started = await self._runs.start_provider(session, claim.id, claim.attempt_id)
+            if not started:
+                raise AppError('execution_lost', '执行权已失效', 409)
+            progress.provider_started = True
+            progress.provider_started_at = monotonic()
 
-        deadline_remaining = (
-            (request.execution_deadline - utcnow()).total_seconds() if request.execution_deadline else self._timeout
-        )
-        await asyncio.wait_for(
-            read_stream(),
-            timeout=min(
-                self._timeout, request.execution_timeout_seconds or self._timeout, max(0.001, deadline_remaining)
-            ),
-        )
+        async with AsyncExitStack() as resources:
+            handler = self._agents.get(claim.resource_type)
+            agent_execution = claim.resource_type in self._agents
+            if agent_execution:
+                if handler is None:
+                    raise AppError('agent_execution_unavailable', '会话执行服务未装配', 503)
+                provider = await resources.enter_async_context(handler.provider(claim, request, provider, start_model))
+            else:
+                await start_model()
+            last_projection = 0.0
 
-    async def _observe(self, claim: ClaimedRun) -> str:
+            async def read_stream() -> None:
+                nonlocal last_projection
+                async for chunk in provider.stream(request.messages):
+                    progress.append(chunk, agent_execution=agent_execution)
+                    if (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
+                        async with self._sessions.begin() as session:
+                            if not await self._runs.project(
+                                session, claim.id, claim.attempt_id, progress.text, progress.reasoning
+                            ):
+                                raise AppError('execution_lost', '执行权已失效', 409)
+                            await self._lifecycle.project(session, await self._runs.projection(session, claim.id))
+                        last_projection = monotonic()
+                if not progress.completion_seen:
+                    raise ProviderError(reason='incomplete_stream')
+                if (
+                    claim.resource_type in {'chat', 'agent_chat', 'agent_preview', 'agent_invocation'}
+                    and progress.finish_reason == 'stop'
+                    and not progress.text.strip()
+                ):
+                    raise AppError('chat_empty_response', '模型未返回有效正文，请重新生成或重试', 502)
+
+            total_timeout = self._timeout * 2 + 10 if claim.resource_type in {'chat', 'agent_chat'} else self._timeout
+            deadline_remaining = (
+                (request.execution_deadline - utcnow()).total_seconds() if request.execution_deadline else total_timeout
+            )
+            await asyncio.wait_for(
+                read_stream(),
+                timeout=min(
+                    total_timeout, request.execution_timeout_seconds or total_timeout, max(0.001, deadline_remaining)
+                ),
+            )
+
+    async def _observe(self, claim: ClaimedRun, progress: InferenceProgress | None = None) -> str:
         while True:
             await asyncio.sleep(0.2)
+            if (
+                progress is not None
+                and progress.provider_started_at is not None
+                and monotonic() - progress.provider_started_at >= self._timeout
+            ):
+                raise TimeoutError('Provider execution deadline exceeded')
             async with self._sessions.begin() as session:
                 state = await self._runs.control(session, claim.id, claim.attempt_id, self._lease_seconds)
             if state != 'active':
@@ -341,5 +397,7 @@ class InferenceExecutor:
                 finish_reason=progress.finish_reason,
             )
             await self._lifecycle.project(session, snapshot)
+            if handler := self._agents.get(snapshot.resource_type):
+                await handler.finish(session, snapshot, progress.agent_result)
             if outcome.points_enforced and snapshot.resource_type == 'chat' and snapshot.status == 'failed':
                 await self._usage.waive_failed_chat(session, claim.id)

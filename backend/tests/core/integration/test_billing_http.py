@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import event, text
 
-from tests.core.integration.test_ai_management_permissions import account
+from tests.core.permission_support import account, grants
 from zhiheng.application.billing.management import BillingManagementService
 from zhiheng.shared.errors import AppError
 
@@ -30,7 +30,7 @@ async def point_rate(admin: httpx.AsyncClient, model_id: str, **fields: Any) -> 
 
 async def test_me_owner_boundary_and_zero_account_directory(admin: httpx.AsyncClient, app: FastAPI) -> None:
     assert (await admin.get('/api/billing/state')).json() == {'enabled': False, 'version': 0}
-    async with account(admin, app) as (member, _, user):
+    async with account(admin, app, *grants('platform:usage')) as (member, _, user):
         own = await member.get('/api/billing/me', params={'user_id': str(uuid4())})
         assert own.status_code == 200, own.text
         assert own.json()['user_id'] == user['id'] and Decimal(own.json()['available_points']) == 0
@@ -54,12 +54,13 @@ async def test_credit_roles_load_from_catalog_and_revoke_existing_session(
     codes = [row['code'] for row in catalog.json()['items']]
     assert len(codes) == len(set(codes))
     assert not any(code.startswith(('system:posts:', 'system:menus:', 'system:dictionaries:')) for code in codes)
-    assert {'ai:credits:read', 'ai:credits:write'} <= {item['code'] for item in catalog.json()['items']}
+    assert grants('ai:credits', 'adjust', 'configure', 'reconcile') <= set(codes)
+    assert 'ai:credits:write' not in codes
     all_permissions = [item['code'] for item in catalog.json()['items']]
     async with account(admin, app, *all_permissions) as (full_role, _, _):
         actual = (await full_role.get('/api/auth/me')).json()
         assert not actual['is_admin'] and set(actual['permissions']) == set(all_permissions)
-    async with account(admin, app, 'ai:credits:read') as (reader, _, user):
+    async with account(admin, app, *grants('ai:credits')) as (reader, _, user):
         assert (await reader.get('/api/billing/accounts')).status_code == 200
         assert (await reader.get(f'/api/billing/accounts/{user["id"]}/ledger')).status_code == 200
         assert (await reader.get(f'/api/billing/accounts/{user["id"]}/usage')).status_code == 200
@@ -68,7 +69,7 @@ async def test_credit_roles_load_from_catalog_and_revoke_existing_session(
         assert (
             await reader.post(f'/api/billing/accounts/{user["id"]}/adjust', json=mutation(kind='grant', points='1'))
         ).status_code == 403
-    async with account(admin, app, 'ai:credits:write') as (writer, role, user):
+    async with account(admin, app, *grants('ai:credits', 'adjust')) as (writer, role, user):
         body = mutation(kind='grant', points='10')
         path = f'/api/billing/accounts/{user["id"]}/adjust'
         first = await writer.post(path, json=body)
@@ -132,10 +133,10 @@ async def test_point_rate_history_quote_scope_and_model_type(
         assert (await member.get(f'/api/billing/models/{model_id}/rates')).status_code == 403
         assert (await admin.post(f'/api/models/{model_id}/disable', json={})).status_code == 200
         assert (await member.get(f'/api/billing/models/{model_id}/quote')).status_code == 404
-    async with account(admin, app, 'ai:models:read') as (reader, _, _):
+    async with account(admin, app, *grants('platform:models', 'config_read')) as (reader, _, _):
         assert (await reader.get(f'/api/billing/models/{model_id}/quote')).status_code == 200
         assert (await reader.get(f'/api/billing/models/{model_id}/rates')).status_code == 403
-    async with account(admin, app, 'ai:rates:write') as (writer, _, _):
+    async with account(admin, app, *grants('ai:rates', 'create')) as (writer, _, _):
         assert (await writer.get(f'/api/billing/models/{model_id}/rates')).json() == [created.json()]
         invalid = await writer.post(
             f'/api/billing/models/{model_id}/rates', json=mutation(billing_mode='search_unit', search_points='1')
@@ -324,7 +325,6 @@ async def test_reconcile_http_releases_both_meters_and_records_safe_audit(
             model_id=UUID(model_id),
             source='test',
             tokens=2000,
-            token_limit=10000,
             estimated_input_tokens=1000,
             max_output_tokens=1000,
         )
@@ -426,7 +426,6 @@ async def test_search_only_reconciliation_preserves_unknown_token_counts(
             model_id=UUID(rerank_id),
             source='rerank',
             tokens=1000,
-            token_limit=10000,
             operation='rerank',
             estimated_input_tokens=1000,
             estimated_search_units=3,

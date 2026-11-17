@@ -229,6 +229,8 @@ export interface ScopeDefinition {
   label: string
   description: string
   requiresModels: boolean
+  grantable: boolean
+  reason: string | null
 }
 export interface ScopeCatalog {
   scopes: string[]
@@ -246,7 +248,9 @@ export function parseScopeCatalog(value: unknown): ScopeCatalog {
       scope: string(item.scope),
       label: string(item.label),
       description: string(item.description),
-      requiresModels: boolean(item.requires_models)
+      requiresModels: boolean(item.requires_models),
+      grantable: boolean(item.grantable),
+      reason: nullableString(item.reason)
     }
   })(data.definitions)
   if (
@@ -276,6 +280,8 @@ export function keySelectionError(
     scopes.some((scope) => !catalog.scopes.includes(scope))
   )
     return '请选择有效的操作能力'
+  if (catalog.definitions.some((item) => scopes.includes(item.scope) && !item.grantable))
+    return '所选操作能力的签发权限已变化，请重新选择'
   if (
     !models.length &&
     catalog.definitions.some((item) => scopes.includes(item.scope) && item.requiresModels)

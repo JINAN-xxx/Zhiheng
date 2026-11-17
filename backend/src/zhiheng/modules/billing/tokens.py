@@ -1,22 +1,17 @@
-"""Versioned Token quota and unknown-usage commands with durable idempotency."""
+"""Unknown Token usage reconciliation with durable idempotency."""
 
 import hashlib
 import json
-from typing import TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel
 from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from zhiheng.modules.billing.contracts import TokenQuotaPatch, TokenReconcile, UsageRecord, UsageSummary
+from zhiheng.modules.billing.contracts import TokenReconcile, UsageRecord
 from zhiheng.modules.billing.metering import MeteringService
-from zhiheng.modules.billing.orm import Invocation, TokenCommand, UsageAccount
+from zhiheng.modules.billing.orm import Invocation, TokenCommand
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
-
-Result = TypeVar('Result', bound=BaseModel)
 
 
 class TokenManagementService:
@@ -29,7 +24,7 @@ class TokenManagementService:
         actor_id: UUID,
         operation: str,
         target: UUID,
-        body: TokenQuotaPatch | TokenReconcile,
+        body: TokenReconcile,
     ) -> tuple[str, TokenCommand | None]:
         key = f'token-command:{actor_id}:{operation}:{body.client_request_id}'
         await session.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key,0))'), {'key': key})
@@ -46,10 +41,10 @@ class TokenManagementService:
         session: AsyncSession,
         actor_id: UUID,
         operation: str,
-        body: TokenQuotaPatch | TokenReconcile,
+        body: TokenReconcile,
         value: str,
-        result: Result,
-    ) -> Result:
+        result: UsageRecord,
+    ) -> UsageRecord:
         session.add(
             TokenCommand(
                 actor_id=actor_id,
@@ -62,36 +57,6 @@ class TokenManagementService:
         )
         await session.flush()
         return result
-
-    async def quota(
-        self, session: AsyncSession, actor: Principal, user_id: UUID, body: TokenQuotaPatch, *, token_limit: int
-    ) -> UsageSummary:
-        actor.require_permission('ai:credits:configure')
-        actor_id = actor.id
-        value, previous = await self.command(session, actor_id, 'quota', user_id, body)
-        if previous:
-            return UsageSummary.model_validate(previous.result)
-        await session.execute(
-            insert(UsageAccount)
-            .values(user_id=user_id, limit_tokens=token_limit, used_tokens=0, reserved_tokens=0)
-            .on_conflict_do_nothing(index_elements=['user_id'])
-        )
-        row = await session.scalar(
-            select(UsageAccount)
-            .where(UsageAccount.user_id == user_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        assert row is not None
-        if row.quota_version != body.expected_version:
-            raise AppError('quota_version_conflict', 'Token 额度已更新，请刷新后重试', 409)
-        if body.limit_tokens < row.used_tokens + row.reserved_tokens:
-            raise AppError('quota_below_usage', '额度不能低于已使用和预占之和', 409)
-        row.limit_tokens = body.limit_tokens
-        row.quota_version += 1
-        await session.flush()
-        result = await self.meter.summary(session, user_id, token_limit=token_limit)
-        return await self.remember(session, actor_id, 'quota', body, value, result)
 
     async def reconcile(
         self, session: AsyncSession, actor: Principal, run_id: UUID, body: TokenReconcile
