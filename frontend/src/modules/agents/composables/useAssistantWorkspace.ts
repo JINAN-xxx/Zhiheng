@@ -5,6 +5,10 @@ import type { ContextTicket } from '../../../shared/http.ts'
 import { getPreparation } from '../../knowledge/public.ts'
 import { identity, canUseCapability } from '../../identity/public.ts'
 import { getAgent } from '../api/index.ts'
+import { message as toast } from 'ant-design-vue'
+import { createAttachmentQueue } from '../../../shared/attachmentQueue.ts'
+import type { QueuedFile } from '../../../shared/attachmentQueue.ts'
+import { uploadAssistantAttachment } from '../api/conversations.ts'
 import type { Agent } from '../api/index.ts'
 import { getAssistantConversation, getAssistantConversations } from '../api/conversations.ts'
 import type { AssistantConversation, AssistantTurn } from '../api/conversations.ts'
@@ -45,7 +49,31 @@ export function useAssistantWorkspace() {
     refreshList,
     scroll
   })
+  const queuedFiles = ref<QueuedFile[]>([])
+  const fileQueue = createAttachmentQueue({
+    upload: (file, signal) => uploadAssistantAttachment(agentId, file, signal),
+    onChange: (files) => {
+      queuedFiles.value = files
+    }
+  })
+  const fileQueueReady = computed(() =>
+    queuedFiles.value.every((file) => file.status === 'ready' && file.fileId)
+  )
+  function addFiles(files: Iterable<File>): void {
+    if (!canSend.value || commands.pending.value) return
+    const result = fileQueue.add(files, true)
+    if (result.rejected.length)
+      void toast.warning([...new Set(result.rejected.map((file) => file.error))].join('；'))
+  }
+  function removeFile(id: string): void {
+    if (canSend.value && !commands.pending.value) fileQueue.remove(id)
+  }
+  function retryFile(id: string): void {
+    if (canSend.value && !commands.pending.value) void fileQueue.retry(id)
+  }
   const commands = useAssistantCommands({
+    queuedFiles,
+    clearFiles: () => fileQueue.clear(),
     agentId,
     selected,
     turns,
@@ -275,6 +303,7 @@ export function useAssistantWorkspace() {
     { immediate: true }
   )
   onBeforeUnmount(() => {
+    fileQueue.clear()
     pageScope.dispose()
     conversationScope.dispose()
     identityController?.abort()
@@ -282,6 +311,11 @@ export function useAssistantWorkspace() {
     runs.reset()
   })
   return {
+    queuedFiles,
+    fileQueueReady,
+    addFiles,
+    removeFile,
+    retryFile,
     agentId,
     agent,
     conversations,

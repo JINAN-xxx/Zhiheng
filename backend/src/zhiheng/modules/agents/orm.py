@@ -79,6 +79,7 @@ class AssistantTurn(Base):
     content: Mapped[str] = mapped_column(Text)
     run_id: Mapped[UUID] = mapped_column(ForeignKey('runtime_runs.id'), unique=True)
     agent_name: Mapped[str] = mapped_column(String(100))
+    attachments: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     sources: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

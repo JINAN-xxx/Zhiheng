@@ -13,6 +13,7 @@ from zhiheng.modules.agents.public import (
     AssistantConversations,
 )
 from zhiheng.modules.developer.public import ApplicationService
+from zhiheng.modules.files.public import FileService
 from zhiheng.modules.knowledge.public import KnowledgeService, RerankPolicy
 from zhiheng.modules.models.public import ModelBinding, ModelService
 from zhiheng.modules.skills.public import SkillService, resolve_selection
@@ -40,6 +41,7 @@ class AgentManagementService:
         work: WorkService | None = None,
         runs: RunReferences | None = None,
         knowledge_resources: KnowledgeService | None = None,
+        files: FileService | None = None,
     ) -> None:
         self._agents, self._applications, self._models = agents, applications, models
         self._work, self._runs, self._knowledge_resources = (
@@ -47,6 +49,7 @@ class AgentManagementService:
             runs or RunReferences(RunStore()),
             knowledge_resources,
         )
+        self.files = files
         self.knowledge: KnowledgePreparation | None = None
 
     async def knowledge_policy(self, session: AsyncSession, principal: Principal, base_ids: list[UUID]) -> RerankPolicy:
@@ -57,10 +60,13 @@ class AgentManagementService:
         return await self.knowledge.knowledge.retrieval_rerank_policy(session, base_ids)
 
     async def remove(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> AgentInfo:
+        retired_conversations: list[UUID] = []
+
         async def referenced(current: AsyncSession, target: UUID) -> bool:
             references = await self._work.agent_references(current, target)
             references.extend(await self._runs.agent_references(current, target))
             conversation_ids = await AssistantConversations().conversation_ids(current, target)
+            retired_conversations.extend(conversation_ids)
             references.extend(await self._runs.assistant_references(current, target, conversation_ids))
             if self._knowledge_resources is not None:
                 references.extend(await self._knowledge_resources.references.agent_references(current, target))
@@ -70,7 +76,12 @@ class AgentManagementService:
                 )
             return False
 
-        return await self._agents.remove(session, principal, agent_id, reference_check=referenced)
+        result = await self._agents.remove(session, principal, agent_id, reference_check=referenced)
+        if self.files is not None:
+            await self.files.references.release_resources(
+                session, resource_type='agent_chat', resource_ids=tuple(retired_conversations), actor_id=principal.id
+            )
+        return result
 
     async def validate(
         self, session: AsyncSession, principal: Principal, config: AgentConfig, *, publish: bool = False

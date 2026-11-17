@@ -73,6 +73,7 @@ const turn = (snapshot: RunSnapshot): AssistantTurn => ({
   sequence: 1,
   agentName: '助手',
   content: '问题',
+  attachments: [],
   run: snapshot,
   sources: []
 })
@@ -97,6 +98,7 @@ function fixture(t: TestContext) {
     requestId: 'request-1',
     conversationId: 'c1',
     content: '问题',
+    attachments: [],
     stage: 'preparing',
     runId: null,
     error: ''
