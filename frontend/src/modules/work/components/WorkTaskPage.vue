@@ -11,16 +11,15 @@ import {
   Menu as AMenu,
   MenuItem as AMenuItem,
   Modal as AModal,
-  Tag as ATag,
+  Select as ASelect,
   Textarea as ATextarea
 } from 'ant-design-vue'
 import {
   EditOutlined,
   FileTextOutlined,
   MoreOutlined,
-  PaperClipOutlined,
-  PauseCircleOutlined,
-  SendOutlined,
+  AppstoreOutlined,
+  PlusOutlined,
   SettingOutlined
 } from '@ant-design/icons-vue'
 import type { UpdateWorkBody, WorkOptions, WorkStatus, WorkTask } from '../api/index.ts'
@@ -32,6 +31,7 @@ import {
   validateWorkTitle,
   workExecutionLabel
 } from '../presentation.ts'
+import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
 import WorkMessageTimeline from './WorkMessageTimeline.vue'
 import WorkExecutionPanel from './WorkExecutionPanel.vue'
 import WorkFilesPanel from './WorkFilesPanel.vue'
@@ -51,6 +51,7 @@ const props = defineProps<{
   optionsLoading: boolean
   optionsError: string
   uploading: boolean
+  mutating: boolean
   initialMessage?: string
 }>()
 const emit = defineEmits<{
@@ -85,6 +86,7 @@ const canSend = computed(
     props.canRun &&
     isAgent.value &&
     !props.locked &&
+    !props.mutating &&
     (validateWorkMessage(message.value).valid ||
       (!message.value.trim() && props.task.executionState === 'paused'))
 )
@@ -97,15 +99,6 @@ const stateLabel = computed(() =>
         ? '已结束'
         : workExecutionLabel[props.task.executionState]
 )
-const stateColor = computed(() =>
-  props.task.executionState === 'failed'
-    ? 'error'
-    : props.stoppable
-      ? 'processing'
-      : props.task.executionState === 'completed'
-        ? 'success'
-        : 'default'
-)
 const latestRunId = computed(
   () =>
     props.task.currentRunId ??
@@ -117,6 +110,41 @@ const runSteps = computed(() =>
     ? props.task.steps.filter((step) => step.runId === latestRunId.value)
     : props.task.steps
 )
+const modelId = computed(() => props.task.configuration?.modelId ?? props.task.modelId ?? undefined)
+const modelOptions = computed(() => {
+  const options = (props.options?.models ?? []).map((model) => ({
+    value: model.id,
+    label: model.name
+  }))
+  return modelId.value && !options.some((item) => item.value === modelId.value)
+    ? [
+        {
+          value: modelId.value,
+          label: props.optionsLoading ? '加载模型…' : '当前模型不可用',
+          disabled: true
+        },
+        ...options
+      ]
+    : options
+})
+const artifactCount = computed(
+  () => new Set(props.task.artifacts.map((item) => item.logicalPath)).size
+)
+const showProgress = computed(
+  () => isAgent.value && !!(props.task.plan.length || runSteps.value.length || props.stoppable)
+)
+function selectModel(value: unknown): void {
+  if (
+    typeof value !== 'string' ||
+    value === modelId.value ||
+    props.locked ||
+    props.mutating ||
+    !props.canEdit ||
+    !props.options?.models.some((model) => model.id === value)
+  )
+    return
+  emit('save', { model_id: value }, () => {})
+}
 const canSaveResources = computed(
   () =>
     !!resourceDraft.value.modelId &&
@@ -147,6 +175,7 @@ function keydown(event: KeyboardEvent): void {
   if (
     event.key === 'Enter' &&
     !event.isComposing &&
+    event.keyCode !== 229 &&
     !event.shiftKey &&
     !event.ctrlKey &&
     !event.metaKey &&
@@ -210,23 +239,26 @@ function picked(event: Event): void {
     <header class="work-task-header">
       <div class="work-task-header__copy">
         <h1>{{ task.title || '新任务' }}</h1>
-        <ATag :color="stateColor">{{ stateLabel }}</ATag>
+        <span v-if="!isAgent || task.status !== 'active'" class="work-task-status">{{
+          stateLabel
+        }}</span>
       </div>
       <div class="work-task-header__actions">
         <AButton
-          v-if="isAgent && canEdit"
+          v-if="isAgent && canEdit && (task.status !== 'active' || !canRun)"
           type="text"
           aria-label="资源与能力"
-          :disabled="locked"
+          :disabled="locked || mutating"
           @click="openResources"
-          ><SettingOutlined />资源与能力</AButton
+          ><SettingOutlined /></AButton
         ><AButton
           v-if="isAgent"
           type="text"
           class="work-task-header__files"
           aria-label="查看资料与成果"
           @click="filesOpen = true"
-          ><FileTextOutlined />资料与成果</AButton
+          ><FileTextOutlined /><span>资料与成果</span
+          ><span v-if="artifactCount" class="work-file-count">{{ artifactCount }}</span></AButton
         ><ADropdown :trigger="['click']"
           ><AButton type="text" aria-label="更多任务操作"><MoreOutlined /></AButton
           ><template #overlay
@@ -311,71 +343,114 @@ function picked(event: Event): void {
             ></template
           ></AAlert
         >
-        <WorkExecutionPanel
-          v-if="isAgent"
-          :plan="task.plan"
-          :steps="runSteps"
-          :state="task.executionState"
-          :busy="stoppable"
-        />
-        <WorkMessageTimeline :messages="task.messages" />
-        <footer
-          v-if="isAgent && task.status === 'active' && (canRun || stoppable)"
-          class="work-composer"
+        <WorkMessageTimeline
+          :messages="task.messages"
+          :legacy="!isAgent"
+          :show-progress="showProgress"
         >
-          <ATextarea
-            v-model:value="message"
-            aria-label="工作消息"
-            :placeholder="
-              task.executionState === 'waiting_input'
-                ? '补充所需信息，或上传资料后继续'
-                : '描述目标，或继续修改已有成果'
-            "
-            :maxlength="32000"
-            :auto-size="{ minRows: 2, maxRows: 7 }"
-            :disabled="locked || !canRun"
-            @keydown="keydown"
-          />
-          <div class="work-composer__tools">
+          <template #progress
+            ><WorkExecutionPanel
+              :plan="task.plan"
+              :steps="runSteps"
+              :state="task.executionState"
+              :busy="stoppable"
+          /></template>
+          <template #artifacts
+            ><button
+              v-if="isAgent && artifactCount"
+              type="button"
+              class="work-artifacts-link"
+              @click="filesOpen = true"
+            >
+              <FileTextOutlined />查看成果 · {{ artifactCount }}
+            </button></template
+          >
+        </WorkMessageTimeline>
+        <ConversationComposer
+          v-if="isAgent && task.status === 'active' && (canRun || stoppable)"
+          v-model="message"
+          class="work-composer"
+          input-label="工作消息"
+          :placeholder="
+            task.executionState === 'waiting_input'
+              ? '补充所需信息，或上传资料后继续'
+              : '描述目标，或继续修改已有成果'
+          "
+          :max-length="32000"
+          :max-rows="7"
+          :disabled="locked || !canRun"
+          :running="stoppable"
+          :stop-disabled="stopDisabled"
+          stop-label="停止"
+          :submit-disabled="!canSend"
+          :submit-label="task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'"
+          @keydown="keydown"
+          @send="send"
+          @stop="emit('cancel')"
+        >
+          <template #before-surface
+            ><input
+              ref="fileInput"
+              class="work-composer__input"
+              type="file"
+              multiple
+              aria-label="选择工作资料"
+              @change="picked"
+          /></template>
+          <template #prefix>
+            <div v-if="task.inputs.length" class="work-inputs" aria-label="任务资料">
+              <button
+                v-for="file in task.inputs.slice(0, 3)"
+                :key="file.fileId"
+                type="button"
+                class="work-input-chip"
+                @click="filesOpen = true"
+              >
+                <FileTextOutlined /><span :title="file.name">{{ file.name }}</span
+                ><small>v{{ file.version }}</small>
+              </button>
+              <button
+                v-if="task.inputs.length > 3"
+                type="button"
+                class="work-input-chip"
+                @click="filesOpen = true"
+              >
+                另 {{ task.inputs.length - 3 }} 份资料
+              </button>
+            </div>
+          </template>
+          <template #tools>
             <AButton
               type="text"
               aria-label="上传资料"
               :disabled="locked || !canRun"
               :loading="uploading"
               @click="fileInput?.click()"
-              ><PaperClipOutlined />上传资料</AButton
-            ><span v-if="task.inputs.length">{{ task.inputs.length }} 份资料</span>
-          </div>
-          <div class="work-composer__submit">
-            <AButton
-              v-if="stoppable"
-              aria-label="停止"
-              :disabled="stopDisabled"
-              danger
-              @click="emit('cancel')"
-              ><PauseCircleOutlined />停止</AButton
-            ><AButton
-              v-else
-              :aria-label="
-                task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'
-              "
-              type="primary"
-              :disabled="!canSend"
-              @click="send"
-              ><SendOutlined />{{
-                task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'
-              }}</AButton
+              ><PlusOutlined /><span class="composer-tool-label">添加资料</span></AButton
             >
-          </div>
-          <input
-            ref="fileInput"
-            class="work-composer__input"
-            type="file"
-            multiple
-            aria-label="选择工作资料"
-            @change="picked"
-          />
-        </footer>
+            <AButton
+              v-if="canEdit"
+              type="text"
+              aria-label="资源与能力"
+              :disabled="locked || mutating"
+              @click="openResources"
+              ><AppstoreOutlined /><span class="composer-tool-label">资源与能力</span></AButton
+            >
+          </template>
+          <template #controls
+            ><ASelect
+              class="model-select"
+              :value="modelId"
+              :options="modelOptions"
+              aria-label="选择工作模型"
+              placeholder="选择工作模型"
+              show-search
+              option-filter-prop="label"
+              :loading="optionsLoading"
+              :disabled="locked || mutating || !canEdit || optionsLoading"
+              @update:value="selectModel"
+          /></template>
+        </ConversationComposer>
         <AAlert
           v-else-if="isAgent && task.status === 'active'"
           class="work-task-notice"
@@ -384,22 +459,13 @@ function picked(event: Event): void {
           message="当前账号可以查看任务，但没有执行权限。"
         />
       </div>
-      <aside v-if="isAgent" class="work-task-files">
-        <WorkFilesPanel
-          :task-id="task.taskId"
-          :inputs="task.inputs"
-          :artifacts="task.artifacts"
-          :uploading="uploading"
-          :can-upload="canRun && !locked && task.status === 'active'"
-          @upload="emit('upload', $event)"
-        />
-      </aside>
     </div>
     <ADrawer
+      v-if="isAgent"
       v-model:open="filesOpen"
       title="资料与成果"
       placement="right"
-      :width="360"
+      :width="420"
       :body-style="{ padding: 0 }"
       ><WorkFilesPanel
         :task-id="task.taskId"
@@ -423,7 +489,7 @@ function picked(event: Event): void {
     <AModal
       v-model:open="resourcesOpen"
       title="资源与能力"
-      :ok-button-props="{ disabled: locked || !canSaveResources }"
+      :ok-button-props="{ disabled: locked || mutating || !canSaveResources }"
       @ok="saveResources"
       ><WorkResourcesForm
         v-model="resourceDraft"
@@ -444,7 +510,7 @@ function picked(event: Event): void {
 </template>
 <style scoped>
 .work-task-page {
-  min-height: 100%;
+  min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -458,14 +524,14 @@ function picked(event: Event): void {
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--gray-150);
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 24px 4px 28px;
 }
 .work-task-header__copy {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
@@ -473,110 +539,111 @@ function picked(event: Event): void {
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  color: var(--color-text);
-  font-size: 17px;
-  font-weight: 500;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-weight: 400;
   line-height: 1.6;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0;
 }
-.work-task-header__copy :deep(.ant-tag) {
-  margin: 0;
+.work-task-status {
   flex-shrink: 0;
-  border-radius: 6px;
-  font-size: 11px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
 }
 .work-task-header__actions {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 .work-task-header__actions :deep(.ant-btn) {
-  font-size: 13px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
 }
-.work-task-header__files {
-  display: none;
+.work-file-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 4px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--gray-50);
+  font-size: 11px;
 }
-.work-task-layout {
+.work-task-layout,
+.work-task-conversation {
   display: flex;
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
 .work-task-conversation {
-  display: flex;
   flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
   overflow: hidden;
 }
-.work-task-files {
-  width: 300px;
-  flex-shrink: 0;
-  min-height: 0;
-  border-left: 1px solid var(--gray-150);
-}
 .work-task-notice {
-  width: min(840px, calc(100% - 40px));
+  width: min(920px, calc(100% - var(--chat-inset) * 2));
   flex-shrink: 0;
   align-self: center;
   margin: 10px 0 0;
   border-radius: 10px;
 }
-.work-composer {
-  width: min(840px, calc(100% - 40px));
-  flex-shrink: 0;
-  align-self: center;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  margin: 10px 0 20px;
-  padding: 14px 16px;
-  border: 1px solid var(--gray-200);
-  border-radius: 16px;
-  background: var(--bg-container);
-  box-shadow: 0 4px 18px rgb(0 0 0 / 3%);
-}
-.work-composer:focus-within {
-  border-color: var(--main-400);
-  box-shadow: 0 0 0 3px var(--main-50);
-}
-.work-composer > :deep(.ant-input) {
-  grid-column: 1 / -1;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
-  box-shadow: none;
-}
-.work-composer__tools,
-.work-composer__submit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.work-composer__tools {
-  min-width: 0;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.work-composer__tools :deep(.ant-btn) {
-  padding-inline: 5px;
-  color: var(--color-text-secondary);
-}
-.work-composer__submit {
-  justify-content: flex-end;
-}
-.work-composer__submit :deep(.ant-btn) {
-  border-radius: 9px;
-  min-width: 78px;
-}
 .work-composer__input {
   display: none;
+}
+.work-inputs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.work-input-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 240px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--bg-container);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.work-input-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-input-chip small {
+  color: var(--color-text-tertiary);
+}
+.work-artifacts-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 7px 11px;
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  background: var(--bg-container);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.work-artifacts-link:hover,
+.work-input-chip:hover {
+  color: var(--main-color);
+  border-color: var(--main-200);
 }
 .work-info-goal {
   max-height: 60vh;
@@ -603,41 +670,16 @@ function picked(event: Event): void {
   margin: 5px 0 0;
   overflow-wrap: anywhere;
 }
-@media (max-width: 1100px) {
-  .work-task-files {
-    width: 260px;
-  }
-}
-@media (max-width: 940px) {
-  .work-task-files {
-    display: none;
-  }
-  .work-task-header__files {
-    display: inline-flex;
-  }
-}
 @media (max-width: 640px) {
   .work-task-header {
-    padding: 12px 14px;
-    gap: 6px;
-  }
-  .work-task-header h1 {
-    font-size: 15px;
-  }
-  .work-task-header__copy {
+    padding: 0 14px 4px;
     gap: 6px;
   }
   .work-task-header__actions :deep(.ant-btn) {
-    padding-inline: 7px;
-    font-size: 12px;
-  }
-  .work-composer {
-    width: calc(100% - 24px);
-    margin-bottom: 12px;
-    padding: 12px;
+    padding: 0 6px;
   }
   .work-task-notice {
-    width: calc(100% - 24px);
+    width: calc(100% - 28px);
   }
 }
 </style>

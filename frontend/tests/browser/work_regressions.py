@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import expect
 from developer_regressions import DeveloperBoundary
+from permission_fixture import granted_permissions
 
 STAMP = '2026-11-17T12:00:00Z'
 
@@ -78,6 +79,8 @@ class WorkUIRegressions(DeveloperBoundary):
                     body = route.request.post_data_json
                     self.posts.append(body)
                     selected.update({key: value for key, value in body.items() if key != 'expected_version'})
+                    if selected['configuration'] is not None:
+                        selected['configuration'].update({key: body[key] for key in ('model_id', 'skill_slugs', 'allow_code_execution') if key in body})
                     selected['version'] += 1
                 if method == 'DELETE':
                     self.tasks = [item for item in self.tasks if item['id'] != task_id]
@@ -243,6 +246,7 @@ class WorkUIRegressions(DeveloperBoundary):
         code = self.page.get_by_role('switch', name='文件处理与代码执行', exact=True)
         await expect(code).not_to_be_checked()
         await code.click()
+        await self.page.get_by_role('dialog', name='资源与能力', exact=True).get_by_role('button', name='完成设置', exact=True).click()
         await self.page.get_by_role('textbox', name='工作目标', exact=True).fill('制作报告')
         await self.page.get_by_role('button', name='开始工作', exact=True).click()
         await expect(self.page.get_by_text('核实后的结论', exact=True)).to_be_visible()
@@ -305,8 +309,13 @@ class WorkUIRegressions(DeveloperBoundary):
 
     async def test_execution_log_uses_actual_result_and_hides_internal_snapshot_fields(self):
         self.task['steps']=[{'id':'step-1','run_id':'work-run','action_id':'a','kind':'tool','name':'run_python','status':'succeeded','summary':'已经核对记录数','details':{'arguments_fingerprint':'hidden-fingerprint','arguments':{'code':'print(42)'}},'result':{'success':True,'data':{'stdout':'真实计算结果 42','stderr':''},'_workspace_files':[{'file_id':'hidden-snapshot'}]},'created_at':STAMP,'updated_at':STAMP}]
+        body = {'client_request_id': 'original', 'message': '请核对资料'}
+        self.task['messages'].append(self.message('user', body))
+        self.task['messages'].append(self.message('assistant', body, self.run))
         await self.open_task()
-        await self.page.get_by_text('执行记录',exact=True).click()
+        assistant = self.page.locator('.work-message.assistant')
+        await expect(assistant.get_by_role('region', name='任务进度', exact=True)).to_be_visible()
+        await assistant.get_by_text('执行记录',exact=True).click()
         await self.page.get_by_text('查看执行记录 · 1 步',exact=True).click()
         await expect(self.page.get_by_text('真实计算结果 42',exact=True)).to_be_visible()
         await expect(self.page.get_by_text('hidden-fingerprint',exact=False)).to_have_count(0)
@@ -343,11 +352,58 @@ class WorkUIRegressions(DeveloperBoundary):
                 'created_at':STAMP,'url':f'/api/work/tasks/task-1/artifacts/{identifier}/download',
                 'preview_url':f'/api/work/tasks/task-1/artifacts/{identifier}/preview'}
 
+    async def test_work_and_chat_share_the_same_composer_geometry_and_typography(self):
+        async def surface():
+            return await self.page.locator('.composer').evaluate('''node => {
+                const surface = node.querySelector('.composer-surface');
+                const input = node.querySelector('textarea');
+                const button = node.querySelector('.composer-submit');
+                const style = getComputedStyle(input);
+                return { width: surface.getBoundingClientRect().width,
+                    radius: getComputedStyle(surface).borderRadius,
+                    font: style.fontFamily, size: style.fontSize, lineHeight: style.lineHeight,
+                    buttonWidth: button.getBoundingClientRect().width,
+                    buttonRadius: getComputedStyle(button).borderRadius };
+            }''')
+        await self.page.goto(self.origin + '/work')
+        await expect(self.page.get_by_role('textbox', name='工作目标', exact=True)).to_be_visible()
+        work_surface = await surface()
+        await self.page.goto(self.origin + '/chat')
+        await expect(self.page.get_by_role('textbox', name='消息内容', exact=True)).to_be_visible()
+        self.assertEqual(work_surface, await surface())
+
+    async def test_inline_model_change_preserves_draft_and_uses_task_version(self):
+        self.options['models'].append({'id': 'model-2', 'name': '备用模型', 'max_output_tokens': 8192})
+        await self.open_task()
+        draft = self.page.get_by_role('textbox', name='工作消息', exact=True)
+        await draft.fill('继续核对我的资料')
+        await self.page.locator('.model-select').click()
+        await self.page.get_by_text('备用模型', exact=True).click()
+        await expect(self.page.locator('.model-select')).to_contain_text('备用模型')
+        await expect(draft).to_have_value('继续核对我的资料')
+        self.assertEqual(self.posts[-1], {'expected_version': 1, 'model_id': 'model-2'})
+        self.assertEqual(self.runs, [])
+
+    async def test_task_resource_editing_remains_available_without_execution_permission(self):
+        await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={
+            'id': 'user-1', 'username': 'task-editor', 'is_admin': False,
+            'permissions': granted_permissions('platform:work:read', 'platform:work:update')}))
+        await self.open_task()
+        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='资源与能力', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='资源与能力', exact=True)
+        await expect(dialog).to_be_visible()
+        await dialog.locator('.ant-modal-footer .ant-btn-primary').click()
+        await expect(dialog).to_be_hidden()
+        self.assertEqual(self.posts[-1]['expected_version'], 1)
+        self.assertEqual(self.runs, [])
+
     async def test_existing_artifacts_default_to_results_and_history_downloads_exact_version(self):
         self.task['artifacts']=[self.artifact('old','分析报告.docx',1),self.artifact('new','分析报告.docx',2)]
         seen=[]
         self.page.on('request',lambda request:seen.append(urlparse(request.url).path))
         await self.open_task()
+        await self.page.get_by_role('button', name='查看资料与成果', exact=True).click()
         await expect(self.page.get_by_role('tab',name='成果 1',exact=True)).to_have_attribute('aria-selected','true')
         card=self.page.locator('.work-file')
         await expect(card).to_have_count(1)
@@ -361,6 +417,7 @@ class WorkUIRegressions(DeveloperBoundary):
     async def test_preview_is_safe_text_and_later_artifacts_preserve_manual_tab_choice(self):
         self.task['artifacts']=[self.artifact('new','分析报告.docx',2)]
         await self.open_task()
+        await self.page.get_by_role('button', name='查看资料与成果', exact=True).click()
         await self.page.locator('.work-file').get_by_role('button',name='预览',exact=True).click()
         preview=self.page.get_by_role('dialog',name='分析报告.docx · v2',exact=True)
         await expect(preview.locator('pre')).to_contain_text('<script>not executable</script>')
@@ -374,7 +431,7 @@ class WorkUIRegressions(DeveloperBoundary):
         async with self.page.expect_file_chooser() as chooser:
             await self.page.get_by_role('button',name='上传任务资料',exact=True).click()
         await (await chooser.value).set_files({'name':'extra.txt','mimeType':'text/plain','buffer':b'x'})
-        await expect(self.page.get_by_text('extra.txt',exact=True)).to_be_visible()
+        await expect(self.page.locator('.ant-drawer-open').get_by_text('extra.txt',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('tab',name='资料 1',exact=True)).to_have_attribute('aria-selected','true')
 
     async def test_budget_pause_has_accessible_continue_without_duplicate_user_question(self):

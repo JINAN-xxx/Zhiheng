@@ -47,7 +47,9 @@ const progress = computed(() =>
     ? name(currentStep.value)
     : props.busy
       ? '正在推进任务'
-      : workExecutionLabel[props.state]
+      : props.state === 'completed'
+        ? '执行过程'
+        : workExecutionLabel[props.state]
 )
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -118,12 +120,8 @@ function code(step: WorkStep): string {
 </template>
 <style scoped>
 .work-progress {
-  width: min(840px, calc(100% - 40px));
-  flex-shrink: 0;
-  align-self: center;
-  margin: 12px 0 0;
-  border: 1px solid var(--gray-150);
-  border-radius: 12px;
+  width: 100%;
+  margin: 0 0 16px;
   color: var(--color-text-secondary);
   background: var(--bg-container);
   font-size: 13px;
@@ -135,7 +133,7 @@ function code(step: WorkStep): string {
   justify-content: space-between;
   gap: 12px;
   cursor: pointer;
-  padding: 12px 14px;
+  padding: 8px 0;
   list-style: none;
 }
 .work-progress summary::-webkit-details-marker {
@@ -155,7 +153,7 @@ function code(step: WorkStep): string {
   display: grid;
   gap: 10px;
   margin: 0;
-  padding: 0 14px 14px;
+  padding: 8px 0 14px;
   list-style: none;
 }
 .work-progress__plan li {
