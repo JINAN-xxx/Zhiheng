@@ -271,6 +271,8 @@ def verify_core_wheel(directory: Path, *, source_root: Path | None = None) -> Pa
         'versions/0039_retired_runtime_fields.py',
         'versions/0040_assistant_agents.py',
         'versions/0041_work_agent.py',
+        'versions/0041_assistant_attachments.py',
+        'versions/0042_workspace_merge.py',
     )
     if any(
         not any(name.endswith('/share/zhiheng/migrations/' + migration) for name in names) for migration in migrations

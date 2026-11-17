@@ -82,6 +82,8 @@ Agent 使用官方 LangChain `create_agent`、`TodoListMiddleware`、`Summarizat
 
 迁移 `0041_work_agent` 增加新任务配置、计划、步骤、成果、沙盒租约及官方检查点 schema。原成员任务保留为 `mode=legacy`，可查看历史和原运行，可按已有删除权限移除；不能继续发送消息、编辑成员或升级为新 Agent。需要继续处理时创建新任务并明确加入所需资料。
 
+当前统一版本为 `0042_workspace_merge`，同时包含上述工作空间迁移和助手对话附件迁移。已执行 `0041_work_agent` 的实例正常升级即可补齐助手附件；工作步骤、成果版本及检查点保持完整。
+
 旧 `/members` 写入路由及 `/agents/available` 已标为 deprecated，不能作为新工作空间客户端的成员入口。升级仍须备份、显式迁移并统一重建 API/Worker，不在服务启动时自动修改表结构。
 
 ## 部署与验证范围

@@ -85,6 +85,8 @@ COMPOSE_PROFILES=workspace ./deploy.sh up
 
 部署还需为使用者单独授予“工作空间 → 文件处理与代码执行”。升级包含 `0041_work_agent` 迁移与官方 `work_checkpoints`；旧成员任务保留历史只读，新任务使用目标、模型、技能和文件执行流程。配置、隔离条件、限额与清理规则见[工作空间执行环境](deployment/workspace-sandbox.md)，接口见[工作空间任务 Agent](api/workspace-agent.md)。
 
+当前统一迁移头为 `0042_workspace_merge`，连接工作空间 `0041_work_agent` 与助手附件 `0041_assistant_attachments` 两条迁移。空库、旧版本及已应用任一条 `0041` 的实例均使用正常迁移升级；另一条功能迁移会补齐，已有功能数据保留。已执行的迁移文件和版本标记应保持原样，升级前按常规流程备份。
+
 ## 源码模式
 
 先完成镜像构建和配置初始化，再在已安装前端依赖的仓库中启动：

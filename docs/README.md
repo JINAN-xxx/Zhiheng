@@ -8,6 +8,7 @@
 
 - [使用与操作](usage.md)：接入模型、知识入库、智能助手、工作空间与任务恢复。
 - [私人智能助手与正式对话](api/assistant-conversations.md)。
+- [助手对话附件](api/assistant-attachments.md)：文档、模型支持的图片、历史下载与当前权限校验。
 - [工作空间任务 Agent](api/workspace-agent.md)：任务、文件、计划、成果版本、代码执行权限与旧任务只读。
 - [后台管理](api/admin-console-ui.md)：当前菜单、账号、角色、应用治理、公告、存储和系统运维。
 - [模块与操作权限](api/platform-module-permissions.md)：模块开关、细分操作、凭据隔离及 API 权限边界。

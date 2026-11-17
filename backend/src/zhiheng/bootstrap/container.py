@@ -1,6 +1,7 @@
 from redis.asyncio import Redis
 
 from zhiheng.application.access import ResourceAccessService
+from zhiheng.application.agents.attachments import AssistantAttachments
 from zhiheng.application.agents.conversations import AssistantConversationService
 from zhiheng.application.agents.execution import AssistantAgentService
 from zhiheng.application.agents.management import AgentManagementService
@@ -164,7 +165,13 @@ class Container:
         )
         self.accounts = AccountService(self.identity, self.skills, self.admin_identity)
         self.agent_management = AgentManagementService(
-            self.agents, self.applications, self.models, self.work, self.run_references, self.knowledge
+            self.agents,
+            self.applications,
+            self.models,
+            self.work,
+            self.run_references,
+            self.knowledge,
+            files=self.files,
         )
         self.agent_runs = AgentRunService(
             self.agents, self.agent_management, self.keys, self.runs, self.identity, admission=self.run_admission
@@ -243,6 +250,7 @@ class Container:
             admission=self.run_admission,
         )
         self._configure_resource_facades()
+        self.assistant_attachments = AssistantAttachments(self.file_inputs, self.files)
         self.assistant_agent = AssistantAgentService(
             self.database,
             self.agents,
@@ -263,6 +271,7 @@ class Container:
             ),
             input_tokens=settings.chat_context_input_tokens,
             timeout_seconds=settings.provider_timeout_seconds + 10,
+            attachments=self.assistant_attachments,
         )
         self.agent_runs.execution = self.assistant_agent
         self.assistant_conversations = AssistantConversationService(

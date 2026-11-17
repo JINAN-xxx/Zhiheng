@@ -11,12 +11,16 @@ import type {
   AssistantTurn,
   getAssistantConversation
 } from '../api/conversations.ts'
+import { parseAssistantAttachments } from '../api/conversations.ts'
+import type { AssistantAttachment } from '../api/conversations.ts'
+import type { QueuedFile } from '../../../shared/attachmentQueue.ts'
 import type { useAssistantRunObservation } from './useAssistantRunObservation.ts'
 
 export interface AssistantOutgoingTurn {
   requestId: string
   conversationId: string | null
   content: string
+  attachments: AssistantAttachment[]
   stage: 'submitting' | 'preparing' | 'replying' | 'uncertain' | 'failed' | 'cancelled'
   runId: string | null
   error: string
@@ -28,6 +32,7 @@ interface PendingAssistantSend {
   createId: string
   requestId: string
   message: string
+  attachments: AssistantAttachment[]
 }
 interface AssistantCommandsOptions {
   agentId: string
@@ -38,6 +43,8 @@ interface AssistantCommandsOptions {
   error: Ref<string>
   conversationScope: RequestScope
   runs: ReturnType<typeof useAssistantRunObservation>
+  queuedFiles: Ref<QueuedFile[]>
+  clearFiles: () => void
   canSend: () => boolean
   conversationId: () => string
   openPendingConversation: (id: string) => Promise<void>
@@ -83,9 +90,18 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
     requestId: string,
     content: string,
     conversationId: string | null,
-    stage: AssistantOutgoingTurn['stage']
+    stage: AssistantOutgoingTurn['stage'],
+    attachments: AssistantAttachment[] = []
   ): void {
-    outgoing.value = { requestId, content, conversationId, stage, runId: null, error: '' }
+    outgoing.value = {
+      requestId,
+      content,
+      attachments,
+      conversationId,
+      stage,
+      runId: null,
+      error: ''
+    }
   }
   function savePending(value: PendingAssistantSend): void {
     sessionStorage.setItem(pendingKey(), JSON.stringify(value))
@@ -118,10 +134,17 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
         createId: value.createId,
         requestId: value.requestId,
         message: value.message,
+        attachments: parseAssistantAttachments(value.attachments),
         conversationId: value.conversationId
       }
       if (!value.conversationId && !options.conversationId())
-        showOutgoing(value.requestId, value.message, null, 'uncertain')
+        showOutgoing(
+          value.requestId,
+          value.message,
+          null,
+          'uncertain',
+          pending.value?.attachments ?? []
+        )
     } catch {
       recoveryBlocked.value = true
       error.value = '无法读取原提交，请先核对历史对话及浏览器会话存储，再刷新重试。'
@@ -148,20 +171,34 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
         result.preparingMessage.requestId,
         result.preparingMessage.content,
         id,
-        'preparing'
+        'preparing',
+        result.preparingMessage.attachments
       )
     } else if (
       !outgoing.value &&
       pending.value?.conversationId === id &&
       !result.turns.some((turn) => turn.requestId === pending.value?.requestId)
     ) {
-      showOutgoing(pending.value.requestId, pending.value.message, id, 'uncertain')
+      showOutgoing(
+        pending.value.requestId,
+        pending.value.message,
+        id,
+        'uncertain',
+        pending.value.attachments
+      )
     }
   }
 
   async function send(retry = false): Promise<void> {
     if (sending.value || loading.value || runs.running.value || !identity.value) return
-    if (!retry && (!options.canSend() || pending.value || !draft.value.trim())) return
+    if (
+      !retry &&
+      (!options.canSend() ||
+        pending.value ||
+        (!draft.value.trim() && !options.queuedFiles.value.length) ||
+        options.queuedFiles.value.some((file) => file.status !== 'ready' || !file.fileId))
+    )
+      return
     const intent = retry
       ? pending.value
       : {
@@ -170,7 +207,13 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
           conversationId: selected.value?.id ?? null,
           createId: createRequestId(),
           requestId: createRequestId(),
-          message: draft.value.trim()
+          message: draft.value.trim() || '请分析附件。',
+          attachments: options.queuedFiles.value.map((file) => ({
+            file_id: file.fileId!,
+            original_filename: file.fileName,
+            mime: file.kind === 'image' ? 'image/*' : 'application/octet-stream',
+            size: file.sizeBytes
+          }))
         }
     if (!intent) return
     // Persist the original identity before any mutation, so uncertain responses can be retried.
@@ -189,7 +232,14 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
     runs.reset()
     sending.value = true
     error.value = ''
-    showOutgoing(intent.requestId, intent.message, intent.conversationId, 'submitting')
+    showOutgoing(
+      intent.requestId,
+      intent.message,
+      intent.conversationId,
+      'submitting',
+      intent.attachments
+    )
+    options.clearFiles()
     draft.value = ''
     void scroll()
     try {
@@ -208,7 +258,8 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
         intent.conversationId,
         intent.message,
         intent.requestId,
-        context.signal
+        context.signal,
+        intent.attachments.map((file) => file.file_id)
       )
       if (!context.isCurrent()) return
       clearPending()
@@ -245,6 +296,7 @@ export function useAssistantCommands(options: AssistantCommandsOptions) {
   function resetConversation(): void {
     outgoing.value = null
     draft.value = ''
+    options.clearFiles()
     sending.value = false
   }
 

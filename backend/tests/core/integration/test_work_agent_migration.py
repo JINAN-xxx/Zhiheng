@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from zhiheng.bootstrap.migrations import migrate, migration_directory
 from zhiheng.bootstrap.settings import Settings
+from zhiheng.infrastructure.database import SCHEMA_REVISION
 from zhiheng.modules.work.orm import WorkMessage
 from zhiheng.modules.work.public import WorkService
 from zhiheng.runtime.orm import Run
@@ -82,6 +83,7 @@ async def test_schema40_upgrade_preserves_history_and_marks_tasks_legacy(setting
     engine = create_async_engine(settings.database_url.get_secret_value())
     try:
         async with AsyncSession(engine) as session:
+            assert await session.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
             detail = await WorkService().detail(session, Principal(owner_id, 'legacy-owner', False), task_id)
             assert detail.id == task_id and detail.active_agent_id == agent_id
             assert detail.mode == 'legacy' and detail.version == 7 and detail.title == '历史任务'

@@ -53,6 +53,23 @@ class FileReferences:
             raise AppError('attachment_not_sent', '只能加入已发送消息中的附件', 422)
         return await self.files.info(session, row)
 
+    async def require_scoped_attachment(
+        self, session: AsyncSession, principal: Principal, file_id: UUID, *, resource_type: str, resource_id: UUID
+    ) -> FileInfo:
+        row = await self.files._require(session, principal, file_id, active=True)
+        attached = await session.scalar(
+            select(FileReference.id)
+            .where(
+                FileReference.file_id == file_id,
+                FileReference.resource_type == resource_type,
+                FileReference.resource_id == resource_id,
+            )
+            .limit(1)
+        )
+        if attached is None or row.source_file_id is not None:
+            raise AppError('file_not_found', '附件不存在', 404)
+        return await self.files.info(session, row)
+
     async def bind_sources(
         self,
         session: AsyncSession,
@@ -130,7 +147,7 @@ class FileReferences:
                         FileReference.resource_id == resource_id,
                     )
                 )
-                if resource_type == 'chat' and row.purpose == 'chat_attachment':
+                if resource_type in {'chat', 'agent_chat'} and row.purpose == 'chat_attachment':
                     artifact.expires_at = None
                 if existing is None:
                     session.add(

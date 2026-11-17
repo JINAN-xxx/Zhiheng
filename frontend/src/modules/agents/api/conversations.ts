@@ -1,3 +1,4 @@
+import { parseManagedFile } from '../../files/public.ts'
 import { decodeVoid, http } from '../../../shared/http.ts'
 import { list, number, object, string, boolean } from '../../../shared/validation.ts'
 import { parseRunSnapshot } from '../../../shared/stream.ts'
@@ -19,12 +20,31 @@ export interface AssistantConversation {
   memoryAvailable: boolean
   summaryUsed: boolean
 }
+export interface AssistantAttachment {
+  file_id: string
+  original_filename: string
+  mime: string
+  size: number
+}
+export function parseAssistantAttachments(value: unknown): AssistantAttachment[] {
+  if (value == null) return []
+  return list((item): AssistantAttachment => {
+    const row = object(item)
+    return {
+      file_id: string(row.file_id),
+      original_filename: string(row.original_filename),
+      mime: string(row.mime),
+      size: number(row.size)
+    }
+  })(value)
+}
 export interface AssistantTurn {
   id: string
   requestId: string | null
   sequence: number
   agentName: string
   content: string
+  attachments: AssistantAttachment[]
   run: RunSnapshot
   sources: KnowledgeHit[]
 }
@@ -53,7 +73,11 @@ function parseDetail(value: unknown) {
     preparingMessage:
       preparing === null
         ? null
-        : { requestId: string(preparing.request_id), content: string(preparing.content) },
+        : {
+            requestId: string(preparing.request_id),
+            content: string(preparing.content),
+            attachments: parseAssistantAttachments(preparing.attachments)
+          },
     turns: list((v): AssistantTurn => {
       const row = object(v)
       return {
@@ -62,6 +86,7 @@ function parseDetail(value: unknown) {
         sequence: number(row.sequence),
         agentName: string(row.agent_name),
         content: string(row.content),
+        attachments: parseAssistantAttachments(row.attachments),
         run: parseRunSnapshot(row.run),
         sources: list(parseKnowledgeHit)(row.sources)
       }
@@ -101,11 +126,16 @@ export const sendAssistantMessage = (
   id: string,
   message: string,
   requestId: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  fileIds: readonly string[] = []
 ) =>
   http.request(`${base(agentId)}/${encodeURIComponent(id)}/runs`, {
     method: 'POST',
-    body: { message, client_request_id: requestId },
+    body: {
+      message,
+      client_request_id: requestId,
+      ...(fileIds.length ? { file_ids: [...fileIds] } : {})
+    },
     signal,
     decode: parseRunAdmission
   })
@@ -133,3 +163,23 @@ export const deleteAssistantConversation = (
     signal,
     decode: decodeVoid
   })
+
+export const uploadAssistantAttachment = (agentId: string, file: File, signal: AbortSignal) =>
+  http.request(`${base(agentId)}/attachments?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    body: file,
+    signal,
+    decode: parseManagedFile
+  })
+export const downloadAssistantAttachment = async (
+  agentId: string,
+  conversationId: string,
+  fileId: string,
+  signal: AbortSignal
+) =>
+  (
+    await http.open(
+      `${base(agentId)}/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(fileId)}/download`,
+      { signal }
+    )
+  ).blob()

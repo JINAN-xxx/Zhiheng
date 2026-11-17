@@ -12,11 +12,35 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
+async def checkpoint_snapshot(connection: AsyncConnection) -> dict[str, list[dict[str, object]]]:
+    rows = {}
+    for schema in ('chat_checkpoints', 'assistant_checkpoints', 'work_checkpoints'):
+        metadata = MetaData()
+        await connection.run_sync(metadata.reflect, schema=schema)
+        for table in metadata.sorted_tables:
+            rows[table.fullname] = [dict(row) for row in (await connection.execute(select(table))).mappings()]
+    return rows
+
+
+async def restore_checkpoints(connection: AsyncConnection, rows: dict[str, list[dict[str, object]]]) -> None:
+    for schema in ('chat_checkpoints', 'assistant_checkpoints', 'work_checkpoints'):
+        metadata = MetaData()
+        await connection.run_sync(metadata.reflect, schema=schema)
+        for table in metadata.sorted_tables:
+            if original := rows.get(table.fullname):
+                await connection.execute(insert(table).values(original).on_conflict_do_nothing())
+
+
 async def reconstruct(  # noqa: PLR0912 - explicit retired-column conversions stay inside this exclusive fixture
-    connection: AsyncConnection, run_upgrade: Callable[[Connection], None], *, preserve_personal_skills: bool = False
+    connection: AsyncConnection,
+    run_upgrade: Callable[[Connection], None],
+    *,
+    preserve_personal_skills: bool = False,
+    preserve_checkpoints: bool = False,
 ) -> None:
     name = await connection.scalar(text('SELECT current_database()'))
     assert isinstance(name, str) and name.startswith('core_test_'), 'Exclusive fixture database required'
+    checkpoints = await checkpoint_snapshot(connection) if preserve_checkpoints else {}
     current = MetaData()
     await connection.run_sync(current.reflect)
     rows = {
@@ -72,6 +96,8 @@ async def reconstruct(  # noqa: PLR0912 - explicit retired-column conversions st
             else:
                 statement = statement.on_conflict_do_nothing()
             await connection.execute(statement)
+    if preserve_checkpoints:
+        await restore_checkpoints(connection, checkpoints)
 
 
 async def insert_historical(session: object, row: object) -> None:

@@ -212,6 +212,8 @@ REQUIRED_MEMBERS = (
             'versions/0039_retired_runtime_fields.py',
             'versions/0040_assistant_agents.py',
             'versions/0041_work_agent.py',
+            'versions/0041_assistant_attachments.py',
+            'versions/0042_workspace_merge.py',
         )
     ),
 )
@@ -326,6 +328,8 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0039_retired_runtime_fields.py',
         '0040_assistant_agents.py',
         '0041_work_agent.py',
+        '0041_assistant_attachments.py',
+        '0042_workspace_merge.py',
     ],
 )
 def test_requires_all_database_migration_revisions(
