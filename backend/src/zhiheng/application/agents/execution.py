@@ -9,6 +9,7 @@ from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from zhiheng.application.agents.attachments import AssistantAttachments
 from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
 from zhiheng.application.knowledge.preparation import KnowledgePreparation
 from zhiheng.infrastructure.database import Database
@@ -19,6 +20,7 @@ from zhiheng.modules.agents.public import (
     AssistantExecutionSpec,
 )
 from zhiheng.modules.billing.public import UsageService, lock_billing_admission
+from zhiheng.modules.files.public import PreparedAttachment
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.knowledge.public import Hit
 from zhiheng.modules.models.public import (
@@ -76,11 +78,13 @@ class AssistantAgentService:
         *,
         input_tokens: int | None,
         timeout_seconds: float,
+        attachments: AssistantAttachments,
     ) -> None:
         self.database, self.agents, self.store = database, agents, store
         self.models, self.identity, self.runs, self.admission = models, identity, runs, admission
         self.usage, self.knowledge, self.factory, self.cleanup = usage, knowledge, factory, cleanup
         self.policy, self.input_tokens, self.timeout_seconds = policy, input_tokens, timeout_seconds
+        self.attachments = attachments
 
     @staticmethod
     def thread(owner_id: UUID, agent_id: UUID, conversation_id: UUID) -> str:
@@ -114,7 +118,10 @@ class AssistantAgentService:
             prefix_tokens=estimate_messages(prefix),
             current_tokens=estimate_messages((current,)),
         )
-        reservation = sum(len(message.content.encode()) + 16 for message in messages)
+        reservation = sum(
+            len(message.content.encode()) + 16 + sum(image.estimated_tokens for image in message.images)
+            for message in messages
+        )
         if checkpoint_id:
             if previous is None or previous.completion is None:
                 raise AppError('assistant_memory_unavailable', '助手记忆状态不完整，请新建对话', 409)
@@ -148,6 +155,8 @@ class AssistantAgentService:
         messages: tuple[ModelMessage, ...],
         request_id: UUID,
         sequence: int,
+        *,
+        attachments: tuple[PreparedAttachment, ...] = (),
     ) -> AssistantExecutionSpec:
         row = await self.store.authorize(session, principal, value.info.id, lock=True)
         if row.runtime_version != 1:
@@ -162,8 +171,13 @@ class AssistantAgentService:
             raise AppError('assistant_memory_sources_limit', '本次会话引用资料过多，请新建对话', 422)
         history_sources = list(by_chunk.values())
         await self.validate_sources(session, principal, value.config.knowledge_base_ids, history_sources)
+        file_records = previous.execution.history_files if previous else []
+        by_file = {item.file_id: item for item in [*file_records, *(item.summary for item in attachments)]}
+        if len(by_file) > MAX_MEMORY_SOURCE_REFS:
+            raise AppError('assistant_memory_files_limit', '会话附件过多，请新建对话', 422)
+        await self.attachments.validate(session, principal, list(by_file.values()), binding)
         ids = tuple([f'prefix:{index}' for index in range(len(messages) - 1)] + [str(uuid5(row.id, str(request_id)))])
-        return self.settings(
+        metadata = self.settings(
             binding,
             messages,
             message_ids=ids,
@@ -173,6 +187,7 @@ class AssistantAgentService:
             sequence=sequence,
             history_sources=history_sources,
         )
+        return metadata.model_copy(update={'history_files': list(by_file.values())})
 
     async def validate_sources(
         self, session: AsyncSession, principal: Principal, allowed: list[UUID], records: list[dict[str, object]]
@@ -239,6 +254,7 @@ class AssistantAgentService:
             ):
                 raise AppError('assistant_memory_changed', '助手记忆状态已变化，请重新发送', 409)
         await require_frozen_available(session, owner_id, frozen.skills)
+        await self.attachments.validate(session, principal, frozen.execution.history_files, request.binding)
         await self.models.bindings.resolve(session, request.binding.model_id)
         await self.validate_sources(
             session, principal, agent.knowledge_base_ids, frozen.execution.history_sources + frozen.knowledge

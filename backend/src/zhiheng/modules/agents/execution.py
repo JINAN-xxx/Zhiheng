@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from zhiheng.modules.files.public import AttachmentSummary
 from zhiheng.shared.agent import AgentSettings, Checkpoint, Counter
 
 
@@ -27,6 +28,7 @@ class AssistantExecutionSpec(AgentSettings):
     base_run_id: UUID | None = None
     sequence: Annotated[int, Field(strict=True, ge=0)] = 0
     history_sources: list[dict[str, object]] = Field(default_factory=list)
+    history_files: list[AttachmentSummary] = Field(default_factory=list)
     summary_used: bool = Field(default=False, strict=True)
     completion: AgentCompletion | None = None
 

@@ -10,10 +10,17 @@ import {
   PlusOutlined,
   ArrowUpOutlined,
   BorderOutlined,
-  HistoryOutlined
+  HistoryOutlined,
+  PaperClipOutlined,
+  CloseOutlined,
+  FileTextOutlined
 } from '@ant-design/icons-vue'
 import { useRouter } from 'vue-router'
 import { AiMessage } from '../../chat/public.ts'
+import { CHAT_FILE_ACCEPT } from '../../../shared/attachmentQueue.ts'
+import { ref } from 'vue'
+import { formatFileSize } from '../../files/public.ts'
+import AssistantMessageFiles from '../components/AssistantMessageFiles.vue'
 import { KnowledgeSources, preparationFinished } from '../../knowledge/public.ts'
 import { identity } from '../../identity/public.ts'
 import { isTerminal, runStatusLabel } from '../../../shared/stream.ts'
@@ -24,6 +31,11 @@ import { useAssistantWorkspace } from '../composables/useAssistantWorkspace.ts'
 const router = useRouter()
 const {
   agentId,
+  queuedFiles,
+  fileQueueReady,
+  addFiles,
+  removeFile,
+  retryFile,
   agent,
   conversations,
   selected,
@@ -62,6 +74,21 @@ const {
   renamed,
   removed
 } = useAssistantWorkspace()
+const fileInput = ref<HTMLInputElement | null>(null)
+function chooseFiles(event: Event): void {
+  const input = event.target as HTMLInputElement
+  if (input.files) addFiles(input.files)
+  input.value = ''
+}
+function pasteFiles(event: ClipboardEvent): void {
+  if (event.clipboardData?.files.length) {
+    event.preventDefault()
+    addFiles(event.clipboardData.files)
+  }
+}
+function dropFiles(event: DragEvent): void {
+  if (event.dataTransfer?.files.length) addFiles(event.dataTransfer.files)
+}
 </script>
 
 <template>
@@ -136,6 +163,11 @@ const {
       <template v-for="turn in turns" :key="turn.id">
         <article class="message-row user assistant-chat__question">
           <div class="message-body">
+            <AssistantMessageFiles
+              :agent-id="agentId"
+              :conversation-id="selected?.id ?? null"
+              :files="turn.attachments"
+            />
             <p class="user-message">{{ turn.content }}</p>
           </div>
         </article>
@@ -160,6 +192,12 @@ const {
       <template v-if="outgoingVisible && outgoing">
         <article class="message-row user assistant-chat__question">
           <div class="message-body">
+            <AssistantMessageFiles
+              :agent-id="agentId"
+              :conversation-id="outgoing.conversationId"
+              :files="outgoing.attachments"
+              disabled
+            />
             <p class="user-message">{{ outgoing.content }}</p>
           </div>
         </article>
@@ -216,7 +254,16 @@ const {
         </div>
       </article>
     </section>
-    <footer class="composer">
+    <footer class="composer" @dragover.prevent @drop.prevent="dropFiles">
+      <input
+        ref="fileInput"
+        type="file"
+        multiple
+        :accept="CHAT_FILE_ACCEPT"
+        aria-label="选择助手附件"
+        class="attachment-input"
+        @change="chooseFiles"
+      />
       <div v-if="agent?.status === 'disabled'" class="composer-notice">
         <AAlert
           v-if="agent?.status === 'disabled'"
@@ -226,7 +273,40 @@ const {
         />
       </div>
       <div class="composer-surface">
-        <div class="composer-input-area">
+        <div v-if="queuedFiles.length" class="assistant-file-queue" aria-label="待发送附件">
+          <div v-for="file in queuedFiles" :key="file.id" class="queued-file">
+            <FileTextOutlined /><span class="queued-file-name"
+              >{{ file.fileName
+              }}<small
+                >{{ formatFileSize(file.sizeBytes) }} ·
+                {{
+                  file.status === 'uploading'
+                    ? '上传中'
+                    : file.status === 'failed'
+                      ? file.error
+                      : '已就绪'
+                }}</small
+              ></span
+            >
+            <AButton
+              v-if="file.status === 'failed'"
+              size="small"
+              type="link"
+              :disabled="!canSend || !!pending"
+              @click="retryFile(file.id)"
+              >重试</AButton
+            >
+            <AButton
+              type="text"
+              size="small"
+              :disabled="!canSend || !!pending"
+              :aria-label="'移除附件：' + file.fileName"
+              @click="removeFile(file.id)"
+              ><CloseOutlined
+            /></AButton>
+          </div>
+        </div>
+        <div class="composer-input-area" @paste="pasteFiles">
           <ATextarea
             v-model:value="draft"
             aria-label="发送给助手的消息"
@@ -238,6 +318,15 @@ const {
           />
         </div>
         <div class="composer-actions">
+          <AButton
+            class="attachment-button"
+            type="text"
+            aria-label="添加助手附件"
+            title="每条消息附件合计最多50MB，单个文件最大20MiB；图片需要模型支持视觉"
+            :disabled="!canSend || !!pending"
+            @click="fileInput?.click()"
+            ><PaperClipOutlined />添加附件</AButton
+          >
           <AButton
             v-if="running"
             class="composer-submit"
@@ -254,7 +343,9 @@ const {
             type="primary"
             aria-label="发送"
             title="发送消息（Enter），Shift + Enter 换行"
-            :disabled="!canSend || !draft.trim() || !!pending"
+            :disabled="
+              !canSend || (!draft.trim() && !queuedFiles.length) || !fileQueueReady || !!pending
+            "
             :loading="sending"
             @click="send()"
             ><ArrowUpOutlined
@@ -266,6 +357,55 @@ const {
 </template>
 
 <style scoped>
+.attachment-input {
+  display: none;
+}
+.attachment-button {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.assistant-file-queue {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+  padding: 12px 20px 0;
+}
+.assistant-file-queue::-webkit-scrollbar {
+  display: none;
+}
+.queued-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  max-width: 330px;
+  padding: 7px 9px;
+  border: 1px solid var(--gray-150);
+  border-radius: 9px;
+  font-size: 13px;
+}
+.queued-file > .anticon {
+  font-size: 16px;
+  color: var(--main-color);
+}
+.queued-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queued-file-name small {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
 .assistant-chat {
   --workspace-font-size-chat: 17px;
   --workspace-line-height-chat: 1.8;

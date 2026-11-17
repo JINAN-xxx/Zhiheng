@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from zhiheng.modules.agents.contracts import AgentConfig
 from zhiheng.modules.agents.execution import AssistantExecutionSpec
 from zhiheng.modules.agents.orm import Agent, AgentRunAudit, AssistantConversation, AssistantTurn
+from zhiheng.modules.files.public import AttachmentSummary
 from zhiheng.modules.skills.public import SkillSelection, resolve_selection
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -38,6 +39,7 @@ class AssistantTurnInfo(BaseModel):
     request_id: UUID
     sequence: int
     content: str
+    attachments: list[AttachmentSummary] = Field(default_factory=list)
     run_id: UUID
     agent_name: str
     sources: list[dict[str, object]] = Field(default_factory=list)
@@ -163,6 +165,7 @@ class AssistantConversations:
         sequence: int,
         sources: list[dict[str, object]],
         agent_name: str,
+        attachments: tuple[AttachmentSummary, ...] = (),
     ) -> None:
         row = await self.authorize(session, principal, conversation_id)
         session.add(
@@ -173,6 +176,7 @@ class AssistantConversations:
                 sequence=sequence,
                 agent_name=agent_name,
                 content=content,
+                attachments=[item.model_dump(mode='json') for item in attachments],
                 run_id=run_id,
                 sources=sources,
             )

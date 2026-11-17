@@ -711,7 +711,7 @@ async def test_derived_artifact_maintenance_recovers_verified_bytes_without_publ
 
 
 async def test_historical_and_new_images_share_admitted_context_budget(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import random
     from io import BytesIO
@@ -746,6 +746,8 @@ async def test_historical_and_new_images_share_admitted_context_budget(
         'client_request_id': str(uuid4()),
     }
     container = app.state.container
+    # This tests admission/retention limits; processing eight real images can exceed the shared 2s test deadline.
+    monkeypatch.setattr(container.run_executor, '_timeout', 30)
     tables = ('runtime_runs', 'chat_messages', 'file_references', 'developer_invocations', 'runtime_outbox')
     container.chat_context.input_tokens = 8192
     async with container.database.sessions() as session:

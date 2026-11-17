@@ -15,7 +15,8 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
     },
     'chat_files': {'upload': 'chat:use'},
     'assistant_conversations': {
-        **dict.fromkeys(('list_conversations', 'conversation_detail'), 'agents:read'),
+        **dict.fromkeys(('list_conversations', 'conversation_detail', 'download_attachment'), 'agents:read'),
+        'upload_attachment': 'agents:use',
         **dict.fromkeys(
             ('create_conversation', 'send_message', 'rename_conversation', 'delete_conversation'), 'agents:use'
         ),
