@@ -42,6 +42,7 @@ const moduleIcons = {
 const groups = computed(() => primaryNavigation(identity.value))
 const groupIds = new Set(navigationGroups.map((group) => group.id))
 const closedGroups = ref<string[]>([])
+const routeExpandedGroup = ref<string | null>(null)
 const preferenceKey = computed(() =>
   identity.value ? `zhiheng:primary-navigation:${encodeURIComponent(identity.value.id)}` : null
 )
@@ -75,14 +76,26 @@ function active(path: string): boolean {
 function isGroupActive(group: NavigationGroup): boolean {
   return group.items.some((item) => active(item.path))
 }
+const activeGroupId = computed(() => groups.value.find(isGroupActive)?.id ?? null)
+watch(
+  [activeGroupId, preferenceKey],
+  ([groupId, key], [, previousKey]) => {
+    routeExpandedGroup.value = key === previousKey ? groupId : null
+  },
+  { flush: 'sync' }
+)
 function isGroupExpanded(group: NavigationGroup): boolean {
-  return props.collapsed || isGroupActive(group) || !closedGroups.value.includes(group.id)
+  return (
+    props.collapsed ||
+    routeExpandedGroup.value === group.id ||
+    !closedGroups.value.includes(group.id)
+  )
 }
 function toggleGroup(group: NavigationGroup): void {
-  if (isGroupActive(group)) return
-  closedGroups.value = closedGroups.value.includes(group.id)
-    ? closedGroups.value.filter((id) => id !== group.id)
-    : [...closedGroups.value, group.id]
+  closedGroups.value = isGroupExpanded(group)
+    ? [...new Set([...closedGroups.value, group.id])]
+    : closedGroups.value.filter((id) => id !== group.id)
+  if (routeExpandedGroup.value === group.id) routeExpandedGroup.value = null
   if (!preferenceKey.value) return
   try {
     window.localStorage.setItem(preferenceKey.value, JSON.stringify(closedGroups.value))
@@ -125,10 +138,10 @@ function toggleGroup(group: NavigationGroup): void {
           v-if="!collapsed"
           type="button"
           class="platform-nav-group-title"
+          :class="{ 'has-active-page': isGroupActive(group) && !isGroupExpanded(group) }"
           :aria-label="group.title"
           :aria-expanded="isGroupExpanded(group)"
           :aria-controls="`${navigationId}-${group.id}`"
-          :disabled="isGroupActive(group)"
           @click="toggleGroup(group)"
         >
           <span>{{ group.title }}</span>
@@ -240,11 +253,13 @@ function toggleGroup(group: NavigationGroup): void {
   text-align: left;
   cursor: pointer;
 }
-.platform-nav-group-title:hover:not(:disabled) {
+.platform-nav-group-title:hover {
   background: var(--gray-50);
 }
-.platform-nav-group-title:disabled {
-  cursor: default;
+.platform-nav-group-title.has-active-page {
+  background: var(--main-30);
+  color: var(--main-color);
+  font-weight: 500;
 }
 .platform-nav-group-chevron {
   font-size: 10px;
