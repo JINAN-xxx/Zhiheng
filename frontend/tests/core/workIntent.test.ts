@@ -35,13 +35,12 @@ void test('unknown Agent admission retains key, files and original CAS when deta
     first.clientRequestId
   )
 })
-void test('creation intent freezes model, skill selection and code execution grant', () => {
+void test('creation intent freezes model and skill selection', () => {
   let ids = 0
   const draft = {
     goal: 'goal',
     modelId: 'model-a',
-    skillSlugs: ['a', 'b'],
-    allowCodeExecution: false
+    skillSlugs: ['a', 'b']
   }
   const first = nextCreateIntent(null, draft, () => `intent-${++ids}`)
   draft.skillSlugs.push('later')
@@ -57,7 +56,7 @@ void test('creation intent freezes model, skill selection and code execution gra
     first.clientRequestId
   )
   assert.notEqual(
-    nextCreateIntent(first, { ...draft, allowCodeExecution: true }, () => `intent-${++ids}`)
+    nextCreateIntent(first, { ...draft, skillSlugs: ['different'] }, () => `intent-${++ids}`)
       .clientRequestId,
     first.clientRequestId
   )

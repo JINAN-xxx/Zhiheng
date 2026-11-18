@@ -14,6 +14,7 @@ from zhiheng.modules.billing.public import UsageService
 from zhiheng.modules.files.public import FileService, WorkspaceReader
 from zhiheng.modules.identity.public import IdentityService
 from zhiheng.modules.models.public import ModelService, SummaryPolicy
+from zhiheng.modules.search.public import WebSearch
 from zhiheng.modules.skills.public import SkillService
 from zhiheng.modules.work.public import WorkAgentStore, WorkspaceAgentKernel
 from zhiheng.runtime.runs import RunStore
@@ -50,3 +51,4 @@ class WorkAgentContext:
     policy: WorkspacePolicy
     model_executor: Callable[[UUID], Awaitable[None]] | None = None
     checkpoint_cleanup: Callable[[str], Awaitable[None]] | None = None
+    web_search: WebSearch | None = None

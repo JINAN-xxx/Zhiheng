@@ -7,8 +7,7 @@ import {
   Alert as AAlert,
   Button as AButton,
   Select as ASelect,
-  Spin as ASpin,
-  Textarea as ATextarea
+  Spin as ASpin
 } from 'ant-design-vue'
 import {
   HistoryOutlined,
@@ -19,8 +18,6 @@ import {
   FileTextOutlined,
   PictureOutlined,
   AppstoreOutlined,
-  ArrowUpOutlined,
-  BorderOutlined,
   SettingOutlined
 } from '@ant-design/icons-vue'
 import { runStatusLabel } from '../../../shared/stream.ts'
@@ -28,6 +25,7 @@ import { useChatWorkspace } from '../public.ts'
 import ChatHistoryDialog from '../components/ChatHistoryDialog.vue'
 import ChatGenerationSettingsDialog from '../components/ChatGenerationSettingsDialog.vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
+import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
 import { SkillIdentityIcon, SkillPicker } from '../../skills/public.ts'
 import { formatFileSize } from '../../files/public.ts'
 import AiMessage from '../components/AiMessage.vue'
@@ -115,7 +113,7 @@ async function newConversation(): Promise<void> {
   await selectConversation(null)
 }
 const fileInput = ref<HTMLInputElement | null>(null)
-const composerSurface = ref<HTMLElement | null>(null)
+const composerSurface = ref<InstanceType<typeof ConversationComposer> | null>(null)
 const fileQueue = ref<HTMLElement | null>(null)
 const queuedFileBytes = computed(() =>
   queuedFiles.value.reduce((total, file) => total + file.sizeBytes, 0)
@@ -137,7 +135,7 @@ function scrollFiles(direction: -1 | 1): void {
 }
 const skillPicker = ref<{ handleKeydown: (event: KeyboardEvent) => boolean } | null>(null)
 function focusDraft(): void {
-  composerSurface.value?.querySelector('textarea')?.focus()
+  composerSurface.value?.focus()
 }
 function composerKeydown(event: KeyboardEvent): void {
   if (event.isComposing || event.keyCode === 229) return
@@ -356,59 +354,85 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </section>
-      <footer v-if="canUseChat || running" class="composer">
-        <aside v-if="inputIssue" class="composer-notice" role="alert" aria-label="发送提示">
-          <AAlert
-            type="warning"
-            :message="inputIssue.title"
-            show-icon
-            closable
-            @close="dismissInputIssue"
-          >
-            <template #description>
-              <p>{{ inputIssue.description }}</p>
-              <small v-if="inputIssue.statistics">{{ inputIssue.statistics }}</small>
-              <div class="composer-notice-actions">
-                <AButton type="link" size="small" @click="focusDraft">调整内容</AButton>
-                <AButton type="link" size="small" @click="settingsOpen = true">对话设置</AButton>
-              </div>
-            </template>
-          </AAlert>
-        </aside>
-        <div
-          v-if="(!modelOptions.length && !listLoading) || sending || showRunStatus"
-          class="composer-context"
+      <ConversationComposer
+        v-if="canUseChat || running"
+        ref="composerSurface"
+        v-model="draft"
+        :disabled="!canUseChat || sending || readOnly"
+        :running="running"
+        :sending="sending"
+        :stopping="stopping"
+        :stop-disabled="stopAcknowledged"
+        :selecting-skills="skillPickerOpen"
+        :submit-disabled="
+          (!draft.trim() && !queuedFiles.length) ||
+          !modelId ||
+          loading ||
+          listLoading ||
+          !historyReady ||
+          !fileQueueReady ||
+          regenerationPending ||
+          canRetry ||
+          readOnly
+        "
+        @keydown="composerKeydown"
+        @send="send()"
+        @stop="stop"
+      >
+        <template #notice>
+          <aside v-if="inputIssue" class="composer-notice" role="alert" aria-label="发送提示">
+            <AAlert
+              type="warning"
+              :message="inputIssue.title"
+              show-icon
+              closable
+              @close="dismissInputIssue"
+            >
+              <template #description>
+                <p>{{ inputIssue.description }}</p>
+                <small v-if="inputIssue.statistics">{{ inputIssue.statistics }}</small>
+                <div class="composer-notice-actions">
+                  <AButton type="link" size="small" @click="focusDraft">调整内容</AButton>
+                  <AButton type="link" size="small" @click="settingsOpen = true">对话设置</AButton>
+                </div>
+              </template>
+            </AAlert>
+          </aside></template
         >
-          <span v-if="!modelOptions.length && !listLoading" class="muted small"
-            >暂无可用模型，请联系管理员配置</span
+        <template #context>
+          <div
+            v-if="(!modelOptions.length && !listLoading) || sending || showRunStatus"
+            class="composer-context"
           >
-          <div class="composer-context-actions">
-            <span v-if="sending || showRunStatus" class="run-state" role="status">{{
-              sending ? '提交中' : activeRun ? runStatusLabel[activeRun.status] : ''
+            <span v-if="!modelOptions.length && !listLoading" class="muted small"
+              >暂无可用模型，请联系管理员配置</span
+            >
+            <div class="composer-context-actions">
+              <span v-if="sending || showRunStatus" class="run-state" role="status">{{
+                sending ? '提交中' : activeRun ? runStatusLabel[activeRun.status] : ''
+              }}</span>
+            </div>
+          </div>
+          <div v-if="readOnly" class="archived-actions">
+            <span class="archived-message">{{
+              selected?.archived
+                ? '会话已归档，取消归档后可继续对话。'
+                : '会话状态待核对，请刷新会话。'
             }}</span>
           </div>
-        </div>
-        <div v-if="readOnly" class="archived-actions">
-          <span class="archived-message">{{
-            selected?.archived
-              ? '会话已归档，取消归档后可继续对话。'
-              : '会话状态待核对，请刷新会话。'
-          }}</span>
-        </div>
-        <input
-          ref="fileInput"
-          class="chat-file-input"
-          type="file"
-          :accept="CHAT_FILE_ACCEPT"
-          multiple
-          aria-label="选择附件文件"
-          @change="chooseFiles"
-        />
-        <div
-          ref="composerSurface"
-          class="composer-surface"
-          :class="{ 'is-selecting-skills': skillPickerOpen }"
-        >
+        </template>
+        <template #before-surface>
+          <input
+            ref="fileInput"
+            class="chat-file-input"
+            type="file"
+            :accept="CHAT_FILE_ACCEPT"
+            multiple
+            aria-label="选择附件文件"
+            @change="chooseFiles"
+          />
+        </template>
+        <template #overlay>
           <SkillPicker
             v-if="canUseChat && canUseCapability('skills', 'use')"
             ref="skillPicker"
@@ -417,184 +441,138 @@ onBeforeUnmount(() => {
             :disabled="running || sending || loading || readOnly"
             @selected="handleSkillSelected"
             @dismiss="focusDraft"
-          />
-          <div class="composer-input-area">
+        /></template>
+        <template #prefix>
+          <div
+            v-if="queuedFiles.length"
+            class="file-queue-container"
+            :class="{ 'has-previous': !fileQueueEdges.left, 'has-next': !fileQueueEdges.right }"
+          >
             <div
-              v-if="queuedFiles.length"
-              class="file-queue-container"
-              :class="{ 'has-previous': !fileQueueEdges.left, 'has-next': !fileQueueEdges.right }"
+              ref="fileQueue"
+              class="file-queue"
+              role="region"
+              aria-label="待发送附件"
+              tabindex="0"
             >
               <div
-                ref="fileQueue"
-                class="file-queue"
-                role="region"
-                aria-label="待发送附件"
-                tabindex="0"
+                v-for="file in queuedFiles"
+                :key="file.id"
+                class="queued-file"
+                :class="{ 'has-error': file.status === 'failed' }"
               >
-                <div
-                  v-for="file in queuedFiles"
-                  :key="file.id"
-                  class="queued-file"
-                  :class="{ 'has-error': file.status === 'failed' }"
-                >
-                  <img
-                    v-if="file.previewUrl"
-                    :src="file.previewUrl"
-                    :alt="file.fileName"
-                    class="queued-file-preview"
-                  />
-                  <PictureOutlined v-else-if="file.kind === 'image'" class="queued-file-icon" />
-                  <FileTextOutlined v-else class="queued-file-icon" />
-                  <div class="queued-file-details">
-                    <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
-                    <span class="queued-file-status" role="status">{{
-                      file.status === 'ready'
-                        ? `${attachmentType(file.fileName)} · ${formatFileSize(file.sizeBytes)}`
-                        : file.status === 'uploading'
-                          ? '上传中…'
-                          : '上传失败'
-                    }}</span>
-                    <span v-if="file.error" class="queued-file-error">{{ file.error }}</span>
-                  </div>
-                  <AButton
-                    v-if="file.status === 'failed'"
-                    size="small"
-                    :disabled="sending || running || readOnly"
-                    @click="retryFile(file.id)"
-                    >重新上传</AButton
-                  >
-                  <AButton
-                    type="text"
-                    :aria-label="`移除附件：${file.fileName}`"
-                    :disabled="sending || running"
-                    @click="removeFile(file.id)"
-                    ><CloseOutlined
-                  /></AButton>
+                <img
+                  v-if="file.previewUrl"
+                  :src="file.previewUrl"
+                  :alt="file.fileName"
+                  class="queued-file-preview"
+                />
+                <PictureOutlined v-else-if="file.kind === 'image'" class="queued-file-icon" />
+                <FileTextOutlined v-else class="queued-file-icon" />
+                <div class="queued-file-details">
+                  <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
+                  <span class="queued-file-status" role="status">{{
+                    file.status === 'ready'
+                      ? `${attachmentType(file.fileName)} · ${formatFileSize(file.sizeBytes)}`
+                      : file.status === 'uploading'
+                        ? '上传中…'
+                        : '上传失败'
+                  }}</span>
+                  <span v-if="file.error" class="queued-file-error">{{ file.error }}</span>
                 </div>
-              </div>
-              <button
-                v-if="!fileQueueEdges.left"
-                class="file-queue-scroll file-queue-scroll--previous"
-                type="button"
-                aria-label="向左查看附件"
-                @click="scrollFiles(-1)"
-              >
-                <LeftOutlined aria-hidden="true" />
-              </button>
-              <button
-                v-if="!fileQueueEdges.right"
-                class="file-queue-scroll file-queue-scroll--next"
-                type="button"
-                aria-label="向右查看附件"
-                @click="scrollFiles(1)"
-              >
-                <RightOutlined aria-hidden="true" />
-              </button>
-            </div>
-            <p v-if="queuedFiles.length" class="file-queue-usage" aria-label="附件总大小">
-              {{ formatFileSize(queuedFileBytes) }} / 50 MB
-            </p>
-            <div v-if="selectedSkills.length" class="selected-skills" aria-label="已选技能">
-              <span v-for="skill in selectedSkills" :key="skill.skillSlug" class="selected-skill">
-                <SkillIdentityIcon :slug="skill.skillSlug" plain />
-                <span class="selected-skill-name" :title="skill.skillName">{{
-                  skill.skillName
-                }}</span>
-                <button
-                  type="button"
-                  :aria-label="`移除技能：${skill.skillName}`"
-                  :disabled="running || sending || readOnly"
-                  @click="removeSkill(skill.skillSlug)"
+                <AButton
+                  v-if="file.status === 'failed'"
+                  size="small"
+                  :disabled="sending || running || readOnly"
+                  @click="retryFile(file.id)"
+                  >重新上传</AButton
                 >
-                  <CloseOutlined aria-hidden="true" />
-                </button>
-              </span>
+                <AButton
+                  type="text"
+                  :aria-label="`移除附件：${file.fileName}`"
+                  :disabled="sending || running"
+                  @click="removeFile(file.id)"
+                  ><CloseOutlined
+                /></AButton>
+              </div>
             </div>
-            <ATextarea
-              v-model:value="draft"
-              :auto-size="{ minRows: 2, maxRows: 6 }"
-              :maxlength="16000"
-              :disabled="!canUseChat || sending || readOnly"
-              placeholder="输入消息，或选择技能开始"
-              aria-label="消息内容"
-              @keydown="composerKeydown"
-            />
+            <button
+              v-if="!fileQueueEdges.left"
+              class="file-queue-scroll file-queue-scroll--previous"
+              type="button"
+              aria-label="向左查看附件"
+              @click="scrollFiles(-1)"
+            >
+              <LeftOutlined aria-hidden="true" />
+            </button>
+            <button
+              v-if="!fileQueueEdges.right"
+              class="file-queue-scroll file-queue-scroll--next"
+              type="button"
+              aria-label="向右查看附件"
+              @click="scrollFiles(1)"
+            >
+              <RightOutlined aria-hidden="true" />
+            </button>
           </div>
-          <div class="composer-actions">
-            <div class="composer-tools">
-              <AButton
-                v-if="canUseChat"
-                type="text"
-                :disabled="sending || running || loading || readOnly"
-                aria-label="添加图片或附件"
-                title="每条消息附件合计最多50MB，单个文件最大20MiB"
-                @click="fileInput?.click()"
-                ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
-              >
+          <p v-if="queuedFiles.length" class="file-queue-usage" aria-label="附件总大小">
+            {{ formatFileSize(queuedFileBytes) }} / 50 MB
+          </p>
+          <div v-if="selectedSkills.length" class="selected-skills" aria-label="已选技能">
+            <span v-for="skill in selectedSkills" :key="skill.skillSlug" class="selected-skill">
+              <SkillIdentityIcon :slug="skill.skillSlug" plain />
+              <span class="selected-skill-name" :title="skill.skillName">{{
+                skill.skillName
+              }}</span>
               <button
-                v-if="canUseChat && canUseCapability('skills', 'use')"
                 type="button"
-                class="composer-skill-trigger"
-                :class="{ 'is-active': skillPickerOpen }"
-                :disabled="running || sending || loading || readOnly"
-                aria-label="选择技能"
-                :aria-expanded="skillPickerOpen"
-                title="选择技能，也可输入 @"
-                @click="skillPickerOpen = !skillPickerOpen"
+                :aria-label="`移除技能：${skill.skillName}`"
+                :disabled="running || sending || readOnly"
+                @click="removeSkill(skill.skillSlug)"
               >
-                <AppstoreOutlined aria-hidden="true" /><span class="composer-tool-label">技能</span>
+                <CloseOutlined aria-hidden="true" />
               </button>
-              <span v-if="draft.length >= 14000" class="composer-hint"
-                >{{ draft.length }} / 16000</span
-              >
-            </div>
-            <div class="composer-controls">
-              <ASelect
-                :value="modelId"
-                class="model-select"
-                :options="modelOptions"
-                show-search
-                option-filter-prop="label"
-                aria-label="选择模型"
-                placeholder="选择平台模型"
-                :disabled="!canUseChat || running || sending || loading"
-                @update:value="setModelId"
-              />
-              <AButton
-                v-if="running"
-                class="composer-submit"
-                :loading="stopping"
-                :disabled="stopAcknowledged"
-                aria-label="停止生成"
-                title="停止生成"
-                @click="stop"
-                ><BorderOutlined
-              /></AButton>
-              <AButton
-                v-else
-                class="composer-submit"
-                type="primary"
-                :loading="sending"
-                :disabled="
-                  (!draft.trim() && !queuedFiles.length) ||
-                  !modelId ||
-                  loading ||
-                  listLoading ||
-                  !historyReady ||
-                  !fileQueueReady ||
-                  regenerationPending ||
-                  canRetry ||
-                  readOnly
-                "
-                aria-label="发送消息"
-                title="发送消息（Enter），Shift + Enter 换行"
-                @click="send()"
-                ><ArrowUpOutlined
-              /></AButton>
-            </div>
+            </span>
           </div>
-        </div>
-      </footer>
+        </template>
+        <template #tools>
+          <AButton
+            v-if="canUseChat"
+            type="text"
+            :disabled="sending || running || loading || readOnly"
+            aria-label="添加图片或附件"
+            title="每条消息附件合计最多50MB，单个文件最大20MiB"
+            @click="fileInput?.click()"
+            ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
+          >
+          <button
+            v-if="canUseChat && canUseCapability('skills', 'use')"
+            type="button"
+            class="composer-skill-trigger"
+            :class="{ 'is-active': skillPickerOpen }"
+            :disabled="running || sending || loading || readOnly"
+            aria-label="选择技能"
+            :aria-expanded="skillPickerOpen"
+            title="选择技能，也可输入 @"
+            @click="skillPickerOpen = !skillPickerOpen"
+          >
+            <AppstoreOutlined aria-hidden="true" /><span class="composer-tool-label">技能</span>
+          </button>
+          <span v-if="draft.length >= 14000" class="composer-hint">{{ draft.length }} / 16000</span>
+        </template>
+        <template #controls>
+          <ASelect
+            :value="modelId"
+            class="model-select"
+            :options="modelOptions"
+            show-search
+            option-filter-prop="label"
+            aria-label="选择模型"
+            placeholder="选择平台模型"
+            :disabled="!canUseChat || running || sending || loading"
+            @update:value="setModelId"
+        /></template>
+      </ConversationComposer>
     </main>
     <MessageShareDialog
       v-if="shareMessageId"
@@ -605,6 +583,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="scss">
+@use '../../../shared/styles/conversation' as conversation;
+@include conversation.page('.platform-chat');
+@include conversation.toolbar;
+@include conversation.history;
+@include conversation.messages;
+
 .reply-versions {
   display: flex;
   align-items: center;
@@ -649,27 +633,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-secondary);
   font-size: 13px;
 }
-.platform-chat {
-  --workspace-font-size-chat: 17px;
-  --workspace-line-height-chat: 1.8;
-  --chat-column-width: 920px;
-  --chat-gutter: 24px;
-  --chat-composer-padding: 20px;
-  --chat-inset: calc(var(--chat-gutter) + var(--chat-composer-padding) + 1px);
-  position: relative;
-  height: 100%;
-  display: flex;
-  overflow: hidden;
-  color: var(--color-text);
-  background: var(--bg-container);
-  font-family: var(--workspace-font-family);
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 
 .run-state,
 .message-meta,
@@ -677,35 +640,6 @@ onBeforeUnmount(() => {
 .composer-hint {
   color: var(--color-text-secondary);
   font-size: 12px;
-}
-.message-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.message-run-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--color-text-secondary);
-}
-.message-run-status::before {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
-}
-.message-run-status.is-failed {
-  color: var(--color-error-700);
-}
-.message-body .run-error,
-.empty-reply {
-  margin: 10px 0 0;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
 }
 
 .chat-workspace {
@@ -730,43 +664,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-.model-select {
-  flex: 1;
-  width: min(220px, 100%);
-  min-width: 0;
-}
-
-.chat-toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  min-height: 70px;
-  padding: 12px 24px;
-}
-.chat-toolbar-action {
-  flex-shrink: 0;
-}
-button.chat-toolbar-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: var(--workspace-control-height);
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-}
-button.chat-toolbar-action:hover,
 .toolbar-icon-button:hover {
   background: var(--gray-50);
 }
-button.chat-toolbar-action:focus-visible,
 .toolbar-icon-button:focus-visible {
   outline: 2px solid var(--main-color);
   outline-offset: 2px;
@@ -831,55 +731,6 @@ button.chat-toolbar-action:focus-visible,
   margin-bottom: 12px;
   color: var(--color-text-secondary);
   font-size: 12px;
-}
-.message-history {
-  min-height: 0;
-  flex: 1;
-  overflow: auto;
-  padding: 24px max(var(--chat-inset), calc((100% - var(--chat-column-width)) / 2));
-  background: transparent;
-}
-
-.message-row {
-  align-items: flex-start;
-  display: flex;
-  max-width: var(--chat-column-width);
-  margin: 0 auto 30px;
-}
-
-.message-row.user {
-  justify-content: flex-end;
-}
-
-.message-body {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.message-row.assistant .message-body {
-  flex: 1;
-}
-
-.message-row.user .message-body {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  text-align: left;
-  max-width: 85%;
-}
-
-.user-message {
-  margin: 0;
-  padding: 10px 18px;
-  max-width: 100%;
-  border: 0;
-  border-radius: 18px;
-  background: #262626;
-  color: #fff;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
 }
 
 .message-skills,
@@ -1090,83 +941,6 @@ button.chat-toolbar-action:focus-visible,
   margin-top: 6px;
 }
 
-.composer {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  min-height: 0;
-  // Keep the toolbar, conversation heading and part of the history visible.
-  max-height: calc(100% - 180px);
-  width: min(calc(var(--chat-column-width) + var(--chat-inset) * 2), 100%);
-  align-self: center;
-  padding: 10px var(--chat-gutter) 12px;
-  background: transparent;
-}
-
-.composer-surface {
-  display: flex;
-  min-height: 0;
-  flex: 0 1 auto;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
-  border-radius: 24px;
-  background: var(--bg-container);
-  box-shadow: none;
-  transition:
-    border-color 0.18s,
-    box-shadow 0.18s;
-}
-
-.composer-surface:focus-within,
-.composer-surface.is-selecting-skills {
-  border-color: var(--main-400);
-  box-shadow:
-    0 0 0 1px var(--main-50),
-    0 4px 20px rgb(0 0 0 / 3%);
-}
-.composer-input-area {
-  min-height: 0;
-  flex: 0 1 auto;
-  overflow-y: auto;
-  padding: 16px var(--chat-composer-padding) 0;
-}
-
-.composer-surface :deep(.ant-input) {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.composer :deep(textarea) {
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
-}
-
-.composer-actions {
-  flex-shrink: 0;
-  justify-content: flex-start;
-  gap: 8px;
-  padding: 10px var(--chat-composer-padding) 12px;
-}
-
-.composer-tools,
-.composer-controls {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-tools {
-  flex: 1 1 auto;
-}
-
-.composer-controls {
-  flex: 0 1 260px;
-}
-
 .composer-hint {
   margin-left: auto;
 }
@@ -1176,34 +950,6 @@ button.chat-toolbar-action:focus-visible,
   display: inline-flex;
 }
 
-.composer-submit {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 19px;
-}
-.composer-submit:not(:disabled) {
-  border-color: #262626;
-  background: #262626;
-  color: #fff;
-}
-.composer-submit:not(:disabled):hover {
-  border-color: #434343;
-  background: #434343;
-}
-
-.model-select :deep(.ant-select-selector) {
-  border-color: transparent;
-  border-radius: 10px;
-  background: transparent;
-  box-shadow: none;
-}
-.composer-actions :deep(.ant-btn-text) {
-  border-radius: 9px;
-  color: var(--color-text-secondary);
-}
 .composer-skill-trigger {
   display: inline-flex;
   height: 36px;
@@ -1237,17 +983,8 @@ button.chat-toolbar-action:focus-visible,
 }
 
 @media (max-width: 760px) {
-  .platform-chat {
-    --chat-gutter: 14px;
-    --chat-composer-padding: 16px;
-  }
   .chat-workspace {
     padding: 0;
-  }
-  .chat-toolbar,
-  .composer {
-    padding-right: 14px;
-    padding-left: 14px;
   }
 }
 
@@ -1279,11 +1016,6 @@ button.chat-toolbar-action:focus-visible,
 }
 .chat-alert :deep(.ant-btn) {
   margin: 0 8px 8px 0;
-}
-.chat-session-heading {
-  padding: 10px 28px 0;
-  color: var(--color-text-tertiary);
-  font-size: 12px;
 }
 @media (max-width: 760px) {
   .message-actions {

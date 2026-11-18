@@ -48,4 +48,5 @@ class WorkspaceAgentKernel(Protocol):
         input_budget: int | None,
         trigger_tokens: int,
         keep_tokens: int,
+        web_search_enabled: bool = False,
     ) -> AgentKernelOutcome: ...

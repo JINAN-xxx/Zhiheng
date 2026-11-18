@@ -59,6 +59,7 @@ from zhiheng.bootstrap.adapters import (
     create_models,
     create_parser,
     create_vector_store,
+    create_web_search,
     create_workspace_checkpoint_cleanup,
     create_workspace_kernel,
     create_workspace_reader,
@@ -336,6 +337,7 @@ class Container:
                 kernel=create_workspace_kernel(settings),
                 sandbox=self.sandbox,
                 reader=create_workspace_reader(),
+                web_search=create_web_search(settings),
                 checkpoint_cleanup=create_workspace_checkpoint_cleanup(settings),
                 policy=WorkspacePolicy(
                     run_seconds=settings.sandbox_run_seconds,

@@ -137,10 +137,7 @@ async def test_greeting_uses_real_agent_checkpoints_and_metered_children_without
     assert detail['execution_state'] == 'completed'
     assert [item['role'] for item in detail['messages']] == ['user', 'assistant']
     assert len(workspace_provider.requests) == 2
-    assert all(
-        'run_python' not in [item['function']['name'] for item in request.get('tools', [])]
-        for request in workspace_provider.requests
-    )
+    assert 'run_python' in [item['function']['name'] for item in workspace_provider.requests[0].get('tools', [])]
     assert (await admin.get('/api/usage')).json()['used_tokens'] == 40
 
 
@@ -213,7 +210,6 @@ async def test_live_model_generates_and_publishes_verified_artifact(
             'client_request_id': str(uuid4()),
             'model_id': model.json()['id'],
             'goal': goal,
-            'allow_code_execution': True,
         },
     )
     assert created.status_code == 201, created.text
@@ -292,7 +288,6 @@ async def test_real_office_artifacts_preview_and_immutable_continuation(
             'client_request_id': str(uuid4()),
             'model_id': model_id,
             'goal': 'CSV OFFICE TASK',
-            'allow_code_execution': True,
         },
     )
     assert created.status_code == 201, created.text
@@ -383,19 +378,18 @@ async def test_work_use_does_not_grant_execute_code(
             },
         )
         assert accepted.status_code == 201, accepted.text
-        denied = await client.post(
-            '/api/work/tasks',
-            json={
-                'client_request_id': str(uuid4()),
-                'model_id': model_id,
-                'goal': 'execute task',
-                'allow_code_execution': True,
-            },
-        )
-        assert denied.status_code == 403 and denied.json()['error']['code'] == 'forbidden', denied.text
         options = await client.get('/api/work/options')
         assert options.status_code == 200 and options.json()['can_execute_code'] is False
-    assert not workspace_provider.requests
+        task = accepted.json()
+        run = await turn(client, task, str(task['goal']), initial=True)
+        await consume(app)
+        final = (await client.get(f'/api/work/tasks/{task["id"]}/runs/{run["id"]}')).json()
+        assert final['status'] == 'completed', final
+    assert workspace_provider.requests
+    assert all(
+        'run_python' not in [item['function']['name'] for item in request.get('tools', [])]
+        for request in workspace_provider.requests
+    )
 
 
 @pytest.mark.skipif(not all(os.getenv(key) for key in SANDBOX_VARIABLES), reason='Real OpenSandbox opt-in is required')
@@ -411,7 +405,6 @@ async def test_agent_repairs_rejected_empty_output_and_publishes_successfully(
             'client_request_id': str(uuid4()),
             'model_id': model_id,
             'goal': 'REPAIR TASK',
-            'allow_code_execution': True,
         },
     )
     assert created.status_code == 201, created.text

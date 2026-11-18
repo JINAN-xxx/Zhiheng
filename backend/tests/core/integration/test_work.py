@@ -6,9 +6,12 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from tests.core.legacy_work import legacy_task, legacy_turn, legacy_work_request, published
 from tests.core.permission_support import account, grants
+from zhiheng.bootstrap.migrations import migrate
+from zhiheng.bootstrap.settings import Settings
 
 
 def create_body(model_id: str, goal: str = '分析资料') -> dict[str, object]:
@@ -16,7 +19,6 @@ def create_body(model_id: str, goal: str = '分析资料') -> dict[str, object]:
         'goal': goal,
         'model_id': model_id,
         'skill_slugs': [],
-        'allow_code_execution': False,
         'client_request_id': str(uuid4()),
     }
 
@@ -60,7 +62,7 @@ async def test_upload_first_draft_reads_files_without_code_execution(admin: http
     assert uploaded.status_code == 201, uploaded.text
     current = uploaded.json()
     assert current['version'] == 2 and len(current['inputs']) == 1
-    assert not current['configuration']['allow_code_execution']
+    assert set(current['configuration']) == {'model_id', 'skill_slugs'}
     file_id = current['inputs'][0]['file_id']
     download = await admin.get(endpoint + '/inputs/' + file_id + '/download')
     assert download.status_code == 200 and download.content == '部门,金额\n研发,120\n'.encode()
@@ -147,3 +149,23 @@ async def test_work_query_accepts_positive_decimal_versions_only(admin: httpx.As
     for value in ('0', '-1', '1.0', '1e2', 'true', '10000000000'):
         assert (await admin.get('/api/work/tasks', params={field: value})).status_code == 422
     assert (await admin.get('/api/work/tasks', params={'page': '1', 'page_size': '20'})).status_code == 200
+
+
+@pytest.mark.parametrize('previous_opt_in', [False, True])
+async def test_execution_opt_in_migration_preserves_existing_tasks(
+    admin: httpx.AsyncClient, app: FastAPI, settings: Settings, model_id: str, previous_opt_in: bool
+) -> None:
+    task = (await admin.post('/api/work/tasks', json=create_body(model_id, '迁移前已有任务'))).json()
+    async with app.state.container.database.sessions.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE work_tasks SET configuration = configuration || jsonb_build_object('allow_code_execution', CAST(:enabled AS boolean)) WHERE id = CAST(:id AS uuid)"
+            ),
+            {'enabled': previous_opt_in, 'id': task['id']},
+        )
+        await session.execute(text("UPDATE alembic_version SET version_num = '0042_workspace_merge'"))
+    await migrate(settings)
+    current = await admin.get('/api/work/tasks/' + task['id'])
+    assert current.status_code == 200, current.text
+    assert current.json()['goal'] == task['goal']
+    assert current.json()['configuration'] == {'model_id': model_id, 'skill_slugs': []}

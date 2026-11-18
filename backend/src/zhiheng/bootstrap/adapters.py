@@ -28,6 +28,8 @@ from zhiheng.modules.knowledge.adapters.milvus import MilvusStore
 from zhiheng.modules.knowledge.public import GraphPort, VectorPort
 from zhiheng.modules.models.adapters.factory import create_provider
 from zhiheng.modules.models.public import ModelProvider, ModelService
+from zhiheng.modules.search.adapters.bocha import BochaSearch
+from zhiheng.modules.search.public import WebSearch
 from zhiheng.modules.work.public import WorkspaceAgentKernel
 from zhiheng.shared.agent import AgentSettings
 
@@ -42,6 +44,10 @@ def create_workspace_kernel(settings: Settings) -> WorkspaceAgentKernel:
 
 def create_workspace_reader() -> WorkspaceReader:
     return WorkspaceFileReader()
+
+
+def create_web_search(settings: Settings) -> WebSearch:
+    return BochaSearch(settings.bocha_api_key, timeout=settings.web_search_timeout_seconds)
 
 
 def create_workspace_checkpoint_cleanup(settings: Settings) -> Callable[[str], Awaitable[None]]:

@@ -5,21 +5,9 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { saveBlob } from '../../files/public.ts'
 import { downloadDocument, previewDocument } from '../api/index.ts'
 import type { KnowledgeHit } from '../api/index.ts'
+import { groupKnowledgeSources } from '../citations.ts'
 const props = defineProps<{ sources: KnowledgeHit[] }>()
-const sourceDocuments = computed(() => {
-  const documents = new Map<string, { key: string; source: KnowledgeHit; hits: KnowledgeHit[] }>()
-  for (const hit of props.sources) {
-    // Group by document identity, keeping the first hit's rank and each fragment's order.
-    const key = JSON.stringify([hit.knowledge_base_id, hit.document_id])
-    let document = documents.get(key)
-    if (!document) {
-      document = { key, source: hit, hits: [] }
-      documents.set(key, document)
-    }
-    if (!document.hits.some((value) => value.chunk_id === hit.chunk_id)) document.hits.push(hit)
-  }
-  return [...documents.values()]
-})
+const sourceDocuments = computed(() => groupKnowledgeSources(props.sources))
 const preview = reactive({
   open: false,
   title: '',
@@ -75,6 +63,12 @@ async function download(): Promise<void> {
     if (ticket.isCurrent()) preview.downloading = false
   }
 }
+defineExpose({
+  showCitation: async (number: number) => {
+    const document = sourceDocuments.value.find((item) => item.number === number)
+    if (document) await show(document.source)
+  }
+})
 onBeforeUnmount(() => {
   scope.dispose()
   downloadScope.dispose()
@@ -95,7 +89,7 @@ onBeforeUnmount(() => {
           class="knowledge-sources__title"
           :aria-label="'查看来源：' + document.source.title"
           @click="show(document.source)"
-          >{{ document.source.title }}</a-button
+          >[{{ document.number }}] {{ document.source.title }}</a-button
         >
         <details class="knowledge-sources__fragments">
           <summary>命中 {{ document.hits.length }} 个片段</summary>
@@ -140,7 +134,8 @@ onBeforeUnmount(() => {
 }
 .knowledge-sources__documents {
   margin: 8px 0;
-  padding-left: 20px;
+  padding-left: 0;
+  list-style: none;
 }
 .knowledge-sources__document {
   margin-bottom: 10px;

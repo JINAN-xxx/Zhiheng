@@ -47,7 +47,7 @@ async function newWork(): Promise<void> {
   historyOpen.value = false
 }
 async function loadCurrentTask(): Promise<void> {
-  if (taskId.value) await workStore.loadTask(taskId.value)
+  if (taskId.value) await Promise.all([workStore.loadTask(taskId.value), workStore.loadOptions()])
 }
 async function navigateCreated(task: WorkTask): Promise<boolean> {
   createdNavigationTaskId = task.taskId
@@ -139,10 +139,10 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
   <div class="work-view">
     <WorkHistoryDialog v-model:open="historyOpen" />
     <main class="work-view__content">
-      <header class="work-view__toolbar">
+      <header class="chat-toolbar work-view__toolbar">
         <button
           type="button"
-          class="work-view__history-button"
+          class="chat-toolbar-action"
           aria-label="工作记录"
           title="工作记录"
           aria-haspopup="dialog"
@@ -150,14 +150,19 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
           :aria-expanded="historyOpen"
           @click="historyOpen = true"
         >
-          <HistoryOutlined aria-hidden="true" />工作记录</button
+          <HistoryOutlined aria-hidden="true" /><span class="chat-toolbar__label"
+            >工作记录</span
+          ></button
         ><AButton
           v-if="canUseCapability('work', 'create')"
           type="text"
+          class="chat-toolbar-action"
           aria-label="新建工作"
           title="新建工作"
           @click="newWork"
-          ><PlusOutlined aria-hidden="true" />新建工作</AButton
+          ><PlusOutlined aria-hidden="true" /><span class="chat-toolbar__label"
+            >新建工作</span
+          ></AButton
         >
       </header>
       <div class="work-view__body">
@@ -195,6 +200,7 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
           :options-loading="workStore.optionsLoading"
           :options-error="workStore.optionsError"
           :uploading="workStore.uploading"
+          :mutating="workStore.mutating"
           :initial-message="draftMessage"
           @retry-options="workStore.loadOptions"
           @send="sendMessage"
@@ -221,18 +227,10 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
     </main>
   </div>
 </template>
-<style scoped>
-.work-view {
-  --workspace-font-size-chat: 17px;
-  --workspace-line-height-chat: 1.8;
-  min-height: 100%;
-  height: 100%;
-  display: flex;
-  position: relative;
-  overflow: hidden;
-  background: var(--bg-container);
-  font-family: var(--workspace-font-family);
-}
+<style scoped lang="scss">
+@use '../../../shared/styles/conversation' as conversation;
+@include conversation.page('.work-view');
+@include conversation.toolbar;
 .work-view__loading {
   margin: auto;
 }
@@ -250,49 +248,14 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .work-view__body > :deep(.work-task-page) {
   flex: 1;
   min-height: 0;
 }
 .work-view__error {
-  margin: 8px 20px;
+  margin: 8px 24px;
   flex-shrink: 0;
-}
-.work-view__toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  min-height: 62px;
-  padding: 10px 24px;
-}
-.work-view__history-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: var(--workspace-control-height);
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-  cursor: pointer;
-}
-.work-view__history-button:hover {
-  background: var(--gray-50);
-}
-.work-view__history-button:focus-visible {
-  outline: 2px solid var(--main-color);
-  outline-offset: 2px;
-}
-@media (max-width: 760px) {
-  .work-view__toolbar {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
 }
 </style>

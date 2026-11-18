@@ -4,7 +4,6 @@ export interface WorkDraft {
   goal: string
   modelId: string | null
   skillSlugs: string[]
-  allowCodeExecution: boolean
 }
 export interface CreateIntent extends WorkDraft {
   clientRequestId: string
@@ -45,7 +44,6 @@ export function nextCreateIntent(
     previous &&
     previous.goal === goal &&
     previous.modelId === draft.modelId &&
-    previous.allowCodeExecution === draft.allowCodeExecution &&
     sameSet(previous.skillSlugs, draft.skillSlugs)
   )
     return previous
@@ -53,12 +51,11 @@ export function nextCreateIntent(
     goal,
     modelId: draft.modelId,
     skillSlugs: [...draft.skillSlugs],
-    allowCodeExecution: draft.allowCodeExecution,
     clientRequestId: createId()
   }
 }
 export function emptyWorkDraft(): WorkDraft {
-  return { goal: '', modelId: null, skillSlugs: [], allowCodeExecution: false }
+  return { goal: '', modelId: null, skillSlugs: [] }
 }
 function validText(value: string, maxLength: number, maxBytes = 65536): boolean {
   const trimmed = value.trim()

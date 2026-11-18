@@ -1,10 +1,16 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
-  <section v-if="open" class="skill-picker-panel" aria-label="选择技能" @keydown="handleKeydown">
+  <section
+    v-if="open"
+    class="skill-picker-panel"
+    aria-label="选择技能"
+    :aria-busy="busy"
+    @keydown="handleKeydown"
+  >
     <div class="skill-picker-header">
       <div class="skill-picker-heading">
-        <strong>我的技能</strong>
-        <span>已选 {{ modelValue.length }} / 5</span>
+        <strong>选择技能</strong>
+        <span>已选 {{ selectedSlugs.size }} / 5</span>
       </div>
       <label class="skill-picker-search">
         <SearchOutlined aria-hidden="true" />
@@ -49,36 +55,44 @@
         aria-multiselectable="true"
       >
         <template v-if="!loading && !error">
-          <button
-            v-for="(skill, index) in filteredSkills"
-            :id="optionId(skill.skillSlug)"
-            :key="skill.skillSlug"
-            type="button"
-            role="option"
-            tabindex="-1"
-            class="skill-option"
-            :class="{
-              'is-selected': selectedSlugs.has(skill.skillSlug),
-              'is-active': index === activeIndex
-            }"
-            :aria-label="skill.skillName"
-            :aria-describedby="`${optionId(skill.skillSlug)}-description`"
-            :aria-selected="selectedSlugs.has(skill.skillSlug)"
-            @focus="activeIndex = index"
-            @click="toggle(skill)"
-          >
-            <SkillIdentityIcon :slug="skill.skillSlug" plain />
-            <strong :title="skill.skillName">{{ skill.skillName }}</strong>
-            <span
-              :id="`${optionId(skill.skillSlug)}-description`"
-              class="skill-option__description"
-              :title="skill.description"
-              >{{ skill.description || '暂无说明' }}</span
+          <template v-for="(skill, index) in filteredSkills" :key="skill.skillSlug">
+            <div
+              v-if="index === 0 || skill.sourceType !== filteredSkills[index - 1]?.sourceType"
+              class="skill-picker-group"
+              role="presentation"
             >
-            <span class="skill-option__check" aria-hidden="true">
-              <CheckOutlined v-if="selectedSlugs.has(skill.skillSlug)" />
-            </span>
-          </button>
+              {{ skill.sourceType === 'builtin' ? '预置技能' : '我的技能' }}
+            </div>
+            <button
+              :id="optionId(skill.skillSlug)"
+              type="button"
+              role="option"
+              tabindex="-1"
+              class="skill-option"
+              :class="{
+                'is-selected': selectedSlugs.has(skill.skillSlug),
+                'is-active': index === activeIndex
+              }"
+              :aria-label="skill.skillName"
+              :aria-describedby="`${optionId(skill.skillSlug)}-description`"
+              :aria-selected="selectedSlugs.has(skill.skillSlug)"
+              :disabled="disabled || busy"
+              @focus="activeIndex = index"
+              @click="toggle(skill)"
+            >
+              <SkillIdentityIcon :slug="skill.skillSlug" plain />
+              <strong :title="skill.skillName">{{ skill.skillName }}</strong>
+              <span
+                :id="`${optionId(skill.skillSlug)}-description`"
+                class="skill-option__description"
+                :title="skill.description"
+                >{{ skill.description || '暂无说明' }}</span
+              >
+              <span class="skill-option__check" aria-hidden="true">
+                <CheckOutlined v-if="selectedSlugs.has(skill.skillSlug)" />
+              </span>
+            </button>
+          </template>
         </template>
       </div>
     </div>
@@ -94,9 +108,19 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import SkillIdentityIcon from './SkillIdentityIcon.vue'
 import { listAvailableSkills } from '../api/index.ts'
 import type { Skill } from '../api/index.ts'
-const props = defineProps<{ modelValue: Skill[]; open: boolean; disabled: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue?: Skill[]
+    slugs?: string[] | null
+    open: boolean
+    disabled: boolean
+    busy?: boolean
+  }>(),
+  { modelValue: () => [], slugs: null, busy: false }
+)
 const emit = defineEmits<{
   'update:modelValue': [value: Skill[]]
+  'update:slugs': [value: string[]]
   'update:open': [value: boolean]
   selected: [skill: Skill]
   dismiss: []
@@ -111,12 +135,16 @@ const listElement = ref<HTMLElement | null>(null)
 const listId = `chat-skills-${useId()}`
 const optionId = (slug: string) => `${listId}-${slug}`
 const scope = new RequestScope()
-const selectedSlugs = computed(() => new Set(props.modelValue.map((skill) => skill.skillSlug)))
+const selectedSlugs = computed(
+  () => new Set(props.slugs ?? props.modelValue.map((skill) => skill.skillSlug))
+)
 const filteredSkills = computed(() => {
   const text = keyword.value.trim().toLowerCase()
-  return skills.value.filter((skill) =>
-    `${skill.skillName} ${skill.description}`.toLowerCase().includes(text)
-  )
+  return skills.value
+    .filter((skill) => `${skill.skillName} ${skill.description}`.toLowerCase().includes(text))
+    .sort(
+      (left, right) => Number(left.sourceType === 'upload') - Number(right.sourceType === 'upload')
+    )
 })
 const activeSkill = computed(() =>
   loading.value || error.value ? undefined : filteredSkills.value[activeIndex.value]
@@ -135,7 +163,21 @@ async function load(): Promise<void> {
   }
 }
 function toggle(skill: Skill): void {
-  if (props.disabled || !props.open) return
+  if (props.disabled || props.busy || !props.open) return
+  if (props.slugs !== null) {
+    if (selectedSlugs.value.has(skill.skillSlug)) {
+      emit(
+        'update:slugs',
+        props.slugs.filter((slug) => slug !== skill.skillSlug)
+      )
+    } else if (selectedSlugs.value.size < 5) {
+      emit('update:slugs', [...props.slugs, skill.skillSlug])
+      emit('selected', skill)
+    } else {
+      void message.warning('最多选择 5 个技能')
+    }
+    return
+  }
   if (selectedSlugs.value.has(skill.skillSlug)) {
     emit(
       'update:modelValue',
@@ -170,7 +212,8 @@ function handleKeydown(event: KeyboardEvent): boolean {
   if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) return false
   event.preventDefault()
   event.stopPropagation()
-  if (props.disabled || loading.value || error.value || !filteredSkills.value.length) return true
+  if (props.disabled || props.busy || loading.value || error.value || !filteredSkills.value.length)
+    return true
   if (event.key === 'Enter') {
     if (activeSkill.value) toggle(activeSkill.value)
   } else {
@@ -298,6 +341,11 @@ defineExpose({ handleKeydown })
 .skill-picker-results :deep(.workspace-state) {
   min-height: 100px;
   padding: 12px;
+}
+.skill-picker-group {
+  padding: 10px 10px 5px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
 }
 .skill-option {
   display: flex;

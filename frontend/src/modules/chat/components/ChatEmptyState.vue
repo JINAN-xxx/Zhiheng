@@ -2,17 +2,20 @@
 <template>
   <section class="chat-empty-state">
     <span class="chat-empty-state__symbol" aria-hidden="true"><CommentOutlined /></span>
-    <h2>有什么可以帮你？</h2>
-    <div class="chat-starters">
-      <a-button aria-label="总结内容" @click="emit('prompt', '帮我梳理这段内容的关键观点：')"
-        ><FileTextOutlined />总结内容</a-button
-      >
-      <a-button aria-label="解释代码" @click="emit('prompt', '帮我解释这段代码：')"
-        ><CodeOutlined />解释代码</a-button
-      >
-      <a-button aria-label="整理思路" @click="emit('prompt', '帮我整理思路并给出几个可行方案：')"
-        ><BulbOutlined />整理思路</a-button
-      >
+    <h2>{{ title }}</h2>
+    <p v-if="description">{{ description }}</p>
+    <div v-if="showStarters" class="chat-starters">
+      <slot name="starters">
+        <a-button aria-label="总结内容" @click="emit('prompt', '帮我梳理这段内容的关键观点：')"
+          ><FileTextOutlined />总结内容</a-button
+        >
+        <a-button aria-label="解释代码" @click="emit('prompt', '帮我解释这段代码：')"
+          ><CodeOutlined />解释代码</a-button
+        >
+        <a-button aria-label="整理思路" @click="emit('prompt', '帮我整理思路并给出几个可行方案：')"
+          ><BulbOutlined />整理思路</a-button
+        >
+      </slot>
     </div>
   </section>
 </template>
@@ -25,6 +28,11 @@ import {
   FileTextOutlined
 } from '@ant-design/icons-vue'
 import { Button as AButton } from 'ant-design-vue'
+withDefaults(defineProps<{ title?: string; description?: string; showStarters?: boolean }>(), {
+  title: '有什么可以帮你？',
+  description: '',
+  showStarters: true
+})
 const emit = defineEmits<{ prompt: [value: string] }>()
 </script>
 

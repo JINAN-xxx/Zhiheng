@@ -2,6 +2,7 @@ import { defineAsyncComponent } from 'vue'
 export { knowledgeRoutes } from './routes.ts'
 export { projectPreparation } from './preparation.ts'
 export { parseHit as parseKnowledgeHit } from './api/index.ts'
+export { formatKnowledgeCitations, groupKnowledgeSources } from './citations.ts'
 export const KnowledgePicker = defineAsyncComponent(
   () => import('./components/KnowledgePicker.vue')
 )

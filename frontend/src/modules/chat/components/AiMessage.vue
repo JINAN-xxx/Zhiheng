@@ -1,6 +1,6 @@
 <!-- Adapted from original AiMessage.vue, MIT licensed. -->
 <template>
-  <div class="ai-message-container">
+  <div class="ai-message-container" @click="followCitation">
     <div v-if="reasoningContent" class="reasoning-section">
       <button
         type="button"
@@ -14,7 +14,7 @@
       </button>
       <div v-show="isReasoningExpanded" class="reasoning-content">
         <MarkdownRender
-          :content="reasoningContent"
+          :content="displayReasoning"
           html-policy="safe"
           :is-dark="false"
           :final="!loading"
@@ -27,7 +27,7 @@
     </div>
     <div class="ai-message-content message-content">
       <MarkdownRender
-        :content="content"
+        :content="displayContent"
         html-policy="safe"
         :is-dark="false"
         :final="!loading"
@@ -37,6 +37,7 @@
         @copy="copyMarkdownCode"
       />
     </div>
+    <KnowledgeSources v-if="sources.length" ref="sourceList" :sources="sources" />
     <div v-if="loading && !content && !reasoningContent" class="typing-indicator">
       <span></span>
       <span></span>
@@ -47,7 +48,9 @@
 
 <script setup lang="ts">
 import { copyMarkdownCode } from '../../../shared/markdownClipboard.ts'
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
+import { KnowledgeSources, formatKnowledgeCitations } from '../../knowledge/public.ts'
+import type { KnowledgeHit } from '../../knowledge/public.ts'
 import { MarkdownRender } from 'markstream-vue'
 import { RightOutlined } from '@ant-design/icons-vue'
 import { enableKatex, enableMermaid } from 'markstream-vue'
@@ -57,20 +60,38 @@ import 'katex/dist/katex.min.css'
 enableMermaid()
 enableKatex()
 
-const props = defineProps({
-  content: {
-    type: String,
-    default: ''
-  },
-  reasoningContent: {
-    type: String,
-    default: ''
-  },
-  loading: {
-    type: Boolean,
-    default: false
-  }
-})
+const props = withDefaults(
+  defineProps<{
+    content?: string
+    reasoningContent?: string
+    loading?: boolean
+    sources?: KnowledgeHit[]
+  }>(),
+  { content: '', reasoningContent: '', loading: false, sources: () => [] }
+)
+const sourceList = ref<{ showCitation: (number: number) => Promise<void> } | null>(null)
+const citationPrefix = `#knowledge-source-${useId().replace(/[^a-z0-9_-]/gi, '')}-`
+const displayContent = computed(() =>
+  formatKnowledgeCitations(props.content, props.sources, {
+    linkPrefix: citationPrefix,
+    loading: props.loading
+  })
+)
+const displayReasoning = computed(() =>
+  formatKnowledgeCitations(props.reasoningContent, props.sources, {
+    linkPrefix: citationPrefix,
+    loading: props.loading
+  })
+)
+function followCitation(event: MouseEvent): void {
+  const anchor = event.target instanceof Element ? event.target.closest('a') : null
+  const href = anchor?.getAttribute('href') ?? ''
+  if (!href.startsWith(citationPrefix)) return
+  const suffix = href.slice(citationPrefix.length)
+  if (!/^[1-9]\d*$/.test(suffix)) return
+  event.preventDefault()
+  void sourceList.value?.showCitation(Number(suffix))
+}
 
 const isReasoningExpanded = ref(false)
 

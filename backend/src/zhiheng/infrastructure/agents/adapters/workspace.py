@@ -5,7 +5,7 @@ import json
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
 from langchain.agents import create_agent
@@ -278,7 +278,7 @@ def _tool(context: _ExecutionContext, name: str, description: str, fields: dict[
     return StructuredTool.from_function(coroutine=invoke, name=name, description=description, args_schema=schema)
 
 
-def _tools(context: _ExecutionContext, code_enabled: bool) -> list[StructuredTool]:
+def _tools(context: _ExecutionContext, code_enabled: bool, web_search_enabled: bool = False) -> list[StructuredTool]:
     required_id = (str, Field(min_length=1, description='当前任务中的文件编号'))
     values = [
         _tool(context, 'list_inputs', '查看当前任务的输入、成果版本及可用文件编号。', {}),
@@ -324,6 +324,19 @@ def _tools(context: _ExecutionContext, code_enabled: bool) -> list[StructuredToo
             },
         ),
     ]
+    if web_search_enabled:
+        values.append(
+            _tool(
+                context,
+                'web_search',
+                '搜索公开网页。按任务需要查询最新信息，返回标题、真实URL、摘要、网站和发布时间。摘要不是网页全文，引用时使用实际返回的链接。',
+                {
+                    'query': (str, Field(min_length=1, max_length=1000, description='必要的公开信息搜索关键词')),
+                    'count': (int, Field(default=5, ge=1, le=10, strict=True)),
+                    'freshness': (Literal['noLimit', 'oneDay', 'oneWeek', 'oneMonth', 'oneYear'], 'noLimit'),
+                },
+            )
+        )
     if code_enabled:
         values.extend(
             [
@@ -381,6 +394,7 @@ class WorkspaceKernel:
         input_budget: int | None,
         trigger_tokens: int,
         keep_tokens: int,
+        web_search_enabled: bool = False,
     ) -> AgentKernelOutcome:
         context = _ExecutionContext(invoke_tool, skill_texts)
         model = _WorkspaceModel(invoke_model)
@@ -390,7 +404,7 @@ class WorkspaceKernel:
                 trigger=('tokens', trigger_tokens),
                 keep=('tokens', keep_tokens),
                 token_counter=_tokens,
-                summary_prompt='用中文压缩历史，保留任务目标、约束、文件编号、已确认结果、失败和下一步。只总结已有事实。\n\n{messages}',
+                summary_prompt='用中文压缩历史，保留任务目标、约束、文件编号、网页来源链接与日期、已确认结果、失败和下一步。只总结已有事实。\n\n{messages}',
             ),
             TodoListMiddleware(
                 system_prompt='复杂任务先维护任务清单；用真实工具结果核对进度。简单问答直接回答。不要提前标记完成。'
@@ -400,7 +414,7 @@ class WorkspaceKernel:
         async with self.checkpoints.saver() as saver:
             graph = create_agent(
                 model,
-                tools=_tools(context, code_enabled),
+                tools=_tools(context, code_enabled, web_search_enabled),
                 state_schema=WorkspaceState,
                 checkpointer=saver,
                 middleware=middleware,

@@ -8,9 +8,10 @@ from zhiheng.modules.work.public import normalize_work_fact
 from zhiheng.shared.errors import AppError
 
 
-def test_upload_first_draft_has_explicit_model_and_no_implicit_code_permission() -> None:
+def test_upload_first_draft_has_model_without_task_local_execution_policy() -> None:
     draft = CreateAgentTask(model_id=uuid4(), client_request_id=uuid4())
-    assert draft.goal == '' and draft.file_ids == [] and not draft.allow_code_execution
+    assert draft.goal == '' and draft.file_ids == []
+    assert set(AgentTaskConfiguration.model_fields) == {'model_id', 'skill_slugs'}
 
 
 @pytest.mark.parametrize('value', [True, False, 0, 1.0, '1', -1, None])
@@ -36,8 +37,8 @@ def test_native_skill_selection_limit_and_uniqueness_are_preserved() -> None:
         AgentTaskConfiguration(model_id=uuid4(), skill_slugs=['same', 'same'])
 
 
-@pytest.mark.parametrize('value', ['yes', 1, None])
-def test_code_execution_opt_in_requires_a_real_boolean(value: object) -> None:
+@pytest.mark.parametrize('value', [True, False, 'yes', 1, None])
+def test_retired_code_execution_opt_in_is_not_accepted(value: object) -> None:
     with pytest.raises(ValidationError):
         AgentTaskConfiguration.model_validate({'model_id': str(uuid4()), 'allow_code_execution': value})
 

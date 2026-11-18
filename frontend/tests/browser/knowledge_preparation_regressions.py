@@ -102,7 +102,7 @@ class WorkKnowledgePreparation(WorkUIRegressions):
 
     async def test_new_task_uses_workspace_options_without_knowledge_retrieval(self):
         self.task.update(mode='agent', model_id='model-1', preparation_id=None,
-                         configuration={'model_id':'model-1','skill_slugs':[],'allow_code_execution':False})
+                         configuration={'model_id':'model-1','skill_slugs':[]})
         await self.open_task()
         text=self.page.get_by_role('textbox',name='工作消息',exact=True)
         await text.fill('分析这些资料')

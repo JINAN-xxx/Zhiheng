@@ -444,7 +444,7 @@ async def test_valid_publication_does_not_hide_an_unresolved_command_failure() -
 @pytest.mark.asyncio
 async def test_finalize_restores_latest_outputs_even_without_a_tool_callback() -> None:
     tools = make_tools()
-    tools.claim.payload['configuration'] = {'allow_code_execution': True}
+    tools.service.guard.return_value = Principal(tools.principal.id, 'owner', True)
     files = [{'path': 'outputs/report.txt', 'file_id': str(uuid4()), 'sha256': 'report'}]
     tools.context.tasks.latest_workspace_files.return_value = workspace_state(9, files)
     with patch.object(tools, '_publish', AsyncMock(return_value={'success': True})) as publish:
@@ -455,10 +455,8 @@ async def test_finalize_restores_latest_outputs_even_without_a_tool_callback() -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('code_enabled', [False, True])
-async def test_finalize_without_outputs_keeps_greeting_free_of_sandbox(code_enabled: bool) -> None:
+async def test_finalize_without_outputs_keeps_greeting_free_of_sandbox() -> None:
     tools = make_tools()
-    tools.claim.payload['configuration'] = {'allow_code_execution': code_enabled}
     with patch.object(tools, '_publish', AsyncMock()) as publish:
         await tools.finalize_outputs()
     publish.assert_not_awaited()
@@ -562,9 +560,20 @@ async def test_old_failed_cache_does_not_reblock_latest_repaired_state(order: tu
 @pytest.mark.parametrize('resume', [False, True])
 async def test_zero_tool_resume_keeps_unresolved_failures_and_new_turn_clears_them(resume: bool) -> None:
     tools = make_tools()
-    tools.claim.payload.update({'resume': resume, 'configuration': {'allow_code_execution': True}})
+    tools.claim.payload.update({'resume': resume})
     tools.context.tasks.latest_workspace_files.return_value = workspace_state(5, [], failed=('execution',))
     with patch.object(tools, '_publish', AsyncMock()) as publish:
         await tools.finalize_outputs()
     assert tools.blocking is resume
     publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_finalize_read_only_conversation_does_not_start_sandbox_for_old_outputs() -> None:
+    tools = make_tools()
+    files = [{'path': 'outputs/report.txt', 'file_id': str(uuid4()), 'sha256': 'report'}]
+    tools.context.tasks.latest_workspace_files.return_value = workspace_state(9, files)
+    with patch.object(tools, '_publish', AsyncMock()) as publish:
+        await tools.finalize_outputs()
+    publish.assert_not_awaited()
+    tools.service.guard.assert_awaited_once_with(tools.claim)

@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Alert as AAlert, Button as AButton, Textarea as ATextarea } from 'ant-design-vue'
-import { PaperClipOutlined, PlayCircleOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
+import { Alert as AAlert, Button as AButton, Select as ASelect } from 'ant-design-vue'
+import {
+  AppstoreOutlined,
+  PlusOutlined,
+  FileTextOutlined,
+  BarChartOutlined,
+  EditOutlined
+} from '@ant-design/icons-vue'
+import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
+import { ChatEmptyState } from '../../chat/public.ts'
 import type { WorkDraft } from '../presentation.ts'
 import { validateWorkGoal } from '../presentation.ts'
 import type { WorkOptions } from '../api/index.ts'
-import WorkResourcesForm from './WorkResourcesForm.vue'
+import { canUseCapability } from '../../identity/public.ts'
+import { SkillPicker } from '../../skills/public.ts'
+import WorkSelectedSkills from './WorkSelectedSkills.vue'
 
 const props = defineProps<{
   canCreate: boolean
@@ -26,8 +36,7 @@ const draft = ref<WorkDraft>({
   skillSlugs: [...props.initialDraft.skillSlugs]
 })
 const fileInput = ref<HTMLInputElement | null>(null)
-const error = ref(''),
-  resourcesOpen = ref(false)
+const skillsOpen = ref(false)
 const blocked = computed(() => props.creating || props.uncertain)
 const hasModel = computed(
   () =>
@@ -36,10 +45,14 @@ const hasModel = computed(
 const canStart = computed(
   () => !props.creating && !!hasModel.value && validateWorkGoal(draft.value.goal).valid
 )
-const modelName = computed(
-  () =>
-    props.options?.models.find((model) => model.id === draft.value.modelId)?.name ?? '选择工作模型'
+const modelOptions = computed(() =>
+  (props.options?.models ?? []).map((model) => ({ value: model.id, label: model.name }))
 )
+const suggestions = [
+  { label: '汇总表格', prompt: '核对多份表格，生成汇总与异常清单', icon: BarChartOutlined },
+  { label: '制作报告', prompt: '整理上传资料，制作一份 Word 报告', icon: FileTextOutlined },
+  { label: '分析数据', prompt: '分析数据并制作图表，说明计算口径', icon: EditOutlined }
+]
 watch(
   () => props.options,
   (options) => {
@@ -53,253 +66,191 @@ watch(
     if (props.uncertain) draft.value = { ...saved, skillSlugs: [...saved.skillSlugs] }
   }
 )
-const suggestions = [
-  '核对多份表格，生成汇总与异常清单',
-  '整理上传资料，制作一份 Word 报告',
-  '分析数据并制作图表，说明计算口径'
-]
 function start(): void {
   if (canStart.value) emit('start', { ...draft.value, skillSlugs: [...draft.value.skillSlugs] })
+}
+function keydown(event: KeyboardEvent): void {
+  if (
+    event.key === 'Enter' &&
+    !event.isComposing &&
+    event.keyCode !== 229 &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    event.preventDefault()
+    start()
+  }
 }
 function chooseFiles(): void {
   if (!blocked.value && hasModel.value) fileInput.value?.click()
 }
 function picked(event: Event): void {
-  const target = event.target as HTMLInputElement,
-    files = [...(target.files ?? [])]
-  target.value = ''
-  if (files.length && !blocked.value) {
-    error.value = ''
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (files.length && !blocked.value)
     emit('upload', { ...draft.value, skillSlugs: [...draft.value.skillSlugs] }, files)
-  }
+}
+function selectModel(value: unknown): void {
+  if (typeof value === 'string') draft.value.modelId = value
 }
 </script>
+
 <template>
   <section class="work-empty-state">
-    <div class="work-empty-state__heading">
-      <span class="work-empty-state__symbol" aria-hidden="true"><ThunderboltOutlined /></span>
-      <h1>今天要完成什么工作？</h1>
-      <p>上传资料，描述目标，一起把工作做成成果。</p>
-    </div>
-    <div v-if="canCreate" class="work-empty-state__form">
-      <ATextarea
-        v-model:value="draft.goal"
-        aria-label="工作目标"
-        placeholder="例如：核对这几份表格，生成 Excel 汇总和 Word 分析报告"
-        :maxlength="32000"
-        :auto-size="{ minRows: 4, maxRows: 9 }"
-        :disabled="blocked"
-      />
-      <AAlert
-        v-if="uncertain"
-        type="warning"
-        show-icon
-        message="创建结果待确认，再次操作将确认原请求"
-      />
-      <AAlert
-        v-if="error || optionsError"
-        type="error"
-        show-icon
-        :message="error || optionsError"
-      />
-      <div class="work-empty-state__footer">
-        <div class="work-empty-state__tools">
+    <div class="work-empty-state__welcome">
+      <ChatEmptyState
+        title="今天要完成什么工作？"
+        description="上传资料或描述目标，一起把工作做成成果。"
+      >
+        <template #starters>
           <AButton
-            type="text"
-            aria-label="上传资料"
-            :disabled="blocked || !hasModel"
-            @click="chooseFiles"
-            ><PaperClipOutlined />上传资料</AButton
-          ><AButton
-            type="text"
-            aria-label="资源与能力"
-            :disabled="blocked"
-            :aria-expanded="resourcesOpen"
-            @click="resourcesOpen = !resourcesOpen"
-            >{{ modelName
-            }}<span v-if="draft.skillSlugs.length" class="work-empty-state__skills">
-              · {{ draft.skillSlugs.length }} 项技能</span
-            ></AButton
+            v-for="suggestion in suggestions"
+            :key="suggestion.label"
+            :disabled="!canCreate || blocked"
+            @click="draft.goal = suggestion.prompt"
+            ><component :is="suggestion.icon" />{{ suggestion.label }}</AButton
           >
-        </div>
-        <AButton
-          type="primary"
-          aria-label="开始工作"
-          :loading="creating"
-          :disabled="!canStart"
-          @click="start"
-          ><PlayCircleOutlined />{{ uncertain ? '确认创建' : '开始工作' }}</AButton
-        >
-      </div>
-      <WorkResourcesForm
-        v-if="resourcesOpen || !hasModel"
-        v-model="draft"
-        :options="options"
-        :loading="optionsLoading"
-        :error="optionsError"
-        :disabled="blocked"
-        @retry="emit('retryOptions')"
-      />
-      <input
-        ref="fileInput"
-        class="work-empty-state__file-input"
-        type="file"
-        multiple
-        aria-label="选择工作资料"
-        @change="picked"
-      />
+        </template>
+      </ChatEmptyState>
     </div>
+    <ConversationComposer
+      v-if="canCreate"
+      v-model="draft.goal"
+      input-label="工作目标"
+      placeholder="描述你想完成的工作，或先添加资料"
+      :max-length="32000"
+      :max-rows="9"
+      :disabled="blocked"
+      :sending="creating"
+      :selecting-skills="skillsOpen"
+      :submit-disabled="!canStart"
+      submit-label="开始工作"
+      @keydown="keydown"
+      @send="start"
+    >
+      <template #notice>
+        <AAlert
+          v-if="uncertain"
+          class="work-create-notice"
+          type="warning"
+          show-icon
+          message="创建结果待确认，再次操作将确认原请求"
+        />
+        <AAlert
+          v-if="optionsError"
+          class="work-create-notice"
+          type="error"
+          show-icon
+          :message="optionsError"
+          ><template #action
+            ><AButton size="small" @click="emit('retryOptions')">重试</AButton></template
+          ></AAlert
+        >
+      </template>
+      <template #before-surface
+        ><input
+          ref="fileInput"
+          class="work-file-input"
+          type="file"
+          multiple
+          aria-label="选择工作资料"
+          @change="picked"
+      /></template>
+      <template #overlay>
+        <SkillPicker
+          v-model:open="skillsOpen"
+          v-model:slugs="draft.skillSlugs"
+          :disabled="blocked"
+        />
+      </template>
+      <template #prefix>
+        <WorkSelectedSkills
+          :slugs="draft.skillSlugs"
+          :options="options"
+          :disabled="blocked"
+          @remove="draft.skillSlugs = draft.skillSlugs.filter((slug) => slug !== $event)"
+        />
+      </template>
+      <template #tools>
+        <AButton
+          type="text"
+          aria-label="添加附件"
+          :disabled="blocked || !hasModel"
+          @click="chooseFiles"
+          ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
+        >
+        <AButton
+          v-if="canUseCapability('skills', 'use')"
+          type="text"
+          aria-label="选择技能"
+          :disabled="blocked"
+          :aria-expanded="skillsOpen"
+          @click="skillsOpen = !skillsOpen"
+          ><AppstoreOutlined /><span class="composer-tool-label">技能</span></AButton
+        >
+      </template>
+      <template #controls
+        ><ASelect
+          class="model-select"
+          :value="draft.modelId ?? undefined"
+          :options="modelOptions"
+          show-search
+          option-filter-prop="label"
+          aria-label="选择工作模型"
+          placeholder="选择工作模型"
+          :loading="optionsLoading"
+          :disabled="blocked || optionsLoading"
+          @update:value="selectModel"
+      /></template>
+    </ConversationComposer>
     <AAlert
       v-else
+      class="work-readonly-notice"
       type="info"
       show-icon
       message="当前账号可查看已有任务"
       description="请从工作记录中打开任务。"
     />
-    <div v-if="canCreate" class="work-empty-state__suggestions">
-      <button
-        v-for="suggestion in suggestions"
-        :key="suggestion"
-        type="button"
-        :disabled="blocked"
-        @click="draft.goal = suggestion"
-      >
-        {{ suggestion }}
-      </button>
-    </div>
   </section>
 </template>
+
 <style scoped>
 .work-empty-state {
-  width: min(800px, calc(100% - 48px));
-  min-height: 100%;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  justify-content: center;
-  gap: 24px;
-  margin: 0 auto;
-  padding: 36px 0;
-  font-family: var(--workspace-font-family);
-}
-.work-empty-state__heading {
-  display: grid;
-  justify-items: center;
-  gap: 14px;
-  text-align: center;
-}
-.work-empty-state__symbol {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  place-items: center;
-  border: 1px solid var(--main-100);
-  border-radius: 12px;
-  background: var(--main-50);
-  color: var(--main-color);
-  font-size: 24px;
-}
-.work-empty-state h1 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 30px;
-  font-weight: 500;
-  line-height: 1.4;
-  letter-spacing: normal;
-}
-.work-empty-state__heading p {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
-}
-.work-empty-state__form {
-  display: grid;
-  gap: 16px;
-  padding: 20px;
-  border: 1px solid var(--gray-200);
-  border-radius: 16px;
-  background: var(--bg-container);
-  box-shadow: none;
-}
-.work-empty-state__form:focus-within {
-  border-color: var(--main-400);
-  box-shadow: 0 0 0 3px var(--main-50);
-}
-.work-empty-state__form :deep(.ant-input) {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
-  box-shadow: none;
-}
-.work-empty-state__footer,
-.work-empty-state__tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
-.work-empty-state__footer {
-  justify-content: space-between;
-}
-.work-empty-state__tools {
-  flex-wrap: wrap;
-}
-.work-empty-state__tools :deep(.ant-btn) {
-  padding-inline: 8px;
-}
-.work-empty-state__footer > :deep(.ant-btn) {
-  flex-shrink: 0;
-}
-.work-empty-state__skills {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.work-empty-state__suggestions {
+.work-empty-state__welcome {
   display: flex;
+  flex: 1;
+  min-height: 180px;
+  align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  padding: 24px;
+  overflow: auto;
 }
-.work-empty-state__suggestions button {
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
+.work-empty-state__welcome :deep(.chat-starters) {
+  max-width: 900px;
 }
-.work-empty-state__suggestions button:hover {
-  border-color: var(--main-200);
-  color: var(--main-color);
-}
-.work-empty-state__suggestions button:focus-visible {
-  outline: 2px solid var(--main-color);
-  outline-offset: 2px;
-}
-.work-empty-state__file-input {
+.work-file-input {
   display: none;
 }
-@media (max-width: 560px) {
-  .work-empty-state {
-    width: calc(100% - 28px);
-    padding: 24px 0;
-  }
-  .work-empty-state h1 {
-    font-size: 26px;
-  }
-  .work-empty-state__form {
-    padding: 16px;
-  }
-  .work-empty-state__footer {
-    align-items: flex-end;
-  }
-  .work-empty-state__tools {
-    gap: 0;
+.work-create-notice {
+  margin: 0 0 10px;
+  border-radius: 12px;
+}
+.work-readonly-notice {
+  margin: 12px 24px;
+}
+@media (max-width: 600px) {
+  .work-empty-state__welcome {
+    padding: 18px 14px;
   }
 }
 </style>

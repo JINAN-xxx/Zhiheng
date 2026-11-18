@@ -1,3 +1,4 @@
+export { default as ChatEmptyState } from './components/ChatEmptyState.vue'
 export { default as AiMessage } from './components/AiMessage.vue'
 export type { Conversation } from './api/index.ts'
 export { default as ChatWorkspaceProvider } from './components/ChatWorkspaceProvider.vue'

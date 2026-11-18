@@ -38,7 +38,8 @@ const names: Record<string, string> = {
   request_input: '等待补充信息',
   write_todos: '更新任务计划',
   model: '分析任务',
-  summary: '整理任务上下文'
+  summary: '整理任务上下文',
+  web_search: '搜索公开网页'
 }
 const name = (step: WorkStep) =>
   names[step.name] ?? (step.kind === 'model' ? '分析与整理' : '处理任务步骤')
@@ -47,7 +48,9 @@ const progress = computed(() =>
     ? name(currentStep.value)
     : props.busy
       ? '正在推进任务'
-      : workExecutionLabel[props.state]
+      : props.state === 'completed'
+        ? '执行过程'
+        : workExecutionLabel[props.state]
 )
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -57,7 +60,13 @@ function record(value: unknown): Record<string, unknown> | null {
 function detail(step: WorkStep): string {
   const data = record(step.result?.data),
     error = record(step.result?.error)
-  return [data?.stdout, data?.stderr, error?.message]
+  const query =
+    step.name === 'web_search' && typeof data?.query === 'string' ? `查询：${data.query}` : ''
+  const results =
+    step.name === 'web_search' && Array.isArray(data?.results)
+      ? `返回 ${data.results.length} 个搜索结果`
+      : ''
+  return [query, results, data?.stdout, data?.stderr, error?.message]
     .filter((value): value is string => typeof value === 'string' && !!value)
     .join('\n')
     .slice(0, 12000)
@@ -75,7 +84,7 @@ function code(step: WorkStep): string {
 </script>
 <template>
   <section v-if="busy || plan.length || steps.length" class="work-progress" aria-label="任务进度">
-    <details>
+    <details :open="busy">
       <summary>
         <span class="work-progress__heading"
           ><LoadingOutlined v-if="busy" spin /><CheckCircleOutlined
@@ -93,12 +102,16 @@ function code(step: WorkStep): string {
           /><span v-else class="work-progress__dot" /><span>{{ item.content }}</span>
         </li>
       </ol>
-      <details v-if="steps.length" class="work-progress__steps">
+      <details v-if="steps.length" class="work-progress__steps" :open="busy">
         <summary>查看执行记录 · {{ steps.length }} 步</summary>
         <ol>
           <li v-for="step in steps" :key="step.id">
             <div>
-              <strong>{{ name(step) }}</strong
+              <strong
+                >{{ name(step)
+                }}<code v-if="step.kind === 'tool'" class="work-progress__tool">{{
+                  step.name
+                }}</code></strong
               ><span
                 :class="{ 'is-error': step.status === 'failed' || step.status === 'unknown' }"
                 >{{ labels[step.status] ?? '已记录' }}</span
@@ -118,12 +131,8 @@ function code(step: WorkStep): string {
 </template>
 <style scoped>
 .work-progress {
-  width: min(840px, calc(100% - 40px));
-  flex-shrink: 0;
-  align-self: center;
-  margin: 12px 0 0;
-  border: 1px solid var(--gray-150);
-  border-radius: 12px;
+  width: 100%;
+  margin: 0 0 16px;
   color: var(--color-text-secondary);
   background: var(--bg-container);
   font-size: 13px;
@@ -135,7 +144,7 @@ function code(step: WorkStep): string {
   justify-content: space-between;
   gap: 12px;
   cursor: pointer;
-  padding: 12px 14px;
+  padding: 8px 0;
   list-style: none;
 }
 .work-progress summary::-webkit-details-marker {
@@ -155,7 +164,7 @@ function code(step: WorkStep): string {
   display: grid;
   gap: 10px;
   margin: 0;
-  padding: 0 14px 14px;
+  padding: 8px 0 14px;
   list-style: none;
 }
 .work-progress__plan li {
@@ -202,6 +211,11 @@ function code(step: WorkStep): string {
 .work-progress__steps strong {
   color: var(--color-text);
   font-weight: 500;
+}
+.work-progress__tool {
+  margin-left: 8px;
+  color: var(--color-text-tertiary);
+  font: 11px var(--workspace-font-mono);
 }
 .work-progress__steps p {
   margin: 5px 0 0;

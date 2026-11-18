@@ -99,6 +99,7 @@ def _rule(source: str, target: str) -> str | None:
         adapter_constructor = source == PACKAGE + '.bootstrap.adapters' and target in {
             PACKAGE + '.modules.files.adapters.native.NativeParser',
             PACKAGE + '.modules.files.adapters.workspace.WorkspaceFileReader',
+            PACKAGE + '.modules.search.adapters.bocha.BochaSearch',
             PACKAGE + '.modules.files.adapters.native.validate_document_source',
             PACKAGE + '.modules.files.adapters.mineru.MinerUClient',
             PACKAGE + '.modules.files.adapters.mineru_cloud.create_mineru_client',

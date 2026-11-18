@@ -37,7 +37,7 @@ function task(id = 'task-1', version = 1): WorkTask {
     mode: 'agent',
     modelId: 'model-a',
     executionState: 'idle',
-    configuration: { modelId: 'model-a', skillSlugs: [], allowCodeExecution: false },
+    configuration: { modelId: 'model-a', skillSlugs: [] },
     inputs: [],
     steps: [],
     artifacts: [],
@@ -65,8 +65,7 @@ function rawTask(value: WorkTask) {
     execution_state: value.executionState,
     configuration: value.configuration && {
       model_id: value.configuration.modelId,
-      skill_slugs: value.configuration.skillSlugs,
-      allow_code_execution: value.configuration.allowCodeExecution
+      skill_slugs: value.configuration.skillSlugs
     },
     inputs: value.inputs.map((input) => ({
       file_id: input.fileId,
@@ -639,20 +638,18 @@ void test('unknown task creation confirms its frozen goal, model and skills befo
     commands.createTask({
       goal: 'original',
       modelId: 'model-a',
-      skillSlugs: ['documents'],
-      allowCodeExecution: false
+      skillSlugs: ['documents']
     })
   )
   assert.equal(commands.createUncertain.value, true)
   await commands.createTask({
     goal: 'replacement',
     modelId: 'model-b',
-    skillSlugs: [],
-    allowCodeExecution: true
+    skillSlugs: []
   })
   assert.deepEqual(posted[1], posted[0])
   assert.equal(posted[0]?.model_id, 'model-a')
   assert.deepEqual(posted[0]?.skill_slugs, ['documents'])
-  assert.equal(posted[0]?.allow_code_execution, false)
+  assert.equal('allow_code_execution' in (posted[0] ?? {}), false)
   assert.equal(commands.createUncertain.value, false)
 })

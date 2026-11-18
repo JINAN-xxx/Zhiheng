@@ -79,7 +79,13 @@
           <summary>思考过程</summary>
           <div>{{ item.reasoning }}</div>
         </details>
-        <div v-if="item.content" class="preview-message__content">{{ item.content }}</div>
+        <div v-if="item.content" class="preview-message__content">
+          {{
+            item.role === 'assistant'
+              ? formatKnowledgeCitations(item.content, item.sources ?? [])
+              : item.content
+          }}
+        </div>
         <div v-if="item.status === 'cancelled'" class="preview-message__status">已停止</div>
         <KnowledgeSources v-if="item.sources" :sources="item.sources" />
       </article>
@@ -158,6 +164,7 @@ import { admitPreview, nextPreviewIntent } from '../api/index.ts'
 import type { Agent, PreviewIntent, PreviewMessage } from '../api/index.ts'
 import {
   KnowledgeSources,
+  formatKnowledgeCitations,
   cancelPreparation,
   getPreparation,
   isPreparation,
