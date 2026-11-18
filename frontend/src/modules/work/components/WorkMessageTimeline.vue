@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { AiMessage, ChatEmptyState } from '../../chat/public.ts'
-import { KnowledgeSources } from '../../knowledge/public.ts'
+import { formatKnowledgeCitations } from '../../knowledge/public.ts'
 import type { WorkMessage } from '../api/index.ts'
 import { runStatusLabel } from '../../../shared/stream.ts'
 
@@ -69,15 +69,22 @@ watch(
           </div>
           <AiMessage
             :content="message.content"
+            :sources="message.knowledgeSources"
             :reasoning-content="message.reasoningContent"
             :loading="['pending', 'running', 'cancel_requested'].includes(message.runStatus)"
           />
-          <KnowledgeSources :sources="message.knowledgeSources" />
           <p v-if="message.errorSnapshot" class="run-error">{{ message.errorSnapshot.message }}</p>
           <slot v-if="index === lastAssistant" name="artifacts" />
         </template>
         <p v-else class="user-message">{{ message.content }}</p>
-        <MessageActions :content="message.content" :role="message.role" />
+        <MessageActions
+          :content="
+            message.role === 'assistant'
+              ? formatKnowledgeCitations(message.content, message.knowledgeSources)
+              : message.content
+          "
+          :role="message.role"
+        />
       </div>
     </article>
     <article v-if="showProgress && lastAssistant < 0" class="message-row assistant">

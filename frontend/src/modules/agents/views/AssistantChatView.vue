@@ -21,7 +21,7 @@ import { CHAT_FILE_ACCEPT } from '../../../shared/attachmentQueue.ts'
 import { ref } from 'vue'
 import { formatFileSize } from '../../files/public.ts'
 import AssistantMessageFiles from '../components/AssistantMessageFiles.vue'
-import { KnowledgeSources, preparationFinished } from '../../knowledge/public.ts'
+import { preparationFinished } from '../../knowledge/public.ts'
 import { identity } from '../../identity/public.ts'
 import { isTerminal, runStatusLabel } from '../../../shared/stream.ts'
 import AssistantWelcome from '../components/AssistantWelcome.vue'
@@ -175,10 +175,10 @@ function dropFiles(event: DragEvent): void {
           <div class="message-body">
             <AiMessage
               :content="turn.run.text"
+              :sources="turn.sources"
               :reasoning-content="turn.run.reasoning ?? ''"
               :loading="!isTerminal(turn.run)"
             />
-            <KnowledgeSources :sources="turn.sources" />
             <small
               v-if="turn.run.status !== 'completed'"
               class="message-run-status"
@@ -206,6 +206,7 @@ function dropFiles(event: DragEvent): void {
             <AiMessage
               v-if="outgoingRun"
               :content="outgoingRun.text"
+              :sources="preparation?.hits ?? []"
               :reasoning-content="outgoingRun.reasoning ?? ''"
               :loading="!isTerminal(outgoingRun)"
             />

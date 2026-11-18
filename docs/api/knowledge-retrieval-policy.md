@@ -18,6 +18,10 @@
 
 ## API
 
+知识准备传给模型的引用使用 `[1]`、`[2]` 等本轮数字编号，按最终片段结果中 `(knowledge_base_id, document_id)` 首次出现的顺序编号，同一文档的多个片段共用编号。控制台正文引用与下方文档列表使用同一顺序，可点击引用预览对应资料，预览和下载继续执行原有权限检查。历史回答中与真实来源匹配的 UUID 引用会显示为数字编号，不改写已存储的回答或代码块。
+
+`hits`、助手 `sources` 中的 `source_id`、`document_id`、`file_id`、`chunk_id` 等字段仍保留真实标识，接口结构不变。API 调用方可按上述顺序建立回答引用与资料的对应关系；数字编号仅在对应回答内有效。
+
 - POST `/api/agents/knowledge-policy` 接收 `knowledge_base_ids`，逐库检查访问权限后返回 `model_id` 和 `source`；`source` 为 `knowledge_base`、`platform_default` 或 `mixed_platform_default`。
 - GET /api/knowledge/capabilities 保留 default_embedding_configured，增加 default_rerank_configured 和有效的 default_rerank_model_id。
 - PATCH /api/knowledge/settings 不接受清空默认重排；部分更新未提供该字段时，现有默认重排仍须有效。
