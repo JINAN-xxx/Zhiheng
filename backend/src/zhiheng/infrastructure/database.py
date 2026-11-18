@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from zhiheng.shared.errors import AppError
 
-SCHEMA_REVISION = '0042_workspace_merge'
+SCHEMA_REVISION = '0043_workspace_execution'
 
 
 class Base(DeclarativeBase):

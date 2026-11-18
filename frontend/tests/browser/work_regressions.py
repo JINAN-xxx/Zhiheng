@@ -22,6 +22,18 @@ class WorkUIRegressions(DeveloperBoundary):
             'skills': [{'slug': 'documents', 'name': '文档制作', 'description': '整理和制作文档', 'version': 1}],
             'can_execute_code': True, 'sandbox_available': True,
         }
+        self.available_skills = [
+            {'id': f'skill-{index}', 'slug': slug, 'name': name, 'description': f'{name}的处理方法',
+             'package_version': '1.0.0', 'version': 1, 'status': 'enabled',
+             'source': 'builtin' if index < 5 else 'upload', 'revision_id': f'revision-{index}',
+             'content_hash': f'hash-{index}', 'file_count': 1, 'total_bytes': 123}
+            for index, (slug, name) in enumerate([
+                ('documents', '文档制作'), ('sheets', '表格分析'), ('charts', '图表制作'),
+                ('minutes', '会议纪要'), ('data', '数据核对'), ('report-check', '报告检查'),
+                ('custom-review', '内部审阅')])
+        ]
+        self.options['skills'] = [{key: skill[key] for key in ('slug', 'name', 'description', 'version')}
+                                  for skill in self.available_skills]
         self.task = self.make_task()
         self.tasks, self.runs, self.uploads, self.chat_requests = [], [], [], []
         self.run = {'id': 'work-run', 'resource_type': 'work_agent', 'resource_id': 'task-1',
@@ -35,7 +47,7 @@ class WorkUIRegressions(DeveloperBoundary):
                 'status': 'active', 'mode': 'agent', 'model_id': 'model-1', 'execution_state': 'idle',
                 'version': 1, 'current_run_id': None, 'active_agent_id': None, 'preparation_id': None,
                 'create_client_request_id': 'create-intent', 'created_at': STAMP, 'updated_at': STAMP,
-                'configuration': {'model_id': 'model-1', 'skill_slugs': [], 'allow_code_execution': False},
+                'configuration': {'model_id': 'model-1', 'skill_slugs': []},
                 'members': [], 'messages': [], 'inputs': [], 'steps': [], 'artifacts': [], 'plan': []}
 
     def message(self, role, body, run=None):
@@ -55,6 +67,8 @@ class WorkUIRegressions(DeveloperBoundary):
             self.chat_requests.append((method, path))
         if path == '/api/work/options':
             return await route.fulfill(json=self.options)
+        if path == '/api/skills/available':
+            return await route.fulfill(json=self.available_skills)
         if path == '/api/work/tasks':
             if method == 'POST':
                 body = route.request.post_data_json
@@ -62,7 +76,7 @@ class WorkUIRegressions(DeveloperBoundary):
                 self.task = self.make_task()
                 self.task.update(goal=body['goal'], title=body['goal'][:40] or '新任务',
                                  model_id=body['model_id'], create_client_request_id=body['client_request_id'],
-                                 configuration={key: body[key] for key in ('model_id', 'skill_slugs', 'allow_code_execution')})
+                                 configuration={key: body[key] for key in ('model_id', 'skill_slugs')})
                 if body['goal']:
                     self.task['messages'].append(self.message('user', {'client_request_id': body['client_request_id'], 'message': body['goal']}))
                 self.tasks = [self.task]
@@ -80,7 +94,7 @@ class WorkUIRegressions(DeveloperBoundary):
                     self.posts.append(body)
                     selected.update({key: value for key, value in body.items() if key != 'expected_version'})
                     if selected['configuration'] is not None:
-                        selected['configuration'].update({key: body[key] for key in ('model_id', 'skill_slugs', 'allow_code_execution') if key in body})
+                        selected['configuration'].update({key: body[key] for key in ('model_id', 'skill_slugs') if key in body})
                     selected['version'] += 1
                 if method == 'DELETE':
                     self.tasks = [item for item in self.tasks if item['id'] != task_id]
@@ -159,7 +173,7 @@ class WorkUIRegressions(DeveloperBoundary):
         self.assertEqual(len(self.runs), 1)
         self.assertEqual(self.posts[0]['model_id'], 'model-1')
         self.assertEqual(self.posts[0]['skill_slugs'], [])
-        self.assertFalse(self.posts[0]['allow_code_execution'])
+        self.assertNotIn('allow_code_execution', self.posts[0])
         self.assertNotIn('agent_ids', self.posts[0])
         self.assertNotIn('agent_id', self.runs[0])
         self.assertEqual(self.posts[0]['client_request_id'], self.runs[0]['client_request_id'])
@@ -167,9 +181,9 @@ class WorkUIRegressions(DeveloperBoundary):
 
     async def test_upload_first_creates_draft_then_uses_refreshed_version(self):
         await self.page.goto(self.origin+'/work')
-        await expect(self.page.get_by_role('button', name='上传资料', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('button', name='添加附件', exact=True)).to_be_enabled()
         async with self.page.expect_file_chooser() as chooser:
-            await self.page.get_by_role('button', name='上传资料', exact=True).click()
+            await self.page.get_by_role('button', name='添加附件', exact=True).click()
         await (await chooser.value).set_files({'name': 'data.csv', 'mimeType': 'text/csv', 'buffer': b'amount\n42\n'})
         await expect(self.page.get_by_role('heading', name='新任务', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('data.csv', exact=True)).to_be_visible()
@@ -240,17 +254,80 @@ class WorkUIRegressions(DeveloperBoundary):
         self.assertFalse(any('/knowledge/preparations/' in path for path in requests))
         self.assertFalse(any('/runs/old-run' in path for path in requests))
 
-    async def test_resource_choices_use_workspace_options_and_require_explicit_code_toggle(self):
+    async def test_skill_entry_groups_searches_and_selects_without_a_resource_dialog(self):
         await self.page.goto(self.origin+'/work')
-        await self.page.get_by_role('button', name='资源与能力', exact=True).click()
-        code = self.page.get_by_role('switch', name='文件处理与代码执行', exact=True)
-        await expect(code).not_to_be_checked()
-        await code.click()
-        await self.page.get_by_role('dialog', name='资源与能力', exact=True).get_by_role('button', name='完成设置', exact=True).click()
+        await expect(self.page.get_by_role('button', name='资源与能力', exact=True)).to_have_count(0)
+        await expect(self.page.locator('.model-select')).to_be_visible()
+        await self.page.get_by_role('button', name='选择技能', exact=True).click()
+        picker = self.page.locator('.skill-picker-panel')
+        await expect(picker.get_by_text('预置技能', exact=True)).to_be_visible()
+        await expect(picker.get_by_text('我的技能', exact=True)).to_be_visible()
+        search = picker.get_by_role('combobox', name='搜索技能', exact=True)
+        await search.fill('报告')
+        await expect(picker.get_by_role('option')).to_have_count(1)
+        await picker.get_by_role('option', name='报告检查', exact=True).click()
+        await search.fill('')
+        await picker.get_by_role('option', name='文档制作', exact=True).click()
+        await expect(self.page.get_by_role('button', name='移除技能：报告检查', exact=True)).to_be_visible()
+        await picker.get_by_role('button', name='收起技能选择', exact=True).click()
+        await expect(self.page.get_by_role('switch', name='文件处理与代码执行', exact=True)).to_have_count(0)
         await self.page.get_by_role('textbox', name='工作目标', exact=True).fill('制作报告')
         await self.page.get_by_role('button', name='开始工作', exact=True).click()
         await expect(self.page.get_by_text('核实后的结论', exact=True)).to_be_visible()
-        self.assertTrue(self.posts[0]['allow_code_execution'])
+        self.assertNotIn('allow_code_execution', self.posts[0])
+        self.assertEqual(self.posts[0]['skill_slugs'], ['report-check', 'documents'])
+
+    async def test_task_skill_selection_saves_and_tag_removal_preserves_the_message(self):
+        self.task['configuration']['skill_slugs'] = ['documents']
+        await self.open_task()
+        text = self.page.get_by_role('textbox', name='工作消息', exact=True)
+        await text.fill('尚未发送的修改要求')
+        await expect(self.page.get_by_role('button', name='移除技能：文档制作', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='选择技能', exact=True).click()
+        picker = self.page.locator('.skill-picker-panel')
+        await picker.get_by_role('option', name='报告检查', exact=True).click()
+        await expect(self.page.get_by_role('button', name='移除技能：报告检查', exact=True)).to_be_visible()
+        await expect(picker).to_be_visible()
+        self.assertEqual(self.posts[-1], {'skill_slugs': ['documents', 'report-check'], 'expected_version': 1})
+        await picker.get_by_role('button', name='收起技能选择', exact=True).click()
+        await self.page.get_by_role('button', name='移除技能：文档制作', exact=True).click()
+        await expect(self.page.get_by_role('button', name='移除技能：文档制作', exact=True)).to_have_count(0)
+        await expect(text).to_have_value('尚未发送的修改要求')
+        self.assertEqual(self.posts[-1], {'skill_slugs': ['report-check'], 'expected_version': 2})
+        self.assertEqual(self.runs, [])
+
+    async def test_skill_limit_and_mobile_layout_keep_the_composer_usable(self):
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        await self.page.goto(self.origin+'/work')
+        await self.page.get_by_role('button', name='选择技能', exact=True).click()
+        picker = self.page.locator('.skill-picker-panel')
+        for name in ['文档制作', '表格分析', '图表制作', '会议纪要', '数据核对', '报告检查']:
+            await picker.get_by_role('option', name=name, exact=True).click()
+        await expect(picker.get_by_text('已选 5 / 5', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name=re.compile('^移除技能：'))).to_have_count(5)
+        await picker.get_by_role('combobox', name='搜索技能', exact=True).press('Escape')
+        await expect(picker).to_have_count(0)
+        self.assertFalse(await self.page.evaluate('document.documentElement.scrollWidth > window.innerWidth'))
+        await expect(self.page.get_by_role('button', name='添加附件', exact=True)).to_be_visible()
+
+    async def test_running_tool_is_visible_without_expanding_nested_records(self):
+        self.task.update(current_run_id='work-run', execution_state='running')
+        self.run.update(status='running', text='', revision=1)
+        self.task['messages'] = [self.message('assistant', {'client_request_id':'progress-intent'}, self.run)]
+        self.task['messages'][0]['usage'] = {'status': 'pending'}
+        self.task['steps'] = [{
+            'id':'step-python', 'run_id':'work-run', 'action_id':'call-python', 'kind':'tool',
+            'name':'run_python', 'status':'running', 'summary':'正在绘制图片',
+            'details':{'arguments':{'code':'print("drawing")','packages':['opencv-python-headless']}},
+            'result':None, 'created_at':STAMP, 'updated_at':STAMP,
+        }]
+        await self.open_task()
+        progress=self.page.get_by_role('region',name='任务进度',exact=True)
+        await expect(progress.get_by_text('run_python',exact=True)).to_be_visible()
+        await expect(progress.get_by_text('正在绘制图片',exact=True)).to_be_visible()
+        await expect(progress.get_by_text('正在执行',exact=True)).to_be_visible()
+        await progress.get_by_text('查看处理代码',exact=True).click()
+        await expect(progress.get_by_text('print("drawing")',exact=True)).to_be_visible()
 
     async def test_lost_admission_confirms_original_key_and_version(self):
         posted=[]
@@ -385,17 +462,20 @@ class WorkUIRegressions(DeveloperBoundary):
         self.assertEqual(self.runs, [])
 
     async def test_task_resource_editing_remains_available_without_execution_permission(self):
+        self.options['models'].append({'id': 'model-2', 'name': '另一个工作模型', 'max_output_tokens': 8192})
         await self.page.route(self.origin + '/api/auth/me', lambda route: route.fulfill(json={
             'id': 'user-1', 'username': 'task-editor', 'is_admin': False,
             'permissions': granted_permissions('platform:work:read', 'platform:work:update')}))
         await self.open_task()
         await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_have_count(0)
-        await self.page.get_by_role('button', name='资源与能力', exact=True).click()
-        dialog = self.page.get_by_role('dialog', name='资源与能力', exact=True)
+        await self.task_action('选择模型')
+        dialog = self.page.get_by_role('dialog', name='选择模型', exact=True)
         await expect(dialog).to_be_visible()
-        await dialog.locator('.ant-modal-footer .ant-btn-primary').click()
+        await dialog.locator('.ant-select').click()
+        await self.page.get_by_text('另一个工作模型', exact=True).click()
         await expect(dialog).to_be_hidden()
         self.assertEqual(self.posts[-1]['expected_version'], 1)
+        self.assertEqual(self.posts[-1]['model_id'], 'model-2')
         self.assertEqual(self.runs, [])
 
     async def test_existing_artifacts_default_to_results_and_history_downloads_exact_version(self):

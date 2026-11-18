@@ -154,3 +154,17 @@ async def test_binary_dependency_is_installed_inside_the_isolated_task(sandbox_f
         assert repeated.exit_code == 0 and repeated.stdout.strip() == '5,678'
     finally:
         await session.close()
+
+
+async def test_native_wheel_loads_inside_the_isolated_task(sandbox_factory: OpenSandboxFactory) -> None:
+    session = await sandbox_factory.create(uuid4(), uuid4())
+    try:
+        result = await session.execute(
+            "import orjson; from pathlib import Path; assert Path(orjson.__file__).is_relative_to('/workspace/.environments'); print(orjson.dumps({'value': 42}).decode())",
+            packages=('orjson==3.11.3',),
+        )
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout) == {'value': 42}
+        assert any(item.lower() == 'orjson==3.11.3' for item in result.environment)
+    finally:
+        await session.close()

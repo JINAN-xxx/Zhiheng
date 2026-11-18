@@ -19,11 +19,9 @@ import {
   FileTextOutlined,
   MoreOutlined,
   AppstoreOutlined,
-  PlusOutlined,
-  SettingOutlined
+  PlusOutlined
 } from '@ant-design/icons-vue'
 import type { UpdateWorkBody, WorkOptions, WorkStatus, WorkTask } from '../api/index.ts'
-import type { WorkDraft } from '../presentation.ts'
 import type { WorkTurnInput } from '../composables/turns.ts'
 import {
   validateWorkGoal,
@@ -35,7 +33,9 @@ import ConversationComposer from '../../../shared/components/ConversationCompose
 import WorkMessageTimeline from './WorkMessageTimeline.vue'
 import WorkExecutionPanel from './WorkExecutionPanel.vue'
 import WorkFilesPanel from './WorkFilesPanel.vue'
-import WorkResourcesForm from './WorkResourcesForm.vue'
+import { canUseCapability } from '../../identity/public.ts'
+import { SkillPicker } from '../../skills/public.ts'
+import WorkSelectedSkills from './WorkSelectedSkills.vue'
 
 const props = defineProps<{
   task: WorkTask
@@ -66,18 +66,17 @@ const emit = defineEmits<{
 const message = ref(props.initialMessage ?? ''),
   fileInput = ref<HTMLInputElement | null>(null)
 const editorOpen = ref(false),
-  resourcesOpen = ref(false),
+  skillsOpen = ref(false),
+  modelOpen = ref(false),
   filesOpen = ref(false),
   infoOpen = ref(false)
 const editingTitle = ref(''),
-  editingGoal = ref(''),
-  resourceDraft = ref<WorkDraft>({
-    goal: '',
-    modelId: null,
-    skillSlugs: [],
-    allowCodeExecution: false
-  })
+  editingGoal = ref('')
 const isAgent = computed(() => props.task.mode === 'agent')
+const showComposer = computed(
+  () => isAgent.value && props.task.status === 'active' && (props.canRun || props.stoppable)
+)
+const skillSlugs = computed(() => props.task.configuration?.skillSlugs ?? [])
 const legacyMembers = computed(() => [
   ...new Set(props.task.members.map((member) => member.agentNameSnapshot))
 ])
@@ -143,16 +142,14 @@ function selectModel(value: unknown): void {
     !props.options?.models.some((model) => model.id === value)
   )
     return
-  emit('save', { model_id: value }, () => {})
+  emit('save', { model_id: value }, () => {
+    modelOpen.value = false
+  })
 }
-const canSaveResources = computed(
-  () =>
-    !!resourceDraft.value.modelId &&
-    !!props.options?.models.some((model) => model.id === resourceDraft.value.modelId) &&
-    resourceDraft.value.skillSlugs.every((slug) =>
-      props.options?.skills.some((skill) => skill.slug === slug)
-    )
-)
+function selectSkills(slugs: string[]): void {
+  if (props.locked || props.mutating || !props.canEdit || slugs.length > 5) return
+  emit('save', { skill_slugs: [...slugs] }, () => {})
+}
 watch(
   () => props.initialMessage,
   (value) => {
@@ -202,31 +199,6 @@ function saveEditor(): void {
     editorOpen.value = false
   })
 }
-function openResources(): void {
-  const config = props.task.configuration
-  resourceDraft.value = {
-    goal: props.task.goal,
-    modelId: config?.modelId ?? props.task.modelId,
-    skillSlugs: [...(config?.skillSlugs ?? [])],
-    allowCodeExecution: config?.allowCodeExecution ?? false
-  }
-  resourcesOpen.value = true
-  emit('retryOptions')
-}
-function saveResources(): void {
-  if (props.locked || !canSaveResources.value || !resourceDraft.value.modelId) return
-  emit(
-    'save',
-    {
-      model_id: resourceDraft.value.modelId,
-      skill_slugs: [...resourceDraft.value.skillSlugs],
-      allow_code_execution: resourceDraft.value.allowCodeExecution
-    },
-    () => {
-      resourcesOpen.value = false
-    }
-  )
-}
 function picked(event: Event): void {
   const input = event.target as HTMLInputElement,
     files = [...(input.files ?? [])]
@@ -245,13 +217,6 @@ function picked(event: Event): void {
       </div>
       <div class="work-task-header__actions">
         <AButton
-          v-if="isAgent && canEdit && (task.status !== 'active' || !canRun)"
-          type="text"
-          aria-label="资源与能力"
-          :disabled="locked || mutating"
-          @click="openResources"
-          ><SettingOutlined /></AButton
-        ><AButton
           v-if="isAgent"
           type="text"
           class="work-task-header__files"
@@ -266,6 +231,16 @@ function picked(event: Event): void {
               ><AMenuItem @click="infoOpen = true">查看完整目标</AMenuItem
               ><AMenuItem v-if="isAgent && canEdit" :disabled="locked" @click="openEditor"
                 ><EditOutlined />编辑任务信息</AMenuItem
+              ><AMenuItem
+                v-if="isAgent && canEdit && !showComposer"
+                :disabled="locked || mutating"
+                @click="modelOpen = true"
+                >选择模型</AMenuItem
+              ><AMenuItem
+                v-if="isAgent && canEdit && !showComposer && canUseCapability('skills', 'use')"
+                :disabled="locked || mutating"
+                @click="skillsOpen = true"
+                >选择技能</AMenuItem
               ><AMenuItem
                 v-if="isAgent && canEdit && task.status === 'active'"
                 :disabled="locked"
@@ -367,7 +342,7 @@ function picked(event: Event): void {
           >
         </WorkMessageTimeline>
         <ConversationComposer
-          v-if="isAgent && task.status === 'active' && (canRun || stoppable)"
+          v-if="showComposer"
           v-model="message"
           class="work-composer"
           input-label="工作消息"
@@ -380,6 +355,7 @@ function picked(event: Event): void {
           :max-rows="7"
           :disabled="locked || !canRun"
           :running="stoppable"
+          :selecting-skills="skillsOpen"
           :stop-disabled="stopDisabled"
           stop-label="停止"
           :submit-disabled="!canSend"
@@ -388,6 +364,13 @@ function picked(event: Event): void {
           @send="send"
           @stop="emit('cancel')"
         >
+          <template #notice>
+            <AAlert v-if="optionsError" type="error" show-icon :message="optionsError">
+              <template #action
+                ><AButton size="small" @click="emit('retryOptions')">重试</AButton></template
+              >
+            </AAlert>
+          </template>
           <template #before-surface
             ><input
               ref="fileInput"
@@ -397,6 +380,15 @@ function picked(event: Event): void {
               aria-label="选择工作资料"
               @change="picked"
           /></template>
+          <template #overlay>
+            <SkillPicker
+              v-model:open="skillsOpen"
+              :slugs="skillSlugs"
+              :disabled="(locked && !mutating) || !canEdit"
+              :busy="mutating"
+              @update:slugs="selectSkills"
+            />
+          </template>
           <template #prefix>
             <div v-if="task.inputs.length" class="work-inputs" aria-label="任务资料">
               <button
@@ -418,23 +410,30 @@ function picked(event: Event): void {
                 另 {{ task.inputs.length - 3 }} 份资料
               </button>
             </div>
+            <WorkSelectedSkills
+              :slugs="skillSlugs"
+              :options="options"
+              :disabled="locked || mutating || !canEdit"
+              @remove="selectSkills(skillSlugs.filter((slug) => slug !== $event))"
+            />
           </template>
           <template #tools>
             <AButton
               type="text"
-              aria-label="上传资料"
+              aria-label="添加附件"
               :disabled="locked || !canRun"
               :loading="uploading"
               @click="fileInput?.click()"
-              ><PlusOutlined /><span class="composer-tool-label">添加资料</span></AButton
+              ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
             >
             <AButton
-              v-if="canEdit"
+              v-if="canEdit && canUseCapability('skills', 'use')"
               type="text"
-              aria-label="资源与能力"
+              aria-label="选择技能"
               :disabled="locked || mutating"
-              @click="openResources"
-              ><AppstoreOutlined /><span class="composer-tool-label">资源与能力</span></AButton
+              :aria-expanded="skillsOpen"
+              @click="skillsOpen = !skillsOpen"
+              ><AppstoreOutlined /><span class="composer-tool-label">技能</span></AButton
             >
           </template>
           <template #controls
@@ -486,19 +485,33 @@ function picked(event: Event): void {
         ><AFormItem label="工作目标" name="goal"
           ><ATextarea v-model:value="editingGoal" :maxlength="32000" :rows="5" /></AFormItem></AForm
     ></AModal>
-    <AModal
-      v-model:open="resourcesOpen"
-      title="资源与能力"
-      :ok-button-props="{ disabled: locked || mutating || !canSaveResources }"
-      @ok="saveResources"
-      ><WorkResourcesForm
-        v-model="resourceDraft"
-        :options="options"
+    <AModal v-model:open="modelOpen" title="选择模型" :footer="null"
+      ><ASelect
+        style="width: 100%"
+        :value="modelId"
+        :options="modelOptions"
+        aria-label="选择工作模型"
+        show-search
+        option-filter-prop="label"
         :loading="optionsLoading"
-        :error="optionsError"
-        :disabled="locked"
-        @retry="emit('retryOptions')"
+        :disabled="locked || mutating || !canEdit || optionsLoading"
+        @update:value="selectModel"
     /></AModal>
+    <AModal v-if="!showComposer" v-model:open="skillsOpen" title="技能" :footer="null">
+      <WorkSelectedSkills
+        :slugs="skillSlugs"
+        :options="options"
+        :disabled="locked || mutating || !canEdit"
+        @remove="selectSkills(skillSlugs.filter((slug) => slug !== $event))"
+      />
+      <SkillPicker
+        v-model:open="skillsOpen"
+        :slugs="skillSlugs"
+        :disabled="(locked && !mutating) || !canEdit"
+        :busy="mutating"
+        @update:slugs="selectSkills"
+      />
+    </AModal>
     <AModal v-model:open="infoOpen" title="工作目标" :footer="null"
       ><p class="work-info-goal">{{ task.goal || '上传资料并发送目标后开始工作。' }}</p>
       <div v-if="!isAgent && legacyMembers.length" class="work-info-members">

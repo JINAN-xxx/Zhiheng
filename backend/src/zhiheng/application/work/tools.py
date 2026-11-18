@@ -13,9 +13,11 @@ from uuid import UUID, uuid5
 from zhiheng.application.work.snapshots import skill_selection
 from zhiheng.infrastructure.sandbox import SandboxFile, SandboxInput, SandboxSession, sandbox_path
 from zhiheng.modules.files.public import FileInfo
+from zhiheng.modules.search.public import WebSearchRequest
 from zhiheng.modules.work.public import StepStatus, TaskDetail, WorkArtifactInfo, WorkPlanItem, normalize_work_fact
 from zhiheng.runtime.contracts import ClaimedRun
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.platform_permissions import has_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
@@ -106,6 +108,7 @@ class WorkspaceTools:
         if self.session is not None:
             return self.session
         await self.service.guard(self.claim, code=True)
+        self.progress.code_execution_started = True
         await self._restore_workspace()
         if not await self.context.sandbox.check():
             raise AppError('work_sandbox_unavailable', '文件处理环境暂时不可用，已有资料和成果保留', 503)
@@ -433,6 +436,7 @@ class WorkspaceTools:
             'request_input': self._request_input,
             'write_todos': self._write_todos,
             'read_history': self._read_history,
+            'web_search': self._web_search,
             'run_python': self._run_python,
             'execute': self._execute,
             'write_file': self._write_file,
@@ -448,6 +452,17 @@ class WorkspaceTools:
     @staticmethod
     def _success(data: object) -> dict[str, object]:
         return {'success': True, 'data': data, 'error': None}
+
+    async def _web_search(self, arguments: dict[str, object]) -> dict[str, object]:
+        try:
+            request = WebSearchRequest.model_validate(arguments)
+        except ValueError:
+            raise AppError('invalid_web_search', '请输入有效的搜索关键词、时间范围和结果数量', 422) from None
+        search = self.context.web_search
+        if search is None:
+            raise AppError('web_search_unavailable', '联网搜索尚未配置，请联系管理员', 503)
+        result = await search.search(request)
+        return {'success': True, 'data': result.model_dump(mode='json'), 'error': None}
 
     async def _list_inputs(self, _arguments: dict[str, object]) -> dict[str, object]:
         task = await self._detail()
@@ -601,13 +616,13 @@ class WorkspaceTools:
             'publish_outputs': '检查并保存成果',
             'request_input': '等待补充信息',
             'read_history': '核对历史执行记录',
+            'web_search': '搜索公开网页',
         }.get(name, '处理任务')
 
     async def finalize_outputs(self) -> None:
-        await self.service.guard(self.claim)
+        self.principal = await self.service.guard(self.claim)
         await self._restore_workspace()
-        configuration = self.claim.payload.get('configuration')
-        code_enabled = isinstance(configuration, dict) and configuration.get('allow_code_execution') is True
+        code_enabled = has_capability(self.principal, 'work', 'execute_code')
         has_outputs = any(str(item.get('path', '')).startswith('outputs/') for item in self.workspace_files)
         if self.session is None and (not code_enabled or not has_outputs):
             return

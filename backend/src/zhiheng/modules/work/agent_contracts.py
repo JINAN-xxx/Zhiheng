@@ -19,7 +19,6 @@ StepStatus = Literal['pending', 'running', 'succeeded', 'completed', 'failed', '
 class AgentTaskConfiguration(Input):
     model_id: UUID
     skill_slugs: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=5)
-    allow_code_execution: bool = Field(default=False, strict=True)
 
     @field_validator('skill_slugs')
     @classmethod
@@ -54,7 +53,6 @@ class UpdateAgentTask(Input):
     status: Literal['active', 'completed', 'archived'] | None = None
     model_id: UUID | None = None
     skill_slugs: list[Annotated[str, Field(min_length=1, max_length=100)]] | None = Field(default=None, max_length=5)
-    allow_code_execution: bool | None = Field(default=None, strict=True)
 
     @model_validator(mode='after')
     def values_present(self) -> 'UpdateAgentTask':

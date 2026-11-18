@@ -96,10 +96,6 @@ class WorkAgentService:
         if configuration.skill_slugs:
             require_capability(principal, 'skills', 'use')
         selection = await resolve_selection(session, principal.id, configuration.skill_slugs)
-        if configuration.allow_code_execution:
-            require_capability(principal, 'work', 'execute_code')
-            if not self.context.sandbox.available:
-                raise AppError('work_sandbox_unavailable', '文件处理环境尚未就绪，请稍后重试', 503)
         return binding, selection
 
     async def options(self, principal: Principal) -> WorkOptions:
@@ -127,8 +123,6 @@ class WorkAgentService:
         )
 
     async def create(self, principal: Principal, body: CreateAgentTask) -> TaskDetail:
-        if body.allow_code_execution:
-            await self.context.sandbox.check()
         async with self.context.database.sessions.begin() as session:
             principal = await self.current(session, principal, 'create')
             await self.context.runs.lock_request(session, principal.id, body.client_request_id)
@@ -146,8 +140,6 @@ class WorkAgentService:
             return await self.context.tasks.detail(session, principal, task_id)
 
     async def update(self, principal: Principal, task_id: UUID, body: UpdateAgentTask) -> TaskDetail:
-        if body.allow_code_execution:
-            await self.context.sandbox.check()
         async with self.context.database.sessions.begin() as session:
             principal = await self.current(session, principal, 'update')
             current = await self.context.tasks.configuration(session, principal, task_id)
@@ -257,11 +249,13 @@ class WorkAgentService:
             memory = await self.context.tasks.execution_memory(session, principal, task_id)
             message_id = str(uuid5(body.client_request_id, 'user'))
             reseed_message: str | None = None
+            web_search_enabled = self.context.web_search is not None and self.context.web_search.available
             latest_request = next((item for item in reversed(task.messages) if item.role == 'user'), None)
             if body.resume and latest_request is not None and latest_request.run_id is not None:
                 original = await self.context.runs.resource_payload(
                     session, latest_request.run_id, 'work_agent', task_id
                 )
+                web_search_enabled = original.get('web_search_enabled') is True
                 # No trusted checkpoint advanced past this request. Reuse its
                 # exact user input instead of resuming an older completed turn.
                 if memory.get('checkpoint_id') == original.get('checkpoint_id'):
@@ -286,6 +280,7 @@ class WorkAgentService:
                     'binding': binding.model_dump(mode='json'),
                     'configuration': configuration.model_dump(mode='json'),
                     'skills': frozen_skills(skills),
+                    'web_search_enabled': web_search_enabled,
                     'inputs': [item.model_dump(mode='json') for item in task.inputs],
                     'checkpoint_id': memory.get('checkpoint_id'),
                     'workspace_files': memory.get('files', []),
@@ -340,15 +335,10 @@ class WorkAgentService:
             require_capability(principal, 'work', 'use')
             await self.context.runs.lock_execution(session, claim.id, claim.attempt_id, allow_cancel=False)
             await self.context.tasks.configuration(session, principal, claim.resource_id)
-            configuration = AgentTaskConfiguration.model_validate(claim.payload['configuration'])
-            if configuration.allow_code_execution:
+            if code:
                 require_capability(principal, 'work', 'execute_code')
                 if claim.payload.get('sandbox_image') != self.context.policy.sandbox_image:
                     raise AppError('work_runtime_changed', '文件处理环境已更新，请重新发送要求', 409)
-            if code:
-                require_capability(principal, 'work', 'execute_code')
-                if not configuration.allow_code_execution:
-                    raise AppError('forbidden', '当前任务未启用文件处理与代码执行', 403)
             frozen = ModelBinding.model_validate(claim.payload['binding'])
             live = await self.context.models.bindings.resolve(session, frozen.model_id)
             if (

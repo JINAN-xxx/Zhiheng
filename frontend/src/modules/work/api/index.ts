@@ -33,7 +33,6 @@ export interface WorkMember {
 export interface WorkConfiguration {
   modelId: string
   skillSlugs: string[]
-  allowCodeExecution: boolean
 }
 export interface WorkOptions {
   models: { id: string; name: string; maxOutputTokens: number }[]
@@ -137,7 +136,6 @@ export interface CreateWorkBody {
   model_id: string
   skill_slugs: string[]
   file_ids: string[]
-  allow_code_execution: boolean
   client_request_id: string
 }
 export interface UpdateWorkBody {
@@ -147,7 +145,6 @@ export interface UpdateWorkBody {
   status?: WorkStatus
   model_id?: string
   skill_slugs?: string[]
-  allow_code_execution?: boolean
 }
 const nullableString = (value: unknown) => (value == null ? null : string(value))
 function parseStatus(value: unknown): WorkStatus {
@@ -227,8 +224,8 @@ function parseMessage(value: unknown): WorkMessage {
       usage === null
         ? null
         : {
-            input_tokens: nullableNumber(usage.input_tokens),
-            output_tokens: nullableNumber(usage.output_tokens),
+            input_tokens: nullableNumber(usage.input_tokens ?? null),
+            output_tokens: nullableNumber(usage.output_tokens ?? null),
             status: usage.status as RunSnapshot['usage']['status']
           },
     errorSnapshot:
@@ -244,8 +241,7 @@ function parseConfiguration(value: unknown): WorkConfiguration {
   const data = object(value)
   return {
     modelId: string(data.model_id),
-    skillSlugs: list(string)(data.skill_slugs),
-    allowCodeExecution: boolean(data.allow_code_execution)
+    skillSlugs: list(string)(data.skill_slugs)
   }
 }
 function parseInput(value: unknown): WorkInput {

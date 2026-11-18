@@ -135,8 +135,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     createDraft.value = {
       goal: intent.goal,
       modelId: intent.modelId,
-      skillSlugs: [...intent.skillSlugs],
-      allowCodeExecution: intent.allowCodeExecution
+      skillSlugs: [...intent.skillSlugs]
     }
     const context = createScope.replace()
     createLoading.value = true
@@ -148,7 +147,6 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
           model_id: intent.modelId,
           skill_slugs: intent.skillSlugs,
           file_ids: [],
-          allow_code_execution: intent.allowCodeExecution,
           client_request_id: intent.clientRequestId
         },
         context.signal

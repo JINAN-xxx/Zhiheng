@@ -47,7 +47,8 @@ def bounded_host_config(
         raise ValueError('Use platform bounded tmpfs scratch instead of unsupported Docker writable-layer quotas')
     result = original_host_config(self, mem_limit, nano_cpus, network_mode, gpu_count, None)
     result['tmpfs'] = {
-        '/workspace': f'rw,nosuid,nodev,size={workspace_mb}m,uid=0,gid=0,mode=0755',
+        # Docker tmpfs defaults to noexec; native wheel extensions need executable mappings.
+        '/workspace': f'rw,exec,nosuid,nodev,size={workspace_mb}m,uid=0,gid=0,mode=0755',
         '/tmp': 'rw,nosuid,nodev,size=128m,mode=1777',
         '/run/zhiheng': 'rw,nosuid,nodev,size=128m,uid=0,gid=0,mode=0700',
     }

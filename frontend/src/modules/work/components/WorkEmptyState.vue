@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import {
-  Alert as AAlert,
-  Button as AButton,
-  Modal as AModal,
-  Select as ASelect
-} from 'ant-design-vue'
+import { Alert as AAlert, Button as AButton, Select as ASelect } from 'ant-design-vue'
 import {
   AppstoreOutlined,
   PlusOutlined,
@@ -18,7 +13,9 @@ import { ChatEmptyState } from '../../chat/public.ts'
 import type { WorkDraft } from '../presentation.ts'
 import { validateWorkGoal } from '../presentation.ts'
 import type { WorkOptions } from '../api/index.ts'
-import WorkResourcesForm from './WorkResourcesForm.vue'
+import { canUseCapability } from '../../identity/public.ts'
+import { SkillPicker } from '../../skills/public.ts'
+import WorkSelectedSkills from './WorkSelectedSkills.vue'
 
 const props = defineProps<{
   canCreate: boolean
@@ -39,7 +36,7 @@ const draft = ref<WorkDraft>({
   skillSlugs: [...props.initialDraft.skillSlugs]
 })
 const fileInput = ref<HTMLInputElement | null>(null)
-const resourcesOpen = ref(false)
+const skillsOpen = ref(false)
 const blocked = computed(() => props.creating || props.uncertain)
 const hasModel = computed(
   () =>
@@ -128,6 +125,7 @@ function selectModel(value: unknown): void {
       :max-rows="9"
       :disabled="blocked"
       :sending="creating"
+      :selecting-skills="skillsOpen"
       :submit-disabled="!canStart"
       submit-label="开始工作"
       @keydown="keydown"
@@ -161,26 +159,37 @@ function selectModel(value: unknown): void {
           aria-label="选择工作资料"
           @change="picked"
       /></template>
+      <template #overlay>
+        <SkillPicker
+          v-model:open="skillsOpen"
+          v-model:slugs="draft.skillSlugs"
+          :disabled="blocked"
+        />
+      </template>
+      <template #prefix>
+        <WorkSelectedSkills
+          :slugs="draft.skillSlugs"
+          :options="options"
+          :disabled="blocked"
+          @remove="draft.skillSlugs = draft.skillSlugs.filter((slug) => slug !== $event)"
+        />
+      </template>
       <template #tools>
         <AButton
           type="text"
-          aria-label="上传资料"
+          aria-label="添加附件"
           :disabled="blocked || !hasModel"
           @click="chooseFiles"
-          ><PlusOutlined /><span class="composer-tool-label">添加资料</span></AButton
+          ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
         >
         <AButton
+          v-if="canUseCapability('skills', 'use')"
           type="text"
-          aria-label="资源与能力"
+          aria-label="选择技能"
           :disabled="blocked"
-          :aria-expanded="resourcesOpen"
-          :title="draft.allowCodeExecution ? '已启用文件处理与代码执行' : '配置技能与文件处理能力'"
-          @click="resourcesOpen = true"
-          ><AppstoreOutlined /><span class="composer-tool-label"
-            >资源与能力<span v-if="draft.skillSlugs.length">
-              · {{ draft.skillSlugs.length }}</span
-            ></span
-          ></AButton
+          :aria-expanded="skillsOpen"
+          @click="skillsOpen = !skillsOpen"
+          ><AppstoreOutlined /><span class="composer-tool-label">技能</span></AButton
         >
       </template>
       <template #controls
@@ -205,19 +214,6 @@ function selectModel(value: unknown): void {
       message="当前账号可查看已有任务"
       description="请从工作记录中打开任务。"
     />
-    <AModal v-model:open="resourcesOpen" title="资源与能力">
-      <WorkResourcesForm
-        v-model="draft"
-        :options="options"
-        :loading="optionsLoading"
-        :error="optionsError"
-        :disabled="blocked"
-        @retry="emit('retryOptions')"
-      />
-      <template #footer
-        ><AButton type="primary" @click="resourcesOpen = false">完成设置</AButton></template
-      >
-    </AModal>
   </section>
 </template>
 
