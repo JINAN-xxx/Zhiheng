@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     files_s3_timeout_seconds: float = Field(default=30, ge=1, le=120)
     sandbox_url: str = ''
     sandbox_api_key: SecretStr = SecretStr('')
-    sandbox_image: str = 'zhiheng-workspace-runtime:0.1.0'
+    sandbox_image: str = 'zhiheng-workspace-runtime:0.2.0'
     sandbox_cpu: str = '1'
     sandbox_memory_mb: int = Field(default=1024, ge=256, le=8192)
     sandbox_run_seconds: int = Field(default=600, ge=60, le=3600)

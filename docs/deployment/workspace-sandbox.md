@@ -8,9 +8,13 @@
 - `opensandbox-server==1.2.1`：独立管理服务镜像 `zhiheng-sandbox-manager:1.2.1`，使用单独的 Python 环境。
 - `opensandbox/execd:release-1.2.1`：提供执行与进程隔离程序；仅拉取此镜像还不具备办公 Python 环境。
 - `opensandbox/egress:release-1.2.1`：官方出口策略服务，默认拒绝外连，只允许管理员配置的包索引域名及 PyPI 文件域名。
-- `zhiheng-workspace-runtime:0.1.0`：办公执行镜像，包含表格、Word、PDF、图片依赖，LibreOffice 和中文字体。
+- `zhiheng-workspace-runtime:0.2.0`：办公执行镜像，预装 NumPy、Pandas、OpenCV headless、Matplotlib、Pillow 及表格、Word、PDF 依赖，另含 LibreOffice 和中文字体。
 
-镜像标签可通过 `CORE_SANDBOX_*_IMAGE` 指定。使用镜像仓库镜像站时，应填写实际拉取的完整镜像名。发布环境应固定受信任版本或镜像摘要。
+运行镜像基础 Python 镜像固定摘要，Python 依赖由 `deploy/sandbox/runtime/requirements.in` 声明，`requirements.lock` 锁定全部直接、间接依赖与文件哈希。构建通过 `--require-hashes --only-binary=:all:` 安装，并运行图片、表格、Word、PDF 与 Matplotlib 校验；验证后的环境清单位于镜像内 `/opt/zhiheng/runtime-manifest.json`。
+
+更新依赖时，在 Python 3.12 环境使用 `uv pip compile deploy/sandbox/runtime/requirements.in --universal --python-version 3.12 --generate-hashes --no-emit-index-url --output-file deploy/sandbox/runtime/requirements.lock` 重新生成锁文件，再构建并验证镜像。
+
+镜像标签可通过 `CORE_SANDBOX_*_IMAGE` 指定。使用镜像仓库镜像站时，应填写实际拉取的完整镜像名。发布环境可设置 `CORE_SANDBOX_RUNTIME_REFERENCE`，让 API / Worker 使用不可变镜像引用；注册表镜像使用 `repository@sha256:...`，本地 Docker 可使用镜像 ID。构建仍使用 `CORE_SANDBOX_RUNTIME_IMAGE` 标签，重建后先验证再更新运行引用。额外依赖仍由现有 `packages` 通道按需准备；本期没有增加派生镜像构建服务、预热池或持久 Python 内核。
 
 ## 启用
 
@@ -18,7 +22,7 @@
 
 ```dotenv
 CORE_SANDBOX_URL=http://host.docker.internal:19192
-CORE_SANDBOX_RUNTIME_IMAGE=zhiheng-workspace-runtime:0.1.0
+CORE_SANDBOX_RUNTIME_IMAGE=zhiheng-workspace-runtime:0.2.0
 CORE_SANDBOX_MANAGER_IMAGE=zhiheng-sandbox-manager:1.2.1
 CORE_SANDBOX_EXECD_IMAGE=opensandbox/execd:release-1.2.1
 CORE_SANDBOX_EGRESS_IMAGE=opensandbox/egress:release-1.2.1
@@ -49,7 +53,7 @@ Docker 模式在 ext4 上不能使用 overlay2 `storage-opt` 写入配额。本�
 
 ## 文件与恢复
 
-正式输入、成果和跨轮工作快照统一经过文件服务存入 MinIO。沙盒 tmpfs 只承担执行现场；依赖虚拟环境和 wheel 暂存是可重建缓存，不进入任务工作快照。工作目录允许执行映射，使按需安装的 OpenCV 等本地扩展可以加载；仍保留 `nosuid`、`nodev`、隔离用户、只读输入和目录大小限制。
+正式输入、成果和跨轮工作快照统一经过文件服务存入 MinIO。沙盒 tmpfs 只承担执行现场；依赖虚拟环境和 wheel 暂存是可重建缓存，不进入任务工作快照。常用绘图与数据处理库随镜像预装，任务无需先联网安装；其他 Python 依赖仍通过 `packages` 由平台准备。模型只接收必要的执行输出与精简的依赖错误，完整环境清单和错误日志保存在执行记录，可按需读取。工作目录允许执行映射，使按需安装的 OpenCV 等本地扩展可以加载；仍保留 `nosuid`、`nodev`、隔离用户、只读输入和目录大小限制。
 
 `collect_outputs()` 与 `snapshot_files()` 会先销毁当前隔离进程 namespace，停止其后台子进程，再采集固定字节。之后仍可在同一个临时容器内创建新的隔离 session 继续修正文件。正式结束、取消或失败时才销毁整个容器。
 

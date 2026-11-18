@@ -343,7 +343,7 @@ def _tools(context: _ExecutionContext, code_enabled: bool, web_search_enabled: b
                 _tool(
                     context,
                     'run_python',
-                    '在隔离沙盒运行 Python，声明本次需要的索引包依赖。输入原件只读，成果写 outputs/。',
+                    '在隔离沙盒运行 Python。平台默认镜像预装 NumPy、Pandas、OpenCV headless（cv2）、Matplotlib 和 Pillow；无需先安装或探测。额外依赖用 packages 声明；OpenCV 包名为 opencv-python-headless。没有图形桌面，成果保存到 outputs/。',
                     {
                         'code': (str, Field(min_length=1, max_length=40000)),
                         'packages': (list[str], Field(default_factory=list, max_length=20)),

@@ -31,6 +31,7 @@ CODE_TOOLS = frozenset({'run_python', 'execute', 'write_file', 'read_file', 'lis
 MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 MAX_SANDBOXES = 2
 MAX_TOOL_PREVIEW = 10000
+MAX_DEPENDENCY_ERROR = 600
 EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
 
 
@@ -341,6 +342,8 @@ class WorkspaceTools:
                 raise AppError(
                     'work_execution_uncertain', '文件操作结果尚未完整确认，请检查执行记录和成果后继续', 409
                 ) from error
+            if error.code == 'sandbox_dependency_failed':
+                return self._present(failure, action_id)
             raise
 
     async def _cached_result(
@@ -413,6 +416,27 @@ class WorkspaceTools:
 
     @staticmethod
     def _present(result: dict[str, object], action_id: str) -> dict[str, object]:
+        # Audit facts keep full runtime metadata; the model needs business output first.
+        data = result.get('data')
+        if isinstance(data, dict) and 'exit_code' in data and 'environment' in data:
+            environment = data['environment']
+            shown = {key: value for key, value in data.items() if key != 'environment'}
+            if environment:
+                shown['full_message_id'] = action_id
+            result = {**result, 'data': shown}
+        error = result.get('error')
+        if isinstance(error, dict) and error.get('code') == 'sandbox_dependency_failed':
+            message = str(error.get('message', '依赖准备失败'))
+            if any(value in message.lower() for value in ('timed out', 'timeouterror', 'readtimeout')):
+                message = '依赖下载超时，本次业务代码尚未执行。可稍后重试依赖准备；完整日志见执行记录。'
+            else:
+                lines = [line for line in message.splitlines() if line.strip()]
+                message = '\n'.join(lines[-4:])[-MAX_DEPENDENCY_ERROR:]
+            return {
+                'success': False,
+                'error': {**error, 'message': message},
+                'data': {'phase': 'dependency_preparation', 'full_message_id': action_id},
+            }
         encoded = json.dumps(result, ensure_ascii=False)
         if len(encoded) > MAX_TOOL_PREVIEW:
             return {

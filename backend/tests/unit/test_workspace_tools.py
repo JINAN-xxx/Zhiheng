@@ -577,3 +577,54 @@ async def test_finalize_read_only_conversation_does_not_start_sandbox_for_old_ou
         await tools.finalize_outputs()
     publish.assert_not_awaited()
     tools.service.guard.assert_awaited_once_with(tools.claim)
+
+
+def test_model_receives_code_output_without_repeating_the_environment_inventory() -> None:
+    original = {
+        'success': True,
+        'data': {
+            'exit_code': 0,
+            'stdout': 'total=42',
+            'stderr': '',
+            'environment': ['numpy==2.2.6', 'opencv-python-headless==4.12.0.88'],
+        },
+        'error': None,
+    }
+    shown = WorkspaceTools._present(original, 'execution-1')
+    assert shown['data'] == {'exit_code': 0, 'stdout': 'total=42', 'stderr': '', 'full_message_id': 'execution-1'}
+    assert original['data']['environment'] == ['numpy==2.2.6', 'opencv-python-headless==4.12.0.88']
+
+
+def test_dependency_timeout_retains_full_audit_but_gives_the_model_a_short_reason() -> None:
+    message = ('Traceback: dependency preparation stack\n' * 100) + 'ReadTimeoutError: download timed out'
+    original = {'success': False, 'error': {'code': 'sandbox_dependency_failed', 'message': message}}
+    shown = WorkspaceTools._present(original, 'dependency-1')
+    assert shown['success'] is False and shown['data']['phase'] == 'dependency_preparation'
+    assert shown['data']['full_message_id'] == 'dependency-1'
+    assert '尚未执行' in shown['error']['message']
+    assert len(shown['error']['message']) < 200
+    assert original['error']['message'] == message
+
+
+def test_business_execution_errors_remain_available_to_the_model() -> None:
+    original = {
+        'success': False,
+        'data': {'exit_code': 1, 'stdout': '', 'stderr': 'ValueError: missing amount'},
+        'error': {'code': 'command_failed', 'message': '请根据真实执行错误修正后重试'},
+    }
+    assert WorkspaceTools._present(original, 'business-1') == original
+
+
+@pytest.mark.asyncio
+async def test_first_dependency_failure_returns_compact_result_and_records_original_error() -> None:
+    tools = make_tools()
+    message = ('preparation traceback\n' * 100) + 'ReadTimeoutError: download timed out'
+    with patch.object(tools, '_dispatch', AsyncMock(side_effect=AppError('sandbox_dependency_failed', message, 422))):
+        shown = await tools.invoke(
+            'run_python', {'code': 'import cv2', 'packages': ['opencv-python-headless']}, 'prepare-1'
+        )
+    assert shown['success'] is False
+    assert shown['data']['phase'] == 'dependency_preparation'
+    assert len(shown['error']['message']) < 200
+    recorded = tools.context.tasks.record_step.call_args.kwargs['result']
+    assert recorded['error']['message'] == message

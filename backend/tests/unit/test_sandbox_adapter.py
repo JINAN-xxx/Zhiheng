@@ -205,3 +205,22 @@ async def test_main_container_deletion_is_not_enough_to_confirm_sidecar_cleanup(
     with pytest.raises(AppError) as error:
         await factory.kill(str(uuid4()))
     assert error.value.code == 'sandbox_cleanup_pending'
+
+
+async def test_dependency_download_failure_is_distinct_from_business_code(session: OpenSandboxSession) -> None:
+    message = 'ReadTimeoutError: package download timed out'
+    session._quiesce = AsyncMock()
+    session._helper = AsyncMock(side_effect=AppError('sandbox_operation_failed', message, 422))
+    with pytest.raises(AppError) as error:
+        await session._prepare_packages(('example-package',))
+    assert error.value.code == 'sandbox_dependency_failed'
+    assert error.value.message == message
+    session._client.isolation.create.assert_not_awaited()
+
+
+async def test_dependency_preparation_keeps_closed_session_errors(session: OpenSandboxSession) -> None:
+    session._quiesce = AsyncMock()
+    session._helper = AsyncMock(side_effect=AppError('sandbox_closed', '执行环境已经关闭', 409))
+    with pytest.raises(AppError) as error:
+        await session._prepare_packages(('example-package',))
+    assert error.value.code == 'sandbox_closed'

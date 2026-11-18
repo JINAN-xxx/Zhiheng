@@ -404,11 +404,20 @@ class OpenSandboxSession:
                 raise AppError('sandbox_invalid_dependency', '依赖不能包含 URL、本地路径或安装命令', 422)
             normalized.append(str(requirement))
         await self._quiesce()
-        prepared = await self._helper(
-            {'operation': 'download', 'packages': sorted(set(normalized)), 'index': self.factory.profile.pip_index_url},
-            runner=ENVIRONMENT_RUNNER,
-            timeout=PACKAGE_SECONDS,
-        )
+        try:
+            prepared = await self._helper(
+                {
+                    'operation': 'download',
+                    'packages': sorted(set(normalized)),
+                    'index': self.factory.profile.pip_index_url,
+                },
+                runner=ENVIRONMENT_RUNNER,
+                timeout=PACKAGE_SECONDS,
+            )
+        except AppError as error:
+            if error.code == 'sandbox_operation_failed':
+                raise AppError('sandbox_dependency_failed', error.message, error.status_code) from error
+            raise
         if prepared.missing:
             isolation = await self._isolate()
             from opensandbox.models.isolated import IsolatedRunOpts  # noqa: PLC0415

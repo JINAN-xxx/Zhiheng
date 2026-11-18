@@ -27,7 +27,7 @@ x-core-environment: &core-environment
   ZHIHENG_BOCHA_API_KEY: ${CORE_BOCHA_API_KEY:-}
   ZHIHENG_WEB_SEARCH_TIMEOUT_SECONDS: ${CORE_WEB_SEARCH_TIMEOUT_SECONDS:-15}
   ZHIHENG_SANDBOX_API_KEY: ${CORE_SANDBOX_API_KEY:-}
-  ZHIHENG_SANDBOX_IMAGE: ${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.1.0}
+  ZHIHENG_SANDBOX_IMAGE: ${CORE_SANDBOX_RUNTIME_REFERENCE:-${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.2.0}}
   ZHIHENG_SANDBOX_CPU: ${CORE_SANDBOX_CPU:-1}
   ZHIHENG_SANDBOX_MEMORY_MB: ${CORE_SANDBOX_MEMORY_MB:-1024}
   ZHIHENG_SANDBOX_RUN_SECONDS: ${CORE_SANDBOX_RUN_SECONDS:-600}
@@ -51,11 +51,11 @@ x-core-backend: &core-backend
 services:
   sandbox-runtime:
     profiles: [workspace]
-    image: ${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.1.0}
+    image: ${CORE_SANDBOX_RUNTIME_IMAGE:-zhiheng-workspace-runtime:0.2.0}
     build:
       context: ../sandbox/runtime
       args:
-        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim}
+        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
         PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
         APT_MIRROR: ${CORE_SANDBOX_APT_MIRROR:-https://deb.debian.org}
     entrypoint: [/bin/true]
@@ -67,7 +67,7 @@ services:
     build:
       context: ../sandbox/manager
       args:
-        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim}
+        PYTHON_IMAGE: ${CORE_SANDBOX_PYTHON_IMAGE:-python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b}
         PIP_INDEX_URL: ${CORE_PIP_INDEX_URL:-https://pypi.org/simple}
     network_mode: host
     environment:

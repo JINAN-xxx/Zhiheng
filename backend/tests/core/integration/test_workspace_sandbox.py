@@ -18,7 +18,7 @@ def sandbox_factory() -> OpenSandboxFactory:
     key = os.getenv('ZHIHENG_TEST_SANDBOX_API_KEY', '')
     if not url or not key:
         pytest.skip('A separate real OpenSandbox manager is required')
-    return OpenSandboxFactory(url, key, os.getenv('ZHIHENG_TEST_SANDBOX_IMAGE', 'zhiheng-workspace-runtime:0.1.0'))
+    return OpenSandboxFactory(url, key, os.getenv('ZHIHENG_TEST_SANDBOX_IMAGE', 'zhiheng-workspace-runtime:0.2.0'))
 
 
 async def test_real_office_files_preview_and_checkpoint_restore(sandbox_factory: OpenSandboxFactory) -> None:
@@ -166,5 +166,39 @@ async def test_native_wheel_loads_inside_the_isolated_task(sandbox_factory: Open
         assert result.exit_code == 0, result.stderr
         assert json.loads(result.stdout) == {'value': 42}
         assert any(item.lower() == 'orjson==3.11.3' for item in result.environment)
+    finally:
+        await session.close()
+
+
+async def test_common_plot_libraries_do_not_require_dependency_preparation(
+    sandbox_factory: OpenSandboxFactory,
+) -> None:
+    session = await sandbox_factory.create(uuid4(), uuid4())
+    try:
+        result = await session.execute("""
+import cv2, numpy as np, pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+image=np.zeros((80,120,3),dtype=np.uint8)
+cv2.circle(image,(60,40),20,(238,85,97),-1)
+assert cv2.imwrite('outputs/opencv.png',image)
+frame=pd.DataFrame({'x':[1,2,3],'y':[2,4,3]})
+plt.plot(frame.x,frame.y)
+plt.savefig('outputs/matplotlib.png')
+plt.close()
+print('plots-ready')
+""")
+        assert result.exit_code == 0, result.stderr
+        assert result.stdout.strip() == 'plots-ready'
+        declared = await session.execute(
+            'import sys; print(sys.prefix)',
+            packages=('numpy', 'opencv-python-headless', 'matplotlib'),
+        )
+        assert declared.exit_code == 0 and declared.stdout.strip() == '/usr/local'
+        assert 'opencv-python-headless==4.12.0.88' in declared.environment
+        files = await session.collect_outputs()
+        assert {item.path for item in files} == {'outputs/opencv.png', 'outputs/matplotlib.png'}
+        assert all(item.validation['valid'] for item in files)
     finally:
         await session.close()
