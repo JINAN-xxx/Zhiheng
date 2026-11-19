@@ -15,8 +15,6 @@ import {
   CloseOutlined,
   LeftOutlined,
   RightOutlined,
-  FileTextOutlined,
-  PictureOutlined,
   AppstoreOutlined,
   SettingOutlined
 } from '@ant-design/icons-vue'
@@ -34,6 +32,8 @@ import ChatMessageFiles from '../components/ChatMessageFiles.vue'
 import MessageShareDialog from '../components/MessageShareDialog.vue'
 import { useChatMessagePresentation } from '../composables/messagePresentation.ts'
 import { CHAT_FILE_ACCEPT } from '../attachments.ts'
+import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
+import AttachmentCard from '../../../shared/components/AttachmentCard.vue'
 const {
   canUseChat,
   contextNotice,
@@ -145,9 +145,6 @@ function composerKeydown(event: KeyboardEvent): void {
 function closeSkillsOutside(event: PointerEvent): void {
   if (event.target instanceof Node && !composerSurface.value?.contains(event.target))
     skillPickerOpen.value = false
-}
-function attachmentType(name: string): string {
-  return name.split('.').pop()?.toUpperCase() || '文件'
 }
 onMounted(() => document.addEventListener('pointerdown', closeSkillsOutside))
 function chooseFiles(event: Event): void {
@@ -455,46 +452,20 @@ onBeforeUnmount(() => {
               aria-label="待发送附件"
               tabindex="0"
             >
-              <div
+              <AttachmentCard
                 v-for="file in queuedFiles"
                 :key="file.id"
-                class="queued-file"
-                :class="{ 'has-error': file.status === 'failed' }"
-              >
-                <img
-                  v-if="file.previewUrl"
-                  :src="file.previewUrl"
-                  :alt="file.fileName"
-                  class="queued-file-preview"
-                />
-                <PictureOutlined v-else-if="file.kind === 'image'" class="queued-file-icon" />
-                <FileTextOutlined v-else class="queued-file-icon" />
-                <div class="queued-file-details">
-                  <span class="queued-file-name" :title="file.fileName">{{ file.fileName }}</span>
-                  <span class="queued-file-status" role="status">{{
-                    file.status === 'ready'
-                      ? `${attachmentType(file.fileName)} · ${formatFileSize(file.sizeBytes)}`
-                      : file.status === 'uploading'
-                        ? '上传中…'
-                        : '上传失败'
-                  }}</span>
-                  <span v-if="file.error" class="queued-file-error">{{ file.error }}</span>
-                </div>
-                <AButton
-                  v-if="file.status === 'failed'"
-                  size="small"
-                  :disabled="sending || running || readOnly"
-                  @click="retryFile(file.id)"
-                  >重新上传</AButton
-                >
-                <AButton
-                  type="text"
-                  :aria-label="`移除附件：${file.fileName}`"
-                  :disabled="sending || running"
-                  @click="removeFile(file.id)"
-                  ><CloseOutlined
-                /></AButton>
-              </div>
+                :filename="file.fileName"
+                :size-label="formatFileSize(file.sizeBytes)"
+                :mime="file.kind === 'image' ? 'image/*' : ''"
+                :preview-url="file.previewUrl"
+                :status="file.status"
+                :error="file.error"
+                :disabled="sending || running"
+                :retry-disabled="readOnly"
+                @retry="retryFile(file.id)"
+                @remove="removeFile(file.id)"
+              />
             </div>
             <button
               v-if="!fileQueueEdges.left"
@@ -536,15 +507,13 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template #tools>
-          <AButton
+          <AttachmentButton
             v-if="canUseChat"
-            type="text"
             :disabled="sending || running || loading || readOnly"
             aria-label="添加图片或附件"
             title="每条消息附件合计最多50MB，单个文件最大20MiB"
             @click="fileInput?.click()"
-            ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
-          >
+          />
           <button
             v-if="canUseChat && canUseCapability('skills', 'use')"
             type="button"
@@ -873,54 +842,6 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--main-color);
   outline-offset: -2px;
 }
-.queued-file {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  width: min(100%, 240px);
-  padding: 10px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 12px;
-  background: var(--gray-25);
-}
-.queued-file.has-error {
-  border-color: var(--ant-color-error, #ff4d4f);
-}
-.queued-file-preview {
-  width: 40px;
-  height: 40px;
-  object-fit: cover;
-  border-radius: 6px;
-  flex: 0 0 40px;
-}
-.queued-file-icon {
-  font-size: 18px;
-  color: var(--color-text-secondary);
-}
-.queued-file-details {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
-}
-.queued-file-name {
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.queued-file-status,
-.queued-file-error {
-  font-size: var(--workspace-font-size-caption);
-  overflow-wrap: anywhere;
-}
-.queued-file-status {
-  color: var(--color-text-secondary);
-}
-.queued-file-error,
 .file-guidance--error {
   color: var(--ant-color-error, #ff4d4f);
 }

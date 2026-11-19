@@ -22,7 +22,8 @@ class _ToolFragments:
     name: str = ''
     arguments: str = ''
 
-    def append(self, value: dict[str, object]) -> None:
+    def append(self, value: dict[str, object]) -> bool:
+        previous = (self.id, self.name, len(self.arguments))
         identity = value.get('id')
         if identity is not None:
             if not isinstance(identity, str):
@@ -35,6 +36,7 @@ class _ToolFragments:
         self._function(function)
         if len(self.arguments) > MAX_TOOL_ARGUMENTS or len(self.id) > MAX_TOOL_ID or len(self.name) > MAX_TOOL_NAME:
             raise ProviderError(reason='projection_limit')
+        return previous != (self.id, self.name, len(self.arguments))
 
     def _function(self, function: dict[str, object]) -> None:
         name, arguments = function.get('name'), function.get('arguments')
@@ -49,19 +51,21 @@ class _ToolFragments:
             self.arguments += arguments
 
 
-def _calls(delta: dict[str, object], fragments: dict[int, _ToolFragments]) -> None:
+def _calls(delta: dict[str, object], fragments: dict[int, _ToolFragments]) -> bool:
     values = delta.get('tool_calls')
     if values is None:
-        return
+        return False
     if not isinstance(values, list):
         raise ProviderError(reason='invalid_response')
+    changed = False
     for value in values:
         if not isinstance(value, dict):
             raise ProviderError(reason='invalid_response')
         index = value.get('index')
         if type(index) is not int or not 0 <= index < MAX_TOOL_CALLS:
             raise ProviderError(reason='invalid_response')
-        fragments.setdefault(index, _ToolFragments()).append(value)
+        changed = fragments.setdefault(index, _ToolFragments()).append(value) or changed
+    return changed
 
 
 def _wire(message: AgentModelMessage) -> dict[str, object]:
@@ -123,9 +127,10 @@ class _Response:
             text or reasoning or delta.get('tool_calls') or finish not in {None, self.finish}
         ):
             raise ProviderError(reason='invalid_response')
-        _calls(delta, self.fragments)
+        activity = _calls(delta, self.fragments)
+        activity = activity or (finish is not None and self.finish is None)
         self.finish = finish or self.finish
-        return ModelDelta(text, reasoning=reasoning) if text or reasoning else None
+        return ModelDelta(text, reasoning=reasoning, activity=activity) if text or reasoning or activity else None
 
     def result(self, tools: tuple[dict[str, object], ...]) -> ModelDelta:
         if self.finish is None:
@@ -182,6 +187,7 @@ async def stream_agent(
     options: dict[str, object],
 ) -> AsyncIterator[ModelDelta]:
     state = _Response()
+    terminal_emitted = False
     failure: ProviderError | None = None
     try:
         source = await CapturingCompletions(client, captured).create(
@@ -192,11 +198,17 @@ async def stream_agent(
                 delta = state.observe(raw)
                 if delta is not None:
                     yield delta
+                if state.finish is not None and not terminal_emitted:
+                    # Expose a validated terminal result while awaiting trailing usage.
+                    # Native Runs remain running until the stream has been consumed.
+                    yield state.result(tools)
+                    terminal_emitted = True
                 # A terminal choice and the raw final usage are complete facts. Some compatible
                 # providers keep the transport alive afterwards; no further body is needed.
                 if state.finish is not None and captured.observed:
                     break
-        yield state.result(tools)
+        if not terminal_emitted:
+            yield state.result(tools)
     except ProviderError as error:
         failure = error
     except (APIError, TimeoutError, ValueError) as error:

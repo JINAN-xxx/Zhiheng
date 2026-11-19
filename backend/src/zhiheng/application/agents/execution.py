@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.agents.attachments import AssistantAttachments
 from zhiheng.application.execution.admission import AdmissionIdentity, RunAdmission
+from zhiheng.application.execution.timeouts import remaining_seconds
 from zhiheng.application.knowledge.preparation import KnowledgePreparation
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.agents.public import (
@@ -323,7 +324,10 @@ class AssistantAgentService:
                         client_request_id=uuid5(parent.id, 'assistant-summary-v1'),
                         fingerprint=str(parent.attempt_id),
                         request=ModelRequest(
-                            binding=binding, messages=messages, required_modules=request.required_modules
+                            binding=binding,
+                            messages=messages,
+                            required_modules=request.required_modules,
+                            execution_deadline=request.execution_deadline,
                         ),
                     )
                     await self.agents.attach_summary(session, parent, child.id)
@@ -337,7 +341,9 @@ class AssistantAgentService:
                         return child
                     await asyncio.sleep(0.05)
 
-            result = await asyncio.wait_for(wait_result(), timeout=self.timeout_seconds)
+            result = await asyncio.wait_for(
+                wait_result(), timeout=remaining_seconds(request.execution_deadline, self.timeout_seconds)
+            )
             if result.status != 'completed' or result.finish_reason != 'stop' or not result.text.strip():
                 raise AppError('assistant_summary_failed', '助手历史整理未完成，本次未重复调用，可重新发送', 502)
             return result.text

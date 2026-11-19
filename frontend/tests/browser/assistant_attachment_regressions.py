@@ -57,7 +57,7 @@ class AssistantAttachmentRegressions(AssistantConversationRegressions):
 
     async def attach(self,name='table.csv',content=b'Name,Value\nRevenue,42'):
         await self.page.locator('input[type=file]').set_input_files({'name':name,'mimeType':'text/csv','buffer':content})
-        await expect(self.page.locator('.assistant-file-queue')).to_contain_text('已就绪')
+        await expect(self.page.locator('.assistant-file-queue .queued-file-status')).to_contain_text(name.rsplit('.', 1)[-1].upper())
 
     async def test_file_only_send_and_history_preview(self):
         await self.open_chat();await self.attach()

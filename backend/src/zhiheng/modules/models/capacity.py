@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from math import ceil
 from typing import TYPE_CHECKING, Literal
 
@@ -74,13 +75,20 @@ def capacity_evidence_status(model_type: str, window_tokens: int | None, note: s
 ASCII_LIMIT = 128
 
 
+def _text_tokens(text: str) -> int:
+    ascii_count = sum(ord(char) < ASCII_LIMIT for char in text)
+    return ceil(ascii_count / 2) + (len(text) - ascii_count) * 2
+
+
+def estimate_tool_schemas(schemas: Sequence[dict[str, object]]) -> int:
+    return 16 + _text_tokens(json.dumps(schemas, ensure_ascii=False)) if schemas else 0
+
+
 def estimate_messages(messages: Sequence[ModelMessage]) -> int:
     """Allow two tokens per non-ASCII character and fixed managed image costs."""
     total = 0
     for message in messages:
-        ascii_count = sum(ord(char) < ASCII_LIMIT for char in message.content)
-        other = len(message.content) - ascii_count
-        total += 16 + ceil(ascii_count / 2) + other * 2
+        total += 16 + _text_tokens(message.content)
         total += sum(image.estimated_tokens for image in message.images)
     return total
 

@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from functools import partial
 from uuid import UUID
 
 from zhiheng.application.agents.execution import AssistantAgentFactory
@@ -68,8 +69,14 @@ def create_graph(settings: Settings) -> GraphPort:
     )
 
 
-def create_models(cipher: CredentialCipher, timeout_seconds: float) -> ModelService:
-    return ModelService(cipher, timeout_seconds, provider_factory=create_provider)
+def create_models(
+    cipher: CredentialCipher, timeout_seconds: float, *, connect_timeout_seconds: float = 10
+) -> ModelService:
+    return ModelService(
+        cipher,
+        timeout_seconds,
+        provider_factory=partial(create_provider, connect_timeout_seconds=connect_timeout_seconds),
+    )
 
 
 def create_document_parsing_support() -> tuple[MinerUClientFactory, DocumentSourceValidator, MinerUResultDecoder]:

@@ -23,6 +23,7 @@ from zhiheng.modules.operations.contracts import (
     PatchConfig,
     PatchNotice,
 )
+from zhiheng.modules.operations.log_labels import matching_log_codes
 from zhiheng.modules.operations.orm import Config, Notice, OperationLog, Versioned
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -354,12 +355,15 @@ class OperationsService:
     ) -> Page[LogInfo]:
         principal.require_permission('system:logs:read')
         pattern = self._pattern(search)
+        actions, resources = matching_log_codes(search)
         query = select(OperationLog).where(
             or_(
                 OperationLog.username.ilike(pattern, escape='\\'),
                 OperationLog.action.ilike(pattern, escape='\\'),
                 OperationLog.resource_type.ilike(pattern, escape='\\'),
                 OperationLog.message.ilike(pattern, escape='\\'),
+                OperationLog.action.in_(actions),
+                OperationLog.resource_type.in_(resources),
             )
         )
         if kind is not None:

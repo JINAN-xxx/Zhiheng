@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID, uuid5
 
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.chat.context import ChatContextService, PreparedContext
 from zhiheng.application.execution.admission import AdmissionIdentity
+from zhiheng.application.execution.timeouts import remaining_seconds
 from zhiheng.modules.billing.public import lock_billing_admission
 from zhiheng.modules.chat.public import (
     ChatExecutionSpec,
@@ -227,7 +229,9 @@ class ChatAgentService:
             provider,
             claim.resource_id,
             snapshot.agent_context,
-            lambda messages: self.summarize(claim, request.binding, messages),
+            lambda messages: self.summarize(
+                claim, request.binding, messages, execution_deadline=request.execution_deadline
+            ),
             on_model_start,
         ) as agent:
             yield agent
@@ -237,6 +241,8 @@ class ChatAgentService:
         parent: ClaimedRun,
         binding: ModelBinding,
         messages: tuple[ModelMessage, ...],
+        *,
+        execution_deadline: datetime | None = None,
     ) -> str:
         context = self.context
         task_id = uuid5(parent.id, 'agent-summary-v1')
@@ -294,7 +300,9 @@ class ChatAgentService:
                         resource_id=task_id,
                         client_request_id=uuid5(task_id, 'model'),
                         fingerprint=source_fingerprint(turns),
-                        request=ModelRequest(binding=summary_binding, messages=messages),
+                        request=ModelRequest(
+                            binding=summary_binding, messages=messages, execution_deadline=execution_deadline
+                        ),
                     )
                     await context.memory.attach_run(session, state, prior, run.id)
                     child_id = run.id
@@ -314,7 +322,9 @@ class ChatAgentService:
                         return current
                     await asyncio.sleep(0.05)
 
-            result = await asyncio.wait_for(wait_result(), timeout=self.timeout_seconds)
+            result = await asyncio.wait_for(
+                wait_result(), timeout=remaining_seconds(execution_deadline, self.timeout_seconds)
+            )
             success = result.status == 'completed' and result.finish_reason == 'stop' and bool(result.text.strip())
             async with context.database.sessions.begin() as session:
                 await context.memory.complete_agent_summary(

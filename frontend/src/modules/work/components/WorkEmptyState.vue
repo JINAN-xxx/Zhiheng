@@ -3,12 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Select as ASelect } from 'ant-design-vue'
 import {
   AppstoreOutlined,
-  PlusOutlined,
   FileTextOutlined,
   BarChartOutlined,
   EditOutlined
 } from '@ant-design/icons-vue'
 import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
+import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
 import { ChatEmptyState } from '../../chat/public.ts'
 import type { WorkDraft } from '../presentation.ts'
 import { validateWorkGoal } from '../presentation.ts'
@@ -175,13 +175,11 @@ function selectModel(value: unknown): void {
         />
       </template>
       <template #tools>
-        <AButton
-          type="text"
+        <AttachmentButton
           aria-label="添加附件"
           :disabled="blocked || !hasModel"
           @click="chooseFiles"
-          ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
-        >
+        />
         <AButton
           v-if="canUseCapability('skills', 'use')"
           type="text"

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { Button as AButton, Modal as AModal, Alert as AAlert } from 'ant-design-vue'
-import { FileTextOutlined, PictureOutlined, DownloadOutlined } from '@ant-design/icons-vue'
+import { DownloadOutlined } from '@ant-design/icons-vue'
 import { downloadAssistantAttachment } from '../api/conversations.ts'
 import type { AssistantAttachment } from '../api/conversations.ts'
 import { formatFileSize, saveBlob } from '../../files/public.ts'
 import { errorMessage, RequestScope } from '../../../shared/http.ts'
 import { imagePreviewBlob } from '../../../shared/attachmentQueue.ts'
+import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
 const props = withDefaults(
   defineProps<{
     agentId: string
@@ -98,7 +99,7 @@ onBeforeUnmount(() => {
       :aria-label="'查看附件：' + file.original_filename"
       @click="open(file)"
     >
-      <PictureOutlined v-if="file.mime.startsWith('image/')" /><FileTextOutlined v-else />
+      <FileTypeIcon :filename="file.original_filename" :mime="file.mime" />
       <span class="file-name">{{ file.original_filename }}</span
       ><small>{{ formatFileSize(file.size) }}</small>
     </AButton>

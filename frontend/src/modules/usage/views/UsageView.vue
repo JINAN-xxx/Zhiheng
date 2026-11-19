@@ -52,7 +52,7 @@ watch(
 </script>
 <template>
   <main class="usage-page" aria-label="用量与调用">
-    <WorkspaceToolbar class="usage-toolbar" title="用量与调用"
+    <WorkspaceToolbar page class="usage-toolbar" title="用量与调用"
       ><template #actions>
         <div v-if="tab !== 'history'" class="usage-credit-actions">
           <CreditBillingControl
@@ -106,13 +106,6 @@ watch(
   background: var(--bg-container);
   font-family: var(--workspace-font-family);
 }
-.usage-toolbar {
-  padding: 24px 28px 14px;
-}
-.usage-toolbar :deep(.workspace-toolbar__title) {
-  font-size: 24px;
-  font-weight: 600;
-}
 .usage-credit-actions {
   display: flex;
   align-items: center;
@@ -135,9 +128,6 @@ watch(
   scrollbar-gutter: stable;
 }
 @media (max-width: 640px) {
-  .usage-toolbar {
-    padding: 20px 16px 16px;
-  }
   .usage-tabs > :deep(.ant-tabs-nav) {
     margin: 0 16px 18px;
   }

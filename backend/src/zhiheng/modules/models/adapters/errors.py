@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import cast
 
 import httpx
+import httpx2
 from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError
 
 from zhiheng.modules.models.contracts import (
@@ -69,6 +70,12 @@ def _rate_limit_metric(body: object) -> ProviderRateLimitMetric:
 
 
 def provider_error(error: Exception) -> ProviderError:
+    cause = error.__cause__ if isinstance(error, APITimeoutError) else error
+    if isinstance(cause, (httpx.ConnectTimeout, httpx.PoolTimeout, httpx2.ConnectTimeout, httpx2.PoolTimeout)):
+        return ProviderError(
+            reason='connect_timeout',
+            upstream_error_type='APITimeoutError' if isinstance(error, APITimeoutError) else 'TimeoutException',
+        )
     status: int | None = None
     error_type: ProviderExceptionType | None = None
     body: object = None

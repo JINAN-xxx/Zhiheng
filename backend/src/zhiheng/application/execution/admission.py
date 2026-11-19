@@ -5,6 +5,7 @@ idempotency locks. Admission never substitutes the caller for the billing owner.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from zhiheng.modules.models.public import ModelRequest, ModelService
 from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.runtime.runs import RunStore
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.time import utcnow
 
 MAX_PROMPT_RESERVATION = 64000
 
@@ -28,8 +30,11 @@ class AdmissionIdentity:
 
 
 class RunAdmission:
-    def __init__(self, models: ModelService, usage: UsageService, runs: RunStore) -> None:
+    def __init__(
+        self, models: ModelService, usage: UsageService, runs: RunStore, *, total_timeout_seconds: float = 600
+    ) -> None:
         self._models, self._usage, self._runs = models, usage, runs
+        self._total_timeout = total_timeout_seconds
 
     async def reserve(  # noqa: PLR0913 - explicit execution identity, frozen request and reservation policy
         self,
@@ -63,6 +68,16 @@ class RunAdmission:
             else max(1, len(request.messages) - 1)
             if request.binding.model_type == 'rerank'
             else 0
+        )
+        deadline = utcnow() + timedelta(
+            seconds=min(self._total_timeout, request.execution_timeout_seconds or self._total_timeout)
+        )
+        request = request.model_copy(
+            update={
+                'execution_deadline': min(deadline, request.execution_deadline)
+                if request.execution_deadline
+                else deadline
+            }
         )
         # UsageService has its own atomic metering/credit operation. This outer
         # savepoint also removes Run/Outbox if reservation fails and a caller

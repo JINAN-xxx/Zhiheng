@@ -50,7 +50,11 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
             job_timeout=(
                 container.settings.sandbox_run_seconds + 120
                 if queue_name == container.settings.worker_workspace_queue
-                else container.settings.provider_timeout_seconds * 2 + 20
+                else max(
+                    container.settings.provider_total_timeout_seconds,
+                    container.settings.knowledge_query_timeout_seconds,
+                )
+                + 60
             ),
             health_check_interval=5,
             health_check_key=f'{queue_name}:arq-health',

@@ -11,6 +11,7 @@ import {
 export type FileStatus = 'active' | 'deleted' | 'purging' | 'purged'
 export type StorageStatus = 'normal' | 'missing' | 'quarantined' | 'invalid' | 'unknown'
 export interface ManagedFile {
+  purpose?: string
   fileId: string
   originalName: string
   displayName: string
@@ -126,6 +127,7 @@ export function parseFile(value: unknown): ManagedFile {
   )
     throw new Error('文件存储状态无效')
   return {
+    purpose: data.purpose === undefined ? 'general' : string(data.purpose),
     fileId: string(data.id),
     originalName: string(data.original_filename),
     displayName: string(data.display_name),

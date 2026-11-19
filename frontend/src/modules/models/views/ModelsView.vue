@@ -9,8 +9,6 @@ import {
   InputNumber as AInputNumber,
   InputPassword as AInputPassword,
   Drawer as ADrawer,
-  Tabs as ATabs,
-  TabPane as ATabPane,
   RadioGroup as ARadioGroup,
   RadioButton as ARadioButton,
   Select as ASelect,
@@ -65,8 +63,6 @@ const catalog = useModelCatalog(credentialPage, access, {
   }
 })
 const {
-  activeTab,
-  setActiveTab,
   modelSearch,
   modelType,
   modelFilters,
@@ -182,17 +178,20 @@ function trialDetails() {
 </script>
 <template>
   <main class="app-container ai-model-center">
-    <WorkspaceToolbar :title="credentialPage ? '凭据管理' : '模型目录'"
+    <WorkspaceToolbar
+      page
+      :title="credentialPage ? '凭据管理' : '模型目录'"
+      :subtitle="credentialPage ? '管理模型服务连接与访问凭据' : '管理平台可用模型与调用配置'"
       ><template #actions
         ><RefreshButton label="刷新当前视图" :loading="loading" @click="load" /><AButton
-          v-if="canCreateModels && activeTab === 'platform'"
+          v-if="canCreateModels && !credentialPage"
           type="primary"
           aria-label="接入模型"
           :disabled="!connectionOptions.length"
           @click="openModel()"
           ><PlusOutlined />接入模型</AButton
         ><AButton
-          v-if="canCreateCredentials && activeTab === 'credentials'"
+          v-if="canCreateCredentials && credentialPage"
           type="primary"
           aria-label="新增凭据"
           :disabled="credentialBusy"
@@ -204,170 +203,163 @@ function trialDetails() {
     <section class="model-workspace">
       <AAlert v-if="error" :message="error" type="error" show-icon class="space-bottom" />
       <ResourceReferences :details="errorDetails" />
-      <ATabs :active-key="activeTab" class="workspace-tabs" @update:active-key="setActiveTab">
-        <ATabPane v-if="!credentialPage" key="platform" tab="平台模型"
-          ><section class="workspace-panel">
-            <div class="model-catalog-toolbar">
-              <div class="model-filters" aria-label="模型类型筛选">
+      <section v-if="!credentialPage" class="workspace-panel" aria-label="平台模型">
+        <div class="model-catalog-toolbar">
+          <div class="model-filters" aria-label="模型类型筛选">
+            <button
+              v-for="filter in modelFilters"
+              :key="filter.value"
+              type="button"
+              :class="{ active: modelType === filter.value }"
+              :aria-pressed="modelType === filter.value"
+              @click="modelType = filter.value"
+            >
+              {{ filter.label }}
+            </button>
+          </div>
+          <div class="catalog-tools">
+            <span v-if="!isMobile" class="catalog-total">{{ filteredModels.length }} 个模型</span>
+            <AInput
+              v-model:value="modelSearch"
+              allow-clear
+              aria-label="搜索模型"
+              :placeholder="canReadModels ? '搜索模型名称、代码或连接' : '搜索模型名称或代码'"
+            >
+              <template #prefix><SearchOutlined /></template>
+            </AInput>
+          </div>
+        </div>
+        <div v-if="isMobile" class="panel-toolbar">
+          <div class="panel-summary">
+            <span>{{ models.length }} 个平台模型</span
+            ><span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
+          </div>
+        </div>
+        <ModelCatalog
+          v-if="!isMobile && filteredModels.length"
+          :models="filteredModels"
+          :connection-labels="connectionLabels"
+          :connection-issues="connectionIssues"
+          :errors="modelErrorMessages"
+          :can-write="canToggleModels"
+          :pending="modelPending"
+          @open="openDetails"
+          @toggle="toggleModel"
+        />
+        <ResourceTable
+          v-else-if="filteredModels.length || loading"
+          class="model-table"
+          :columns="visibleModelColumns"
+          :scroll-x="isMobile ? '100%' : 850"
+          :rows="filteredModels"
+          :loading="loading"
+          ><template #bodyCell="{ column, record: model }">
+            <template v-if="column.key === 'model'"
+              ><div class="mobile-model-cell">
                 <button
-                  v-for="filter in modelFilters"
-                  :key="filter.value"
                   type="button"
-                  :class="{ active: modelType === filter.value }"
-                  :aria-pressed="modelType === filter.value"
-                  @click="modelType = filter.value"
+                  class="model-display-name model-table-open"
+                  :aria-label="`查看模型详情：${model.name}`"
+                  @click="openDetails(model)"
                 >
-                  {{ filter.label }}
+                  {{ model.name }}
                 </button>
-              </div>
-              <div class="catalog-tools">
-                <span v-if="!isMobile" class="catalog-total"
-                  >{{ filteredModels.length }} 个模型</span
-                >
-                <AInput
-                  v-model:value="modelSearch"
-                  allow-clear
-                  aria-label="搜索模型"
-                  :placeholder="canReadModels ? '搜索模型名称、代码或连接' : '搜索模型名称或代码'"
-                >
-                  <template #prefix><SearchOutlined /></template>
-                </AInput>
-              </div>
-            </div>
-            <div v-if="isMobile" class="panel-toolbar">
-              <div class="panel-summary">
-                <span>{{ models.length }} 个平台模型</span
-                ><span v-if="lastSuccessAt">更新于 {{ lastSuccessAt }}</span>
-              </div>
-            </div>
-            <ModelCatalog
-              v-if="!isMobile && filteredModels.length"
-              :models="filteredModels"
-              :connection-labels="connectionLabels"
-              :connection-issues="connectionIssues"
-              :errors="modelErrorMessages"
-              :can-write="canToggleModels"
-              :pending="modelPending"
-              @open="openDetails"
-              @toggle="toggleModel"
-            />
-            <ResourceTable
-              v-else-if="filteredModels.length || loading"
-              class="model-table"
-              :columns="visibleModelColumns"
-              :scroll-x="isMobile ? '100%' : 850"
-              :rows="filteredModels"
-              :loading="loading"
-              ><template #bodyCell="{ column, record: model }">
-                <template v-if="column.key === 'model'"
-                  ><div class="mobile-model-cell">
-                    <button
-                      type="button"
-                      class="model-display-name model-table-open"
-                      :aria-label="`查看模型详情：${model.name}`"
-                      @click="openDetails(model)"
-                    >
-                      {{ model.name }}
-                    </button>
-                    <div class="resource-value resource-value--secondary">
-                      <span class="resource-text" :title="model.id">{{ model.id }}</span>
-                      <button
-                        type="button"
-                        class="copy-button"
-                        aria-label="复制模型代码"
-                        title="复制模型代码"
-                        :disabled="!model.id.trim()"
-                        @click="copyModelCode(model.id)"
-                      >
-                        <CopyOutlined />
-                      </button>
-                    </div>
-                    <div v-if="isMobile" class="mobile-model-meta">
-                      <ATag color="blue">{{ modelTypeLabel(model.model_type) }}</ATag
-                      ><ATag
-                        v-if="canReadModels"
-                        :color="connectionEnabled(model.connection_id) ? 'success' : 'default'"
-                        >{{
-                          connectionEnabled(model.connection_id) ? '连接已启用' : '连接不可用'
-                        }}</ATag
-                      ><ATag :color="model.enabled ? 'success' : 'default'">{{
-                        model.enabled ? '已启用' : '已停用'
-                      }}</ATag>
-                    </div>
-                  </div></template
-                >
-                <template v-else-if="column.key === 'type'"
-                  ><ATag>{{ modelTypeLabel(model.model_type) }}</ATag></template
-                >
-                <template v-else-if="column.key === 'binding'"
-                  ><ATag :color="connectionEnabled(model.connection_id) ? 'success' : 'default'">{{
-                    connectionEnabled(model.connection_id) ? '已启用' : '不可用'
-                  }}</ATag></template
-                >
-                <template v-else-if="column.key === 'status'"
+                <div class="resource-value resource-value--secondary">
+                  <span class="resource-text" :title="model.id">{{ model.id }}</span>
+                  <button
+                    type="button"
+                    class="copy-button"
+                    aria-label="复制模型代码"
+                    title="复制模型代码"
+                    :disabled="!model.id.trim()"
+                    @click="copyModelCode(model.id)"
+                  >
+                    <CopyOutlined />
+                  </button>
+                </div>
+                <div v-if="isMobile" class="mobile-model-meta">
+                  <ATag color="blue">{{ modelTypeLabel(model.model_type) }}</ATag
+                  ><ATag
+                    v-if="canReadModels"
+                    :color="connectionEnabled(model.connection_id) ? 'success' : 'default'"
+                    >{{
+                      connectionEnabled(model.connection_id) ? '连接已启用' : '连接不可用'
+                    }}</ATag
                   ><ATag :color="model.enabled ? 'success' : 'default'">{{
                     model.enabled ? '已启用' : '已停用'
-                  }}</ATag></template
-                >
-                <template v-else-if="column.key === 'output'">
-                  {{
-                    model.model_type === 'chat'
-                      ? `${model.max_output_tokens.toLocaleString()} Token`
-                      : '—'
-                  }}
-                </template>
-                <template v-else-if="column.key === 'actions'">
-                  <ModelActions
-                    :model="model"
-                    :busy="testBusy"
-                    :mutating="modelPending[model.id] ?? false"
-                    :testing="testingModel === model.id"
-                    :can-write="canUpdateModels || canDeleteModels || canToggleModels"
-                    :can-update="canUpdateModels"
-                    :can-delete="canDeleteModels"
-                    :can-toggle="canToggleModels"
-                    :can-read-rates="canReadRates"
-                    :can-test="canTestModels"
-                    :test-disabled="connectionDisabled(model.connection_id)"
-                    @edit="openModel(model)"
-                    @rates="canReadRates && (rateModel = model)"
-                    @test="testModel(model)"
-                    @trial="openTrial(model)"
-                    @control="changeModel(model, $event)"
-                  />
-                </template> </template
-            ></ResourceTable>
-            <WorkspaceState
-              v-else
-              :title="models.length ? '没有匹配的模型' : '暂无平台模型'"
-              :message="
-                models.length
-                  ? '试试其他模型类型或关键词。'
-                  : !(canUpdateModels || canDeleteModels || canToggleModels)
-                    ? '当前暂无可用模型，请联系平台管理员。'
-                    : connections.length
-                      ? '点击接入模型，选择已保存的连接。'
-                      : '请先在凭据管理中添加模型连接。'
-              "
-            /></section
-        ></ATabPane>
-        <ATabPane v-if="credentialPage && canReadCredentials" key="credentials" tab="凭据管理">
-          <section class="workspace-panel">
-            <ModelConnectionCatalog
-              :connections="connections"
-              :models="models"
-              :loading="loading"
-              :can-write="canUpdateCredentials || canDeleteCredentials || canToggleCredentials"
-              :can-update="canUpdateCredentials"
-              :can-delete="canDeleteCredentials"
-              :can-toggle="canToggleCredentials"
-              :busy="credentialBusy"
-              @edit="openConnection"
-              @control="changeConnection"
-            />
-          </section>
-        </ATabPane>
-      </ATabs>
+                  }}</ATag>
+                </div>
+              </div></template
+            >
+            <template v-else-if="column.key === 'type'"
+              ><ATag>{{ modelTypeLabel(model.model_type) }}</ATag></template
+            >
+            <template v-else-if="column.key === 'binding'"
+              ><ATag :color="connectionEnabled(model.connection_id) ? 'success' : 'default'">{{
+                connectionEnabled(model.connection_id) ? '已启用' : '不可用'
+              }}</ATag></template
+            >
+            <template v-else-if="column.key === 'status'"
+              ><ATag :color="model.enabled ? 'success' : 'default'">{{
+                model.enabled ? '已启用' : '已停用'
+              }}</ATag></template
+            >
+            <template v-else-if="column.key === 'output'">
+              {{
+                model.model_type === 'chat'
+                  ? `${model.max_output_tokens.toLocaleString()} Token`
+                  : '—'
+              }}
+            </template>
+            <template v-else-if="column.key === 'actions'">
+              <ModelActions
+                :model="model"
+                :busy="testBusy"
+                :mutating="modelPending[model.id] ?? false"
+                :testing="testingModel === model.id"
+                :can-write="canUpdateModels || canDeleteModels || canToggleModels"
+                :can-update="canUpdateModels"
+                :can-delete="canDeleteModels"
+                :can-toggle="canToggleModels"
+                :can-read-rates="canReadRates"
+                :can-test="canTestModels"
+                :test-disabled="connectionDisabled(model.connection_id)"
+                @edit="openModel(model)"
+                @rates="canReadRates && (rateModel = model)"
+                @test="testModel(model)"
+                @trial="openTrial(model)"
+                @control="changeModel(model, $event)"
+              />
+            </template> </template
+        ></ResourceTable>
+        <WorkspaceState
+          v-else
+          :title="models.length ? '没有匹配的模型' : '暂无平台模型'"
+          :message="
+            models.length
+              ? '试试其他模型类型或关键词。'
+              : !(canUpdateModels || canDeleteModels || canToggleModels)
+                ? '当前暂无可用模型，请联系平台管理员。'
+                : connections.length
+                  ? '点击接入模型，选择已保存的连接。'
+                  : '请先在凭据管理中添加模型连接。'
+          "
+        />
+      </section>
+      <section v-else-if="canReadCredentials" class="workspace-panel">
+        <ModelConnectionCatalog
+          :connections="connections"
+          :models="models"
+          :loading="loading"
+          :can-write="canUpdateCredentials || canDeleteCredentials || canToggleCredentials"
+          :can-update="canUpdateCredentials"
+          :can-delete="canDeleteCredentials"
+          :can-toggle="canToggleCredentials"
+          :busy="credentialBusy"
+          @edit="openConnection"
+          @control="changeConnection"
+        />
+      </section>
     </section>
   </main>
   <ADrawer
@@ -585,38 +577,7 @@ function trialDetails() {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 20px 24px 28px;
-}
-.workspace-tabs {
-  min-height: 0;
-  flex: 1;
-}
-.workspace-tabs :deep(.ant-tabs-nav) {
-  margin: 0 0 20px;
-  border-bottom: 1px solid var(--gray-150);
-}
-.workspace-tabs :deep(.ant-tabs-nav::before) {
-  border-bottom: 0;
-}
-.workspace-tabs :deep(.ant-tabs-tab) {
-  height: 40px;
-  margin: 0;
-  padding: 0 16px;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  font-weight: 400;
-}
-.workspace-tabs :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
-  color: var(--main-700);
-  font-weight: 600;
-}
-.workspace-tabs :deep(.ant-tabs-ink-bar) {
-  background: var(--main-700);
-}
-.workspace-tabs :deep(.ant-tabs-content-holder),
-.workspace-tabs :deep(.ant-tabs-content),
-.workspace-tabs :deep(.ant-tabs-tabpane) {
-  min-height: 0;
+  padding: 0 28px 28px;
 }
 :global(.model-onboarding-drawer .ant-alert) {
   border-radius: 6px;
@@ -652,19 +613,7 @@ function trialDetails() {
 }
 @media (max-width: 640px) {
   .model-workspace {
-    padding: 16px;
-  }
-}
-@media (min-width: 761px) {
-  .model-workspace {
-    padding: 0 var(--workspace-space-6) 28px;
-  }
-  .workspace-tabs :deep(.ant-tabs-nav) {
-    margin-bottom: 12px;
-  }
-  .ai-model-center :deep(.workspace-toolbar__subtitle) {
-    margin-top: 2px;
-    font-size: var(--workspace-font-size-helper);
+    padding: 0 16px 16px;
   }
 }
 
@@ -679,7 +628,8 @@ function trialDetails() {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
-  margin: 4px 0 20px;
+  min-height: 40px;
+  margin: 0 0 26px;
 }
 .model-filters {
   flex-wrap: wrap;

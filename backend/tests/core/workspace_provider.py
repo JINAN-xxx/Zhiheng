@@ -69,23 +69,22 @@ class WorkspaceProvider(ThreadingHTTPServer):
             return {'role': 'assistant', 'content': '你好，可以直接告诉我需要什么帮助。'}
         user_index = max(index for index, item in enumerate(messages) if item['role'] == 'user')
         revision = 'REVISION' in str(messages[user_index]['content'])
-        returned = [item for item in messages[user_index + 1 :] if item['role'] == 'tool']
+        returned = [
+            item
+            for item in messages[user_index + 1 :]
+            if item['role'] == 'tool' and 'loaded_toolsets' not in (json.loads(item['content']).get('data') or {})
+        ]
+        available = {item['function']['name'] for item in body.get('tools', [])}
         if body['model'] == 'workspace-repair':
-            if len(returned) in {0, 2}:
-                return self.tool(
-                    'write_file',
-                    {'path': 'outputs/report.txt', 'content': '' if not returned else 'repaired report'},
-                    'empty' if not returned else 'repair',
-                )
-            if len(returned) in {1, 3}:
-                return self.tool('publish_outputs', {}, 'publish-empty' if len(returned) == 1 else 'publish-fixed')
-            return {'role': 'assistant', 'content': '空文件已补充正文并通过发布检查。'}
+            return self._repair_response(returned, available)
         if not returned and not revision:
             system = next(str(item['content']) for item in messages if item['role'] == 'system')
             metadata = json.JSONDecoder().raw_decode(system.split('任务目标与资料：\n', 1)[1])[0]
             return self.tool('read_sheet', {'file_id': metadata['inputs'][0]['file_id']}, 'read-source')
         code_index = 0 if revision else 1
         if len(returned) == code_index:
+            if 'run_python' not in available:
+                return self.tool('load_tools', {'groups': ['python']}, 'load-python-tools')
             path = '' if revision else json.loads(returned[0]['content'])['data']['workspace_path']
             return self.tool(
                 'run_python', {'code': office_code(path, revision=revision)}, 'revise' if revision else 'create'
@@ -93,6 +92,19 @@ class WorkspaceProvider(ThreadingHTTPServer):
         if len(returned) == code_index + 1:
             return self.tool('publish_outputs', {}, 'publish-revision' if revision else 'publish-first')
         return {'role': 'assistant', 'content': '文件已通过工具检查并登记。'}
+
+    def _repair_response(self, returned: list[dict[str, object]], available: set[str]) -> dict[str, object]:
+        if 'write_file' not in available:
+            return self.tool('load_tools', {'groups': ['files']}, 'load-file-tools')
+        if len(returned) in {0, 2}:
+            return self.tool(
+                'write_file',
+                {'path': 'outputs/report.txt', 'content': '' if not returned else 'repaired report'},
+                'empty' if not returned else 'repair',
+            )
+        if len(returned) in {1, 3}:
+            return self.tool('publish_outputs', {}, 'publish-empty' if len(returned) == 1 else 'publish-fixed')
+        return {'role': 'assistant', 'content': '空文件已补充正文并通过发布检查。'}
 
     @staticmethod
     def tool(name: str, arguments: dict[str, object], identifier: str) -> dict[str, object]:

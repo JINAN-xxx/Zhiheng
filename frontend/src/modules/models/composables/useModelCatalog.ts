@@ -42,11 +42,6 @@ export function useModelCatalog(
     hasModelActions,
     denyTrialAccess
   } = access
-  const activeTab = ref(credentialPage ? 'credentials' : 'platform')
-  function setActiveTab(value: unknown): void {
-    activeTab.value =
-      value === 'credentials' && canReadCredentials.value ? 'credentials' : 'platform'
-  }
   const modelSearch = ref('')
   const modelType = ref('all')
   const modelFilters = [
@@ -418,15 +413,12 @@ export function useModelCatalog(
         models.value = []
         closeDetails()
         lastSuccessAt.value = ''
-        activeTab.value = credentialPage ? 'credentials' : 'platform'
         void load()
       }
     }
   )
 
   return {
-    activeTab,
-    setActiveTab,
     modelSearch,
     modelType,
     modelFilters,

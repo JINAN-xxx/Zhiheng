@@ -44,8 +44,9 @@ class LoginResponse(BaseModel):
 
 @router.post('/login')
 async def login(
-    body: LoginRequest, response: Response, container: ContainerDependency, session: SessionDependency
+    body: LoginRequest, response: Response, request: Request, container: ContainerDependency, session: SessionDependency
 ) -> LoginResponse:
+    await container.login_limits.consume(body.username, request.client.host if request.client else 'unknown')
     try:
         async with session.begin():
             principal, token = await container.identity.login(

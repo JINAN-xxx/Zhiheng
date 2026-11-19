@@ -111,7 +111,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await detail.get_by_role('button', name='Close', exact=True).click()
         await expect(detail).to_be_hidden()
         await self.page.goto(self.origin + '/credentials')
-        await expect(self.page.get_by_role('tabpanel', name='凭据管理', exact=True).get_by_text('团队服务', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('region', name='凭据列表', exact=True).get_by_text('团队服务', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='编辑凭据', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('button', name='更多凭据操作', exact=True)).to_have_count(0)
 

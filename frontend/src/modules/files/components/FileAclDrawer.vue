@@ -9,7 +9,8 @@ import {
   RadioGroup as ARadioGroup,
   Select as ASelect,
   Tag as ATag,
-  Tooltip as ATooltip
+  Tooltip as ATooltip,
+  message as toast
 } from 'ant-design-vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue'
@@ -20,6 +21,9 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { findFileUsers, getFileAcl, saveFileAcl } from '../api/index.ts'
 import type { FileAcl, FileAclEntry, FileUser, ManagedFile } from '../api/index.ts'
 import { isoDateTime, localDateTime } from '../presentation.ts'
+import { identity } from '../../identity/public.ts'
+import { canFileAction, canLookupFileUsers } from '../access.ts'
+import { confirmFileAction } from '../authorization.ts'
 const props = defineProps<{
   users: FileUser[]
   file?: ManagedFile | null
@@ -86,13 +90,14 @@ function close(): void {
 }
 async function open(files: ManagedFile[]): Promise<void> {
   reset()
-  if (!files.length) return
+  if (!files.length || !files.every((file) => canFileAction(identity.value, file, 'acl'))) return
   const context = scope.replace()
-  visible.value = true
-  loading.value = true
   error.value = ''
   uncertain.value = false
   try {
+    if (!(await confirmFileAction('acl', files)) || !context.isCurrent()) return
+    visible.value = true
+    loading.value = true
     const loaded = await Promise.all(files.map((file) => getFileAcl(file.fileId, context.signal)))
     if (!context.isCurrent() || !visible.value) return
     acls.value = loaded
@@ -109,7 +114,10 @@ async function open(files: ManagedFile[]): Promise<void> {
           }))
         : []
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
+    if (context.isCurrent() && !isAborted(reason)) {
+      error.value = errorMessage(reason)
+      if (!visible.value) void toast.error(error.value)
+    }
   } finally {
     if (context.isCurrent()) loading.value = false
   }
@@ -138,6 +146,7 @@ function options(row: Entry) {
   return [...users].map(([value, label]) => ({ value, label }))
 }
 async function searchUsers(row: Entry, keyword: string): Promise<void> {
+  if (!props.userLookup && !canLookupFileUsers(identity.value)) return
   let search = searches.get(row.key)
   if (!search) {
     search = new RequestScope()
@@ -157,6 +166,7 @@ async function searchUsers(row: Entry, keyword: string): Promise<void> {
 }
 async function submit(): Promise<void> {
   if (loading.value || saving.value || uncertain.value || !acls.value.length) return
+  if (!acls.value.every((acl) => canFileAction(identity.value, acl.file, 'acl'))) return
   if (
     entries.value.some((row) => !row.userId) ||
     new Set(entries.value.map((row) => row.userId)).size !== entries.value.length
@@ -183,11 +193,27 @@ async function submit(): Promise<void> {
   let changed = 0
   try {
     if (
+      !(await confirmFileAction(
+        'acl',
+        targets.map((acl) => acl.file)
+      )) ||
+      !context.isCurrent()
+    )
+      return
+    if (
       targets.length > 1 &&
       !(await confirm(`将覆盖所选${targets.length}个文件的显式授权，是否继续？`))
     )
       return
     if (!context.isCurrent() || !visible.value) return
+    if (
+      !(await confirmFileAction(
+        'acl',
+        targets.map((acl) => acl.file)
+      )) ||
+      !context.isCurrent()
+    )
+      return
     for (const acl of targets) {
       await saveFileAcl(
         acl.file,
@@ -218,6 +244,7 @@ watch(
   },
   { immediate: true }
 )
+watch(identity, close)
 onBeforeUnmount(() => {
   scope.dispose()
   writeScope.dispose()

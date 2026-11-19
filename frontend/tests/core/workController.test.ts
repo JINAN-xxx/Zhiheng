@@ -653,3 +653,78 @@ void test('unknown task creation confirms its frozen goal, model and skills befo
   assert.equal('allow_code_execution' in (posted[0] ?? {}), false)
   assert.equal(commands.createUncertain.value, false)
 })
+
+for (const state of ['failed', 'cancelled', 'paused'] as const) {
+  void test(
+    'continuing a ' + state + ' Work task resumes without another user message',
+    async (t) => {
+      const { resources, commands, select } = controllers(t)
+      const original = 'Create the report once'
+      const messageDefaults = {
+        knowledgeSources: [],
+        reasoningContent: '',
+        runId: null,
+        runStatus: 'completed' as const,
+        usage: null,
+        errorSnapshot: null,
+        agentId: null,
+        agentNameSnapshot: null,
+        agentRevision: null,
+        createdAt: stamp
+      }
+      const value: WorkTask = {
+        ...task('task-1', 4),
+        executionState: state,
+        messages: [
+          {
+            ...messageDefaults,
+            messageId: 'user-1',
+            role: 'user',
+            content: original,
+            clientRequestId: 'original-request',
+            sequence: 1
+          },
+          {
+            ...messageDefaults,
+            messageId: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            // A previous continuation has its own assistant but no duplicate user entry.
+            clientRequestId: 'previous-continuation',
+            runStatus: state === 'paused' ? 'interrupted' : state,
+            runId: 'old-run',
+            sequence: 2
+          }
+        ]
+      }
+      select(value)
+      commands.restoreTask(value)
+      const posted: Record<string, unknown>[] = []
+      let localUsers = 0
+      fetcher = (input, init) => {
+        const path =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (path === '/api/work/tasks/task-1/runs' && init?.method === 'POST') {
+          assert.ok(typeof init.body === 'string')
+          posted.push(JSON.parse(init.body) as Record<string, unknown>)
+          localUsers = resources.currentTask.value!.messages.filter(
+            (item) => item.role === 'user'
+          ).length
+          return Promise.resolve(response(run('completed')))
+        }
+        if (path === '/api/work/tasks/task-1')
+          return Promise.resolve(response(rawTask(task('task-1', 5))))
+        if (path.startsWith('/api/work/tasks?'))
+          return Promise.resolve(response({ items: [], total: 0 }))
+        throw new Error('Unexpected request ' + path)
+      }
+      await commands.retryRun()
+      assert.equal(posted.length, 1)
+      assert.equal(posted[0]?.resume, true)
+      assert.equal(posted[0]?.message, '')
+      assert.equal(posted[0]?.expected_version, 4)
+      assert.notEqual(posted[0]?.client_request_id, 'original-request')
+      assert.equal(localUsers, 1)
+    }
+  )
+}

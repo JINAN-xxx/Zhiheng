@@ -1,12 +1,14 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
 from zhiheng.modules.files.parsing_contracts import MAX_IMAGE_URL_BYTES, MAX_INPUT_BYTES, MAX_TEXT_BYTES, ParseResult
 from zhiheng.shared.errors import AppError
 
+SOURCE_ROOT = str(Path(__file__).resolve().parents[4])
 MAX_FILENAME_BYTES = 1024
 # A legal text byte may require six JSON wire bytes (e.g. U+0001).
 MAX_REPLY_BYTES = MAX_TEXT_BYTES * 6 + MAX_IMAGE_URL_BYTES + 16384
@@ -44,7 +46,12 @@ class NativeParser:
                 stderr=asyncio.subprocess.DEVNULL,
                 limit=MAX_REPLY_BYTES,
                 env={
-                    **os.environ,
+                    'PATH': os.environ.get('PATH', os.defpath),
+                    'LANG': 'C.UTF-8',
+                    'LC_ALL': 'C.UTF-8',
+                    'PYTHONDONTWRITEBYTECODE': '1',
+                    'PYTHONPATH': SOURCE_ROOT,
+                    **{key: os.environ[key] for key in ('SYSTEMROOT', 'WINDIR') if key in os.environ},
                     'OPENBLAS_NUM_THREADS': '1',
                     'OMP_NUM_THREADS': '1',
                     'MKL_NUM_THREADS': '1',

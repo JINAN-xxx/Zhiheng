@@ -505,7 +505,7 @@ async def test_known_usage_survives_interruption_while_checkpoint_io_is_pending(
     result = (await admin.get(f'/api/runs/{run["id"]}')).json()
     assert result['status'] == ('cancelled' if interruption == 'cancel' else 'failed'), result
     if interruption == 'timeout':
-        assert result['error']['code'] == 'inference_failed'
+        assert result['error']['code'] == 'model_finalize_timeout'
     assert result['text'] == '你好' and result['finish_reason'] == 'stop'
     assert result['usage'] == {'input_tokens': 8, 'output_tokens': 2, 'status': 'known'}
     assert await memory_head(app, cid) is None

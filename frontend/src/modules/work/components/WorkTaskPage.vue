@@ -18,8 +18,7 @@ import {
   EditOutlined,
   FileTextOutlined,
   MoreOutlined,
-  AppstoreOutlined,
-  PlusOutlined
+  AppstoreOutlined
 } from '@ant-design/icons-vue'
 import type { UpdateWorkBody, WorkOptions, WorkStatus, WorkTask } from '../api/index.ts'
 import type { WorkTurnInput } from '../composables/turns.ts'
@@ -30,6 +29,9 @@ import {
   workExecutionLabel
 } from '../presentation.ts'
 import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
+import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
+import AttachmentCard from '../../../shared/components/AttachmentCard.vue'
+import { formatFileSize } from '../../files/public.ts'
 import WorkMessageTimeline from './WorkMessageTimeline.vue'
 import WorkExecutionPanel from './WorkExecutionPanel.vue'
 import WorkFilesPanel from './WorkFilesPanel.vue'
@@ -313,7 +315,7 @@ function picked(event: Event): void {
                     ? '确认原请求'
                     : retryKind === 'unstarted'
                       ? '继续执行'
-                      : '重新执行'
+                      : '继续执行'
               }}</AButton
             ></template
           ></AAlert
@@ -391,24 +393,16 @@ function picked(event: Event): void {
           </template>
           <template #prefix>
             <div v-if="task.inputs.length" class="work-inputs" aria-label="任务资料">
-              <button
-                v-for="file in task.inputs.slice(0, 3)"
+              <AttachmentCard
+                v-for="file in task.inputs"
                 :key="file.fileId"
-                type="button"
-                class="work-input-chip"
-                @click="filesOpen = true"
-              >
-                <FileTextOutlined /><span :title="file.name">{{ file.name }}</span
-                ><small>v{{ file.version }}</small>
-              </button>
-              <button
-                v-if="task.inputs.length > 3"
-                type="button"
-                class="work-input-chip"
-                @click="filesOpen = true"
-              >
-                另 {{ task.inputs.length - 3 }} 份资料
-              </button>
+                :filename="file.name"
+                :size-label="formatFileSize(file.size)"
+                :mime="file.mime"
+                :removable="false"
+                openable
+                @open="filesOpen = true"
+              />
             </div>
             <WorkSelectedSkills
               :slugs="skillSlugs"
@@ -418,14 +412,12 @@ function picked(event: Event): void {
             />
           </template>
           <template #tools>
-            <AButton
-              type="text"
+            <AttachmentButton
               aria-label="添加附件"
               :disabled="locked || !canRun"
               :loading="uploading"
               @click="fileInput?.click()"
-              ><PlusOutlined /><span class="composer-tool-label">添加附件</span></AButton
-            >
+            />
             <AButton
               v-if="canEdit && canUseCapability('skills', 'use')"
               type="text"
@@ -611,33 +603,11 @@ function picked(event: Event): void {
 .work-inputs {
   display: flex;
   gap: 8px;
+  min-width: 0;
+  padding: 2px;
   margin: 0 0 12px;
   overflow-x: auto;
   scrollbar-width: none;
-}
-.work-input-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  max-width: 240px;
-  flex-shrink: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--gray-150);
-  border-radius: 10px;
-  background: var(--bg-container);
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.work-input-chip span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.work-input-chip small {
-  color: var(--color-text-tertiary);
 }
 .work-artifacts-link {
   display: inline-flex;
@@ -653,8 +623,7 @@ function picked(event: Event): void {
   font-size: 13px;
   cursor: pointer;
 }
-.work-artifacts-link:hover,
-.work-input-chip:hover {
+.work-artifacts-link:hover {
   color: var(--main-color);
   border-color: var(--main-200);
 }

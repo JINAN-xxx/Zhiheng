@@ -31,6 +31,7 @@ async def point_rate(admin: httpx.AsyncClient, model_id: str, **fields: Any) -> 
 async def test_me_owner_boundary_and_zero_account_directory(admin: httpx.AsyncClient, app: FastAPI) -> None:
     assert (await admin.get('/api/billing/state')).json() == {'enabled': False, 'version': 0}
     async with account(admin, app, *grants('platform:usage')) as (member, _, user):
+        assert (await member.get('/api/billing/state')).json() == {'enabled': False, 'version': 0}
         own = await member.get('/api/billing/me', params={'user_id': str(uuid4())})
         assert own.status_code == 200, own.text
         assert own.json()['user_id'] == user['id'] and Decimal(own.json()['available_points']) == 0
@@ -39,6 +40,14 @@ async def test_me_owner_boundary_and_zero_account_directory(admin: httpx.AsyncCl
         assert (await member.get('/api/billing/accounts')).status_code == 403
         assert (await member.get(f'/api/billing/accounts/{uuid4()}/ledger')).status_code == 403
         assert (await member.get(f'/api/billing/accounts/{uuid4()}/usage')).status_code == 403
+        assert (
+            await member.post(f'/api/billing/accounts/{user["id"]}/adjust', json=mutation(kind='grant', points='1'))
+        ).status_code == 403
+        assert (
+            await member.patch(
+                f'/api/billing/accounts/{user["id"]}/state', json=mutation(enabled=False, expected_version=1)
+            )
+        ).status_code == 403
         directory = await admin.get('/api/billing/accounts', params={'search': user['username'], 'page_size': 1})
         assert directory.status_code == 200, directory.text
         assert directory.json()['total'] == 1

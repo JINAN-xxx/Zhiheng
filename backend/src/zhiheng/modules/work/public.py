@@ -28,9 +28,14 @@ from zhiheng.modules.work.contracts import (
 )
 from zhiheng.modules.work.facts import normalize_work_fact
 from zhiheng.modules.work.service import MemberSnapshot, WorkService
+from zhiheng.modules.work.toolsets import WORK_CODE_TOOLS, WORK_CODE_TOOLSETS, WORK_CORE_TOOLS, WORK_TOOLSETS
 from zhiheng.modules.work.workbench import WorkbenchWork
 
 __all__ = [
+    'WORK_CODE_TOOLS',
+    'WORK_CODE_TOOLSETS',
+    'WORK_CORE_TOOLS',
+    'WORK_TOOLSETS',
     'AddMember',
     'AgentKernelOutcome',
     'AgentTaskConfiguration',
@@ -47,6 +52,7 @@ __all__ = [
     'TaskDetail',
     'TaskPage',
     'TaskSummary',
+    'ToolContextWriter',
     'ToolInvoker',
     'UpdateAgentTask',
     'UpdateTask',
@@ -68,6 +74,7 @@ __all__ = [
     'WorkspaceAgentKernel',
     'normalize_work_fact',
     'select_work_history',
+    'valid_work_summary',
 ]
 
 from zhiheng.modules.work.agent_ports import (
@@ -76,8 +83,10 @@ from zhiheng.modules.work.agent_ports import (
     ModelInvoker,
     ModelTurn,
     ProgressWriter,
+    ToolContextWriter,
     ToolInvoker,
     WorkspaceAgentKernel,
+    valid_work_summary,
 )
 from zhiheng.modules.work.contracts import WorkAgentConfig
 from zhiheng.modules.work.history import select_work_history

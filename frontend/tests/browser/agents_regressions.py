@@ -34,7 +34,7 @@ class AgentsUIRegressions(DeveloperBoundary):
             await self.page.route('**/api/agents/agent-1/preview', admit)
         try:
             await self.open_agents()
-            await self.choose_agent_action('调试配置')
+            await self.choose_agent_action('调试')
             drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
             await drawer.get_by_role('textbox', name='调试消息', exact=True).fill('请回答')
             await drawer.get_by_role('button', name='发送', exact=True).click()
@@ -143,6 +143,9 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_text('app_generated_fixture', exact=True)).to_have_count(0)
         self.assertEqual(submissions, [{'name': '关联应用'}])
 
+    async def open_agent_editor(self):
+        await self.page.locator('.agent-card').get_by_role('button', name=re.compile(r'^(编辑智能助手|查看智能助手配置)$')).click()
+
     async def choose_agent_action(self, name):
         await self.page.locator('.agent-card').get_by_role('button', name='更多操作', exact=True).click()
         await self.page.get_by_role('menuitem', name=name, exact=True).click()
@@ -160,8 +163,9 @@ class AgentsUIRegressions(DeveloperBoundary):
         await card.get_by_role('button', name='更多操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='API', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('menuitem', name='复制 ID', exact=True)).to_have_count(0)
-        await expect(self.page.get_by_role('menuitem', name='调试配置', exact=True)).to_be_visible()
-        await self.page.get_by_role('menuitem', name='配置', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='调试', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('menuitem', name='配置', exact=True)).to_have_count(0)
+        await self.open_agent_editor()
         editor = self.page.locator('.agent-editor--page')
         await expect(editor.get_by_label('系统提示词', exact=True)).to_have_value('草稿提示')
         await expect(editor.get_by_label('欢迎语', exact=True)).to_have_value('你好，我是助手')
@@ -182,7 +186,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         card = self.page.locator('.agent-card.resource-card')
         await expect(self.page).to_have_url(self.origin + '/agents')
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
-        title = card.get_by_role('button', name='配置' + self.agent['name'], exact=True)
+        title = card.get_by_role('button', name='编辑' + self.agent['name'], exact=True)
         await title.focus()
         await title.press('Enter')
         await expect(self.page).to_have_url(self.origin + '/agents/agent-1')
@@ -195,9 +199,8 @@ class AgentsUIRegressions(DeveloperBoundary):
         await self.open_agents()
         card = self.page.locator('.agent-card.resource-card')
         await expect(card.get_by_role('button', name='使用', exact=True)).to_be_visible()
-        await card.get_by_role('button', name='更多操作', exact=True).click()
-        await expect(self.page.get_by_role('menuitem', name='调试配置', exact=True)).to_have_count(0)
-        await self.page.get_by_role('menuitem', name='配置', exact=True).click()
+        await expect(card.get_by_role('button', name='更多操作', exact=True)).to_have_count(0)
+        await self.open_agent_editor()
         editor = self.page.locator('.agent-editor--page')
         await expect(editor.get_by_label('系统提示词', exact=True)).to_be_disabled()
         for label in ['保存','启用','停用','删除智能助手']:
@@ -216,19 +219,21 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.assertEqual(self.previews, [])
         self.assertEqual(self.posts, [])
 
-    async def test_saved_agent_configuration_exposes_full_readonly_id(self):
+    async def test_agent_id_is_available_in_api_docs_without_a_basic_form_row(self):
+        self.agent.update(status='enabled', application_id='app-1')
         await self.open_agents()
-        await self.choose_agent_action('配置')
-        identifier = self.page.locator('.agent-editor--page').get_by_role('group', name='智能助手标识', exact=True)
-        await expect(identifier).to_contain_text('智能助手 ID')
-        await expect(identifier).to_contain_text('agent-1')
-        await expect(identifier.locator('input, textarea, button')).to_have_count(0)
+        await self.open_agent_editor()
+        editor = self.page.locator('.agent-editor--page')
+        await expect(editor.get_by_role('group', name='智能助手标识', exact=True)).to_have_count(0)
+        await editor.get_by_role('button', name='API 说明', exact=True).click()
+        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
+        await expect(drawer.locator('.api-endpoint')).to_contain_text('/v1/agents/agent-1/chat/completions')
         self.assertEqual(self.posts, [])
 
     async def test_preview_keeps_caller_history_after_latest_configuration_save(self):
         self.run.update(status='completed', revision=3, text='完整回答')
         await self.open_agents()
-        await self.choose_agent_action('配置')
+        await self.open_agent_editor()
         editor = self.page.locator('.agent-editor--page')
         preview = editor.locator('.agent-preview-panel')
         await expect(editor.get_by_role('slider', name='上下文轮数')).to_have_count(0)
@@ -247,13 +252,11 @@ class AgentsUIRegressions(DeveloperBoundary):
         self.assertEqual([item['content'] for item in self.previews[-1]['messages']],
                          ['第一轮问题','完整回答','第二轮问题','完整回答','继续问题'])
 
-    async def test_automatic_memory_replaces_history_round_setting(self):
+    async def test_editor_save_does_not_include_history_round_setting(self):
         await self.open_agents()
-        await self.choose_agent_action('配置')
+        await self.open_agent_editor()
         editor = self.page.locator('.agent-editor--page')
-        await expect(editor.get_by_text('会话记忆', exact=True)).to_be_visible()
         await expect(editor.get_by_role('slider', name='上下文轮数')).to_have_count(0)
-        await expect(editor.get_by_text('正式对话自动整理较早历史，保留近期原文；整理产生的模型用量计入账户。', exact=True)).to_be_visible()
         await editor.get_by_label('智能助手名称', exact=True).fill('自动记忆助手')
         await editor.get_by_role('button', name='保存', exact=True).click()
         await expect(editor.get_by_text('所有更改已保存', exact=True)).to_be_visible()
@@ -339,7 +342,7 @@ class AgentsUIRegressions(DeveloperBoundary):
     async def test_conflict_preserves_unsaved_editor_values(self):
         await self.page.route('**/api/agents/agent-1', lambda route: route.fulfill(status=409, json={'error': {'code': 'version_conflict', 'message': '智能助手已更新，请刷新'}}) if route.request.method == 'PATCH' else route.fulfill(json=self.agent))
         await self.open_agents()
-        await self.choose_agent_action('配置')
+        await self.open_agent_editor()
         dialog = self.page.locator('.agent-editor--page')
         await dialog.get_by_label('系统提示词', exact=True).fill('未保存的新提示')
         await dialog.get_by_role('button', name='保存', exact=True).click()
@@ -349,7 +352,7 @@ class AgentsUIRegressions(DeveloperBoundary):
     async def test_save_latest_configuration_enable_disable_and_delete(self):
         self.agent['application_id']='app-1'
         await self.open_agents()
-        await self.choose_agent_action('配置')
+        await self.open_agent_editor()
         editor=self.page.locator('.agent-editor--page')
         await editor.get_by_role('button',name='启用',exact=True).click()
         await expect(editor.get_by_role('button',name='停用',exact=True)).to_be_visible()
@@ -369,7 +372,7 @@ class AgentsUIRegressions(DeveloperBoundary):
 
     async def test_preview_displays_welcome_reasoning_before_content_and_stops(self):
         await self.open_agents()
-        await self.choose_agent_action('调试配置')
+        await self.choose_agent_action('调试')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.get_by_text('你好，我是助手', exact=True)).to_be_visible()
         await drawer.get_by_role('textbox', name='调试消息', exact=True).fill('请回答')
@@ -387,7 +390,7 @@ class AgentsUIRegressions(DeveloperBoundary):
             await route.fulfill(json=self.run)
         await self.page.route('**/api/runs/preview-run/cancel', cancel)
         await self.open_agents()
-        await self.choose_agent_action('调试配置')
+        await self.choose_agent_action('调试')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('textbox', name='调试消息', exact=True).fill('请回答')
         await drawer.get_by_role('button', name='发送', exact=True).click()
@@ -471,7 +474,7 @@ class AgentsUIRegressions(DeveloperBoundary):
     async def test_enabled_configuration_does_not_need_a_second_publication(self):
         self.agent.update(status='enabled', application_id='app-1', version=4)
         await self.open_agents()
-        await self.choose_agent_action('配置')
+        await self.open_agent_editor()
         editor=self.page.locator('.agent-editor--page')
         await expect(editor.get_by_role('button',name='启用',exact=True)).to_be_disabled()
         await expect(editor.get_by_role('button',name='停用',exact=True)).to_be_visible()

@@ -18,12 +18,7 @@ import {
   Modal as AModal,
   Select as ASelect
 } from 'ant-design-vue'
-import {
-  DownloadOutlined,
-  FileTextOutlined,
-  MoreOutlined,
-  PictureOutlined
-} from '@ant-design/icons-vue'
+import { DownloadOutlined, MoreOutlined } from '@ant-design/icons-vue'
 import { RouterLink } from 'vue-router'
 import { downloadFile, formatFileSize, getFile, saveBlob } from '../../files/public.ts'
 import { addChatAttachment, listBases } from '../../knowledge/public.ts'
@@ -33,6 +28,7 @@ import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../.
 import { createRequestId } from '../../../shared/requestId.ts'
 import { imagePreviewBlob } from '../attachments.ts'
 import type { ChatAttachment } from '../api/index.ts'
+import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
 defineProps<{ files: ChatAttachment[] }>()
 type OwnedAttachment = ChatAttachment & { owner_id?: string | null }
 const pendingId = ref<string | null>(null),
@@ -129,7 +125,7 @@ async function openFile(file: ChatAttachment, download = false) {
       previewUrl.value = URL.createObjectURL(clean)
       previewKind.value = 'image'
     } else if (file.mime === 'application/pdf') {
-      previewUrl.value = URL.createObjectURL(blob)
+      previewUrl.value = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
       previewKind.value = 'pdf'
     } else if (
       ['txt', 'md', 'csv', 'json', 'html', 'htm'].includes(
@@ -284,7 +280,7 @@ onBeforeUnmount(() => {
         :title="file.original_filename + ' · ' + formatFileSize(file.size)"
         :aria-label="'查看附件：' + file.original_filename"
         @click="openFile(file)"
-        ><PictureOutlined v-if="file.mime.startsWith('image/')" /><FileTextOutlined v-else /><span
+        ><FileTypeIcon :filename="file.original_filename" :mime="file.mime" /><span
           class="message-file-name"
           >{{ file.original_filename }}</span
         ><span class="message-file-size">{{ formatFileSize(file.size) }}</span></a-button

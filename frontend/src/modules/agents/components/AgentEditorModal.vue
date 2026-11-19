@@ -131,9 +131,6 @@
                 <h2>基本信息</h2>
               </div>
               <div class="config-fields">
-                <div v-if="saved" class="agent-resource-id" role="group" aria-label="智能助手标识">
-                  <span>智能助手 ID</span><code>{{ saved.agentId }}</code>
-                </div>
                 <a-form-item label="智能助手名称" name="name"
                   ><a-input v-model:value="form.name" :maxlength="100" placeholder="为智能助手命名"
                 /></a-form-item>
@@ -240,7 +237,7 @@
             <section id="agent-config-runtime" class="config-section">
               <div class="config-heading">
                 <span><SettingOutlined /></span>
-                <h2>模型与启用</h2>
+                <h2>模型与调用</h2>
               </div>
               <div class="config-fields">
                 <a-form-item label="模型" name="modelId"
@@ -284,11 +281,6 @@
                     />
                   </a-form-item>
                 </div>
-                <a-form-item label="会话记忆">
-                  <p class="field-description">
-                    正式对话自动整理较早历史，保留近期原文；整理产生的模型用量计入账户。
-                  </p>
-                </a-form-item>
                 <a-form-item label="API 应用" name="applicationId"
                   ><div class="application-field">
                     <a-select
@@ -329,20 +321,6 @@
           "
           @busy-change="previewBusy = $event"
         />
-        <section class="publication-note">
-          <ThunderboltOutlined />
-          <div>
-            <h3>启用状态</h3>
-            <p>
-              {{
-                saved?.status === 'enabled' ? 'API 使用当前已启用配置。' : '启用后可通过 API 调用。'
-              }}
-            </p>
-            <p>
-              {{ dirty ? '保存更改后可调试和启用。' : '保存后用于后续对话和 API 调用。' }}
-            </p>
-          </div>
-        </section>
       </aside>
     </div>
   </component>
@@ -405,7 +383,6 @@ import {
   PoweroffOutlined,
   RobotOutlined,
   SettingOutlined,
-  ThunderboltOutlined,
   DeleteOutlined,
   MessageOutlined,
   PlusOutlined,
@@ -459,7 +436,7 @@ const sections = [
   { id: 'basic', label: '基本信息' },
   { id: 'prompt', label: '提示词' },
   { id: 'resources', label: '技能与知识' },
-  { id: 'runtime', label: '模型与启用' }
+  { id: 'runtime', label: '模型与调用' }
 ]
 const activeSection = ref('basic')
 function scrollToSection(id: string): void {
@@ -1159,22 +1136,6 @@ onBeforeUnmount(() => {
 .config-fields {
   padding: 22px 22px 2px;
 }
-.agent-resource-id {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 12px;
-  margin-bottom: 18px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 20px;
-}
-.agent-resource-id code {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  user-select: all;
-}
 .config-fields :deep(.ant-form-item) {
   margin-bottom: 22px;
 }
@@ -1221,29 +1182,6 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 130px;
   min-width: 0;
-}
-.publication-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-top: 16px;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--main-700);
-}
-.publication-note h3 {
-  margin: 0 0 10px;
-  color: var(--color-text);
-  font-size: 14px;
-  font-weight: 500;
-}
-.publication-note p {
-  margin: 0 0 6px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.8;
 }
 @media (max-width: 1200px) {
   .editor-layout--page {

@@ -550,6 +550,25 @@ class SkillService:
             created_at=created_at,
         )
 
+    async def frozen_package(
+        self, session: AsyncSession, owner_id: UUID, value: SkillRevisionValue
+    ) -> ParsedSkillPackage:
+        """Read only an authorized immutable revision, validating the entire archive."""
+        await require_frozen_available(session, owner_id, SkillSelection((value,)))
+        row = (
+            await session.execute(
+                select(SkillRevision.filename, SkillRevision.package_sha, SkillRevision.package_bytes).where(
+                    SkillRevision.id == value.revision_id, SkillRevision.skill_id == value.skill_id
+                )
+            )
+        ).one()
+        if hashlib.sha256(row.package_bytes).hexdigest() != row.package_sha:
+            raise AppError('skill_package_integrity_error', '技能包完整性校验失败，请重新上传', 422)
+        parsed = await SkillPackageParser().parse_async(row.package_bytes, filename=row.filename)
+        if parsed.slug != value.slug or parsed.content_hash != value.content_hash or parsed.content != value.content:
+            raise AppError('skill_package_integrity_error', '技能包与所选版本不一致，请重新上传', 422)
+        return parsed
+
     async def get(
         self, session: AsyncSession, owner_id: UUID, skill_id: UUID, *, include_deleted: bool = False
     ) -> SkillInfo:

@@ -76,7 +76,7 @@
             :tone="agent.status === 'enabled' ? 'positive' : 'neutral'"
             :icon-tone="agent.status === 'enabled' ? 'primary' : 'neutral'"
             interactive
-            :open-label="`配置${agent.name}`"
+            :open-label="`${canEdit(agent) ? '编辑' : '查看'}${agent.name}`"
             @open="openEditor(agent)"
           >
             <template #icon><AgentIdentityIcon /></template>
@@ -104,7 +104,7 @@
                 ><MessageOutlined />使用</a-button
               >
               <a-button
-                v-if="canUseCapability('agents', 'create') || canUseCapability('agents', 'publish')"
+                v-if="canUseCapability('agents', 'read')"
                 size="small"
                 type="text"
                 class="agent-card__edit"
@@ -164,8 +164,7 @@ import {
   DatabaseOutlined,
   ThunderboltOutlined,
   MessageOutlined,
-  PlusOutlined,
-  SettingOutlined
+  PlusOutlined
 } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
@@ -220,11 +219,8 @@ function formatUpdatedAt(value: string, full = false): string {
 }
 function agentActions(agent: Agent): MenuAction[] {
   return [
-    ...(canUseCapability('agents', 'read')
-      ? [{ command: 'configure', label: '配置', icon: SettingOutlined }]
-      : []),
     ...(canUseCapability('agents', 'debug')
-      ? [{ command: 'preview', label: '调试配置', icon: MessageOutlined }]
+      ? [{ command: 'preview', label: '调试', icon: MessageOutlined }]
       : []),
     ...(canUseModule('developer') && agent.status === 'enabled'
       ? [{ command: 'api', label: 'API', icon: ApiOutlined }]
@@ -232,8 +228,7 @@ function agentActions(agent: Agent): MenuAction[] {
   ]
 }
 function agentCommand(command: string, agent: Agent): void {
-  if (command === 'configure') openEditor(agent)
-  else if (command === 'preview') void openAgentTool(agent, 'preview')
+  if (command === 'preview') void openAgentTool(agent, 'preview')
   else if (command === 'api' && agent.status === 'enabled') void openAgentTool(agent, 'api')
 }
 async function load(): Promise<void> {

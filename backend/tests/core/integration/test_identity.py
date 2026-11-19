@@ -3,6 +3,7 @@ import pytest
 from sqlalchemy import text
 
 from tests.core.permission_support import grants
+from zhiheng.shared.errors import AppError
 from zhiheng.shared.permission_policy import PERMISSION_CODES
 
 
@@ -123,3 +124,42 @@ async def test_full_system_and_ai_permission_catalog_can_be_granted_over_http(ad
         f'/api/admin/roles/{role["id"]}', json={'permissions': permissions, 'expected_version': 1}
     )
     assert updated.status_code == 200 and updated.json()['permissions'] == permissions
+
+
+async def test_security_audit_login_attempts_are_rate_limited(client: httpx.AsyncClient, app: object) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    statuses = []
+    with patch.object(
+        app.state.container.identity,
+        'login',
+        AsyncMock(side_effect=AppError('invalid_credentials', '用户名或密码错误', 401)),
+    ) as verify:
+        for _ in range(11):
+            result = await client.post(
+                '/api/auth/login', json={'username': 'audit-unknown-user', 'password': 'incorrect-audit-password'}
+            )
+            statuses.append(result.status_code)
+    assert statuses == [401] * 10 + [429]
+    assert verify.await_count == 10
+    assert int(result.headers['Retry-After']) > 0
+    assert 'incorrect-audit-password' not in result.text
+
+
+async def test_login_peer_limit_cannot_be_bypassed_with_forwarded_headers(
+    client: httpx.AsyncClient, app: object
+) -> None:
+    from unittest.mock import AsyncMock, patch
+
+    with patch.object(
+        app.state.container.identity,
+        'login',
+        AsyncMock(side_effect=AppError('invalid_credentials', '用户名或密码错误', 401)),
+    ) as verify:
+        for index in range(61):
+            result = await client.post(
+                '/api/auth/login',
+                json={'username': f'audit-user-{index}', 'password': 'incorrect-audit-password'},
+                headers={'X-Forwarded-For': f'192.0.2.{index}'},
+            )
+    assert result.status_code == 429 and verify.await_count == 60

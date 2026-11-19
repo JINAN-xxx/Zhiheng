@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Literal
 
-from httpx2 import Request
+from httpx2 import Request, Timeout
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun
 from langchain_core.messages import (
     AIMessage,
@@ -108,6 +108,7 @@ class OpenAIChatProvider:
         model: str,
         max_output_tokens: int | None,
         timeout_seconds: float,
+        connect_timeout_seconds: float = 10,
         options: dict[str, object] | None = None,
     ) -> None:
         self._base_url = base_url
@@ -115,6 +116,7 @@ class OpenAIChatProvider:
         self._model = model
         self._max_output = max_output_tokens
         self._timeout = timeout_seconds
+        self._connect_timeout = connect_timeout_seconds
         self._options = dict(options or {})
         self._options.pop('provider_output_default', None)
         response_format = self._options.get('response_format')
@@ -177,6 +179,12 @@ class OpenAIChatProvider:
         tools: tuple[dict[str, object], ...] = (),
     ) -> AsyncIterator[ModelDelta]:
         usage_capture = UsageCapture()
+        transport_timeout = Timeout(
+            self._timeout,
+            connect=min(self._timeout, self._connect_timeout),
+            pool=min(self._timeout, self._connect_timeout),
+            write=min(self._timeout, 30),
+        )
         # Each invocation owns these clients. LangChain's implicit HTTP cache must
         # not be closed by one invocation while another is still using it.
         with _ConnectionClient(
@@ -186,7 +194,7 @@ class OpenAIChatProvider:
             project='',
             webhook_secret='',
             base_url=self._base_url,
-            timeout=self._timeout,
+            timeout=transport_timeout,
             max_retries=0,
             default_headers={'Authorization': f'Bearer {self._api_key.get_secret_value()}'},
             http_client=DefaultHttpxClient(
@@ -200,7 +208,7 @@ class OpenAIChatProvider:
                 project='',
                 webhook_secret='',
                 base_url=self._base_url,
-                timeout=self._timeout,
+                timeout=transport_timeout,
                 max_retries=0,
                 default_headers={'Authorization': f'Bearer {self._api_key.get_secret_value()}'},
                 http_client=DefaultAsyncHttpxClient(

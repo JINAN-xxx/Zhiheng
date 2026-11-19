@@ -2,7 +2,6 @@
 <script setup lang="ts">
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { inject, computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -13,7 +12,6 @@ import {
   Tooltip as ATooltip
 } from 'ant-design-vue'
 import {
-  ArrowLeftOutlined,
   BarChartOutlined,
   BellOutlined,
   DeleteFilled,
@@ -52,7 +50,8 @@ import FileSearchForm from '../components/FileSearchForm.vue'
 import FileStatistics from '../components/FileStatistics.vue'
 import FileTable from '../components/FileTable.vue'
 import FileTransferDialog from '../components/FileTransferDialog.vue'
-import { canManageFile } from '../access.ts'
+import { canManageFile, canFileAction, canSelectFile, canLookupFileUsers } from '../access.ts'
+import { confirmFileAction } from '../authorization.ts'
 const canReadStorage = computed(() => hasAnyPermission(identity.value, 'ai:storage:read'))
 interface StorageReadState {
   query: ReturnType<typeof emptyQuery>
@@ -82,7 +81,6 @@ const total = ref(saved?.hasData ? saved.total : 0),
   error = ref(''),
   busyIds = ref<string[]>([]),
   notice = ref('')
-const router = useRouter()
 const detail = ref<InstanceType<typeof FileDetailDialog> | null>(null),
   references = ref<InstanceType<typeof FileReferenceDrawer> | null>(null),
   acl = ref<InstanceType<typeof FileAclDrawer> | null>(null),
@@ -103,6 +101,9 @@ const activeSelected = computed(() =>
 const hasActiveSelection = computed(
   () => selected.value.length > 0 && activeSelected.value.length === selected.value.length
 )
+const canBatch = (action: 'delete' | 'maintain' | 'acl' | 'transfer') =>
+  selected.value.length > 0 &&
+  selected.value.every((file) => canFileAction(identity.value, file, action))
 const mutationBusy = computed(() => busyIds.value.length > 0)
 let loadedStorage = saved?.hasData ?? false,
   usersReady = saved?.usersReady ?? false,
@@ -168,7 +169,7 @@ async function load(): Promise<void> {
           ids.has(file.fileId) &&
           !file.sourceFileId &&
           file.status !== 'purged' &&
-          canManageFile(identity.value, file)
+          canSelectFile(identity.value, file)
       )
     }
   } catch (reason) {
@@ -224,11 +225,12 @@ async function download(file: ManagedFile): Promise<void> {
 async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile): Promise<void> {
   if (mutationBusy.value || loading.value) return
   const targets = (row ? [row] : selected.value).map((file) => ({ ...file }))
+  const permission = action === 'restore' ? 'maintain' : 'delete'
   if (
     !targets.length ||
     targets.some(
       (file) =>
-        !canManageFile(identity.value, file) ||
+        !canFileAction(identity.value, file, permission) ||
         file.sourceFileId ||
         (action === 'delete' && (file.status !== 'active' || file.referenceCount > 0)) ||
         (action === 'restore' && file.status !== 'deleted') ||
@@ -242,6 +244,7 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
   busyIds.value = targets.map((file) => file.fileId)
   let changed = 0
   try {
+    if (!(await confirmFileAction(permission, targets)) || !context.isCurrent()) return
     if (
       !(await confirm(
         `是否${labels[action]}所选${targets.length}个文件？${action === 'purge' ? '清理后无法恢复。' : ''}`
@@ -249,6 +252,7 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
       !context.isCurrent()
     )
       return
+    if (!(await confirmFileAction(permission, targets)) || !context.isCurrent()) return
     readCache?.invalidate()
     for (const file of targets) {
       await changeFileState(file, action, context.signal)
@@ -270,6 +274,13 @@ async function change(action: 'delete' | 'restore' | 'purge', row?: ManagedFile)
 }
 onMounted(() => {
   if (!saved?.hasData || !readCache?.isFresh(savedStorage)) void load()
+  if (!canLookupFileUsers(identity.value)) {
+    users.value = identity.value
+      ? [{ id: identity.value.id, username: identity.value.username }]
+      : []
+    usersReady = false
+    return
+  }
   if (usersReady && readCache?.isFresh(savedStorage)) return
   const context = userScope.replace()
   void findFileUsers('', context.signal)
@@ -300,9 +311,6 @@ onBeforeUnmount(() => {
 <template>
   <WorkspacePage title="存储管理" subtitle="管理可访问文件与平台保留规则" class="files-page">
     <template #actions>
-      <a-button aria-label="返回知识库" @click="router.push('/knowledge')"
-        ><ArrowLeftOutlined />返回知识库</a-button
-      >
       <a-dropdown :trigger="['click']">
         <a-button aria-label="高级管理">高级管理<DownOutlined /></a-button>
         <template #overlay>
@@ -393,7 +401,7 @@ onBeforeUnmount(() => {
       <div v-if="selected.length" role="region" aria-label="批量文件操作" class="table-toolbar mb8">
         <span class="file-selection">已选 {{ selected.length }} 项</span>
         <a-button
-          v-if="selected.some((file) => file.status === 'deleted')"
+          v-if="canBatch('maintain') && selected.some((file) => file.status === 'deleted')"
           aria-label="恢复"
           :disabled="
             !selected.length ||
@@ -408,7 +416,10 @@ onBeforeUnmount(() => {
           ><RollbackOutlined />恢复</a-button
         >
         <a-button
-          v-if="selected.some((file) => ['deleted', 'purging'].includes(file.status))"
+          v-if="
+            canBatch('delete') &&
+            selected.some((file) => ['deleted', 'purging'].includes(file.status))
+          "
           aria-label="永久清理"
           danger
           :disabled="
@@ -427,7 +438,7 @@ onBeforeUnmount(() => {
           ><DeleteFilled />永久清理</a-button
         >
         <a-button
-          v-if="selected.some((file) => file.status === 'active')"
+          v-if="canBatch('delete') && selected.some((file) => file.status === 'active')"
           aria-label="移入回收站"
           danger
           :disabled="
@@ -439,19 +450,24 @@ onBeforeUnmount(() => {
           @click="change('delete')"
           ><DeleteOutlined />移入回收站</a-button
         >
-        <a-dropdown v-if="hasActiveSelection" :trigger="['click']">
+        <a-dropdown
+          v-if="hasActiveSelection && (canBatch('acl') || canBatch('transfer'))"
+          :trigger="['click']"
+        >
           <a-button aria-label="更多批量操作" :disabled="mutationBusy || loading"
             >更多<DownOutlined
           /></a-button>
           <template #overlay>
             <a-menu>
               <a-menu-item
+                v-if="canBatch('acl')"
                 key="acl"
                 :disabled="mutationBusy || loading"
                 @click="acl?.open(activeSelected)"
                 ><LockOutlined />授权</a-menu-item
               >
               <a-menu-item
+                v-if="canBatch('transfer')"
                 key="transfer"
                 :disabled="mutationBusy || loading"
                 @click="transfer?.open(activeSelected)"
@@ -471,8 +487,8 @@ onBeforeUnmount(() => {
         @view="detail?.open($event)"
         @download="download"
         @reference="canManageFile(identity, $event) && references?.open($event)"
-        @acl="canManageFile(identity, $event) && acl?.open([$event])"
-        @transfer="canManageFile(identity, $event) && transfer?.open([$event])"
+        @acl="canFileAction(identity, $event, 'acl') && acl?.open([$event])"
+        @transfer="canFileAction(identity, $event, 'transfer') && transfer?.open([$event])"
         @audit="canManageFile(identity, $event) && audit?.open($event)"
         @delete="change('delete', $event)"
         @restore="change('restore', $event)"

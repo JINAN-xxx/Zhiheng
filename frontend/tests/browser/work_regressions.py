@@ -229,6 +229,22 @@ class WorkUIRegressions(DeveloperBoundary):
         self.assertGreaterEqual(second['y'], first['y']+first['height'])
         self.assertLessEqual((await dialog.locator('.ant-modal-content').bounding_box())['width'], 622)
 
+    async def test_history_search_updates_once_without_duplicate_value_handlers(self):
+        warnings = []
+        searches = []
+        self.page.on('console', lambda message: warnings.append(message.text) if '[Vue warn]' in message.text else None)
+        self.page.on('request', lambda request: searches.append(parse_qs(urlparse(request.url).query).get('search', [''])[0])
+                     if urlparse(request.url).path == '/api/work/tasks' and 'search=' in request.url else None)
+        await self.open_task()
+        dialog = await self.open_work_history()
+        search = dialog.get_by_role('textbox', name='搜索最近工作', exact=True)
+        await search.fill('报告')
+        await asyncio.sleep(0.5)
+        self.assertEqual(searches.count('报告'), 1)
+        await search.fill('')
+        await asyncio.sleep(0.1)
+        self.assertFalse(any('onUpdate:value' in message for message in warnings), warnings)
+
     async def test_history_modal_preserves_new_goal_and_current_message_drafts(self):
         await self.page.goto(self.origin+'/work')
         goal = self.page.get_by_role('textbox', name='工作目标', exact=True)
@@ -513,6 +529,24 @@ class WorkUIRegressions(DeveloperBoundary):
         await (await chooser.value).set_files({'name':'extra.txt','mimeType':'text/plain','buffer':b'x'})
         await expect(self.page.locator('.ant-drawer-open').get_by_text('extra.txt',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('tab',name='资料 1',exact=True)).to_have_attribute('aria-selected','true')
+
+    async def test_failed_task_continue_uses_checkpoint_without_resending_goal(self):
+        original = {'client_request_id': 'original-request', 'message': '只制作一次报告'}
+        self.task['goal'] = original['message']
+        self.task['messages'].append(self.message('user', original))
+        failed = {**self.run, 'id': 'failed-run', 'status': 'failed', 'text': '',
+                  'error': {'code': 'work_model_failed', 'message': '最终答复失败，成果已保留'}}
+        self.task['messages'].append(self.message('assistant', original, failed))
+        self.task.update(execution_state='failed', version=4)
+        await self.open_task()
+        await expect(self.page.get_by_role('button', name='重新执行', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='继续执行', exact=True).click()
+        await expect(self.page.get_by_text('核实后的结论', exact=True)).to_be_visible()
+        self.assertEqual(len(self.runs), 1)
+        self.assertTrue(self.runs[0]['resume'])
+        self.assertEqual(self.runs[0]['message'], '')
+        self.assertNotEqual(self.runs[0]['client_request_id'], original['client_request_id'])
+        self.assertEqual([item['content'] for item in self.task['messages'] if item['role'] == 'user'], [original['message']])
 
     async def test_budget_pause_has_accessible_continue_without_duplicate_user_question(self):
         self.run.update(status='interrupted',error={'code':'work_budget_exhausted','message':'本轮预算已用完'})

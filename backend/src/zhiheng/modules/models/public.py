@@ -61,8 +61,9 @@ __all__ = [
     'chat_input_budget',
     'context_image_bytes',
     'estimate_messages',
+    'estimate_tool_schemas',
     'input_budget_for',
 ]
 
-from zhiheng.modules.models.capacity import context_image_bytes, estimate_messages
+from zhiheng.modules.models.capacity import context_image_bytes, estimate_messages, estimate_tool_schemas
 from zhiheng.modules.models.summary import SummaryBudget, SummaryPolicy

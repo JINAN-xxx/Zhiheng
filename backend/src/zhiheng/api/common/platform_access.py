@@ -249,7 +249,6 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
         return
     if module == 'billing':
         policy = {
-            'state': 'ai:credits:read',
             'set_state': 'ai:credits:configure',
             'accounts': 'ai:credits:read',
             'adjust': 'ai:credits:adjust',
@@ -262,7 +261,7 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
         }
         if name in policy:
             principal.require_permission(policy[name])
-        elif name == 'invocation_trace':
+        elif name in {'state', 'invocation_trace'}:
             principal.require_any_permission(
                 'platform:usage:read',
                 'platform:chat:read',

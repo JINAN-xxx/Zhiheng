@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
+from zhiheng.modules.operations.log_labels import action_label, resource_label
+
 Version = Annotated[StrictInt, Field(ge=1)]
 NoticeKind = Literal['notice', 'announcement']
 NoticeStatus = Literal['draft', 'published']
@@ -118,6 +120,14 @@ class LogInfo(Contract):
     outcome: LogOutcome
     message: str
     created_at: datetime
+    action_label: str = ''
+    resource_label: str = ''
+
+    @model_validator(mode='after')
+    def describe(self) -> 'LogInfo':
+        self.action_label = action_label(self.action)
+        self.resource_label = resource_label(self.resource_type)
+        return self
 
 
 Item = TypeVar('Item')

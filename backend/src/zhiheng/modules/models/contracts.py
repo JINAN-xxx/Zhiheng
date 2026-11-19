@@ -58,6 +58,7 @@ class ModelDelta:
     cache_tokens: int | None = None
     reasoning_tokens: int | None = None
     reasoning: str = ''
+    activity: bool = False
 
 
 class ModelProvider(Protocol):
@@ -114,6 +115,7 @@ ProviderFailureReason = Literal[
     'insufficient_balance',
     'transport_error',
     'timeout',
+    'connect_timeout',
     'api_error',
     'invalid_response',
     'incomplete_stream',

@@ -42,7 +42,7 @@
       </div>
     </div>
     <a-input
-      v-model:value="keyword"
+      :value="keyword"
       allow-clear
       placeholder="搜索工作"
       :aria-label="status === 'archived' ? '搜索已归档工作' : '搜索最近工作'"
@@ -244,6 +244,7 @@ function emitFilters(): void {
   })
 }
 function scheduleSearch(value: string): void {
+  keyword.value = value
   clearTimeout(searchTimer)
   if (!value.trim()) emitFilters()
   else searchTimer = setTimeout(emitFilters, 250)

@@ -47,6 +47,23 @@ class ChatFilesUIRegressions(DeveloperBoundary):
         else:
             await super().respond(route)
 
+    async def test_pdf_binary_download_is_typed_for_inline_preview(self):
+        message={'id':'pdf-message','role':'user','content':'请阅读附件',
+            'run_id':None,'is_complete':True,'created_at':'2026-11-19T00:00:00Z',
+            'attachments':[{'file_id':'pdf-1','original_filename':'report.pdf',
+                            'mime':'application/pdf','size':100,'sha256':'a'*64,'artifact_file_id':None,'parser_version':None}]}
+        await self.page.route(self.origin+'/api/chat/conversations/c1/messages*',
+                              lambda route: route.fulfill(json=[message]))
+        await self.page.route(self.origin+'/api/files/pdf-1/download',
+                              lambda route: route.fulfill(body=b'%PDF-1.4\n%%EOF',content_type='application/octet-stream'))
+        await self.page.goto(self.origin+'/chat')
+        await self.select_conversation('附件会话')
+        await self.page.get_by_role('button',name='查看附件：report.pdf',exact=True).click()
+        frame=self.page.get_by_role('dialog').locator('iframe')
+        await expect(frame).to_be_visible()
+        mime=await frame.evaluate("async e => (await fetch(e.src)).headers.get('content-type')")
+        self.assertEqual(mime,'application/pdf')
+
     async def test_attachment_only_message_freezes_ids_for_retry(self):
         await self.page.goto(self.origin+'/chat')
         await self.select_conversation('附件会话')

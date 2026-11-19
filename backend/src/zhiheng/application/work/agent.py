@@ -1,6 +1,7 @@
 """Goal-driven workspace admission reuses native ownership, files and execution services."""
 
 from contextlib import suppress
+from datetime import timedelta
 from uuid import UUID, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -277,6 +278,7 @@ class WorkAgentService:
                 fingerprint=intent,
                 payload={
                     'version': 1,
+                    'execution_deadline': (utcnow() + timedelta(seconds=self.context.policy.run_seconds)).isoformat(),
                     'binding': binding.model_dump(mode='json'),
                     'configuration': configuration.model_dump(mode='json'),
                     'skills': frozen_skills(skills),

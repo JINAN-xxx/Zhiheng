@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from zhiheng.api.inference.errors import error_payload
+from zhiheng.application.execution.timeouts import MODEL_TIMEOUT_CODES
 from zhiheng.bootstrap.container import Container
 from zhiheng.modules.developer.public import Scope as KeyScope
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
@@ -27,7 +28,7 @@ async def snapshots(
     container: Container, request: Request, run_id: UUID, owner_id: UUID, token: str, *, scope: KeyScope
 ) -> AsyncIterator[RunSnapshot]:
     terminal = False
-    deadline = monotonic() + container.settings.provider_timeout_seconds + 30
+    deadline = monotonic() + container.settings.provider_total_timeout_seconds + 60
     try:
         while True:
             async with container.database.sessions() as session:
@@ -39,7 +40,7 @@ async def snapshots(
             if terminal:
                 return
             if monotonic() > deadline:
-                raise AppError('service_unavailable', 'Request execution timed out', 503)
+                raise AppError('request_wait_timeout', '等待运行结果超过时限，请查询原运行状态', 504)
             if await request.is_disconnected():
                 raise asyncio.CancelledError
             await asyncio.sleep(0.05)
@@ -69,9 +70,15 @@ async def wait_result(
     async for snapshot in snapshots(container, request, run.id, owner_id, token, scope=scope):
         if snapshot.status in TERMINAL_STATUSES:
             if snapshot.status != 'completed':
-                raise AppError('provider_unavailable', 'Model request did not complete', 502)
+                raise terminal_error(snapshot)
             return snapshot
     raise AppError('provider_unavailable', 'Model request did not complete', 502)
+
+
+def terminal_error(snapshot: RunSnapshot) -> AppError:
+    if snapshot.error and snapshot.error.code in MODEL_TIMEOUT_CODES:
+        return AppError(snapshot.error.code, snapshot.error.message, 504)
+    return AppError('provider_unavailable', 'Model request did not complete', 502)
 
 
 def frame(value: dict[str, object] | str) -> str:
@@ -137,7 +144,8 @@ async def chat_frames(
                 yield frame(chunk({}, snapshot.finish_reason or 'stop'))
                 yield frame('[DONE]')
             elif snapshot.status in TERMINAL_STATUSES:
-                yield frame(error_payload('provider_unavailable', 'Model request did not complete', 502))
+                error = terminal_error(snapshot)
+                yield frame(error_payload(error.code, error.message, error.status_code))
     except AppError as error:
         yield frame(error_payload(error.code, error.message, error.status_code))
 

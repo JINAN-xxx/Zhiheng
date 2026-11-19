@@ -86,7 +86,9 @@
       <div class="dialog-footer">
         <a-button
           v-if="
-            detail?.status === 'active' && !detail.sourceFileId && canManageFile(identity, detail)
+            detail?.status === 'active' &&
+            !detail.sourceFileId &&
+            canFileAction(identity, detail, 'maintain')
           "
           aria-label="编辑文件信息"
           @click="openEditor"
@@ -136,7 +138,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -153,7 +155,8 @@ import {
 } from 'ant-design-vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import { identity } from '../../identity/public.ts'
-import { canManageFile } from '../access.ts'
+import { canManageFile, canFileAction } from '../access.ts'
+import { confirmFileAction } from '../authorization.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { getFile, updateFile } from '../api/index.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'
@@ -191,7 +194,10 @@ function close(): void {
   panel.close()
 }
 function userLabel(id: string): string {
-  return props.users.find((user) => user.id === id)?.username ?? id
+  return (
+    props.users.find((user) => user.id === id)?.username ??
+    (identity.value?.id === id ? identity.value.username : id)
+  )
 }
 function extension(name: string): string {
   return name.includes('.') ? (name.split('.').pop()?.toLowerCase() ?? '-') : '-'
@@ -204,15 +210,23 @@ function uploaderPermissionLabel(file: ManagedFile): string {
 function setExpiry(value: unknown): void {
   form.expires = typeof value === 'string' ? value : undefined
 }
-function openEditor(): void {
+async function openEditor(): Promise<void> {
   const file = detail.value
   if (
     !file ||
-    !canManageFile(identity.value, file) ||
+    !canFileAction(identity.value, file, 'maintain') ||
     file.status !== 'active' ||
     file.sourceFileId
   )
     return
+  const ticket = mutation.replace()
+  try {
+    if (!(await confirmFileAction('maintain', [file])) || !ticket.isCurrent() || !visible.value)
+      return
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) panel.error.value = errorMessage(reason)
+    return
+  }
   Object.assign(form, {
     name: file.displayName,
     expires: localDateTime(file.expireTime),
@@ -225,7 +239,7 @@ async function save(): Promise<void> {
   const file = detail.value
   if (
     !file ||
-    !canManageFile(identity.value, file) ||
+    !canFileAction(identity.value, file, 'maintain') ||
     file.status !== 'active' ||
     file.sourceFileId ||
     saving.value
@@ -240,6 +254,8 @@ async function save(): Promise<void> {
   saving.value = true
   saveError.value = ''
   try {
+    if (!(await confirmFileAction('maintain', [file])) || !context.isCurrent() || !visible.value)
+      return
     const result = await updateFile(
       file,
       {
@@ -259,6 +275,7 @@ async function save(): Promise<void> {
     if (context.isCurrent()) saving.value = false
   }
 }
+watch(identity, close)
 onBeforeUnmount(() => mutation.dispose())
 defineExpose({ open })
 </script>

@@ -16,6 +16,7 @@ import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared
 import { getCreditState, setCreditState } from '../api/index.ts'
 import type { CreditState, CreditStateMutation } from '../api/index.ts'
 import { creditAccess } from '../presentation.ts'
+import { confirmCreditAccess } from '../authorization.ts'
 
 const emit = defineEmits<{
   state: [value: CreditState | null]
@@ -27,12 +28,15 @@ const canSwitch = computed(() => creditAccess(identity.value).switchMode)
 const state = ref<CreditState | null>(null),
   loading = ref(false),
   error = ref(''),
+  actionError = ref(''),
   open = ref(false),
   saving = ref(false),
   formError = ref('')
 const form = reactive({ enabled: false, reason: '' })
 const reads = new RequestScope(),
-  writes = new RequestScope()
+  writes = new RequestScope(),
+  authorization = new RequestScope()
+const editing = ref(false)
 let version = 0,
   retryBody: CreditStateMutation | null = null,
   retrySignature = ''
@@ -41,6 +45,21 @@ watch(
   (value) => emit('loading', value),
   { immediate: true }
 )
+watch(identity, () => {
+  reads.replace()
+  writes.replace()
+  open.value = false
+  saving.value = false
+  form.enabled = false
+  form.reason = ''
+  formError.value = ''
+  actionError.value = ''
+  retryBody = null
+  retrySignature = ''
+  state.value = null
+  emit('state', null)
+  void refresh()
+})
 
 async function refresh(): Promise<void> {
   const ticket = reads.replace()
@@ -62,36 +81,58 @@ async function refresh(): Promise<void> {
     if (ticket.isCurrent()) loading.value = false
   }
 }
-function edit(): void {
-  if (!canSwitch.value || !state.value || loading.value || saving.value) return
-  form.enabled = state.value.enabled
-  form.reason = ''
-  version = state.value.version
-  formError.value = ''
-  retryBody = null
-  retrySignature = ''
-  open.value = true
+async function edit(): Promise<void> {
+  if (!canSwitch.value || !state.value || loading.value || saving.value || editing.value) return
+  const ownerId = identity.value?.id
+  if (!ownerId) return
+  const ticket = authorization.replace()
+  editing.value = true
+  actionError.value = ''
+  try {
+    const allowed = await confirmCreditAccess('switchMode', ownerId)
+    if (!ticket.isCurrent() || !allowed || !state.value) return
+    form.enabled = state.value.enabled
+    form.reason = ''
+    version = state.value.version
+    formError.value = ''
+    retryBody = null
+    retrySignature = ''
+    open.value = true
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) editing.value = false
+  }
 }
 function close(): void {
-  if (!saving.value) open.value = false
+  if (!saving.value) {
+    authorization.replace()
+    editing.value = false
+    open.value = false
+  }
 }
 async function save(): Promise<void> {
   if (!canSwitch.value || !state.value || saving.value || form.enabled === state.value.enabled)
     return
+  const ownerId = identity.value?.id
+  if (!ownerId) return
   const payload = { enabled: form.enabled, expected_version: version, reason: form.reason.trim() }
   const signature = JSON.stringify(payload)
   if (!retryBody || signature !== retrySignature) {
     retrySignature = signature
     retryBody = { ...payload, client_request_id: createRequestId() }
   }
-  reads.replace()
-  loading.value = false
-  const ticket = writes.replace()
+  const ticket = authorization.replace()
   saving.value = true
   formError.value = ''
   try {
-    const value = await setCreditState(retryBody, ticket.signal)
-    if (!ticket.isCurrent()) return
+    const allowed = await confirmCreditAccess('switchMode', ownerId)
+    if (!ticket.isCurrent() || !allowed || !open.value || !retryBody) return
+    reads.replace()
+    loading.value = false
+    const context = writes.replace()
+    const value = await setCreditState(retryBody, context.signal)
+    if (!ticket.isCurrent() || !context.isCurrent()) return
     state.value = value
     emit('state', value)
     open.value = false
@@ -110,19 +151,21 @@ onMounted(() => void refresh())
 onBeforeUnmount(() => {
   reads.dispose()
   writes.dispose()
+  authorization.dispose()
   emit('loading', false)
 })
 defineExpose({ refresh })
 </script>
 <template>
   <div class="credit-billing-control" aria-label="积分计费管理">
+    <AAlert v-if="actionError" :message="actionError" type="error" show-icon />
     <ATag v-if="state && !error" :color="state.enabled ? 'success' : 'default'">
       {{ state.enabled ? '积分计费已启用' : '积分计费已停用' }}
     </ATag>
     <AButton v-if="error" type="text" danger :title="error" :loading="loading" @click="refresh"
       >重试计费状态</AButton
     >
-    <AButton v-if="canSwitch" :disabled="!state || loading || saving" @click="edit"
+    <AButton v-if="canSwitch" :disabled="!state || loading || saving || editing" @click="edit"
       >计费设置</AButton
     >
     <AModal

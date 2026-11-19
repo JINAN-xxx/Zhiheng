@@ -1,6 +1,6 @@
 <!-- Adapted from the original RuoYi / 智衡 frontend, MIT licensed. -->
 <template>
-  <header class="workspace-toolbar">
+  <header class="workspace-toolbar" :class="{ 'workspace-toolbar--page': page }">
     <div class="workspace-toolbar__leading">
       <button
         v-if="showMenuButton"
@@ -27,6 +27,7 @@ import { MenuOutlined } from '@ant-design/icons-vue'
 
 defineProps({
   title: { type: String, default: '' },
+  page: { type: Boolean, default: false },
   subtitle: { type: String, default: '' },
   showMenuButton: { type: Boolean, default: false }
 })
@@ -142,6 +143,27 @@ const emit = defineEmits(['open-sidebar'])
       gap: var(--workspace-space-2);
       justify-content: flex-end;
     }
+  }
+}
+// Resource directories share one page heading; compact conversation toolbars
+// keep their existing dimensions.
+.workspace-toolbar.workspace-toolbar--page {
+  padding: 26px 28px 20px;
+
+  .workspace-toolbar__title {
+    font-size: 24px;
+    font-weight: 600;
+  }
+
+  .workspace-toolbar__subtitle {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace-toolbar.workspace-toolbar--page {
+    padding: 20px 16px 16px;
   }
 }
 </style>

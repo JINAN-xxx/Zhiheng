@@ -1,4 +1,18 @@
-import type { FileStatus, StorageStatus } from './api/index.ts'
+import type { FileStatus, StorageStatus, ManagedFile } from './api/index.ts'
+export function fileSourceLabel(file: Pick<ManagedFile, 'purpose' | 'sourceFileId'>): string {
+  if (file.sourceFileId) return '派生文件'
+  return (
+    (
+      {
+        knowledge: '知识库资料',
+        chat_attachment: '对话／助手附件',
+        work_attachment: '工作空间资料',
+        work_artifact: '工作空间成果',
+        work_checkpoint: '工作空间过程文件'
+      } as Record<string, string>
+    )[file.purpose ?? ''] ?? '上传文件'
+  )
+}
 export const commonFileTypeOptions = [
   { label: '全部类型', value: '' },
   { label: 'PDF', value: 'application/pdf' },

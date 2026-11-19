@@ -332,19 +332,12 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
       )
       return
     }
-    if (task.executionState === 'paused') {
-      await runMessage({ message: '', resume: true })
-      return
-    }
     const latest = [...task.messages].reverse().find((message) => message.role === 'assistant')
-    const user =
-      latest &&
-      [...task.messages]
-        .reverse()
-        .find(
-          (message) => message.role === 'user' && message.clientRequestId === latest.clientRequestId
-        )
-    if (user) await runMessage({ message: user.content })
+    if (
+      task.executionState === 'paused' ||
+      (latest && ['failed', 'interrupted', 'cancelled'].includes(latest.runStatus))
+    )
+      await runMessage({ message: '', resume: true })
   }
   async function mutate(
     operation: (task: WorkTask, signal: AbortSignal) => Promise<WorkTask>

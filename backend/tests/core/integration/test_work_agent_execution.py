@@ -137,7 +137,8 @@ async def test_greeting_uses_real_agent_checkpoints_and_metered_children_without
     assert detail['execution_state'] == 'completed'
     assert [item['role'] for item in detail['messages']] == ['user', 'assistant']
     assert len(workspace_provider.requests) == 2
-    assert 'run_python' in [item['function']['name'] for item in workspace_provider.requests[0].get('tools', [])]
+    initial_tools = [item['function']['name'] for item in workspace_provider.requests[0].get('tools', [])]
+    assert 'run_python' not in initial_tools and 'load_tools' in initial_tools
     assert (await admin.get('/api/usage')).json()['used_tokens'] == 40
 
 

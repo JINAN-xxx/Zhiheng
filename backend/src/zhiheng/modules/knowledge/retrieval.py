@@ -51,6 +51,7 @@ class RetrievalAdmission:
     dependencies: dict[str, object]
     key_id: UUID | None = None
     application_id: UUID | None = None
+    timeout_seconds: float = 10
 
 
 class RetrievalSource(BaseModel):
@@ -320,7 +321,7 @@ class RetrievalStore:
             dependencies=TypeAdapter(dict[str, object]).dump_python(dependencies, mode='json'),
             key_id=key_id,
             application_id=application_id,
-            deadline=utcnow() + timedelta(seconds=10),
+            deadline=utcnow() + timedelta(seconds=body.timeout_seconds),
         )
         session.add(row)
         await session.flush()
@@ -393,7 +394,9 @@ class RetrievalStore:
                 row,
                 'cancelled' if row.status == 'cancel_requested' else 'failed',
                 'knowledge_cancelled' if row.status == 'cancel_requested' else 'knowledge_timeout',
-                '知识准备已取消' if row.status == 'cancel_requested' else '知识检索超过10秒',
+                '知识准备已取消'
+                if row.status == 'cancel_requested'
+                else '知识检索已达到本轮时限，请查看检索记录后重试',
             )
             return None
         if row.lease_until and row.lease_until > utcnow():
@@ -420,7 +423,9 @@ class RetrievalStore:
             await self._fail_row(session, row, 'cancelled', 'knowledge_cancelled', '知识准备已取消')
             return 'cancel'
         if row.deadline <= utcnow():
-            await self._fail_row(session, row, 'failed', 'knowledge_timeout', '知识检索超过10秒')
+            await self._fail_row(
+                session, row, 'failed', 'knowledge_timeout', '知识检索已达到本轮时限，请查看检索记录后重试'
+            )
             return 'cancel'
         row.lease_until = min(row.deadline, utcnow() + timedelta(seconds=3))
         return 'active'

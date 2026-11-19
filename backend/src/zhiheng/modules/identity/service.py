@@ -33,6 +33,7 @@ MAX_PASSWORD_LENGTH = 1024
 MAX_DIRECTORY_PAGE_SIZE = 200
 MAX_DIRECTORY_SEARCH_LENGTH = 200
 MAX_RELATED_USERS = 101
+PASSWORD_WORKERS = 2
 
 
 class IdentityService:
@@ -109,7 +110,8 @@ class IdentityService:
         current_password = body.current_password.get_secret_value()
         new_password = body.new_password.get_secret_value()
         try:
-            await asyncio.to_thread(self._hasher.verify, encoded, current_password)
+            async with self._password_slots:
+                await asyncio.to_thread(self._hasher.verify, encoded, current_password)
         except (VerificationError, InvalidHashError) as exc:
             raise AppError('invalid_current_password', '当前密码错误', 400) from exc
         if new_password == current_password:
@@ -257,10 +259,12 @@ class IdentityService:
     async def hash_password(self, password: str) -> str:
         if not MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH:
             raise AppError('invalid_identity', '密码长度须为 12 到 1024 个字符')
-        return await asyncio.to_thread(self._hasher.hash, password)
+        async with self._password_slots:
+            return await asyncio.to_thread(self._hasher.hash, password)
 
     def __init__(self, session_ttl_seconds: int = 86400) -> None:
         self._hasher = PasswordHasher()
+        self._password_slots = asyncio.Semaphore(PASSWORD_WORKERS)
         self._session_ttl = session_ttl_seconds
         self._dummy_hash = self._hasher.hash(secrets.token_urlsafe(32))
 
@@ -288,7 +292,8 @@ class IdentityService:
         )
         encoded = user.password_hash if user is not None else self._dummy_hash
         try:
-            await asyncio.to_thread(self._hasher.verify, encoded, password)
+            async with self._password_slots:
+                await asyncio.to_thread(self._hasher.verify, encoded, password)
         except (VerificationError, InvalidHashError) as exc:
             raise AppError('invalid_credentials', '用户名或密码错误', 401) from exc
         if user is None:

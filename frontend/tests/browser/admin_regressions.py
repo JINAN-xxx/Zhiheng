@@ -134,7 +134,7 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
             self.sessions.pop()
             status, body = 204, None
         elif path == '/api/admin/logs':
-            body = self.collection([dict(id='log-1', kind=query.get('kind', ['operation'])[0], action='admin.user.update', username='admin', resource_type='user', resource_id='user-2', outcome='success', message='用户已更新', created_at='2026-10-28T01:00:00Z')], query)
+            body = self.collection([dict(id='log-1', kind=query.get('kind', ['operation'])[0], action='admin.user.update', action_label='修改用户', username='admin', resource_type='user', resource_label='用户', resource_id='user-2', outcome='success', message='用户已更新', created_at='2026-10-28T01:00:00Z')], query)
         elif path == '/api/admin/monitor':
             body = {'platform': {'python_version': '3.13.0', 'system': 'Linux', 'cpu_count': 8, 'rss_bytes': 1048576, 'disk_total_bytes': 10737418240, 'disk_used_bytes': 1073741824}, 'database': {'status': 'ok', 'version': 'PostgreSQL 17', 'size_bytes': 10485760, 'connections': 3}, 'redis': {'status': 'ok', 'used_memory_bytes': 1048576, 'connected_clients': 2, 'uptime_seconds': 60, 'db_keys': 0}, 'worker': {'status': 'unavailable', 'heartbeat_age_seconds': None}, 'schema_version': '0010'}
         elif path in ['/api/models', '/api/chat/conversations', '/api/knowledge/available']:
@@ -355,6 +355,15 @@ class AdminRegressions(unittest.IsolatedAsyncioTestCase):
         await self.select_value(self.page.get_by_label('操作结果',exact=True),'失败')
         await expect(self.page.get_by_text('用户已更新', exact=True)).to_be_visible()
         self.assertTrue(any(query.get('kind') == ['login'] and query.get('outcome') == ['failed'] for _, path, query, _ in self.requests if path == '/api/admin/logs'))
+        await self.open('operation-logs')
+        await expect(self.page.get_by_role('cell', name='修改用户', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('admin.user.update', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('用户', exact=True)).to_be_visible()
+        search = self.page.get_by_placeholder('搜索账号、操作或资源', exact=True)
+        await search.fill('修改用户')
+        await search.press('Enter')
+        await expect(self.page.get_by_role('cell', name='修改用户', exact=True)).to_be_visible()
+        self.assertTrue(any(query.get('search') == ['修改用户'] for _, path, query, _ in self.requests if path == '/api/admin/logs'))
         await self.open('monitor')
         await expect(self.page.get_by_text('PostgreSQL 17', exact=True)).to_be_visible()
         worker = self.page.locator('.workspace-panel').filter(has=self.page.get_by_role('heading', name='Worker', exact=True))

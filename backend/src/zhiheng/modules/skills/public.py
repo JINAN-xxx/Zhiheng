@@ -14,7 +14,7 @@ from zhiheng.modules.skills.contracts import (
     SkillSource,
     SkillStatus,
 )
-from zhiheng.modules.skills.package import SkillPackageParser
+from zhiheng.modules.skills.package import ParsedSkillPackage, SkillPackageParser
 from zhiheng.modules.skills.service import (
     MAX_SELECTION_BYTES,
     SkillService,
@@ -29,6 +29,7 @@ from zhiheng.modules.skills.workbench import WorkbenchSkills
 __all__ = [
     'MAX_SELECTION_BYTES',
     'DraftInfo',
+    'ParsedSkillPackage',
     'ResourceSkillInfo',
     'RevisionContent',
     'RevisionInfo',

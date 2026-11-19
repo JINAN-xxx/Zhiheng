@@ -5,6 +5,7 @@
     <template v-else>
       <WorkspaceToolbar
         class="developer-toolbar"
+        page
         title="开发接入"
         :subtitle="showApplicationList ? '管理应用、访问密钥与接口调用权限' : ''"
       >
@@ -562,17 +563,6 @@ const {
   background: var(--bg-page);
   font-family: var(--workspace-font-family);
 }
-.developer-toolbar {
-  padding: 26px 28px 20px;
-}
-.developer-toolbar :deep(.workspace-toolbar__title) {
-  font-size: 24px;
-  font-weight: 600;
-}
-.developer-toolbar :deep(.workspace-toolbar__subtitle) {
-  margin-top: 6px;
-  font-size: 13px;
-}
 .developer-toolbar :deep(.ant-btn-primary) {
   border-radius: 10px;
 }
@@ -850,9 +840,6 @@ const {
 }
 
 @media (max-width: 640px) {
-  .developer-toolbar {
-    padding: 20px 16px 16px;
-  }
   .developer-grid,
   .developer-grid.is-list {
     padding: 0 16px 16px;

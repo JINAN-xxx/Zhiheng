@@ -12,18 +12,14 @@ import {
   TabPane as ATabPane,
   Tag as ATag
 } from 'ant-design-vue'
-import {
-  DownloadOutlined,
-  EyeOutlined,
-  FileTextOutlined,
-  HistoryOutlined,
-  PaperClipOutlined
-} from '@ant-design/icons-vue'
+import { DownloadOutlined, EyeOutlined, HistoryOutlined } from '@ant-design/icons-vue'
 import { formatFileSize, saveBlob } from '../../files/public.ts'
 import { identity, canUseModule } from '../../identity/public.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { downloadArtifact, downloadInput } from '../api/index.ts'
 import type { WorkArtifact, WorkInput } from '../api/index.ts'
+import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
+import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
 
 const props = defineProps<{
   taskId: string
@@ -154,15 +150,13 @@ onBeforeUnmount(() => {
   <section class="work-files" aria-label="任务资料与成果">
     <div class="work-files__heading">
       <strong>资料与成果</strong
-      ><AButton
+      ><AttachmentButton
         v-if="canUpload"
-        type="text"
-        size="small"
+        label="上传"
         aria-label="上传任务资料"
         :loading="uploading"
         @click="fileInput?.click()"
-        ><PaperClipOutlined />上传</AButton
-      >
+      />
     </div>
     <AAlert v-if="error" :message="error" type="error" show-icon closable @close="error = ''" />
     <ATabs :active-key="tab" size="small" @update:active-key="tab = String($event)"
@@ -178,9 +172,9 @@ onBeforeUnmount(() => {
       />
       <article v-for="entry in groups" :key="entry.key" class="work-file">
         <div class="work-file__title">
-          <FileTextOutlined aria-hidden="true" /><strong :title="entry.name">{{
-            entry.name
-          }}</strong
+          <FileTypeIcon :filename="entry.name" :mime="entry.latest.mime" /><strong
+            :title="entry.name"
+            >{{ entry.name }}</strong
           ><ATag>v{{ entry.latest.version }}</ATag>
         </div>
         <p class="work-file__size">{{ formatFileSize(entry.latest.size) }}</p>
@@ -304,9 +298,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 7px;
   min-width: 0;
-}
-.work-file__title > :first-child {
-  color: var(--main-color);
 }
 .work-file__title strong {
   min-width: 0;

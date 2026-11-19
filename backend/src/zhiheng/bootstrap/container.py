@@ -69,6 +69,7 @@ from zhiheng.bootstrap.sandbox import create_sandbox_factory
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.credentials import CredentialCipher
 from zhiheng.infrastructure.database import Database
+from zhiheng.infrastructure.login_limits import LoginRateLimiter
 from zhiheng.modules.agents.public import AgentService, AssistantConversations
 from zhiheng.modules.billing.public import (
     BillingTraceQueries,
@@ -109,6 +110,7 @@ class Container:
         self.settings = settings
         self.database = Database(settings.database_url.get_secret_value())
         self.redis = Redis.from_url(settings.redis_url.get_secret_value(), decode_responses=True)
+        self.login_limits = LoginRateLimiter(self.redis, settings.worker_queue)
         self.cipher = CredentialCipher(settings.credential_key.get_secret_value())
         self.identity, self.skills = IdentityService(settings.session_ttl_seconds), SkillService()
         self.admin_identity = IdentityAdminService(self.identity)
@@ -129,7 +131,11 @@ class Container:
             parsing_validator,
             parsing_decoder,
         )
-        self.models = create_models(self.cipher, settings.provider_timeout_seconds)
+        self.models = create_models(
+            self.cipher,
+            settings.model_transport_seconds,
+            connect_timeout_seconds=settings.provider_connect_timeout_seconds,
+        )
         self.model_configuration = ModelConfigurationService(self.database, self.models, self.identity)
         self.agents, self.work = AgentService(), WorkService()
         self.work_agent_store = WorkAgentStore(self.work)
@@ -156,7 +162,9 @@ class Container:
         self._configure_resource_access()
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()
-        self.run_admission = RunAdmission(self.models, self.usage, self.runs)
+        self.run_admission = RunAdmission(
+            self.models, self.usage, self.runs, total_timeout_seconds=settings.provider_total_timeout_seconds
+        )
         self.run_references = RunReferences(self.runs)
         self.work_runs = WorkRunService(
             self.work, self.agents, self.models, self.identity, self.usage, self.runs, admission=self.run_admission
@@ -208,7 +216,7 @@ class Container:
             create_chat_checkpoint_cleanup(settings),
             trigger_tokens=settings.chat_summary_trigger_tokens,
             keep_tokens=settings.chat_summary_keep_tokens,
-            timeout_seconds=settings.provider_timeout_seconds,
+            timeout_seconds=settings.provider_total_timeout_seconds + 10,
             summary_input_tokens=settings.chat_summary_input_tokens,
         )
         self.model_trials = ModelTrialService(self.models, self.runs, self.run_admission)
@@ -249,6 +257,9 @@ class Container:
             self.vectors,
             settings.knowledge_rerank_batch_tokens,
             admission=self.run_admission,
+            query_timeout_seconds=settings.knowledge_query_timeout_seconds,
+            rerank_timeout_seconds=settings.knowledge_rerank_timeout_seconds,
+            embedding_timeout_seconds=settings.knowledge_embedding_timeout_seconds,
         )
         self._configure_resource_facades()
         self.assistant_attachments = AssistantAttachments(self.file_inputs, self.files)
@@ -271,7 +282,7 @@ class Container:
                 settings.chat_summary_output_tokens,
             ),
             input_tokens=settings.chat_context_input_tokens,
-            timeout_seconds=settings.provider_timeout_seconds + 10,
+            timeout_seconds=settings.provider_total_timeout_seconds + 10,
             attachments=self.assistant_attachments,
         )
         self.agent_runs.execution = self.assistant_agent
@@ -377,6 +388,9 @@ class Container:
             provider_factory=self.execution_authorization.prepare_provider,
             lease_seconds=settings.lease_seconds,
             timeout_seconds=settings.provider_timeout_seconds,
+            first_response_timeout_seconds=settings.model_first_response_seconds,
+            idle_timeout_seconds=settings.model_idle_seconds,
+            total_timeout_seconds=settings.provider_total_timeout_seconds,
             lifecycle=self.run_lifecycle,
             before_provider=self.execution_authorization.require,
             chat_agent=self.chat_agent,

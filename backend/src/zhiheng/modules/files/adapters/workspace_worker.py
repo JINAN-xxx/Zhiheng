@@ -3,7 +3,13 @@
 import json
 import sys
 
-from zhiheng.modules.files.adapters.workspace import MAX_RESULT_BYTES, RESULT_METADATA_BYTES, _OfficeReader
+from zhiheng.modules.files.adapters.workspace import (
+    MAX_DOCUMENT_REPLY_BYTES,
+    MAX_RESULT_BYTES,
+    RESULT_METADATA_BYTES,
+    _OfficeReader,
+)
+from zhiheng.modules.files.document_pages import MAX_DOCUMENT_PAGE_BYTES
 from zhiheng.modules.files.parsing_contracts import MAX_INPUT_BYTES
 from zhiheng.shared.errors import AppError
 
@@ -13,6 +19,7 @@ MAX_REQUEST_HEADER_BYTES = 8192
 
 
 def main() -> None:
+    operation = None
     if sys.platform != 'win32':
         import resource  # noqa: PLC0415 - OS-specific limits apply only inside this fixed child
 
@@ -30,10 +37,19 @@ def main() -> None:
         if not isinstance(filename, str):
             raise ValueError('Invalid filename')
         reader = _OfficeReader()
-        if operation == 'inspect':
+        if operation == 'parse_document':
+            data = reader.parse_document(content, filename, request.get('start', 1))
+        elif operation == 'inspect':
             data = reader.inspect(content, filename)
         elif operation == 'read_document':
-            data = reader.read_document(content, filename, request.get('start', 1), request.get('limit', 40))
+            data = reader.read_document(
+                content,
+                filename,
+                request.get('start', 1),
+                request.get('limit'),
+                offset=request.get('offset', 0),
+                max_characters=request.get('max_characters', 131072),
+            )
         elif operation == 'read_sheet':
             data = reader.read_sheet(
                 content, filename, request.get('sheet', ''), request.get('start_row', 1), request.get('limit', 40)
@@ -46,7 +62,14 @@ def main() -> None:
     except Exception:
         reply = {'error': {'code': 'file_reader_failed', 'message': '文件内容无法读取，请检查格式和编码'}}
     payload = json.dumps(reply, ensure_ascii=False, allow_nan=False)
-    if len(payload.encode()) > MAX_RESULT_BYTES + RESULT_METADATA_BYTES:
+    maximum = (
+        MAX_DOCUMENT_REPLY_BYTES
+        if operation == 'parse_document'
+        else MAX_DOCUMENT_PAGE_BYTES
+        if operation == 'read_document'
+        else MAX_RESULT_BYTES + RESULT_METADATA_BYTES
+    )
+    if len(payload.encode()) > maximum:
         payload = json.dumps({'error': {'code': 'document_too_large', 'message': '文件读取结果超过限制'}})
     print(payload)
 

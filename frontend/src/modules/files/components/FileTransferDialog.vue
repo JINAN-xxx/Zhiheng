@@ -1,6 +1,12 @@
 <!-- Adapted from original FileTransferDialog, MIT licensed. -->
 <template>
   <ResourceDrawer :title="`转移文件 - ${fileName}`" :open="visible" :width="620" @close="close">
+    <a-alert
+      v-if="!canLookupFileUsers(identity)"
+      message="当前账号没有用户目录查看权限，无法搜索接收人。"
+      type="info"
+      show-icon
+    />
     <a-alert v-if="error" :message="error" type="error" show-icon />
     <a-form :model="form" layout="vertical" :disabled="saving">
       <a-form-item label="新所有者" name="ownerUserId">
@@ -45,7 +51,9 @@
     </a-form>
     <template #footer>
       <div class="dialog-footer">
-        <a-button type="primary" :loading="saving" @click="submit"> 确 定 </a-button>
+        <a-button type="primary" :loading="saving" :disabled="!form.ownerUserId" @click="submit">
+          确 定
+        </a-button>
         <a-button @click="close">取 消</a-button>
       </div>
     </template>
@@ -53,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -61,12 +69,16 @@ import {
   FormItem as AFormItem,
   Select as ASelect,
   Switch as ASwitch,
-  Textarea as ATextarea
+  Textarea as ATextarea,
+  message as toast
 } from 'ant-design-vue'
 import ResourceDrawer from '../../../shared/components/ResourceDrawer.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { findFileUsers, transferFile } from '../api/index.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'
+import { identity } from '../../identity/public.ts'
+import { canFileAction, canLookupFileUsers } from '../access.ts'
+import { confirmFileAction } from '../authorization.ts'
 const emit = defineEmits<{ refresh: [] }>()
 const visible = ref(false),
   saving = ref(false),
@@ -96,8 +108,20 @@ function close(): void {
   targets.value = []
   userOptions.value = []
 }
-function open(files: ManagedFile[]): void {
+async function open(files: ManagedFile[]): Promise<void> {
   close()
+  if (!files.length || !files.every((file) => canFileAction(identity.value, file, 'transfer')))
+    return
+  const ticket = scope.replace()
+  try {
+    if (!(await confirmFileAction('transfer', files)) || !ticket.isCurrent()) return
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) {
+      error.value = errorMessage(reason)
+      void toast.error(error.value)
+    }
+    return
+  }
   targets.value = files.map((file) => ({ ...file }))
   Object.assign(form, { ownerUserId: undefined, retainUploaderAccess: false, reason: '' })
   error.value = ''
@@ -108,6 +132,7 @@ function setOwner(value: unknown): void {
   form.ownerUserId = typeof value === 'string' ? value : undefined
 }
 async function searchUsers(keyword: string): Promise<void> {
+  if (!canLookupFileUsers(identity.value)) return
   const context = search.replace()
   userLoading.value = true
   try {
@@ -123,6 +148,7 @@ async function submit(): Promise<void> {
   const owner = form.ownerUserId,
     reason = form.reason.trim()
   if (saving.value || !targets.value.length) return
+  if (!targets.value.every((file) => canFileAction(identity.value, file, 'transfer'))) return
   if (!owner || !reason || [...reason].length > 500) {
     error.value = '请选择新所有者并填写不超过500字的转移原因'
     return
@@ -134,6 +160,8 @@ async function submit(): Promise<void> {
   error.value = ''
   let changed = 0
   try {
+    if (!(await confirmFileAction('transfer', files)) || !context.isCurrent() || !visible.value)
+      return
     for (const file of files) {
       context.signal.throwIfAborted()
       await transferFile(file, owner, keepUploader, reason, context.signal)
@@ -156,6 +184,7 @@ async function submit(): Promise<void> {
     if (context.isCurrent()) saving.value = false
   }
 }
+watch(identity, close)
 onBeforeUnmount(() => {
   scope.dispose()
   search.dispose()

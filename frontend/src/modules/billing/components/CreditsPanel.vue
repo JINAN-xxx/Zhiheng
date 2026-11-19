@@ -31,6 +31,7 @@ import type {
   StateMutation
 } from '../api/index.ts'
 import { creditAccess, formatPoints, validPoints } from '../presentation.ts'
+import { confirmCreditAccess } from '../authorization.ts'
 import CreditActivity from './CreditActivity.vue'
 import { useRouter } from 'vue-router'
 const router = useRouter()
@@ -54,11 +55,14 @@ const accounts = ref<CreditAccount[]>([]),
   search = ref('')
 const loading = ref(false),
   error = ref(''),
+  actionError = ref(''),
   success = ref('')
 const selectedAccount = ref<CreditAccount | null>(null)
 const activity = ref<InstanceType<typeof CreditActivity> | null>(null)
 const scope = new RequestScope(),
-  mutation = new RequestScope()
+  mutation = new RequestScope(),
+  authorization = new RequestScope()
+const authorizing = ref(false)
 const dialog = ref<'grant' | 'reclaim' | 'account' | null>(null)
 const target = ref<CreditAccount | null>(null),
   saving = ref(false),
@@ -138,12 +142,19 @@ watch(
     scope.replace()
     mutation.replace()
     dialog.value = null
+    target.value = null
+    form.points = ''
+    form.reason = ''
+    formError.value = ''
+    retryBody = null
+    retrySignature = ''
     saving.value = false
     selectedAccount.value = null
     accounts.value = []
     summary.value = null
     hasData.value = false
     success.value = ''
+    actionError.value = ''
     void load()
   }
 )
@@ -153,6 +164,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   scope.dispose()
   mutation.dispose()
+  authorization.dispose()
   emit('loading', false)
 })
 async function load(): Promise<void> {
@@ -189,18 +201,41 @@ async function load(): Promise<void> {
     }
   }
 }
-function open(kind: NonNullable<typeof dialog.value>, account?: CreditAccount): void {
+async function open(
+  kind: NonNullable<typeof dialog.value>,
+  account?: CreditAccount
+): Promise<void> {
+  if (authorizing.value || saving.value || !account) return
   if (kind === 'account' ? !access.value.configure : !access.value.adjust) return
-  target.value = account ?? null
-  dialog.value = kind
-  form.points = ''
-  form.reason = ''
-  formError.value = ''
-  retryBody = null
-  retrySignature = ''
-  success.value = ''
+  const ownerId = identity.value?.id
+  if (!ownerId) return
+  const ticket = authorization.replace()
+  authorizing.value = true
+  actionError.value = ''
+  try {
+    const allowed = await confirmCreditAccess(kind === 'account' ? 'configure' : 'adjust', ownerId)
+    if (!ticket.isCurrent()) return
+    if (!allowed) {
+      actionError.value = '当前账号没有此积分管理操作权限'
+      return
+    }
+    target.value = account
+    dialog.value = kind
+    form.points = ''
+    form.reason = ''
+    formError.value = ''
+    retryBody = null
+    retrySignature = ''
+    success.value = ''
+  } catch (reason) {
+    if (ticket.isCurrent() && !isAborted(reason)) actionError.value = errorMessage(reason)
+  } finally {
+    if (ticket.isCurrent()) authorizing.value = false
+  }
 }
 function close(): void {
+  authorization.replace()
+  authorizing.value = false
   mutation.replace()
   saving.value = false
   dialog.value = null
@@ -210,6 +245,8 @@ async function save(): Promise<void> {
     account = target.value
   if (!kind || !account || saving.value) return
   if (kind === 'account' ? !access.value.configure : !access.value.adjust) return
+  const ownerId = identity.value?.id
+  if (!ownerId) return
   formError.value = ''
   if (!form.reason.trim()) {
     formError.value = '请填写操作原因'
@@ -233,31 +270,35 @@ async function save(): Promise<void> {
     retrySignature = signature
     retryBody = { ...payload, client_request_id: createRequestId() }
   }
-  const context = mutation.replace()
+  const ticket = authorization.replace()
   saving.value = true
   try {
+    const allowed = await confirmCreditAccess(kind === 'account' ? 'configure' : 'adjust', ownerId)
+    if (!ticket.isCurrent()) return
+    if (!allowed || dialog.value !== kind || target.value !== account) return
+    const context = mutation.replace()
     const result =
       kind === 'account'
         ? await setCreditAccountState(account.user_id, retryBody as StateMutation, context.signal)
         : await adjustCredits(account.user_id, retryBody as CreditAdjustment, context.signal)
-    if (!context.isCurrent()) return
+    if (!ticket.isCurrent() || !context.isCurrent()) return
     accounts.value = accounts.value.map((row) =>
       row.user_id === account.user_id ? { ...row, ...result } : row
     )
     if (selectedAccount.value?.user_id === account.user_id)
       selectedAccount.value = { ...account, ...result }
-    if (!context.isCurrent()) return
+    if (!ticket.isCurrent() || !context.isCurrent()) return
     dialog.value = null
     success.value = `${dialogTitleFor(kind, account)}成功`
     await load()
   } catch (reason) {
-    if (context.isCurrent() && !isAborted(reason))
+    if (ticket.isCurrent() && !isAborted(reason))
       formError.value =
         reason instanceof ApiError && reason.status === 409 && reason.code === 'version_conflict'
           ? '操作冲突或版本已变化。请关闭弹窗并刷新最新账户后重试；已确认的操作不会重复执行。'
           : errorMessage(reason)
   } finally {
-    if (context.isCurrent()) saving.value = false
+    if (ticket.isCurrent()) saving.value = false
   }
 }
 function dialogTitleFor(kind: string, account: CreditAccount | null): string {
@@ -279,6 +320,13 @@ function searchAccounts(): void {
 </script>
 <template>
   <section class="credits-panel" aria-label="平台积分">
+    <AAlert
+      v-if="actionError"
+      :message="actionError"
+      type="error"
+      show-icon
+      class="credit-notice"
+    />
     <AAlert
       v-if="success"
       :message="success"

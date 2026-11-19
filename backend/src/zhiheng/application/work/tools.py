@@ -10,11 +10,22 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid5
 
+from zhiheng.application.work.document_budget import tool_result_tokens
 from zhiheng.application.work.snapshots import skill_selection
 from zhiheng.infrastructure.sandbox import SandboxFile, SandboxInput, SandboxSession, sandbox_path
 from zhiheng.modules.files.public import FileInfo
 from zhiheng.modules.search.public import WebSearchRequest
-from zhiheng.modules.work.public import StepStatus, TaskDetail, WorkArtifactInfo, WorkPlanItem, normalize_work_fact
+from zhiheng.modules.skills.public import ParsedSkillPackage, SkillRevisionValue
+from zhiheng.modules.work.public import (
+    WORK_CODE_TOOLS,
+    WORK_CODE_TOOLSETS,
+    WORK_TOOLSETS,
+    StepStatus,
+    TaskDetail,
+    WorkArtifactInfo,
+    WorkPlanItem,
+    normalize_work_fact,
+)
 from zhiheng.runtime.contracts import ClaimedRun
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import has_capability
@@ -27,10 +38,11 @@ if TYPE_CHECKING:
     from zhiheng.application.work.agent import WorkAgentService
     from zhiheng.application.work.execution import ExecutionProgress
 
-CODE_TOOLS = frozenset({'run_python', 'execute', 'write_file', 'read_file', 'list_files', 'publish_outputs'})
+CODE_TOOLS = WORK_CODE_TOOLS
 MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 MAX_SANDBOXES = 2
 MAX_TOOL_PREVIEW = 10000
+MIN_DOCUMENT_RESULT_TOKENS = 512
 MAX_DEPENDENCY_ERROR = 600
 EMPTY_SHA256 = hashlib.sha256(b'').hexdigest()
 
@@ -54,6 +66,7 @@ class WorkspaceTools:
             [dict(item) for item in files if isinstance(item, dict)] if isinstance(files, list) else []
         )
         self.staged: dict[str, SandboxInput] = {}
+        self._skill_packages: dict[str, ParsedSkillPackage] = {}
         self._workspace_sequence = 0
         self._workspace_loaded = False
         self._mutation_pending = False
@@ -116,6 +129,13 @@ class WorkspaceTools:
         detail = await self._detail()
         for task_input in detail.inputs:
             await self._file(str(task_input.file_id))
+        # Restore selected packages on every fresh sandbox, including checkpoint
+        # continuation where load_skill is already recorded and will not run again.
+        for skill in skill_selection(self.claim.payload).revisions:
+            package = await self._skill_package(skill)
+            for path, content in package.files:
+                item = SandboxInput(f'{self._skill_root(skill)}/{path}', content)
+                self.staged[item.path] = item
         initial = []
         for snapshot in self.workspace_files:
             if snapshot.get('empty') is True:
@@ -287,11 +307,17 @@ class WorkspaceTools:
             return await self._invoke(name, arguments, action_id)
 
     async def _invoke(self, name: str, arguments: dict[str, object], action_id: str) -> dict[str, object]:
-        self.principal = await self.service.guard(self.claim, code=name in CODE_TOOLS)
+        groups = arguments.get('groups')
+        code = name in CODE_TOOLS or (
+            name == 'load_tools'
+            and isinstance(groups, list)
+            and any(isinstance(group, str) and group in WORK_CODE_TOOLSETS for group in groups)
+        )
+        self.principal = await self.service.guard(self.claim, code=code)
         await self._restore_workspace()
         cached = await self._cached_result(name, arguments, action_id)
         if cached is not None:
-            return self._present(cached, action_id)
+            return self._shown(name, cached, action_id)
         if self.progress.tool_calls >= self.context.policy.tool_calls:
             raise AppError('work_budget_exhausted', '本轮工具调用预算已用完，可以继续任务', 409)
         self.progress.tool_calls += 1
@@ -313,7 +339,7 @@ class WorkspaceTools:
             )
             self._mutation_pending = False
             await self.project(self.claim, self.progress)
-            return self._present(result, action_id)
+            return self._shown(name, result, action_id)
         except AppError as error:
             uncertain = self._mutation_pending or error.code in {
                 'sandbox_execution_uncertain',
@@ -343,7 +369,10 @@ class WorkspaceTools:
                     'work_execution_uncertain', '文件操作结果尚未完整确认，请检查执行记录和成果后继续', 409
                 ) from error
             if error.code == 'sandbox_dependency_failed':
-                return self._present(failure, action_id)
+                return self._shown(name, failure, action_id)
+            self.progress.tool_result_tokens = max(
+                0, self.progress.tool_result_tokens - tool_result_tokens({**failure, 'data': None})
+            )
             raise
 
     async def _cached_result(
@@ -415,9 +444,11 @@ class WorkspaceTools:
         return {'arguments': normalized, 'arguments_fingerprint': hashlib.sha256(encoded).hexdigest()}
 
     @staticmethod
-    def _present(result: dict[str, object], action_id: str) -> dict[str, object]:
+    def _present(result: dict[str, object], action_id: str, *, document: bool = False) -> dict[str, object]:
         # Audit facts keep full runtime metadata; the model needs business output first.
         data = result.get('data')
+        if document and isinstance(data, dict) and data.get('read_mode') == 'budgeted':
+            return result
         if isinstance(data, dict) and 'exit_code' in data and 'environment' in data:
             environment = data['environment']
             shown = {key: value for key, value in data.items() if key != 'environment'}
@@ -450,8 +481,14 @@ class WorkspaceTools:
             }
         return result
 
+    def _shown(self, name: str, result: dict[str, object], action_id: str) -> dict[str, object]:
+        shown = self._present(result, action_id, document=name == 'read_document')
+        self.progress.tool_result_tokens = max(0, self.progress.tool_result_tokens - tool_result_tokens(shown))
+        return shown
+
     async def _dispatch(self, name: str, arguments: dict[str, object]) -> dict[str, object]:
         handlers: dict[str, Callable[[dict[str, object]], Awaitable[dict[str, object]]]] = {
+            'load_tools': self._load_tools,
             'list_inputs': self._list_inputs,
             'inspect_file': self._inspect_file,
             'read_document': self._read_document,
@@ -517,14 +554,51 @@ class WorkspaceTools:
 
     async def _read_document(self, arguments: dict[str, object]) -> dict[str, object]:
         info, content, path = await self._file(str(arguments['file_id']))
-        data = await asyncio.to_thread(
-            self.context.reader.read_document,
-            content,
-            info.original_filename,
-            start=int(cast('int', arguments.get('start', 1))),
-            limit=int(cast('int', arguments.get('limit', 40))),
+        budget = self.progress.tool_result_tokens
+        if budget < MIN_DOCUMENT_RESULT_TOKENS:
+            raise AppError('document_context_budget_exhausted', '剩余上下文不足以读取正文，请整理历史后再继续读取', 422)
+        requested = arguments.get('limit')
+        limit = (
+            min(int(cast('int', requested)), max(1, budget // 32)) if requested is not None else max(1, budget // 32)
         )
-        return self._file_result(info, path, data)
+
+        async def page(characters: int) -> dict[str, object]:
+            data = await asyncio.to_thread(
+                self.context.reader.read_document,
+                content,
+                info.original_filename,
+                start=int(cast('int', arguments.get('start', 1))),
+                limit=limit,
+                offset=int(cast('int', arguments.get('offset', 0))),
+                max_characters=characters,
+            )
+            data['read_mode'] = 'budgeted'
+            return normalize_work_fact(self._file_result(info, path, data))
+
+        maximum = min(131072, budget * 2)
+        result = await page(maximum)
+        size = tool_result_tokens(result)
+        data = cast('dict[str, object]', result['data'])
+        # Official summaries keep the latest AI/tool pair together. A partial
+        # page must leave space for the next read, or that pair can occupy the
+        # whole remaining window and prevent forward progress after summarizing.
+        target = max(MIN_DOCUMENT_RESULT_TOKENS, budget // 2) if data['has_more'] or size > budget else budget
+        if size <= target:
+            return result
+        # Parsed content is cached by immutable content hash. Fitting a page
+        # repeats neither document parsing nor model calls.
+        low, high = 1, maximum - 1
+        fitted: dict[str, object] | None = None
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = await page(middle)
+            if tool_result_tokens(candidate) <= target:
+                fitted, low = candidate, middle + 1
+            else:
+                high = middle - 1
+        if fitted is None:
+            raise AppError('document_context_budget_exhausted', '剩余上下文不足以返回文档及来源，请整理历史后继续', 422)
+        return fitted
 
     async def _read_sheet(self, arguments: dict[str, object]) -> dict[str, object]:
         info, content, path = await self._file(str(arguments['file_id']))
@@ -538,13 +612,53 @@ class WorkspaceTools:
         )
         return self._file_result(info, path, data)
 
+    @staticmethod
+    def _skill_root(skill: SkillRevisionValue) -> str:
+        # Stable paths survive continuation; each sandbox receives this Run's
+        # frozen revision and inputs/ remains read-only to model processes.
+        return f'inputs/skills/{skill.slug}'
+
+    async def _skill_package(self, skill: SkillRevisionValue) -> ParsedSkillPackage:
+        if skill.slug not in self._skill_packages:
+            async with self.context.database.sessions() as session:
+                package = await self.context.skills.frozen_package(session, self.principal.id, skill)
+            self._skill_packages[skill.slug] = package
+        return self._skill_packages[skill.slug]
+
     async def _load_skill(self, arguments: dict[str, object]) -> dict[str, object]:
         requested = str(arguments['name'])
         selection = skill_selection(self.claim.payload)
         item = next((item for item in selection.revisions if item.slug == requested), None)
         if item is None:
             raise AppError('skill_unavailable', '请使用当前任务已选择的技能', 422)
-        return self._success({'name': item.slug, 'instructions': item.content})
+        package = await self._skill_package(item)
+        root = self._skill_root(item)
+        return self._success(
+            {
+                'name': item.slug,
+                'revision_id': str(item.revision_id),
+                'workspace_path': root,
+                'files': [{'path': path, 'size': len(content)} for path, content in package.files],
+                'instructions': item.content,
+                'usage': '文件在首次使用沙盒时自动就绪，路径相对于 /workspace。先按需使用 load_tools 加载 files、python 或 shell 组。可用 read_file 查看文本，'
+                '用 run_python 或 execute 调用脚本；输入目录只读，临时文件写入 working/，成果写入 outputs/。'
+                '加载技能不会自动运行脚本，也不会开放网络或提供第三方凭据。',
+            }
+        )
+
+    async def _load_tools(self, arguments: dict[str, object]) -> dict[str, object]:
+        requested = arguments.get('groups')
+        if (
+            not isinstance(requested, list)
+            or not requested
+            or len(requested) > len(WORK_TOOLSETS)
+            or any(not isinstance(group, str) or group not in WORK_TOOLSETS for group in requested)
+        ):
+            raise AppError('invalid_work_toolset', '请使用当前提供的工具组名称', 422)
+        groups = sorted(set(cast('list[str]', requested)))
+        return self._success(
+            {'loaded_toolsets': groups, 'tools': sorted({name for group in groups for name in WORK_TOOLSETS[group]})}
+        )
 
     async def _request_input(self, arguments: dict[str, object]) -> dict[str, object]:
         return self._success({'question': str(arguments['question'])})
@@ -631,6 +745,7 @@ class WorkspaceTools:
             'read_document': '读取文档',
             'read_sheet': '读取表格',
             'load_skill': '准备处理方法',
+            'load_tools': '准备处理工具',
             'write_todos': '更新任务计划',
             'run_python': '处理数据与文件',
             'execute': '执行文件处理',

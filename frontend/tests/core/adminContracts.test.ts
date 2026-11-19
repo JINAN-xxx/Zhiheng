@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   decodePage,
+  decodeLog,
   decodeRole,
   decodeSession,
   decodeUser,
@@ -117,4 +118,24 @@ void test('unavailable monitor measurements remain null and are not converted to
   assert.throws(() =>
     decodeMonitor({ ...result, worker: { status: 'healthy', heartbeat_age_seconds: 0 } })
   )
+})
+
+void test('audit labels remain separate from original operation and resource identifiers', () => {
+  const value = decodeLog({
+    id: 'log-1',
+    kind: 'operation',
+    action: 'billing.rate_create',
+    action_label: '新增计费规则',
+    username: 'admin',
+    resource_type: 'billing',
+    resource_label: '积分管理',
+    resource_id: null,
+    outcome: 'success',
+    message: '积分管理操作已完成',
+    created_at: '2026-11-18T00:00:00Z'
+  })
+  assert.equal(value.action, 'billing.rate_create')
+  assert.equal(value.action_label, '新增计费规则')
+  assert.equal(value.resource_type, 'billing')
+  assert.equal(value.resource_label, '积分管理')
 })

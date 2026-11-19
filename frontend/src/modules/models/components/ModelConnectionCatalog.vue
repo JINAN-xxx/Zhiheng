@@ -67,9 +67,6 @@ async function copyAddress(connection: ModelConnection) {
 <template>
   <section class="credential-catalog" aria-label="凭据列表">
     <div class="credential-toolbar">
-      <span class="credential-total">{{
-        search.trim() ? '找到 ' + filtered.length + ' 个匹配' : connections.length + ' 个凭据'
-      }}</span>
       <AInput
         v-model:value="search"
         allow-clear
@@ -78,6 +75,9 @@ async function copyAddress(connection: ModelConnection) {
       >
         <template #prefix><SearchOutlined aria-hidden="true" /></template>
       </AInput>
+      <span class="credential-total">{{
+        search.trim() ? '找到 ' + filtered.length + ' 个匹配' : connections.length + ' 个凭据'
+      }}</span>
     </div>
     <WorkspaceState v-if="loading && !connections.length" kind="loading" title="正在加载凭据" />
     <ul v-else-if="filtered.length" class="credential-grid">
@@ -178,16 +178,18 @@ async function copyAddress(connection: ModelConnection) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 4px 0 18px;
+  min-height: 40px;
+  margin: 0 0 26px;
 }
 .credential-total {
+  margin-left: auto;
   flex-shrink: 0;
   font-size: 13px;
   color: var(--color-text-secondary);
 }
 .credential-toolbar :deep(.ant-input-affix-wrapper) {
-  width: 288px;
-  height: 34px;
+  width: min(360px, 42%);
+  height: 36px;
   font-size: 13px;
 }
 .credential-grid {

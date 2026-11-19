@@ -79,11 +79,13 @@ class StructuredProvider:
         api_key: str,
         model: str,
         timeout_seconds: float,
+        connect_timeout_seconds: float = 10,
         model_type: Literal['embedding', 'rerank'],
         options: dict[str, object],
     ) -> None:
         self._base_url, self._key, self._model = base_url.rstrip('/') + '/', SecretStr(api_key), model
         self._timeout, self._type, self._options = timeout_seconds, model_type, options
+        self._connect_timeout = connect_timeout_seconds
 
     async def validate(self) -> None:
         await validate_catalog(
@@ -101,7 +103,16 @@ class StructuredProvider:
         }
         try:
             async with httpx.AsyncClient(
-                base_url=self._base_url, headers=headers, trust_env=False, follow_redirects=False, timeout=self._timeout
+                base_url=self._base_url,
+                headers=headers,
+                trust_env=False,
+                follow_redirects=False,
+                timeout=httpx.Timeout(
+                    self._timeout,
+                    connect=min(self._timeout, self._connect_timeout),
+                    pool=min(self._timeout, self._connect_timeout),
+                    write=min(self._timeout, 30),
+                ),
             ) as client:
                 if self._type == 'embedding':
                     # Leading slash must not discard a configured /v1 prefix.

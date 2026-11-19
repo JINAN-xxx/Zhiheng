@@ -91,8 +91,10 @@ export interface AdminLog {
   id: string
   kind: 'login' | 'operation'
   action: string
+  action_label: string
   username: string
   resource_type: string
+  resource_label: string
   resource_id: string | null
   outcome: 'success' | 'failed'
   message: string
@@ -244,8 +246,10 @@ export const decodeLog: Decoder<AdminLog> = (value) => {
     id: string(r.id),
     kind: kind as AdminLog['kind'],
     action: string(r.action),
+    action_label: string(r.action_label),
     username: string(r.username),
     resource_type: string(r.resource_type),
+    resource_label: string(r.resource_label),
     resource_id: nullableString(r.resource_id),
     outcome: outcome as AdminLog['outcome'],
     message: string(r.message),

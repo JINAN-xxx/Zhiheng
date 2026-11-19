@@ -14,6 +14,7 @@
         aria-label="全选文件"
         :checked="allSelected"
         :indeterminate="someSelected"
+        :disabled="!selectableRows.length || loading"
         @change="toggleAll"
       />
       <template v-else>{{ columns.find((item) => item.key === column.key)?.title }}</template>
@@ -28,7 +29,9 @@
       />
       <template v-else-if="column.key === 'originalName'">
         <span class="file-name"
-          ><FileTextOutlined /><span>{{ row.displayName }}</span></span
+          ><FileTypeIcon :filename="row.originalName" :mime="row.mimeType" /><span>{{
+            row.displayName
+          }}</span></span
         >
         <small v-if="row.displayName !== row.originalName" class="file-summary">{{
           row.originalName
@@ -40,7 +43,7 @@
       </template>
       <template v-else-if="column.key === 'source'">
         <span>{{ userLabel(row.uploaderUserId) }}</span>
-        <small class="file-source">{{ row.sourceFileId ? '派生文件' : '上传文件' }}</small>
+        <small class="file-source">{{ fileSourceLabel(row) }}</small>
       </template>
       <template v-else-if="column.key === 'createTime'">{{ formatTime(row.createTime) }}</template>
       <a-tag
@@ -178,7 +181,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
-  FileTextOutlined,
   LinkOutlined,
   LockOutlined,
   MoreOutlined,
@@ -187,8 +189,15 @@ import {
 } from '@ant-design/icons-vue'
 import ResourceTable from '../../../shared/components/ResourceTable.vue'
 import { identity, hasAnyPermission } from '../../identity/public.ts'
-import { canManageFile } from '../access.ts'
-import { fileTypeLabel, formatFileSize, formatTime, statusLabel } from '../presentation.ts'
+import { canManageFile, canSelectFile } from '../access.ts'
+import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
+import {
+  fileTypeLabel,
+  fileSourceLabel,
+  formatFileSize,
+  formatTime,
+  statusLabel
+} from '../presentation.ts'
 import type { FileUser, ManagedFile } from '../api/index.ts'
 const props = defineProps<{
   fileList: ManagedFile[]
@@ -229,14 +238,17 @@ function locked(row: ManagedFile): boolean {
 }
 function immutable(row: ManagedFile): boolean {
   return (
-    !canManageFile(identity.value, row) ||
+    !canSelectFile(identity.value, row) ||
     locked(row) ||
     row.sourceFileId !== null ||
     row.status === 'purged'
   )
 }
 function userLabel(id: string): string {
-  return props.users.find((user) => user.id === id)?.username ?? id
+  return (
+    props.users.find((user) => user.id === id)?.username ??
+    (identity.value?.id === id ? identity.value.username : id)
+  )
 }
 function toggleRow(row: ManagedFile, checked: boolean): void {
   if (immutable(row)) return
@@ -259,9 +271,6 @@ function toggleAll(event: { target: { checked?: boolean } }): void {
   align-items: center;
   gap: 8px;
   color: var(--color-text);
-}
-.file-name > :deep(.anticon) {
-  color: var(--main-700);
 }
 .file-name > span {
   min-width: 0;

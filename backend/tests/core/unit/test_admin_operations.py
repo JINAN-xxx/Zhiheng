@@ -341,3 +341,46 @@ def test_patch_contracts_require_version_nonnull_and_plain_text_limits() -> None
         CreateNotice(title='标题', content='含\x00字符')
     with pytest.raises(ValidationError):
         PatchNotice(expected_version=1, content=None)
+
+
+@pytest.mark.parametrize(
+    'keyword,expected_action',
+    [
+        ('新增计费', 'billing.rate_create'),
+        ('知识库默认', 'knowledge.defaults.update'),
+        ('重置用户密码', 'users.reset_password'),
+    ],
+)
+async def test_logs_support_chinese_search_without_changing_audit_codes(
+    session: AsyncSession, admin: Principal, keyword: str, expected_action: str
+) -> None:
+    from zhiheng.modules.operations.orm import OperationLog
+    from zhiheng.modules.operations.public import OperationsService
+
+    service = OperationsService()
+    for action, resource in [
+        ('billing.rate_create', 'billing'),
+        ('knowledge.defaults.update', 'knowledge_defaults'),
+        ('users.reset_password', 'users'),
+    ]:
+        await service.record(session, principal=admin, action=action, resource_type=resource)
+    result = await service.list_logs(session, admin, kind='operation', search=keyword)
+    assert result.total == 1 and result.items[0].action == expected_action
+    assert result.items[0].action_label != expected_action
+    assert result.items[0].resource_label != result.items[0].resource_type
+    original = await session.get(OperationLog, result.items[0].id)
+    assert original is not None and original.action == expected_action
+    english = await service.list_logs(session, admin, search=expected_action)
+    assert [item.id for item in english.items] == [result.items[0].id]
+
+
+async def test_unknown_log_identifiers_remain_visible_instead_of_being_mistranslated(
+    session: AsyncSession, admin: Principal
+) -> None:
+    from zhiheng.modules.operations.public import OperationsService
+
+    service = OperationsService()
+    await service.record(session, principal=admin, action='extension.custom', resource_type='extension')
+    result = await service.list_logs(session, admin)
+    assert result.items[0].action_label == 'extension.custom'
+    assert result.items[0].resource_label == 'extension'

@@ -63,7 +63,7 @@ class PreparationStart:
 
 
 class KnowledgePreparation:
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit service owners and independent retrieval budgets
         self,
         database: Database,
         knowledge: KnowledgeService,
@@ -76,10 +76,16 @@ class KnowledgePreparation:
         rerank_batch_tokens: int,
         *,
         admission: RunAdmission,
+        query_timeout_seconds: float = 60,
+        rerank_timeout_seconds: float = 20,
+        embedding_timeout_seconds: float = 30,
     ) -> None:
         self.database, self.knowledge, self.models, self.runs = database, knowledge, models, runs
         self.usage, self.keys, self.vectors, self.rerank_batch_tokens = usage, keys, vectors, rerank_batch_tokens
         self.applications, self.admission = applications, admission
+        self.query_timeout_seconds = query_timeout_seconds
+        self.rerank_timeout_seconds = rerank_timeout_seconds
+        self.embedding_timeout_seconds = embedding_timeout_seconds
         self.store, self.steps = RetrievalStore(knowledge), BuildStore(knowledge)
         self.finalizers: dict[
             str, Callable[[AsyncSession, RetrievalState, PreparedKnowledge], Awaitable[RunSnapshot]]
@@ -175,9 +181,12 @@ class KnowledgePreparation:
                     **dependencies,
                     'bases': [base.model_dump(mode='json') for base in bases],
                     'rerank_binding': rerank.model_dump(mode='json'),
+                    'rerank_timeout_seconds': self.rerank_timeout_seconds,
+                    'embedding_timeout_seconds': self.embedding_timeout_seconds,
                 },
                 key_id=identity.key_id if identity else None,
                 application_id=identity.application_id if identity else None,
+                timeout_seconds=self.query_timeout_seconds,
             ),
         )
         return self.store.info(row)
@@ -412,7 +421,7 @@ class KnowledgePreparation:
                 (error.code, error.message)
                 if isinstance(error, AppError)
                 else (
-                    ('knowledge_timeout', '知识检索超过10秒')
+                    ('knowledge_timeout', '知识检索已达到本轮时限，请查看检索记录后重试')
                     if isinstance(error, TimeoutError)
                     else ('knowledge_unavailable', '知识检索未完成')
                 )
@@ -440,7 +449,9 @@ class KnowledgePreparation:
         async with self.database.sessions.begin() as session:
             row = await self.store.get(session, state.id, lock=True)
             if row.tick_token == token:
-                await self.store.fail(session, row, 'failed', 'knowledge_timeout', '知识检索超过10秒')
+                await self.store.fail(
+                    session, row, 'failed', 'knowledge_timeout', '知识检索已达到本轮时限，请查看检索记录后重试'
+                )
 
     async def _stage(self, state: RetrievalState, token: UUID) -> None:
         if state.status == 'ready':
@@ -644,7 +655,13 @@ class KnowledgePreparation:
                         *(ModelMessage('user', hit.content) for hit in candidates),
                     ),
                     execution_deadline=state.deadline,
-                    execution_timeout_seconds=max(0.1, min(5, (state.deadline - utcnow()).total_seconds() - 0.3)),
+                    execution_timeout_seconds=max(
+                        0.1,
+                        min(
+                            float(str(state.dependencies.get('rerank_timeout_seconds', 5))),
+                            (state.deadline - utcnow()).total_seconds() - 0.3,
+                        ),
+                    ),
                 )
                 value = fingerprint(request.model_dump(mode='json'))
                 request_id = uuid5(state.id, step_key)
@@ -728,7 +745,13 @@ class KnowledgePreparation:
                         binding=base.binding,
                         messages=(ModelMessage('user', str(state.request['query'])),),
                         execution_deadline=state.deadline,
-                        execution_timeout_seconds=max(0.1, min(10, state.deadline_seconds)),
+                        execution_timeout_seconds=max(
+                            0.1,
+                            min(
+                                float(str(state.dependencies.get('embedding_timeout_seconds', 10))),
+                                (state.deadline - utcnow()).total_seconds(),
+                            ),
+                        ),
                     )
                     value = fingerprint(request.model_dump(mode='json'))
                     request_id = uuid5(state.id, step_key)

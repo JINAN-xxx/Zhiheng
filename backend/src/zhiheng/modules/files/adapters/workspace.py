@@ -3,6 +3,7 @@
 # ruff: noqa: PLC0415 -- Parsing SDKs load only inside the trusted reader child.
 
 import csv
+import hashlib
 import io
 import itertools
 import json
@@ -11,13 +12,17 @@ import os
 import subprocess
 import sys
 import zipfile
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from datetime import date, datetime, time
 from pathlib import Path, PurePosixPath
-from typing import NoReturn, TypeVar
+from threading import Lock
+from time import monotonic
+from typing import NoReturn, TypeVar, cast
 from xml.etree.ElementTree import Element, fromstring
 from xml.parsers.expat import ParserCreate
 
+from zhiheng.modules.files.document_pages import MAX_DOCUMENT_CHARACTERS, document_page
 from zhiheng.modules.files.parsing_contracts import MAX_INPUT_BYTES
 from zhiheng.modules.files.workspace_contracts import WorkspaceFileView
 from zhiheng.shared.csv_text import decode_csv_text
@@ -30,8 +35,12 @@ MAX_ROWS = 100000
 MAX_COLUMNS = 50
 MAX_SHEETS = 100
 MAX_PAGES = 500
-MAX_PAGE_LIMIT = 3
-MAX_DOCUMENT_LIMIT = 60
+MAX_DOCUMENT_REPLY_BYTES = 16 * 1024 * 1024
+MAX_DOCUMENT_TEXT_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENT_CACHE_BYTES = 16 * 1024 * 1024
+MAX_DOCUMENT_CACHE_ENTRIES = 32
+DOCUMENT_CACHE_SECONDS = 300
+PDF_BATCH_PAGES = 32
 MAX_SHEET_LIMIT = 100
 MAX_CELL_BYTES = 512
 MAX_ITEM_BYTES = 3000
@@ -125,15 +134,6 @@ def _checked(content: bytes, filename: str, operation: Callable[[], T]) -> T:
         raise AppError('file_reader_failed', '文件内容无法读取，请检查格式和编码', 422) from error
 
 
-def _fit_items(items: list[dict[str, object]]) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
-    for item in items:
-        if len(json.dumps([*result, item], ensure_ascii=False).encode()) > MAX_RESULT_BYTES - RESULT_METADATA_BYTES:
-            break
-        result.append(item)
-    return result
-
-
 class _OfficeReader:
     def inspect(self, content: bytes, filename: str) -> WorkspaceFileView:
         return _checked(content, filename, lambda: self._inspect(content, filename))
@@ -195,17 +195,32 @@ class _OfficeReader:
         finally:
             workbook.close()
 
-    def read_document(self, content: bytes, filename: str, start: int = 1, limit: int = 40) -> WorkspaceFileView:
-        if start < 1 or start > MAX_ROWS or not 1 <= limit <= MAX_DOCUMENT_LIMIT:
-            raise AppError('invalid_file_page', '文档分页参数无效', 422)
-        return _checked(content, filename, lambda: self._document(content, filename, start, limit))
+    def read_document(
+        self,
+        content: bytes,
+        filename: str,
+        start: int = 1,
+        limit: int | None = None,
+        *,
+        offset: int = 0,
+        max_characters: int = MAX_DOCUMENT_CHARACTERS,
+    ) -> WorkspaceFileView:
+        return document_page(
+            self.parse_document(content, filename, start), start, limit, offset=offset, max_characters=max_characters
+        )
 
-    def _document(self, content: bytes, filename: str, start: int, limit: int) -> WorkspaceFileView:
+    def parse_document(self, content: bytes, filename: str, start: int = 1) -> WorkspaceFileView:
+        return _checked(content, filename, lambda: self._document(content, filename, start))
+
+    def _document(self, content: bytes, filename: str, start: int) -> WorkspaceFileView:
         extension = PurePosixPath(filename).suffix.lower()
+        if not 1 <= start <= MAX_ROWS:
+            raise AppError('invalid_file_page', '文档分页参数无效', 422)
         unit = 'line'
+        base = 1
         if extension == '.docx':
             blocks = self._word_blocks(content)
-            total, selected, unit = len(blocks), blocks[start - 1 : start - 1 + limit], 'block'
+            total, selected, unit = len(blocks), blocks, 'block'
         elif extension == '.pdf':
             from pypdf import PdfReader
 
@@ -214,8 +229,9 @@ class _OfficeReader:
                 raise AppError('encrypted_document', 'PDF 已加密，请提供无密码副本', 422)
             if len(document.pages) > MAX_PAGES:
                 raise AppError('document_too_large', 'PDF 页数超过限制，请拆分后处理', 422)
+            base = (start - 1) // PDF_BATCH_PAGES * PDF_BATCH_PAGES + 1
             selected = []
-            for page in document.pages[start - 1 : start - 1 + min(limit, MAX_PAGE_LIMIT)]:
+            for page in document.pages[base - 1 : base - 1 + PDF_BATCH_PAGES]:
                 stream = page.get_contents()
                 if stream is not None and len(stream.get_data()) > MAX_MEMBER_BYTES:
                     raise AppError('document_too_large', 'PDF 页面内容流超过限制', 422)
@@ -223,22 +239,12 @@ class _OfficeReader:
             total, unit = len(document.pages), 'page'
         elif extension in TEXT_EXTENSIONS:
             blocks = content.decode('utf-8-sig').splitlines()
-            total, selected = len(blocks), blocks[start - 1 : start - 1 + limit]
+            total, selected = len(blocks), blocks
         else:
             raise AppError('unsupported_format', '此文件请使用表格读取工具', 422)
-        items = _fit_items(
-            [
-                {'number': start + index, 'text': _bounded_text(text, MAX_ITEM_BYTES)}
-                for index, text in enumerate(selected)
-            ]
-        )
-        return {
-            'unit': unit,
-            'total': total,
-            'items': items,
-            'next': start + len(items) if items and start + len(items) <= total else None,
-            'note': '返回指定页段或文本块；截断长内容时可继续分页读取。',
-        }
+        if len(selected) > MAX_ROWS or sum(len(text.encode()) for text in selected) > MAX_DOCUMENT_TEXT_BYTES:
+            raise AppError('document_too_large', '文档提取文字超过读取资源限制，请拆分后处理', 422)
+        return {'unit': unit, 'total': total, 'start': base, 'blocks': selected}
 
     @staticmethod
     def _word_blocks(content: bytes) -> list[str]:
@@ -331,6 +337,11 @@ class _OfficeReader:
 class WorkspaceFileReader:
     """Run the fixed parser in a bounded subprocess, using the same isolation pattern as NativeParser."""
 
+    def __init__(self) -> None:
+        self._documents: OrderedDict[tuple[str, str, int], tuple[float, int, WorkspaceFileView]] = OrderedDict()
+        self._document_bytes = 0
+        self._document_lock = Lock()
+
     def _invoke(self, operation: str, content: bytes, filename: str, **arguments: object) -> WorkspaceFileView:
         def perform() -> WorkspaceFileView:
             request = json.dumps({'operation': operation, 'filename': filename, **arguments}).encode() + b'\n' + content
@@ -356,7 +367,10 @@ class WorkspaceFileReader:
                 )
             except subprocess.TimeoutExpired:
                 raise AppError('parse_timeout', '文件读取超时，请拆分后处理', 422) from None
-            if result.returncode != 0 or len(result.stdout) > MAX_RESULT_BYTES + RESULT_METADATA_BYTES:
+            maximum = (
+                MAX_DOCUMENT_REPLY_BYTES if operation == 'parse_document' else MAX_RESULT_BYTES + RESULT_METADATA_BYTES
+            )
+            if result.returncode != 0 or len(result.stdout) > maximum:
                 raise AppError('parse_resource_limit', '文件读取超过资源限制', 422)
             payload = json.loads(result.stdout)
             if not isinstance(payload, dict):
@@ -374,10 +388,68 @@ class WorkspaceFileReader:
         return _checked(content, filename, perform)
 
     def inspect(self, content: bytes, filename: str) -> WorkspaceFileView:
+        if PurePosixPath(filename).suffix.lower() == '.docx':
+            document = _checked(content, filename, lambda: self._parsed_document(content, filename, 1))
+            blocks = cast('list[str]', document['blocks'])
+            return {
+                'format': 'docx',
+                'bytes': len(content),
+                'blocks': document['total'],
+                'sample': _bounded_text('\n'.join(blocks[:5]), MAX_ITEM_BYTES),
+            }
         return self._invoke('inspect', content, filename)
 
-    def read_document(self, content: bytes, filename: str, start: int = 1, limit: int = 40) -> WorkspaceFileView:
-        return self._invoke('read_document', content, filename, start=start, limit=limit)
+    def _parsed_document(self, content: bytes, filename: str, start: int) -> WorkspaceFileView:
+        extension = PurePosixPath(filename).suffix.lower()
+        batch = (start - 1) // PDF_BATCH_PAGES * PDF_BATCH_PAGES + 1 if extension == '.pdf' else 1
+        key = (hashlib.sha256(content).hexdigest(), extension, batch)
+        now = monotonic()
+        with self._document_lock:
+            for expired in [key for key, value in self._documents.items() if now - value[0] >= DOCUMENT_CACHE_SECONDS]:
+                self._document_bytes -= self._documents.pop(expired)[1]
+            cached = self._documents.get(key)
+            if cached is not None:
+                self._documents.move_to_end(key)
+                return cached[2]
+        document = self._invoke('parse_document', content, filename, start=batch)
+        # Account for Python's widest Unicode representation and container overhead.
+        blocks = cast('list[str]', document['blocks'])
+        size = sum(len(text) * 4 + 128 for text in blocks) + 1024
+        if size <= MAX_DOCUMENT_CACHE_BYTES:
+            with self._document_lock:
+                previous = self._documents.pop(key, None)
+                if previous is not None:
+                    self._document_bytes -= previous[1]
+                while self._documents and (
+                    self._document_bytes + size > MAX_DOCUMENT_CACHE_BYTES
+                    or len(self._documents) >= MAX_DOCUMENT_CACHE_ENTRIES
+                ):
+                    self._document_bytes -= self._documents.popitem(last=False)[1][1]
+                self._documents[key] = (monotonic(), size, document)
+                self._document_bytes += size
+        return document
+
+    def read_document(
+        self,
+        content: bytes,
+        filename: str,
+        start: int = 1,
+        limit: int | None = None,
+        *,
+        offset: int = 0,
+        max_characters: int = MAX_DOCUMENT_CHARACTERS,
+    ) -> WorkspaceFileView:
+        return _checked(
+            content,
+            filename,
+            lambda: document_page(
+                self._parsed_document(content, filename, start),
+                start,
+                limit,
+                offset=offset,
+                max_characters=max_characters,
+            ),
+        )
 
     def read_sheet(
         self, content: bytes, filename: str, sheet: str = '', start_row: int = 1, limit: int = 40

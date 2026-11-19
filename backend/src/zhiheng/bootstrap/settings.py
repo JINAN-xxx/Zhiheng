@@ -49,8 +49,28 @@ class Settings(BaseSettings):
     chat_summary_input_tokens: int | None = Field(default=None, ge=256, le=2097152)
     chat_summary_output_tokens: int | None = Field(default=None, ge=64, le=4096)
     provider_timeout_seconds: float = Field(default=60, ge=1, le=600)
+    provider_connect_timeout_seconds: float = Field(default=10, ge=0.1, le=60)
+    provider_first_response_timeout_seconds: float | None = Field(default=None, ge=0.1, le=600)
+    provider_idle_timeout_seconds: float | None = Field(default=None, ge=0.1, le=600)
+    provider_total_timeout_seconds: float = Field(default=600, ge=1, le=3600)
+    knowledge_query_timeout_seconds: float = Field(default=60, ge=1, le=600)
+    knowledge_rerank_timeout_seconds: float = Field(default=20, ge=0.1, le=600)
+    knowledge_embedding_timeout_seconds: float = Field(default=30, ge=0.1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
+
+    @property
+    def model_first_response_seconds(self) -> float:
+        return self.provider_first_response_timeout_seconds or self.provider_timeout_seconds
+
+    @property
+    def model_idle_seconds(self) -> float:
+        return self.provider_idle_timeout_seconds or self.provider_timeout_seconds
+
+    @property
+    def model_transport_seconds(self) -> float:
+        # The native executor owns stage deadlines; the socket watchdog is a backstop.
+        return max(self.model_first_response_seconds, self.model_idle_seconds) + 5
 
     @field_validator('sandbox_url')
     @classmethod

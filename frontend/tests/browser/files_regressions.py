@@ -121,7 +121,7 @@ class FilesUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name=f'更多操作：{filename}', exact=True).click()
         return self.page.get_by_role('menuitem', name=f'{label}：{filename}', exact=True)
 
-    async def test_storage_is_reached_from_admin_and_returns_to_knowledge(self):
+    async def test_storage_stays_in_admin_context_and_uses_primary_navigation(self):
         await self.page.route(self.origin + '/api/admin/users?*', lambda route:route.fulfill(json={'items': [], 'total': 0, 'page': 1, 'page_size': 20}))
         await self.page.goto(self.origin + '/admin')
         await self.page.get_by_role('navigation', name='后台管理导航', exact=True).get_by_role('link', name='存储管理', exact=True).click()
@@ -135,7 +135,8 @@ class FilesUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='高级管理', exact=True)).to_be_visible()
         await expect(self.page.locator('input[type="file"]')).to_have_count(0)
         await expect(self.page.get_by_role('button', name='上传', exact=True)).to_have_count(0)
-        await self.page.get_by_role('button', name='返回知识库', exact=True).click()
+        await expect(self.page.get_by_role('button', name='返回知识库', exact=True)).to_have_count(0)
+        await navigation.get_by_role('link', name='知识库', exact=True).click()
         await expect(self.page).to_have_url(self.origin + '/knowledge')
         await expect(self.page.get_by_role('button', name='新建知识库', exact=True)).to_be_visible()
 
@@ -170,7 +171,9 @@ class FilesUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('navigation', name='后台管理导航', exact=True).get_by_role('link', name='存储管理', exact=True).click()
         await expect(self.page.get_by_role('heading', name='存储管理', exact=True)).to_be_visible()
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
-        await self.page.get_by_role('button', name='返回知识库', exact=True).click()
+        await expect(self.page.get_by_role('button', name='返回知识库', exact=True)).to_have_count(0)
+        await self.page.get_by_role('button', name='打开主菜单', exact=True).click()
+        await self.page.get_by_role('navigation', name='主导航', exact=True).get_by_role('link', name='知识库', exact=True).click()
         await expect(self.page.get_by_role('button', name='新建知识库', exact=True)).to_be_visible()
 
     async def test_original_acl_has_deny_expiry_and_real_builtin_rules(self):

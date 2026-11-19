@@ -1,7 +1,15 @@
 <!-- Adapted from original skill UI, MIT licensed. -->
 <template>
   <main class="app-container skill-management-page">
-    <WorkspaceToolbar title="技能">
+    <WorkspaceToolbar
+      page
+      title="技能"
+      :subtitle="
+        activeTab === 'market'
+          ? '平台预制技能，启用后可用于对话和智能体。'
+          : '上传技能包，管理自己的技能。'
+      "
+    >
       <template #actions>
         <RefreshButton label="刷新技能" :loading="loading" @click="load" />
         <a-button
@@ -20,13 +28,6 @@
         <ATabPane key="market" tab="市场" />
         <ATabPane key="mine" tab="我的" />
       </ATabs>
-      <p class="skill-intro">
-        {{
-          activeTab === 'market'
-            ? '平台预制技能，启用后可用于对话和智能体。'
-            : '上传技能包，管理自己的技能。'
-        }}
-      </p>
       <div class="skill-controls">
         <a-input
           v-model:value="query.keyword"
@@ -220,15 +221,10 @@ const {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 24px 28px 32px;
+  padding: 0 28px 28px;
 }
-.skill-tabs {
-  margin-bottom: 8px;
-}
-.skill-intro {
+.skill-tabs :deep(.ant-tabs-nav) {
   margin: 0 0 22px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
 }
 .skill-controls {
   display: flex;
@@ -342,5 +338,10 @@ const {
 :deep(.ant-pagination) {
   justify-content: flex-end;
   margin-top: 24px;
+}
+@media (max-width: 640px) {
+  .skill-content {
+    padding: 0 16px 16px;
+  }
 }
 </style>

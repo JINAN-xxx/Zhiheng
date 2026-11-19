@@ -33,7 +33,7 @@ const columns = [
 </script>
 <template>
   <AdminPage
-    search-placeholder="搜索账号或操作"
+    search-placeholder="搜索账号、操作或资源"
     :title="kind === 'login' ? '登录日志' : '操作日志'"
     subtitle="查看账号访问和管理操作的审计记录"
     :loading="loading"
@@ -63,8 +63,11 @@ const columns = [
       empty-text="暂无日志"
       ><template #bodyCell="{ column, record }"
         ><span v-if="column.key === 'time'">{{ formatAdminTime(record.created_at) }}</span>
+        <span v-else-if="column.key === 'action'" :title="record.action">{{
+          record.action_label
+        }}</span>
         <div v-else-if="column.key === 'resource'" class="admin-primary">
-          <span>{{ record.resource_type || '—' }}</span
+          <span :title="record.resource_type">{{ record.resource_label || '—' }}</span
           ><small class="admin-code">{{ record.resource_id || '' }}</small>
         </div>
         <ATag
