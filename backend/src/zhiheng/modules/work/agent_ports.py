@@ -27,6 +27,7 @@ class AgentKernelOutcome:
 ModelInvoker = Callable[[tuple[AgentModelMessage, ...], tuple[dict[str, object], ...], str, str], Awaitable[ModelTurn]]
 ToolInvoker = Callable[[str, dict[str, object], str], Awaitable[dict[str, object]]]
 ToolContextWriter = Callable[[str, tuple[AgentModelMessage, ...], tuple[dict[str, object], ...]], None]
+ToolAvailability = Callable[[str], bool]
 ProgressWriter = Callable[[tuple[dict[str, object], ...]], Awaitable[None]]
 CheckpointWriter = Callable[[str], Awaitable[None]]
 
@@ -63,4 +64,5 @@ class WorkspaceAgentKernel(Protocol):
         web_search_enabled: bool = False,
         write_tool_context: ToolContextWriter | None = None,
         execution_instructions: str = '',
+        tool_available: ToolAvailability | None = None,
     ) -> AgentKernelOutcome: ...

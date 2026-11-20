@@ -8,6 +8,7 @@ from fastapi.security import HTTPBearer
 from zhiheng.api.common.auth import bearer
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency
+from zhiheng.api.inference.responses import CompletionResponse
 from zhiheng.api.inference.streaming import chat_response
 from zhiheng.modules.agents.public import AgentPublicRequest, PreviewRequest
 from zhiheng.modules.knowledge.public import PreparationInfo
@@ -20,7 +21,7 @@ router = APIRouter(prefix='/v1/agents', tags=['public agents'], dependencies=[De
 @router.post(
     '/{agent_id}/chat/completions',
     response_model=None,
-    responses={202: {'model': PreparationInfo}},
+    responses={200: {'model': CompletionResponse}, 202: {'model': PreparationInfo}},
     openapi_extra={'x-required-scopes': ['agents:invoke'], 'x-streaming': True},
 )
 async def chat(

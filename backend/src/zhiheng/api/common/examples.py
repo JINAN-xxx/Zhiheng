@@ -118,8 +118,8 @@ def add_examples(document: dict[str, Any], routes: list[RouteContext]) -> None:
                 lines.append('  -H "Idempotency-Key: $REQUEST_ID"')
             if any(p['name'] == 'If-Match' for p in parameters):
                 lines.append('  -H "If-Match: $ETAG"')
-            if any(p['name'] == 'Range' for p in parameters):
-                lines.append('  -H "Range: bytes=0-1023"')
+            if key in {('files', 'content'), ('skills', 'content'), ('knowledge', 'download')}:
+                lines.append('  --output "${OUTPUT_PATH:-download.bin}"')
             if operation.get('x-transport-policy') == 'multipart_file':
                 lines.extend(['  -F "file=@${FILE_PATH}"', '  -F "purpose=knowledge"'])
             elif body is not None:

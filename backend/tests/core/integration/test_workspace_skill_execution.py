@@ -27,6 +27,7 @@ from tests.core.integration.test_work_agent_execution import (
 from tests.core.integration.test_work_agent_resume import continue_task
 from tests.core.unit.test_skill_package import archive, markdown
 from tests.core.workspace_provider import WorkspaceProvider
+from zhiheng.application.work.tools import WorkspaceTools
 from zhiheng.modules.skills.orm import SkillRevision
 from zhiheng.modules.skills.public import resolve_selection
 from zhiheng.shared.errors import AppError
@@ -183,14 +184,18 @@ async def test_uploaded_script_and_resource_run_once_and_resume_after_delivery_f
 ) -> None:
     await install_package(admin)
     deliveries = 0
+    finalize = WorkspaceTools.finalize_outputs
+
+    async def finish(self: WorkspaceTools) -> None:
+        nonlocal deliveries
+        await finalize(self)
+        deliveries += 1
+        if deliveries <= 2:
+            raise AppError('work_artifact_invalid', 'test finalization acknowledgement failure', 422)
 
     def response(body: dict) -> dict:
-        nonlocal deliveries
         if not body.get('tools'):
-            deliveries += 1
-            if deliveries <= 2:
-                return workspace_provider.tool('invalid_tool', {}, 'failed-delivery')
-            return {'role': 'assistant', 'content': '成果已核实并完成。'}
+            raise AssertionError('An extra delivery model must not run')
         returned = [
             item
             for item in body['messages']
@@ -240,6 +245,7 @@ print('restored and readonly')
         return {'role': 'assistant', 'content': '已核对脚本结果。'}
 
     monkeypatch.setattr(workspace_provider, 'response', response)
+    monkeypatch.setattr(WorkspaceTools, 'finalize_outputs', finish)
     model_id = await workspace_model(admin, workspace_provider, 'workspace-greeting')
     created = await admin.post(
         '/api/work/tasks',

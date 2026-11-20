@@ -80,7 +80,8 @@
             表示执行阶段的数据库问题，execution_failed
             表示模型调用前的内部准备异常，inference_failed
             表示模型调用开始后未正常完成。请结合具体消息和 运行／用量状态判断是否重试；用量为
-            unknown 时保留预占，先核对原结果，避免直接重发模型请求。
+            unknown 时保留预占，先核对原结果，避免直接重发模型请求。 provider_insufficient_balance
+            表示上游服务余额不足，请联系管理员处理，反复重试不能恢复额度。
           </p>
           <pre>{{ resourceError }}</pre>
         </section>
@@ -196,6 +197,7 @@ export FILE_PATH='./notes.txt'
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Button as AButton,
   RadioGroup as ARadioGroup,
@@ -210,8 +212,15 @@ import type { ApiDocument } from '../apiDocs.ts'
 import { apiDocAncestorIds, buildApiDocNavigation } from '../apiDocsNavigation.ts'
 import ApiDocsNavigation from './ApiDocsNavigation.vue'
 defineEmits<{ close: [] }>()
-const group = ref<'resources' | 'inference'>('resources'),
-  documents = ref<ApiDocument[]>([]),
+const route = useRoute(),
+  router = useRouter()
+const group = computed<'resources' | 'inference'>({
+  get: () => (route.query.apiGroup === 'inference' ? 'inference' : 'resources'),
+  set: (value) => {
+    void router.replace({ query: { ...route.query, apiGroup: value }, hash: '' })
+  }
+})
+const documents = ref<ApiDocument[]>([]),
   loading = ref(false),
   error = ref(''),
   selectedId = ref('api-overview'),
@@ -470,13 +479,15 @@ onBeforeUnmount(() => {
 @media (max-width: 760px) {
   .api-docs-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
     gap: 12px;
     margin: 0 16px 16px;
   }
   .api-docs-nav {
-    display: flex;
-    overflow-x: auto;
+    display: block;
+    min-height: 0;
+    max-height: min(28dvh, 220px);
+    overflow: auto;
     border-right: 0;
     border-bottom: 1px solid var(--gray-150);
     padding: 8px;

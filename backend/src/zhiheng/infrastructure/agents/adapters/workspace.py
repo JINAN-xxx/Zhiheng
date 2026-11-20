@@ -47,6 +47,7 @@ from zhiheng.modules.work.public import (
     CheckpointWriter,
     ModelInvoker,
     ProgressWriter,
+    ToolAvailability,
     ToolContextWriter,
     ToolInvoker,
     valid_work_summary,
@@ -213,6 +214,7 @@ class _ExecutionContext:
     allowed_toolsets: frozenset[str] = frozenset({'inspection'})
     legacy_calls: frozenset[tuple[str, str, str]] = frozenset()
     execution_instructions: str = ''
+    tool_available: ToolAvailability | None = None
 
 
 class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -235,6 +237,10 @@ class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
             tool
             for tool in (self.context.available_tools if tools is None else tools)
             if convert_to_openai_tool(tool)['function']['name'] in names
+            and (
+                self.context.tool_available is None
+                or self.context.tool_available(convert_to_openai_tool(tool)['function']['name'])
+            )
         ]
         if tools is not None or self.context.available_tools:
             self.context.schemas = tuple(convert_to_openai_tool(tool) for tool in selected)
@@ -278,7 +284,11 @@ class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
 
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: WorkspaceState, runtime: Any) -> dict[str, Any] | None:
-        if state.get('reviewed') or state.get('awaiting_input') or not state.get('todos'):
+        if (
+            state.get('reviewed')
+            or state.get('awaiting_input')
+            or not any(item.get('status') != 'completed' for item in state.get('todos', []))
+        ):
             return None
         messages = state['messages']
         last = messages[-1]
@@ -653,6 +663,7 @@ class WorkspaceKernel:
         web_search_enabled: bool = False,
         write_tool_context: ToolContextWriter | None = None,
         execution_instructions: str = '',
+        tool_available: ToolAvailability | None = None,
     ) -> AgentKernelOutcome:
         planning = TodoListMiddleware(
             system_prompt='复杂任务先维护任务清单；用真实工具结果核对进度。简单问答直接回答。不要提前标记完成。'
@@ -661,6 +672,7 @@ class WorkspaceKernel:
             invoke_tool, skill_texts, write_tool_context, system_prompt + '\n' + planning.system_prompt
         )
         context.execution_instructions = execution_instructions
+        context.tool_available = tool_available
         tools = _tools(context, code_enabled, web_search_enabled)
         context.available_tools = (*tools, *planning.tools)
         model = _WorkspaceModel(invoke_model)

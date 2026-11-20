@@ -72,6 +72,19 @@ class OperationQueries:
                 session, caller.identity, sorted(model_ids), scope=scope, lock=False
             )
 
+    async def can_cancel(
+        self, session: AsyncSession, caller: CallerContext, request: APIRequestInfo, *, pending: bool
+    ) -> bool:
+        if not pending:
+            return False
+        try:
+            await self.authorize(session, caller, request, cancel=True)
+        except AppError as error:
+            if error.status_code not in {403, 404}:
+                raise
+            return False
+        return True
+
     async def project(self, session: AsyncSession, caller: CallerContext, request: APIRequestInfo) -> OperationInfo:
         assert request.result_id is not None
         if request.result_kind == 'knowledge_job':
@@ -116,7 +129,12 @@ class OperationQueries:
                     'completed': job.completed_documents,
                     'failed': job.failed_documents,
                 },
-                cancel_allowed=job.status not in JOB_TERMINAL and job.status != 'cancel_requested',
+                cancel_allowed=await self.can_cancel(
+                    session,
+                    caller,
+                    request,
+                    pending=job.status not in JOB_TERMINAL and job.status != 'cancel_requested',
+                ),
                 result=job.model_dump(mode='json'),
                 error=job.error,
                 created_at=request.created_at,
@@ -158,7 +176,12 @@ class OperationQueries:
                 status=cast('OperationStatus', status),
                 phase=row.phase,
                 progress={},
-                cancel_allowed=row.status not in PREPARATION_TERMINAL and row.status != 'cancel_requested',
+                cancel_allowed=await self.can_cancel(
+                    session,
+                    caller,
+                    request,
+                    pending=row.status not in PREPARATION_TERMINAL and row.status != 'cancel_requested',
+                ),
                 result=result.model_dump(mode='json'),
                 error=result.error,
                 created_at=request.created_at,

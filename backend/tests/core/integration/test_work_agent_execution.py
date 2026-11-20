@@ -123,23 +123,23 @@ async def test_greeting_uses_real_agent_checkpoints_and_metered_children_without
     final = (await admin.get(f'/api/work/tasks/{task["id"]}/runs/{run["id"]}')).json()
     assert final['status'] == 'completed', final
     assert '你好' in final['text']
-    assert final['usage'] == {'input_tokens': 34, 'output_tokens': 6, 'status': 'known'}
+    assert final['usage'] == {'input_tokens': 17, 'output_tokens': 3, 'status': 'known'}
     async with app.state.container.database.sessions() as session:
         children = (
             await session.scalars(select(Run).where(Run.payload['parent_run_id'].as_string() == run['id']))
         ).all()
         leases = (await session.scalars(select(WorkSandboxLease))).all()
-        assert len(children) == 2 and all(item.status == 'completed' for item in children)
+        assert len(children) == 1 and all(item.status == 'completed' for item in children)
         assert all(item.resource_type == 'work_agent_model' for item in children)
         assert not leases
         assert await session.scalar(text('SELECT count(*) FROM work_checkpoints.checkpoints')) > 0
     detail = (await admin.get(f'/api/work/tasks/{task["id"]}')).json()
     assert detail['execution_state'] == 'completed'
     assert [item['role'] for item in detail['messages']] == ['user', 'assistant']
-    assert len(workspace_provider.requests) == 2
+    assert len(workspace_provider.requests) == 1
     initial_tools = [item['function']['name'] for item in workspace_provider.requests[0].get('tools', [])]
     assert 'run_python' not in initial_tools and 'load_tools' in initial_tools
-    assert (await admin.get('/api/usage')).json()['used_tokens'] == 40
+    assert (await admin.get('/api/usage')).json()['used_tokens'] == 20
 
 
 async def test_model_controls_are_lossless_in_checkpoint_and_safe_in_postgres_projections(
@@ -165,7 +165,7 @@ async def test_model_controls_are_lossless_in_checkpoint_and_safe_in_postgres_pr
     assert '\\u0000' in final['text'] and '\x00' not in final['text']
     async with app.state.container.database.sessions() as session:
         children = (await session.scalars(select(Run).where(Run.resource_type == 'work_agent_model'))).all()
-        assert len(children) == 2
+        assert len(children) == 1
         for child in children:
             assert '\x00' not in child.text
             assert '\x00' in json.loads(child.result['agent_message_json'])['content']

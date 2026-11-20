@@ -173,7 +173,15 @@ class ProviderError(AppError):
             else 'unknown'
         )
         super().__init__(
-            'provider_rejected' if definitive_rejection else 'provider_unavailable', '模型调用失败，请稍后重试。', 502
+            'provider_insufficient_balance'
+            if self.reason == 'insufficient_balance'
+            else 'provider_rejected'
+            if definitive_rejection
+            else 'provider_unavailable',
+            '上游模型服务余额不足，请联系管理员处理。'
+            if self.reason == 'insufficient_balance'
+            else '模型调用失败，请稍后重试。',
+            502,
         )
 
 

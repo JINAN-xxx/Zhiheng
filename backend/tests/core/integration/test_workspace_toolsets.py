@@ -16,6 +16,7 @@ from tests.core.integration.test_work_agent_execution import workspace_provider 
 from tests.core.integration.test_work_agent_resume import continue_task
 from tests.core.permission_support import grants
 from tests.core.workspace_provider import WorkspaceProvider
+from zhiheng.application.work.tools import WorkspaceTools
 from zhiheng.bootstrap.settings import Settings
 from zhiheng.infrastructure.agents.adapters.workspace import (
     WorkspaceKernel,
@@ -29,6 +30,7 @@ from zhiheng.infrastructure.agents.adapters.workspace import (
 from zhiheng.modules.models.public import AgentModelMessage
 from zhiheng.modules.work.orm import WorkSandboxLease
 from zhiheng.modules.work.public import ModelTurn
+from zhiheng.shared.errors import AppError
 
 
 async def create_task(client: httpx.AsyncClient, model_id: str, goal: str) -> dict[str, object]:
@@ -55,15 +57,19 @@ async def test_loading_survives_explicit_resume_and_new_user_request_resets_to_c
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     seen: list[set[str]] = []
-    deliveries = 0
+    finalizations = 0
+    finalize = WorkspaceTools.finalize_outputs
+
+    async def finish(self: WorkspaceTools) -> None:
+        nonlocal finalizations
+        await finalize(self)
+        finalizations += 1
+        if finalizations == 1:
+            raise AppError('work_artifact_invalid', 'test finalization failure', 422)
 
     def response(body: dict[str, object]) -> dict[str, object]:
-        nonlocal deliveries
         if not body.get('tools'):
-            deliveries += 1
-            if deliveries == 1:
-                return WorkspaceProvider.tool('invalid_tool', {}, 'interrupt-delivery')
-            return {'role': 'assistant', 'content': '已核对工具能力。'}
+            raise AssertionError('An extra delivery model must not run')
         visible = names(body)
         seen.append(visible)
         latest = next(item['content'] for item in reversed(body['messages']) if item['role'] == 'user')
@@ -76,6 +82,7 @@ async def test_loading_survives_explicit_resume_and_new_user_request_resets_to_c
         return {'role': 'assistant', 'content': '工具已就绪，本轮不执行代码。'}
 
     monkeypatch.setattr(workspace_provider, 'response', response)
+    monkeypatch.setattr(WorkspaceTools, 'finalize_outputs', finish)
     model_id = await workspace_model(admin, workspace_provider, 'workspace-greeting')
     task = await create_task(admin, model_id, 'Prepare Python tools')
     first = await turn(admin, task, task['goal'])

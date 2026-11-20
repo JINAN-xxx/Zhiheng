@@ -115,9 +115,9 @@ def test_zhipu_balance_error_is_distinct_from_rate_limiting(code: str | int, nes
         body = {'error': body}
     result = provider_error(status_error(body, url='https://open.bigmodel.cn/api/paas/v4/chat/completions'))
     assert result.reason == 'insufficient_balance'
-    assert result.code == 'provider_rejected' and result.definitive_rejection
+    assert result.code == 'provider_insufficient_balance' and result.definitive_rejection
     assert result.rate_limit_metric == 'unknown' and result.upstream_status == 429
-    assert result.message == GENERIC_FAILURE_MESSAGE
+    assert result.message == '上游模型服务余额不足，请联系管理员处理。'
     assert PRIVATE_DETAIL not in repr(vars(result))
 
 

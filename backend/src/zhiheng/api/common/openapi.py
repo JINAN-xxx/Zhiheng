@@ -68,6 +68,8 @@ def _describe_preconditions(operation: dict[str, Any], responses: dict[str, Any]
                     'description': HTTPStatus(status).phrase,
                     'content': {'application/json': {'schema': {'$ref': '#/components/schemas/ResourceErrorEnvelope'}}},
                 }
+        elif param['name'] == 'Range':
+            param['description'] = '可选的单个字节范围。不传时下载完整文件；传入 bytes=0-1023 仅下载前 1024 字节。'
         elif param['name'] == 'Idempotency-Key':
             param['required'] = False
             param['description'] = (

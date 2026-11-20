@@ -25,6 +25,7 @@ class WorkspacePolicy:
     run_seconds: int = 600
     model_calls: int = 16
     tool_calls: int = 24
+    web_search_calls: int = 6
     max_input_bytes: int = 100 * 1024 * 1024
     input_tokens: int | None = None
     summary: SummaryPolicy = field(default_factory=SummaryPolicy)

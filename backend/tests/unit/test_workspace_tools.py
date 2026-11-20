@@ -444,6 +444,7 @@ async def test_valid_publication_does_not_hide_an_unresolved_command_failure() -
 @pytest.mark.asyncio
 async def test_finalize_restores_latest_outputs_even_without_a_tool_callback() -> None:
     tools = make_tools()
+    tools.claim.payload['resume'] = True
     tools.service.guard.return_value = Principal(tools.principal.id, 'owner', True)
     files = [{'path': 'outputs/report.txt', 'file_id': str(uuid4()), 'sha256': 'report'}]
     tools.context.tasks.latest_workspace_files.return_value = workspace_state(9, files)

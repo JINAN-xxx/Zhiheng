@@ -2,7 +2,7 @@
 
 资源协议基址为当前服务入口的 `/api/v1`。本机源码入口为 `http://127.0.0.1:19080`，示例使用同一入口；直接运行 API 时默认端口为 `19090`。控制台前端仍使用 Cookie 调用 `/api`，模型与智能体推理保留 `/v1`。一个 FastAPI 应用和一个 Container 统一装配三组协议。
 
-本文件说明平台资源 API v1 的唯一现行标准。接口清单、DTO 与调用示例统一从 [OpenAPI 3.1](http://127.0.0.1:19080/openapi/resources-v1.json) 生成，可通过 [资源 Swagger](http://127.0.0.1:19080/docs/resources) 查看；[推理 Swagger](http://127.0.0.1:19080/docs/inference) 与 [推理规范](http://127.0.0.1:19080/openapi/inference-v1.json) 单独分组。开发接入的“API 说明”使用同一规范，每个操作提供一份完整 curl，示例 JSON 通过相同请求 DTO 校验。前端不根据路径拼接缺失示例，缺少标准元数据时明确报错。
+本文件说明平台资源 API v1 的唯一现行标准。接口清单、DTO 与调用示例统一从 [OpenAPI 3.1](http://127.0.0.1:19080/openapi/resources-v1.json) 生成，可通过 [资源 Swagger](http://127.0.0.1:19080/docs/resources) 查看；[推理 Swagger](http://127.0.0.1:19080/docs/inference) 与 [推理规范](http://127.0.0.1:19080/openapi/inference-v1.json) 单独分组。开发接入的“API 说明”使用同一规范，每个操作提供一份完整 curl，示例 JSON 通过相同请求 DTO 校验。前端不根据路径拼接缺失示例，缺少标准元数据时明确报错。对话、向量、重排及助手对话的成功 JSON 响应具有明确 DTO；流式 SSE 与助手知识准备的 202 响应分别描述。文档链接通过 `apiGroup` 保存分组，刷新后恢复目标接口位置。
 
 以上链接指向本机实例；远程部署时将入口地址替换为实际服务器域名或 IP。
 
@@ -42,7 +42,7 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 
 从响应取 `id` 为 `FILE_ID`。在分组文档按顺序使用“创建知识库”提供 `embed_model_id`，取知识库 `id` 为 `BASE_ID`；“文件入库”提交 `file_ids`，按 202 响应的 `Location` 轮询 operation，完成后调用“知识检索”。不要用知识库原始文档的 ID 替代 file ID。
 
-文件入库、知识库重建与文档重新切片都要读取所选源文件，因此同时需要 `knowledge:write`、`files:read`，以及当前应用对相应源文件的读取授权。知识库授权不能代替源文件授权。
+通过 `file_ids` 将文件加入知识库时，需要 `knowledge:write`、`files:read`，以及当前应用对相应源文件的读取授权。新版资料的重建与重新切片按知识库权限处理；`legacy` 原文件策略还需 `files:read` 和当前源文件读取授权。各操作的实际授权条件以当前 OpenAPI 与资源策略为准。
 
 技能流程使用 `purpose=skill` 上传 `SKILL.md` 或 ZIP。ZIP 可将 `SKILL.md` 放在根目录，或放在唯一的一级技能文件夹内；解析时会统一为技能内部的相对目录，原始 ZIP 保留不变。在“预检个人技能”提交 `file_id`，检查 `action`、目标和 `expected_version` 后用 `draft_id` 确认。返回 `id`、`current_revision_id` 和 `resource_version`；内容修订不可原地覆盖。包内 `package_version` 是标签，`resource_version` 是状态 CAS 版本，引用固定内容使用不可变 `revision_id`。脚本附件保存不等于获得执行能力。
 
@@ -52,8 +52,8 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 - multipart 只接受一个二进制 `file` 与一个 `purpose`；原文件最多 20 MiB，技能包还受 10 MiB/解压 30 MiB、200 文件及主文件 128 KiB 等原领域限制。普通 JSON 请求限额独立。
 - 资源创建、导入、确认、检索及相关异步操作的 `Idempotency-Key` 可选，提供时须为单个 UUID；空值、非法值或重复头返回 422。省略时服务端为每次 HTTP 请求生成内部键，按新提交处理，不保证跨请求去重；相同内容也不会自动合并。原生状态、权限和版本约束仍会限制提交。可靠重试需显式提供并复用原键。相同应用/操作/键和内容返回原结果，内容变化为 409。请求身份永久保留，响应快照 24 小时；过期重放返回 409 及当前允许的原结果引用，不重新执行。Operation GET 无此 24 小时窗口，仍复核当前 Scope、应用与 ACL。
 - 列表为 `items/next_cursor/has_more`，默认 20、最多 100；游标绑定应用和过滤条件。可变资源修改发送强版本 `ETag` 作为 `If-Match`，缺少为 428、陈旧为 412。资源文件元数据、内容下载（含 Range）和变更响应使用相同的 `"file-{version}"` 状态版本；技能不可变原包下载的 ETag 则为内容 SHA256，不能作为技能状态版本；领域引用、幂等和在途冲突为 409。
-- 异步接纳为 202 + `Location` + operation。至少隔一秒轮询；保留 `partially_succeeded`、`cancel_requested`、`interrupted`，取消接纳不等于立即停止。只查询既有原生作业，不新增队列、执行器或账本。
-- API Key 用于鉴权，返回的资源 `id` 用于后续访问；资源响应总有用于追踪的 `X-Request-ID`，它不能代替幂等键，也不能保证响应丢失后的安全重试；错误为 `error.code/message/details/request_id`，429 带 `Retry-After`。下载支持单 `Range`、206 和 `Content-Range`。推理仍使用原 OpenAI 错误形状和 SSE `data: [DONE]`。
+- 异步接纳为 202 + `Location` + operation。至少隔一秒轮询；保留 `partially_succeeded`、`cancel_requested`、`interrupted`，取消接纳不等于立即停止。`cancel_allowed` 同时检查当前 Key、账号与资源权限及任务状态；真正取消时仍重新校验，期间撤权可导致请求被拒绝。只查询既有原生作业，不新增队列、执行器或账本。
+- API Key 用于鉴权，返回的资源 `id` 用于后续访问；资源响应总有用于追踪的 `X-Request-ID`，它不能代替幂等键，也不能保证响应丢失后的安全重试；错误为 `error.code/message/details/request_id`，429 带 `Retry-After`。文件内容下载不传 `Range` 时返回完整文件；显式传入单 `Range` 时返回 206 和 `Content-Range`，例如 `bytes=0-1023` 仅取前 1024 字节。默认下载示例使用 `--output` 保存完整内容。推理仍使用原 OpenAI 错误形状和 SSE `data: [DONE]`。
 
 应用默认上限为 1000 个原始文件、1 GiB 逻辑空间，超级管理员可在独立的“后台管理 → 用户管理 → 应用治理”修改。计数来自源文件登记事实；重复绑定不重复计量，回收与解绑不释放空间，实际清理后由原文件生命周期回调释放。派生索引及技能快照纳入平台存储统计，不换算为 Token。
 
@@ -69,6 +69,7 @@ curl --fail-with-body "$ORIGIN/api/v1/files" \
 | `execution_unavailable` | 执行阶段发生其他数据库异常 | 保留请求和运行 ID，核对原结果及用量后再决定是否重试 |
 | `execution_failed` | 模型调用开始前发生其他内部准备异常 | 查看运行记录与具体原因 |
 | `inference_failed` | 模型调用开始后未正常完成 | 核对原运行和用量；供应商拒绝等情况可能返回其他具体错误码 |
+| `provider_insufficient_balance` | 已识别的上游模型服务余额不足 | 联系管理员处理供应商账号额度；平台积分余额不能代替上游额度，避免重复提交 |
 
 用量为 `unknown` 时，预占继续保留等待核对，不按零消耗处理，也不要仅因收到错误就直接重发模型请求。`Idempotency-Key` 用于支持它的资源提交去重；不能将它当作任意推理请求的自动重试保证。平台没有因本次并发修复新增模型调用自动重试。
 

@@ -140,5 +140,5 @@ def test_upstream_balance_exhaustion_is_not_a_transient_rerank_failure() -> None
     claim = ClaimedRun(uuid4(), 'knowledge_rerank', uuid4(), uuid4(), uuid4(), payload)
     error = ProviderError(definitive_rejection=True, reason='insufficient_balance', upstream_status=429)
     result = retrieval_provider_error(claim, error)
-    assert result.code == 'provider_rejected'
-    assert result.message == '模型调用失败，请稍后重试。'
+    assert result.code == 'provider_insufficient_balance'
+    assert result.message == '上游模型服务余额不足，请联系管理员处理。'

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from zhiheng.runtime.contracts import RunError
 
@@ -20,7 +20,7 @@ class OperationInfo(BaseModel):
     status: OperationStatus
     phase: str
     progress: dict[str, int]
-    cancel_allowed: bool
+    cancel_allowed: bool = Field(description='当前调用者在当前任务状态和权限下是否可申请取消')
     result: dict[str, object]
     error: RunError | None
     created_at: datetime

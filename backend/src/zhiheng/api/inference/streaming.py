@@ -78,6 +78,8 @@ async def wait_result(
 def terminal_error(snapshot: RunSnapshot) -> AppError:
     if snapshot.error and snapshot.error.code in MODEL_TIMEOUT_CODES:
         return AppError(snapshot.error.code, snapshot.error.message, 504)
+    if snapshot.error and snapshot.error.code == 'provider_insufficient_balance':
+        return AppError(snapshot.error.code, snapshot.error.message, 502)
     return AppError('provider_unavailable', 'Model request did not complete', 502)
 
 

@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer
 
 from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.inference.admission import admit
+from zhiheng.api.inference.responses import RerankResponse
 from zhiheng.api.inference.schemas import RerankBody
 from zhiheng.api.inference.streaming import wait_result
 from zhiheng.modules.models.public import ModelMessage
@@ -11,7 +12,9 @@ from zhiheng.modules.models.public import ModelMessage
 router = APIRouter(prefix='/v1', tags=['inference'], dependencies=[Depends(HTTPBearer(auto_error=False))])
 
 
-@router.post('/rerank', openapi_extra={'x-required-scopes': ['models:invoke']})
+@router.post(
+    '/rerank', responses={200: {'model': RerankResponse}}, openapi_extra={'x-required-scopes': ['models:invoke']}
+)
 async def rerank(body: RerankBody, request: Request, container: ContainerDependency) -> JSONResponse:
     messages = (
         ModelMessage('user', body.query),

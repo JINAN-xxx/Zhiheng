@@ -7,6 +7,7 @@ import { computed, inject, nextTick, onBeforeUnmount, provide, readonly, ref, wa
 import type { InjectionKey } from 'vue'
 import { useRoute } from 'vue-router'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
+import type { ContextTicket } from '../../../shared/http.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
 import { identity, canUseModule, canUseCapability } from '../../identity/public.ts'
 import { getModels } from '../../models/public.ts'
@@ -75,7 +76,10 @@ function createChatWorkspace() {
     refreshHistory: async (context) => {
       const id = selected.value?.id
       if (!id) return
-      messages.value = await messageHistory.readMessages(id, context.signal)
+      const history = await messageHistory.readMessages(id, context.signal)
+      if (!context.isCurrent() || selected.value?.id !== id) return
+      messages.value = history
+      await refreshConversationMetadata(id, context)
       if (context.isCurrent()) await scroll()
     }
   })
@@ -183,6 +187,25 @@ function createChatWorkspace() {
       })
   }
 
+  async function refreshConversationMetadata(id: string, context: ContextTicket): Promise<void> {
+    try {
+      const updated = await getConversation(id, context.signal)
+      if (!context.isCurrent() || selected.value?.id !== id) return
+      if (updated.version < selected.value.version) return
+      updated.last_activity_at =
+        activeRun.value?.created_at ?? selected.value.last_activity_at ?? updated.created_at
+      selected.value = updated
+      const matches =
+        updated.archived === archivedFilter.value &&
+        updated.title.toLocaleLowerCase().includes(historySearch.value.trim().toLocaleLowerCase())
+      conversations.value = conversations.value.filter((item) => item.id !== id)
+      if (matches) promoteConversation(id, updated.last_activity_at)
+    } catch (reason) {
+      // A metadata refresh cannot turn a confirmed model reply into a failed send.
+      if (context.isCurrent() && !isAborted(reason)) listError.value = errorMessage(reason)
+    }
+  }
+
   async function acceptMainRun(
     run: RunSnapshot,
     context: ReturnType<RequestScope['current']>,
@@ -199,8 +222,10 @@ function createChatWorkspace() {
     commands.accepted(conversation.id)
     if (clearComposer) composer.clear()
     promoteConversation(conversation.id, run.created_at)
-    messages.value = await readMessages(conversation.id, context.signal)
+    const history = await readMessages(conversation.id, context.signal)
     if (!context.isCurrent()) return
+    messages.value = history
+    void refreshConversationMetadata(conversation.id, context)
     sending.value = false
     await scroll(clearComposer)
     if (activeRun.value?.id === run.id) run = activeRun.value

@@ -109,6 +109,9 @@ async def test_embedding_and_rerank_use_worker_and_actual_usage(
         response = await drive(app.state.container, task)
         assert response.status_code == 200, response.text
         assert response.json()['model'] == model['id']
+        from zhiheng.api.inference.responses import EmbeddingResponse, RerankResponse
+
+        (EmbeddingResponse if kind == 'embedding' else RerankResponse).model_validate(response.json())
         if kind == 'embedding':
             assert response.json()['data'][1]['embedding'] == [0.3, 0.4]
             assert response.json()['usage']['prompt_tokens'] == 6

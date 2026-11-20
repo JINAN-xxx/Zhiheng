@@ -18,6 +18,8 @@ from tests.core.integration.test_work_agent_execution import (
     workspace_settings as workspace_settings,  # noqa: PLC0414 - explicitly register shared pytest fixtures
 )
 from tests.core.workspace_provider import WorkspaceProvider
+from zhiheng.application.work.tools import WorkspaceTools
+from zhiheng.shared.errors import AppError
 
 
 async def continue_task(admin: httpx.AsyncClient, task_id: str) -> dict[str, object]:
@@ -83,26 +85,31 @@ async def test_resume_reseeds_the_exact_followup_when_no_trusted_checkpoint_capt
     assert [item['content'] for item in detail['messages'] if item['role'] == 'user'] == attempts[:2]
 
 
-async def test_resume_of_ended_graph_reviews_again_after_the_delivery_call_failed(
+async def test_resume_of_ended_graph_reviews_again_after_finalization_failed(
     admin: httpx.AsyncClient,
     app: FastAPI,
     workspace_provider: WorkspaceProvider,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     agent_requests: list[dict[str, object]] = []
-    deliveries = 0
+    finalizations = 0
+    finalize = WorkspaceTools.finalize_outputs
+
+    async def finish(self: WorkspaceTools) -> None:
+        nonlocal finalizations
+        await finalize(self)
+        finalizations += 1
+        if finalizations == 1:
+            raise AppError('work_artifact_invalid', 'test finalization acknowledgement failure', 422)
 
     def response(body: dict[str, object]) -> dict[str, object]:
-        nonlocal deliveries
         if body.get('tools'):
             agent_requests.append(body)
             return {'role': 'assistant', 'content': '已核对任务。'}
-        deliveries += 1
-        if deliveries == 1:
-            return workspace_provider.tool('invalid_tool', {}, 'invalid-delivery')
-        return {'role': 'assistant', 'content': '已重新核对并完成答复。'}
+        raise AssertionError('A completed answer must not be sent to a separate delivery model')
 
     monkeypatch.setattr(workspace_provider, 'response', response)
+    monkeypatch.setattr(WorkspaceTools, 'finalize_outputs', finish)
     model_id = await workspace_model(admin, workspace_provider, 'workspace-greeting')
     created = await admin.post(
         '/api/work/tasks',
@@ -121,6 +128,6 @@ async def test_resume_of_ended_graph_reviews_again_after_the_delivery_call_faile
     await consume(app)
     final = (await admin.get(f'/api/work/tasks/{task["id"]}/runs/{resumed["id"]}')).json()
     assert final['status'] == 'completed', final
-    assert len(agent_requests) == 2 and deliveries == 2
+    assert len(agent_requests) == 2 and finalizations == 2
     latest = next(item['content'] for item in reversed(agent_requests[-1]['messages']) if item['role'] == 'user')
     assert '尚未解决的失败' in latest

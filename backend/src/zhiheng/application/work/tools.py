@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid5
 
 from zhiheng.application.work.document_budget import tool_result_tokens
+from zhiheng.application.work.search_policy import SearchPolicy
 from zhiheng.application.work.snapshots import skill_selection
 from zhiheng.infrastructure.sandbox import SandboxFile, SandboxInput, SandboxSession, sandbox_path
 from zhiheng.modules.files.public import FileInfo
@@ -69,8 +70,10 @@ class WorkspaceTools:
         self._skill_packages: dict[str, ParsedSkillPackage] = {}
         self._workspace_sequence = 0
         self._workspace_loaded = False
+        self._workspace_run_id: UUID | None = None
         self._mutation_pending = False
         self._lock = asyncio.Lock()
+        self.search_policy = SearchPolicy(getattr(self.context.policy, 'web_search_calls', 6))
 
     @property
     def blocking(self) -> bool:
@@ -88,6 +91,7 @@ class WorkspaceTools:
         async with self.context.database.sessions() as session:
             latest = await self.context.tasks.latest_workspace_files(session, self.claim.resource_id)
         if latest is not None:
+            self._workspace_run_id = latest.run_id
             self._workspace_sequence, self.workspace_files = latest.sequence, latest.files
             if self.claim.payload.get('resume') is True or latest.run_id == self.claim.id:
                 self._failed_operations = set(latest.failed_operations)
@@ -317,6 +321,8 @@ class WorkspaceTools:
         await self._restore_workspace()
         cached = await self._cached_result(name, arguments, action_id)
         if cached is not None:
+            if name == 'web_search':
+                self.search_policy.cached(cached)
             return self._shown(name, cached, action_id)
         if self.progress.tool_calls >= self.context.policy.tool_calls:
             raise AppError('work_budget_exhausted', '本轮工具调用预算已用完，可以继续任务', 409)
@@ -341,11 +347,16 @@ class WorkspaceTools:
             await self.project(self.claim, self.progress)
             return self._shown(name, result, action_id)
         except AppError as error:
-            uncertain = self._mutation_pending or error.code in {
-                'sandbox_execution_uncertain',
-                'work_execution_uncertain',
-                'work_step_uncertain',
-            }
+            uncertain = (
+                self._mutation_pending
+                or error.code
+                in {
+                    'sandbox_execution_uncertain',
+                    'work_execution_uncertain',
+                    'work_step_uncertain',
+                }
+                or (name == 'web_search' and 'uncertain' in error.code)
+            )
             if name in {'run_python', 'execute', 'write_file', 'publish_outputs'}:
                 operation = (
                     'execution'
@@ -356,6 +367,8 @@ class WorkspaceTools:
                 )
                 self._failure(operation, failed=True)
             failure: dict[str, object] = {'success': False, 'error': {'code': error.code, 'message': error.message}}
+            if name == 'web_search':
+                failure['search_policy'] = self.search_policy.metadata()
             await self._record(
                 name,
                 arguments,
@@ -366,9 +379,13 @@ class WorkspaceTools:
             )
             if uncertain:
                 raise AppError(
-                    'work_execution_uncertain', '文件操作结果尚未完整确认，请检查执行记录和成果后继续', 409
+                    'work_execution_uncertain',
+                    '联网搜索结果尚未确认，原请求记录已保留，请稍后补充新的查询要求'
+                    if name == 'web_search'
+                    else '文件操作结果尚未完整确认，请检查执行记录和成果后继续',
+                    409,
                 ) from error
-            if error.code == 'sandbox_dependency_failed':
+            if error.code == 'sandbox_dependency_failed' or name == 'web_search':
                 return self._shown(name, failure, action_id)
             self.progress.tool_result_tokens = max(
                 0, self.progress.tool_result_tokens - tool_result_tokens({**failure, 'data': None})
@@ -478,6 +495,7 @@ class WorkspaceTools:
                     'read_more': '使用 read_history 按编号分页读取完整工具结果',
                 },
                 'error': result.get('error'),
+                **({'search_policy': result['search_policy']} if 'search_policy' in result else {}),
             }
         return result
 
@@ -521,9 +539,21 @@ class WorkspaceTools:
             raise AppError('invalid_web_search', '请输入有效的搜索关键词、时间范围和结果数量', 422) from None
         search = self.context.web_search
         if search is None:
-            raise AppError('web_search_unavailable', '联网搜索尚未配置，请联系管理员', 503)
-        result = await search.search(request)
-        return {'success': True, 'data': result.model_dump(mode='json'), 'error': None}
+            error = AppError('web_search_unavailable', '联网搜索尚未配置，请联系管理员', 503)
+            self.search_policy.failed(error)
+            raise error
+        self.search_policy.begin()
+        try:
+            result = await search.search(request)
+        except AppError as error:
+            self.search_policy.failed(error)
+            raise
+        return {
+            'success': True,
+            'data': result.model_dump(mode='json'),
+            'error': None,
+            'search_policy': self.search_policy.metadata(),
+        }
 
     async def _list_inputs(self, _arguments: dict[str, object]) -> dict[str, object]:
         task = await self._detail()
@@ -763,7 +793,8 @@ class WorkspaceTools:
         await self._restore_workspace()
         code_enabled = has_capability(self.principal, 'work', 'execute_code')
         has_outputs = any(str(item.get('path', '')).startswith('outputs/') for item in self.workspace_files)
-        if self.session is None and (not code_enabled or not has_outputs):
+        recovery = self.claim.payload.get('resume') is True or self._workspace_run_id == self.claim.id
+        if self.session is None and (not code_enabled or not has_outputs or not recovery):
             return
         await self.service.guard(self.claim, code=True)
         await self._publish(required=False)

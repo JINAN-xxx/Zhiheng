@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer
 
 from zhiheng.api.common.dependencies import ContainerDependency
 from zhiheng.api.inference.admission import admit
+from zhiheng.api.inference.responses import CompletionResponse
 from zhiheng.api.inference.schemas import ChatBody
 from zhiheng.api.inference.streaming import chat_response
 from zhiheng.modules.models.public import ModelMessage
@@ -14,6 +15,7 @@ router = APIRouter(prefix='/v1', tags=['inference'], dependencies=[Depends(HTTPB
 @router.post(
     '/chat/completions',
     response_model=None,
+    responses={200: {'model': CompletionResponse}},
     openapi_extra={'x-required-scopes': ['models:invoke'], 'x-streaming': True},
 )
 async def chat(body: ChatBody, request: Request, container: ContainerDependency) -> JSONResponse | StreamingResponse:

@@ -64,6 +64,8 @@ const run: RunSnapshot = {
 class Fixture {
   owner = 'owner-A'
   permissions = ['platform:chat:enabled', 'platform:chat:read', 'platform:chat:use']
+  metadata = { ...conversation }
+  metadataFailure = false
   modelReads = 0
   writes: string[] = []
   history: Record<string, unknown>[] = [
@@ -114,6 +116,18 @@ class Fixture {
       }
       if (url.pathname === '/api/chat/conversations')
         return response(this.owner === 'owner-A' ? [conversation] : [])
+      if (
+        url.pathname === '/api/chat/conversations/' + conversation.id &&
+        (!init?.method || init.method === 'GET')
+      )
+        return this.metadataFailure
+          ? new Response(
+              JSON.stringify({
+                error: { code: 'unavailable', message: 'metadata temporarily unavailable' }
+              }),
+              { status: 503 }
+            )
+          : response(this.metadata)
       if (url.pathname.endsWith('/messages')) return response(this.history)
       if (url.pathname.endsWith('/context'))
         return response({
@@ -592,3 +606,33 @@ for (const status of [403, 422]) {
     assert.equal(state.draft.value, 'new unsent question')
   })
 }
+
+void test('completed chat synchronizes the generated title in the selected conversation and history without manual refresh', async (t) => {
+  const fixture = new Fixture()
+  await fixture.mount(t)
+  const state = fixture.state
+  await state.selectConversation({ ...conversation, title: '新对话' })
+  fixture.metadata = { ...conversation, title: '自动同步后的标题' }
+  fixture.admissionReplies.push(response(run))
+  state.draft.value = 'A successful question'
+  await state.send()
+  await flush()
+  assert.equal(state.selected.value?.title, '自动同步后的标题')
+  assert.equal(
+    state.conversations.value.find((item) => item.id === conversation.id)?.title,
+    '自动同步后的标题'
+  )
+})
+void test('a metadata refresh failure preserves the confirmed successful run', async (t) => {
+  const fixture = new Fixture()
+  await fixture.mount(t)
+  const state = fixture.state
+  await state.selectConversation(conversation)
+  fixture.metadataFailure = true
+  fixture.admissionReplies.push(response(run))
+  state.draft.value = 'A successful question'
+  await state.send()
+  await flush()
+  assert.equal(state.activeRun.value?.status, 'completed')
+  assert.equal(state.error.value, '')
+})
