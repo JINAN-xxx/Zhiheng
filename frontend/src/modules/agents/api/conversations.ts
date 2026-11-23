@@ -21,6 +21,7 @@ export interface AssistantConversation {
   summaryUsed: boolean
 }
 export interface AssistantAttachment {
+  parse_warning?: string
   file_id: string
   original_filename: string
   mime: string
@@ -31,6 +32,7 @@ export function parseAssistantAttachments(value: unknown): AssistantAttachment[]
   return list((item): AssistantAttachment => {
     const row = object(item)
     return {
+      parse_warning: row.parse_warning === undefined ? '' : string(row.parse_warning),
       file_id: string(row.file_id),
       original_filename: string(row.original_filename),
       mime: string(row.mime),

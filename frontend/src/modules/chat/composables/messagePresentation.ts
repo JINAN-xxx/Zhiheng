@@ -48,7 +48,9 @@ export function useChatMessagePresentation({
   })
   const replyStatus = computed(() =>
     activeRun.value?.status === 'failed'
-      ? '生成失败'
+      ? activeRun.value.text || activeRun.value.reasoning
+        ? '生成中断'
+        : '生成失败'
       : activeRun.value
         ? runStatusLabel[activeRun.value.status]
         : ''
@@ -67,6 +69,14 @@ export function useChatMessagePresentation({
   }
   function messageText(message: ChatMessage): string {
     return isActive(message) ? activeRun.value!.text : message.content
+  }
+  function messageStatus(message: ChatMessage): string {
+    if (message.incomplete_reason === 'length') return '达到输出长度上限'
+    if (message.incomplete_reason === 'cancelled') return '已停止生成'
+    if (message.incomplete_reason === 'interrupted') return '生成中断'
+    if (message.incomplete_reason === 'failed')
+      return message.content || message.reasoning ? '生成中断' : '生成失败'
+    return isActive(message) && showRunStatus.value ? replyStatus.value : ''
   }
   async function regenerateReply(message: ChatMessage, key: string): Promise<void> {
     delete selectedVersions[key]
@@ -89,6 +99,7 @@ export function useChatMessagePresentation({
     shareMessageId,
     isActive,
     messageText,
+    messageStatus,
     regenerateReply
   }
 }

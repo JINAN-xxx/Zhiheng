@@ -4,10 +4,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 from langchain.agents.middleware import TodoListMiddleware
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from tests.unit.test_workspace_tools import make_tools
-from zhiheng.infrastructure.agents.adapters.workspace import _ExecutionContext, _ExecutionMiddleware, _tools
+from zhiheng.infrastructure.agents.adapters.workspace import (
+    _ExecutionContext,
+    _ExecutionMiddleware,
+    _recover_toolsets,
+    _tools,
+)
 from zhiheng.modules.models.public import estimate_tool_schemas
 from zhiheng.modules.work.public import WORK_TOOLSETS
 from zhiheng.shared.errors import AppError
@@ -49,6 +54,26 @@ def test_code_groups_are_not_exposed_by_schema_or_stale_checkpoint_flags_without
     loader = next(tool for tool in visible if tool.name == 'load_tools')
     schema = json.dumps(loader.args_schema.model_json_schema())
     assert 'inspection' in schema and 'python' not in schema and 'shell' not in schema
+
+
+def test_checkpoint_repairs_reset_group_flags_using_successful_loader_results() -> None:
+    successful = {'success': True, 'data': {'loaded_toolsets': ['python']}}
+    unrelated = {'success': True, 'data': {'loaded_toolsets': ['shell']}}
+    recovered = _recover_toolsets(
+        [
+            ToolMessage(json.dumps(successful), name='load_tools', tool_call_id='load-python'),
+            ToolMessage(json.dumps(unrelated), name='read_document', tool_call_id='read'),
+            ToolMessage(json.dumps(unrelated), name='load_tools', tool_call_id='failed-load', status='error'),
+            HumanMessage(json.dumps(unrelated)),
+        ]
+    )
+    assert recovered == {'python'}
+    for code_enabled in (True, False):
+        middleware = selection(code_enabled)
+        middleware.context.recovered_toolsets = recovered
+        visible = middleware.select_tools({'loaded_toolsets': dict.fromkeys(WORK_TOOLSETS, False)})
+        assert ('run_python' in {tool.name for tool in visible}) is code_enabled
+        assert 'execute' not in {tool.name for tool in visible}
 
 
 async def test_unloaded_tool_call_is_rejected_before_the_business_handler_runs() -> None:

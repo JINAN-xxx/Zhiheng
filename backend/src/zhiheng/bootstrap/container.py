@@ -52,6 +52,7 @@ from zhiheng.application.work.runs import WorkRunService
 from zhiheng.bootstrap.adapters import (
     create_assistant_agent_factory,
     create_assistant_checkpoint_cleanup,
+    create_attachment_parser,
     create_chat_agent_factory,
     create_chat_checkpoint_cleanup,
     create_document_parsing_support,
@@ -87,7 +88,7 @@ from zhiheng.modules.developer.public import (
     ResourceGrantService,
     ResourceLimitService,
 )
-from zhiheng.modules.files.public import FileJobs, FileService, ParsingSettingsService
+from zhiheng.modules.files.public import ATTACHMENT_PARSER_VERSION, FileJobs, FileService, ParsingSettingsService
 from zhiheng.modules.identity.public import IdentityAdminService, IdentityService
 from zhiheng.modules.knowledge.public import (
     GraphService,
@@ -119,6 +120,13 @@ class Container:
         self.file_objects = FileObjects(self.database, self.files)
         self.file_jobs = FileJobs(self.files, self.database.sessions)
         self.file_inputs = FileInputService(self.database, self.files, create_parser(), self.file_objects)
+        self.attachment_inputs = FileInputService(
+            self.database,
+            self.files,
+            create_attachment_parser(),
+            self.file_objects,
+            parser_version=ATTACHMENT_PARSER_VERSION,
+        )
         self.parsing_settings = ParsingSettingsService(self.cipher)
         parsing_client, parsing_validator, parsing_decoder = create_document_parsing_support()
         self.document_parsing = DocumentParsing(
@@ -230,7 +238,7 @@ class Container:
                 self.files,
                 admission=self.run_admission,
                 database=self.database,
-                file_inputs=self.file_inputs,
+                file_inputs=self.attachment_inputs,
                 agent=self.chat_agent,
             ),
         )
@@ -262,7 +270,7 @@ class Container:
             embedding_timeout_seconds=settings.knowledge_embedding_timeout_seconds,
         )
         self._configure_resource_facades()
-        self.assistant_attachments = AssistantAttachments(self.file_inputs, self.files)
+        self.assistant_attachments = AssistantAttachments(self.attachment_inputs, self.files)
         self.assistant_agent = AssistantAgentService(
             self.database,
             self.agents,

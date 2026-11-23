@@ -28,7 +28,7 @@ export function useModelAccess() {
   )
   function denyTrialAccess() {
     trialDenied.value = true
-    void notice.error('模型试用权限已变化，请刷新页面后查看')
+    void notice.error('模型测试权限已变化，请刷新页面后查看')
   }
   const canReadRates = computed(() => hasAnyPermission(identity.value, 'ai:rates:read'))
   const canCreateRates = computed(() => hasAnyPermission(identity.value, 'ai:rates:create'))

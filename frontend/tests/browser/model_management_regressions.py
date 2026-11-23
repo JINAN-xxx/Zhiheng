@@ -119,18 +119,19 @@ class ModelManagementRegressions(DeveloperBoundary):
         await expect(drawer).not_to_be_visible()
         self.assertEqual(self.posts[-1]['max_output_tokens'], 262144)
 
-    async def test_typed_connection_test_only_shows_success_or_failure(self):
+    async def test_model_test_displays_status_and_usage(self):
         snapshot = {'id': 'smoke-run', 'resource_type': 'connection_test', 'resource_id': 'model-1', 'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1, 'revision': 2, 'projection_seq': 1, 'text': '', 'error': None, 'created_at': '2026-10-23T00:00:00Z', 'usage': {'input_tokens': 6, 'output_tokens': 0, 'status': 'known'}, 'result': {'data': [{'index': 0, 'embedding': [0.1, 0.2]}]}}
-        await self.page.route('**/api/models/model-1/test', lambda route: route.fulfill(status=201, json=snapshot))
-        for status, message in [('completed', '测试成功'), ('failed', '测试失败')]:
+        await self.page.route('**/api/models/model-1/trial', lambda route: route.fulfill(status=201, json=snapshot))
+        for status, message in [('completed', '测试完成'), ('failed', '测试失败')]:
             with self.subTest(status=status):
                 snapshot['status'] = status
                 await self.page.goto(self.origin + '/models')
                 detail = await self.open_model_details()
-                await detail.get_by_role('button', name='测试连接', exact=True).click()
-                await expect(self.page.locator('.ant-message-notice-content')).to_have_text(message)
-                await expect(self.page.locator('.test-result')).to_have_count(0)
-                await expect(self.page.get_by_text('embedding', exact=True)).to_have_count(0)
+                await detail.get_by_role('button', name='测试模型', exact=True).click()
+                test = self.page.locator('.model-trial-modal[role="dialog"]')
+                await test.get_by_role('button', name='提交测试', exact=True).click()
+                await expect(test).to_contain_text(message)
+                await expect(test).to_contain_text('输入 6 Token')
 
     async def test_connection_admission_error_remains_visible_and_clears_after_success(self):
         rejected = True
@@ -144,19 +145,21 @@ class ModelManagementRegressions(DeveloperBoundary):
                 'revision': 2, 'projection_seq': 1, 'text': 'OK', 'error': None,
                 'created_at': '2026-11-10T00:00:00Z',
                 'usage': {'input_tokens': 8, 'output_tokens': 2, 'status': 'known'}})
-        await self.page.route('**/api/models/model-1/test', test_response)
+        await self.page.route('**/api/models/model-1/trial', test_response)
         await self.page.goto(self.origin + '/models')
         detail = await self.open_model_details()
-        await detail.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(detail.get_by_role('alert')).to_contain_text('模型尚未配置积分费率')
-        await expect(self.page.locator('.ant-message-error')).to_have_text('模型尚未配置积分费率')
+        await detail.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        button = test.get_by_role('button', name='提交测试', exact=True)
+        await button.click()
+        await expect(test.get_by_role('alert')).to_contain_text('模型尚未配置积分费率')
         rejected = False
-        await detail.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.ant-message-success')).to_have_text('测试成功')
-        await expect(detail.get_by_role('alert')).to_have_count(0)
+        await button.click()
+        await expect(test).to_contain_text('测试完成')
+        await expect(test.get_by_role('alert')).to_have_count(0)
 
     async def test_failed_connection_run_displays_the_actual_failure(self):
-        await self.page.route('**/api/models/model-1/test', lambda route: route.fulfill(status=202, json={
+        await self.page.route('**/api/models/model-1/trial', lambda route: route.fulfill(status=202, json={
             'id': 'test-failed', 'resource_type': 'connection_test', 'resource_id': 'model-1',
             'status': 'failed', 'attempt_id': 'attempt-1', 'attempt_no': 1,
             'revision': 2, 'projection_seq': 1, 'text': '',
@@ -165,9 +168,10 @@ class ModelManagementRegressions(DeveloperBoundary):
             'usage': {'input_tokens': 0, 'output_tokens': 0, 'status': 'known'}}))
         await self.page.goto(self.origin + '/models')
         detail = await self.open_model_details()
-        await detail.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(detail.get_by_role('alert')).to_contain_text('供应商拒绝了本次请求，请检查模型配置')
-        await expect(self.page.locator('.ant-message-error')).to_have_text('供应商拒绝了本次请求，请检查模型配置')
+        await detail.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        await test.get_by_role('button', name='提交测试', exact=True).click()
+        await expect(test.get_by_role('alert')).to_contain_text('供应商拒绝了本次请求，请检查模型配置')
 
     async def respond(self, route):
         path = urlparse(route.request.url).path

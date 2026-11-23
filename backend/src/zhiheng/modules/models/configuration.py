@@ -85,7 +85,9 @@ class ModelConfigurationCommands:
             required_actions=actions,
         )
 
-    async def save_verified(self, session: AsyncSession, principal: Principal, check: ModelSaveCheck) -> ModelInfo:
+    async def save_verified(
+        self, session: AsyncSession, principal: Principal, check: ModelSaveCheck, *, upstream_model: str | None = None
+    ) -> ModelInfo:
         for action in check.required_actions:
             principal.require_permission('platform:models:' + action)
         if check.previous is not None:
@@ -117,6 +119,14 @@ class ModelConfigurationCommands:
         if revision != check.binding.connection_revision_id:
             raise AppError('model_configuration_changed', '模型连接在保存期间已变化，请刷新后重试', 409)
         fields = check.configuration.model_dump()
+        if upstream_model is not None and upstream_model != check.configuration.upstream_model:
+            if check.required_actions == ('toggle',):
+                raise AppError(
+                    'model_validation_not_found',
+                    '服务商目录中的标识大小写有变化，请编辑模型并保存后再启用',
+                    422,
+                )
+            fields['upstream_model'] = upstream_model
         if check.previous is None:
             return await self._catalog.create(session, principal, **fields)
         fields.pop('model_type')

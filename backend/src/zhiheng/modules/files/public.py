@@ -36,6 +36,7 @@ from zhiheng.modules.files.lifecycle import FileLifecycle
 from zhiheng.modules.files.metadata import file_semantics, validate_filename
 from zhiheng.modules.files.parsing import ParsingSettingsService
 from zhiheng.modules.files.parsing_contracts import (
+    ATTACHMENT_PARSER_VERSION,
     MAX_IMAGE_URL_BYTES,
     MAX_INPUT_BYTES,
     MAX_TEXT_BYTES,
@@ -60,6 +61,7 @@ from zhiheng.modules.files.storage_migration import FileStorageMigration, Storag
 from zhiheng.modules.files.workspace_contracts import WorkspaceFileView, WorkspaceReader
 
 __all__ = [
+    'ATTACHMENT_PARSER_VERSION',
     'MAX_IMAGE_URL_BYTES',
     'MAX_INPUT_BYTES',
     'MAX_TEXT_BYTES',

@@ -35,7 +35,6 @@ import { useModelAccess } from '../composables/useModelAccess.ts'
 import { useModelCatalog } from '../composables/useModelCatalog.ts'
 import { useModelConfiguration } from '../composables/useModelConfiguration.ts'
 import { useConnectionConfiguration } from '../composables/useConnectionConfiguration.ts'
-import { useModelConnectionTest } from '../composables/useModelConnectionTest.ts'
 
 const credentialPage = useRoute().name === 'credentials'
 const access = useModelAccess()
@@ -123,6 +122,7 @@ const {
   connectionOpen,
   editingConnection,
   connectionForm,
+  requiresKey: connectionRequiresKey,
   saving: connectionSaving,
   modalError: connectionError,
   openConnection,
@@ -130,12 +130,6 @@ const {
   saveConnection
 } = connectionConfiguration
 const credentialBusy = computed(() => connectionSaving.value || controllingConnection.value)
-const { testingModel, testBusy, testModel } = useModelConnectionTest({
-  access,
-  pending: modelPending,
-  failures: catalog.modelFailures,
-  connectionDisabled
-})
 watch(access.authority, () => {
   rateModel.value = null
 })
@@ -163,17 +157,14 @@ function ratesDetails(): void {
   }
 }
 function testDetails(): void {
-  if (detailModel.value) void testModel(detailModel.value)
+  if (detailModel.value) openModelTest(detailModel.value)
 }
 function controlDetails(action: 'delete'): void {
   if (detailModel.value) void changeModel(detailModel.value, action)
 }
-const trial = ref<InstanceType<typeof ModelTrialDialog> | null>(null)
-function openTrial(model: ChatModel) {
-  if (trial.value?.open(model)) setDetailOpen(false)
-}
-function trialDetails() {
-  if (detailModel.value) openTrial(detailModel.value)
+const testDialog = ref<InstanceType<typeof ModelTrialDialog> | null>(null)
+function openModelTest(model: ChatModel): void {
+  if (testDialog.value?.open(model)) setDetailOpen(false)
 }
 </script>
 <template>
@@ -314,9 +305,7 @@ function trialDetails() {
             <template v-else-if="column.key === 'actions'">
               <ModelActions
                 :model="model"
-                :busy="testBusy"
                 :mutating="modelPending[model.id] ?? false"
-                :testing="testingModel === model.id"
                 :can-write="canUpdateModels || canDeleteModels || canToggleModels"
                 :can-update="canUpdateModels"
                 :can-delete="canDeleteModels"
@@ -326,8 +315,7 @@ function trialDetails() {
                 :test-disabled="connectionDisabled(model.connection_id)"
                 @edit="openModel(model)"
                 @rates="canReadRates && (rateModel = model)"
-                @test="testModel(model)"
-                @trial="openTrial(model)"
+                @test="openModelTest(model)"
                 @control="changeModel(model, $event)"
               />
             </template> </template
@@ -388,12 +376,16 @@ function trialDetails() {
           v-model:value="connectionForm.base_url"
           placeholder="https://api.example.com/v1"
           :maxlength="2048" /></AFormItem
-      ><AFormItem label="API Key" :required="!editingConnection"
+      ><AFormItem label="API Key" :required="connectionRequiresKey"
         ><AInputPassword
           v-model:value="connectionForm.api_key"
           autocomplete="off"
           :placeholder="
-            editingConnection ? '留空保留当前密钥' : '密钥仅用于本次提交，保存后不会回显'
+            !editingConnection
+              ? '密钥仅用于本次提交，保存后不会回显'
+              : connectionRequiresKey
+                ? '请输入新地址对应的 API Key'
+                : '留空保留当前密钥'
           " /></AFormItem
     ></AForm>
     <template #footer
@@ -531,19 +523,16 @@ function trialDetails() {
     :can-test="canTestModels"
     :can-read-connections="canReadModels"
     :pending="detailPending"
-    :test-busy="testBusy"
-    :testing="Boolean(detailModel && testingModel === detailModel.id)"
     @update:model-value="setDetailOpen"
     @toggle="toggleDetails"
     @copy="copyDetails"
     @edit="editDetails"
     @rates="ratesDetails"
     @test="testDetails"
-    @trial="trialDetails"
     @control="controlDetails"
   />
   <ModelTrialDialog
-    ref="trial"
+    ref="testDialog"
     :models="models"
     :can-test="canTestModels"
     :pending="modelPending"

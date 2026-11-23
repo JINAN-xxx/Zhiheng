@@ -1,5 +1,6 @@
 import asyncio
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -23,8 +24,9 @@ class WorkerReply(BaseModel):
 class NativeParser:
     """Bounded subprocesses isolate CPU/memory-heavy parsers from API/worker loops."""
 
-    def __init__(self, *, timeout_seconds: float = 15) -> None:
+    def __init__(self, *, timeout_seconds: float = 45, allow_partial_pdf: bool = False) -> None:
         self._timeout = timeout_seconds
+        self._allow_partial_pdf = allow_partial_pdf
         self._slots = asyncio.Semaphore(2)
 
     async def parse(self, content: bytes, *, filename: str, preflight: bool = False) -> ParseResult:
@@ -41,6 +43,7 @@ class NativeParser:
                 '-m',
                 'zhiheng.modules.files.adapters.native_worker',
                 *(['--validate-document'] if preflight else []),
+                *(['--allow-partial-pdf'] if self._allow_partial_pdf and filename.lower().endswith('.pdf') else []),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
@@ -67,10 +70,12 @@ class NativeParser:
                     process.kill()
                 await asyncio.shield(process.wait())
                 if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
-                    raise AppError('parse_timeout', '文档解析超时', 422) from None
+                    raise AppError('parse_timeout', '文档解析超时，请拆分长文档后重试', 422) from None
                 raise
+            if process.returncode == -signal.SIGXCPU:
+                raise AppError('parse_timeout', '文档解析超时，请拆分长文档后重试', 422)
             if process.returncode != 0 or len(output) > MAX_REPLY_BYTES:
-                raise AppError('parse_resource_limit', '解析失败或超过资源限制', 422)
+                raise AppError('parse_resource_limit', '文档解析占用资源过多，请拆分文件后重试', 422)
             # Worker errors use a separate validated result, never include filesystem/SDK errors.
             try:
                 reply = WorkerReply.model_validate_json(output)
@@ -79,11 +84,12 @@ class NativeParser:
             if reply.result is None:
                 code = reply.error or 'invalid_document'
                 messages = {
-                    'ocr_required': '文档无可提取文本，需要OCR',
+                    'ocr_required': '文档包含无法直接提取文字的图片页，需要OCR识别',
                     'empty_document': '文档没有可提取的内容',
                     'encrypted_document': '文档已加密，需要无密码副本',
                     'unsupported_format': '不支持此文件格式',
                     'document_too_large': '文档展开内容超过限制',
+                    'parse_resource_limit': '文档解析占用资源过多，请拆分文件后重试',
                 }
                 raise AppError(code, messages.get(code, '文档损坏或格式无效'), 422)
             return reply.result

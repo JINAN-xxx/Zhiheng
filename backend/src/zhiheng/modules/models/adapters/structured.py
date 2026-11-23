@@ -87,8 +87,8 @@ class StructuredProvider:
         self._timeout, self._type, self._options = timeout_seconds, model_type, options
         self._connect_timeout = connect_timeout_seconds
 
-    async def validate(self) -> None:
-        await validate_catalog(
+    async def validate(self) -> str:
+        return await validate_catalog(
             base_url=self._base_url,
             api_key=self._key.get_secret_value(),
             model=self._model,

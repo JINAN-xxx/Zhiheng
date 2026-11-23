@@ -447,7 +447,9 @@ class InferenceExecutor:
                 )
                 async for chunk in stream:
                     progress.append(chunk, agent_execution=agent_execution, tool_execution=bool(request.agent_messages))
-                    if (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS:
+                    if (claim.resource_type == 'chat' and chunk.finish_reason is not None) or (
+                        (chunk.text or chunk.reasoning) and monotonic() - last_projection > PROJECTION_INTERVAL_SECONDS
+                    ):
                         async with self._sessions.begin() as session:
                             if not await self._runs.project(
                                 session, claim.id, claim.attempt_id, progress.text, progress.reasoning

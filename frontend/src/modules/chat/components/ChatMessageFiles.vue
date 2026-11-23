@@ -8,7 +8,7 @@ interface AttachmentJoinDraft {
 const retainedJoinDrafts = new Map<string, AttachmentJoinDraft | null>()
 </script>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -18,29 +18,31 @@ import {
   Modal as AModal,
   Select as ASelect
 } from 'ant-design-vue'
-import { DownloadOutlined, MoreOutlined } from '@ant-design/icons-vue'
+import { MoreOutlined } from '@ant-design/icons-vue'
 import { RouterLink } from 'vue-router'
-import { downloadFile, formatFileSize, getFile, saveBlob } from '../../files/public.ts'
+import { downloadFile, getFile } from '../../files/public.ts'
 import { addChatAttachment, listBases } from '../../knowledge/public.ts'
 import type { KnowledgeBase } from '../../knowledge/public.ts'
 import { identity } from '../../identity/public.ts'
 import { isDefiniteRejection, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { createRequestId } from '../../../shared/requestId.ts'
-import { imagePreviewBlob } from '../attachments.ts'
+import { attachmentFile, attachmentPreview } from '../../../shared/messageFiles.ts'
 import type { ChatAttachment } from '../api/index.ts'
-import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
-defineProps<{ files: ChatAttachment[] }>()
+import MessageFileGrid from '../../../shared/components/MessageFileGrid.vue'
+import MessageFilePreview from '../../../shared/components/MessageFilePreview.vue'
+import AttachmentParseWarnings from '../../../shared/components/AttachmentParseWarnings.vue'
+const props = defineProps<{ files: ChatAttachment[] }>()
 type OwnedAttachment = ChatAttachment & { owner_id?: string | null }
-const pendingId = ref<string | null>(null),
-  previewUrl = ref(''),
-  previewText = ref(''),
-  previewName = ref(''),
-  previewKind = ref(''),
-  previewOpen = ref(false),
-  error = ref('')
-const previewBlob = shallowRef<Blob | null>(null),
-  scope = new RequestScope(),
-  metadataScope = new RequestScope(),
+const selectedId = ref('')
+const filesById = computed(() => new Map(props.files.map((file) => [file.file_id, file])))
+const items = computed(() => props.files.map(attachmentFile))
+const selected = computed(() => items.value.find((file) => file.id === selectedId.value) ?? null)
+const accessKey = computed(() => identity.value?.id ?? null)
+async function readPreview(id: string, signal: AbortSignal) {
+  const file = items.value.find((item) => item.id === id)
+  return file ? attachmentPreview(file, downloadFile, signal) : null
+}
+const metadataScope = new RequestScope(),
   joinScope = new RequestScope(),
   writeScope = new RequestScope()
 const owners = ref<Record<string, string | null>>({})
@@ -94,54 +96,6 @@ async function inspectFile(file: OwnedAttachment, opened: boolean) {
   } catch (reason) {
     if (ticket.isCurrent() && !isAborted(reason))
       owners.value = { ...owners.value, [file.file_id]: null }
-  }
-}
-function closePreview() {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = ''
-  previewBlob.value = null
-  previewText.value = ''
-  previewOpen.value = false
-}
-async function openFile(file: ChatAttachment, download = false) {
-  const ticket = scope.replace()
-  pendingId.value = file.file_id
-  error.value = ''
-  try {
-    const blob = await downloadFile(file.file_id, ticket.signal)
-    if (!ticket.isCurrent()) return
-    if (download) {
-      saveBlob(blob, file.original_filename)
-      return
-    }
-    closePreview()
-    previewName.value = file.original_filename
-    previewBlob.value = blob
-    previewOpen.value = true
-    if (file.mime.startsWith('image/')) {
-      const clean = await imagePreviewBlob(blob)
-      if (!ticket.isCurrent()) return
-      previewBlob.value = clean
-      previewUrl.value = URL.createObjectURL(clean)
-      previewKind.value = 'image'
-    } else if (file.mime === 'application/pdf') {
-      previewUrl.value = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
-      previewKind.value = 'pdf'
-    } else if (
-      ['txt', 'md', 'csv', 'json', 'html', 'htm'].includes(
-        file.original_filename.split('.').at(-1)?.toLowerCase() ?? ''
-      )
-    ) {
-      previewKind.value = 'text'
-      const text = await blob.text()
-      if (ticket.isCurrent()) previewText.value = text
-    } else {
-      previewKind.value = 'unsupported'
-    }
-  } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
-  } finally {
-    if (ticket.isCurrent()) pendingId.value = null
   }
 }
 const draftKey = (file: ChatAttachment) =>
@@ -263,65 +217,56 @@ async function submitJoin() {
   }
 }
 onBeforeUnmount(() => {
-  scope.dispose()
   metadataScope.dispose()
   joinScope.dispose()
   writeScope.dispose()
-  closePreview()
 })
 </script>
 <template>
   <div v-if="files.length" class="message-files">
-    <div v-for="file in files" :key="file.file_id" class="message-file-group">
-      <a-button
-        class="message-file"
-        size="small"
-        :loading="pendingId === file.file_id"
-        :title="file.original_filename + ' · ' + formatFileSize(file.size)"
-        :aria-label="'查看附件：' + file.original_filename"
-        @click="openFile(file)"
-        ><FileTypeIcon :filename="file.original_filename" :mime="file.mime" /><span
-          class="message-file-name"
-          >{{ file.original_filename }}</span
-        ><span class="message-file-size">{{ formatFileSize(file.size) }}</span></a-button
-      >
-      <a-dropdown :trigger="['click']" @open-change="inspectFile(file, $event)"
-        ><a-button type="text" size="small" :aria-label="'附件操作：' + file.original_filename"
-          ><MoreOutlined /></a-button
-        ><template #overlay
-          ><a-menu
-            ><a-menu-item key="view" @click="openFile(file)">查看</a-menu-item
-            ><a-menu-item key="download" @click="openFile(file, true)">下载</a-menu-item
-            ><a-menu-item v-if="canJoin(file)" key="join" @click="openJoin(file)"
-              >加入知识库</a-menu-item
-            ></a-menu
-          ></template
-        ></a-dropdown
-      >
-    </div>
-    <a-alert v-if="error" :message="error" type="error" show-icon />
-    <a-modal :open="previewOpen" :title="previewName" :width="800" @cancel="closePreview"
-      ><img
-        v-if="previewKind === 'image' && previewUrl"
-        :src="previewUrl"
-        :alt="previewName"
-        class="file-preview"
-      /><iframe
-        v-else-if="previewKind === 'pdf' && previewUrl"
-        :src="previewUrl"
-        :title="previewName"
-        class="pdf-preview"
-        sandbox=""
-      />
-      <pre v-else-if="previewKind === 'text'" class="text-preview">{{ previewText }}</pre>
-      <p v-else>当前格式请下载后查看。</p>
-      <template #footer
-        ><a-button @click="closePreview">关闭</a-button
-        ><a-button type="primary" @click="previewBlob && saveBlob(previewBlob, previewName)"
-          ><DownloadOutlined />下载</a-button
-        ></template
-      ></a-modal
+    <AttachmentParseWarnings :files="files" />
+    <MessageFileGrid
+      :files="items"
+      :access-key="accessKey"
+      :read-file="downloadFile"
+      :read-preview="readPreview"
+      label="消息附件"
+      @preview="selectedId = $event"
     >
+      <template #actions="{ file, download }">
+        <a-dropdown
+          v-if="filesById.get(file.id)"
+          :trigger="['click']"
+          @open-change="inspectFile(filesById.get(file.id)!, $event)"
+        >
+          <a-button type="text" size="small" :aria-label="'附件操作：' + file.name">
+            <MoreOutlined />
+          </a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item key="view" @click="selectedId = file.id">查看</a-menu-item>
+              <a-menu-item key="download" @click="download(file)">下载</a-menu-item>
+              <a-menu-item
+                v-if="canJoin(filesById.get(file.id)!)"
+                key="join"
+                @click="openJoin(filesById.get(file.id)!)"
+                >加入知识库</a-menu-item
+              >
+            </a-menu>
+          </template>
+        </a-dropdown>
+      </template>
+    </MessageFileGrid>
+    <MessageFilePreview
+      v-if="selected"
+      :file="selected"
+      :files="items"
+      :access-key="accessKey"
+      :read-file="downloadFile"
+      :read-preview="readPreview"
+      @close="selectedId = ''"
+      @select="selectedId = $event"
+    />
     <a-modal
       :open="!!joinFile"
       title="加入知识库"
@@ -398,58 +343,7 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .message-files {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0;
-}
-.message-file-group {
-  display: flex;
-  align-items: center;
-  max-width: 100%;
-  border: 1px solid var(--gray-150);
-  border-radius: 6px;
-}
-.message-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  height: auto;
-  min-height: 30px;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.message-file-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: min(320px, 43vw);
-}
-.message-file-size {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.file-preview {
-  display: block;
-  max-width: 100%;
-  max-height: 65vh;
-  margin: auto;
-  object-fit: contain;
-}
-.pdf-preview {
-  width: 100%;
-  height: 65vh;
-  border: 0;
-}
-.text-preview {
-  max-height: 65vh;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.8;
+  width: min(520px, 100%);
 }
 .join-alert {
   margin-bottom: 16px;

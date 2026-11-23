@@ -39,6 +39,9 @@ withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   keydown: [event: KeyboardEvent]
+  dragover: [event: DragEvent]
+  drop: [event: DragEvent]
+  paste: [event: ClipboardEvent]
   send: []
   stop: []
 }>()
@@ -50,7 +53,12 @@ defineExpose({
 </script>
 
 <template>
-  <footer class="composer">
+  <footer
+    class="composer"
+    @dragover="emit('dragover', $event)"
+    @drop="emit('drop', $event)"
+    @paste="emit('paste', $event)"
+  >
     <slot name="notice" />
     <slot name="context" />
     <slot name="before-surface" />
@@ -169,6 +177,7 @@ defineExpose({
 }
 .composer-controls {
   flex: 0 1 260px;
+  justify-content: flex-end;
 }
 .composer-submit {
   flex-shrink: 0;

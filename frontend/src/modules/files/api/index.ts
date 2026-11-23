@@ -467,7 +467,7 @@ function parseIssue(value: unknown): ReconcileIssue {
     !['missing', 'orphan', 'size_or_hash', 'invalidkey'].includes(string(item.kind)) ||
     !['open', 'resolved', 'ignored', 'quarantined'].includes(string(item.status))
   )
-    throw new Error('对账异常状态无效')
+    throw new Error('存储检查异常记录格式无效')
   return {
     id: string(item.id),
     jobId: string(item.job_id),

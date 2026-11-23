@@ -246,11 +246,17 @@ async def update_model(
 
 @router.delete('/{model_id}')
 async def delete_model(
-    model_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+    model_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    retire_key_access: bool = False,
 ) -> ConsoleModelInfo:
     async with session.begin():
         return console_model(
-            await container.model_management.delete_model(session, principal, model_id),
+            await container.model_management.delete_model(
+                session, principal, model_id, retire_key_access=retire_key_access
+            ),
             container.settings.chat_context_input_tokens,
         )
 

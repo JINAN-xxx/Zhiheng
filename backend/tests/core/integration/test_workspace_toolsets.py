@@ -50,7 +50,7 @@ def names(body: dict[str, object]) -> set[str]:
     return {tool['function']['name'] for tool in body.get('tools', [])}
 
 
-async def test_loading_survives_explicit_resume_and_new_user_request_resets_to_core_tools(
+async def test_loaded_groups_survive_resume_and_new_messages_in_the_same_task(
     admin: httpx.AsyncClient,
     app: FastAPI,
     workspace_provider: WorkspaceProvider,
@@ -74,7 +74,7 @@ async def test_loading_survives_explicit_resume_and_new_user_request_resets_to_c
         seen.append(visible)
         latest = next(item['content'] for item in reversed(body['messages']) if item['role'] == 'user')
         if latest == 'FOLLOWUP: explain without processing files':
-            assert 'run_python' not in visible and 'execute' not in visible
+            assert 'run_python' in visible and 'execute' not in visible
             return {'role': 'assistant', 'content': '直接回答新的问题。'}
         if 'run_python' not in visible:
             return WorkspaceProvider.tool('load_tools', {'groups': ['python']}, 'load-python')
@@ -99,7 +99,37 @@ async def test_loading_survives_explicit_resume_and_new_user_request_resets_to_c
     loads = [step for step in detail['steps'] if step['name'] == 'load_tools']
     assert len(loads) == 1 and loads[0]['status'] == 'succeeded'
     assert 'run_python' not in seen[0] and 'run_python' in seen[1] and 'run_python' in seen[2]
-    assert 'run_python' not in seen[-1]
+    assert 'run_python' in seen[-1]
+    async with app.state.container.database.sessions() as session:
+        assert not list(await session.scalars(select(WorkSandboxLease)))
+
+
+async def test_unavailable_model_tool_is_rejected_and_model_can_correct_once(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    workspace_provider: WorkspaceProvider,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def response(body: dict[str, object]) -> dict[str, object]:
+        visible = names(body)
+        system = next(item['content'] for item in body['messages'] if item['role'] == 'system')
+        if 'run_python' in visible:
+            return {'role': 'assistant', 'content': '工具已就绪。'}
+        if '上次请求的工具不在本轮工具列表中' in system:
+            return WorkspaceProvider.tool('load_tools', {'groups': ['python']}, 'load-after-correction')
+        return WorkspaceProvider.tool('run_python', {'code': 'print(1)'}, 'unavailable-python')
+
+    monkeypatch.setattr(workspace_provider, 'response', response)
+    model_id = await workspace_model(admin, workspace_provider, 'workspace-greeting')
+    task = await create_task(admin, model_id, 'Prepare a document')
+    run = await turn(admin, task, task['goal'])
+    await consume(app)
+    final = (await admin.get(f'/api/work/tasks/{task["id"]}/runs/{run["id"]}')).json()
+    assert final['status'] == 'completed', final
+    assert final['usage'] == {'input_tokens': 51, 'output_tokens': 9, 'status': 'known'}
+    detail = (await admin.get(f'/api/work/tasks/{task["id"]}')).json()
+    assert [step['name'] for step in detail['steps'] if step['kind'] == 'tool'] == ['load_tools']
+    assert len(workspace_provider.requests) == 3
     async with app.state.container.database.sessions() as session:
         assert not list(await session.scalars(select(WorkSandboxLease)))
 

@@ -265,6 +265,14 @@ services:
 
   api:
     <<: *core-backend
+    environment:
+      <<: *core-environment
+      ZHIHENG_TRUSTED_LOGIN_PROXY_IPS: '["${CORE_LOGIN_PROXY_IP:-172.30.63.2}"]'
+    networks:
+      default:
+      login-proxy:
+        aliases: [api-proxy]
+        ipv4_address: ${CORE_LOGIN_PROXY_API_IP:-172.30.63.3}
     command: [python, -m, zhiheng, serve, --host, 0.0.0.0, --port, '19090']
     depends_on:
       file-objects-init:
@@ -301,6 +309,10 @@ services:
         NGINX_IMAGE: ${CORE_NGINX_IMAGE:-nginx:1.28-alpine}
     ports:
       - '${CORE_WEB_BIND:-127.0.0.1}:${CORE_WEB_PORT:-19080}:80'
+    networks:
+      default:
+      login-proxy:
+        ipv4_address: ${CORE_LOGIN_PROXY_IP:-172.30.63.2}
     depends_on:
       api:
         condition: service_healthy
@@ -310,6 +322,13 @@ services:
       timeout: 3s
       retries: 6
     restart: unless-stopped
+
+networks:
+  login-proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${CORE_LOGIN_PROXY_SUBNET:-172.30.63.0/29}
 
 volumes:
   sandbox-manager-data:

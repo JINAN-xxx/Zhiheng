@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from zhiheng.shared.errors import AppError
 
 PARSER_VERSION = 'native-2'
+ATTACHMENT_PARSER_VERSION = 'native-3-attachments'
 MAX_INPUT_BYTES = 20 * 1024 * 1024
 MAX_TEXT_BYTES = 2_000_000
 MAX_IMAGE_URL_BYTES = 2_000_000

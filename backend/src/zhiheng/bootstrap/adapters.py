@@ -39,6 +39,10 @@ def create_parser() -> ParsePort:
     return NativeParser()
 
 
+def create_attachment_parser() -> ParsePort:
+    return NativeParser(allow_partial_pdf=True)
+
+
 def create_workspace_kernel(settings: Settings) -> WorkspaceAgentKernel:
     return WorkspaceKernel(settings.database_url.get_secret_value())
 

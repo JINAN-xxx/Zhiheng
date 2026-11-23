@@ -1,6 +1,7 @@
 """Shared login admission limits before expensive password verification."""
 
 import hashlib
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, cast
 
 from redis.asyncio import Redis
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
 ACCOUNT_ATTEMPTS = 10
 SOURCE_ATTEMPTS = 60
 WINDOW_SECONDS = 60
+CLIENT_IP_HEADER = 'x-forwarded-for'
 CONSUME = """
 local retry = 0
 for i, key in ipairs(KEYS) do
@@ -55,3 +57,12 @@ class LoginRateLimiter:
             raise AppError('login_unavailable', '登录服务暂时不可用，请稍后重试', 503) from error
         if retry:
             raise AppError('login_rate_limited', '登录尝试过于频繁，请稍后重试', 429, details={'retry_after': retry})
+
+
+def login_source(peer: str, forwarded: list[str], trusted_proxies: frozenset[str]) -> str:
+    if peer not in trusted_proxies or len(forwarded) != 1 or '%' in forwarded[0]:
+        return peer
+    try:
+        return str(ip_address(forwarded[0].strip()))
+    except ValueError:
+        return peer

@@ -209,8 +209,7 @@ class AdminSwitchingRegressions(base.AdminRegressions):
         await self.page.get_by_role('button',name='搜索文件',exact=True).click()
         await expect(self.page.get_by_role('button',name='刷新文件',exact=True)).to_be_enabled()
         await self.page.get_by_role('button',name='高级筛选',exact=True).click()
-        await self.page.get_by_role('button',name='高级管理',exact=True).click()
-        await self.page.get_by_role('menuitem',name='详细统计',exact=True).click()
+        await expect(self.page.get_by_role('heading',name='文件概览',exact=True)).to_be_visible()
         before={path:self.count(path) for path in ['/api/files','/api/files/stats','/api/files/users']}
         await (await self.group('用户管理')).click()
         await expect(self.page.get_by_text('小艾',exact=True)).to_be_visible()

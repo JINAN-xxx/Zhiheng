@@ -2,6 +2,7 @@
 
 import re
 import unittest
+from urllib.parse import urlparse
 
 from agents_regressions import AgentsUIRegressions
 from developer_regressions import DeveloperBoundary
@@ -211,6 +212,36 @@ class LifecycleModels(ModelManagementRegressions):
         await expect(self.page.get_by_role('dialog')).to_have_count(0)
         await expect(self.page.locator('.model-item')).to_have_count(0)
         self.assertEqual(deleted, ['DELETE'])
+
+    async def test_admin_confirms_deletion_that_invalidates_only_the_target_model_access(self):
+        requests = []
+
+        async def delete(route):
+            path = urlparse(route.request.url)
+            requests.append(path.query)
+            if path.query == 'retire_key_access=true':
+                await route.fulfill(status=204)
+            else:
+                await route.fulfill(
+                    status=409,
+                    json={'error': {
+                        'code': 'model_referenced',
+                        'message': '模型仍被 API 密钥授权使用',
+                        'details': {'retirable_key_count': 3000, 'references': []},
+                    }},
+                )
+
+        await self.page.route(re.compile(r'/api/models/model-1(?:\?.*)?$'), delete)
+        await self.page.goto(self.origin + '/models')
+        await self.open_model_more()
+        await self.page.get_by_role('menuitem', name='删除模型', exact=True).click()
+        await accept(self.page)
+        confirmation = self.page.locator('.ant-modal-confirm').filter(has_text='3000 把 API 密钥')
+        await expect(confirmation).to_be_visible()
+        self.assertEqual(requests, [''])
+        await confirmation.get_by_role('button', name='删除模型', exact=True).click()
+        await expect(self.page.locator('.model-item')).to_have_count(0)
+        self.assertEqual(requests, ['', 'retire_key_access=true'])
 
     async def test_credential_deletion_lists_current_models(self):
         await self.page.route(

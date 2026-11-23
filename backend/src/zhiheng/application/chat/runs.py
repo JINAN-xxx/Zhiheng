@@ -141,7 +141,9 @@ class ChatRunService:
             target=target,
         )
         extra = ''.join(
-            f'\n\n[Attachment: {item.summary.original_filename}]\n{item.text}'
+            f'\n\n[Attachment: {item.summary.original_filename}]\n'
+            + (f'[解析提示：{item.summary.parse_warning}]\n' if item.summary.parse_warning else '')
+            + item.text
             for item in attachments
             if item.image_data is None
         )

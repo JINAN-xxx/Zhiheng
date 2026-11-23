@@ -100,6 +100,7 @@ const {
   shareMessageId,
   isActive,
   messageText,
+  messageStatus,
   regenerateReply
 } = useChatMessagePresentation({
   messages,
@@ -251,10 +252,8 @@ onBeforeUnmount(() => {
           :class="row.message.role"
         >
           <div class="message-body">
-            <div v-if="isActive(row.message) && activeRun && showRunStatus" class="message-meta">
-              <span class="message-run-status" :class="`is-${activeRun.status}`">{{
-                replyStatus
-              }}</span>
+            <div v-if="messageStatus(row.message)" class="message-meta">
+              <span class="message-run-status">{{ messageStatus(row.message) }}</span>
             </div>
             <AiMessage
               v-if="row.message.role === 'assistant'"
@@ -308,8 +307,12 @@ onBeforeUnmount(() => {
               :content="messageText(row.message)"
               :role="row.message.role"
               :regenerate="canUseChat && row.message.role === 'assistant'"
-              :feedback-enabled="row.message.role === 'assistant'"
-              :share="canUseCapability('chat', 'share') && row.message.role === 'assistant'"
+              :feedback-enabled="row.message.role === 'assistant' && !row.message.incomplete_reason"
+              :share="
+                canUseCapability('chat', 'share') &&
+                row.message.role === 'assistant' &&
+                !row.message.incomplete_reason
+              "
               :feedback-value="row.message.feedback"
               :feedback-busy="feedbackBusy.has(row.message.id)"
               :regenerate-reason="regenerationReason(row.message)"

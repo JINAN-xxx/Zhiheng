@@ -53,6 +53,7 @@ export function useModelTrial(props: ModelTrialOptions, events: ModelTrialEvents
     () =>
       !props.canTest ||
       !model.value?.enabled ||
+      model.value.availability?.available === false ||
       !!props.pending[modelId.value] ||
       !!props.connectionIssues[modelId.value]
   )
@@ -120,7 +121,7 @@ export function useModelTrial(props: ModelTrialOptions, events: ModelTrialEvents
       intent.value = null
       run.value = null
       uncertain.value = false
-      throw new Error('试用结果与当前模型不匹配')
+      throw new Error('测试结果与当前模型不匹配')
     }
     if (!acceptSnapshot(run.value, value)) return
     if (value.status === 'failed' && value.error?.code === 'forbidden') {
@@ -236,7 +237,7 @@ export function useModelTrial(props: ModelTrialOptions, events: ModelTrialEvents
     if (!remember() && !confirming) {
       intent.value = null
       submitting.value = false
-      error.value = '无法保存试用进度，请检查浏览器存储后重试'
+      error.value = '无法保存测试进度，请检查浏览器存储后重试'
       return
     }
     try {
@@ -248,7 +249,7 @@ export function useModelTrial(props: ModelTrialOptions, events: ModelTrialEvents
       if (ticket.isCurrent() && !isAborted(reason)) {
         if (confirming || !isDefiniteRejection(reason)) {
           uncertain.value = true
-          error.value = '提交结果尚未确认，请确认原提交，避免重复试用。'
+          error.value = '提交结果尚未确认，请确认原提交，避免重复测试。'
           remember()
           if (denied(reason)) fail(reason)
         } else {
@@ -296,19 +297,26 @@ export function useModelTrial(props: ModelTrialOptions, events: ModelTrialEvents
     if (
       !props.canTest ||
       !value.enabled ||
+      value.availability?.available === false ||
       props.pending[value.id] ||
       props.connectionIssues[value.id]
     )
       return false
     if (modelId.value !== value.id && (working.value || pendingResult.value)) {
       visible.value = true
-      void message.info('请先完成或确认当前试用')
+      void message.info('请先完成或确认当前测试')
       return false
     }
     if (modelId.value !== value.id || ownerId.value !== identity.value?.id) {
       reset()
       modelId.value = value.id
       ownerId.value = identity.value?.id ?? ''
+      if (value.model_type === 'rerank') {
+        prompt.value = '如何检索知识库？'
+        documents.value = '知识库支持按文档内容检索。\n修改密码需要先验证当前密码。'
+      } else {
+        prompt.value = value.model_type === 'embedding' ? '这是一段向量测试文本。' : '请只回复 OK。'
+      }
       try {
         const saved = parseTrialProgress(
           sessionStorage.getItem(storageKey()),

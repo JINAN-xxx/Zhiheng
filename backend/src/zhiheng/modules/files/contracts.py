@@ -164,6 +164,7 @@ class AttachmentSummary(BaseModel):
     sha256: str
     artifact_file_id: UUID | None = None
     parser_version: str | None = None
+    parse_warning: str = Field(default='', max_length=1000)
 
 
 class PreparedAttachment(BaseModel):

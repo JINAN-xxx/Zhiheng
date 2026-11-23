@@ -10,6 +10,8 @@ import {
 } from 'ant-design-vue'
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
+import HistoryDialog from '../../../shared/components/HistoryDialog.vue'
+import HistoryRecord from '../../../shared/components/HistoryRecord.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
@@ -118,66 +120,55 @@ onBeforeUnmount(() => scope.dispose())
 </script>
 
 <template>
-  <AModal
+  <HistoryDialog
     :open="open"
     title="历史记录"
-    centered
-    :width="620"
-    :footer="null"
-    :style="{ maxWidth: 'calc(100vw - 32px)' }"
-    @cancel="emit('update:open', false)"
+    dialog-id="assistant-history-dialog"
+    @update:open="emit('update:open', $event)"
   >
-    <section id="assistant-history-dialog" class="assistant-history" aria-label="助手历史对话">
-      <div class="assistant-history__heading">
-        <span>最近会话</span
-        ><RefreshButton label="刷新会话" :loading="loading" @click="emit('refresh')" />
+    <section class="history-list" aria-label="助手历史对话">
+      <div class="history-list__heading">
+        <span>最近会话</span>
+        <RefreshButton label="刷新会话" :loading="loading" @click="emit('refresh')" />
       </div>
-      <AAlert v-if="error || failure" type="error" :message="failure || error" show-icon />
-      <ASpin :spinning="loading" wrapper-class-name="assistant-history__loading">
-        <div
+      <p v-if="error || failure" class="history-list__error" role="alert">{{ failure || error }}</p>
+      <ASpin :spinning="loading" wrapper-class-name="history-list__loading">
+        <HistoryRecord
           v-for="item in conversations"
           :key="item.id"
           class="assistant-session"
-          :class="{ active: selectedId === item.id }"
+          :title="item.title"
+          :timestamp="item.updatedAt"
+          :selected="selectedId === item.id"
+          @open="openConversation(item.id)"
         >
-          <button
-            type="button"
-            class="assistant-session__open"
-            :aria-label="item.title"
-            :aria-current="selectedId === item.id ? 'page' : undefined"
-            @click="openConversation(item.id)"
-          >
-            <strong :title="item.title">{{ item.title }}</strong>
-            <small>{{
-              new Date(item.updatedAt).toLocaleString('zh-CN', {
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-              })
-            }}</small>
-          </button>
-          <WorkspaceMoreMenu
-            v-if="!locked(item)"
-            compact
-            :items="items"
-            @command="(value) => command(value, item)"
-          />
-          <ASpin v-else-if="mutation === item.id" size="small" />
-          <small v-else class="assistant-session__busy">处理中</small>
-        </div>
+          <template #actions>
+            <WorkspaceMoreMenu
+              v-if="!locked(item)"
+              compact
+              :items="items"
+              @command="(value) => command(value, item)"
+            />
+            <ASpin v-else-if="mutation === item.id" size="small" />
+            <small v-else>处理中</small>
+          </template>
+        </HistoryRecord>
         <AEmpty
           v-if="!loading && !conversations.length"
           description="暂无会话"
           :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
         />
       </ASpin>
-      <AButton v-if="more" type="text" :disabled="loading" @click="emit('more')"
+      <AButton
+        v-if="more"
+        class="history-list__pagination"
+        type="text"
+        :disabled="loading"
+        @click="emit('more')"
         >加载更多会话</AButton
       >
     </section>
-  </AModal>
+  </HistoryDialog>
   <AModal
     :open="renameTarget !== null"
     title="重命名会话"
@@ -201,91 +192,3 @@ onBeforeUnmount(() => scope.dispose())
     >
   </AModal>
 </template>
-
-<style scoped>
-.assistant-history {
-  display: flex;
-  min-height: min(180px, 65dvh);
-  max-height: min(65dvh, 600px);
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 10px;
-  color: var(--color-text);
-  overflow: hidden;
-}
-.assistant-history__heading {
-  display: flex;
-  flex-shrink: 0;
-  min-height: 28px;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-.assistant-history__loading {
-  min-height: 0;
-  flex: 1;
-  overflow: hidden auto;
-  overscroll-behavior-y: contain;
-}
-.assistant-session {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 3px;
-  padding: 7px 6px 7px 9px;
-  border-radius: var(--workspace-radius-sm);
-}
-.assistant-session:hover {
-  background: var(--gray-50);
-}
-.assistant-session.active {
-  background: var(--main-50);
-  color: var(--main-700);
-}
-.assistant-session__open {
-  min-width: 0;
-  display: grid;
-  flex: 1;
-  gap: 3px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.assistant-session__open strong,
-.assistant-session__open small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.assistant-session__open strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-.assistant-session__open small,
-.assistant-session__busy {
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
-  font-variant-numeric: tabular-nums;
-}
-.assistant-session :deep(.workspace-more-menu) {
-  opacity: 0;
-}
-.assistant-session:hover :deep(.workspace-more-menu),
-.assistant-session:focus-within :deep(.workspace-more-menu) {
-  opacity: 1;
-}
-.assistant-session__open:focus-visible {
-  outline: 2px solid var(--main-color);
-  outline-offset: 3px;
-}
-@media (hover: none) {
-  .assistant-session :deep(.workspace-more-menu) {
-    opacity: 1;
-  }
-}
-</style>

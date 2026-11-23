@@ -45,6 +45,29 @@ class ChatHistoryLayoutRegressions(DeveloperBoundary):
         await expect(toolbar.get_by_role('button', name='新建对话', exact=True)).to_be_visible()
         self.assertIsNone(await self.page.evaluate("localStorage.getItem('zhiheng-chat-history-expanded')"))
 
+    async def test_interrupted_reply_remains_visible_as_an_older_version(self):
+        async def history(route):
+            await route.fulfill(json=[
+                {'id': 'q1', 'role': 'user', 'content': '原来的问题', 'run_id': None,
+                 'created_at': '2026-11-20T00:00:00Z'},
+                {'id': 'a1', 'role': 'assistant', 'content': '生成到一半的正文', 'run_id': None,
+                 'reply_to_message_id': 'q1', 'generation_index': 1, 'is_complete': False,
+                 'incomplete_reason': 'failed', 'created_at': '2026-11-20T00:00:01Z'},
+                {'id': 'a2', 'role': 'assistant', 'content': '重新生成的完整回复', 'run_id': None,
+                 'reply_to_message_id': 'q1', 'generation_index': 2, 'is_complete': True,
+                 'created_at': '2026-11-20T00:00:02Z'},
+            ])
+
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages*', history)
+        await self.open_chat()
+        await self.select_conversation('历史样例')
+        await expect(self.page.get_by_text('重新生成的完整回复', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='上一个回复版本', exact=True).click()
+        await expect(self.page.get_by_text('生成到一半的正文', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('生成中断', exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='下一个回复版本', exact=True).click()
+        await expect(self.page.get_by_text('生成中断', exact=True)).to_have_count(0)
+
     async def test_modal_preserves_workspace_bounds_messages_and_draft(self):
         await self.open_chat()
         before = await self.page.locator('.chat-workspace').bounding_box()

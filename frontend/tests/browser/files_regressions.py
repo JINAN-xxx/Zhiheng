@@ -212,8 +212,10 @@ class FilesUIRegressions(DeveloperBoundary):
         await self.advanced('保留提醒')
         await expect(self.page.get_by_text('文件保留提醒', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='Close', exact=True).click()
-        await self.advanced('存储对账')
-        await expect(self.page.get_by_text('任务记录', exact=True)).to_be_visible()
+        await self.advanced('存储检查')
+        await expect(self.page.get_by_text('检查记录', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('暂无检查记录', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('暂无待处理的异常记录', exact=True)).to_be_visible()
 
     async def test_tablet_numeric_drawer_width_keeps_close_control_on_screen(self):
         await self.page.set_viewport_size({'width':768,'height':900})
@@ -239,14 +241,15 @@ class FilesUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('tab', name='回收站', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button', name='高级筛选', exact=True)).to_have_attribute('aria-expanded', 'false')
         await expect(self.page.get_by_placeholder('请输入所有者')).to_be_hidden()
-        await expect(self.page.get_by_text('文件概览', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('文件概览', exact=True)).to_be_visible()
+        await expect(self.page.locator('.file-stat-item')).to_have_count(4)
         await expect(self.page.get_by_role('region', name='批量文件操作', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('columnheader')).to_have_count(6)
         for label in ['所有者', 'ACL', '存储状态', '文件有效期']:
             await expect(self.page.get_by_role('columnheader', name=label, exact=True)).to_have_count(0)
         for label in ['查看文件：业务报告', '下载文件：业务报告', '删除文件：业务报告', '更多操作：业务报告']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_be_enabled()
-        for label in ['保留策略', '保留提醒', '存储对账', '授权', '转移', '恢复', '清理']:
+        for label in ['保留策略', '保留提醒', '存储检查', '授权', '转移', '恢复', '清理']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         async with self.page.expect_download() as pending:
             await self.page.get_by_role('button', name='下载文件：业务报告', exact=True).click()
@@ -301,9 +304,14 @@ class FilesUIRegressions(DeveloperBoundary):
 
     async def test_advanced_statistics_filters_and_each_file_tool_remain_discoverable(self):
         await self.page.goto(self.origin + '/files')
-        await self.advanced('详细统计')
         await expect(self.page.get_by_text('文件概览', exact=True)).to_be_visible()
-        await expect(self.page.get_by_text('统计数据随当前查询条件实时更新', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('随当前筛选条件更新', exact=True)).to_be_visible()
+        overview = self.page.get_by_role('region', name='当前查询概览', exact=True)
+        await expect(overview.get_by_role('group', name='文件数量', exact=True)).to_contain_text('1 个文件')
+        await expect(overview.get_by_role('group', name='占用空间', exact=True)).to_contain_text('12 B')
+        await self.page.get_by_role('button', name='高级管理', exact=True).click()
+        await expect(self.page.get_by_role('menuitem', name='详细统计', exact=True)).to_have_count(0)
+        await self.page.keyboard.press('Escape')
         await self.page.get_by_role('button', name='高级筛选', exact=True).click()
         for placeholder in ['请输入上传用户', '请输入所有者']:
             await expect(self.page.get_by_placeholder(placeholder)).to_be_visible()
@@ -397,6 +405,7 @@ class FilesUIRegressions(DeveloperBoundary):
             self.assertGreaterEqual(box['x'], 0)
             self.assertLessEqual(box['x'] + box['width'], 390)
         more = self.page.get_by_role('button', name='更多操作：业务报告', exact=True)
+        await more.scroll_into_view_if_needed()
         await expect(more).to_be_in_viewport(ratio=1)
         await more.click()
         await expect(self.page.get_by_role('menuitem', name='访问权限：业务报告', exact=True)).to_be_visible()
@@ -406,7 +415,7 @@ class FilesUIRegressions(DeveloperBoundary):
             await self.page.screenshot(path=str(Path(evidence) / 'storage-mobile-default.png'))
         await self.page.get_by_role('button', name='高级筛选', exact=True).click()
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
-        await self.advanced('详细统计')
+        await expect(self.page.locator('.file-stat-item')).to_have_count(4)
         self.assertTrue(await self.page.evaluate('document.documentElement.scrollWidth <= innerWidth'))
 
     async def test_failed_recycle_write_keeps_selection_and_can_retry_once(self):
@@ -450,7 +459,7 @@ class FilesUIRegressions(DeveloperBoundary):
         self.file_jobs = [{'id': 'reconcile-1', 'kind': 'reconcile', 'status': 'running', 'started_at': FILE['created_at'], 'finished_at': None, 'scanned': 2, 'changed': 0, 'errors': []}]
         await self.page.goto(self.origin + '/files')
         await self.page.get_by_role('checkbox', name='选择文件：业务报告', exact=True).check()
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.get_by_text('执行中', exact=True)).to_be_visible()
         reads = self.file_requests.count('/api/files/jobs')
@@ -478,16 +487,16 @@ class FilesUIRegressions(DeveloperBoundary):
             await route.fulfill(status=409, json={'error': {'code': 'conflict', 'message': '已有对账任务，请稍后重试'}})
         await self.page.route(self.origin + '/api/files/jobs/reconcile', failed_scan)
         await self.page.goto(self.origin + '/files')
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
-        await drawer.get_by_role('button', name='开始对账', exact=True).click()
+        await drawer.get_by_role('button', name='开始检查', exact=True).click()
         async def recovered():
             while self.file_requests.count('/api/files/reconcile/stats') < 2:
                 await asyncio.sleep(.02)
         await asyncio.wait_for(recovered(), 3)
-        await expect(drawer.get_by_role('button', name='开始对账', exact=True)).not_to_have_class(re.compile('ant-btn-loading'))
+        await expect(drawer.get_by_role('button', name='开始检查', exact=True)).not_to_have_class(re.compile('ant-btn-loading'))
         await expect(drawer.get_by_text('已有对账任务，请稍后重试', exact=True)).to_be_visible()
-        await expect(drawer.get_by_role('button', name='开始对账', exact=True)).to_be_enabled()
+        await expect(drawer.get_by_role('button', name='开始检查', exact=True)).to_be_enabled()
         self.assertEqual(self.file_requests.count('/api/files'), 1)
 
     async def test_reconcile_observation_recovers_after_transient_read_failure(self):
@@ -507,7 +516,7 @@ class FilesUIRegressions(DeveloperBoundary):
 
         await self.page.route(self.origin + '/api/files/jobs', jobs)
         await self.page.goto(self.origin + '/files')
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.get_by_text('执行中', exact=True)).to_be_visible()
         fail_next = True
@@ -524,14 +533,14 @@ class FilesUIRegressions(DeveloperBoundary):
         traffic = []
         self.page.on('request', lambda request: traffic.append((request.method, urlparse(request.url).path)) if '/api/files' in request.url else None)
         await self.page.goto(self.origin + '/files')
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.get_by_text('执行中', exact=True)).to_be_visible()
         await drawer.get_by_role('button', name='Close', exact=True).click()
         reads = self.file_requests.count('/api/files/jobs')
         await self.page.wait_for_timeout(2300)
         self.assertEqual(self.file_requests.count('/api/files/jobs'), reads)
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         await expect(drawer.get_by_text('执行中', exact=True)).to_be_visible()
         reads = self.file_requests.count('/api/files/jobs')
         await self.page.goto(self.origin + '/knowledge')
@@ -553,14 +562,14 @@ class FilesUIRegressions(DeveloperBoundary):
                 await self.respond(route)
         await self.page.route(self.origin + '/api/files/**', fixtures)
         await self.page.goto(self.origin + '/files')
-        await self.advanced('存储对账')
+        await self.advanced('存储检查')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await expect(drawer.get_by_text('敏感对账异常', exact=True)).to_be_visible()
         denied = True
         await expect(drawer.get_by_text('对账读取权限已移除', exact=True)).to_be_visible(timeout=4000)
         await expect(drawer.get_by_text('敏感对账异常', exact=True)).to_have_count(0)
         await expect(drawer.get_by_text('执行中', exact=True)).to_have_count(0)
-        await expect(drawer.get_by_role('button', name='开始对账', exact=True)).to_be_disabled()
+        await expect(drawer.get_by_role('button', name='开始检查', exact=True)).to_be_disabled()
         reads = self.file_requests.count('/api/files/jobs')
         await self.page.wait_for_timeout(4300)
         self.assertEqual(self.file_requests.count('/api/files/jobs'), reads)

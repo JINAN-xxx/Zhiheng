@@ -16,6 +16,7 @@ import { useChatNavigation } from '../composables/workspace.ts'
 import type { Conversation } from '../api/index.ts'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
+import HistoryRecord from '../../../shared/components/HistoryRecord.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 const emit = defineEmits<{ navigate: [] }>()
@@ -95,8 +96,8 @@ async function rename(): Promise<void> {
 }
 </script>
 <template>
-  <section class="recent-sessions" aria-label="对话列表">
-    <div class="recent-sessions__heading">
+  <section class="recent-sessions history-list" aria-label="对话列表">
+    <div class="history-list__heading">
       <ARadioGroup
         :value="archivedFilter ? 'archived' : 'active'"
         size="small"
@@ -115,43 +116,27 @@ async function rename(): Promise<void> {
       @update:value="setSearch"
       ><template #prefix><SearchOutlined /></template
     ></AInput>
-    <p v-if="error" class="recent-sessions__error" role="alert">{{ error }}</p>
-    <ASpin :spinning="loading" wrapper-class-name="recent-sessions__loading">
+    <p v-if="error" class="history-list__error" role="alert">{{ error }}</p>
+    <ASpin :spinning="loading" wrapper-class-name="history-list__loading">
       <div class="recent-sessions__list">
-        <div
+        <HistoryRecord
           v-for="conversation in conversations"
           :key="conversation.id"
           class="recent-session"
-          :class="{ active: selected?.id === conversation.id }"
+          :title="conversation.title"
+          :timestamp="conversation.last_activity_at ?? conversation.created_at"
+          :selected="selected?.id === conversation.id"
+          @open="openConversation(conversation)"
         >
-          <button
-            type="button"
-            class="recent-session__open conversation-item"
-            :aria-label="conversation.title"
-            :aria-current="selected?.id === conversation.id ? 'page' : undefined"
-            @click="openConversation(conversation)"
-          >
-            <strong>{{ conversation.title }}</strong
-            ><small>{{
-              new Date(conversation.last_activity_at ?? conversation.created_at).toLocaleString(
-                'zh-CN',
-                {
-                  month: '2-digit',
-                  day: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false
-                }
-              )
-            }}</small>
-          </button>
-          <WorkspaceMoreMenu
-            v-if="!conversationLocked(conversation.id) && menuItems(conversation).length"
-            compact
-            :items="menuItems(conversation)"
-            @command="(value) => command(value, conversation)"
-          />
-        </div>
+          <template #actions>
+            <WorkspaceMoreMenu
+              v-if="!conversationLocked(conversation.id) && menuItems(conversation).length"
+              compact
+              :items="menuItems(conversation)"
+              @command="(value) => command(value, conversation)"
+            />
+          </template>
+        </HistoryRecord>
         <AEmpty
           v-if="!loading && !conversations.length"
           :description="query ? '没有匹配会话' : '暂无会话'"
@@ -160,7 +145,7 @@ async function rename(): Promise<void> {
     ></ASpin>
     <AButton
       v-if="more"
-      class="recent-sessions__pagination"
+      class="history-list__pagination"
       type="text"
       :loading="moreLoading"
       :disabled="loading"
@@ -189,129 +174,3 @@ async function rename(): Promise<void> {
     >
   </AModal>
 </template>
-<style scoped lang="scss">
-.recent-sessions {
-  min-height: 0;
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 9px;
-  padding: 12px 10px;
-  color: var(--color-text);
-}
-.recent-sessions__heading {
-  display: flex;
-  min-height: 28px;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-.recent-sessions__heading :deep(.ant-radio-button-wrapper) {
-  padding-inline: 9px;
-  font-size: 12px;
-}
-.recent-sessions__pagination {
-  flex-shrink: 0;
-}
-.recent-sessions__stale,
-.recent-sessions__error {
-  margin: 0;
-  padding: 8px;
-  border-radius: var(--workspace-radius-sm);
-  font-size: 12px;
-}
-.recent-sessions__stale {
-  color: var(--workspace-warning);
-  background: var(--workspace-warning-soft);
-}
-.recent-sessions__error {
-  color: var(--workspace-danger);
-  background: var(--workspace-danger-soft);
-}
-.recent-sessions__loading {
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow: hidden auto;
-  overscroll-behavior-y: contain;
-  scrollbar-width: none;
-}
-.recent-sessions__loading::-webkit-scrollbar {
-  display: none;
-}
-.recent-session {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 3px;
-  padding: 7px 6px 7px 9px;
-  border-radius: var(--workspace-radius-sm);
-}
-.recent-session:hover {
-  background: var(--gray-50);
-}
-.recent-session.active {
-  background: var(--main-50);
-  color: var(--main-700);
-}
-.recent-session__open {
-  min-width: 0;
-  display: grid;
-  flex: 1;
-  gap: 3px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.recent-session__open strong,
-.recent-session__open small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.recent-session__open strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-.recent-session__open small {
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-caption);
-  line-height: var(--workspace-line-height);
-  font-variant-numeric: tabular-nums;
-}
-.recent-session.active .recent-session__open small {
-  color: var(--color-text-secondary);
-}
-.recent-sessions :deep(.ant-input-affix-wrapper) {
-  flex-shrink: 0;
-  border-color: var(--gray-150);
-  background: var(--bg-container);
-  box-shadow: none;
-}
-.recent-sessions :deep(.ant-input-affix-wrapper input),
-.recent-sessions :deep(.ant-input-prefix),
-.recent-sessions :deep(.ant-input-clear-icon) {
-  color: var(--color-text);
-  background: transparent;
-}
-.recent-sessions :deep(.ant-empty-description) {
-  color: var(--color-text-secondary);
-}
-.recent-session :deep(.workspace-more-menu) {
-  opacity: 0;
-}
-.recent-session:hover :deep(.workspace-more-menu),
-.recent-session:focus-within :deep(.workspace-more-menu) {
-  opacity: 1;
-}
-@media (hover: none) {
-  .recent-session :deep(.workspace-more-menu) {
-    opacity: 1;
-  }
-}
-</style>

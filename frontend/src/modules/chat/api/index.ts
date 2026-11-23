@@ -14,6 +14,7 @@ export interface Conversation {
   created_at: string
 }
 export interface ChatAttachment {
+  parse_warning?: string
   file_id: string
   owner_id?: string | null
   original_filename: string
@@ -28,6 +29,7 @@ export interface ChatMessage {
   reply_to_message_id: string | null
   generation_index: number
   is_complete: boolean
+  incomplete_reason?: 'failed' | 'cancelled' | 'interrupted' | 'length' | null
   feedback: 'up' | 'down' | null
   attachments: ChatAttachment[]
   id: string
@@ -58,12 +60,22 @@ export function parseMessage(value: unknown): ChatMessage {
   const feedback = data.feedback === undefined ? null : data.feedback
   if (feedback !== null && feedback !== 'up' && feedback !== 'down')
     throw new Error('消息反馈格式不正确')
+  const reason = data.incomplete_reason ?? null
+  if (
+    reason !== null &&
+    reason !== 'failed' &&
+    reason !== 'cancelled' &&
+    reason !== 'interrupted' &&
+    reason !== 'length'
+  )
+    throw new Error('回复结束状态格式不正确')
   return {
     generation_config:
       data.generation_config == null ? null : parseGenerationConfig(data.generation_config),
     reply_to_message_id: data.reply_to_message_id == null ? null : string(data.reply_to_message_id),
     generation_index: generation,
     is_complete: data.is_complete === undefined ? true : boolean(data.is_complete),
+    incomplete_reason: reason,
     feedback,
     attachments:
       data.attachments === undefined
@@ -71,6 +83,7 @@ export function parseMessage(value: unknown): ChatMessage {
         : list((value): ChatAttachment => {
             const item = object(value)
             return {
+              parse_warning: item.parse_warning === undefined ? '' : string(item.parse_warning),
               file_id: string(item.file_id),
               owner_id: item.owner_id == null ? null : string(item.owner_id),
               original_filename: string(item.original_filename),

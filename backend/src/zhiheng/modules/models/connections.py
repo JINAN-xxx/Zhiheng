@@ -1,6 +1,7 @@
 """Connection credentials, immutable revisions and administrative lifecycle."""
 
 from collections.abc import Awaitable, Callable
+from secrets import compare_digest
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -72,23 +73,32 @@ class ModelConnections:
         )
         if row is None:
             raise AppError('connection_not_found', '模型连接不存在', 404)
-        provider_changed = 'base_url' in fields and fields['base_url'] != row.base_url
-        for name in ('name', 'base_url'):
-            if name in fields:
-                setattr(row, name, fields[name])
+        base_url = str(fields.get('base_url', row.base_url)).rstrip('/')
+        address_changed = base_url != row.base_url
+        encrypted_api_key = row.encrypted_api_key
         if 'api_key' in fields:
+            api_key = str(fields['api_key'])
+            if not api_key.strip():
+                raise AppError('invalid_connection_key', '请输入有效的 API 密钥', 422)
             try:
-                unchanged = str(fields['api_key']) == self._cipher.decrypt(row.encrypted_api_key)
+                unchanged = compare_digest(
+                    api_key.strip().encode(), self._cipher.decrypt(encrypted_api_key).strip().encode()
+                )
             except AppError as error:
                 if error.code != 'credential_unavailable':
                     raise
                 unchanged = False
             if not unchanged:
-                row.encrypted_api_key = self._cipher.encrypt(str(fields['api_key']))
-                provider_changed = True
+                encrypted_api_key = self._cipher.encrypt(api_key)
+        credential_changed = encrypted_api_key != row.encrypted_api_key
+        if address_changed and not credential_changed:
+            raise AppError('connection_new_key_required', '更改 API 地址时，请提供与当前密钥不同的新 API 密钥', 422)
+        if 'name' in fields:
+            row.name = str(fields['name'])
+        row.base_url, row.encrypted_api_key = base_url, encrypted_api_key
         if 'enabled' in fields:
             row.enabled = bool(fields['enabled'])
-        if provider_changed:
+        if address_changed or credential_changed:
             row.revision += 1
             await self._revision(session, row)
         return connection_info(row)

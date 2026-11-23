@@ -96,6 +96,7 @@ class MessageInfo(BaseModel):
     reply_to_message_id: UUID | None = None
     generation_index: int = 1
     is_complete: bool = False
+    incomplete_reason: Literal['failed', 'cancelled', 'interrupted', 'length'] | None = None
     feedback: Literal['up', 'down'] | None = None
     generation_config: ChatGenerationConfig | None = None
     created_at: datetime

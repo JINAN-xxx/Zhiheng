@@ -10,6 +10,20 @@ from developer_regressions import DeveloperBoundary
 from files_regressions import FILE
 
 class ChatFilesUIRegressions(DeveloperBoundary):
+    async def test_partial_pdf_history_displays_unread_page_warning(self):
+        warning = '第 1 页为图片页，未识别其中内容；已提取 304 页可读正文。'
+        async def messages(route):
+            await route.fulfill(json=[{'id':'pdf-message','role':'user','content':'分析正文','reasoning':'',
+                'run_id':None,'created_at':'2026-11-20T00:00:00Z','attachments':[{
+                    'file_id':'pdf-file','original_filename':'book.pdf','mime':'application/pdf','size':5833220,
+                    'sha256':'a'*64,'artifact_file_id':'pdf-artifact','parser_version':'native-3-attachments',
+                    'parse_warning':warning}]}])
+        await self.page.route(self.origin + '/api/chat/conversations/c1/messages*', messages)
+        await self.page.goto(self.origin + '/chat')
+        await self.select_conversation('附件会话')
+        await expect(self.page.locator('.attachment-parse-warnings')).to_contain_text(warning)
+        await expect(self.page.locator('.attachment-parse-warnings')).to_contain_text('book.pdf')
+
     async def asyncSetUp(self):
         self.conversation={'id':'c1','title':'附件会话','created_at':'2026-10-23T00:00:00Z','version':3,'archived':False}
         self.deleted=False
@@ -59,7 +73,7 @@ class ChatFilesUIRegressions(DeveloperBoundary):
         await self.page.goto(self.origin+'/chat')
         await self.select_conversation('附件会话')
         await self.page.get_by_role('button',name='查看附件：report.pdf',exact=True).click()
-        frame=self.page.get_by_role('dialog').locator('iframe')
+        frame=self.page.get_by_role('region',name='预览 report.pdf',exact=True).locator('iframe')
         await expect(frame).to_be_visible()
         mime=await frame.evaluate("async e => (await fetch(e.src)).headers.get('content-type')")
         self.assertEqual(mime,'application/pdf')

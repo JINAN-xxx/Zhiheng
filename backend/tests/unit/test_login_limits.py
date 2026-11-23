@@ -3,8 +3,25 @@ from unittest.mock import AsyncMock
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from zhiheng.infrastructure.login_limits import LoginRateLimiter
+from zhiheng.infrastructure.login_limits import LoginRateLimiter, login_source
 from zhiheng.shared.errors import AppError
+
+
+@pytest.mark.parametrize(
+    ('peer', 'headers', 'expected'),
+    [
+        ('192.0.2.2', ['198.51.100.10'], '198.51.100.10'),
+        ('192.0.2.2', ['198.51.100.11'], '198.51.100.11'),
+        ('192.0.2.2', ['2001:0db8::1'], '2001:db8::1'),
+        ('192.0.2.2', ['198.51.100.10', '198.51.100.11'], '192.0.2.2'),
+        ('192.0.2.2', ['not-an-address'], '192.0.2.2'),
+        ('192.0.2.3', ['198.51.100.10'], '192.0.2.3'),
+    ],
+)
+def test_login_source_keeps_clients_separate_and_only_trusts_configured_proxy(
+    peer: str, headers: list[str], expected: str
+) -> None:
+    assert login_source(peer, headers, frozenset({'192.0.2.2'})) == expected
 
 
 async def test_login_limit_fails_closed_when_shared_counter_is_unavailable() -> None:

@@ -150,9 +150,12 @@ class _Response:
 
     def _call(self, fragment: _ToolFragments, names: set[object]) -> ModelToolCall:
         arguments = fragment.arguments or '{}'
-        if not isinstance(json.loads(arguments), dict) or fragment.name not in names or self.finish == 'length':
+        if not isinstance(json.loads(arguments), dict) or self.finish == 'length':
             raise ProviderError(reason='invalid_response')
-        return ModelToolCall(id=fragment.id, name=fragment.name, arguments=arguments)
+        call = ModelToolCall(id=fragment.id, name=fragment.name, arguments=arguments)
+        if call.name not in names:
+            raise ProviderError(reason='tool_unavailable')
+        return call
 
 
 def _request(
@@ -201,7 +204,15 @@ async def stream_agent(
                 if state.finish is not None and not terminal_emitted:
                     # Expose a validated terminal result while awaiting trailing usage.
                     # Native Runs remain running until the stream has been consumed.
-                    yield state.result(tools)
+                    try:
+                        terminal = state.result(tools)
+                    except ProviderError as error:
+                        if error.reason != 'tool_unavailable':
+                            raise
+                        # The tool cannot run, but the provider may still send its usage.
+                        failure = error
+                    else:
+                        yield terminal
                     terminal_emitted = True
                 # A terminal choice and the raw final usage are complete facts. Some compatible
                 # providers keep the transport alive afterwards; no further body is needed.
@@ -210,9 +221,9 @@ async def stream_agent(
         if not terminal_emitted:
             yield state.result(tools)
     except ProviderError as error:
-        failure = error
+        failure = failure or error
     except (APIError, TimeoutError, ValueError) as error:
-        failure = provider_error(error)
+        failure = failure or provider_error(error)
     if captured.observed:
         yield ModelDelta(
             input_tokens=captured.input_tokens,

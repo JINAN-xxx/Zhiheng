@@ -222,22 +222,18 @@ export const updateModel = (
 export const controlModel = (
   id: string,
   action: 'enable' | 'disable' | 'delete',
-  signal: AbortSignal
-) =>
-  http.request(`/models/${encodeURIComponent(id)}${action === 'delete' ? '' : `/${action}`}`, {
+  signal: AbortSignal,
+  retireKeyAccess = false
+) => {
+  const suffix = action === 'delete' ? '' : `/${action}`
+  const query = action === 'delete' && retireKeyAccess ? '?retire_key_access=true' : ''
+  return http.request(`/models/${encodeURIComponent(id)}${suffix}${query}`, {
     method: action === 'delete' ? 'DELETE' : 'POST',
     ...(action === 'delete' ? {} : { body: {} }),
     signal,
     decode: action === 'delete' ? () => undefined : parseModel
   })
-export const startModelTest = (id: string, client_request_id: string, signal: AbortSignal) =>
-  http.request(`/models/${encodeURIComponent(id)}/test`, {
-    method: 'POST',
-    body: { client_request_id },
-    signal,
-    decode: parseRunSnapshot
-  })
-
+}
 export const getConnectionOptions = (signal: AbortSignal) =>
   http.request('/models/connection-options', {
     signal,

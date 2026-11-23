@@ -20,7 +20,13 @@ import {
   MoreOutlined,
   AppstoreOutlined
 } from '@ant-design/icons-vue'
-import type { UpdateWorkBody, WorkOptions, WorkStatus, WorkTask } from '../api/index.ts'
+import type {
+  UpdateWorkBody,
+  WorkArtifact,
+  WorkOptions,
+  WorkStatus,
+  WorkTask
+} from '../api/index.ts'
 import type { WorkTurnInput } from '../composables/turns.ts'
 import {
   validateWorkGoal,
@@ -35,6 +41,7 @@ import { formatFileSize } from '../../files/public.ts'
 import WorkMessageTimeline from './WorkMessageTimeline.vue'
 import WorkExecutionPanel from './WorkExecutionPanel.vue'
 import WorkFilesPanel from './WorkFilesPanel.vue'
+import WorkArtifactPreview from './WorkArtifactPreview.vue'
 import { canUseCapability } from '../../identity/public.ts'
 import { SkillPicker } from '../../skills/public.ts'
 import WorkSelectedSkills from './WorkSelectedSkills.vue'
@@ -74,6 +81,15 @@ const editorOpen = ref(false),
   infoOpen = ref(false)
 const editingTitle = ref(''),
   editingGoal = ref('')
+const previewArtifact = ref<WorkArtifact | null>(null)
+watch(
+  () => props.task.taskId,
+  () => {
+    previewArtifact.value = null
+    filesOpen.value = false
+  },
+  { flush: 'sync' }
+)
 const isAgent = computed(() => props.task.mode === 'agent')
 const showComposer = computed(
   () => isAgent.value && props.task.status === 'active' && (props.canRun || props.stoppable)
@@ -321,9 +337,12 @@ function picked(event: Event): void {
           ></AAlert
         >
         <WorkMessageTimeline
+          :task-id="task.taskId"
           :messages="task.messages"
+          :artifacts="task.artifacts"
           :legacy="!isAgent"
           :show-progress="showProgress"
+          @preview="previewArtifact = $event"
         >
           <template #progress
             ><WorkExecutionPanel
@@ -332,16 +351,6 @@ function picked(event: Event): void {
               :state="task.executionState"
               :busy="stoppable"
           /></template>
-          <template #artifacts
-            ><button
-              v-if="isAgent && artifactCount"
-              type="button"
-              class="work-artifacts-link"
-              @click="filesOpen = true"
-            >
-              <FileTextOutlined />查看成果 · {{ artifactCount }}
-            </button></template
-          >
         </WorkMessageTimeline>
         <ConversationComposer
           v-if="showComposer"
@@ -465,7 +474,15 @@ function picked(event: Event): void {
         :uploading="uploading"
         :can-upload="canRun && !locked && task.status === 'active'"
         @upload="emit('upload', $event)"
+        @preview="previewArtifact = $event"
     /></ADrawer>
+    <WorkArtifactPreview
+      :task-id="task.taskId"
+      :artifact="previewArtifact"
+      :artifacts="task.artifacts"
+      @close="previewArtifact = null"
+      @select="previewArtifact = $event"
+    />
     <AModal
       v-model:open="editorOpen"
       title="编辑任务信息"
@@ -609,24 +626,7 @@ function picked(event: Event): void {
   overflow-x: auto;
   scrollbar-width: none;
 }
-.work-artifacts-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 14px;
-  padding: 7px 11px;
-  border: 1px solid var(--gray-150);
-  border-radius: 10px;
-  background: var(--bg-container);
-  color: var(--color-text-secondary);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.work-artifacts-link:hover {
-  color: var(--main-color);
-  border-color: var(--main-200);
-}
+
 .work-info-goal {
   max-height: 60vh;
   overflow: auto;

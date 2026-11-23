@@ -323,6 +323,53 @@ async def test_failed_regeneration_keeps_partial_reply_and_preserves_completed_c
     assert len(provider.requests) == 2
 
 
+@pytest.mark.parametrize('regenerate', [False, True])
+async def test_first_partial_reply_survives_history_reload_and_supports_followup(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer, regenerate: bool
+) -> None:
+    conversation_id, original = await completed_round(admin, app, model_id)
+    runs_url = f'/api/chat/conversations/{conversation_id}/runs'
+    history_url = f'/api/chat/conversations/{conversation_id}/messages'
+    question = '你知道红楼梦么'
+    assert (await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'truncated'})).status_code == 200
+    interrupted = await admin.post(
+        runs_url, json={'model_id': model_id, 'message': question, 'client_request_id': str(uuid4())}
+    )
+    assert interrupted.status_code == 202, interrupted.text
+    run_id = interrupted.json()['id']
+    await execute_run(app.state.container, UUID(run_id))
+    history = (await admin.get(history_url)).json()
+    assert len(history) == 4
+    assert history[-1]['content'] == 'half answer'
+    assert history[-1]['incomplete_reason'] == 'failed' and history[-1]['is_complete'] is False
+    assert history[-1]['reply_to_message_id'] == history[-2]['id']
+    assert history[-1]['generation_index'] == 1
+
+    assert (await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'local-text'})).status_code == 200
+    if regenerate:
+        accepted = await admin.post(
+            f'{history_url}/{history[-1]["id"]}/regenerate', json={'client_request_id': str(uuid4())}
+        )
+    else:
+        accepted = await admin.post(
+            runs_url, json={'model_id': model_id, 'message': '我刚刚问了什么', 'client_request_id': str(uuid4())}
+        )
+    assert accepted.status_code == 202, accepted.text
+    await execute_run(app.state.container, UUID(accepted.json()['id']))
+    final = (await admin.get(history_url)).json()
+    assert final[3]['id'] == history[3]['id'] and final[3]['content'] == 'half answer'
+    assert final[-1]['is_complete'] is True
+    assert final[-1]['generation_index'] == (2 if regenerate else 1)
+    if not regenerate:
+        messages = provider.requests[-1]['messages']
+        assert [message['content'] for message in messages] == [
+            original[0]['content'],
+            original[1]['content'],
+            question,
+            '我刚刚问了什么',
+        ]
+
+
 async def seed_historical_versions(app: FastAPI, conversation_id: str, question: dict, *, count: int) -> None:
     """Build historical rows for read/limit boundaries; admission is tested separately."""
     async with app.state.container.database.sessions.begin() as session:

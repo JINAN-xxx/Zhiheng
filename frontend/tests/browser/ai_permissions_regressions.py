@@ -29,7 +29,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
             return await route.fulfill(json=[])
         if path == '/api/models/model-1/rate-cards':
             return await route.fulfill(json=[])
-        if path == '/api/models/model-1/test' and request.method == 'POST':
+        if path == '/api/models/model-1/trial' and request.method == 'POST':
             return await route.fulfill(status=201, json={'id': 'test-run', 'resource_type': 'connection_test', 'resource_id': 'model-1', 'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1, 'revision': 1, 'projection_seq': 1, 'text': '连接成功', 'error': None, 'created_at': '2026-10-23T00:00:00Z', 'usage': {'input_tokens': 1, 'output_tokens': 1, 'status': 'known'}})
         skill = {'id': 'skill-1', 'slug': 'example', 'name': '示例技能', 'description': '基础使用技能', 'package_version': '1.0.0', 'version': 1, 'status': 'enabled', 'source': 'upload', 'revision_id': 'revision-1', 'content_hash': 'hash-1', 'file_count': 1, 'total_bytes': 123, 'created_at': '2026-10-23T00:00:00Z', 'updated_at': '2026-10-23T00:00:00Z'}
         if path == '/api/skills':
@@ -55,7 +55,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         return await super().respond(route)
 
     async def assert_no_model_management(self):
-        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作', '更多模型操作']:
+        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试模型', '更多操作', '更多模型操作']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(self.page.locator('.model-item').get_by_role('switch')).to_have_count(0)
         await expect(self.page.get_by_role('tab', name='凭据管理', exact=True)).to_have_count(0)
@@ -89,7 +89,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
                 await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
                 detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
                 await expect(detail).to_contain_text('model-1')
-                for label in ['测试连接', '更多模型操作']:
+                for label in ['测试模型', '更多模型操作']:
                     await expect(detail.get_by_role('button', name=label, exact=True)).to_have_count(0)
                 await expect(detail.get_by_role('switch')).to_have_count(0)
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
@@ -100,12 +100,12 @@ class AIPermissionsRegressions(DeveloperBoundary):
         self.permissions = granted_permissions('platform:models:config_read', 'ai:credentials:read')
         await self.open_models()
         await expect(self.page.get_by_text('日常助手', exact=True)).to_be_visible()
-        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试连接', '更多操作', '更多模型操作']:
+        for label in ['接入模型', '新增凭据', '编辑模型', '费率配置', '测试模型', '更多操作', '更多模型操作']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
         await expect(detail).to_contain_text('团队服务')
-        for label in ['测试连接', '更多模型操作']:
+        for label in ['测试模型', '更多模型操作']:
             await expect(detail.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(detail.get_by_role('switch')).to_have_count(0)
         await detail.get_by_role('button', name='Close', exact=True).click()
@@ -139,7 +139,7 @@ class AIPermissionsRegressions(DeveloperBoundary):
         detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
         await detail.get_by_role('button', name='更多模型操作', exact=True).click()
         await expect(self.page.get_by_role('menuitem', name='编辑模型', exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_role('button', name='测试模型', exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('menuitem', name='费率配置', exact=True)).to_have_count(0)
 
     async def test_storage_reader_sees_policy_and_reconcile_without_write_controls(self):
@@ -154,10 +154,10 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await expect(drawer).to_be_visible()
         await expect(drawer.get_by_role('button', name='新增策略', exact=True)).to_have_count(0)
         await drawer.get_by_role('button', name='Close', exact=True).click()
-        await self.open_storage_tool('存储对账')
-        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content').filter(has_text='文件存储对账')
+        await self.open_storage_tool('存储检查')
+        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content').filter(has_text='存储检查')
         await expect(drawer).to_be_visible()
-        await expect(drawer.get_by_role('button', name='开始对账', exact=True)).to_have_count(0)
+        await expect(drawer.get_by_role('button', name='开始检查', exact=True)).to_have_count(0)
         self.assertFalse(any(method != 'GET' for method, _, _ in self.requests))
 
     async def test_model_tester_can_test_without_model_or_rate_management(self):
@@ -165,15 +165,16 @@ class AIPermissionsRegressions(DeveloperBoundary):
         await self.open_models()
         await self.page.get_by_role('button', name='查看模型详情：日常助手', exact=True).click()
         detail = self.page.locator('.model-detail-modal[role="dialog"], .model-detail-modal [role="dialog"]')
-        await detail.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.ant-message-notice-content')).to_have_text('测试成功')
-        await expect(self.page.locator('.test-result')).to_have_count(0)
         await expect(detail.get_by_role('button', name='更多模型操作', exact=True)).to_have_count(0)
         await expect(detail.get_by_role('switch')).to_have_count(0)
+        await detail.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        await test.get_by_role('button', name='提交测试', exact=True).click()
+        await expect(test).to_contain_text('测试完成')
         for label in ['接入模型', '编辑模型', '费率配置']:
             await expect(self.page.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(self.page.get_by_role('tab', name='凭据管理', exact=True)).to_have_count(0)
-        self.assertTrue(any(method == 'POST' and path.endswith('/test') for method, path, _ in self.requests))
+        self.assertTrue(any(method == 'POST' and path.endswith('/trial') for method, path, _ in self.requests))
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
     async def test_skill_writer_upload_route_opens_personal_skill_controls(self):
@@ -216,8 +217,8 @@ class AIPermissionsRegressions(DeveloperBoundary):
                 await self.page.get_by_role('button', name='用户菜单', exact=True).click()
                 await expect(self.page.get_by_role('link', name='后台管理', exact=True)).to_be_visible()
                 await self.page.keyboard.press('Escape')
-        await self.open_storage_tool('存储对账')
-        await expect(self.page.get_by_role('button', name='开始对账', exact=True)).to_be_visible()
+        await self.open_storage_tool('存储检查')
+        await expect(self.page.get_by_role('button', name='开始检查', exact=True)).to_be_visible()
 
     async def test_storage_writer_cannot_manage_another_owners_visible_file(self):
         self.permissions = granted_permissions('ai:storage:configure', 'ai:storage:maintain', 'ai:storage:acl', 'ai:storage:transfer', 'ai:storage:delete', 'ai:storage:parse')

@@ -3,6 +3,7 @@ from uuid import UUID
 import httpx
 import pytest
 
+from tests.core.integration.test_chat_runs import admit
 from tests.core.permission_support import account, grants
 
 
@@ -283,7 +284,9 @@ async def test_model_key_reference_guard_and_frozen_connection(
 
 
 @pytest.mark.asyncio
-async def test_model_with_grants_cannot_be_deleted_without_invocations(admin: httpx.AsyncClient, model_id: str) -> None:
+async def test_only_admin_can_confirm_model_removal_with_existing_key_grants(
+    admin: httpx.AsyncClient, model_id: str, app: object
+) -> None:
     models = (await admin.get('/api/models')).json()
     copy = await admin.post(
         '/api/models',
@@ -294,11 +297,46 @@ async def test_model_with_grants_cannot_be_deleted_without_invocations(admin: ht
 
     application = (await admin.post('/api/developer/applications', json={'code': uuid4().hex, 'name': 'Grant'})).json()
     key = await admin.post(
-        f'/api/developer/applications/{application["id"]}/keys', json={'name': 'Grant', 'model_ids': [granted_id]}
+        f'/api/developer/applications/{application["id"]}/keys',
+        json={'name': 'Grant', 'model_ids': [granted_id, model_id]},
     )
     assert key.status_code == 201
     deleted = await admin.delete(f'/api/models/{granted_id}', headers={'Content-Type': 'application/json'})
     assert deleted.status_code == 409
+    assert deleted.json()['error']['details']['retirable_key_count'] == 1
+    path = f'/api/models/{granted_id}?retire_key_access=true'
+    async with account(admin, app, *grants('platform:models', 'delete')) as (member, _, _):
+        assert (await member.delete(path)).status_code == 403
+
+    bearer = {'Authorization': 'Bearer ' + key.json()['api_key']}
+    before = (await admin.get('/v1/models', headers=bearer)).json()['data']
+    assert {model['id'] for model in before} == {granted_id, model_id}
+    assert (await admin.delete(path, headers={'Content-Type': 'application/json'})).status_code == 200
+    after = (await admin.get('/v1/models', headers=bearer)).json()['data']
+    assert [model['id'] for model in after] == [model_id]
+    assert (
+        await admin.post(
+            '/v1/chat/completions',
+            headers=bearer,
+            json={'model': granted_id, 'messages': [{'role': 'user', 'content': 'hi'}]},
+        )
+    ).status_code == 404
+    saved_key = await admin.get(f'/api/developer/applications/{application["id"]}/keys/{key.json()["id"]}')
+    assert saved_key.json()['status'] == 'active'
+    assert saved_key.json()['model_ids'] == [granted_id, model_id]
+
+
+@pytest.mark.asyncio
+async def test_model_removal_with_key_access_cannot_remove_a_model_in_use(
+    admin: httpx.AsyncClient, model_id: str
+) -> None:
+    await admit(admin, model_id)
+    blocked = await admin.delete(
+        f'/api/models/{model_id}?retire_key_access=true', headers={'Content-Type': 'application/json'}
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert any(ref['kind'] == 'run' for ref in blocked.json()['error']['details']['references'])
+    assert model_id in {model['id'] for model in (await admin.get('/api/models')).json()}
 
 
 @pytest.mark.asyncio

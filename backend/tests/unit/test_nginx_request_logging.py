@@ -22,7 +22,7 @@ def nginx_probe(tmp_path: Path) -> Iterator[str]:
         pytest.skip('An existing frontend image must be explicitly selected for the isolated Nginx probe')
     config = tmp_path / 'nginx.conf'
     config.write_text(
-        NGINX_CONFIG.read_text().replace('set $core_api http://api:19090;', 'set $core_api http://127.0.0.1:9;')
+        NGINX_CONFIG.read_text().replace('set $core_api http://api-proxy:19090;', 'set $core_api http://127.0.0.1:9;')
     )
     name = 'qa-share-logging-' + uuid4().hex
     try:

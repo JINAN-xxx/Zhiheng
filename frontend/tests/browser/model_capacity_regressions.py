@@ -64,5 +64,5 @@ class ModelCapacityRegressions(ModelManagementRegressions):
         await self.page.goto(self.origin+'/models')
         detail=await self.open_model_details()
         await expect(detail).to_contain_text('模型连接已停用')
-        await expect(detail.get_by_role('button',name='测试连接',exact=True)).to_be_disabled()
+        await expect(detail.get_by_role('button',name='测试模型',exact=True)).to_be_disabled()
         self.assertEqual(self.capacity_patches,[])

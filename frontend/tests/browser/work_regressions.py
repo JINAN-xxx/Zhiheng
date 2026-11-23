@@ -215,14 +215,14 @@ class WorkUIRegressions(DeveloperBoundary):
             release.set()
         await expect(self.page.get_by_text('核实后的结论', exact=True)).to_be_visible()
 
-    async def test_history_resource_cards_keep_goal_and_one_column_modal(self):
+    async def test_history_compact_rows_keep_goal_in_tooltip_and_one_column_modal(self):
         self.task.update(title='有明确目标的工作记录', goal='核对资料并制作成果。'*20)
         self.tasks = [self.task, {**copy.deepcopy(self.task), 'id': 'task-2', 'title': '正在执行的记录', 'current_run_id': 'run-2'}]
         await self.page.goto(self.origin+'/work')
         dialog = await self.open_work_history()
-        cards = dialog.locator('.recent-work__item.resource-card')
+        cards = dialog.locator('.recent-work__item.history-record')
         await expect(cards).to_have_count(2)
-        await expect(cards.first).to_contain_text(self.task['goal'])
+        await expect(cards.first.get_by_role('button').first).to_have_attribute('title', self.task['title']+'\n'+self.task['goal'])
         await expect(cards.nth(1)).to_contain_text('正在执行')
         first, second = await cards.evaluate_all('(nodes)=>nodes.map(node=>node.getBoundingClientRect().toJSON())')
         self.assertAlmostEqual(first['x'], second['x'], delta=1)
@@ -438,6 +438,88 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('textbox',name='工作消息',exact=True)).to_be_visible()
         await expect(self.page.get_by_role('button',name='添加智能体',exact=True)).to_have_count(0)
 
+
+    def add_artifact_reply(self, run_id, artifacts, content='文件已生成'):
+        run = {**self.run, 'id': run_id, 'text': content}
+        self.task['messages'].append(self.message('assistant', {'client_request_id': run_id}, run))
+        self.task['artifacts'].extend([{**item, 'run_id': run_id} for item in artifacts])
+
+    async def test_inline_artifacts_stay_on_their_reply_after_reload_and_download_original(self):
+        old = self.artifact('old', '报告.md', 1)
+        old.update(mime='text/markdown', preview_file_id=None)
+        new = {**old, 'id': 'new', 'file_id': 'file-new', 'version': 2}
+        self.add_artifact_reply('run-1', [old], '[查看报告](outputs/%E6%8A%A5%E5%91%8A.md)')
+        self.add_artifact_reply('run-2', [new], '已按要求修改')
+        await self.open_task()
+        for reload in [False, True]:
+            if reload:
+                await self.page.reload()
+            replies = self.page.locator('.work-message.assistant')
+            await expect(replies.nth(0).locator('[id="work-artifact-old"]')).to_have_count(1)
+            await expect(replies.nth(1).locator('[id="work-artifact-new"]')).to_have_count(1)
+            await expect(replies.nth(0).locator('[id="work-artifact-new"]')).to_have_count(0)
+        await self.page.get_by_role('link').filter(has_text='查看报告').click()
+        drawer = self.page.locator('.work-artifact-preview')
+        await expect(drawer.get_by_text('报告内容', exact=False)).to_be_visible()
+        async with self.page.expect_download() as info:
+            await drawer.get_by_role('button', name='下载', exact=True).click()
+        self.assertEqual((await info.value).suggested_filename, '报告.md')
+        self.assertTrue(self.page.url.endswith('/work?taskId=task-1'))
+
+    async def test_inline_image_preview_switches_images_and_fits_mobile(self):
+        import base64
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII=')
+        async def image(route):
+            await route.fulfill(body=png, content_type='image/png')
+        await self.page.route(self.origin + '/api/work/tasks/task-1/artifacts/*/preview', image)
+        files = [{**self.artifact(str(i), f'图片{i}.png', 1), 'mime': 'image/png', 'preview_file_id': None} for i in [1, 2]]
+        self.add_artifact_reply('work-run', files)
+        await self.page.set_viewport_size({'width': 390, 'height': 844})
+        await self.open_task()
+        first = self.page.locator('[id="work-artifact-1"]')
+        await first.scroll_into_view_if_needed()
+        await expect(first.get_by_role('img', name='图片1.png', exact=True)).to_be_visible()
+        await first.get_by_role('button', name='预览 图片1.png', exact=True).click()
+        drawer = self.page.locator('.work-artifact-preview')
+        await expect(drawer.get_by_role('img', name='图片1.png', exact=True)).to_be_visible()
+        await drawer.get_by_role('button', name='下一张图片', exact=True).click()
+        await expect(drawer.get_by_role('img', name='图片2.png', exact=True)).to_be_visible()
+        size = await self.page.evaluate('({width: innerWidth, scroll: document.documentElement.scrollWidth})')
+        self.assertLessEqual(size['scroll'], size['width'] + 1)
+
+    async def test_unpreviewable_document_still_opens_a_downloadable_file_panel(self):
+        item = self.artifact('docx', '报告.docx', 1)
+        item['preview_file_id'] = None
+        self.add_artifact_reply('work-run', [item])
+        await self.open_task()
+        await self.page.get_by_role('button', name='预览 报告.docx', exact=True).click()
+        drawer = self.page.locator('.work-artifact-preview')
+        await expect(drawer.get_by_text('此格式暂不支持在线预览，可下载查看', exact=True)).to_be_visible()
+        await expect(drawer.get_by_role('button', name='下载', exact=True)).to_be_enabled()
+
+    async def test_new_task_discards_an_unfinished_artifact_preview(self):
+        item = self.artifact('old', '报告.txt', 1)
+        item.update(mime='text/plain', preview_file_id=None)
+        self.add_artifact_reply('work-run', [item])
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def delayed(route):
+            entered.set()
+            await release.wait()
+            try:
+                await route.fulfill(body='过期预览内容', content_type='text/plain')
+            except Exception:
+                pass  # Navigation cancels the old request.
+        await self.page.route(self.origin + '/api/work/tasks/task-1/artifacts/old/preview', delayed)
+        await self.open_task()
+        await self.page.get_by_role('button', name='预览 报告.txt', exact=True).click()
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            await self.page.goto(self.origin + '/work')
+        finally:
+            release.set()
+        await expect(self.page.get_by_role('textbox', name='工作目标', exact=True)).to_be_visible()
+        await expect(self.page.get_by_text('过期预览内容', exact=True)).to_have_count(0)
+
     def artifact(self, identifier, name, version):
         return {'id':identifier,'run_id':'work-run','file_id':'file-'+identifier,'name':name,
                 'logical_path':'outputs/'+name,'version':version,'size':16384,'mime':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -515,7 +597,7 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.open_task()
         await self.page.get_by_role('button', name='查看资料与成果', exact=True).click()
         await self.page.locator('.work-file').get_by_role('button',name='预览',exact=True).click()
-        preview=self.page.get_by_role('dialog',name='分析报告.docx · v2',exact=True)
+        preview=self.page.locator('.work-artifact-preview')
         await expect(preview.locator('pre')).to_contain_text('<script>not executable</script>')
         await expect(preview.locator('script')).to_have_count(0)
         await preview.get_by_role('button',name='Close',exact=True).click()

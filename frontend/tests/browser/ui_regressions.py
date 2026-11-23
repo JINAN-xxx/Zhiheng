@@ -232,10 +232,10 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         await asyncio.wait_for(refresh_started.wait(), timeout=5)
         release_create.set()
         await asyncio.wait_for(sent.wait(), timeout=5)
-        await expect(self.page.locator('.conversation-item')).to_have_count(1)
+        await expect(self.page.locator('.recent-session')).to_have_count(1)
         release_refresh.set()
         await self.page.wait_for_timeout(200)
-        await expect(self.page.locator('.conversation-item')).to_have_count(1)
+        await expect(self.page.locator('.recent-session')).to_have_count(1)
         await expect(self.page.get_by_role('button', name=re.compile('新建会话$'))).to_be_visible()
 
     async def test_enter_cannot_send_until_conversation_history_is_restored(self):
@@ -339,7 +339,7 @@ class PlatformUIRegressions(ChatHistoryInteractions, unittest.IsolatedAsyncioTes
         button_box = await test_button.bounding_box()
         self.assertLessEqual(button_box['x'] + button_box['width'], 375)
         await test_button.click()
-        await expect(self.page.get_by_role('menuitem', name='测试连接', exact=True)).to_be_enabled()
+        await expect(self.page.get_by_role('menuitem', name='测试模型', exact=True)).to_be_enabled()
         await self.page.keyboard.press('Escape')
         await expect(self.page.locator('.workspace-toolbar__subtitle')).to_have_count(0)
         await expect(self.page.locator('.panel-toolbar')).to_be_visible()

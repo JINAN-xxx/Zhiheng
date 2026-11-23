@@ -9,6 +9,7 @@ from zhiheng.api.common.dependencies import (
     PrincipalDependency,
     SessionDependency,
 )
+from zhiheng.infrastructure.login_limits import CLIENT_IP_HEADER, login_source
 from zhiheng.modules.identity.public import PasswordChange, ProfileInfo, ProfilePatch
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
@@ -46,7 +47,12 @@ class LoginResponse(BaseModel):
 async def login(
     body: LoginRequest, response: Response, request: Request, container: ContainerDependency, session: SessionDependency
 ) -> LoginResponse:
-    await container.login_limits.consume(body.username, request.client.host if request.client else 'unknown')
+    source = login_source(
+        request.client.host if request.client else 'unknown',
+        request.headers.getlist(CLIENT_IP_HEADER),
+        container.settings.trusted_login_proxy_ips,
+    )
+    await container.login_limits.consume(body.username, source)
     try:
         async with session.begin():
             principal, token = await container.identity.login(

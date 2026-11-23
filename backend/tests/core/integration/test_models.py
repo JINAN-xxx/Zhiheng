@@ -1,7 +1,32 @@
 import httpx
+import pytest
 from sqlalchemy import text
 
 from tests.core.provider import ProviderServer
+
+
+@pytest.mark.parametrize('replacement', [None, 'original-fixture-key', '   '])
+async def test_endpoint_change_requires_a_different_key(admin: httpx.AsyncClient, replacement: str | None) -> None:
+    original_url = 'https://original.example/v1'
+    created = await admin.post(
+        '/api/models/connections',
+        json={'name': 'Original', 'base_url': original_url, 'api_key': 'original-fixture-key'},
+    )
+    assert created.status_code == 201
+    new_url = 'https://replacement.example/v1'
+    fields = {'base_url': new_url, 'name': 'Rename with address change'}
+    if replacement is not None:
+        fields['api_key'] = replacement
+    path = '/api/models/connections/' + created.json()['id']
+    refused = await admin.patch(path, json=fields)
+    assert refused.status_code == 422 and 'original-fixture-key' not in refused.text
+    before = (await admin.get('/api/models/connections')).json()[0]
+    assert before['base_url'] == original_url and before['name'] == 'Original'
+    renamed = await admin.patch(path, json={'base_url': original_url + '/', 'name': 'Renamed'})
+    assert renamed.status_code == 200 and renamed.json()['base_url'] == original_url
+    updated = await admin.patch(path, json={'base_url': new_url, 'api_key': 'replacement-fixture-key'})
+    assert updated.status_code == 200 and updated.json()['base_url'] == new_url
+    assert 'replacement-fixture-key' not in updated.text
 
 
 async def test_model_connection_encrypts_secrets(

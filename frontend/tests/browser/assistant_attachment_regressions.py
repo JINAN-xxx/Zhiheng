@@ -9,6 +9,7 @@ from assistant_conversation_regressions import AssistantConversationRegressions
 
 class AssistantAttachmentRegressions(AssistantConversationRegressions):
     async def asyncSetUp(self):
+        self.parse_warning=''
         self.uploads={}
         self.upload_contents={}
         self.upload_requests=[]
@@ -39,6 +40,8 @@ class AssistantAttachmentRegressions(AssistantConversationRegressions):
             return await route.fulfill(body=self.upload_contents[fid],content_type='application/octet-stream')
         if path.startswith(root+'/') and path.endswith('/runs'):
             cid=path.split('/')[-2];body=request.post_data_json
+            if not body.get('file_ids'):
+                return await super().respond(route)
             self.submissions.append(body)
             session=next(item for item in self.sessions if item['id']==cid)
             old=next((item for item in self.turns[cid] if item['request_id']==body['client_request_id']),None)
@@ -46,9 +49,10 @@ class AssistantAttachmentRegressions(AssistantConversationRegressions):
                 old={'id':'turn-'+str(len(self.turns[cid])+1),'sequence':len(self.turns[cid])+1,'content':body['message'],
                     'request_id':body['client_request_id'],'request':body['client_request_id'],'run_id':'run-'+cid,
                     'agent_name':'制度助手','sources':[], 'attachments':[{
-                        'file_id':fid,'original_filename':self.uploads[fid]['original_filename'],'mime':self.uploads[fid]['mime'],'size':self.uploads[fid]['size']
+                        'file_id':fid,'original_filename':self.uploads[fid]['original_filename'],'mime':self.uploads[fid]['mime'],'size':self.uploads[fid]['size'],'parse_warning':self.parse_warning
                     } for fid in body.get('file_ids',[])]}
                 self.turns[cid].append(old);session['version']+=1
+                session['title']=body['message']
             if self.fail_submit:
                 self.fail_submit=False
                 return await route.abort('failed')
@@ -68,7 +72,14 @@ class AssistantAttachmentRegressions(AssistantConversationRegressions):
         self.assertEqual(self.submissions[0]['file_ids'],['file-1'])
         self.assertEqual(self.submissions[0]['message'],'请分析附件。')
         await file.click()
-        await expect(self.page.get_by_role('dialog')).to_contain_text('Revenue,42')
+        await expect(self.page.get_by_role('region', name='预览 table.csv', exact=True)).to_contain_text('Revenue,42')
+
+    async def test_partial_pdf_warning_is_visible_after_sending(self):
+        self.parse_warning='第 1 页为图片页，未识别其中内容；已提取 304 页可读正文。'
+        await self.open_chat();await self.attach(name='book.pdf')
+        await self.page.get_by_role('button',name='发送',exact=True).click()
+        await expect(self.page.locator('.attachment-parse-warnings')).to_contain_text(self.parse_warning)
+        await expect(self.page.locator('.attachment-parse-warnings')).to_contain_text('book.pdf')
 
     async def test_lost_admission_refresh_reuses_file_ids_without_upload(self):
         self.fail_submit=True
@@ -86,8 +97,10 @@ class AssistantAttachmentRegressions(AssistantConversationRegressions):
         image=b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZxQAAAAASUVORK5CYII=')
         await self.attach(name='pixel.png',content=image)
         await self.page.get_by_role('button',name='发送',exact=True).click()
-        await self.page.get_by_role('button',name='查看附件：pixel.png',exact=True).click()
-        picture=self.page.get_by_role('dialog').locator('img')
+        card=self.page.get_by_role('button',name='查看附件：pixel.png',exact=True)
+        await expect(card.get_by_role('img',name='pixel.png')).to_have_js_property('naturalWidth',1)
+        await card.click()
+        picture=self.page.get_by_role('region',name='预览 pixel.png',exact=True).locator('img')
         await expect(picture).to_be_visible()
         await expect(picture).to_have_js_property('naturalWidth',1)
 

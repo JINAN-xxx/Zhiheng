@@ -14,9 +14,7 @@ after(() => {
 })
 const { restoreIdentity, clearIdentity } = await import('../../src/modules/identity/public.ts')
 const { useModelAccess } = await import('../../src/modules/models/composables/useModelAccess.ts')
-const { useModelConnectionTest } = await import(
-  '../../src/modules/models/composables/useModelConnectionTest.ts'
-)
+const { useModelTrial } = await import('../../src/modules/models/composables/useModelTrial.ts')
 const model = (id: string): ChatModel => ({
   id,
   name: id,
@@ -50,7 +48,7 @@ class Fixture {
           is_admin: false,
           permissions: this.permissions
         })
-      if (url.pathname.endsWith('/test')) {
+      if (url.pathname.endsWith('/trial')) {
         assert.ok(typeof init?.body === 'string')
         const body = JSON.parse(init.body) as { client_request_id: string }
         const id = url.pathname.split('/')[3]!
@@ -80,8 +78,22 @@ class Fixture {
     t.mock.method(message, 'success', () => undefined)
     t.mock.method(message, 'error', () => undefined)
     t.mock.method(message, 'info', () => undefined)
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+    const saved = new Map<string, string>()
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => saved.get(key) ?? null,
+        setItem: (key: string, content: string) => saved.set(key, content),
+        removeItem: (key: string) => saved.delete(key)
+      }
+    })
+    t.after(() => {
+      if (originalStorage) Object.defineProperty(globalThis, 'sessionStorage', originalStorage)
+      else Reflect.deleteProperty(globalThis, 'sessionStorage')
+    })
     await restoreIdentity(true)
-    let state!: ReturnType<typeof useModelConnectionTest>
+    let state!: ReturnType<typeof useModelTrial>
     const renderer = createRenderer({
       patchProp() {},
       insert() {},
@@ -96,12 +108,18 @@ class Fixture {
     })
     const app = renderer.createApp({
       setup() {
-        state = useModelConnectionTest({
-          access: useModelAccess(),
-          pending: {},
-          failures: {},
-          connectionDisabled: () => false
-        })
+        const access = useModelAccess()
+        state = useModelTrial(
+          {
+            models: [model('A'), model('B')],
+            get canTest() {
+              return access.canTestModels.value
+            },
+            pending: {},
+            connectionIssues: {}
+          },
+          { refresh: () => undefined, denied: access.denyTrialAccess }
+        )
         return () => null
       }
     })
@@ -117,7 +135,13 @@ class Fixture {
       this.unmount()
       clearIdentity()
     })
-    return state
+    return {
+      async testModel(value: ChatModel, correctedPrompt?: string) {
+        if (!state.open(value)) return
+        if (correctedPrompt) state.prompt.value = correctedPrompt
+        await state.submit()
+      }
+    }
   }
 }
 
@@ -178,7 +202,7 @@ void test('a definitive connection test rejection releases the intent for a corr
   )
   const state = await fixture.mount(t)
   await state.testModel(model('A'))
-  await state.testModel(model('A'))
+  await state.testModel(model('A'), 'Corrected input.')
   assert.equal(fixture.calls.length, 2)
   assert.notEqual(fixture.calls[0]?.requestId, fixture.calls[1]?.requestId)
 })

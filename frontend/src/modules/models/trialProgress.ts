@@ -17,7 +17,7 @@ export function trialPayload(
 ): ModelTrialPayload {
   const value = prompt.trim()
   if (!value || [...value].length > 4000 || value.includes('\0'))
-    throw new Error('请输入 1 至 4000 个字符的试用内容')
+    throw new Error('请输入 1 至 4000 个字符的测试内容')
   const rows =
     type === 'rerank'
       ? documents

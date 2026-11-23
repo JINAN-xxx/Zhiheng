@@ -1,5 +1,6 @@
 """Explicit instance settings; legacy environment files are never discovered."""
 
+from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     session_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
     allowed_origins: tuple[str, ...] = ()
+    trusted_login_proxy_ips: frozenset[str] = frozenset()
     resource_rpm_limit: int = Field(default=120, ge=1, le=120)
     knowledge_rerank_batch_tokens: int = Field(default=48000, ge=1, le=48000)
     chat_context_input_tokens: int | None = Field(default=None, ge=256, le=2097152)
@@ -71,6 +73,14 @@ class Settings(BaseSettings):
     def model_transport_seconds(self) -> float:
         # The native executor owns stage deadlines; the socket watchdog is a backstop.
         return max(self.model_first_response_seconds, self.model_idle_seconds) + 5
+
+    @field_validator('trusted_login_proxy_ips')
+    @classmethod
+    def validate_trusted_login_proxy_ips(cls, proxies: frozenset[str]) -> frozenset[str]:
+        addresses = [ip_address(value) for value in proxies]
+        if any(address.is_unspecified or address.is_multicast or '%' in str(address) for address in addresses):
+            raise ValueError('Specify individual trusted proxy IP addresses')
+        return frozenset(str(address) for address in addresses)
 
     @field_validator('sandbox_url')
     @classmethod

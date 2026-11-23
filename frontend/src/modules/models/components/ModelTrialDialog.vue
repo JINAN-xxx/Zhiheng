@@ -46,16 +46,16 @@ const status = computed(() => {
   if (!run.value) return uncertain.value ? '待确认提交' : '尚未开始'
   return {
     pending: '等待执行',
-    running: '正在试用',
+    running: '正在测试',
     cancel_requested: '正在停止',
-    completed: '试用完成',
-    failed: '试用失败',
+    completed: '测试完成',
+    failed: '测试失败',
     cancelled: '已停止',
-    interrupted: '试用中断'
+    interrupted: '测试中断'
   }[run.value.status]
 })
 const primaryText = computed(() =>
-  uncertain.value ? '确认原提交' : active.value ? '继续查看' : '开始试用'
+  uncertain.value ? '确认原提交' : active.value ? '继续查看' : '开始测试'
 )
 const embeddingDimension = computed(() => {
   const data = run.value?.result?.data
@@ -101,7 +101,7 @@ defineExpose({ open })
     @cancel="close"
   >
     <template #title
-      ><span class="trial-title">{{ '模型试用 · ' + (model?.name ?? '') }}</span></template
+      ><span class="trial-title">{{ '测试模型 · ' + (model?.name ?? '') }}</span></template
     >
     <template v-if="model">
       <AAlert
@@ -113,14 +113,8 @@ defineExpose({ open })
       />
       <AAlert v-if="error" type="error" show-icon :message="error" class="trial-notice" />
       <AForm layout="vertical" :disabled="working || pendingResult || unavailable">
-        <AFormItem :label="model.model_type === 'embedding' ? '测试文本' : '试用问题'" required>
-          <ATextarea
-            v-model:value="prompt"
-            aria-label="试用内容"
-            :rows="3"
-            :maxlength="4000"
-            placeholder="输入想要试用的内容，每次试用独立处理"
-          />
+        <AFormItem :label="model.model_type === 'embedding' ? '测试文本' : '测试输入'" required>
+          <ATextarea v-model:value="prompt" aria-label="测试内容" :rows="3" :maxlength="4000" />
         </AFormItem>
         <AFormItem v-if="model.model_type === 'rerank'" label="候选资料" required>
           <ATextarea
@@ -132,10 +126,10 @@ defineExpose({ open })
         </AFormItem>
       </AForm>
       <div class="trial-result-header">
-        <strong>试用结果</strong><ATag>{{ status }}</ATag>
+        <strong>测试结果</strong><ATag>{{ status }}</ATag>
       </div>
       <div class="trial-result" aria-live="polite">
-        <p v-if="!run">输入内容后点击“开始试用”，会产生模型用量并沿用当前计费规则。</p>
+        <p v-if="!run">测试用量按模型当前费率计费。</p>
         <template v-else>
           <AAlert v-if="run.error" type="error" show-icon :message="run.error.message" />
           <pre v-if="run.text" class="trial-answer">{{ run.text }}</pre>
@@ -170,11 +164,11 @@ defineExpose({ open })
         :loading="stopping"
         :disabled="run?.status === 'cancel_requested'"
         @click="stop"
-        >停止试用</AButton
+        >停止测试</AButton
       >
       <AButton
         type="primary"
-        aria-label="提交试用"
+        aria-label="提交测试"
         :loading="submitting || observing"
         :disabled="working || (unavailable && !recoverable)"
         @click="submit"

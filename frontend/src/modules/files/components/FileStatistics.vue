@@ -1,231 +1,165 @@
-<!-- Adapted from original FileStatistics, MIT licensed. -->
+<script setup lang="ts">
+import { computed } from 'vue'
+import { formatFileSize } from '../presentation.ts'
+import type { FileStats } from '../api/index.ts'
+
+const props = withDefaults(defineProps<{ stats: FileStats | null; loading?: boolean }>(), {
+  loading: false
+})
+const cards = computed(() => {
+  const stats = props.stats
+  return [
+    {
+      key: 'files',
+      label: '文件数量',
+      value: stats?.totalCount.toLocaleString() ?? '—',
+      unit: stats ? '个文件' : '',
+      details: stats ? [`正常 ${stats.activeCount}`, `回收站 ${stats.deletedCount}`] : [],
+      warning: false
+    },
+    {
+      key: 'space',
+      label: '占用空间',
+      value: stats ? formatFileSize(stats.totalSize) : '—',
+      unit: '',
+      details: stats
+        ? [
+            `公开 ${formatFileSize(stats.publicSize)}`,
+            `受保护 ${formatFileSize(stats.privateSize)}`
+          ]
+        : [],
+      warning: false
+    },
+    {
+      key: 'expiry',
+      label: '已过期文件',
+      value: stats?.expiredCount.toLocaleString() ?? '—',
+      unit: stats ? '个文件' : '',
+      details: stats ? [`7 天内到期 ${stats.retentionExpiringCount}`] : [],
+      warning: !!stats?.expiredCount
+    },
+    {
+      key: 'grants',
+      label: '临期授权',
+      value: stats?.aclExpiringCount.toLocaleString() ?? '—',
+      unit: stats ? '项' : '',
+      details: stats ? ['7 天内到期的授权项'] : [],
+      warning: !!stats?.aclExpiringCount
+    }
+  ]
+})
+</script>
+
 <template>
-  <section class="file-statistics">
-    <div class="file-statistics-header">
-      <div>
-        <h2 class="file-statistics-title">文件概览</h2>
-        <div class="file-statistics-tip">统计数据随当前查询条件实时更新</div>
-      </div>
-    </div>
+  <section class="file-statistics" role="region" aria-label="当前查询概览" :aria-busy="loading">
+    <header class="file-statistics-header">
+      <h2>文件概览</h2>
+      <span role="status">{{ loading ? '正在更新…' : '随当前筛选条件更新' }}</span>
+    </header>
     <div class="file-statistics-content">
-      <div class="file-stat-item stat-primary">
-        <div class="file-stat-main">
-          <a-statistic title="文件总数" :value="stats.totalCount" />
-          <div class="file-stat-icon"><FileOutlined /></div>
-        </div>
+      <article
+        v-for="card in cards"
+        :key="card.key"
+        class="file-stat-item"
+        :class="{ 'has-warning': card.warning }"
+        role="group"
+        :aria-label="card.label"
+      >
+        <span class="file-stat-label">{{ card.label }}</span>
+        <strong class="file-stat-value" :title="card.value">
+          {{ card.value }}<span v-if="card.unit" class="file-stat-unit">{{ ' ' + card.unit }}</span>
+        </strong>
         <div class="file-stat-extra">
-          <span>正常 {{ stats.activeCount }}</span>
-          <span>回收站 {{ stats.deletedCount }}</span>
+          <span v-for="detail in card.details" :key="detail">{{ detail }}</span>
         </div>
-      </div>
-
-      <div class="file-stat-item stat-purple">
-        <div class="file-stat-main">
-          <a-statistic title="占用空间" :value="formatFileSize(stats.totalSize)" />
-          <div class="file-stat-icon"><BarChartOutlined /></div>
-        </div>
-        <div class="file-stat-extra">
-          <span>当前查询累计占用</span>
-        </div>
-      </div>
-
-      <div class="file-stat-item stat-green">
-        <div class="file-stat-main">
-          <a-statistic title="公开文件空间" :value="formatFileSize(stats.publicSize)" />
-          <div class="file-stat-icon"><FolderOpenOutlined /></div>
-        </div>
-        <div class="file-stat-extra">
-          <span>占总空间 {{ formatPercentage(stats.publicSize) }}</span>
-        </div>
-      </div>
-
-      <div class="file-stat-item stat-orange">
-        <div class="file-stat-main">
-          <a-statistic title="受保护文件空间" :value="formatFileSize(stats.privateSize)" />
-          <div class="file-stat-icon"><LockOutlined /></div>
-        </div>
-        <div class="file-stat-extra">
-          <span>占总空间 {{ formatPercentage(stats.privateSize) }}</span>
-        </div>
-      </div>
-
-      <div class="file-stat-item stat-red">
-        <div class="file-stat-main">
-          <a-statistic title="已过期文件" :value="stats.expiredCount" />
-          <div class="file-stat-icon"><ClockCircleOutlined /></div>
-        </div>
-        <div class="file-stat-extra">
-          <span>7天内到期 {{ stats.retentionExpiringCount }}</span>
-        </div>
-      </div>
-
-      <div class="file-stat-item stat-cyan">
-        <div class="file-stat-main">
-          <a-statistic title="即将过期授权" :value="stats.aclExpiringCount" />
-          <div class="file-stat-icon"><KeyOutlined /></div>
-        </div>
-        <div class="file-stat-extra">
-          <span>7天内失效的 ACL 项</span>
-        </div>
-      </div>
+      </article>
     </div>
   </section>
 </template>
 
-<script setup lang="ts">
-import { Statistic as AStatistic } from 'ant-design-vue'
-import {
-  BarChartOutlined,
-  ClockCircleOutlined,
-  FileOutlined,
-  FolderOpenOutlined,
-  KeyOutlined,
-  LockOutlined
-} from '@ant-design/icons-vue'
-import { formatFileSize } from '../presentation.ts'
-import type { FileStats } from '../api/index.ts'
-const props = defineProps<{ stats: FileStats }>()
-function formatPercentage(size: number): string {
-  if (!props.stats.totalSize) return '0%'
-  const percentage = (size / props.stats.totalSize) * 100
-  return `${percentage >= 10 ? percentage.toFixed(0) : percentage.toFixed(1)}%`
-}
-</script>
-
 <style scoped>
 .file-statistics {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
-
 .file-statistics-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 10px;
 }
-
-.file-statistics-title {
+.file-statistics-header h2 {
   margin: 0;
   color: var(--workspace-text);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 22px;
+  font-size: var(--workspace-font-size-body);
+  font-weight: var(--workspace-font-weight-medium);
 }
-
-.file-statistics-tip {
-  margin-top: 2px;
+.file-statistics-header > span {
   color: var(--workspace-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--workspace-font-size-caption);
 }
-
 .file-statistics-content {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
-
 .file-stat-item {
-  --stat-color: var(--workspace-main);
-  position: relative;
   min-width: 0;
-  min-height: 124px;
-  padding: 16px;
+  padding: 12px 16px;
   background: var(--workspace-surface);
   border: 1px solid var(--workspace-border);
-  border-radius: 8px;
+  border-radius: var(--workspace-radius-md);
 }
-
-.file-stat-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.file-stat-title {
+.file-stat-label {
   color: var(--workspace-text-secondary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--workspace-font-size-caption);
 }
-.file-stat-item :deep(.ant-statistic-title) {
-  color: var(--workspace-text-secondary);
-  font-size: 13px;
-}
-.file-stat-item :deep(.ant-statistic-content) {
-  color: var(--workspace-text);
-  font-size: 23px;
-  font-weight: 500;
-}
-
 .file-stat-value {
-  margin-top: 5px;
+  display: block;
+  min-width: 0;
+  margin-top: 3px;
+  overflow: hidden;
   color: var(--workspace-text);
-  font-size: 23px;
-  font-weight: 500;
+  font-size: var(--workspace-font-size-title);
+  font-weight: var(--workspace-font-weight-medium);
+  line-height: 1.4;
   font-variant-numeric: tabular-nums;
-  line-height: 32px;
-  flex-wrap: wrap;
-}
-
-.file-stat-icon {
-  display: flex;
-  flex: 0 0 30px;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  color: var(--stat-color);
-  font-size: 16px;
-  background-color: color-mix(in srgb, var(--stat-color) 12%, transparent);
-  border-radius: 7px;
-}
-
-.file-stat-extra {
-  display: flex;
-  gap: 12px;
-  margin-top: 12px;
-  color: var(--workspace-text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.stat-purple {
-  --stat-color: #7c5ce7;
+.file-stat-unit {
+  color: var(--workspace-text-secondary);
+  font-size: var(--workspace-font-size-caption);
+  font-weight: var(--workspace-font-weight-regular);
 }
-
-.stat-green {
-  --stat-color: #20a162;
+.file-stat-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-height: 18px;
+  margin-top: 5px;
+  color: var(--workspace-text-secondary);
+  font-size: var(--workspace-font-size-caption);
+  line-height: 18px;
 }
-
-.stat-orange {
-  --stat-color: #e58a17;
+.has-warning .file-stat-value {
+  color: var(--workspace-warning);
 }
-
-.stat-red {
-  --stat-color: #e45656;
-}
-
-.stat-cyan {
-  --stat-color: #168d9c;
-}
-
-@media (max-width: 1280px) {
-  .file-statistics-content {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .file-statistics-content {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
 @media (max-width: 560px) {
   .file-statistics-content {
-    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .file-stat-item {
+    padding: 10px 12px;
+  }
+  .file-statistics-header > span,
+  .file-stat-extra {
+    font-size: 11px;
   }
 }
 </style>

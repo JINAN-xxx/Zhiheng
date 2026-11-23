@@ -55,6 +55,44 @@ async def test_catalog_validation_precedes_save_and_supports_large_output_values
     assert AgentConfig(name='Large output agent', model_id=model_id, max_tokens=262144).max_tokens == 262144
 
 
+async def test_unique_case_insensitive_match_is_saved_and_used_in_bindings(
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = ['qwen/qwen3.7-max', 'qwen/qwen3.7-max']
+    response = await admin.post('/api/models', json={**body, 'upstream_model': 'Qwen/Qwen3.7-Max'})
+    assert response.status_code == 201, response.text
+    model_id = response.json()['id']
+    assert response.json()['upstream_model'] == 'qwen/qwen3.7-max'
+    assert response.json()['name'] == body['name']
+
+    provider.catalog_models = ['provider/Replacement']
+    response = await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'PROVIDER/REPLACEMENT'})
+    assert response.status_code == 200, response.text
+    assert response.json()['upstream_model'] == 'provider/Replacement'
+    async with app.state.container.database.sessions() as session:
+        binding = await app.state.container.models.bindings.resolve(session, UUID(model_id))
+        assert binding.upstream_model == 'provider/Replacement'
+    assert provider.requests == []
+
+
+async def test_exact_model_id_takes_priority_and_ambiguous_case_is_rejected(
+    admin: httpx.AsyncClient, provider: ProviderServer
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = ['Provider/Model', 'provider/model']
+    response = await admin.post('/api/models', json={**body, 'upstream_model': 'Provider/Model'})
+    assert response.status_code == 201, response.text
+    saved = response.json()
+    assert saved['upstream_model'] == 'Provider/Model'
+    response = await admin.patch(f'/api/models/{saved["id"]}', json={'upstream_model': 'PROVIDER/MODEL'})
+    assert response.status_code == 422, response.text
+    assert response.json()['error']['code'] == 'model_validation_ambiguous'
+    assert provider.requests == []
+    current = (await admin.get('/api/models?include_disabled=true')).json()
+    assert current == [saved]
+
+
 @pytest.mark.parametrize('status', [401, 403, 429, 500])
 async def test_failed_provider_validation_never_creates_a_model(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, status: int
@@ -64,6 +102,7 @@ async def test_failed_provider_validation_never_creates_a_model(
     response = await admin.post('/api/models', json=body)
     assert response.status_code in {422, 429, 502}, response.text
     assert 'private-provider-details' not in response.text and 'fixture-only-key' not in response.text
+    assert provider.requests == []
     async with app.state.container.database.sessions() as session:
         assert list(await session.scalars(select(ModelDefinition))) == []
 
@@ -73,6 +112,7 @@ async def test_unknown_model_is_rejected_and_failed_edit_preserves_original(
 ) -> None:
     body = await configuration(admin, provider)
     provider.catalog_models = []
+    provider.chat_models = []
     response = await admin.post('/api/models', json=body)
     assert response.status_code == 422 and response.json()['error']['code'] == 'model_validation_not_found'
     provider.catalog_models = [str(body['upstream_model'])]
@@ -85,6 +125,34 @@ async def test_unknown_model_is_rejected_and_failed_edit_preserves_original(
         row for row in (await admin.get('/api/models?include_disabled=true')).json() if row['id'] == model_id
     )
     assert current == saved.json()
+
+
+async def test_saving_chat_model_missing_from_catalog_uses_one_bounded_trial(
+    admin: httpx.AsyncClient, provider: ProviderServer
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = ['another-model']
+    provider.chat_models = ['glm-5.3']
+    response = await admin.post('/api/models', json={**body, 'upstream_model': 'glm-5.3'})
+    assert response.status_code == 201, response.text
+    assert response.json()['upstream_model'] == 'glm-5.3'
+    assert response.json()['max_output_tokens'] == body['max_output_tokens']
+    assert len(provider.catalog_requests) == len(provider.requests) == 1
+    assert provider.requests[0]['model'] == 'glm-5.3'
+    assert provider.requests[0]['max_completion_tokens'] == 512
+    assert provider.requests[0]['messages'] == [{'role': 'user', 'content': 'Reply with OK only.'}]
+
+
+async def test_unfinished_save_trial_leaves_catalog_unchanged(
+    admin: httpx.AsyncClient, provider: ProviderServer
+) -> None:
+    body = await configuration(admin, provider)
+    provider.catalog_models = []
+    response = await admin.post('/api/models', json={**body, 'upstream_model': 'truncated'})
+    assert response.status_code == 502, response.text
+    assert response.json()['error']['code'] == 'model_validation_probe_failed'
+    assert len(provider.requests) == 1
+    assert (await admin.get('/api/models?include_disabled=true')).json() == []
 
 
 async def test_rotation_during_provider_check_does_not_hold_sql_locks_or_save_stale_credentials(

@@ -37,14 +37,36 @@ def _status(status: int) -> None:
         raise AppError('model_validation_unavailable', '无法读取服务商模型信息，请检查 API 地址和服务状态', 502)
 
 
-async def validate_catalog(*, base_url: str, api_key: str, model: str, timeout_seconds: float) -> None:
+def _resolve_model(requested: str, entries: list[object]) -> str:
+    matches: set[str] = set()
+    expected = requested.casefold()
+    for entry in entries:
+        identifier = entry.get('id') if isinstance(entry, dict) else None
+        if not isinstance(identifier, str):
+            continue
+        if identifier == requested:
+            return identifier
+        if identifier.casefold() == expected:
+            matches.add(identifier)
+    if len(matches) == 1:
+        return matches.pop()
+    if matches:
+        raise AppError(
+            'model_validation_ambiguous',
+            '服务商目录中有多个仅大小写不同的模型，请填写准确的上游模型标识',
+            422,
+        )
+    raise AppError('model_validation_not_found', '服务商未提供该模型或当前密钥无权使用，请核对上游模型标识', 422)
+
+
+async def validate_catalog(*, base_url: str, api_key: str, model: str, timeout_seconds: float) -> str:
     headers = {
         'Authorization': 'Bearer ' + api_key,
         'Accept': 'application/json',
         'User-Agent': 'zhiheng-platform/0.1.0',
     }
 
-    async def check() -> None:
+    async def check() -> str:
         async with httpx.AsyncClient(
             headers=headers, trust_env=False, follow_redirects=False, timeout=timeout_seconds
         ) as client:
@@ -53,19 +75,14 @@ async def validate_catalog(*, base_url: str, api_key: str, model: str, timeout_s
             if status in {HTTPStatus.NOT_FOUND, HTTPStatus.METHOD_NOT_ALLOWED}:
                 status, body = await _read(client, root + '/models/' + quote(model, safe=''))
                 _status(status)
-                available = isinstance(body, dict) and body.get('id') == model
-            else:
-                _status(status)
-                if not isinstance(body, dict) or not isinstance(body.get('data'), list):
-                    raise AppError('model_validation_response', '服务商模型目录格式无效，请检查 API 地址', 502)
-                available = any(isinstance(row, dict) and row.get('id') == model for row in body['data'])
-            if not available:
-                raise AppError(
-                    'model_validation_not_found', '服务商未提供该模型或当前密钥无权使用，请核对上游模型标识', 422
-                )
+                return _resolve_model(model, [body])
+            _status(status)
+            if not isinstance(body, dict) or not isinstance(body.get('data'), list):
+                raise AppError('model_validation_response', '服务商模型目录格式无效，请检查 API 地址', 502)
+            return _resolve_model(model, body['data'])
 
     try:
-        await asyncio.wait_for(check(), timeout=min(CHECK_TIMEOUT_SECONDS, timeout_seconds))
+        return await asyncio.wait_for(check(), timeout=min(CHECK_TIMEOUT_SECONDS, timeout_seconds))
     except (asyncio.TimeoutError, httpx.TimeoutException) as error:
         raise AppError('model_validation_timeout', '服务商连接校验超时，请检查 API 地址后重试', 504) from error
     except httpx.HTTPError as error:

@@ -12,7 +12,6 @@ import {
   Tooltip as ATooltip
 } from 'ant-design-vue'
 import {
-  BarChartOutlined,
   BellOutlined,
   DeleteFilled,
   DeleteOutlined,
@@ -38,7 +37,7 @@ import {
   listFiles
 } from '../api/index.ts'
 import type { FileStats, FileUser, ManagedFile } from '../api/index.ts'
-import { formatFileSize, isoDateTime, saveBlob } from '../presentation.ts'
+import { isoDateTime, saveBlob } from '../presentation.ts'
 import FileAclDrawer from '../components/FileAclDrawer.vue'
 import FileAuditDrawer from '../components/FileAuditDrawer.vue'
 import FileDetailDialog from '../components/FileDetailDialog.vue'
@@ -57,7 +56,6 @@ interface StorageReadState {
   query: ReturnType<typeof emptyQuery>
   dates: [string, string] | null
   showSearch: boolean
-  showStatistics: boolean
   files: ManagedFile[]
   stats: FileStats | null
   users: FileUser[]
@@ -70,8 +68,7 @@ const savedStorage = readCache?.getResource<StorageReadState>('storage-view')
 const saved = savedStorage?.value
 const queryParams = ref(saved?.query ?? emptyQuery()),
   dateRange = ref<[string, string] | null>(saved?.dates ?? null),
-  showSearch = ref(saved?.showSearch ?? false),
-  showStatistics = ref(saved?.showStatistics ?? false)
+  showSearch = ref(saved?.showSearch ?? false)
 const files = ref<ManagedFile[]>(saved?.hasData ? saved.files : []),
   stats = ref<FileStats | null>(saved?.hasData ? saved.stats : null),
   users = ref<FileUser[]>(saved?.users ?? []),
@@ -125,7 +122,6 @@ function rememberStorage(): void {
       query: queryParams.value,
       dates: dateRange.value,
       showSearch: showSearch.value,
-      showStatistics: showStatistics.value,
       files: valid ? files.value : [],
       stats: valid ? stats.value : null,
       users: users.value,
@@ -316,13 +312,6 @@ onBeforeUnmount(() => {
         <template #overlay>
           <a-menu>
             <a-menu-item
-              key="statistics"
-              aria-label="详细统计"
-              @click="showStatistics = !showStatistics"
-            >
-              <BarChartOutlined />详细统计
-            </a-menu-item>
-            <a-menu-item
               v-if="canReadStorage"
               key="policy"
               aria-label="保留策略"
@@ -336,10 +325,10 @@ onBeforeUnmount(() => {
             <a-menu-item
               v-if="canReadStorage"
               key="reconcile"
-              aria-label="存储对账"
+              aria-label="存储检查"
               @click="reconcile?.open()"
             >
-              <PartitionOutlined />存储对账
+              <PartitionOutlined />存储检查
             </a-menu-item>
           </a-menu>
         </template>
@@ -353,14 +342,11 @@ onBeforeUnmount(() => {
       class="mb8"
       @close="notice = ''"
     />
-    <FileStatistics v-if="showStatistics && stats" :stats="stats" />
+    <FileStatistics v-if="stats || loading" :stats="stats" :loading="loading" />
     <section class="file-resources" aria-label="文件资源">
       <div class="file-resources__heading">
         <div class="file-resources__overview">
           <h2>{{ queryParams.status === 'deleted' ? '回收站' : '可访问文件' }}</h2>
-          <div v-if="stats" role="region" aria-label="当前查询概览" class="file-summary">
-            当前查询 {{ total }} 个文件 · {{ formatFileSize(stats.totalSize) }}
-          </div>
         </div>
         <div class="file-resources__tools">
           <a-tooltip title="展开更多筛选条件"
@@ -563,11 +549,6 @@ onBeforeUnmount(() => {
 }
 .file-resources__overview {
   min-width: 0;
-}
-.file-summary {
-  margin-top: 5px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
 }
 .file-view-tabs {
   display: flex;

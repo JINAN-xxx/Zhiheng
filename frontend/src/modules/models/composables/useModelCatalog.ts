@@ -195,7 +195,7 @@ export function useModelCatalog(
       errorDetails.value = undefined
     }
   }
-  function confirmOperation(title: string): Promise<boolean> {
+  function confirmOperation(title: string, destructive = false): Promise<boolean> {
     confirmationOpen.value = true
     return new Promise((resolve) => {
       const finish = (accepted: boolean) => {
@@ -205,7 +205,8 @@ export function useModelCatalog(
       }
       const dialog = Modal.confirm({
         title,
-        okText: '确定',
+        okText: destructive ? '删除模型' : '确定',
+        okButtonProps: { danger: destructive },
         cancelText: '取消',
         onOk: () => finish(true),
         onCancel: () => finish(false)
@@ -247,7 +248,32 @@ export function useModelCatalog(
         return
       error.value = ''
       errorDetails.value = undefined
-      const updated = await controlModel(id, action, context.signal)
+      let updated: ChatModel | undefined
+      try {
+        updated = await controlModel(id, action, context.signal)
+      } catch (reason) {
+        if (
+          action !== 'delete' ||
+          !context.isCurrent() ||
+          !access.authority.value?.is_admin ||
+          !(reason instanceof ApiError) ||
+          reason.code !== 'model_referenced' ||
+          !reason.details ||
+          typeof reason.details !== 'object' ||
+          !('retirable_key_count' in reason.details)
+        )
+          throw reason
+        const count = reason.details.retirable_key_count
+        if (typeof count !== 'number' || !Number.isSafeInteger(count) || count <= 0) throw reason
+        const accepted = await confirmOperation(
+          `删除「${model.name}」？${count} 把 API 密钥将无法调用此模型，其他授权和历史记录仍会保留。`,
+          true
+        )
+        if (!accepted) throw reason
+        if (!context.isCurrent() || !canDeleteModels.value || !access.authority.value?.is_admin)
+          return
+        await controlModel(id, 'delete', context.signal, true)
+      }
       if (!context.isCurrent()) return
       const interrupted = loading.value
       scope.replace()

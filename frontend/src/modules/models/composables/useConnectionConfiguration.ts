@@ -1,4 +1,4 @@
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { createConnection, updateConnection } from '../api/index.ts'
 import type { ModelConnection } from '../api/index.ts'
@@ -13,6 +13,12 @@ export function useConnectionConfiguration(options: ConnectionConfigurationOptio
   const connectionOpen = ref(false)
   const editingConnection = ref<ModelConnection | null>(null)
   const connectionForm = reactive({ name: '', base_url: '', api_key: '' })
+  const requiresKey = computed(
+    () =>
+      !editingConnection.value ||
+      connectionForm.base_url.trim().replace(/\/+$/, '') !==
+        editingConnection.value.base_url.replace(/\/+$/, '')
+  )
   const saving = ref(false)
   const modalError = ref('')
   const mutationScope = new RequestScope()
@@ -43,12 +49,12 @@ export function useConnectionConfiguration(options: ConnectionConfigurationOptio
     )
       return
     const editing = editingConnection.value
-    if (
-      !connectionForm.name.trim() ||
-      !connectionForm.base_url.trim() ||
-      (!editing && !connectionForm.api_key)
-    ) {
-      modalError.value = '请填写连接名称、API 地址和密钥'
+    if (!connectionForm.name.trim() || !connectionForm.base_url.trim()) {
+      modalError.value = '请填写连接名称和 API 地址'
+      return
+    }
+    if (requiresKey.value && !connectionForm.api_key.trim()) {
+      modalError.value = editing ? '更改 API 地址时，请输入新 API Key' : '请输入 API Key'
       return
     }
     const context = mutationScope.replace()
@@ -102,6 +108,7 @@ export function useConnectionConfiguration(options: ConnectionConfigurationOptio
     connectionOpen,
     editingConnection,
     connectionForm,
+    requiresKey,
     saving,
     modalError,
     openConnection,

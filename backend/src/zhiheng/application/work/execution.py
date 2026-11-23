@@ -492,6 +492,8 @@ class WorkAgentExecutor:
                 progress.text = result.text
             if result.error and result.error.code in MODEL_TIMEOUT_CODES:
                 raise AppError(result.error.code, result.error.message, 504)
+            if result.error and result.error.code == 'provider_tool_unavailable':
+                raise AppError(result.error.code, result.error.message, 502)
             raise AppError(
                 'work_model_failed', result.error.message if result.error else '模型调用未完成，已有步骤保留', 502
             )

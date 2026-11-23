@@ -1,3 +1,5 @@
+export { formatFileSize, saveBlob } from '../../shared/messageFiles.ts'
+
 import type { FileStatus, StorageStatus, ManagedFile } from './api/index.ts'
 export function fileSourceLabel(file: Pick<ManagedFile, 'purpose' | 'sourceFileId'>): string {
   if (file.sourceFileId) return '派生文件'
@@ -43,12 +45,6 @@ export function fileTypeLabel(filename: string, mime: string): string {
     commonFileTypeOptions.find((option) => option.value !== '' && option.value === mime)?.label ??
     '文件'
   )
-}
-export function formatFileSize(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`
-  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(2)} MB`
-  return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 export function formatTime(value: string | null | undefined): string {
   if (!value || Number.isNaN(new Date(value).getTime())) return '-'
@@ -105,21 +101,13 @@ const actionLabels: Record<string, string> = {
   deleted: '移入回收站',
   restored: '恢复',
   purged: '永久清理',
-  reconcile: '存储对账',
+  reconcile: '存储检查',
   expiry_extended: '保留延期',
   expired_references_released: '到期处置',
   references_released: '解除业务引用',
   parsed: '原生解析'
 }
 export const actionLabel = (value: string): string => actionLabels[value] ?? value
-export function saveBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob),
-    anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 export function localDateTime(value: string | null): string | undefined {
   if (!value) return undefined
   const date = new Date(value)

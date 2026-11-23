@@ -54,7 +54,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
             return await route.fulfill(json=[{'id': 'connection-1', 'name': '团队服务',
                 'provider': 'openai_compatible', 'base_url': 'https://provider.example/v1',
                 'has_api_key': True, 'enabled': self.connection_enabled}])
-        if path.startswith('/api/models/') and path.endswith('/test'):
+        if path.startswith('/api/models/') and path.endswith('/trial'):
             return await route.fulfill(status=201, json={'id': 'test-run',
                 'resource_type': 'connection_test', 'resource_id': path.split('/')[3],
                 'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1,
@@ -156,15 +156,15 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
     async def test_card_has_one_primary_action_and_preserves_every_management_menu_entry(self):
         await self.open_models()
         item = self.page.locator('.model-item').first
-        for label in ['测试连接', '编辑模型', '费率配置', '复制模型代码', '更多模型操作']:
+        for label in ['测试模型', '编辑模型', '费率配置', '复制模型代码', '更多模型操作']:
             await expect(item.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(item.get_by_role('switch', name='启用模型“' + LONG_NAME + '”', exact=True)).to_be_checked()
         detail = await self.open_details(item)
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_be_enabled()
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_be_enabled()
         menu = await self.open_more(detail)
         for label in ['编辑模型', '费率配置', '删除模型']:
             await expect(menu.get_by_role('menuitem', name=label, exact=True)).to_be_visible()
-        for label in ['启用', '停用', '测试连接', '发布', '取消发布']:
+        for label in ['启用', '停用', '测试模型', '发布', '取消发布']:
             await expect(menu.get_by_role('menuitem', name=label, exact=True)).to_have_count(0)
         await self.save_evidence('model-more-actions.png')
         await menu.get_by_role('menuitem', name='编辑模型', exact=True).click()
@@ -174,13 +174,13 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await self.open_models()
         item = self.page.locator('.model-item').nth(2)
         detail = await self.open_details(item)
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_be_disabled()
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_be_disabled()
         toggle = detail.get_by_role('switch', name='启用模型“结果重排序”', exact=True)
         await expect(toggle).not_to_be_checked()
         await toggle.click()
         await expect(toggle).to_be_checked()
         await expect(detail).to_contain_text('已启用')
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_be_enabled()
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_be_enabled()
         await expect(detail).not_to_contain_text('发布状态')
         await expect(item).not_to_contain_text('未发布')
         menu = await self.open_more(detail)
@@ -196,12 +196,12 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(item).to_contain_text('连接已停用')
         detail = await self.open_details(item)
         await expect(detail).to_contain_text('连接已停用')
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_be_disabled()
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_be_disabled()
         await self.save_evidence('model-disabled-connection.png')
         await self.close_details()
         await self.page.set_viewport_size({'width': 390, 'height': 844})
         await self.page.locator('.model-table').get_by_role('button', name='更多操作', exact=True).first.click()
-        await expect(self.page.get_by_role('menuitem', name='测试连接', exact=True)).to_be_disabled()
+        await expect(self.page.get_by_role('menuitem', name='测试模型', exact=True)).to_be_disabled()
 
     async def test_tester_without_connection_read_permission_keeps_legitimate_test_access(self):
         self.permissions = ['platform:models:enabled', 'platform:models:read', 'platform:models:test']
@@ -212,16 +212,17 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(detail).not_to_contain_text('团队服务')
         await expect(detail.get_by_role('button', name='更多模型操作', exact=True)).to_have_count(0)
         await expect(detail.get_by_role('switch')).to_have_count(0)
-        await detail.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.ant-message-notice-content')).to_have_text('测试成功')
-        await expect(self.page.locator('.test-result')).to_have_count(0)
+        await detail.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        await test.get_by_role('button', name='提交测试', exact=True).click()
+        await expect(test).to_contain_text('测试完成')
         self.assertFalse(any(path == '/api/models/connections' for _, path, _ in self.requests))
 
     async def test_rate_reader_has_only_rate_menu_and_readonly_rate_dialog(self):
         self.permissions = ['ai:rates:enabled', 'ai:rates:read', 'platform:models:enabled', 'platform:models:read']
         await self.open_models()
         detail = await self.open_details(self.page.locator('.model-item').first)
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_have_count(0)
         await expect(detail.get_by_role('switch')).to_have_count(0)
         menu = await self.open_more(detail)
         await expect(menu.get_by_role('menuitem')).to_have_count(1)
@@ -234,7 +235,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         self.permissions = ['platform:models:config_read', 'platform:models:create', 'platform:models:delete', 'platform:models:enabled', 'platform:models:read', 'platform:models:toggle', 'platform:models:update']
         await self.open_models()
         detail = await self.open_details(self.page.locator('.model-item').first)
-        await expect(detail.get_by_role('button', name='测试连接', exact=True)).to_have_count(0)
+        await expect(detail.get_by_role('button', name='测试模型', exact=True)).to_have_count(0)
         menu = await self.open_more(detail)
         await expect(menu.get_by_role('menuitem', name='编辑模型', exact=True)).to_be_visible()
         await expect(menu.get_by_role('menuitem', name='费率配置', exact=True)).to_have_count(0)
@@ -246,7 +247,7 @@ class ModelCardRegressions(unittest.IsolatedAsyncioTestCase):
         await expect(item).not_to_contain_text('团队服务')
         await expect(item.get_by_role('switch')).to_have_count(0)
         detail = await self.open_details(item)
-        for label in ['测试连接', '更多模型操作']:
+        for label in ['测试模型', '更多模型操作']:
             await expect(detail.get_by_role('button', name=label, exact=True)).to_have_count(0)
         await expect(detail.get_by_role('switch')).to_have_count(0)
         await expect(detail).not_to_contain_text('团队服务')

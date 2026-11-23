@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -7,16 +7,14 @@ import {
   Empty as AEmpty,
   Menu as AMenu,
   MenuItem as AMenuItem,
-  Modal as AModal,
   Tabs as ATabs,
   TabPane as ATabPane,
   Tag as ATag
 } from 'ant-design-vue'
 import { DownloadOutlined, EyeOutlined, HistoryOutlined } from '@ant-design/icons-vue'
 import { formatFileSize, saveBlob } from '../../files/public.ts'
-import { identity, canUseModule } from '../../identity/public.ts'
-import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
-import { downloadArtifact, downloadInput } from '../api/index.ts'
+import { canPreviewArtifact } from '../artifacts.ts'
+import { useWorkFileAccess } from '../composables/fileAccess.ts'
 import type { WorkArtifact, WorkInput } from '../api/index.ts'
 import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
 import FileTypeIcon from '../../../shared/components/FileTypeIcon.vue'
@@ -28,17 +26,10 @@ const props = defineProps<{
   uploading: boolean
   canUpload: boolean
 }>()
-const emit = defineEmits<{ upload: [files: File[]] }>()
-const tab = ref(props.artifacts.length ? 'artifacts' : 'inputs'),
-  fileInput = ref<HTMLInputElement | null>(null),
-  error = ref(''),
-  pending = ref('')
-const previewOpen = ref(false),
-  previewName = ref(''),
-  previewUrl = ref(''),
-  previewText = ref(''),
-  previewKind = ref('')
-const scope = new RequestScope()
+const emit = defineEmits<{ upload: [files: File[]]; preview: [artifact: WorkArtifact] }>()
+const tab = ref(props.artifacts.length ? 'artifacts' : 'inputs')
+const fileInput = ref<HTMLInputElement | null>(null)
+const { pending, error, read } = useWorkFileAccess(() => props.taskId)
 type FileVersion =
   | (WorkInput & { kind: 'input'; id: string })
   | (WorkArtifact & { kind: 'artifact' })
@@ -76,75 +67,16 @@ function pick(event: Event): void {
   if (files.length && props.canUpload && !props.uploading) emit('upload', files)
 }
 function canPreview(item: FileVersion): boolean {
-  return (
-    item.kind === 'artifact' &&
-    (!!item.previewFileId ||
-      item.mime === 'application/pdf' ||
-      /^image\/(png|jpeg|webp|gif)$/.test(item.mime) ||
-      /\.(txt|md|csv|json)$/i.test(item.name))
-  )
-}
-function closePreview(): void {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = ''
-  previewText.value = ''
-  previewOpen.value = false
-  previewKind.value = ''
+  return item.kind === 'artifact' && canPreviewArtifact(item)
 }
 async function open(item: FileVersion, preview = false): Promise<void> {
-  const ticket = scope.replace(),
-    taskId = props.taskId,
-    ownerId = identity.value?.id
-  pending.value = item.id
-  error.value = ''
-  try {
-    const blob =
-      item.kind === 'input'
-        ? await downloadInput(taskId, item.fileId, ticket.signal)
-        : await downloadArtifact(taskId, item.id, ticket.signal, preview)
-    if (
-      !ticket.isCurrent() ||
-      props.taskId !== taskId ||
-      identity.value?.id !== ownerId ||
-      !canUseModule('work')
-    )
-      return
-    if (!preview) {
-      saveBlob(blob, item.name)
-      return
-    }
-    closePreview()
-    previewName.value = `${item.name} · v${item.version}`
-    const mime = blob.type.split(';')[0] || item.mime
-    if (mime === 'application/pdf') {
-      previewKind.value = 'pdf'
-      previewUrl.value = URL.createObjectURL(blob)
-    } else if (/^image\/(png|jpeg|webp|gif)$/.test(mime)) {
-      previewKind.value = 'image'
-      previewUrl.value = URL.createObjectURL(blob)
-    } else if (mime.startsWith('text/') || /\.(txt|md|csv|json)$/i.test(item.name)) {
-      const text = await blob.text()
-      if (!ticket.isCurrent() || identity.value?.id !== ownerId) return
-      previewKind.value = 'text'
-      previewText.value = text.slice(0, 200000)
-    } else throw new Error('此格式暂不支持预览，请下载查看')
-    previewOpen.value = true
-  } catch (reason) {
-    if (ticket.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
-  } finally {
-    if (ticket.isCurrent()) pending.value = ''
+  if (preview && item.kind === 'artifact') {
+    emit('preview', item)
+    return
   }
+  const blob = await read(item, false, (blob) => blob)
+  if (blob) saveBlob(blob, item.name)
 }
-watch([() => props.taskId, () => identity.value?.id, () => canUseModule('work')], () => {
-  scope.replace()
-  closePreview()
-  error.value = ''
-  pending.value = ''
-})
-onBeforeUnmount(() => {
-  scope.dispose()
-  closePreview()
-})
 </script>
 <template>
   <section class="work-files" aria-label="任务资料与成果">
@@ -233,26 +165,6 @@ onBeforeUnmount(() => {
       aria-label="选择任务资料"
       @change="pick"
     />
-    <AModal
-      :open="previewOpen"
-      :title="previewName"
-      :footer="null"
-      :width="960"
-      :style="{ maxWidth: 'calc(100vw - 32px)' }"
-      @cancel="closePreview"
-      ><img
-        v-if="previewKind === 'image'"
-        class="work-files__image"
-        :src="previewUrl"
-        :alt="previewName"
-      /><iframe
-        v-else-if="previewKind === 'pdf'"
-        class="work-files__pdf"
-        :src="previewUrl"
-        :title="previewName"
-      />
-      <pre v-else-if="previewKind === 'text'" class="work-files__text">{{ previewText }}</pre>
-    </AModal>
   </section>
 </template>
 <style scoped>
@@ -334,26 +246,5 @@ onBeforeUnmount(() => {
 }
 .work-files__input {
   display: none;
-}
-.work-files__image {
-  display: block;
-  max-width: 100%;
-  max-height: 70vh;
-  margin: auto;
-  object-fit: contain;
-}
-.work-files__pdf {
-  width: 100%;
-  height: 70vh;
-  border: 0;
-}
-.work-files__text {
-  max-height: 70vh;
-  overflow: auto;
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.8;
 }
 </style>

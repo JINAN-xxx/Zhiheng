@@ -85,6 +85,25 @@ def _merge_toolsets(previous: dict[str, bool], current: dict[str, bool]) -> dict
     return {**(previous or {}), **(current or {})}
 
 
+def _recover_toolsets(messages: Sequence[BaseMessage]) -> frozenset[str]:
+    """Recover groups reset by earlier versions from successful checkpoint tool results."""
+    groups: set[str] = set()
+    for message in messages:
+        if not isinstance(message, ToolMessage) or message.name != 'load_tools' or message.status != 'success':
+            continue
+        try:
+            envelope = json.loads(_text(message))
+        except ValueError:
+            continue
+        if not isinstance(envelope, dict) or envelope.get('success') is not True:
+            continue
+        data = envelope.get('data')
+        loaded = data.get('loaded_toolsets') if isinstance(data, dict) else None
+        if isinstance(loaded, list):
+            groups.update(group for group in loaded if isinstance(group, str) and group in WORK_TOOLSETS)
+    return frozenset(groups)
+
+
 class WorkspaceState(PlanningState, total=False):
     loaded_skills: Annotated[list[str], _merge_skills]
     loaded_toolsets: Annotated[dict[str, bool], _merge_toolsets]
@@ -215,6 +234,8 @@ class _ExecutionContext:
     legacy_calls: frozenset[tuple[str, str, str]] = frozenset()
     execution_instructions: str = ''
     tool_available: ToolAvailability | None = None
+    recovered_toolsets: frozenset[str] = frozenset()
+    retried_unavailable_tool: bool = False
 
 
 class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -225,10 +246,9 @@ class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
     def _active_names(self, state: Mapping[str, Any]) -> set[str]:
         names = set(WORK_CORE_TOOLS)
         loaded = state.get('loaded_toolsets', {})
-        if isinstance(loaded, dict):
-            for group in self.context.allowed_toolsets:
-                if loaded.get(group) is True:
-                    names.update(WORK_TOOLSETS[group])
+        for group in self.context.allowed_toolsets:
+            if group in self.context.recovered_toolsets or (isinstance(loaded, dict) and loaded.get(group) is True):
+                names.update(WORK_TOOLSETS[group])
         return names
 
     def select_tools(self, state: Mapping[str, Any], tools: Sequence[Any] | None = None) -> list[Any]:
@@ -279,8 +299,19 @@ class _ExecutionMiddleware(AgentMiddleware[Any, Any, Any]):
     ) -> 'ModelResponse[Any]':
         self.context.system_prompt = _text(request.system_message) if request.system_message else ''
         selected = self.select_tools(request.state, request.tools)
-        request = request.override(tools=selected, system_message=SystemMessage(content=self._system(request.state)))
-        return await handler(request)
+        system = self._system(request.state)
+        request = request.override(tools=selected, system_message=SystemMessage(content=system))
+        try:
+            return await handler(request)
+        except AppError as error:
+            if error.code != 'provider_tool_unavailable' or self.context.retried_unavailable_tool:
+                raise
+            self.context.retried_unavailable_tool = True
+        correction = (
+            '\n上次请求的工具不在本轮工具列表中，未执行。只使用当前工具列表中的工具。'
+            '如需其他工具，通过 load_tools 加载当前允许的工具组，收到成功结果后再调用。'
+        )
+        return await handler(request.override(system_message=SystemMessage(content=system + correction)))
 
     @hook_config(can_jump_to=['model'])
     def after_model(self, state: WorkspaceState, runtime: Any) -> dict[str, Any] | None:
@@ -562,12 +593,12 @@ class _BudgetedSummaryMiddleware(AgentMiddleware[Any, Any, Any]):
             trigger = min(trigger, max(2, available * 7 // 10))
             keep = min(keep, max(1, trigger // 3))
         result = await _summary_middleware(self.invoke, trigger, keep).abefore_model(state, runtime)
-        if state.get('toolsets_revision') != 1:
+        loaded = state.get('loaded_toolsets', {})
+        recovered = self.execution.context.recovered_toolsets
+        if state.get('toolsets_revision') != 1 or any(loaded.get(group) is not True for group in recovered):
             result = {
                 **(result or {}),
-                'loaded_toolsets': {
-                    group: state.get('loaded_toolsets', {}).get(group) is True for group in WORK_TOOLSETS
-                },
+                'loaded_toolsets': {group: group in recovered or loaded.get(group) is True for group in WORK_TOOLSETS},
                 'toolsets_revision': 1,
             }
         return result
@@ -693,6 +724,7 @@ class WorkspaceKernel:
             )
             config = self.checkpoints.config(task_id, checkpoint_id)
             saved = await graph.aget_state(config)
+            context.recovered_toolsets = _recover_toolsets(_state_messages(saved))
             if message is None and saved.next and saved.values.get('toolsets_revision') != 1:
                 saved_messages = _state_messages(saved)
                 resolved = {item.tool_call_id for item in saved_messages if isinstance(item, ToolMessage)}
@@ -713,7 +745,6 @@ class WorkspaceKernel:
                     'awaiting_input': False,
                     'reviewed': False,
                     'review_note': '',
-                    'loaded_toolsets': dict.fromkeys(WORK_TOOLSETS, False),
                     'toolsets_revision': 1,
                 }
             )

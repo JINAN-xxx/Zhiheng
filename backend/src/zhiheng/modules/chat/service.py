@@ -33,6 +33,19 @@ from zhiheng.shared.time import utcnow
 MAX_VISIBLE_MESSAGE_ROWS = 200
 # Generation 1 is the original reply; at most 99 new versions may follow it.
 MAX_REPLY_GENERATIONS = 100
+INCOMPLETE_RUN_STATUSES = ('failed', 'cancelled', 'interrupted')
+
+
+def _incomplete_reason(
+    status: str, finish_reason: str | None
+) -> Literal['failed', 'cancelled', 'interrupted', 'length'] | None:
+    if status == 'failed':
+        return 'failed'
+    if status == 'cancelled':
+        return 'cancelled'
+    if status == 'interrupted':
+        return 'interrupted'
+    return 'length' if status == 'completed' and finish_reason == 'length' else None
 
 
 class ChatService:
@@ -120,7 +133,13 @@ class ChatService:
         await self.require_conversation(session, principal, conversation_id)
         reply = aliased(ChatMessage)
         candidates = await session.execute(
-            select(ChatMessage.id, ChatMessage.run_id, func.count(reply.id), ChatMessage.created_at)
+            select(
+                ChatMessage.id,
+                ChatMessage.run_id,
+                func.count(reply.id),
+                ChatMessage.created_at,
+                func.count(reply.id).filter(reply.run_id == ChatMessage.run_id),
+            )
             .outerjoin(
                 reply,
                 and_(
@@ -150,8 +169,9 @@ class ChatService:
         question_ids: list[UUID] = []
         run_ids: list[UUID] = []
         size = 0
-        for question_id, run_id, reply_count, _created in candidate_rows[:limit]:
-            cost = 1 + reply_count
+        for question_id, run_id, reply_count, _created, original_reply_count in candidate_rows[:limit]:
+            # Leave room for an original partial reply recovered from its Run.
+            cost = 1 + reply_count + int(original_reply_count == 0)
             if size + cost > MAX_VISIBLE_MESSAGE_ROWS:
                 if not question_ids:
                     raise AppError('conversation_history_too_large', '当前问题的回复版本超过读取上限', 409)
@@ -161,9 +181,10 @@ class ChatService:
             size += cost
         if not question_ids:
             return MessageHistory(items=[])
-        rows = list(
-            await session.scalars(
-                select(ChatMessage)
+        rows = (
+            await session.execute(
+                select(ChatMessage, Run.status, Run.finish_reason)
+                .join(Run, Run.id == ChatMessage.run_id)
                 .where(
                     ChatMessage.conversation_id == conversation_id,
                     or_(
@@ -174,16 +195,116 @@ class ChatService:
                 )
                 .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
             )
-        )
-        questions_by_run = {row.run_id: row.id for row in rows if row.role == 'user'}
+        ).all()
+        questions_by_run = {row.run_id: row.id for row, _, _ in rows if row.role == 'user'}
+        original_replies = {row.run_id for row, _, _ in rows if row.role == 'assistant'}
+        missing_runs = [
+            row.run_id
+            for row, status, _ in rows
+            if row.role == 'user' and status in INCOMPLETE_RUN_STATUSES and row.run_id not in original_replies
+        ]
+        partials = {}
+        if missing_runs:
+            partials = {
+                run.id: run
+                for run in (
+                    await session.execute(
+                        select(Run.id, Run.text, Run.reasoning, Run.status, Run.finish_reason).where(
+                            Run.id.in_(missing_runs),
+                            Run.owner_id == principal.id,
+                            Run.resource_id == conversation_id,
+                            Run.resource_type == 'chat',
+                            Run.status.in_(INCOMPLETE_RUN_STATUSES),
+                            or_(Run.text != '', Run.reasoning != ''),
+                        )
+                    )
+                ).all()
+            }
+        items = []
+        for row, status, finish_reason in reversed(rows):
+            message = self._message(row, questions_by_run.get(row.run_id))
+            if row.role == 'assistant':
+                message.incomplete_reason = _incomplete_reason(status, finish_reason)
+            items.append(message)
+            if row.role == 'user' and (run := partials.get(row.run_id)) is not None:
+                items.append(
+                    message.model_copy(
+                        update={
+                            'id': run.id,
+                            'role': 'assistant',
+                            'content': run.text,
+                            'reasoning': run.reasoning,
+                            'attachments': [],
+                            'skill_snapshots': [],
+                            'reply_to_message_id': row.id,
+                            'is_complete': False,
+                            'incomplete_reason': _incomplete_reason(run.status, run.finish_reason),
+                        }
+                    )
+                )
         position = candidate_rows[len(question_ids) - 1]
         return MessageHistory(
-            items=[self._message(row, questions_by_run.get(row.run_id)) for row in reversed(rows)],
+            items=items,
             next_before=(position[3], position[0]) if len(candidate_rows) > len(question_ids) else None,
         )
 
     async def messages(self, session: AsyncSession, principal: Principal, conversation_id: UUID) -> list[MessageInfo]:
         return (await self.message_history(session, principal, conversation_id)).items
+
+    async def previous_interrupted_question(
+        self, session: AsyncSession, principal: Principal, conversation_id: UUID, answered: UUID | None
+    ) -> tuple[UUID, str] | None:
+        regenerated = aliased(ChatMessage)
+        regenerated_run = aliased(Run)
+        has_partial_retry = (
+            select(regenerated.id)
+            .join(regenerated_run, regenerated.run_id == regenerated_run.id)
+            .where(
+                regenerated.conversation_id == conversation_id,
+                regenerated.reply_to_message_id == ChatMessage.id,
+                regenerated.role == 'assistant',
+                or_(
+                    regenerated_run.status.in_(INCOMPLETE_RUN_STATUSES),
+                    and_(regenerated_run.status == 'completed', regenerated_run.finish_reason == 'length'),
+                ),
+                or_(regenerated.content != '', regenerated.reasoning != ''),
+            )
+            .correlate(ChatMessage)
+            .exists()
+        )
+        latest = (
+            await session.execute(
+                select(
+                    ChatMessage.id,
+                    ChatMessage.content,
+                    or_(
+                        and_(
+                            or_(
+                                Run.status.in_(INCOMPLETE_RUN_STATUSES),
+                                and_(Run.status == 'completed', Run.finish_reason == 'length'),
+                            ),
+                            or_(Run.text != '', Run.reasoning != ''),
+                        ),
+                        has_partial_retry,
+                    ),
+                )
+                .join(Run, Run.id == ChatMessage.run_id)
+                .join(Conversation, Conversation.id == ChatMessage.conversation_id)
+                .where(
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.role == 'user',
+                    Conversation.owner_id == principal.id,
+                )
+                .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
+                .limit(1)
+            )
+        ).first()
+        if latest is None:
+            return None
+        identifier, content, has_partial_reply = latest
+        if identifier == answered or not has_partial_reply or not content.strip():
+            return None
+        return identifier, content
 
     @staticmethod
     def _message(row: ChatMessage, question_id: UUID | None = None) -> MessageInfo:
@@ -442,6 +563,22 @@ class ChatService:
                 ChatMessage.role.in_(('assistant', 'user')),
             )
         )
+        original_partial = target is None
+        if original_partial:
+            target = await session.scalar(
+                select(ChatMessage)
+                .join(Run, Run.id == ChatMessage.run_id)
+                .where(
+                    ChatMessage.run_id == message_id,
+                    ChatMessage.conversation_id == conversation_id,
+                    ChatMessage.role == 'user',
+                    Run.owner_id == principal.id,
+                    Run.resource_id == conversation_id,
+                    Run.resource_type == 'chat',
+                    Run.status.in_(INCOMPLETE_RUN_STATUSES),
+                    or_(Run.text != '', Run.reasoning != ''),
+                )
+            )
         if target is None:
             raise AppError('message_not_found', '回复不存在', 404)
         latest = await session.scalar(
@@ -460,8 +597,10 @@ class ChatService:
             != latest.id
         ):
             raise AppError('regeneration_not_latest', '只能重新生成最新一轮回复', 409)
-        if target.role == 'user' and not await self._unanswered_terminal_question(
-            session, principal, conversation_id, target
+        if (
+            target.role == 'user'
+            and not original_partial
+            and not await self._unanswered_terminal_question(session, principal, conversation_id, target)
         ):
             raise AppError('regeneration_unavailable', '此问题已有回复或仍在运行，请刷新会话后重试', 409)
         versions = await session.scalars(

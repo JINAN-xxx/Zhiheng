@@ -16,6 +16,7 @@ class ProviderServer(ThreadingHTTPServer):
         self.catalog_requests: list[dict[str, str]] = []
         self.catalog_status = 200
         self.catalog_models: list[str] | None = None
+        self.chat_models: list[str] | None = None
         self.catalog_wait = False
         self.catalog_started = threading.Event()
         self.catalog_release = threading.Event()
@@ -60,6 +61,12 @@ class ProviderHandler(BaseHTTPRequestHandler):
         server.request_headers.append({name.lower(): value for name, value in self.headers.items()})
         if self.path.endswith(('/embeddings', '/rerank')):
             self.structured(body)
+            return
+        if server.chat_models is not None and body.get('model') not in server.chat_models:
+            self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"error":{"message":"unknown model","code":"model_not_found"}}')
             return
         if body['model'] == 'rejected':
             self.send_response(401)

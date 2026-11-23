@@ -1,7 +1,7 @@
 <!-- Adapted from original RecentWorkTasks, MIT licensed. -->
 <template>
-  <section class="recent-work" aria-label="最近工作">
-    <div class="recent-work__heading">
+  <section class="recent-work history-list" aria-label="最近工作">
+    <div class="history-list__heading">
       <a-radio-group
         :value="status === 'archived' ? 'archived' : ''"
         size="small"
@@ -51,60 +51,39 @@
     >
       <template #prefix><SearchOutlined /></template>
     </a-input>
-    <p v-if="error && tasks.length" class="recent-work__stale" role="status">
+    <p v-if="error && tasks.length" class="history-list__stale" role="status">
       刷新失败，列表可能已过期
     </p>
-    <p v-else-if="error" class="recent-work__error" role="alert">{{ error }}</p>
-    <a-spin :spinning="loading" wrapper-class-name="recent-work__loading">
-      <div class="recent-work__list workspace-scroll-area">
-        <ResourceCard
+    <p v-else-if="error" class="history-list__error" role="alert">{{ error }}</p>
+    <a-spin :spinning="loading" wrapper-class-name="history-list__loading">
+      <div class="history-list__items">
+        <HistoryRecord
           v-for="task in tasks"
           :key="task.taskId"
           class="recent-work__item"
-          :class="{ active: task.taskId === activeTaskId }"
           :title="task.title"
-          :status="task.mode === 'legacy' ? '历史任务' : statusLabel(task.status)"
-          :tone="
-            task.currentRunId ? 'processing' : task.status === 'completed' ? 'positive' : 'neutral'
-          "
-          icon-tone="blue"
-          compact
+          :description="task.goal"
+          :timestamp="task.updatedAt"
           :selected="task.taskId === activeTaskId"
-          :interactive="canOpen"
+          :disabled="!canOpen"
           :open-label="`${task.status === 'active' ? '打开工作' : '查看记录'}：${task.title}`"
           @open="canOpen && emit('open', task.taskId)"
         >
-          <template #icon><ProjectOutlined /></template>
-          <p class="recent-work__goal" :title="task.goal">{{ task.goal }}</p>
-          <span class="recent-work__run" :class="{ 'is-running': task.currentRunId }">
-            <LoadingOutlined v-if="task.currentRunId" />
-            {{
-              task.mode === 'legacy'
-                ? '历史记录'
-                : task.currentRunId
-                  ? '正在执行'
-                  : task.status === 'active'
-                    ? '等待指令'
-                    : task.status === 'completed'
-                      ? '工作已完成'
-                      : '历史记录'
-            }}
-          </span>
-          <template #footer-info>
-            <time :datetime="task.updatedAt" :title="task.updatedAt">{{
-              formatTime(task.updatedAt)
-            }}</time>
+          <template #meta>
+            <span class="recent-work__state" :class="{ 'is-running': task.currentRunId }">
+              <LoadingOutlined v-if="task.currentRunId" />
+              {{
+                task.mode === 'legacy'
+                  ? '历史任务'
+                  : task.currentRunId
+                    ? '正在执行'
+                    : task.status === 'active'
+                      ? '等待指令'
+                      : statusLabel(task.status)
+              }}
+            </span>
           </template>
           <template #actions>
-            <a-button
-              size="small"
-              type="text"
-              class="recent-work__open resource-card-primary"
-              :aria-current="task.taskId === activeTaskId ? 'page' : undefined"
-              :disabled="!canOpen"
-              @click="canOpen && emit('open', task.taskId)"
-              >{{ task.status === 'active' ? '打开工作' : '查看记录' }}</a-button
-            >
             <WorkspaceMoreMenu
               v-if="taskActions(task).length"
               compact
@@ -112,9 +91,10 @@
               @command="handleCommand($event, task)"
             />
           </template>
-        </ResourceCard>
+        </HistoryRecord>
         <a-empty
           v-if="!loading && !tasks.length"
+          :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
           :description="
             keyword ? '没有匹配工作' : status === 'archived' ? '暂无已归档工作' : '暂无工作'
           "
@@ -123,7 +103,7 @@
     </a-spin>
     <a-pagination
       v-if="total > pageSize"
-      class="recent-work__pagination"
+      class="history-list__pagination recent-work__pagination"
       simple
       size="small"
       :current="pageNum"
@@ -142,11 +122,9 @@ import {
   EditOutlined,
   FilterOutlined,
   LoadingOutlined,
-  ProjectOutlined,
   SearchOutlined
 } from '@ant-design/icons-vue'
 import {
-  Button as AButton,
   Dropdown as ADropdown,
   Empty as AEmpty,
   Input as AInput,
@@ -159,7 +137,7 @@ import {
 } from 'ant-design-vue'
 import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
-import ResourceCard from '../../../shared/components/ResourceCard.vue'
+import HistoryRecord from '../../../shared/components/HistoryRecord.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { WorkSummary, WorkFilters, WorkStatus } from '../api/index.ts'
 const props = defineProps<{
@@ -212,16 +190,6 @@ function handleCommand(command: string, task: WorkSummary): void {
 }
 const statusLabel = (value: WorkStatus) =>
   ({ active: '进行中', completed: '已完成', archived: '已归档' })[value]
-const formatTime = (value: string) =>
-  Number.isNaN(new Date(value).getTime())
-    ? '刚刚'
-    : new Intl.DateTimeFormat('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      }).format(new Date(value))
 watch(
   () => props.keyword,
   (value) => {
@@ -272,31 +240,11 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 </script>
 
 <style scoped lang="scss">
-.recent-work {
-  min-height: 0;
+.recent-work__heading-actions {
   display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 9px;
-  padding: 13px 10px;
-  color: var(--color-text);
-}
-.recent-work__heading {
-  display: flex;
-  flex-shrink: 0;
-  min-height: 28px;
   align-items: center;
-  justify-content: space-between;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-.recent-work__heading :deep(.ant-radio-button-wrapper) {
-  padding-inline: 9px;
-  font-size: 12px;
 }
 .recent-work__pagination {
-  flex-shrink: 0;
   align-self: center;
 }
 .recent-work__filter {
@@ -310,89 +258,17 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   color: inherit;
   cursor: pointer;
 }
-.recent-work__stale,
-.recent-work__error {
-  margin: 0;
-  padding: 8px;
-  border-radius: var(--workspace-radius-sm);
-  font-size: 12px;
-}
-.recent-work__stale {
-  color: var(--workspace-warning);
-  background: var(--workspace-warning-soft);
-}
-.recent-work__error {
-  color: var(--workspace-danger);
-  background: var(--workspace-danger-soft);
-}
-.recent-work__list {
-  min-height: 0;
-  height: 100%;
-  flex: 1;
-  overflow: hidden auto;
-}
-.recent-work__loading {
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
-}
-.recent-work__loading :deep(.ant-spin-container) {
-  height: 100%;
-}
-.recent-work__item {
-  margin-bottom: 10px;
-}
-.recent-work__goal {
-  display: -webkit-box;
-  min-height: 36px;
-  margin: 0 0 6px;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.recent-work__run {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.recent-work__run.is-running {
-  color: var(--main-700);
-}
-.recent-work__open {
-  font-size: 12px;
-}
-.recent-work :deep(.ant-input-affix-wrapper) {
-  flex-shrink: 0;
-  flex-shrink: 0;
-  border-color: var(--gray-150);
-  background: var(--bg-container);
-  box-shadow: none;
-}
-.recent-work :deep(.ant-input-affix-wrapper input),
-.recent-work :deep(.ant-input-prefix),
-.recent-work :deep(.ant-input-clear-icon) {
-  color: var(--color-text);
-  background: transparent;
-}
-.recent-work :deep(.ant-empty-description) {
-  color: var(--color-text-secondary);
-}
-.recent-work__heading-actions {
-  display: flex;
-  align-items: center;
-}
 .recent-work__filter.is-filtered {
   color: var(--main-700);
   background: var(--main-50);
   border-radius: var(--workspace-radius-sm);
 }
-.recent-work__open:disabled {
-  cursor: default;
+.recent-work__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.recent-work__state.is-running {
+  color: var(--main-700);
 }
 </style>

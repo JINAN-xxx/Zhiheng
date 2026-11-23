@@ -11,8 +11,6 @@ import type { ChatModel } from '../api/index.ts'
 const props = withDefaults(
   defineProps<{
     model: ChatModel
-    busy: boolean
-    testing: boolean
     canWrite: boolean
     canUpdate?: boolean | undefined
     canDelete?: boolean | undefined
@@ -34,7 +32,6 @@ const emit = defineEmits<{
   edit: []
   rates: []
   test: []
-  trial: []
   control: [action: 'enable' | 'disable' | 'delete']
 }>()
 function edit(): void {
@@ -44,12 +41,7 @@ function rates(): void {
   if (props.canReadRates && !props.mutating) emit('rates')
 }
 function test(): void {
-  if (props.canTest && !props.busy && !props.mutating && props.model.enabled && !props.testDisabled)
-    emit('test')
-}
-function trial(): void {
-  if (props.canTest && !props.busy && !props.mutating && props.model.enabled && !props.testDisabled)
-    emit('trial')
+  if (props.canTest && !props.mutating && props.model.enabled && !props.testDisabled) emit('test')
 }
 function control(action: 'enable' | 'disable' | 'delete'): void {
   if (
@@ -87,9 +79,8 @@ function control(action: 'enable' | 'disable' | 'delete'): void {
         v-if="canTest"
         type="link"
         size="small"
-        aria-label="测试连接"
-        :loading="testing && busy"
-        :disabled="busy || mutating || !model.enabled || testDisabled"
+        aria-label="测试模型"
+        :disabled="mutating || !model.enabled || testDisabled"
         @click="test"
         >测试</AButton
       >
@@ -104,15 +95,9 @@ function control(action: 'enable' | 'disable' | 'delete'): void {
           <AMenuItem v-if="canReadRates" :disabled="mutating" @click="rates">费率配置</AMenuItem>
           <AMenuItem
             v-if="canTest"
-            :disabled="busy || mutating || !model.enabled || testDisabled"
+            :disabled="mutating || !model.enabled || testDisabled"
             @click="test"
-            >测试连接</AMenuItem
-          >
-          <AMenuItem
-            v-if="canTest"
-            :disabled="busy || mutating || !model.enabled || testDisabled"
-            @click="trial"
-            >试用模型</AMenuItem
+            >测试模型</AMenuItem
           >
           <AMenuItem
             v-if="canToggle ?? canWrite"

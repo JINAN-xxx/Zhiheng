@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from zhiheng.application.files.objects import FileObjects
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.files.public import (
+    ATTACHMENT_PARSER_VERSION,
     PARSER_VERSION,
     AttachmentSummary,
     FileService,
@@ -32,23 +33,33 @@ class ParsedFile(BaseModel):
 
 
 class FileInputService:
-    def __init__(self, database: Database, files: FileService, parser: ParsePort, objects: FileObjects) -> None:
+    def __init__(
+        self,
+        database: Database,
+        files: FileService,
+        parser: ParsePort,
+        objects: FileObjects,
+        *,
+        parser_version: str = PARSER_VERSION,
+    ) -> None:
         self._database, self._files, self._parser = database, files, parser
         self._objects = objects
+        self._parser_version = parser_version
 
     async def prepare(self, principal: Principal, file_id: UUID) -> PreparedAttachment:
         async with self._database.sessions() as session:
             info, content = await self._files.read(session, principal, file_id)
             if info.source_file_id is not None:
                 raise AppError('derived_file_immutable', '请解析原文件', 422)
-            cached = await self._files.cached_artifact(session, principal, file_id, PARSER_VERSION)
+            parser_version = self._parser_version if info.original_filename.lower().endswith('.pdf') else PARSER_VERSION
+            cached = await self._files.cached_artifact(session, principal, file_id, parser_version)
         artifact_id = None
         if cached is not None:
             artifact_id, key = cached
             async with self._database.sessions() as session:
                 raw = await self._files.artifact_content(session, principal, artifact_id)
             result = ParseResult.model_validate_json(raw)
-            if result.parser_version != PARSER_VERSION or result.source_sha256 != info.sha256:
+            if result.parser_version != parser_version or result.source_sha256 != info.sha256:
                 raise AppError('file_integrity_error', '派生产物缓存校验失败', 503)
         else:
             result = await self._parser.parse(content, filename=info.original_filename)
@@ -63,10 +74,10 @@ class FileInputService:
                     or source.acl_version != info.acl_version
                 ):
                     raise AppError('file_snapshot_changed', '附件已变化，请重试', 409)
-                cached = await self._files.cached_artifact(session, principal, file_id, PARSER_VERSION)
+                cached = await self._files.cached_artifact(session, principal, file_id, parser_version)
                 if cached is None:
                     artifact = await self._files.create_artifact(
-                        session, source_id=file_id, content=raw, storage_key=key, parser_version=PARSER_VERSION
+                        session, source_id=file_id, content=raw, storage_key=key, parser_version=parser_version
                     )
                     artifact_id = artifact.id
                 else:
@@ -80,7 +91,8 @@ class FileInputService:
                 size=info.size,
                 sha256=info.sha256,
                 artifact_file_id=artifact_id,
-                parser_version=PARSER_VERSION,
+                parser_version=parser_version,
+                parse_warning=str(result.metadata.get('extraction_warning', '')),
             ),
             version=info.version,
             acl_version=info.acl_version,
@@ -92,14 +104,16 @@ class FileInputService:
         item = await self.prepare(principal, file_id)
         assert item.summary.artifact_file_id is not None
         async with self._database.sessions() as session:
-            cached = await self._files.cached_artifact(session, principal, file_id, PARSER_VERSION)
+            cached = await self._files.cached_artifact(
+                session, principal, file_id, item.summary.parser_version or PARSER_VERSION
+            )
         assert cached is not None
         async with self._database.sessions() as session:
             result = ParseResult.model_validate_json(await self._files.artifact_content(session, principal, cached[0]))
         return ParsedFile(
             source_file_id=file_id,
             source_sha256=item.summary.sha256,
-            parser_version=PARSER_VERSION,
+            parser_version=item.summary.parser_version or PARSER_VERSION,
             artifact_file_id=item.summary.artifact_file_id,
             text=item.text,
             metadata=result.metadata,
@@ -115,6 +129,12 @@ class FileInputService:
         result = ParseResult.model_validate_json(raw)
         if result.source_sha256 != info.sha256 or result.parser_version != artifact.parser_version:
             raise AppError('file_integrity_error', '解析产物身份不匹配', 503)
+        if (
+            self._parser_version == PARSER_VERSION
+            and result.parser_version == ATTACHMENT_PARSER_VERSION
+            and result.metadata.get('extraction_warning')
+        ):
+            raise AppError('ocr_required', '此附件仅提取了可读正文，完整解析需要OCR识别图片页', 422)
         return PreparedAttachment(
             summary=AttachmentSummary(
                 owner_id=info.owner_id,
@@ -125,6 +145,7 @@ class FileInputService:
                 sha256=info.sha256,
                 artifact_file_id=artifact_id,
                 parser_version=result.parser_version,
+                parse_warning=str(result.metadata.get('extraction_warning', '')),
             ),
             version=info.version,
             acl_version=info.acl_version,

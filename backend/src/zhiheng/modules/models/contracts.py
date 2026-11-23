@@ -62,7 +62,7 @@ class ModelDelta:
 
 
 class ModelProvider(Protocol):
-    async def validate(self) -> None: ...
+    async def validate(self) -> str | None: ...
 
     def stream(self, messages: tuple[ModelMessage, ...]) -> AsyncIterator[ModelDelta]: ...
 
@@ -118,6 +118,7 @@ ProviderFailureReason = Literal[
     'connect_timeout',
     'api_error',
     'invalid_response',
+    'tool_unavailable',
     'incomplete_stream',
     'invalid_content',
     'invalid_reasoning',
@@ -175,11 +176,15 @@ class ProviderError(AppError):
         super().__init__(
             'provider_insufficient_balance'
             if self.reason == 'insufficient_balance'
+            else 'provider_tool_unavailable'
+            if self.reason == 'tool_unavailable'
             else 'provider_rejected'
             if definitive_rejection
             else 'provider_unavailable',
             '上游模型服务余额不足，请联系管理员处理。'
             if self.reason == 'insufficient_balance'
+            else '模型请求了当前不可用的工具，请继续任务重试。'
+            if self.reason == 'tool_unavailable'
             else '模型调用失败，请稍后重试。',
             502,
         )

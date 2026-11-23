@@ -36,8 +36,6 @@ const props = defineProps<{
   canTest: boolean
   canReadConnections: boolean
   pending: boolean
-  testBusy: boolean
-  testing: boolean
 }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -46,13 +44,11 @@ const emit = defineEmits<{
   edit: []
   rates: []
   test: []
-  trial: []
   control: [action: 'delete']
 }>()
 
 const testDisabled = computed(
   () =>
-    props.testBusy ||
     props.pending ||
     !props.model?.enabled ||
     props.model?.availability?.available === false ||
@@ -70,9 +66,6 @@ function rates(): void {
 }
 function test(): void {
   if (props.model && props.canTest && !testDisabled.value) emit('test')
-}
-function trial(): void {
-  if (props.model && props.canTest && !testDisabled.value) emit('trial')
 }
 function control(action: 'delete'): void {
   if (!props.model || !(props.canDelete ?? props.canWrite) || props.pending) return
@@ -251,21 +244,12 @@ function control(action: 'delete'): void {
       <div v-if="model" class="detail-footer">
         <AButton
           v-if="canTest"
-          aria-label="测试连接"
-          :loading="testing && testBusy"
+          type="primary"
+          aria-label="测试模型"
           :disabled="testDisabled"
           @click="test"
         >
-          <ExperimentOutlined aria-hidden="true" />测试连接
-        </AButton>
-        <AButton
-          v-if="canTest"
-          type="primary"
-          aria-label="试用模型"
-          :disabled="testDisabled"
-          @click="trial"
-        >
-          <ExperimentOutlined aria-hidden="true" />试用模型
+          <ExperimentOutlined aria-hidden="true" />测试模型
         </AButton>
         <ADropdown v-if="canWrite || canReadRates" :trigger="['click']" :disabled="pending">
           <AButton type="text" class="detail-more" aria-label="更多模型操作" :disabled="pending">

@@ -1,20 +1,10 @@
 <script setup lang="ts">
-import {
-  Alert as AAlert,
-  Button as AButton,
-  Textarea as ATextarea,
-  Spin as ASpin
-} from 'ant-design-vue'
-import {
-  ArrowLeftOutlined,
-  PlusOutlined,
-  ArrowUpOutlined,
-  BorderOutlined,
-  HistoryOutlined
-} from '@ant-design/icons-vue'
+import { Alert as AAlert, Button as AButton, Spin as ASpin } from 'ant-design-vue'
+import { ArrowLeftOutlined, PlusOutlined, HistoryOutlined } from '@ant-design/icons-vue'
 import { useRouter } from 'vue-router'
 import { AiMessage } from '../../chat/public.ts'
 import { CHAT_FILE_ACCEPT } from '../../../shared/attachmentQueue.ts'
+import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
 import AttachmentButton from '../../../shared/components/AttachmentButton.vue'
 import AttachmentCard from '../../../shared/components/AttachmentCard.vue'
 import { computed, ref } from 'vue'
@@ -90,6 +80,19 @@ function pasteFiles(event: ClipboardEvent): void {
 }
 function dropFiles(event: DragEvent): void {
   if (event.dataTransfer?.files.length) addFiles(event.dataTransfer.files)
+}
+function composerKeydown(event: KeyboardEvent): void {
+  if (
+    event.key !== 'Enter' ||
+    event.shiftKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    event.metaKey ||
+    event.isComposing
+  )
+    return
+  event.preventDefault()
+  void send()
 }
 </script>
 
@@ -257,25 +260,33 @@ function dropFiles(event: DragEvent): void {
         </div>
       </article>
     </section>
-    <footer class="composer" @dragover.prevent @drop.prevent="dropFiles">
-      <input
-        ref="fileInput"
-        type="file"
-        multiple
-        :accept="CHAT_FILE_ACCEPT"
-        aria-label="选择助手附件"
-        class="attachment-input"
-        @change="chooseFiles"
-      />
-      <div v-if="agent?.status === 'disabled'" class="composer-notice">
-        <AAlert
-          v-if="agent?.status === 'disabled'"
-          type="info"
-          message="助手尚未启用，启用后可开始正式对话。"
-          show-icon
-        />
-      </div>
-      <div class="composer-surface">
+    <ConversationComposer
+      v-model="draft"
+      input-label="发送给助手的消息"
+      :placeholder="`向${name}发送消息`"
+      :max-rows="7"
+      :disabled="!canSend || !!pending"
+      :submit-disabled="
+        !canSend || (!draft.trim() && !queuedFiles.length) || !fileQueueReady || !!pending
+      "
+      :sending="sending"
+      :running="running"
+      :stopping="stopping"
+      :stop-disabled="stopAcknowledged"
+      submit-label="发送"
+      @dragover.prevent
+      @drop.prevent="dropFiles"
+      @paste="pasteFiles"
+      @keydown="composerKeydown"
+      @send="send()"
+      @stop="stop"
+    >
+      <template #notice>
+        <div v-if="agent?.status === 'disabled'" class="composer-notice">
+          <AAlert type="info" message="助手尚未启用，启用后可开始正式对话。" show-icon />
+        </div>
+      </template>
+      <template #prefix>
         <div
           v-if="queuedFiles.length"
           class="assistant-file-queue"
@@ -300,55 +311,25 @@ function dropFiles(event: DragEvent): void {
         <p v-if="queuedFiles.length" class="file-queue-usage" aria-label="附件总大小">
           {{ formatFileSize(queuedFileBytes) }} / 50 MB
         </p>
-        <div
-          class="composer-input-area"
-          :class="{ 'has-files': queuedFiles.length }"
-          @paste="pasteFiles"
-        >
-          <ATextarea
-            v-model:value="draft"
-            aria-label="发送给助手的消息"
-            :placeholder="`向${name}发送消息`"
-            :maxlength="16000"
-            :auto-size="{ minRows: 2, maxRows: 7 }"
-            :disabled="!canSend || !!pending"
-            @keydown.enter.exact.prevent="!$event.isComposing && send()"
-          />
-        </div>
-        <div class="composer-actions">
-          <AttachmentButton
-            class="attachment-button"
-            aria-label="添加助手附件"
-            title="每条消息附件合计最多50MB，单个文件最大20MiB；图片需要模型支持视觉"
-            :disabled="!canSend || !!pending"
-            @click="fileInput?.click()"
-          />
-          <AButton
-            v-if="running"
-            class="composer-submit"
-            :loading="stopping"
-            :disabled="stopAcknowledged"
-            aria-label="停止生成"
-            title="停止生成"
-            @click="stop"
-            ><BorderOutlined
-          /></AButton>
-          <AButton
-            v-else
-            class="composer-submit"
-            type="primary"
-            aria-label="发送"
-            title="发送消息（Enter），Shift + Enter 换行"
-            :disabled="
-              !canSend || (!draft.trim() && !queuedFiles.length) || !fileQueueReady || !!pending
-            "
-            :loading="sending"
-            @click="send()"
-            ><ArrowUpOutlined
-          /></AButton>
-        </div>
-      </div>
-    </footer>
+      </template>
+      <template #tools>
+        <input
+          ref="fileInput"
+          type="file"
+          multiple
+          :accept="CHAT_FILE_ACCEPT"
+          aria-label="选择助手附件"
+          class="attachment-input"
+          @change="chooseFiles"
+        />
+        <AttachmentButton
+          aria-label="添加助手附件"
+          title="每条消息附件合计最多50MB，单个文件最大20MiB；图片需要模型支持视觉"
+          :disabled="!canSend || !!pending"
+          @click="fileInput?.click()"
+        />
+      </template>
+    </ConversationComposer>
   </section>
 </template>
 
@@ -356,27 +337,21 @@ function dropFiles(event: DragEvent): void {
 .attachment-input {
   display: none;
 }
-.attachment-button {
-  margin-right: auto;
-}
 .assistant-file-queue {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
   flex-shrink: 0;
-  padding: 18px calc(var(--chat-composer-padding) + 2px) 2px;
+  padding: 2px 0;
 }
 .assistant-file-queue::-webkit-scrollbar {
   display: none;
 }
 .file-queue-usage {
-  margin: 6px calc(var(--chat-composer-padding) + 2px) 12px;
+  margin: 6px 0 12px;
   color: var(--color-text-tertiary);
   font-size: var(--workspace-font-size-caption);
-}
-.composer-input-area.has-files {
-  padding-top: 0;
 }
 
 .assistant-chat {
@@ -517,17 +492,6 @@ button.chat-toolbar-action:focus-visible {
   display: grid;
   gap: 8px;
 }
-.composer {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  min-height: 0;
-  max-height: calc(100% - 180px);
-  width: min(calc(var(--chat-column-width) + var(--chat-inset) * 2), 100%);
-  align-self: center;
-  padding: 10px var(--chat-gutter) 12px;
-  background: transparent;
-}
 .composer-notice {
   display: grid;
   flex-shrink: 0;
@@ -537,66 +501,6 @@ button.chat-toolbar-action:focus-visible {
 }
 .composer-notice :deep(.ant-alert) {
   border-radius: 12px;
-}
-.composer-surface {
-  display: flex;
-  min-height: 0;
-  flex: 0 1 auto;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
-  border-radius: 24px;
-  background: var(--bg-container);
-  transition:
-    border-color 0.18s,
-    box-shadow 0.18s;
-}
-.composer-surface:focus-within {
-  border-color: var(--main-400);
-  box-shadow:
-    0 0 0 1px var(--main-50),
-    0 4px 20px rgb(0 0 0 / 3%);
-}
-.composer-input-area {
-  min-height: 0;
-  flex: 0 1 auto;
-  overflow-y: auto;
-  padding: 16px var(--chat-composer-padding) 0;
-}
-.composer-surface :deep(.ant-input) {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.composer :deep(textarea) {
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
-}
-.composer-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px var(--chat-composer-padding) 12px;
-}
-.composer-submit {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 19px;
-}
-.composer-submit:not(:disabled) {
-  border-color: #262626;
-  background: #262626;
-  color: #fff;
-}
-.composer-submit:not(:disabled):hover {
-  border-color: #434343;
-  background: #434343;
 }
 @media (max-width: 760px) {
   .assistant-chat {

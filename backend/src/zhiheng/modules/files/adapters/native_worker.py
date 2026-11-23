@@ -18,7 +18,13 @@ from openpyxl import load_workbook  # type: ignore[import-untyped]
 from PIL import Image
 from pypdf import PdfReader
 
-from zhiheng.modules.files.parsing_contracts import MAX_IMAGE_URL_BYTES, MAX_INPUT_BYTES, MAX_TEXT_BYTES, ParseResult
+from zhiheng.modules.files.parsing_contracts import (
+    ATTACHMENT_PARSER_VERSION,
+    MAX_IMAGE_URL_BYTES,
+    MAX_INPUT_BYTES,
+    MAX_TEXT_BYTES,
+    ParseResult,
+)
 from zhiheng.shared.csv_text import decode_csv_text
 
 MAX_EXPANDED = 40 * 1024 * 1024
@@ -30,6 +36,7 @@ MAX_COLUMNS = 1000
 MAX_CELLS = 200000
 MAX_SHEETS = 100
 MAX_PAGES = 500
+MAX_WARNING_PAGES = 20
 
 
 class DocumentError(Exception):
@@ -158,7 +165,9 @@ def image_result(content: bytes) -> ParseResult:
     return ParseResult(text='[Image attachment]', metadata=metadata, image_data=data)
 
 
-def pdf_result(content: bytes, *, validate_only: bool = False) -> tuple[str, dict[str, str | int]]:
+def pdf_result(
+    content: bytes, *, validate_only: bool = False, allow_partial: bool = False
+) -> tuple[str, dict[str, str | int]]:
     if not content.startswith(b'%PDF-'):
         raise DocumentError('invalid_document')
     reader = PdfReader(io.BytesIO(content), strict=True)
@@ -170,19 +179,36 @@ def pdf_result(content: bytes, *, validate_only: bool = False) -> tuple[str, dic
         return 'Document validated', {'pages': len(reader.pages), 'format': 'pdf'}
     parts = []
     total = 0
-    image_only_pages = 0
-    for page in reader.pages:
+    image_only_pages: list[int] = []
+    text_pages = 0
+    for number, page in enumerate(reader.pages, 1):
         part = page.extract_text() or ''
+        if part.strip():
+            text_pages += 1
         if not part.strip() and len(page.images):
-            image_only_pages += 1
+            image_only_pages.append(number)
         total += len(part.encode())
         if total > MAX_TEXT_BYTES:
             raise DocumentError('document_too_large')
         parts.append(part)
     text = '\n'.join(parts)
-    if not text.strip() or image_only_pages:
+    if not text.strip() or (image_only_pages and not allow_partial):
         raise DocumentError('ocr_required')
-    return text, {'pages': len(reader.pages), 'image_only_pages': image_only_pages}
+    metadata: dict[str, str | int] = {
+        'pages': len(reader.pages),
+        'image_only_pages': len(image_only_pages),
+        'text_pages': text_pages,
+    }
+    if image_only_pages:
+        shown = '、'.join(str(number) for number in image_only_pages[:MAX_WARNING_PAGES])
+        label = (
+            f'第 {shown} 页'
+            if len(image_only_pages) <= MAX_WARNING_PAGES
+            else f'第 {shown} 等 {len(image_only_pages)} 页'
+        )
+        metadata['image_only_page_numbers'] = ','.join(str(number) for number in image_only_pages)
+        metadata['extraction_warning'] = f'{label}为图片页，未识别其中内容；已提取 {text_pages} 页可读正文。'
+    return text, metadata
 
 
 def check_sheet_bounds(documents: dict[str, Element]) -> int:
@@ -260,7 +286,7 @@ def text_result(content: bytes, extension: str) -> str:
     return text
 
 
-def parse(content: bytes, filename: str) -> ParseResult:
+def parse(content: bytes, filename: str, *, allow_partial_pdf: bool = False) -> ParseResult:
     extension = filename.rpartition('.')[2].lower()
     metadata: dict[str, str | int] = {'format': extension}
     if extension in {'png', 'jpg', 'jpeg', 'gif', 'webp'}:
@@ -268,7 +294,7 @@ def parse(content: bytes, filename: str) -> ParseResult:
     if extension in {'txt', 'md', 'json', 'csv', 'html', 'htm'}:
         text = text_result(content, extension)
     elif extension == 'pdf':
-        text, extra = pdf_result(content)
+        text, extra = pdf_result(content, allow_partial=allow_partial_pdf)
         metadata.update(extra)
     elif extension in {'docx', 'xlsx'}:
         documents = package_xml(content)
@@ -307,7 +333,7 @@ def validate_document(content: bytes, filename: str) -> ParseResult:
 
 def main() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
-    resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+    resource.setrlimit(resource.RLIMIT_CPU, (30, 35))
     resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     reply: dict[str, object]
@@ -316,10 +342,19 @@ def main() -> None:
         content = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
         if not content or len(content) > MAX_INPUT_BYTES:
             raise DocumentError('document_too_large')
-        result = validate_document(content, filename) if '--validate-document' in sys.argv else parse(content, filename)
+        allow_partial = '--allow-partial-pdf' in sys.argv
+        result = (
+            validate_document(content, filename)
+            if '--validate-document' in sys.argv
+            else parse(content, filename, allow_partial_pdf=allow_partial)
+        )
+        if allow_partial:
+            result = result.model_copy(update={'parser_version': ATTACHMENT_PARSER_VERSION})
         reply = {'result': result.model_dump()}
     except DocumentError as error:
         reply = {'error': str(error)}
+    except MemoryError:
+        reply = {'error': 'parse_resource_limit'}
     except Exception:
         reply = {'error': 'invalid_document'}
     sys.stdout.write(json.dumps(reply, ensure_ascii=False))

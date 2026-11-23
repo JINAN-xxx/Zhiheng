@@ -153,8 +153,8 @@ class OpenAIChatProvider:
             return 'length'
         raise ProviderError(reason='unsupported_finish_reason')
 
-    async def validate(self) -> None:
-        await validate_catalog(
+    async def validate(self) -> str:
+        return await validate_catalog(
             base_url=self._base_url,
             api_key=self._api_key.get_secret_value(),
             model=self._model,

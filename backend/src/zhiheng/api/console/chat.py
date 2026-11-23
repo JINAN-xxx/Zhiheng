@@ -158,7 +158,7 @@ async def create_run(
             return existing
         binding = await container.models.bindings.resolve(session, body.model_id)
         container.admission.generation_binding(binding, body)
-    attachments = await container.file_inputs.prepare_many(principal, body.file_ids)
+    attachments = await container.attachment_inputs.prepare_many(principal, body.file_ids)
     async with session.begin():
         return await container.admission.admit_chat(
             session,

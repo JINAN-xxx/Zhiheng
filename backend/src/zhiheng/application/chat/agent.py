@@ -170,6 +170,15 @@ class ChatAgentService:
             raise AppError('chat_context_unavailable', '旧版回复不再导入，请新建对话使用新版体验', 409)
         if turns and not incremental:
             raise AppError('chat_context_unavailable', '会话检查点与有效历史不一致，请新建对话', 409)
+        interrupted = await self.context.chat.previous_interrupted_question(
+            session, principal, conversation_id, turns[-1].question_id if turns else None
+        )
+        if interrupted:
+            previous_id, previous_text = interrupted
+            previous = ModelMessage('user', previous_text)
+            if budget is None or estimate_messages((*required, previous, current)) <= budget:
+                messages = (*required, previous, current)
+                ids.append(str(previous_id))
         self._require_image_capacity(
             (self._retained_image_bytes(previous_snapshot) if incremental else 0) + request_image_bytes
         )

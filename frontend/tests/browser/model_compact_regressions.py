@@ -114,16 +114,20 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
         dialog = await self.detail('结果重排序')
         await expect(dialog).to_contain_text('请先配置模型费率')
 
-    async def test_model_test_only_runs_on_explicit_click_and_uses_toast(self):
+    async def test_model_test_only_runs_after_the_prefilled_dialog_is_submitted(self):
         await self.open_models()
         dialog = await self.detail()
-        self.assertFalse(any(path.endswith('/test') for _, path, _ in self.requests))
-        await dialog.get_by_role('button', name='测试连接', exact=True).click()
-        await expect(self.page.locator('.ant-message-notice-content')).to_have_text('测试成功')
-        await expect(self.page.locator('.test-result')).to_have_count(0)
-        tests = [body for _, path, body in self.requests if path.endswith('/test')]
+        self.assertFalse(any(path.endswith('/trial') for _, path, _ in self.requests))
+        await dialog.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        await expect(test.get_by_role('textbox', name='测试内容', exact=True)).to_have_value('请只回复 OK。')
+        self.assertFalse(any(path.endswith('/trial') for _, path, _ in self.requests))
+        await test.get_by_role('button', name='提交测试', exact=True).click()
+        await expect(test).to_contain_text('测试完成')
+        tests = [body for _, path, body in self.requests if path.endswith('/trial')]
         self.assertEqual(len(tests), 1)
         self.assertIn('client_request_id', tests[0])
+        self.assertEqual(tests[0]['prompt'], '请只回复 OK。')
 
     async def test_pending_enable_sends_once_and_is_shared_with_details(self):
         requested, release = asyncio.Event(), asyncio.Event()
@@ -226,16 +230,18 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
                 'projection_seq': 1, 'text': '', 'error': None, 'created_at': '2026-11-05T00:00:00Z',
                 'usage': {'input_tokens': 1, 'output_tokens': 1, 'status': 'known'},
             })
-        await self.page.route('**/api/models/' + MODEL_ID + '/test', respond)
+        await self.page.route('**/api/models/' + MODEL_ID + '/trial', respond)
         await self.open_models()
         dialog = await self.detail()
-        button = dialog.get_by_role('button', name='测试连接', exact=True)
-        for expected_state, message in [('completed', '测试成功'), ('failed', '测试失败')]:
+        await dialog.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        button = test.get_by_role('button', name='提交测试', exact=True)
+        for expected_state, message in [('completed', '测试完成'), ('failed', '测试失败')]:
             state = expected_state
             await button.click()
-            await expect(self.page.locator('.ant-message-notice-content').last).to_have_text(message)
-            await expect(button).not_to_have_class(re.compile('ant-btn-loading'))
-        requests = [body for _, path, body in self.requests if path.endswith('/test')]
+            await expect(test).to_contain_text(message)
+            await expect(button).to_be_enabled()
+        requests = [body for _, path, body in self.requests if path.endswith('/trial')]
         self.assertEqual(len(requests), 2)
         self.assertNotEqual(requests[0]['client_request_id'], requests[1]['client_request_id'])
 
@@ -283,17 +289,20 @@ class CompactModels(unittest.IsolatedAsyncioTestCase):
                 done = {**initial, 'status': 'completed', 'revision': 2, 'projection_seq': 2,
                         'usage': {'input_tokens': 2, 'output_tokens': 1, 'status': 'known'}}
                 await route.fulfill(content_type='text/event-stream', body='event: snapshot\ndata: ' + json.dumps(done) + '\n\n')
-        await self.page.route('**/api/models/' + MODEL_ID + '/test', admit)
+        await self.page.route('**/api/models/' + MODEL_ID + '/trial', admit)
         await self.page.route('**/api/runs/resume-run/events', observe)
+        await self.page.route('**/api/runs/resume-run', lambda route: route.fulfill(json=initial))
         await self.open_models()
         dialog = await self.detail()
-        button = dialog.get_by_role('button', name='测试连接', exact=True)
+        await dialog.get_by_role('button', name='测试模型', exact=True).click()
+        test = self.page.locator('.model-trial-modal[role="dialog"]')
+        button = test.get_by_role('button', name='提交测试', exact=True)
         await button.click()
-        await expect(self.page.locator('.ant-message-notice-content').last).to_have_text('测试结果获取失败，请再次点击测试查看结果')
-        await expect(button).not_to_have_class(re.compile('ant-btn-loading'))
+        await expect(test.get_by_role('alert')).to_contain_text('暂时无法读取')
+        await expect(button).to_contain_text('继续查看')
         await button.click()
-        await expect(self.page.locator('.ant-message-notice-content').last).to_have_text('测试成功')
-        self.assertEqual(sum(path.endswith('/test') for _, path, _ in self.requests), 1)
+        await expect(test).to_contain_text('测试完成')
+        self.assertEqual(sum(path.endswith('/trial') for _, path, _ in self.requests), 1)
         self.assertEqual(events, 2)
 
     async def test_mobile_table_shows_enablement_without_publication(self):

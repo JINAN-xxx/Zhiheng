@@ -1,12 +1,51 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
 import { AiMessage, ChatEmptyState } from '../../chat/public.ts'
 import { formatKnowledgeCitations } from '../../knowledge/public.ts'
-import type { WorkMessage } from '../api/index.ts'
+import type { WorkArtifact, WorkMessage } from '../api/index.ts'
 import { runStatusLabel } from '../../../shared/stream.ts'
 
-const props = defineProps<{ messages: WorkMessage[]; legacy?: boolean; showProgress?: boolean }>()
+import { artifactsByRun, formatArtifactLinks } from '../artifacts.ts'
+import WorkMessageArtifacts from './WorkMessageArtifacts.vue'
+
+const props = withDefaults(
+  defineProps<{
+    taskId: string
+    messages: WorkMessage[]
+    artifacts: WorkArtifact[]
+    legacy?: boolean
+    showProgress?: boolean
+  }>(),
+  { legacy: false, showProgress: false }
+)
+const emit = defineEmits<{ preview: [artifact: WorkArtifact] }>()
+const linkPrefix = `#work-artifact-${useId().replace(/[^a-z0-9_-]/gi, '')}-`
+const byRun = computed(() => artifactsByRun(props.artifacts))
+const availableFiles = computed(() => {
+  const runs = new Set<string>(),
+    result = new Map<string, WorkArtifact[]>()
+  for (const message of props.messages) {
+    if (message.runId) runs.add(message.runId)
+    result.set(
+      message.messageId,
+      props.artifacts.filter((item) => runs.has(item.runId))
+    )
+  }
+  return result
+})
+function followArtifact(event: MouseEvent, message: WorkMessage): void {
+  const anchor = event.target instanceof Element ? event.target.closest('a') : null
+  const href = anchor?.getAttribute('href') ?? ''
+  if (!href.startsWith(linkPrefix)) return
+  const item = availableFiles.value
+    .get(message.messageId)
+    ?.find((item) => `${linkPrefix}${encodeURIComponent(item.id)}` === href)
+  if (!item) return
+  event.preventDefault()
+  event.stopPropagation()
+  emit('preview', item)
+}
 const root = ref<HTMLElement | null>(null)
 const lastAssistant = computed(() => {
   for (let index = props.messages.length - 1; index >= 0; index--) {
@@ -24,7 +63,7 @@ watch(
         (item) =>
           `${item.messageId}:${item.content.length}:${item.reasoningContent.length}:${item.runStatus}`
       )
-      .join('|'),
+      .join('|') + props.artifacts.map((item) => item.id).join('|'),
   async () => {
     await nextTick()
     if (root.value) root.value.scrollTop = root.value.scrollHeight
@@ -47,7 +86,7 @@ watch(
       class="message-row work-message"
       :class="message.role"
     >
-      <div class="message-body">
+      <div class="message-body" @click.capture="followArtifact($event, message)">
         <div
           v-if="legacy && message.role === 'assistant' && message.agentNameSnapshot"
           class="message-meta"
@@ -68,13 +107,25 @@ watch(
             }}</span>
           </div>
           <AiMessage
-            :content="message.content"
+            :content="
+              formatArtifactLinks(
+                message.content,
+                availableFiles.get(message.messageId) ?? [],
+                taskId,
+                linkPrefix
+              )
+            "
             :sources="message.knowledgeSources"
             :reasoning-content="message.reasoningContent"
             :loading="['pending', 'running', 'cancel_requested'].includes(message.runStatus)"
           />
           <p v-if="message.errorSnapshot" class="run-error">{{ message.errorSnapshot.message }}</p>
-          <slot v-if="index === lastAssistant" name="artifacts" />
+          <WorkMessageArtifacts
+            v-if="!legacy && message.runId"
+            :task-id="taskId"
+            :artifacts="byRun.get(message.runId) ?? []"
+            @preview="emit('preview', $event)"
+          />
         </template>
         <p v-else class="user-message">{{ message.content }}</p>
         <MessageActions

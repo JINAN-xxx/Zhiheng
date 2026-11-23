@@ -405,7 +405,7 @@ class AgentProvider:
         if self._incremental:
             if self._base_checkpoint_id == ROOT_CHECKPOINT_ID:
                 raise ValueError('Incremental chat requires an accepted checkpoint')
-            return prefix, [history[-1]]
+            return prefix, history
         # Full frozen seeds create a new branch without appending duplicate history.
         inputs: list[AnyMessage | RemoveMessage] = list(history)
         if self._checkpointer is not None:

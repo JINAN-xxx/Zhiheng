@@ -341,6 +341,8 @@ class RunStore:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
             return False
+        if row.resource_type == 'chat' and row.status == 'cancel_requested':
+            return True
         row.text = storage_text(content)
         row.reasoning = storage_text(reasoning)
         row.projection_seq += 1
@@ -364,11 +366,14 @@ class RunStore:
         row = await session.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if not self._owns(row, attempt_id) or row is None:
             raise AppError('execution_lost', '执行权已失效', 409)
+        frozen_chat = row.resource_type == 'chat' and row.status == 'cancel_requested'
         row.status = 'cancelled' if row.status == 'cancel_requested' else status
         if row.status == 'cancelled':
             error = None
-        row.text = storage_text(content)
-        row.reasoning = storage_text(reasoning)
+        # A stopped chat keeps only the text already published when the user stopped it.
+        if not frozen_chat:
+            row.text = storage_text(content)
+            row.reasoning = storage_text(reasoning)
         row.result = result
         row.finish_reason = finish_reason
         row.input_tokens, row.output_tokens, row.usage_status = usage.input_tokens, usage.output_tokens, usage.status
