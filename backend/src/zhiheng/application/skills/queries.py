@@ -22,16 +22,11 @@ class SkillQueries:
     ) -> list[ResourceSkillInfo]:
         async with self.database.sessions.begin() as session:
             caller = await self.access.current(session, caller, 'skills:read')
-            assert caller.identity is not None
-            grants = await self.access.grants.list(
-                session, caller.principal.id, caller.identity.application_id, 'skill'
-            )
+            grants = await self.access.readable_grants(session, caller, 'skill')
             ids = [
                 g.resource_id
                 for g in grants
-                if 'read' in g.actions
-                and g.ownership.owner_id == caller.principal.id
-                and g.ownership.stamp == str(caller.principal.id)
+                if g.ownership.owner_id == caller.principal.id and g.ownership.stamp == str(caller.principal.id)
             ]
             return await self.skills.resource_items(session, caller.principal.id, ids, after=after, limit=limit)
 

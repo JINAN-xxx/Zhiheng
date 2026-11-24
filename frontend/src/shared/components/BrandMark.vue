@@ -1,29 +1,29 @@
 <script setup lang="ts">
+import symbol from '../assets/daip-symbol.png'
+import wordmark from '../assets/daip-wordmark.png'
+import highResolutionWordmark from '../assets/daip-wordmark-large.png'
+
 defineProps<{ compact?: boolean }>()
 </script>
+
 <template>
-  <span class="platform-wordmark">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 7h17L8 24h16M4 16h9" /></svg>
-    <span v-if="!compact">智衡</span>
-  </span>
+  <img v-if="compact" class="platform-wordmark" :src="symbol" alt="DAIP" width="32" height="32" />
+  <img
+    v-else
+    class="platform-wordmark"
+    :src="wordmark"
+    :srcset="`${wordmark} 120w, ${highResolutionWordmark} 1200w`"
+    sizes="120px"
+    alt="DAIP"
+    width="120"
+    height="36"
+  />
 </template>
+
 <style scoped>
 .platform-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  white-space: nowrap;
-  color: var(--color-text);
-  font-size: 20px;
-  font-weight: 600;
-}
-.platform-wordmark svg {
-  width: 30px;
-  height: 32px;
-  fill: none;
-  stroke: var(--main-color);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 </style>

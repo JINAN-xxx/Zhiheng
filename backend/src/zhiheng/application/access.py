@@ -128,12 +128,25 @@ class ResourceAccessService:
         """Preflight with lock=False, then lock Models/Connections before final domain locking."""
         current = await self.current(session, caller, operation_scope or resource_scope(kind, action))
         assert current.identity is not None
+        await self.keys.authorize_resource(session, current.identity, kind, resource_id, action)
         binding = await self.grants.require(session, current.identity.application_id, kind, resource_id, action)
         facts = await self.domain_actions(
             session, current.principal, kind, resource_id, lock=lock, include_deleted=include_deleted
         )
         if action not in facts.actions or binding != facts.ownership:
             raise AppError('resource_not_found', '资源不存在', 404)
+
+    async def readable_grants(
+        self, session: AsyncSession, caller: CallerContext, kind: ResourceKind
+    ) -> list[ResourceGrantInfo]:
+        assert caller.identity is not None
+        allowed = await self.keys.resource_ids(session, caller.identity, kind, 'read')
+        if not allowed:
+            return []
+        grants = await self.grants.list(session, caller.principal.id, caller.identity.application_id, kind)
+        return [
+            grant for grant in grants if 'read' in grant.actions and grant.resource_id in allowed
+        ]
 
     async def bind(
         self,
@@ -183,11 +196,12 @@ class ResourceAccessService:
         """Call in the creation transaction, after Key/App admission and domain registration."""
         caller = await self.current(session, caller, resource_scope(kind, 'write'))
         assert caller.identity is not None
+        await self.keys.authorize_resource_creation(session, caller.identity, kind, lock=True)
         facts = await self.domain_actions(session, caller.principal, kind, resource_id, lock=True, binding=True)
         # Newly created resources must belong to the authenticated owner, never a shared target.
         if facts.ownership.owner_id != caller.principal.id:
             raise AppError('resource_not_found', '资源不存在', 404)
-        return await self.grants.bind_verified(
+        grant = await self.grants.bind_verified(
             session,
             caller.principal.id,
             caller.identity.application_id,
@@ -197,6 +211,8 @@ class ResourceAccessService:
             ownership=facts.ownership,
             source=facts.source,
         )
+        await self.keys.grant_created_resource(session, caller.identity, kind, resource_id)
+        return grant
 
     async def unbind(
         self,

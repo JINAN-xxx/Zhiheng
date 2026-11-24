@@ -43,12 +43,10 @@
           <h2>鉴权与授权</h2>
           <p class="api-doc-description">
             发送 Authorization: Bearer $API_KEY。Console Cookie 不作为资源或推理鉴权。Key Scope
-            固定；应用资源授权可即时撤销，当前资源 ACL 始终生效。原密钥不会自动获得资源能力。
+            与签发时选定的对象共同生效。资源访问还须满足当前应用授权和资源 ACL。
           </p>
           <p class="api-doc-description">
-            资源元数据 Key
-            可不选模型。索引、检索和其他模型步骤仍须允许相应模型，并沿用原积分计量；CRUD
-            与上传独立按资源请求频率限制。知识检索返回的片段不自动授予原文件下载权限。
+            密钥按模型、智能体和资源动作分别授权。智能体和知识检索的内部模型调用按实际用量计费，资源操作独立按请求频率限制。
           </p>
         </section>
         <section id="api-protocol" class="api-doc-section">

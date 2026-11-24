@@ -169,7 +169,7 @@ async def test_final_limit_reaches_ranker_and_bounds_the_combined_library_result
         key = (
             await admin.post(
                 f'/api/developer/applications/{agent["application_id"]}/keys',
-                json={'name': 'Knowledge limit', 'model_ids': models},
+                json={'name': 'Knowledge limit', 'scopes': ['agents:invoke'], 'agent_ids': [agent['id']]},
             )
         ).json()
         headers = {'Authorization': 'Bearer ' + key['api_key']}

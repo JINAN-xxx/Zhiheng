@@ -236,7 +236,7 @@ async def test_api_key_must_explicitly_authorize_default_ranker(
 
     base, embed, _, _ = await ready(admin, app, provider)
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[embed])
+    key = await issue(admin, owner_app['id'], scopes=['knowledge:query'])
     c = app.state.container
     async with c.database.sessions.begin() as session:
         # Resolve the current developer identity using the same bearer authentication as API admission.

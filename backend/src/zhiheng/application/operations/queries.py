@@ -13,7 +13,6 @@ from zhiheng.application.operations.contracts import OperationInfo, OperationSta
 from zhiheng.infrastructure.database import Database
 from zhiheng.modules.developer.public import APIRequestInfo, ResourceAction, ResourceKind, Scope
 from zhiheng.modules.knowledge.public import JOB_TERMINAL, PREPARATION_TERMINAL, KnowledgeService
-from zhiheng.modules.models.public import ModelRequest
 from zhiheng.runtime.contracts import TERMINAL_STATUSES
 from zhiheng.shared.errors import AppError
 
@@ -49,6 +48,8 @@ class OperationQueries:
             action = cast('ResourceAction', target['action'])
             if kind == 'knowledge_base':
                 action = 'query' if query else ('write' if cancel else 'read')
+                if query and cancel:
+                    await self.access.require(session, caller, kind, UUID(target['id']), 'write', lock=False)
             await self.access.require(
                 session,
                 caller,
@@ -58,18 +59,6 @@ class OperationQueries:
                 lock=False,
                 include_deleted=request.operation == 'knowledge.delete_base',
                 operation_scope=scope if cancel else None,
-            )
-        if query and not cancel and request.result_id is not None:
-            row = await self.preparation.store.get(session, request.result_id)
-            state = self.preparation.store.state(row)
-            model_ids = {base.binding.model_id for base in self.preparation.store.bases(state)}
-            rerank = self.preparation.rerank_binding(state)
-            if rerank is not None:
-                model_ids.add(rerank.model_id)
-            if 'main_request' in state.dependencies:
-                model_ids.add(ModelRequest.model_validate(state.dependencies['main_request']).binding.model_id)
-            await self.access.keys.authorize_identity(
-                session, caller.identity, sorted(model_ids), scope=scope, lock=False
             )
 
     async def can_cancel(

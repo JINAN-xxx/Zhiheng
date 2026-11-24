@@ -73,7 +73,7 @@ class KnowledgeJobs:
         if self.origin_guard is None:
             return None
         paid = models and not claim.operation.startswith('delete')
-        origin = await self.origin_guard.job(session, claim.id, model_ids=(claim.binding.model_id,) if paid else ())
+        origin = await self.origin_guard.job(session, claim.id)
         if origin is None:
             actor = await self.knowledge.identity.principal_for_user(session, claim.owner_id)
             require_capability(
@@ -102,9 +102,7 @@ class KnowledgeJobs:
                 include_deleted=claim.operation == 'delete_base',
             )
             await self.store.owned(session, claim)
-            await self.origin_guard.job(
-                session, claim.id, model_ids=(claim.binding.model_id,) if paid else (), lock=True
-            )
+            await self.origin_guard.job(session, claim.id, lock=True)
         return origin
 
     async def tick(self, job_id: UUID) -> None:
@@ -117,9 +115,7 @@ class KnowledgeJobs:
                     and facts.status not in {*JOB_TERMINAL, 'cancel_requested'}
                 ):
                     paid = not facts.operation.startswith('delete')
-                    origin = await self.origin_guard.job(
-                        session, job_id, model_ids=(facts.binding.model_id,) if paid else ()
-                    )
+                    origin = await self.origin_guard.job(session, job_id)
                     if origin is not None and paid:
                         binding = await self.models.bindings.resolve(session, facts.binding.model_id)
                         if binding_fingerprint(binding) != binding_fingerprint(facts.binding):

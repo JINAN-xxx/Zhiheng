@@ -15,15 +15,13 @@ class KnowledgeOriginGuard:
     def __init__(self, access: ResourceAccessService) -> None:
         self.access = access
 
-    async def job(
-        self, session: AsyncSession, job_id: UUID, *, model_ids: tuple[UUID, ...] = (), lock: bool = False
-    ) -> APIOrigin | None:
+    async def job(self, session: AsyncSession, job_id: UUID, *, lock: bool = False) -> APIOrigin | None:
         origin = await self.access.requests.origin(session, 'knowledge_job', job_id)
         if origin is None:
             return None
         identity = DeveloperIdentity(origin.application_id, origin.key_id, origin.owner_id)
         request = await self.access.requests.get(session, origin.application_id, origin.request_id)
-        await self.access.keys.authorize_identity(session, identity, model_ids, scope=request.required_scope, lock=True)
+        await self.access.keys.authorize_identity(session, identity, [], scope=request.required_scope, lock=True)
         principal = await self.access.identity.principal_for_user(session, origin.owner_id)
         require_resource_operation(principal, request.operation)
         caller = CallerContext('key', principal, identity, origin.request_id)

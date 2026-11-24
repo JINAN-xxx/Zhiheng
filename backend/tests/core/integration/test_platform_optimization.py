@@ -2,6 +2,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from tests.core.integration.test_knowledge import embedding_model
+from tests.core.knowledge_support import share_library
 from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
 
@@ -46,10 +48,16 @@ async def test_conflicting_model_configuration_makes_no_provider_request(
 
 
 async def test_readonly_scope_catalog_tracks_current_role_and_matches_real_key_issuance(
-    admin: httpx.AsyncClient, app: FastAPI
+    admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer
 ) -> None:
+    model = await embedding_model(admin, provider)
+    base = await admin.post('/api/knowledge/bases', json={'name': 'Shared read only', 'embed_model_id': model})
+    assert base.status_code == 201, base.text
+    base_id = base.json()['id']
     permissions = (
-        grants('platform:developer', 'create', 'key_create') | grants('platform:knowledge') | grants('platform:skills')
+        grants('platform:developer', 'create', 'key_create', 'grant')
+        | grants('platform:knowledge')
+        | grants('platform:skills')
     )
     async with account(admin, app, *permissions) as (reader, role, _user):
         path = '/api/developer/applications'
@@ -59,12 +67,34 @@ async def test_readonly_scope_catalog_tracks_current_role_and_matches_real_key_i
         assert not definitions['knowledge:query']['grantable']
         application = await reader.post(path, json={'name': 'Read only'})
         assert application.status_code == 201, application.text
+        await share_library(admin, reader, base_id)
+        bound = await reader.put(
+            f'{path}/{application.json()["id"]}/resources/knowledge_base/{base_id}',
+            json={'expected_version': application.json()['version'], 'actions': ['read']},
+        )
+        assert bound.status_code == 200, bound.text
         endpoint = path + '/' + application.json()['id'] + '/keys'
         issued = await reader.post(
-            endpoint, json={'name': 'Reader', 'model_ids': [], 'scopes': ['knowledge:read', 'skills:read']}
+            endpoint,
+            json={
+                'name': 'Reader',
+                'scopes': ['knowledge:read'],
+                'resource_grants': [
+                    {'kind': 'knowledge_base', 'resource_id': base_id, 'actions': ['read']},
+                ],
+            },
         )
         assert issued.status_code == 201, issued.text
-        rejected = await reader.post(endpoint, json={'name': 'Query', 'model_ids': [], 'scopes': ['knowledge:query']})
+        rejected = await reader.post(
+            endpoint,
+            json={
+                'name': 'Query',
+                'scopes': ['knowledge:query'],
+                'resource_grants': [
+                    {'kind': 'knowledge_base', 'resource_id': base_id, 'actions': ['query']},
+                ],
+            },
+        )
         assert rejected.status_code == 403
         changed = await admin.patch(
             '/api/admin/roles/' + role['id'],

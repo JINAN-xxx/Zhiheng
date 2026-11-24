@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="assistant-float__control"
-            aria-label="贴边收起小衡"
+            aria-label="贴边收起小助手"
             title="贴边收起"
             @click="closePanel(true)"
           >
@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="assistant-float__control"
-            aria-label="关闭小衡浮窗"
+            aria-label="关闭小助手浮窗"
             title="关闭浮窗"
             @click="closePanel()"
           >
@@ -332,11 +332,11 @@ onBeforeUnmount(() => {
           <div class="assistant-float__greeting">
             <XiaohengCharacter expression="happy" />
             <div>
-              <h3 :id="`${panelId}-title`">你好，我是小衡</h3>
+              <h3 :id="`${panelId}-title`">你好，我是小助手</h3>
               <p>想做点什么？我带你开始。</p>
             </div>
           </div>
-          <nav aria-label="小衡快捷入口">
+          <nav aria-label="小助手快捷入口">
             <RouterLink
               v-for="(entry, index) in entries"
               :key="entry.path"
@@ -365,10 +365,10 @@ onBeforeUnmount(() => {
           }
         ]"
         :style="launcherStyle"
-        :aria-label="docked ? '展开小衡悬浮助手' : '小衡悬浮助手'"
+        :aria-label="docked ? '展开小助手' : '小助手'"
         :aria-expanded="opened"
         :aria-controls="opened ? panelId : undefined"
-        :title="docked ? '展开小衡' : '点击打开小衡，拖动或用方向键调整位置'"
+        :title="docked ? '展开小助手' : '点击打开小助手，拖动或用方向键调整位置'"
         @pointerdown="startDrag"
         @pointermove="moveDrag"
         @pointerup="finishDrag"

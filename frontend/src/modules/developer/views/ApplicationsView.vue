@@ -183,7 +183,7 @@
             <a-tabs class="detail-tabs" :active-key="activeTab" @change="changeTab">
               <a-tab-pane key="overview" tab="概览" />
               <a-tab-pane key="keys" tab="访问密钥" />
-              <a-tab-pane key="models" tab="模型授权" />
+              <a-tab-pane key="models" tab="模型直调授权" />
               <a-tab-pane key="resources" tab="资源授权" />
               <a-tab-pane key="usage" tab="调用记录" />
             </a-tabs>
@@ -198,10 +198,16 @@
               :keys="keys"
               :scope-catalog="scopeCatalog"
               :models="models"
+              :agents="agents"
+              :resources="resources"
               :loading="keyLoading"
               :error="keyError"
               :can-list="canListKeys"
-              :can-create="canCreateKey && selectedApplication.status === 'active'"
+              :can-create="
+                canCreateKey &&
+                selectedApplication.status === 'active' &&
+                selectedApplication.platformEnabled !== false
+              "
               :actions="keyActions"
               @create="openKeyForm"
               @retry="loadKeys"
@@ -281,19 +287,15 @@
         @cancel="closeKeyForm"
       >
         <a-alert
-          v-if="formError || catalogError || modelError"
-          :message="formError || catalogError || modelError"
+          v-if="formError || catalogError"
+          :message="formError || catalogError"
           type="error"
           show-icon
         /><a-form ref="keyFormRef" :model="keyForm" :rules="keyRules" layout="vertical">
           <a-form-item label="密钥名称" name="keyName"
-            ><a-input v-model:value="keyForm.keyName" :maxlength="100"
+            ><a-input v-model:value="keyForm.keyName" :maxlength="80"
           /></a-form-item>
-          <a-form-item
-            label="操作能力"
-            name="scopes"
-            extra="签发后能力固定。轮换复制原权限；变更能力需签发新密钥。"
-          >
+          <a-form-item label="操作能力" name="scopes" extra="可多选。轮换后继承本次签发的权限。">
             <a-spin :spinning="catalogLoading"
               ><a-checkbox-group
                 :value="keyForm.scopes"
@@ -315,19 +317,68 @@
             >
           </a-form-item>
           <a-form-item
-            label="模型允许列表"
+            v-if="keyForm.scopes.includes('models:invoke')"
+            label="直接调用的模型"
             name="modelIds"
-            extra="模型或智能体调用须选模型。资源元数据管理可留空；索引和检索仍需允许相应模型。"
+            required
             ><a-select
               :value="keyForm.modelIds"
               mode="multiple"
               show-search
               option-filter-prop="label"
               style="width: 100%"
-              placeholder="按所选能力选择已启用模型"
+              placeholder="选择模型"
+              :loading="modelLoading"
               :options="modelOptions"
-              @change="setModelIds"
-          /></a-form-item>
+              @change="setKeySelection('modelIds', $event)"
+            /><a-alert v-if="modelError" :message="modelError" type="error" />
+          </a-form-item>
+          <a-form-item
+            v-if="keyForm.scopes.includes('agents:invoke')"
+            label="可调用的智能体"
+            name="agentIds"
+            required
+          >
+            <a-select
+              :value="keyForm.agentIds"
+              aria-label="可调用的智能体"
+              mode="multiple"
+              show-search
+              option-filter-prop="label"
+              placeholder="选择当前应用的智能体"
+              :loading="targetsLoading"
+              :options="agentOptions"
+              @change="setKeySelection('agentIds', $event)"
+            />
+            <a-alert v-if="agentError" :message="agentError" type="error" />
+            <a-button v-if="agentError" type="link" @click="loadKeyTargets"
+              >重新加载智能体</a-button
+            >
+          </a-form-item>
+          <a-form-item v-if="resourceScopesSelected" label="资源与动作" name="resourceActions">
+            <a-select
+              :value="keyForm.resourceActions"
+              aria-label="资源与动作"
+              mode="multiple"
+              show-search
+              option-filter-prop="label"
+              placeholder="选择应用已授权的资源与动作"
+              :loading="targetsLoading"
+              :options="resourceOptions"
+              @change="setKeySelection('resourceActions', $event)"
+            />
+            <a-checkbox-group
+              v-if="createOptions.length"
+              class="create-kind-choices"
+              :value="keyForm.createKinds"
+              :options="createOptions"
+              @change="setKeySelection('createKinds', $event)"
+            />
+            <a-alert v-if="resourceError" :message="resourceError" type="error" />
+            <a-button v-if="resourceError" type="link" @click="loadKeyTargets"
+              >重新加载资源</a-button
+            >
+          </a-form-item>
           <a-form-item label="资源每分钟请求数" name="resourceRpmLimit">
             <a-input-number
               v-if="scopeCatalog"
@@ -505,6 +556,16 @@ const {
   canQueryUsage,
   keyActions,
   modelOptions,
+  agentOptions,
+  resourceOptions,
+  createOptions,
+  resourceScopesSelected,
+  agents,
+  resources,
+  agentError,
+  resourceError,
+  targetsLoading,
+  loadKeyTargets,
   applicationRules,
   keyRules,
   loadApplications,
@@ -532,7 +593,7 @@ const {
   copyIssuedKey,
   openDocs: openApiDocs,
   setKeyScopes,
-  setModelIds,
+  setKeySelection,
   setLimit,
   setExpiry,
   closeDocs: closeApiDocs
@@ -543,6 +604,9 @@ const {
 .scope-choices {
   display: grid;
   gap: 10px;
+}
+.create-kind-choices {
+  margin-top: 8px;
 }
 .scope-choices :deep(.ant-checkbox-wrapper) {
   margin-inline-start: 0;

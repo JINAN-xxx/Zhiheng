@@ -152,7 +152,6 @@ async def test_paid_resource_knowledge_replay_keeps_original_key_and_both_ledger
         admin,
         owner_app['id'],
         scopes=SCOPES,
-        model_ids=[model],
         monthly_points_limit='0',
     )
     disabled = await admin.patch(f'/api/models/{model}', json={'enabled': False})

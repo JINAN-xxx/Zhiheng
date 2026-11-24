@@ -30,7 +30,7 @@ async def test_token_only_api_needs_no_currency_rate(admin: httpx.AsyncClient, m
     )
     assert price.status_code == 201, price.text
     owner = await application(admin)
-    key = await issue(admin, owner['id'], model_ids=[model_id])
+    key = await issue(admin, owner['id'], scopes=['models:invoke'], model_ids=[model_id])
     from tests.core.integration.test_public_protocol import drive
 
     pending = asyncio.create_task(
@@ -183,18 +183,17 @@ async def test_agent_create_request_prevents_duplicates_and_rejects_changed_retr
     assert conflict.status_code == 409
 
 
-async def test_agent_access_inventory_includes_effective_ranker(
+async def test_agent_object_grant_admits_knowledge_retrieval_without_direct_model_access(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, model_id: str
 ) -> None:
     from tests.core.integration.test_knowledge_failures import ready_base
 
     base = await ready_base(admin, app, provider)
     a = await published(admin, model_id, knowledge_base_ids=[base['id']])
-    metadata = await admin.get('/api/agents/' + a['id'] + '/api-access')
-    assert metadata.status_code == 200, metadata.text
-    ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
-    assert set(metadata.json()['model_ids']) == {model_id, base['embed_model_id'], ranker}
-    key = await issue(admin, a['application_id'], model_ids=metadata.json()['model_ids'])
+    from tests.core.integration.test_agents import issue_agent_key
+
+    key = await issue_agent_key(admin, a)
+    assert key['model_ids'] == []
     call = await admin.post(
         '/v1/agents/' + a['id'] + '/chat/completions',
         headers={'Authorization': f'Bearer {key["api_key"]}'},

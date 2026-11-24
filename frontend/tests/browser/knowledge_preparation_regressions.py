@@ -22,11 +22,6 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         if path == '/api/knowledge/available':
             self.knowledge_queries.append(parse_qs(urlparse(route.request.url).query))
             await route.fulfill(json=[{'id': 'base-1', 'name': '业务知识', 'description': '', 'owner_id': self.agent['owner_id'], 'access': 'private', 'version': 1, 'acl_version': 1, 'embed_model_id': 'embed-1', 'chunk_size': 1000, 'chunk_overlap': 200, 'active_revision': 'revision-1', 'active_job_id': None, 'index_status': 'ready', 'document_count': 1, 'last_error': None, 'enable_knowledge_graph': False, 'llm_model_id': None, 'graph_status': 'disabled', 'created_at': STAMP, 'updated_at': STAMP, 'can_manage': True}])
-        elif path == '/api/agents/agent-1/api-access':
-            config = self.agent
-            await route.fulfill(json={'application_id': config['application_id'],
-                'revision': self.agent['version'],
-                'model_ids': [config['model_id'], 'embed-1', 'rank-1']})
         elif path == '/api/agents/agent-1/preview':
             self.previews.append(route.request.post_data_json)
             await route.fulfill(status=202, json=self.preparation)
@@ -60,14 +55,15 @@ class AgentKnowledgePreparation(AgentsUIRegressions):
         await expect(self.page.locator('.agent-editor--page').get_by_text('业务知识', exact=True)).to_be_visible()
         self.assertEqual(self.knowledge_queries, [{'agent_id': ['agent-1']}])
 
-    async def test_api_key_includes_published_knowledge_embedding_model_grants(self):
+    async def test_api_key_authorizes_knowledge_assistant_by_id(self):
         self.agent.update({'status': 'enabled', 'application_id': 'draft-app', 'knowledge_base_ids': ['draft-base'], **{**self.config, 'model_id': 'published-model', 'application_id': 'app-1', 'knowledge_base_ids': ['base-1']}})
         await self.open_agents()
         await self.choose_agent_action('API')
         drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button', name='创建密钥', exact=True).click()
         await expect(drawer.get_by_text('密钥仅显示一次', exact=True)).to_be_visible()
-        self.assertEqual(self.posts[-1]['model_ids'], ['published-model', 'embed-1', 'rank-1'])
+        self.assertEqual(self.posts[-1]['agent_ids'], ['agent-1'])
+        self.assertEqual(self.posts[-1]['model_ids'], [])
         await expect(drawer.get_by_text('202', exact=False).first).to_be_visible()
 
 
@@ -115,7 +111,7 @@ def load_tests(loader, tests, pattern):
     names = [
         (AgentKnowledgePreparation, 'test_preview_observes_and_cancels_knowledge_preparation'),
         (AgentKnowledgePreparation, 'test_editor_loads_knowledge_options_for_saved_agent_owner'),
-        (AgentKnowledgePreparation, 'test_api_key_includes_published_knowledge_embedding_model_grants'),
+        (AgentKnowledgePreparation, 'test_api_key_authorizes_knowledge_assistant_by_id'),
         (WorkKnowledgePreparation, 'test_legacy_preparation_history_is_read_only'),
         (WorkKnowledgePreparation, 'test_reloading_history_does_not_resume_legacy_preparation'),
         (WorkKnowledgePreparation, 'test_legacy_run_does_not_automatically_restore_old_executor'),

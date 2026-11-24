@@ -31,12 +31,12 @@ class ScopeDefinition:
 
 SCOPE_DEFINITIONS = (
     ScopeDefinition('models:invoke', '模型调用', '调用允许列表中的模型', True),
-    ScopeDefinition('agents:invoke', '智能体调用', '调用当前应用发布的智能体', True),
+    ScopeDefinition('agents:invoke', '智能体调用', '调用此密钥选定的智能体'),
     ScopeDefinition('files:read', '读取文件', '读取已授权文件的元数据与内容'),
     ScopeDefinition('files:write', '管理文件', '上传、回收与恢复已授权文件'),
     ScopeDefinition('knowledge:read', '读取知识库', '读取已授权知识库、目录与文档元数据'),
-    ScopeDefinition('knowledge:write', '管理知识库', '创建、入库、重建与删除；模型步骤另需模型允许列表'),
-    ScopeDefinition('knowledge:query', '知识检索', '检索片段；模型步骤另需模型允许列表，不自动开放原文下载'),
+    ScopeDefinition('knowledge:write', '管理知识库', '按授权创建知识库、入库、重建或删除'),
+    ScopeDefinition('knowledge:query', '知识检索', '检索已授权知识库中的片段'),
     ScopeDefinition('skills:read', '读取技能', '读取已授权个人技能与不可变修订'),
     ScopeDefinition('skills:write', '管理技能', '预检、确认、启停与删除个人技能'),
 )

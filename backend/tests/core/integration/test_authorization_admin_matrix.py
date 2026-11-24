@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 
 from tests.core.integration.test_billing_http import mutation, point_rate
-from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.integration.test_resource_key_scopes import application, file_reader, issue
 from tests.core.permission_support import account, grant_member, grants
 
 PASSWORD = 'platform-test-password'
@@ -358,7 +358,7 @@ async def test_developer_keys_require_application_owner_and_matching_parent(
         clients = (owner, other, admin)
         apps = [await application(client) for client in clients]
         keys = [
-            await issue(client, row['id'], scopes=['files:read']) for client, row in zip(clients, apps, strict=True)
+            await file_reader(client, row['id']) for client, row in zip(clients, apps, strict=True)
         ]
         payload = (
             {'name': 'Client', 'scopes': ['files:read']}
@@ -729,7 +729,7 @@ async def test_model_credentials_rates_and_admin_only_switches_stay_separate(
 
 async def test_health_public_and_bearer_does_not_authenticate_console(admin: httpx.AsyncClient, app: FastAPI) -> None:
     row = await application(admin)
-    key = await issue(admin, row['id'], scopes=['files:read'])
+    key = await file_reader(admin, row['id'])
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as guest:
         assert check(await guest.get('/health/live'), 200, 'public-live').json() == {'status': 'ok'}
         ready = await guest.get('/health/ready')

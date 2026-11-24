@@ -63,6 +63,18 @@ def assert_original_rows(before: list[str], after: list[str], table: str) -> Non
     old = [{key: value for key, value in row.items() if key not in retired} for row in old]
     renamed = RENAMED_COLUMNS.get(table, {})
     old = [{renamed.get(key, key): value for key, value in row.items()} for row in old]
+    if table == 'developer_keys' and new and 'grant_family_id' in new[0]:
+        # 0044 retires the verifier and grants, retaining the original billing identity.
+        migrated = {row['id']: row for row in new}
+        for row in old:
+            current = migrated[row['id']]
+            assert current['deleted_at'] and current['status'] == 'revoked'
+            expected = {
+                'status': 'revoked', 'digest': 'retired:' + row['id'], 'prefix': '',
+                'retire_at': None, 'model_ids': [], 'scopes': [],
+                'deleted_at': row.get('deleted_at') or current['deleted_at'],
+            }
+            row.update({key: value for key, value in expected.items() if key in row})
     if table in {'agents', 'assistant_conversations'}:
         for row in old:
             if isinstance(row.get('config'), dict):

@@ -2,7 +2,7 @@
 <template>
   <section class="keys-panel">
     <div class="subpage-actions">
-      <div><strong>访问密钥</strong><span>每把密钥独立设置操作能力、模型允许列表与限额</span></div>
+      <div><strong>访问密钥</strong></div>
       <a-button v-if="canCreate" type="primary" aria-label="创建密钥" @click="$emit('create')"
         ><template #icon><KeyOutlined /></template>创建密钥</a-button
       >
@@ -38,16 +38,33 @@
           </div>
           <code>{{ item.maskedKey }}</code>
           <small class="key-row__models"
-            >模型允许列表：{{
-              item.grants.map((grant) => modelName(grant.modelId)).join('、') || '无需裸模型调用'
-            }}</small
-          >
-          <small
-            >{{ item.grants.length }} 个模型授权 · 最近使用 {{ formatTime(item.lastUsedAt) }}</small
-          >
-          <small class="key-row__models"
             >操作能力：{{ item.scopes.map(scopeLabel).join('、') }}（签发后固定）</small
           >
+          <small v-if="item.grants.length" class="key-row__models">
+            直接调用的模型：{{ item.grants.map((grant) => modelName(grant.modelId)).join('、') }}
+          </small>
+          <small v-if="item.agentIds.length">
+            可调用的智能体：{{
+              item.agentIds
+                .map((id) => agents.find((agent) => agent.id === id)?.name ?? id)
+                .join('、')
+            }}
+          </small>
+          <small v-for="grant in item.resourceGrants" :key="grant.kind + grant.resource_id">
+            {{ resourceKindLabels[grant.kind] }} ·
+            {{
+              resources.find(
+                (resource) =>
+                  resource.kind === grant.kind && resource.resourceId === grant.resource_id
+              )?.displayName ?? grant.resource_id
+            }}：{{ grant.actions.map((action) => resourceActionLabels[action]).join('、') }}
+          </small>
+          <small v-if="item.createResourceKinds.length"
+            >创建权限：{{
+              item.createResourceKinds.map((kind) => resourceCreationLabels[kind]).join('、')
+            }}</small
+          >
+          <small>最近使用：{{ formatTime(item.lastUsedAt) }}</small>
           <small>到期时间：{{ item.expiresAt ? formatTime(item.expiresAt) : '无到期时间' }}</small>
           <small v-if="item.status === 'retiring'" class="key-row__retiring"
             >旧密钥处于轮换宽限期</small
@@ -101,14 +118,21 @@ import WorkspaceMoreMenu from '../../../shared/components/WorkspaceMoreMenu.vue'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import WorkspaceStatus from '../../../shared/components/WorkspaceStatus.vue'
-import { developerKeyStatusLabel } from '../presentation.ts'
-import type { DeveloperKey, ScopeCatalog } from '../api/index.ts'
+import {
+  developerKeyStatusLabel,
+  resourceKindLabels,
+  resourceActionLabels,
+  resourceCreationLabels
+} from '../presentation.ts'
+import type { BoundResource, DeveloperKey, ScopeCatalog } from '../api/index.ts'
 import type { ChatModel } from '../../models/public.ts'
 const props = withDefaults(
   defineProps<{
     keys: DeveloperKey[]
     scopeCatalog?: ScopeCatalog | null
     models?: ChatModel[]
+    agents: { id: string; name: string }[]
+    resources: BoundResource[]
     loading?: boolean
     error?: string
     canList?: boolean

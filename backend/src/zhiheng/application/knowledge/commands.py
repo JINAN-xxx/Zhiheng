@@ -67,9 +67,7 @@ class KnowledgeCommands:
                 return BaseInfo.model_validate(request.snapshot)
             prepared = await self.knowledge.creation_parameters(session, body)
             assert prepared.embed_model_id is not None and caller.identity is not None
-            await self.access.keys.authorize_identity(
-                session, caller.identity, [prepared.embed_model_id], scope='knowledge:write', lock=True
-            )
+            await self.access.keys.authorize_resource_creation(session, caller.identity, 'knowledge_base', lock=True)
             info = await self.native.create(session, self.access.personal(caller.principal), prepared)
             await self.access.autobind(session, caller, 'knowledge_base', info.id)
             await self.access.requests.complete(
@@ -249,9 +247,6 @@ class KnowledgeCommands:
             if operation.startswith('delete'):
                 binding = await self.knowledge.builds.deletion_binding(session, base_id)
             else:
-                await self.access.keys.authorize_identity(
-                    session, caller.identity, [base.embed_model_id], scope='knowledge:write', lock=True
-                )
                 binding = (await self.models.bindings.resolve_many(session, [base.embed_model_id]))[base.embed_model_id]
                 await self.preparation.admission_rate(session, base.embed_model_id, caller.identity)
             if operation == 'import':
@@ -340,9 +335,6 @@ class KnowledgeCommands:
                 return await self.operations.project(session, caller, request)
             await self.access.require(session, caller, 'knowledge_base', base_id, 'query', lock=False)
             base = await self.knowledge.authorize_base(session, self.access.personal(caller.principal), base_id)
-            await self.access.keys.authorize_identity(
-                session, caller.identity, [base.embed_model_id], scope='knowledge:query', lock=True
-            )
             await self.models.bindings.resolve_many(session, [base.embed_model_id])
             await self.preparation.admission_rate(
                 session, base.embed_model_id, caller.identity, len(body.query.encode()) + 16

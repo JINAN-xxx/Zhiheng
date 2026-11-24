@@ -85,9 +85,10 @@ async def test_key_deletion_upgrade_downgrade_and_reupgrade_preserve_existing_ke
         async with engine.connect() as connection:
             assert await connection.scalar(text('SELECT version_num FROM alembic_version')) == SCHEMA_REVISION
             assert await connection.scalar(text('SELECT count(*) FROM developer_keys')) == 3
-            assert (await connection.execute(text('SELECT name,digest FROM developer_keys ORDER BY name'))).all() == [
-                (status, status + '-original-digest') for status in ['active', 'retiring', 'revoked']
-            ]
+            assert await connection.scalar(text(
+                "SELECT count(*) FROM developer_keys WHERE digest='retired:' || id::text AND prefix='' "
+                "AND status='revoked' AND deleted_at IS NOT NULL"
+            )) == 3
             assert (
                 await connection.scalar(text('SELECT status FROM developer_keys WHERE id=:id'), {'id': revoked})
                 == 'revoked'

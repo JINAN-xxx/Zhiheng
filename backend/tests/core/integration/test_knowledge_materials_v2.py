@@ -1057,7 +1057,6 @@ async def test_legacy_import_keeps_originals_but_requires_migration_for_library_
             admin,
             owner_app['id'],
             scopes=['knowledge:write', 'knowledge:read', 'files:read'],
-            model_ids=[target['embed_model_id']],
         )
         for binding_index, (kind, identifier, actions) in enumerate(
             (

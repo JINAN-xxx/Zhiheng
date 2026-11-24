@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
-from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.integration.test_resource_key_scopes import application, file_reader, issue
 from tests.core.knowledge_support import share_library
 from tests.core.permission_support import account, grant_member, grants
 from tests.core.provider import ProviderServer
@@ -52,7 +52,7 @@ async def test_permanent_identity_concurrency_conflict_expiry_and_cross_key(
         await c.api_requests.complete(
             session, request.id, result_kind='file', result_id=uuid4(), snapshot={'accepted': True}
         )
-    rotated = await issue(admin, owner_app['id'], scopes=['files:read'])
+    rotated = await file_reader(admin, owner_app['id'])
     async with c.database.sessions.begin() as session:
         current = await c.resource_access.bearer(session, rotated['api_key'], scope='files:read')
         replay = await c.api_requests.begin(
@@ -80,7 +80,7 @@ async def test_permanent_identity_concurrency_conflict_expiry_and_cross_key(
 
 async def test_resource_rpm_does_not_use_token_buckets(admin: httpx.AsyncClient, app: FastAPI) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['files:read'], resource_rpm_limit=1)
+    key = await file_reader(admin, owner_app['id'], resource_rpm_limit=1)
     c = app.state.container
     async with c.database.sessions.begin() as session:
         caller = await c.resource_access.bearer(session, key['api_key'], scope='files:read')
@@ -109,7 +109,7 @@ async def test_app_grants_cas_isolation_current_acl_and_owner_forgery(admin: htt
     c, owner_app, _key, caller = await setup_access(admin, app)
     file = await upload(admin)
     second = await application(admin)
-    second_key = await issue(admin, second['id'], scopes=['files:read'])
+    second_key = await file_reader(admin, second['id'])
     async with c.database.sessions.begin() as session:
         granted = await c.resource_access.bind(
             session, caller.principal, UUID(owner_app['id']), 'file', UUID(file['id']), ['read'], expected_version=1
@@ -395,7 +395,7 @@ async def test_two_apps_same_owner_same_external_key_have_distinct_native_identi
 ) -> None:
     c, _first, _key, caller = await setup_access(admin, app)
     second = await application(admin)
-    key = await issue(admin, second['id'], scopes=['files:read'])
+    key = await file_reader(admin, second['id'])
     external = uuid4()
     async with c.database.sessions.begin() as session:
         left = await c.resource_access.begin_request(

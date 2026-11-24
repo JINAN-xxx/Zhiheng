@@ -10,8 +10,8 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
-from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
-from zhiheng.modules.developer.scopes import require_key_capabilities
+from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, ResourceGrant
+from zhiheng.modules.developer.scopes import ResourceAction, ResourceKind, require_key_capabilities, resource_scope
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.references import ResourceReference
@@ -19,7 +19,7 @@ from zhiheng.shared.time import utcnow
 
 if TYPE_CHECKING:
     import builtins
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,8 +45,10 @@ class KeyService:
         models: ModelService,
         identity: IdentityService,
         facts: UsageFactsPort,
+        agent_candidates: Callable[[AsyncSession, UUID, UUID], Awaitable[builtins.list[tuple[UUID, str]]]],
     ) -> None:
         self._applications, self._models, self._identity, self._facts = applications, models, identity, facts
+        self._agent_candidates = agent_candidates
 
     async def create(
         self, session: AsyncSession, principal: Principal, application_id: UUID, body: KeyCreate
@@ -56,18 +58,26 @@ class KeyService:
             raise AppError('application_conflict', '应用已停用', 409)
         require_key_capabilities(principal, body.scopes, operation='key_create')
         await self._models.bindings.resolve_many(session, body.model_ids)
-        return await self._issue(session, application_id, body)
-
-    async def _issue(self, session: AsyncSession, application_id: UUID, body: KeyCreate) -> IssuedKey:
-        secret = 'sk-zh-' + secrets.token_urlsafe(32)
+        if body.agent_ids:
+            candidates = await self._agent_candidates(session, principal.id, application_id)
+            if not set(body.agent_ids).issubset(agent_id for agent_id, _ in candidates):
+                raise AppError('agent_not_found', '请选择此应用已启用的智能体', 404)
+        for selection in body.resource_grants:
+            grant = await session.get(ResourceGrant, (application_id, selection.kind, selection.resource_id))
+            if grant is None or not set(selection.actions).issubset(grant.actions):
+                raise AppError('invalid_resource_grant', '所选资源或动作超出应用授权范围', 422)
+        object_fields = {'agent_ids', 'model_ids', 'resource_grants', 'create_resource_kinds', 'scopes'}
         row = DeveloperKey(
             application_id=application_id,
-            prefix=secret[:18],
-            digest=hashlib.sha256(secret.encode()).hexdigest(),
-            **body.model_dump(exclude={'model_ids', 'scopes'}),
-            scopes=list(body.scopes),
-            model_ids=[str(value) for value in body.model_ids],
+            **body.model_dump(exclude=object_fields),
+            **body.model_dump(mode='json', include=object_fields),
         )
+        return await self._issue(session, row)
+
+    async def _issue(self, session: AsyncSession, row: DeveloperKey) -> IssuedKey:
+        secret = 'sk-zh-' + secrets.token_urlsafe(32)
+        row.prefix = secret[:18]
+        row.digest = hashlib.sha256(secret.encode()).hexdigest()
         session.add(row)
         await session.flush()
         return IssuedKey(**self.info(row).model_dump(), api_key=secret)
@@ -122,20 +132,12 @@ class KeyService:
         require_key_capabilities(principal, tuple(row.scopes), operation='key_rotate')
         row.status = 'revoked' if grace == 0 else 'retiring'
         row.retire_at = utcnow() + timedelta(seconds=grace) if grace > 0 else None
-        body = KeyCreate(
-            name=row.name,
-            model_ids=[UUID(value) for value in row.model_ids],
-            scopes=tuple(row.scopes),
-            resource_rpm_limit=row.resource_rpm_limit,
-            rpm_limit=row.rpm_limit,
-            tpm_limit=row.tpm_limit,
-            concurrency_limit=row.concurrency_limit,
-            monthly_budget=str(row.monthly_budget) if row.monthly_budget is not None else None,
-            monthly_points_limit=str(row.monthly_points_limit) if row.monthly_points_limit is not None else None,
-            currency=row.currency,
-            expires_at=row.expires_at,
+        replacement = DeveloperKey(
+            application_id=application_id,
+            grant_family_id=row.grant_family_id or row.id,
+            **{field: getattr(row, field) for field in KeyCreate.model_fields},
         )
-        return await self._issue(session, application_id, body)
+        return await self._issue(session, replacement)
 
     async def revoke(self, session: AsyncSession, principal: Principal, application_id: UUID, key_id: UUID) -> KeyInfo:
         require_capability(principal, 'developer', 'key_revoke')
@@ -184,6 +186,11 @@ class KeyService:
 
     async def revalidate(self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False) -> KeyInfo:
         """Current identity validity, independent of the operation's capability or token accounting."""
+        return self.info(await self._current_row(session, identity, lock=lock))
+
+    async def _current_row(
+        self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False
+    ) -> DeveloperKey:
         query = select(DeveloperKey).where(DeveloperKey.id == identity.key_id)
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
@@ -204,7 +211,7 @@ class KeyService:
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         require_key_capabilities(await self._identity.principal_for_user(session, identity.owner_id))
-        return self.info(key)
+        return key
 
     async def authorize_identity(
         self,
@@ -216,12 +223,92 @@ class KeyService:
         lock: bool = False,
     ) -> None:
         """Revalidate a persisted authenticated identity without retaining its bearer secret."""
-        key = await self.revalidate(session, identity, lock=lock)
+        key = await self._scoped_key(session, identity, scope, lock=lock)
+        self._require_models(key, model_ids)
+
+    async def _scoped_key(
+        self, session: AsyncSession, identity: DeveloperIdentity, scope: Scope, *, lock: bool
+    ) -> DeveloperKey:
+        key = await self._current_row(session, identity, lock=lock)
         if scope not in key.scopes:
             raise AppError('insufficient_scope', 'Key lacks the required scope', 403)
         require_key_capabilities(await self._identity.principal_for_user(session, identity.owner_id), (scope,))
-        if not set(model_ids) <= set(key.model_ids):
+        return key
+
+    @staticmethod
+    def _require_models(key: DeveloperKey, model_ids: Sequence[UUID]) -> None:
+        if not {str(model_id) for model_id in model_ids}.issubset(key.model_ids):
             raise AppError('model_not_found', 'Model is unavailable', 404)
+
+    async def authorize_agent(
+        self,
+        session: AsyncSession,
+        identity: DeveloperIdentity,
+        agent_id: UUID,
+        *,
+        lock: bool = False,
+    ) -> None:
+        key = await self._scoped_key(session, identity, 'agents:invoke', lock=lock)
+        if str(agent_id) not in key.agent_ids:
+            raise AppError('agent_not_found', 'Agent is unavailable', 404)
+
+    @staticmethod
+    def _selected_ids(key: DeveloperKey, kind: ResourceKind, action: ResourceAction) -> set[UUID]:
+        return {
+            grant.resource_id
+            for grant in KeyService.info(key).resource_grants
+            if grant.kind == kind and action in grant.actions
+        }
+
+    async def resource_ids(
+        self, session: AsyncSession, identity: DeveloperIdentity, kind: ResourceKind, action: ResourceAction
+    ) -> frozenset[UUID]:
+        key = await self._current_row(session, identity)
+        created = await session.scalars(
+            select(ResourceGrant.resource_id).where(
+                ResourceGrant.application_id == identity.application_id,
+                ResourceGrant.kind == kind,
+                ResourceGrant.creator_family_id == (key.grant_family_id or key.id),
+                ResourceGrant.actions.contains([action]),
+            )
+        )
+        return frozenset(self._selected_ids(key, kind, action)).union(created)
+
+    async def authorize_resource(
+        self,
+        session: AsyncSession,
+        identity: DeveloperIdentity,
+        kind: ResourceKind,
+        resource_id: UUID,
+        action: ResourceAction,
+        *,
+        lock: bool = False,
+    ) -> None:
+        """Narrow the application/domain grant; the caller checks the endpoint's operation scope."""
+        key = await self._current_row(session, identity, lock=lock)
+        if resource_id in self._selected_ids(key, kind, action):
+            return
+        grant = await session.get(ResourceGrant, (identity.application_id, kind, resource_id), populate_existing=True)
+        if grant is None or grant.creator_family_id != (key.grant_family_id or key.id) or action not in grant.actions:
+            raise AppError('resource_not_found', '资源不存在', 404)
+
+    async def authorize_resource_creation(
+        self, session: AsyncSession, identity: DeveloperIdentity, kind: ResourceKind, *, lock: bool = False
+    ) -> None:
+        key = await self._scoped_key(session, identity, resource_scope(kind, 'write'), lock=lock)
+        if kind not in key.create_resource_kinds:
+            raise AppError('insufficient_scope', '密钥未获准创建此类资源', 403)
+
+    async def grant_created_resource(
+        self, session: AsyncSession, identity: DeveloperIdentity, kind: ResourceKind, resource_id: UUID
+    ) -> None:
+        key = await self._current_row(session, identity, lock=True)
+        if kind not in key.create_resource_kinds:
+            raise AppError('insufficient_scope', '密钥未获准创建此类资源', 403)
+        grant = await session.get(ResourceGrant, (identity.application_id, kind, resource_id), with_for_update=True)
+        if grant is None or grant.creator_family_id is not None:
+            raise AppError('resource_conflict', '新建资源绑定已变化', 409)
+        grant.creator_family_id = key.grant_family_id or key.id
 
     async def info_for_identity(self, session: AsyncSession, identity: DeveloperIdentity) -> KeyInfo:
         row = await session.get(DeveloperKey, identity.key_id, populate_existing=True)
@@ -229,13 +316,29 @@ class KeyService:
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         return self.info(row)
 
-    async def authorize_run(self, session: AsyncSession, run_id: UUID, *, scope: Scope) -> None:
+    async def authorize_run(
+        self,
+        session: AsyncSession,
+        run_id: UUID,
+        *,
+        scope: Scope,
+        agent_id: UUID | None = None,
+        expected_identity: DeveloperIdentity | None = None,
+    ) -> UUID:
         """Execution guard reads the original reservation identity, never a replaying Key."""
         invocation = await self._facts.invocation_identity(session, run_id)
         if invocation is None or invocation.key_id is None or invocation.application_id is None:
             raise AppError('invalid_api_key', 'Missing execution identity', 401)
         identity = DeveloperIdentity(invocation.application_id, invocation.key_id, invocation.user_id)
-        await self.authorize_identity(session, identity, [invocation.model_id], scope=scope, lock=True)
+        if expected_identity is not None and identity != expected_identity:
+            raise AppError('run_not_found', 'Run is unavailable', 404)
+        if scope == 'agents:invoke':
+            if agent_id is None:
+                raise AppError('agent_not_found', 'Agent is unavailable', 404)
+            await self.authorize_agent(session, identity, agent_id, lock=True)
+        else:
+            await self.authorize_identity(session, identity, [invocation.model_id], scope=scope, lock=True)
+        return invocation.model_id
 
     async def references_model(self, session: AsyncSession, model_id: UUID) -> bool:
         return bool(await self.model_references(session, model_id))

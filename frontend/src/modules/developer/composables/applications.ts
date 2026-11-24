@@ -9,6 +9,11 @@ import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { ApiError, errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import type { MenuAction } from '../../../shared/components/WorkspaceMoreMenu.vue'
 import { getModels } from '../../models/public.ts'
+import {
+  resourceActionLabels,
+  resourceKindLabels,
+  resourceCreationLabels
+} from '../presentation.ts'
 import type { ChatModel } from '../../models/public.ts'
 import {
   changeApplicationStatus,
@@ -25,6 +30,10 @@ import {
   updateApplication,
   getScopeCatalog,
   keySelectionError,
+  listAgentCandidates,
+  getResourceAccess,
+  resourceActionScope,
+  resourceKinds,
   applyResourceVersion
 } from '../api/index.ts'
 import type {
@@ -32,6 +41,9 @@ import type {
   ApplicationUsage,
   DeveloperKey,
   IssuedKey,
+  BoundResource,
+  KeyResourceGrant,
+  ResourceKind,
   ScopeCatalog
 } from '../api/index.ts'
 
@@ -46,6 +58,9 @@ const defaultKeyForm = () => ({
   resourceRpmLimit: null as number | null,
   monthlyPointsLimit: '',
   modelIds: [] as string[],
+  agentIds: [] as string[],
+  resourceActions: [] as string[],
+  createKinds: [] as ResourceKind[],
   expiresAt: null as string | null,
   rpmLimit: null as number | null,
   tpmLimit: null as number | null,
@@ -76,6 +91,7 @@ export function useApplications() {
     detail: new RequestScope(),
     keys: new RequestScope(),
     models: new RequestScope(),
+    targets: new RequestScope(),
     usage: new RequestScope(),
     mutation: new RequestScope()
   }
@@ -87,6 +103,11 @@ export function useApplications() {
   const keys = ref<DeveloperKey[]>([]),
     models = ref<ChatModel[]>([]),
     usageRows = ref<ApplicationUsage[]>([])
+  const agents = ref<{ id: string; name: string }[]>([])
+  const resources = ref<BoundResource[]>([])
+  const agentError = ref(''),
+    resourceError = ref('')
+  const targetsLoading = ref(false)
   const total = ref(0),
     usageTotal = ref(0)
   const loading = ref(false),
@@ -111,8 +132,7 @@ export function useApplications() {
     keyFormRef = ref<FormInstance>()
   const applicationForm = reactive({ applicationName: '' }),
     keyForm = reactive(defaultKeyForm())
-  let keyScopesEdited = false,
-    keyResourceRpmEdited = false
+  let keyResourceRpmEdited = false
   const editingApplication = ref<Application | null>(null),
     issuedKey = ref<IssuedKey | null>(null),
     pendingIssuedKey = ref<IssuedKey | null>(null)
@@ -142,6 +162,65 @@ export function useApplications() {
       .filter((model) => model.enabled)
       .map((model) => ({ label: `${model.name}（${model.model_type}）`, value: model.id }))
   )
+  const agentOptions = computed(() =>
+    agents.value.map(({ id, name }) => ({ value: id, label: name }))
+  )
+  const resourceScopesSelected = computed(() =>
+    resourceKinds.some((kind) =>
+      ['read', 'write', 'query'].some((action) =>
+        keyForm.scopes.includes(resourceActionScope(kind, action as 'read' | 'write' | 'query'))
+      )
+    )
+  )
+  const createOptions = computed(() =>
+    resourceKinds
+      .filter((kind) => keyForm.scopes.includes(resourceActionScope(kind, 'write')))
+      .map((kind) => ({ value: kind, label: resourceCreationLabels[kind] }))
+  )
+  const resourceOptions = computed(() =>
+    resources.value
+      .filter((resource) => resource.available)
+      .flatMap((resource) =>
+        resource.actions
+          .filter(
+            (action) =>
+              resource.allowedActions.includes(action) &&
+              keyForm.scopes.includes(resourceActionScope(resource.kind, action))
+          )
+          .map((action) => ({
+            value: `${resource.kind}:${resource.resourceId}:${action}`,
+            label: `${resource.displayName}（${resourceKindLabels[resource.kind]}） · ${resourceActionLabels[action]}`,
+            resource,
+            action
+          }))
+      )
+  )
+  const grants = computed(() => {
+    const result = new Map<string, KeyResourceGrant>()
+    for (const { value, resource, action } of resourceOptions.value) {
+      if (!keyForm.resourceActions.includes(value)) continue
+      const key = `${resource.kind}:${resource.resourceId}`
+      const grant = result.get(key) ?? {
+        kind: resource.kind,
+        resource_id: resource.resourceId,
+        actions: []
+      }
+      grant.actions.push(action)
+      result.set(key, grant)
+    }
+    return [...result.values()]
+  })
+  const selectionError = () =>
+    scopeCatalog.value
+      ? keySelectionError(
+          keyForm.scopes,
+          keyForm.modelIds,
+          scopeCatalog.value,
+          keyForm.agentIds,
+          grants.value,
+          keyForm.createKinds
+        )
+      : '请先加载能力目录'
   const applicationRules = {
     applicationName: [
       { required: true, whitespace: true, max: 80, message: '请输入80字以内的应用名称' }
@@ -155,16 +234,6 @@ export function useApplications() {
           !scopeCatalog.value || !keyForm.scopes.length
             ? Promise.reject(new Error('请选择操作能力'))
             : Promise.resolve()
-      }
-    ],
-    modelIds: [
-      {
-        validator: () => {
-          const error = scopeCatalog.value
-            ? keySelectionError(keyForm.scopes, keyForm.modelIds, scopeCatalog.value)
-            : '请先加载能力目录'
-          return error ? Promise.reject(new Error(error)) : Promise.resolve()
-        }
       }
     ],
     resourceRpmLimit: [
@@ -199,6 +268,12 @@ export function useApplications() {
   function clearResources(): void {
     scopes.keys.replace()
     scopes.models.replace()
+    scopes.targets.replace()
+    agents.value = []
+    resources.value = []
+    agentError.value = ''
+    resourceError.value = ''
+    targetsLoading.value = false
     scopes.usage.replace()
     keys.value = []
     models.value = []
@@ -219,8 +294,10 @@ export function useApplications() {
       const result = await getScopeCatalog(context.signal)
       if (context.isCurrent()) {
         scopeCatalog.value = result
-        keyForm.scopes = keyForm.scopes.filter((scope) =>
-          result.definitions.some((item) => item.scope === scope && item.grantable)
+        setKeyScopes(
+          keyForm.scopes.filter((scope) =>
+            result.definitions.some((item) => item.scope === scope && item.grantable)
+          )
         )
         if (keyFormOpen.value) initializeKeyDefaults(result)
       }
@@ -279,8 +356,13 @@ export function useApplications() {
     keyError.value = ''
     try {
       const result = await listDeveloperKeys(id, context.signal)
-      if (context.isCurrent() && selectedApplication.value?.applicationId === id)
+      if (context.isCurrent() && selectedApplication.value?.applicationId === id) {
         keys.value = result
+        if (result.some((key) => key.grants.length) && !modelLoading.value && !models.value.length)
+          void loadModels()
+        if (result.some((key) => key.agentIds.length || key.resourceGrants.length))
+          void loadKeyTargets()
+      }
     } catch (reason) {
       if (context.isCurrent() && !isAborted(reason)) keyError.value = errorMessage(reason)
     } finally {
@@ -298,6 +380,45 @@ export function useApplications() {
       if (context.isCurrent() && !isAborted(reason)) modelError.value = errorMessage(reason)
     } finally {
       if (context.isCurrent()) modelLoading.value = false
+    }
+  }
+  async function loadKeyTargets(): Promise<void> {
+    const id = selectedApplication.value?.applicationId
+    if (!id) return
+    const context = scopes.targets.replace()
+    targetsLoading.value = true
+    agentError.value = ''
+    resourceError.value = ''
+    await Promise.all([
+      listAgentCandidates(id, context.signal)
+        .then((items) => {
+          if (context.isCurrent()) agents.value = items
+        })
+        .catch((reason) => {
+          if (context.isCurrent() && !isAborted(reason)) {
+            agents.value = []
+            agentError.value = errorMessage(reason)
+          }
+        }),
+      getResourceAccess(id, context.signal)
+        .then((access) => {
+          if (context.isCurrent()) resources.value = access.items
+        })
+        .catch((reason) => {
+          if (context.isCurrent() && !isAborted(reason)) {
+            resources.value = []
+            resourceError.value = errorMessage(reason)
+          }
+        })
+    ])
+    if (context.isCurrent()) {
+      targetsLoading.value = false
+      keyForm.agentIds = keyForm.agentIds.filter((id) =>
+        agents.value.some((agent) => agent.id === id)
+      )
+      keyForm.resourceActions = keyForm.resourceActions.filter((value) =>
+        resourceOptions.value.some((option) => option.value === value)
+      )
     }
   }
   async function loadModelAuthorizations(): Promise<void> {
@@ -532,23 +653,23 @@ export function useApplications() {
     }
   }
   function initializeKeyDefaults(catalog: ScopeCatalog): void {
-    if (!keyScopesEdited)
-      keyForm.scopes = catalog.definitions
-        .filter((item) => item.requiresModels && item.grantable)
-        .map((item) => item.scope)
     if (!keyResourceRpmEdited) keyForm.resourceRpmLimit = catalog.resourceRpmMax
   }
   function openKeyForm(): void {
     if (!canUseCapability('developer', 'key_create')) return
-    if (selectedApplication.value?.status !== 'active') return
+    if (
+      selectedApplication.value?.status !== 'active' ||
+      selectedApplication.value.platformEnabled === false
+    )
+      return
     formError.value = ''
     Object.assign(keyForm, defaultKeyForm())
-    keyScopesEdited = false
     keyResourceRpmEdited = false
     if (scopeCatalog.value) initializeKeyDefaults(scopeCatalog.value)
     keyFormOpen.value = true
     // Model discovery does not own the immutable capability or resource rate inputs.
     void loadModels()
+    void loadKeyTargets()
     if (!scopeCatalog.value) void loadScopeCatalog()
   }
   function closeKeyForm(): void {
@@ -583,6 +704,8 @@ export function useApplications() {
     )
       return
     let pointLimit: string | null
+    formError.value = selectionError()
+    if (formError.value) return
     try {
       pointLimit = monthlyPointsLimit(keyForm.monthlyPointsLimit)
     } catch (reason) {
@@ -599,6 +722,9 @@ export function useApplications() {
           name: keyForm.keyName.trim(),
           monthly_points_limit: pointLimit,
           model_ids: [...keyForm.modelIds],
+          agent_ids: [...keyForm.agentIds],
+          resource_grants: grants.value,
+          create_resource_kinds: [...keyForm.createKinds],
           scopes: [...keyForm.scopes],
           resource_rpm_limit: keyForm.resourceRpmLimit!,
           rpm_limit: keyForm.rpmLimit,
@@ -677,14 +803,30 @@ export function useApplications() {
     await router.replace({ path: route.path, query: { ...route.query, view: undefined }, hash: '' })
   }
   function setKeyScopes(value: unknown): void {
-    keyScopesEdited = true
     keyForm.scopes = Array.isArray(value)
       ? value.filter((item): item is string => typeof item === 'string')
       : []
+    if (!keyForm.scopes.includes('models:invoke')) keyForm.modelIds = []
+    if (!keyForm.scopes.includes('agents:invoke')) keyForm.agentIds = []
+    keyForm.resourceActions = keyForm.resourceActions.filter((value) =>
+      resourceOptions.value.some((option) => option.value === value)
+    )
+    keyForm.createKinds = keyForm.createKinds.filter((kind) =>
+      createOptions.value.some((option) => option.value === kind)
+    )
   }
-  function setModelIds(value: unknown): void {
-    keyForm.modelIds =
-      Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : []
+  function setKeySelection(
+    field: 'modelIds' | 'agentIds' | 'resourceActions' | 'createKinds',
+    value: unknown
+  ): void {
+    const values = Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+    if (field === 'createKinds')
+      keyForm.createKinds = createOptions.value
+        .map((item) => item.value)
+        .filter((kind) => values.includes(kind))
+    else keyForm[field] = values
   }
   function setLimit(
     field: 'rpmLimit' | 'tpmLimit' | 'concurrencyLimit' | 'resourceRpmLimit',
@@ -704,7 +846,7 @@ export function useApplications() {
     updateResourceApplication,
     detailLoading,
     setKeyScopes,
-    setModelIds,
+    setKeySelection,
     setLimit,
     setExpiry,
     applications,
@@ -746,6 +888,16 @@ export function useApplications() {
     canQueryUsage,
     keyActions,
     modelOptions,
+    agentOptions,
+    resourceOptions,
+    createOptions,
+    resourceScopesSelected,
+    agents,
+    resources,
+    agentError,
+    resourceError,
+    targetsLoading,
+    loadKeyTargets,
     applicationRules,
     keyRules,
     loadApplications,

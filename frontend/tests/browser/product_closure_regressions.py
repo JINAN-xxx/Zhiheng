@@ -134,14 +134,14 @@ class AgentClosureUI(AgentsUIRegressions):
         await confirm.click()
         await expect(self.page).to_have_url(self.origin+'/agents/agent-1')
         self.assertEqual(calls,[original,original])
-    async def test_api_drawer_creates_key_with_required_ranker(self):
+    async def test_api_drawer_creates_key_for_bound_agent(self):
         self.agent.update({'status': 'enabled', **{**self.config, 'model_id': 'published-model', 'application_id': 'app-1', 'knowledge_base_ids': ['base-1']}})
-        await self.page.route('**/api/agents/agent-1/api-access',lambda route:route.fulfill(json={'application_id':'app-1','revision':self.agent['version'],'model_ids':['published-model','embed-1','rank-1']}))
         await self.open_agents();await self.choose_agent_action('API')
         drawer=self.page.locator('.ant-drawer-open .ant-drawer-content')
         await drawer.get_by_role('button',name='创建密钥',exact=True).click()
         await expect(drawer.locator('.issued-key code')).to_have_text(self.secret)
-        self.assertEqual(self.posts[-1]['model_ids'],['published-model','embed-1','rank-1'])
+        self.assertEqual(self.posts[-1]['agent_ids'], ['agent-1'])
+        self.assertEqual(self.posts[-1]['model_ids'], [])
 
 class UploadClosureUI(KnowledgeV2Regressions):
     async def test_server_pending_upload_can_import_without_session_draft_or_reupload(self):

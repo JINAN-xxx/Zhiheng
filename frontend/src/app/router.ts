@@ -67,5 +67,5 @@ router.beforeEach(async (to) => {
   return accessRedirect(to, user) ?? true
 })
 router.afterEach((to) => {
-  document.title = `${to.meta.title ?? '工作空间'} · 智衡`
+  document.title = `${to.meta.title ?? '工作空间'} · DAIP`
 })

@@ -166,7 +166,9 @@ class Container:
         self.metering = MeteringService(self.key_metering)
         self.usage = UsageService(self.credits, self.metering)
         self.applications = ApplicationService()
-        self.keys = KeyService(self.applications, self.models, self.identity, self.usage_facts)
+        self.keys = KeyService(
+            self.applications, self.models, self.identity, self.usage_facts, self.agents.application_candidates
+        )
         self._configure_resource_access()
         self.developer_management = DeveloperManagementService(self.applications, self.keys, self.models)
         self.runs = RunStore()

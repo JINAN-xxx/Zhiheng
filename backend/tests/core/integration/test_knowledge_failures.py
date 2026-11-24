@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 from tests.core.integration.test_knowledge import VectorFixture, embedding_model
-from tests.core.knowledge_support import knowledge_models
 from tests.core.legacy_work import legacy_work_request
 from tests.core.permission_support import member_knowledge_permissions  # noqa: F401 - pytest fixture by name
 from tests.core.provider import ProviderServer
@@ -140,8 +139,12 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     provider: ProviderServer,
     model_id: str,
 ) -> None:
+    from sqlalchemy import select
+
+    from tests.core.integration.test_agents import issue_agent_key
     from tests.core.integration.test_knowledge import finish_preparation
     from tests.core.legacy_work import published
+    from zhiheng.modules.billing.orm import Invocation
 
     base = await ready_base(admin, app, provider)
     for model in (model_id, base['embed_model_id']):
@@ -155,15 +158,7 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
         )
         assert response.status_code == 201, response.text
     agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
-    key = (
-        await admin.post(
-            f'/api/developer/applications/{agent["application_id"]}/keys',
-            json={
-                'name': 'Knowledge key',
-                'model_ids': await knowledge_models(admin, model_id, base['embed_model_id']),
-            },
-        )
-    ).json()
+    key = await issue_agent_key(admin, agent)
     headers = {'Authorization': 'Bearer ' + key['api_key']}
     body = {'messages': [{'role': 'user', 'content': 'Which port?'}], 'client_request_id': str(uuid4())}
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
@@ -171,10 +166,26 @@ async def test_public_preparation_key_scope_polling_replay_and_cancel(
     assert response.status_code == 202, response.text
     intent = response.json()
     assert intent['polling_url'] == f'/v1/agents/{agent["id"]}/preparations/{intent["id"]}'
+    assert key['model_ids'] == []
+    retry = await admin.post(endpoint, headers=headers, json=body)
+    assert retry.status_code == 202 and retry.json()['id'] == intent['id']
+    other = await issue_agent_key(admin, agent)
+    assert (
+        await admin.get(intent['polling_url'], headers={'Authorization': 'Bearer ' + other['api_key']})
+    ).status_code == 404
     changed = await admin.post(endpoint, headers=headers, json={**body, 'stream': True})
     assert changed.status_code == 409 and changed.json()['error']['code'] == 'idempotency_conflict'
     assert (await admin.get(f'/api/knowledge/preparations/{intent["id"]}')).status_code == 404
     intent = await finish_preparation(admin, app, intent, headers)
+    async with app.state.container.database.sessions() as session:
+        billed = await session.execute(
+            select(Invocation.operation, Invocation.source).where(Invocation.key_id == UUID(key['id']))
+        )
+        assert set(billed.all()) == {
+            ('chat', 'agent_invocation'),
+            ('embedding', 'knowledge_retrieval'),
+            ('rerank', 'knowledge_retrieval'),
+        }
     count = len(provider.requests)
     await admin.patch(f'/api/models/{base["embed_model_id"]}', json={'enabled': False})
     replay = await admin.post(endpoint, headers=headers, json=body)

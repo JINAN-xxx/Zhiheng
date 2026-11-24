@@ -87,7 +87,8 @@ async def test_raw_counter_types_cannot_release_unknown_reservations(
     ).json()
     key = (
         await admin.post(
-            f'/api/developer/applications/{application["id"]}/keys', json={'name': 'SDK', 'model_ids': [model['id']]}
+            f'/api/developer/applications/{application["id"]}/keys',
+            json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model['id']]},
         )
     ).json()
     request = (

@@ -28,14 +28,9 @@ class KnowledgeQueries:
     async def page(self, caller: CallerContext, after: tuple[datetime, UUID] | None, limit: int) -> list[BaseInfo]:
         async with self.database.sessions.begin() as session:
             caller = await self.access.current(session, caller, 'knowledge:read')
-            assert caller.identity is not None
-            grants = await self.access.grants.list(
-                session, caller.principal.id, caller.identity.application_id, 'knowledge_base'
-            )
+            grants = await self.access.readable_grants(session, caller, 'knowledge_base')
             items = []
             for grant in grants:
-                if 'read' not in grant.actions:
-                    continue
                 try:
                     await self.access.require(session, caller, 'knowledge_base', grant.resource_id, 'read', lock=False)
                     item = await self.knowledge.detail(

@@ -57,7 +57,8 @@ async def test_admin_configuration_rights_do_not_enumerate_or_mutate_private_res
         app_id = agent['application_id']
         application = (await owner.get('/api/developer/applications/' + app_id)).json()
         key = await owner.post(
-            f'/api/developer/applications/{app_id}/keys', json={'name': 'PRIVATE_KEY', 'model_ids': [model_id]}
+            f'/api/developer/applications/{app_id}/keys',
+            json={'name': 'PRIVATE_KEY', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
         )
         assert key.status_code == 201, key.text
         file = await upload(owner)
@@ -102,7 +103,11 @@ async def test_admin_configuration_rights_do_not_enumerate_or_mutate_private_res
                 f'/api/developer/applications/{app_id}',
                 {'name': 'attempt', 'expected_version': application['version']},
             ),
-            ('POST', f'/api/developer/applications/{app_id}/keys', {'name': 'attempt', 'model_ids': [model_id]}),
+            (
+                'POST',
+                f'/api/developer/applications/{app_id}/keys',
+                {'name': 'attempt', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
+            ),
             ('PATCH', f'/api/files/{file["id"]}', {'display_name': 'attempt', 'expected_version': file['version']}),
             (
                 'POST',

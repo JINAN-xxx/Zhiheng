@@ -107,7 +107,12 @@ function toggleGroup(group: NavigationGroup): void {
 <template>
   <aside class="platform-sidebar" :class="{ collapsed }">
     <div class="platform-brand-row">
-      <RouterLink to="/overview" aria-label="智衡" class="platform-brand" @click="emit('navigate')">
+      <RouterLink
+        to="/overview"
+        aria-label="DAIP 首页"
+        class="platform-brand"
+        @click="emit('navigate')"
+      >
         <BrandMark :compact="collapsed" />
       </RouterLink>
       <button

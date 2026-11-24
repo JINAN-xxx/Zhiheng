@@ -67,7 +67,7 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         if path == '/api/auth/me':
             body = {'id': 'user-1', 'username': 'admin', 'is_admin': True}
         elif path == '/api/developer/applications/scope-catalog':
-            values = [('models:invoke', '模型调用', True), ('agents:invoke', '智能体调用', True), ('files:read', '读取文件', False), ('files:write', '管理文件', False)]
+            values = [('models:invoke', '模型调用', True), ('agents:invoke', '智能体调用', False), ('files:read', '读取文件', False), ('files:write', '管理文件', False), ('knowledge:query', '知识检索', False), ('knowledge:write', '管理知识库', False)]
             body = json.loads(Path(os.environ['PLATFORM_SCOPE_FIXTURE']).read_text()) if os.environ.get('PLATFORM_SCOPE_FIXTURE') else {'scopes': [item[0] for item in values], 'definitions': [{'scope': scope, 'label': label, 'description': label, 'requires_models': required, 'grantable': True, 'reason': None} for scope, label, required in values], 'caps': {'resource_rpm_min': 1, 'resource_rpm_max': 120}}
         elif path == '/api/models/connection-options':
             body = [{'id': 'connection-1', 'name': '团队服务', 'enabled': True}]
@@ -96,6 +96,14 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
             elif method == 'DELETE':
                 self.app['deleted_at'] = '2026-10-23T01:00:00Z'
             body = self.app
+        elif path == '/api/developer/applications/app-1/agent-candidates':
+            body = {'items': [{'id': 'agent-1', 'name': '研究助手'}]}
+        elif path == '/api/developer/applications/app-1/resource-access':
+            body = {'application_version': 1, 'source_count': 1, 'source_bytes': 8,
+                    'source_file_limit': 20, 'source_byte_limit': 1024, 'can_bind_resources': True,
+                    'can_configure_quota': True, 'items': [{'kind':'file', 'resource_id':'file-1',
+                    'display_name':'示例文件', 'status':'active', 'owned':True, 'available':True,
+                    'allowed_actions':['read','write'], 'actions':['read']}]}
         elif path.endswith('/app-1/disable') or path.endswith('/app-1/enable'):
             self.app['status'] = 'disabled' if path.endswith('/disable') else 'active'
             self.app['version'] += 1
@@ -106,6 +114,8 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
                 self.posts.append(payload)
                 key = {'id': 'key-1', 'application_id': 'app-1', 'name': payload['name'], 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': payload['model_ids'], 'scopes': payload.get('scopes', ['models:invoke', 'agents:invoke']), 'resource_rpm_limit': payload.get('resource_rpm_limit', 120), 'rpm_limit': payload.get('rpm_limit'), 'tpm_limit': payload.get('tpm_limit'), 'concurrency_limit': payload.get('concurrency_limit'), 'monthly_budget': None, 'currency': 'USD', 'created_at': '2026-10-23T00:00:00Z', 'expires_at': None, 'retire_at': None, 'last_used_at': None}
                 self.keys.append(key)
+                for field in ('agent_ids', 'resource_grants', 'create_resource_kinds'):
+                    if field in payload: key[field] = payload[field]
                 body = {**key, 'api_key': self.secret}
                 status = 201
             else:
@@ -126,12 +136,20 @@ class DeveloperBoundary(ChatHistoryInteractions, unittest.IsolatedAsyncioTestCas
         for key in self.keys:
             key.setdefault('scopes', ['models:invoke', 'agents:invoke'])
             key.setdefault('resource_rpm_limit', 120)
+            key.setdefault('agent_ids', [])
+            key.setdefault('resource_grants', [])
+            key.setdefault('create_resource_kinds', [])
         await route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 
     async def open_details(self):
         await self.page.goto(self.origin + '/developer?applicationId=app-1&tab=overview')
         await expect(self.page.get_by_role('heading', name='开发接入', exact=True)).to_be_visible()
         await expect(self.page.get_by_role('heading', name='内部工具', exact=True)).to_be_visible()
+
+    async def choose_key_target(self, dialog, field, label):
+        await dialog.locator(f'.ant-select[aria-label="{field}"] .ant-select-selector').click()
+        await self.page.locator('.ant-select-item-option-content').get_by_text(label, exact=True).click()
+        await dialog.get_by_label('密钥名称', exact=True).click()
 
 
 class DeveloperUIRegressions(DeveloperBoundary):
@@ -176,7 +194,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('tab', name='访问密钥', exact=True).click()
         await expect(self.page.locator('.key-row')).to_have_count(121)
         self.assertEqual(self.key_pages, [1, 2])
-        await self.page.get_by_role('tab', name='模型授权', exact=True).click()
+        await self.page.get_by_role('tab', name='模型直调授权', exact=True).click()
         await expect(self.page.get_by_text('last-page-model', exact=True)).to_be_visible()
 
     async def delayed_edit_navigation(self, destination):
@@ -280,7 +298,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
     async def test_unavailable_granted_model_remains_visible(self):
         self.keys = [{'id': 'key-1', 'application_id': 'app-1', 'name': '已授权客户端', 'prefix': 'sk-zh_fixture…', 'status': 'active', 'model_ids': ['unavailable-model'], 'rpm_limit': None, 'tpm_limit': None, 'concurrency_limit': None, 'monthly_budget': None, 'currency': 'USD', 'created_at': '2026-10-23T00:00:00Z', 'expires_at': None, 'retire_at': None, 'last_used_at': None}]
         await self.open_details()
-        await self.page.get_by_role('tab', name='模型授权', exact=True).click()
+        await self.page.get_by_role('tab', name='模型直调授权', exact=True).click()
         await expect(self.page.get_by_text('unavailable-model', exact=True)).to_be_visible()
         await expect(self.page.get_by_text('不可用', exact=True)).to_be_visible()
 
@@ -360,6 +378,7 @@ class DeveloperUIRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='创建密钥', exact=True).click()
         dialog = self.page.get_by_role('dialog')
         await dialog.get_by_label('密钥名称', exact=True).fill('客户端')
+        await dialog.get_by_role('checkbox', name=re.compile('模型调用')).check()
         await dialog.locator('.ant-select-selector').click()
         await self.page.locator('.ant-select-item-option-content').filter(has_text='日常助手').click()
         await dialog.get_by_role('button', name=re.compile(r'^创\s*建$')).click()

@@ -90,7 +90,6 @@ async def test_unbilled_native_model_steps_do_not_require_price_or_usage_budget(
             admin,
             owner_app['id'],
             scopes=SCOPES,
-            model_ids=[base['embed_model_id']],
             **({'currency': 'CNY'} if change == 'currency' else {'monthly_budget': '0'}),
         )
     file = await post(admin, key)
@@ -197,7 +196,6 @@ async def test_real_milvus_query_only_current_shared_source_acl_and_expired_snap
             member,
             member_app['id'],
             scopes=['knowledge:query'],
-            model_ids=await knowledge_models(admin, base['embed_model_id']),
         )
         async with c.database.sessions.begin() as session:
             principal = await c.identity.principal_for_user(session, UUID(member_id))
@@ -445,7 +443,7 @@ async def test_cancel_own_shared_query_needs_write_scope_and_current_query_grant
         ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
         member_app = await application(member)
         query_key = await issue(
-            member, member_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id'], ranker]
+            member, member_app['id'], scopes=['knowledge:query']
         )
         cancellation_key = await issue(member, member_app['id'], scopes=['knowledge:write'])
         async with c.database.sessions.begin() as session:
@@ -568,7 +566,7 @@ async def test_admin_query_implicit_foreign_source_checks_current_acl_and_filter
         assert (await finish(admin, app, key, admitted.json()))['status'] == 'succeeded'
         ranker = (await admin.get('/api/knowledge/settings')).json()['default_rerank_model_id']
         query_only = await issue(
-            admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[base['embed_model_id'], ranker]
+            admin, owner_app['id'], scopes=['knowledge:query']
         )
         query = await admin.post(endpoint + '/query', headers=auth(query_only, uuid4()), json={'query': 'private'})
         assert query.status_code == 202, query.text

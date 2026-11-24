@@ -58,7 +58,10 @@ class SkillCommands:
             await self.authorize_inputs(session, caller, request, lock=False)
             if request.replayed:
                 assert request.snapshot is not None
-                return DraftInfo.model_validate(request.snapshot)
+                previous = DraftInfo.model_validate(request.snapshot)
+                if previous.target_skill_id is None and not any(item['kind'] == 'skill' for item in request.resources):
+                    await self.access.keys.authorize_resource_creation(session, caller.identity, 'skill')
+                return previous
             target = await self.skills.target(session, caller.principal.id, parsed.slug)
             if target is not None:
                 await self.access.require(session, caller, 'skill', target, 'write', lock=False)
@@ -66,6 +69,9 @@ class SkillCommands:
             async def check_target(locked_session: AsyncSession, actual_id: UUID | None) -> None:
                 if actual_id is not None:
                     await self.access.require(locked_session, caller, 'skill', actual_id, 'write', lock=False)
+                else:
+                    assert caller.identity is not None
+                    await self.access.keys.authorize_resource_creation(locked_session, caller.identity, 'skill')
                 await self.authorize_inputs(locked_session, caller, request)
 
             draft = await self.skills.prepare(
@@ -107,6 +113,9 @@ class SkillCommands:
             async def check_target(locked_session: AsyncSession, actual_id: UUID | None) -> None:
                 if actual_id is not None:
                     await self.access.require(locked_session, caller, 'skill', actual_id, 'write', lock=False)
+                else:
+                    assert caller.identity is not None
+                    await self.access.keys.authorize_resource_creation(locked_session, caller.identity, 'skill')
                 await self.authorize_inputs(locked_session, caller, original)
 
             outcome = await self.skills.confirm_with_outcome(

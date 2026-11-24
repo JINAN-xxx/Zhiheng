@@ -18,6 +18,7 @@ from zhiheng.bootstrap.container import Container
 from zhiheng.modules.developer.public import Scope as KeyScope
 from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.principal import Principal
 
 
 async def cancel(container: Container, run_id: UUID, owner_id: UUID) -> None:
@@ -34,8 +35,18 @@ async def snapshots(
     try:
         while True:
             async with container.database.sessions() as session:
-                await container.keys.authenticate(session, token, scope=scope)
+                identity = await container.keys.authenticate(session, token, scope=scope)
                 snapshot = await container.runs.snapshot(session, run_id, owner_id)
+                if scope == 'agents:invoke' and snapshot.revision != interval.revision:
+                    if snapshot.resource_type != 'agent_invocation':
+                        raise AppError('run_not_found', 'Run is unavailable', 404)
+                    await container.agents.require_enabled_application(
+                        session, Principal(identity.owner_id, '', False), snapshot.resource_id, identity.application_id
+                    )
+                    await container.keys.authorize_run(
+                        session, run_id, scope=scope, agent_id=snapshot.resource_id, expected_identity=identity
+                    )
+                    await container.knowledge_preparation.require_run_bases(session, run_id, snapshot.resource_id)
             terminal = snapshot.status in TERMINAL_STATUSES
             changed = snapshot.revision != interval.revision
             delay = interval.next_delay(snapshot)

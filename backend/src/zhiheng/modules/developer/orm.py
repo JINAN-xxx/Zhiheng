@@ -61,9 +61,11 @@ class DeveloperKey(Base):
     digest: Mapped[str] = mapped_column(String(64), unique=True)
     status: Mapped[str] = mapped_column(String(16), default='active')
     model_ids: Mapped[list[str]] = mapped_column(JSONB)
-    scopes: Mapped[list[str]] = mapped_column(
-        JSONB, default=lambda: ['models:invoke', 'agents:invoke'], server_default='["models:invoke","agents:invoke"]'
-    )
+    agent_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
+    resource_grants: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
+    create_resource_kinds: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
+    grant_family_id: Mapped[UUID | None] = mapped_column(Uuid)
+    scopes: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
     resource_rpm_limit: Mapped[int] = mapped_column(Integer, default=120, server_default='120')
     rpm_limit: Mapped[int | None] = mapped_column(Integer)
     tpm_limit: Mapped[int | None] = mapped_column(Integer)
@@ -94,6 +96,7 @@ class ResourceGrant(Base):
     application_id: Mapped[UUID] = mapped_column(ForeignKey('developer_applications.id'), primary_key=True)
     kind: Mapped[str] = mapped_column(String(24), primary_key=True)
     resource_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    creator_family_id: Mapped[UUID | None] = mapped_column(Uuid, index=True)
     actions: Mapped[list[str]] = mapped_column(JSONB)
     resource_owner_id: Mapped[UUID] = mapped_column(ForeignKey('identity_users.id'))
     ownership_stamp: Mapped[str] = mapped_column(String(80))

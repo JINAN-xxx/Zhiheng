@@ -12,7 +12,7 @@
       <div class="resources-heading">
         <div class="resources-heading__copy">
           <strong>资源授权</strong>
-          <p>密钥只能在操作能力与应用授权的交集内访问当前有效的个人或明确共享资源。</p>
+          <p>应用资源授权决定可委托的范围。签发密钥时，可为每个资源选择具体动作。</p>
         </div>
         <div class="resources-heading__actions">
           <a-button v-if="snapshot.canBindResources" type="primary" @click="openBinding()"

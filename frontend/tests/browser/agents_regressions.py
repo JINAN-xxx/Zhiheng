@@ -87,9 +87,6 @@ class AgentsUIRegressions(DeveloperBoundary):
                 await route.fulfill(status=201, json=self.agent)
             else:
                 await route.fulfill(json={'items': self.agents, 'total': len(self.agents), 'page': 1, 'page_size': 12})
-        elif path == '/api/agents/agent-1/api-access':
-            config = self.agent
-            await route.fulfill(json={'application_id':config['application_id'],'revision':self.agent['version'],'model_ids':[config['model_id']]})
         elif path == '/api/agents/agent-1':
             if method == 'PATCH':
                 self.posts.append(route.request.post_data_json)
@@ -416,7 +413,10 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(drawer.locator('.api-published')).to_contain_text('app-1')
         await drawer.get_by_role('button', name='创建密钥', exact=True).click()
         await expect(drawer.locator('.issued-key code')).to_have_text(self.secret)
-        self.assertEqual(self.posts[-1]['model_ids'], ['published-model'])
+        self.assertEqual(self.posts[-1]['model_ids'], [])
+        self.assertEqual(self.posts[-1]['agent_ids'], ['agent-1'])
+        self.assertEqual(self.posts[-1]['scopes'], ['agents:invoke'])
+        await expect(drawer.locator('.api-key-row').get_by_text('有效 · 已授权此智能体', exact=True)).to_be_visible()
         await drawer.get_by_role('button', name='隐藏明文密钥', exact=True).click()
         await expect(drawer.get_by_text(self.secret, exact=True)).to_have_count(0)
 
@@ -429,9 +429,43 @@ class AgentsUIRegressions(DeveloperBoundary):
         await drawer.get_by_role('button', name='创建密钥', exact=True).click()
         await expect(drawer.locator('.issued-key code')).to_have_text(self.secret)
         self.assertEqual(self.posts[-1]['monthly_points_limit'], '0')
-        self.assertEqual(self.posts[-1]['model_ids'], ['published-model'])
+        self.assertEqual(self.posts[-1]['model_ids'], [])
         self.assertNotIn('monthly_budget', self.posts[-1])
         self.assertNotIn('allocated_points', self.posts[-1])
+
+    async def test_api_key_status_checks_scope_and_agent_identity(self):
+        self.agent.update(
+            {"status": "enabled", **{**self.config, "application_id": "app-1"}}
+        )
+        base = {
+            "application_id": "app-1",
+            "prefix": "fixture",
+            "status": "active",
+            "model_ids": ["model-1"],
+            "rpm_limit": None,
+            "tpm_limit": None,
+            "concurrency_limit": None,
+            "expires_at": None,
+            "last_used_at": None,
+        }
+        self.keys = [
+            {**base, "id": "model", "name": "模型服务", "scopes": ["models:invoke"]},
+            {
+                **base,
+                "id": "other",
+                "name": "其他助手",
+                "scopes": ["agents:invoke"],
+                "agent_ids": ["agent-other"],
+                "model_ids": [],
+            },
+        ]
+        await self.open_agents()
+        await self.choose_agent_action("API")
+        rows = self.page.locator(".ant-drawer-open .api-key-row")
+        await expect(rows.filter(has_text="模型服务")).to_contain_text(
+            "缺少智能体调用能力"
+        )
+        await expect(rows.filter(has_text="其他助手")).to_contain_text("未授权此智能体")
 
     async def test_key_creation_waits_for_revoke_and_later_revocation_still_works(self):
         self.agent.update({'status': 'enabled', 'application_id': 'app-1', **{**self.config, 'application_id': 'app-1'}})

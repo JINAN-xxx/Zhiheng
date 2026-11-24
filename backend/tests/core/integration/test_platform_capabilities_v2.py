@@ -196,12 +196,20 @@ async def test_developer_read_manage_and_api_invoke_are_independent(
         await grant(app, *grants('platform:developer', 'invoke'))
         assert (await client.get('/v1/models', headers=headers)).status_code == 200
         for scope in ('knowledge:write', 'skills:write', 'agents:invoke'):
+            targets = {
+                'knowledge:write': {'create_resource_kinds': ['knowledge_base']},
+                'skills:write': {'create_resource_kinds': ['skill']},
+                'agents:invoke': {'agent_ids': [model_id]},
+            }[scope]
             assert (
-                await client.post(path + '/keys', json={'name': 'forged', 'scopes': [scope], 'model_ids': [model_id]})
+                await client.post(path + '/keys', json={'name': 'forged', 'scopes': [scope], **targets})
             ).status_code == 403
         await grant(app, *grants('platform:knowledge', 'query'))
         assert (
-            await client.post(path + '/keys', json={'name': 'forged', 'scopes': ['knowledge:write'], 'model_ids': []})
+            await client.post(
+                path + '/keys',
+                json={'name': 'forged', 'scopes': ['knowledge:write'], 'create_resource_kinds': ['knowledge_base']},
+            )
         ).status_code == 403
 
 

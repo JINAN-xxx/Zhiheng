@@ -16,46 +16,85 @@ async def application(admin: httpx.AsyncClient) -> dict:
     return result.json()
 
 
-async def issue(admin: httpx.AsyncClient, app_id: str, **body: object) -> dict:
-    result = await admin.post(f'/api/developer/applications/{app_id}/keys', json={'name': 'Resource key', **body})
+async def issue(admin: httpx.AsyncClient, app_id: str, *, scopes: list[str], **body: Any) -> dict:
+    """Sign a matrix fixture against today's concrete objects using the public Console contract."""
+    path = f'/api/developer/applications/{app_id}'
+    kinds = {'files': 'file', 'knowledge': 'knowledge_base', 'skills': 'skill'}
+    actions = {
+        (kind, action)
+        for namespace, kind in kinds.items()
+        for action in ('read', 'write', 'delete', 'query')
+        if f'{namespace}:{"write" if action == "delete" else action}' in scopes
+    }
+    if actions and 'resource_grants' not in body:
+        current = await admin.get(path + '/resources')
+        assert current.status_code == 200, current.text
+        selected = []
+        for item in current.json():
+            allowed = [action for action in item['actions'] if (item['kind'], action) in actions]
+            if allowed:
+                selected.append({'kind': item['kind'], 'resource_id': item['resource_id'], 'actions': allowed})
+        body['resource_grants'] = selected
+        body.setdefault('create_resource_kinds', [kind for kind in kinds.values() if (kind, 'write') in actions])
+    result = await admin.post(path + '/keys', json={'name': 'Resource key', 'scopes': scopes, **body})
     assert result.status_code == 201, result.text
     return result.json()
 
 
-async def test_resource_key_needs_no_models_and_cannot_invoke_even_with_allowlist(
+async def file_reader(admin: httpx.AsyncClient, app_id: str, **limits: object) -> dict:
+    """Seed one private file as test data so read-only credentials have a real selected object."""
+    from zhiheng.api.common.dependencies import COOKIE_NAME
+
+    container = admin._transport.app.state.container
+    async with container.database.sessions.begin() as session:
+        principal = await container.identity.authenticate(session, admin.cookies.get(COOKIE_NAME))
+    file = await container.file_commands.upload(principal, filename='reader-fixture.txt', content=b'fixture')
+    async with container.database.sessions.begin() as session:
+        application_info = await container.applications.require(session, principal, UUID(app_id), lock=True)
+        await container.resource_access.bind(
+            session, principal, UUID(app_id), 'file', file.id, ['read'], expected_version=application_info.version
+        )
+    return await issue(admin, app_id, scopes=['files:read'], resource_grants=[
+        {'kind': 'file', 'resource_id': str(file.id), 'actions': ['read']},
+    ], **limits)
+
+
+async def test_resource_key_needs_no_models_and_cannot_invoke(
     admin: httpx.AsyncClient, model_id: str, app: FastAPI
 ) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['files:read'])
+    key = await file_reader(admin, owner_app['id'])
     assert key['model_ids'] == [] and key['resource_rpm_limit'] == 120
-    malicious = await issue(admin, owner_app['id'], scopes=['files:read'], model_ids=[model_id])
-    for value in (key, malicious):
-        headers = {'Authorization': f'Bearer {value["api_key"]}'}
-        assert (await admin.get('/v1/models', headers=headers)).status_code == 403
-        response = await admin.post(
-            '/v1/chat/completions',
-            headers=headers,
-            json={'model': model_id, 'messages': [{'role': 'user', 'content': 'hello'}]},
-        )
-        assert response.status_code == 403, response.text
+    invalid = await admin.post(f'/api/developer/applications/{owner_app["id"]}/keys', json={
+        'name': 'Invalid', 'scopes': ['files:read'], 'resource_grants': key['resource_grants'], 'model_ids': [model_id],
+    })
+    assert invalid.status_code == 422
+    headers = {'Authorization': f'Bearer {key["api_key"]}'}
+    assert (await admin.get('/v1/models', headers=headers)).status_code == 403
+    response = await admin.post(
+        '/v1/chat/completions', headers=headers,
+        json={'model': model_id, 'messages': [{'role': 'user', 'content': 'hello'}]},
+    )
+    assert response.status_code == 403, response.text
 
 
-async def test_legacy_body_retains_only_invoke_and_rotation_copies_capabilities(
+async def test_issuance_requires_explicit_scopes_and_rotation_copies_capabilities(
     admin: httpx.AsyncClient, model_id: str
 ) -> None:
     owner_app = await application(admin)
-    old = await issue(admin, owner_app['id'], model_ids=[model_id])
-    assert set(old['scopes']) == {'models:invoke', 'agents:invoke'}
-    resource = await issue(
-        admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[model_id], resource_rpm_limit=7
-    )
+    missing_scope = await admin.post(f'/api/developer/applications/{owner_app["id"]}/keys', json={
+        'name': 'Invalid', 'model_ids': [model_id],
+    })
+    assert missing_scope.status_code == 422
+    resource = await file_reader(admin, owner_app['id'], resource_rpm_limit=7)
     rotated = await admin.post(
         f'/api/developer/applications/{owner_app["id"]}/keys/{resource["id"]}/rotate', json={'grace_period_seconds': 0}
     )
     assert rotated.status_code == 201, rotated.text
     assert rotated.json()['scopes'] == resource['scopes']
     assert rotated.json()['resource_rpm_limit'] == 7
-    assert rotated.json()['model_ids'] == [model_id]
+    assert rotated.json()['model_ids'] == []
+    assert rotated.json()['resource_grants'] == resource['resource_grants']
 
 
 @pytest.mark.parametrize(
@@ -79,11 +118,11 @@ async def test_knowledge_scope_authorizes_embedding_without_exposing_inference(
     admin: httpx.AsyncClient, model_id: str, app: FastAPI
 ) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query'], model_ids=[model_id])
+    key = await issue(admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base'])
     c = app.state.container
     async with c.database.sessions.begin() as session:
         identity = await c.keys.authenticate(session, key['api_key'], lock=True)
-        await c.keys.authorize_identity(session, identity, [UUID(model_id)], scope='knowledge:query', lock=True)
+        await c.keys.authorize_identity(session, identity, [], scope='knowledge:query', lock=True)
         with pytest.raises(AppError) as error:
             await c.keys.authorize_identity(session, identity, [UUID(model_id)], scope='models:invoke', lock=True)
         assert error.value.status_code == 403
@@ -99,7 +138,7 @@ async def test_locked_identity_refreshes_cached_key_after_revocation(
     from zhiheng.modules.developer.orm import DeveloperKey
 
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], model_ids=[model_id])
+    key = await issue(admin, owner_app['id'], scopes=['models:invoke'], model_ids=[model_id])
     c = app.state.container
     async with c.database.sessions() as waiting, c.database.sessions.begin() as changing:
         identity = await c.keys.authenticate(waiting, key['api_key'])
@@ -120,7 +159,7 @@ async def test_current_resource_caller_rejects_disabled_app_or_owner(
     admin: httpx.AsyncClient, app: FastAPI, disable: str
 ) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['files:read'])
+    key = await file_reader(admin, owner_app['id'])
     c = app.state.container
     async with c.database.sessions.begin() as session:
         caller = await c.resource_access.bearer(session, key['api_key'], scope='files:read')
@@ -138,9 +177,9 @@ async def test_current_resource_caller_rejects_disabled_app_or_owner(
         assert error.value.status_code == 401
 
 
-async def test_legacy_key_has_no_resource_scope(admin: httpx.AsyncClient, model_id: str, app: FastAPI) -> None:
+async def test_model_key_has_no_resource_scope(admin: httpx.AsyncClient, model_id: str, app: FastAPI) -> None:
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], model_ids=[model_id])
+    key = await issue(admin, owner_app['id'], scopes=['models:invoke'], model_ids=[model_id])
     c = app.state.container
     async with c.database.sessions.begin() as session:
         with pytest.raises(AppError) as error:
@@ -154,7 +193,7 @@ async def test_resource_key_cannot_invoke_public_agent_with_or_without_request_i
     from tests.core.integration.test_agents import config
 
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['files:read'], model_ids=[model_id])
+    key = await file_reader(admin, owner_app['id'])
     agent = await admin.post('/api/agents', json=config(model_id, application_id=owner_app['id']))
     assert agent.status_code == 201, agent.text
     agent_id = agent.json()['id']
@@ -176,7 +215,7 @@ async def test_key_preparation_rejects_a_foreign_owner_before_admission(admin: h
     from zhiheng.modules.identity.orm import IdentityUser
 
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:query'])
+    key = await issue(admin, owner_app['id'], scopes=['knowledge:query', 'knowledge:write'], create_resource_kinds=['knowledge_base'])
     c = app.state.container
     async with c.database.sessions.begin() as session:
         caller = await c.resource_access.bearer(session, key['api_key'], scope='knowledge:query')
@@ -208,7 +247,7 @@ async def test_locked_identity_refreshes_cached_application_after_disable(
     from zhiheng.modules.developer.orm import DeveloperApplication
 
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['files:read'])
+    key = await file_reader(admin, owner_app['id'])
     c = app.state.container
     async with c.database.sessions() as waiting, c.database.sessions.begin() as changing:
         identity = await c.keys.authenticate(waiting, key['api_key'])

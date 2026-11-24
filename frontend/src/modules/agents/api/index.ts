@@ -164,16 +164,3 @@ export function nextPreviewIntent(
     clientRequestId: createId()
   }
 }
-
-export const getAgentApiAccess = (id: string, signal: AbortSignal) =>
-  http.request(`/agents/${encodeURIComponent(id)}/api-access`, {
-    signal,
-    decode: (value) => {
-      const data = object(value)
-      return {
-        applicationId: string(data.application_id),
-        revision: number(data.revision),
-        modelIds: list(string)(data.model_ids)
-      }
-    }
-  })

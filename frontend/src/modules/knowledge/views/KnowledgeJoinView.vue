@@ -190,16 +190,7 @@ onBeforeUnmount(() => {
   background: var(--bg-container);
 }
 .invitation-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-text);
-  font-weight: 600;
   margin-bottom: 28px;
-}
-.invitation-brand :deep(svg) {
-  width: 26px;
-  height: 26px;
 }
 .invitation-icon {
   display: grid;

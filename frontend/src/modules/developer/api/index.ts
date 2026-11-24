@@ -26,6 +26,9 @@ export interface DeveloperKey {
   keyName: string
   applicationId: string
   scopes: string[]
+  agentIds: string[]
+  resourceGrants: KeyResourceGrant[]
+  createResourceKinds: ResourceKind[]
   resourceRpmLimit: number
   maskedKey: string
   status: 'active' | 'retiring' | 'revoked' | 'expired'
@@ -59,7 +62,10 @@ export interface Page<T> {
 }
 export interface KeyInput {
   name: string
-  scopes?: string[]
+  scopes: string[]
+  agent_ids: string[]
+  resource_grants: KeyResourceGrant[]
+  create_resource_kinds: ResourceKind[]
   resource_rpm_limit?: number
   model_ids: string[]
   rpm_limit: number | null
@@ -102,6 +108,16 @@ export function parseKey(value: unknown): DeveloperKey {
     applicationId: string(data.application_id),
     maskedKey: string(data.prefix),
     scopes: list(string)(data.scopes),
+    agentIds: list(string)(data.agent_ids),
+    resourceGrants: list((value): KeyResourceGrant => {
+      const grant = object(value)
+      return {
+        kind: resourceKind(grant.kind),
+        resource_id: string(grant.resource_id),
+        actions: list(resourceAction)(grant.actions)
+      }
+    })(data.resource_grants),
+    createResourceKinds: list(resourceKind)(data.create_resource_kinds),
     resourceRpmLimit: number(data.resource_rpm_limit),
     status: data.status,
     grants: list(string)(data.model_ids).map((modelId) => ({ modelId })),
@@ -194,6 +210,15 @@ export async function listDeveloperKeys(id: string, signal: AbortSignal): Promis
 }
 export const createDeveloperKey = (id: string, body: KeyInput, signal: AbortSignal) =>
   http.request(`${path(id)}/keys`, { method: 'POST', body, signal, decode: parseIssued })
+export const listAgentCandidates = (id: string, signal: AbortSignal) =>
+  http.request(`${path(id)}/agent-candidates`, {
+    signal,
+    decode: (value) =>
+      list((raw) => {
+        const agent = object(raw)
+        return { id: string(agent.id), name: string(agent.name) }
+      })(object(value).items)
+  })
 export const rotateDeveloperKey = (appId: string, keyId: string, signal: AbortSignal) =>
   http.request(`${path(appId)}/keys/${encodeURIComponent(keyId)}/rotate`, {
     method: 'POST',
@@ -272,7 +297,10 @@ export const getScopeCatalog = (signal: AbortSignal) =>
 export function keySelectionError(
   scopes: string[],
   models: string[],
-  catalog: ScopeCatalog
+  catalog: ScopeCatalog,
+  agents: string[] = [],
+  grants: KeyResourceGrant[] = [],
+  createKinds: ResourceKind[] = []
 ): string {
   if (
     !scopes.length ||
@@ -282,11 +310,21 @@ export function keySelectionError(
     return '请选择有效的操作能力'
   if (catalog.definitions.some((item) => scopes.includes(item.scope) && !item.grantable))
     return '所选操作能力的签发权限已变化，请重新选择'
-  if (
-    !models.length &&
-    catalog.definitions.some((item) => scopes.includes(item.scope) && item.requiresModels)
-  )
-    return '模型或智能体调用至少需要一个允许的模型'
+  if (scopes.includes('models:invoke') && !models.length) return '请选择可直接调用的模型'
+  if (scopes.includes('agents:invoke') && !agents.length) return '请选择可调用的智能体'
+  for (const kind of resourceKinds) {
+    for (const scope of scopes.filter((item) => item.startsWith(resourceNamespaces[kind] + ':'))) {
+      if (
+        !createKinds.includes(kind) &&
+        !grants.some(
+          (grant) =>
+            grant.kind === kind &&
+            grant.actions.some((action) => resourceActionScope(kind, action) === scope)
+        )
+      )
+        return `请为“${catalog.definitions.find((item) => item.scope === scope)?.label ?? scope}”选择授权对象`
+    }
+  }
   return ''
 }
 export function applyResourceVersion(
@@ -304,6 +342,20 @@ export function applyResourceVersion(
 }
 export type ResourceKind = 'file' | 'knowledge_base' | 'skill'
 export type ResourceAction = 'read' | 'write' | 'query' | 'delete'
+export interface KeyResourceGrant {
+  kind: ResourceKind
+  resource_id: string
+  actions: ResourceAction[]
+}
+export const resourceKinds: ResourceKind[] = ['file', 'knowledge_base', 'skill']
+const resourceNamespaces: Record<ResourceKind, string> = {
+  file: 'files',
+  knowledge_base: 'knowledge',
+  skill: 'skills'
+}
+export function resourceActionScope(kind: ResourceKind, action: ResourceAction): string {
+  return `${resourceNamespaces[kind]}:${action === 'delete' ? 'write' : action}`
+}
 export interface ResourceCandidate {
   kind: ResourceKind
   resourceId: string

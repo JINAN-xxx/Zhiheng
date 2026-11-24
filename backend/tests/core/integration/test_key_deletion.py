@@ -13,7 +13,7 @@ from sqlalchemy import select
 from tests.core.integration.test_billing_http import mutation, point_rate
 from tests.core.integration.test_developer import admitted, provision
 from tests.core.integration.test_resource_files import auth, post
-from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.integration.test_resource_key_scopes import application, file_reader, issue
 from tests.core.integration.test_resource_knowledge import SCOPES, finish, setup
 from tests.core.permission_support import account, grants
 from tests.core.provider import ProviderServer
@@ -35,8 +35,8 @@ async def test_delete_any_key_state_hides_it_and_preserves_identity(
     admin: httpx.AsyncClient, app: FastAPI, state: str
 ) -> None:
     owned = await application(admin)
-    key = await issue(admin, owned['id'], scopes=['files:read'])
-    survivor = await issue(admin, owned['id'], scopes=['files:read'])
+    key = await file_reader(admin, owned['id'])
+    survivor = await file_reader(admin, owned['id'])
     path = f'/api/developer/applications/{owned["id"]}/keys/{key["id"]}'
     if state == 'retiring':
         assert (await admin.post(path + '/rotate', json={'grace_period_seconds': 60})).status_code == 201
@@ -79,7 +79,7 @@ async def test_key_delete_checks_current_application_authority_and_parent(
         account(admin, app, *permissions) as (stranger, _, _),
     ):
         owned, sibling = await application(owner), await application(owner)
-        key = await issue(owner, owned['id'], scopes=['files:read'])
+        key = await file_reader(owner, owned['id'])
         assert (await stranger.get(f'/api/developer/applications/{owned["id"]}')).status_code == 404
         assert (await remove(stranger, owned['id'], key['id'])).status_code == 404
         assert (await remove(owner, sibling['id'], key['id'])).status_code == 404
@@ -97,7 +97,7 @@ async def test_key_delete_checks_current_application_authority_and_parent(
         assert forbidden.status_code == 403
         assert (await owner.get('/api/v1/files', headers=auth(key))).status_code == 200
         assert (await remove(owner, owned['id'], key['id'])).status_code == 204
-        admin_target = await issue(owner, owned['id'], scopes=['files:read'])
+        admin_target = await file_reader(owner, owned['id'])
         assert (await remove(admin, owned['id'], admin_target['id'])).status_code == 404
         assert (
             await owner.get(f'/api/developer/applications/{owned["id"]}/keys/{admin_target["id"]}')
@@ -113,7 +113,7 @@ async def test_delete_contract_uses_console_cookie_and_rejects_authority_fields(
     assert operation['security'] == [{'ConsoleCookie': []}]
     assert '204' in operation['responses']
     owned = await application(admin)
-    key = await issue(admin, owned['id'], scopes=['files:read'])
+    key = await file_reader(admin, owned['id'])
     rejected = await admin.request(
         'DELETE',
         f'/api/developer/applications/{owned["id"]}/keys/{key["id"]}',
@@ -271,7 +271,7 @@ async def test_deleted_resource_key_cannot_continue_original_operation(
 
 async def test_concurrent_deletion_and_rotation_keep_original_key_revoked(admin: httpx.AsyncClient) -> None:
     owned = await application(admin)
-    key = await issue(admin, owned['id'], scopes=['files:read'])
+    key = await file_reader(admin, owned['id'])
     rotation = f'/api/developer/applications/{owned["id"]}/keys/{key["id"]}/rotate'
     deleted, rotated = await asyncio.wait_for(
         asyncio.gather(remove(admin, owned['id'], key['id']), admin.post(rotation, json={})), timeout=5

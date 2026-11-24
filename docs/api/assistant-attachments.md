@@ -19,4 +19,4 @@
 
 0041_assistant_attachments 只为 assistant_turns 增加默认空数组的附件列，原历史及账务不重写。存在附件历史时拒绝降级，避免丢失记录。
 
-当前迁移头为 `0043_workspace_execution`；`0042_workspace_merge` 已将助手附件与工作空间迁移汇合，后续迁移清理任务级执行开关。已有附件版本或已有工作空间版本均正常升级到该统一版本，原有消息、附件、任务与账务保留。
+`0042_workspace_merge` 将助手附件与工作空间迁移汇合。当前迁移版本与升级步骤见[部署说明](../deployment.md)。

@@ -21,7 +21,7 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
 ) -> None:
     owner_app = await application(admin)
     old = await issue(
-        admin, owner_app['id'], model_ids=[model_id], monthly_points_limit='12.345', monthly_budget='45.67'
+        admin, owner_app['id'], scopes=['models:invoke'], model_ids=[model_id], monthly_points_limit='12.345', monthly_budget='45.67'
     )
     rate = await admin.post(
         f'/api/models/{model_id}/rate-cards',
@@ -80,8 +80,6 @@ async def test_0014_upgrade_preserves_legacy_key_financial_and_model_facts(
             after = list(await connection.scalars(text(f'SELECT to_jsonb(t)::text FROM "{name}" t ORDER BY 1')))
             assert_original_rows(before[name], after, name)
         rows = (await connection.execute(text('SELECT scopes,resource_rpm_limit FROM developer_keys'))).all()
-        assert len(rows) == 2 and all(
-            set(row.scopes) == {'models:invoke', 'agents:invoke'} and row.resource_rpm_limit == 120 for row in rows
-        )
+        assert len(rows) == 2 and all(row.scopes == [] and row.resource_rpm_limit == 120 for row in rows)
         for name in ('developer_resource_grants', 'developer_source_enrollments', 'developer_api_requests'):
             assert await connection.scalar(text(f'SELECT count(*) FROM {name}')) == 0

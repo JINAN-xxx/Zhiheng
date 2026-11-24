@@ -1,5 +1,6 @@
 <!-- Adapted from the original RuoYi / 智衡 frontend, MIT licensed. -->
 <script setup lang="ts">
+import symbol from '../assets/daip-symbol-large.png'
 import BrandMark from './BrandMark.vue'
 
 defineProps<{ title: string; description?: string }>()
@@ -7,7 +8,7 @@ defineProps<{ title: string; description?: string }>()
 
 <template>
   <main class="auth-shell">
-    <header class="auth-shell__brand" aria-label="智衡">
+    <header class="auth-shell__brand">
       <BrandMark />
     </header>
 
@@ -37,7 +38,7 @@ defineProps<{ title: string; description?: string }>()
             <circle class="auth-shell__node auth-shell__node--small" cx="290" cy="55" r="4" />
             <circle class="auth-shell__node auth-shell__node--small" cx="150" cy="345" r="4" />
           </svg>
-          <BrandMark compact class="auth-shell__symbol" />
+          <img class="auth-shell__symbol" :src="symbol" alt="" width="136" height="136" />
         </div>
         <p class="auth-shell__caption">
           <span>对话</span><span class="auth-shell__dot">·</span><span>智能体</span
@@ -138,12 +139,8 @@ defineProps<{ title: string; description?: string }>()
 
 .auth-shell__symbol {
   position: relative;
-}
-
-.auth-shell__symbol :deep(svg) {
   width: clamp(96px, 12vw, 136px);
-  height: clamp(96px, 12vw, 136px);
-  stroke-width: 2;
+  height: auto;
 }
 
 .auth-shell__caption {

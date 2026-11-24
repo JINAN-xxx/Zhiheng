@@ -77,6 +77,19 @@ class AgentService:
             }
         )
 
+    async def require_enabled_application(
+        self, session: AsyncSession, principal: Principal, agent_id: UUID, application_id: UUID, *, lock: bool = False
+    ) -> AgentInfo:
+        try:
+            agent = await self.get(session, principal, agent_id, lock=lock)
+        except AppError as error:
+            if error.code != 'agent_not_found':
+                raise
+            raise AppError('agent_not_found', 'Agent is unavailable', 404) from None
+        if not agent.enabled or agent.application_id != application_id:
+            raise AppError('agent_not_found', 'Agent is unavailable', 404)
+        return agent
+
     async def create(
         self, session: AsyncSession, principal: Principal, config: AgentConfig, *, client_request_id: UUID | None = None
     ) -> AgentInfo:
@@ -188,6 +201,21 @@ class AgentService:
             )
             for row in rows
         ]
+
+    async def application_candidates(
+        self, session: AsyncSession, owner_id: UUID, application_id: UUID
+    ) -> list[tuple[UUID, str]]:
+        rows = await session.execute(
+            select(Agent.id, Agent.config['name'].astext)
+            .where(
+                Agent.owner_id == owner_id,
+                Agent.deleted_at.is_(None),
+                Agent.enabled.is_(True),
+                Agent.config['application_id'].astext == str(application_id),
+            )
+            .order_by(Agent.config['name'].astext, Agent.id)
+        )
+        return [(agent_id, name) for agent_id, name in rows]
 
     async def _configuration_references(
         self, session: AsyncSession, match: ColumnElement[bool]

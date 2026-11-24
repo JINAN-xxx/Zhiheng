@@ -78,6 +78,7 @@ class MeteringService:
                 invocation.key_id,
                 invocation.application_id,
                 invocation.model_id,
+                invocation.source,
             )
         return MeterReservation(bool(invocation.points_enforced), invocation.key_id, key_limit)
 

@@ -75,7 +75,7 @@ async def test_query_only_key_runs_original_metered_embedding_with_real_vectors(
     await enable_free_billing(admin)
     owner_app = await application(admin)
     key = await issue(
-        admin, owner_app['id'], scopes=['knowledge:query'], model_ids=await knowledge_models(admin, model)
+        admin, owner_app['id'], scopes=['knowledge:query']
     )
     external = uuid4()
     async with c.database.sessions.begin() as session:

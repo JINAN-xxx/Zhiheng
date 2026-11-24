@@ -18,7 +18,13 @@ async def test_application_lifecycle_keys_and_owner_isolation(
     app_id = application['id']
     issued = await admin.post(
         f'/api/developer/applications/{app_id}/keys',
-        json={'name': 'SDK', 'model_ids': [model_id], 'rpm_limit': 2, 'monthly_budget': '0'},
+        json={
+            'name': 'SDK',
+            'scopes': ['models:invoke'],
+            'model_ids': [model_id],
+            'rpm_limit': 2,
+            'monthly_budget': '0',
+        },
     )
     assert issued.status_code == 201, issued.text
     key = issued.json()
@@ -82,7 +88,7 @@ async def test_rate_cards_freeze_public_reservations(admin: httpx.AsyncClient, m
     key = (
         await admin.post(
             f'/api/developer/applications/{application["id"]}/keys',
-            json={'name': 'SDK', 'model_ids': [model_id], 'rpm_limit': 1},
+            json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id], 'rpm_limit': 1},
         )
     ).json()
     headers = {'Authorization': f'Bearer {key["api_key"]}'}
@@ -139,7 +145,8 @@ async def provision(admin: httpx.AsyncClient, model_id: str, **limits: object) -
         await admin.post('/api/developer/applications', json={'code': uuid4().hex, 'name': 'SDK app'})
     ).json()
     response = await admin.post(
-        f'/api/developer/applications/{application["id"]}/keys', json={'name': 'SDK', 'model_ids': [model_id], **limits}
+        f'/api/developer/applications/{application["id"]}/keys',
+        json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id], **limits},
     )
     assert response.status_code == 201, response.text
     return application['id'], response.json()
@@ -298,7 +305,7 @@ async def test_only_admin_can_confirm_model_removal_with_existing_key_grants(
     application = (await admin.post('/api/developer/applications', json={'code': uuid4().hex, 'name': 'Grant'})).json()
     key = await admin.post(
         f'/api/developer/applications/{application["id"]}/keys',
-        json={'name': 'Grant', 'model_ids': [granted_id, model_id]},
+        json={'name': 'Grant', 'scopes': ['models:invoke'], 'model_ids': [granted_id, model_id]},
     )
     assert key.status_code == 201
     deleted = await admin.delete(f'/api/models/{granted_id}', headers={'Content-Type': 'application/json'})
@@ -411,9 +418,13 @@ async def test_key_validation_and_database_secret_boundary(
         {'expires_at': '2099-01-01T00:00:00'},
         {'expires_at': (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()},
     ]:
-        result = await admin.post(endpoint, json={'name': 'SDK', 'model_ids': [model_id], **changes})
+        result = await admin.post(
+            endpoint, json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id], **changes}
+        )
         assert result.status_code == 422, result.text
-    key = (await admin.post(endpoint, json={'name': 'SDK', 'model_ids': [model_id]})).json()
+    key = (
+        await admin.post(endpoint, json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id]})
+    ).json()
     async with app.state.container.database.sessions() as session:
         row = await session.scalar(select(DeveloperKey).where(DeveloperKey.id == UUID(key['id'])))
         assert key['api_key'] not in repr(row)

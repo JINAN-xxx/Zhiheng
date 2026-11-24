@@ -31,7 +31,7 @@ def test_key_monthly_points_limit_is_an_exact_optional_decimal() -> None:
     from decimal import Decimal
     from uuid import uuid4
 
-    fields = {'name': 'sdk', 'model_ids': [uuid4()]}
+    fields = {'name': 'sdk', 'model_ids': [uuid4()], 'scopes': ['models:invoke']}
     assert KeyCreate(**fields).monthly_points_limit is None
     assert KeyCreate(**fields, monthly_points_limit='0').monthly_points_limit == Decimal(0)
     assert KeyCreate(**fields, monthly_points_limit='1.000000000000000001').monthly_points_limit == Decimal(

@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import func, select
 
-from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.integration.test_resource_key_scopes import application, file_reader, issue
 from tests.core.integration.test_resource_requests import setup_access, upload
 from zhiheng.modules.billing.orm import Invocation
 from zhiheng.modules.developer.orm import APIRequest, KeyMinuteBucket
@@ -88,7 +88,7 @@ async def test_resource_file_bearer_isolation_and_transport_errors(admin: httpx.
     envelope(missing, 401)
     assert missing.headers['www-authenticate'] == 'Bearer'
     second = await application(admin)
-    second_key = await issue(admin, second['id'], scopes=['files:read'])
+    second_key = await file_reader(admin, second['id'])
     envelope(await admin.get(url, headers=auth(second_key)), 404)
     envelope(await post(admin, second_key), 403)
     envelope(await post(admin, key, data={'purpose': 'knowledge', 'owner_id': str(uuid4())}), 422)
@@ -154,7 +154,7 @@ async def test_resource_file_cursor_is_bound_and_filters_acl_before_limit(
     assert len({f['id'] for f in first.json()['items'] + next_page.json()['items']}) == 4
     envelope(await admin.get('/api/v1/files', params={'cursor': cursor, 'purpose': 'skill'}, headers=auth(key)), 422)
     other = await application(admin)
-    other_key = await issue(admin, other['id'], scopes=['files:read'])
+    other_key = await file_reader(admin, other['id'])
     envelope(
         await admin.get('/api/v1/files', params={'cursor': cursor, 'purpose': 'knowledge'}, headers=auth(other_key)),
         422,

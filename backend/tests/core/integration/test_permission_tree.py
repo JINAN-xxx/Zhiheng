@@ -170,7 +170,11 @@ async def test_api_knowledge_write_scope_cannot_bypass_create_only_role(
         application = (await client.post('/api/developer/applications', json={'name': 'Scoped SDK'})).json()
         issued = await client.post(
             '/api/developer/applications/' + application['id'] + '/keys',
-            json={'name': 'Create only', 'scopes': ['knowledge:write', 'knowledge:read'], 'model_ids': [embed]},
+            json={
+                'name': 'Create only',
+                'scopes': ['knowledge:write', 'knowledge:read'],
+                'create_resource_kinds': ['knowledge_base'],
+            },
         )
         assert issued.status_code == 201, issued.text
         headers = {'Authorization': 'Bearer ' + issued.json()['api_key']}
@@ -295,7 +299,7 @@ async def test_admin_personal_api_keeps_functional_rights_without_foreign_resour
 
     model = await embedding_model(admin, provider)
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=['knowledge:read', 'knowledge:write'], model_ids=[model])
+    key = await issue(admin, owner_app['id'], scopes=['knowledge:read', 'knowledge:write'])
     created = await admin.post(
         '/api/v1/knowledge-bases', headers=auth(key), json={'name': 'Admin owned', 'embed_model_id': model}
     )

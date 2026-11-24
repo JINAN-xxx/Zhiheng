@@ -28,7 +28,17 @@ const capabilities = {
 void test('catalog drives conditional model requirements and rejects empty or unknown scopes', () => {
   assert.equal(typeof api.parseScopeCatalog, 'function')
   const catalog = api.parseScopeCatalog(capabilities)
-  assert.equal(api.keySelectionError(['files:read'], [], catalog), '')
+  assert.match(api.keySelectionError(['files:read'], [], catalog), /授权对象/)
+  assert.equal(
+    api.keySelectionError(
+      ['files:read'],
+      [],
+      catalog,
+      [],
+      [{ kind: 'file', resource_id: 'file', actions: ['read'] }]
+    ),
+    ''
+  )
   assert.match(api.keySelectionError(['models:invoke'], [], catalog), /模型/)
   assert.match(api.keySelectionError([], [], catalog), /能力/)
   assert.match(api.keySelectionError(['files:root'], [], catalog), /能力/)
@@ -43,6 +53,9 @@ void test('key and application decoders preserve resource fields, budgets, limit
     prefix: 'sk-zh-masked',
     status: 'active',
     model_ids: [],
+    agent_ids: [],
+    resource_grants: [{ kind: 'file', resource_id: 'f', actions: ['read'] }],
+    create_resource_kinds: [],
     scopes: ['files:read'],
     resource_rpm_limit: 7,
     rpm_limit: 2,
@@ -54,6 +67,7 @@ void test('key and application decoders preserve resource fields, budgets, limit
   })
   assert.deepEqual(key.scopes, ['files:read'])
   assert.equal(key.resourceRpmLimit, 7)
+  assert.deepEqual(key.resourceGrants, [{ kind: 'file', resource_id: 'f', actions: ['read'] }])
   assert.equal(key.monthlyPointsLimit, '1.25')
   const app = api.parseApplication({
     id: 'app',

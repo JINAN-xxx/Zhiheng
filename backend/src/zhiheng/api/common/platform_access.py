@@ -31,7 +31,6 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
         'disable': 'agents:publish',
         'remove': 'agents:delete',
         'preview': 'agents:debug',
-        'api_access': 'agents:read',
     },
     'work': {
         **dict.fromkeys(
@@ -62,6 +61,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
             (
                 'applications',
                 'scope_catalog',
+                'agent_candidates',
                 'application',
                 'keys',
                 'key',
@@ -223,10 +223,6 @@ def authorize_console_route(request: Request, principal: Principal) -> None:  # 
                 'system:configs:read',
             )
         return  # Model and credential domain commands check their own exact operation.
-    if module == 'agents' and name == 'api_access':
-        require_capability(principal, 'agents', 'read')
-        require_capability(principal, 'developer', 'read')
-        return
     if module == 'agents' and name == 'available':
         principal.require_any_permission('platform:agents:read', 'platform:work:read')
         return

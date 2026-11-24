@@ -190,7 +190,8 @@ async def test_unusable_keys_release_model_but_keep_authorization_history(
         await admin.post('/api/developer/applications', json={'code': 'lifecycle', 'name': 'Application'})
     ).json()
     issued = await admin.post(
-        f'/api/developer/applications/{created["id"]}/keys', json={'name': 'SDK', 'model_ids': [model_id]}
+        f'/api/developer/applications/{created["id"]}/keys',
+        json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
     )
     assert issued.status_code == 201, issued.text
     async with container.database.sessions.begin() as session:

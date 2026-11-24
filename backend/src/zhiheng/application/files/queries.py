@@ -30,13 +30,8 @@ class FileQueries:
     ) -> list[FileInfo]:
         async with self.database.sessions.begin() as session:
             caller = await self.access.current(session, caller, 'files:read')
-            assert caller.identity is not None
-            grants = await self.access.grants.list(session, caller.principal.id, caller.identity.application_id, 'file')
-            bindings = tuple(
-                FileBinding(g.resource_id, g.ownership.owner_id, g.ownership.stamp)
-                for g in grants
-                if 'read' in g.actions
-            )
+            grants = await self.access.readable_grants(session, caller, 'file')
+            bindings = tuple(FileBinding(g.resource_id, g.ownership.owner_id, g.ownership.stamp) for g in grants)
             candidates = await resource_page(
                 self.files,
                 session,

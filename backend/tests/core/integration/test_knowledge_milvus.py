@@ -9,7 +9,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
-from tests.core.knowledge_support import knowledge_models, legacy_grant
+from tests.core.knowledge_support import legacy_grant
 from tests.core.legacy_work import legacy_work_request
 from tests.core.provider import ProviderServer
 from tests.core.resources import resource
@@ -108,15 +108,9 @@ async def completed_public_knowledge(
             )
         ).status_code == 201
     agent = await published(admin, model_id, knowledge_base_ids=[base['id']])
-    key = (
-        await admin.post(
-            f'/api/developer/applications/{agent["application_id"]}/keys',
-            json={
-                'name': 'Recovery',
-                'model_ids': await knowledge_models(admin, model_id, embedding),
-            },
-        )
-    ).json()
+    from tests.core.integration.test_agents import issue_agent_key
+
+    key = await issue_agent_key(admin, agent)
     headers = {'Authorization': 'Bearer ' + key['api_key']}
     body = {'messages': [{'role': 'user', 'content': 'What remains recoverable?'}], 'client_request_id': str(uuid4())}
     endpoint = f'/v1/agents/{agent["id"]}/chat/completions'
@@ -231,7 +225,7 @@ async def test_public_accepted_replay_still_requires_current_authorization(
 
         async with app.state.container.database.sessions.begin() as session:
             key = await session.get(DeveloperKey, UUID(context['key']['id']), with_for_update=True)
-            key.model_ids = [context['embedding']]
+            key.agent_ids = []
         response = None
     elif revoke == 'agent':
         agent = (await admin.get('/api/agents/' + context['agent']['id'])).json()
@@ -262,7 +256,8 @@ async def test_public_accepted_replay_still_requires_current_authorization(
                 f'/api/developer/applications/{application}/keys',
                 json={
                     'name': 'Other',
-                    'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
+                    'scopes': ['agents:invoke'],
+                    'agent_ids': [context['agent']['id']],
                 },
             )
         ).json()
@@ -441,7 +436,8 @@ async def test_public_cancel_filters_sources_using_original_owner_acl(
             f'/api/developer/applications/{agent["application_id"]}/keys',
             json={
                 'name': 'Owner ACL',
-                'model_ids': await knowledge_models(admin, context['model_id'], context['embedding']),
+                'scopes': ['agents:invoke'],
+                'agent_ids': [agent['id']],
             },
         )
         assert issued.status_code == 201, issued.text

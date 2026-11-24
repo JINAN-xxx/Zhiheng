@@ -136,10 +136,3 @@ async def preview(
         return await container.agent_runs.prepare_knowledge_agent(principal, agent_id, body)
     async with session.begin():
         return await container.agent_runs.preview(session, principal, agent_id, body)
-
-
-@router.get('/{agent_id}/api-access')
-async def api_access(
-    agent_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
-) -> dict[str, object]:
-    return await container.agent_management.api_access(session, principal, agent_id)

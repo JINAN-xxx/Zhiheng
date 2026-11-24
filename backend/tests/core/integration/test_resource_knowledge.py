@@ -30,7 +30,7 @@ async def setup(
     )
     assert rate.status_code == 201, rate.text
     owner_app = await application(admin)
-    key = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=await knowledge_models(admin, model))
+    key = await issue(admin, owner_app['id'], scopes=SCOPES)
     c = app.state.container
     c.knowledge_jobs.vectors = c.knowledge_preparation.vectors = VectorFixture()
     created = await admin.post(
@@ -93,7 +93,7 @@ async def test_resource_knowledge_native_index_query_operations_and_replay(
     assert result['status'] == 'succeeded' and result['result']['hits'][0]['content'] == 'four', result
     assert len(provider.requests) == 3
     assert provider.requests[-1]['model'] == 'rerank'
-    second = await issue(admin, owner_app['id'], scopes=SCOPES, model_ids=[base['embed_model_id']])
+    second = await issue(admin, owner_app['id'], scopes=SCOPES)
     await admin.patch('/api/models/' + base['embed_model_id'], json={'enabled': False})
     replay = await admin.post(endpoint + '/documents', headers=auth(second, external), json=body)
     assert replay.status_code == 202 and replay.json()['id'] == operation['id'], replay.text

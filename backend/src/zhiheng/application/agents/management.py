@@ -163,23 +163,3 @@ class AgentManagementService:
                 continue
             result.append(summary)
         return result
-
-    async def api_access(self, session: AsyncSession, principal: Principal, agent_id: UUID) -> dict[str, object]:
-        agent = await self._agents.get(session, principal, agent_id)
-        config = agent.configuration
-        if not agent.enabled or config.application_id is None:
-            raise AppError('agent_disabled', '请先启用智能助手', 409)
-        actor = owner(agent)
-        await self._applications.require_active_owned(session, actor.id, config.application_id, lock=False)
-        model_ids = {config.model_id}
-        if config.knowledge_base_ids:
-            assert self.knowledge is not None
-            bases = await self.knowledge.store.snapshot(session, actor, config.knowledge_base_ids)
-            model_ids.update(base.binding.model_id for base in bases)
-            ranker = await self.knowledge.knowledge.retrieval_rerank_binding(session, config.knowledge_base_ids)
-            model_ids.add(ranker.model_id)
-        return {
-            'application_id': config.application_id,
-            'revision': agent.version,
-            'model_ids': sorted(model_ids),
-        }

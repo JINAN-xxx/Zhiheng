@@ -31,7 +31,7 @@ async def test_generated_application_code_survives_rename_and_retains_key_bindin
     assert renamed.json()['code'] == application['code']
     key = await admin.post(
         f'/api/developer/applications/{application["id"]}/keys',
-        json={'name': '资源密钥', 'scopes': ['files:read'], 'model_ids': []},
+        json={'name': '资源密钥', 'scopes': ['files:write'], 'create_resource_kinds': ['file']},
     )
     assert key.status_code == 201, key.text
     assert key.json()['application_id'] == application['id']

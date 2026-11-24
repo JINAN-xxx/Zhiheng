@@ -19,7 +19,8 @@ async def test_0002_upgrade_retains_existing_users_models_apps_keys_runs_and_led
         await admin.post('/api/developer/applications', json={'code': 'preserved', 'name': 'Preserved'})
     ).json()
     issued = await admin.post(
-        f'/api/developer/applications/{application["id"]}/keys', json={'name': 'Existing', 'model_ids': [model_id]}
+        f'/api/developer/applications/{application["id"]}/keys',
+        json={'name': 'Existing', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
     )
     assert issued.status_code == 201
     conversation = (await admin.post('/api/chat/conversations', json={})).json()

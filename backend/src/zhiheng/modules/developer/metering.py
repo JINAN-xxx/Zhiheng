@@ -70,6 +70,7 @@ class KeyMeteringPolicy:
         key_id: UUID,
         application_id: UUID | None,
         model_id: UUID,
+        source: str,
     ) -> Decimal | None:
         key = await session.get(DeveloperKey, key_id)
         app = await session.get(DeveloperApplication, application_id)
@@ -77,9 +78,13 @@ class KeyMeteringPolicy:
             key is None
             or not KeyService.usable(key)
             or app is None
+            or key.application_id != application_id
             or (app.status != 'active' or not app.platform_enabled)
             or app.deleted_at is not None
-            or str(model_id) not in key.model_ids
+            or (
+                source not in {'agent_invocation', 'knowledge_embedding', 'knowledge_retrieval'}
+                and str(model_id) not in key.model_ids
+            )
             or not await self._identity.is_active(session, app.owner_id)
         ):
             raise AppError('invocation_unavailable', '调用授权已失效', 401)

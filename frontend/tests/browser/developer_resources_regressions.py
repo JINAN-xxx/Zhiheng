@@ -70,6 +70,8 @@ class DeveloperResourceRegressions(DeveloperBoundary):
             await super().respond(route)
 
     async def test_empty_scopes_rejected_and_files_only_key_accepts_empty_models(self):
+        self.bindings = [{'kind': 'file', 'resource_id': 'file-1', 'display_name': '示例文件', 'status': 'active',
+                          'owned': True, 'available': True, 'allowed_actions': ['read'], 'actions': ['read']}]
         await self.open_details()
         await self.page.get_by_role('tab', name='访问密钥', exact=True).click()
         await self.page.get_by_role('button', name='创建密钥', exact=True).click()
@@ -77,20 +79,101 @@ class DeveloperResourceRegressions(DeveloperBoundary):
         await dialog.get_by_label('密钥名称', exact=True).fill('文件接入')
         await self.page.wait_for_timeout(300)
         await self.page.screenshot(path=os.environ['PLATFORM_RESOURCE_SCREENSHOTS'] + '/key-scopes-desktop.png')
-        await dialog.get_by_role('checkbox', name=re.compile('模型调用')).uncheck()
-        await dialog.get_by_role('checkbox', name=re.compile('智能体调用')).uncheck()
+        await expect(dialog.get_by_role('checkbox', name=re.compile('模型调用'))).not_to_be_checked()
+        await expect(dialog.get_by_role('checkbox', name=re.compile('智能体调用'))).not_to_be_checked()
         await dialog.get_by_role('button', name=re.compile(r'^创\s*建$')).click()
         await expect(dialog.get_by_text('请选择操作能力', exact=True)).to_be_visible()
         self.assertEqual(self.posts, [])
         await dialog.get_by_role('checkbox', name=re.compile('读取文件')).check()
+        await self.choose_key_target(dialog, '资源与动作', '示例文件（文件） · 读取')
         await dialog.get_by_role('button', name=re.compile(r'^创\s*建$')).click()
         issued = self.page.get_by_role('dialog', name='访问密钥已生成', exact=True)
         await expect(issued).to_be_visible()
         self.assertEqual(self.posts[-1]['model_ids'], [])
         self.assertEqual(self.posts[-1]['scopes'], ['files:read'])
+        self.assertEqual(self.posts[-1]['resource_grants'], [{'kind':'file','resource_id':'file-1','actions':['read']}])
         self.assertEqual(self.posts[-1]['resource_rpm_limit'], 120)
         await issued.get_by_role('button', name='我已保存', exact=True).click()
         await expect(self.page.get_by_text('操作能力：读取文件（签发后固定）', exact=True)).to_be_visible()
+
+    async def test_mixed_key_scopes_bind_each_object_and_remove_deselected_grants(self):
+        self.bindings = [
+            {
+                "kind": "knowledge_base",
+                "resource_id": id,
+                "display_name": name,
+                "status": "ready",
+                "owned": True,
+                "available": True,
+                "actions": ["query", "write"],
+                "allowed_actions": ["query", "write"],
+            }
+            for id, name in [("kb-a", "产品资料"), ("kb-b", "售后资料")]
+        ]
+        await self.open_details()
+        await self.page.get_by_role("tab", name="访问密钥", exact=True).click()
+        await self.page.get_by_role("button", name="创建密钥", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="创建访问密钥", exact=True)
+        await dialog.get_by_label("密钥名称", exact=True).fill("组合调用")
+        for label in ["模型调用", "智能体调用", "知识检索", "管理知识库"]:
+            await dialog.get_by_role("checkbox", name=re.compile(label)).check()
+        await dialog.get_by_label("直接调用的模型", exact=True).click()
+        await (
+            self.page.locator(".ant-select-item-option-content")
+            .filter(has_text="日常助手")
+            .click()
+        )
+        await dialog.get_by_label("密钥名称", exact=True).click()
+        await self.choose_key_target(dialog, "可调用的智能体", "研究助手")
+        await self.choose_key_target(dialog, "资源与动作", "产品资料（知识库） · 检索")
+        await self.choose_key_target(dialog, "资源与动作", "售后资料（知识库） · 写入")
+        await dialog.get_by_role("checkbox", name="创建新知识库", exact=True).check()
+        await dialog.get_by_role("checkbox", name=re.compile("管理知识库")).uncheck()
+        await dialog.get_by_role("checkbox", name=re.compile("管理知识库")).check()
+        await expect(
+            dialog.get_by_role("checkbox", name="创建新知识库", exact=True)
+        ).not_to_be_checked()
+        await self.choose_key_target(dialog, "资源与动作", "售后资料（知识库） · 写入")
+        await dialog.get_by_role("button", name=re.compile(r"^创\s*建$")).click()
+        await expect(
+            self.page.get_by_role("dialog", name="访问密钥已生成", exact=True)
+        ).to_be_visible()
+        body = self.posts[-1]
+        self.assertEqual(body["model_ids"], ["model-1"])
+        self.assertEqual(body["agent_ids"], ["agent-1"])
+        self.assertCountEqual(
+            body["scopes"],
+            ["models:invoke", "agents:invoke", "knowledge:query", "knowledge:write"],
+        )
+        self.assertEqual(
+            body["resource_grants"],
+            [
+                {"kind": "knowledge_base", "resource_id": "kb-a", "actions": ["query"]},
+                {"kind": "knowledge_base", "resource_id": "kb-b", "actions": ["write"]},
+            ],
+        )
+        self.assertEqual(body["create_resource_kinds"], [])
+
+    async def test_create_only_key_needs_explicit_creation_action(self):
+        await self.open_details()
+        await self.page.get_by_role("tab", name="访问密钥", exact=True).click()
+        await self.page.get_by_role("button", name="创建密钥", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="创建访问密钥", exact=True)
+        await dialog.get_by_label("密钥名称", exact=True).fill("文件上传")
+        await dialog.get_by_role("checkbox", name=re.compile("管理文件")).check()
+        submit = dialog.get_by_role("button", name=re.compile(r"^创\s*建$"))
+        await submit.click()
+        await expect(
+            dialog.get_by_text("请为“管理文件”选择授权对象", exact=True)
+        ).to_be_visible()
+        self.assertEqual(self.posts, [])
+        await dialog.get_by_role("checkbox", name="上传新文件", exact=True).check()
+        await submit.click()
+        await expect(
+            self.page.get_by_role("dialog", name="访问密钥已生成", exact=True)
+        ).to_be_visible()
+        self.assertEqual(self.posts[-1]["create_resource_kinds"], ["file"])
+        self.assertEqual(self.posts[-1]["resource_grants"], [])
 
     async def test_shared_actions_cas_retry_quota_and_unbind_preserve_application_fields(self):
         await self.open_details()
@@ -248,6 +331,7 @@ class DeveloperKeyFormRaceRegressions(DeveloperBoundary):
         await dialog.get_by_role('checkbox', name=re.compile('模型调用')).uncheck()
         await dialog.get_by_role('checkbox', name=re.compile('智能体调用')).uncheck()
         await dialog.get_by_role('checkbox', name=re.compile('读取文件')).check()
+        await self.choose_key_target(dialog, '资源与动作', '示例文件（文件） · 读取')
         rpm = dialog.get_by_label('资源每分钟请求数', exact=True)
         await rpm.fill('7')
         await rpm.blur()

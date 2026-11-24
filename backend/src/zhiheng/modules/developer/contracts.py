@@ -6,7 +6,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from zhiheng.modules.developer.scopes import INVOKE_SCOPES, RESOURCE_RPM_MAX, ResourceAction, Scope
+from zhiheng.modules.developer.scopes import (
+    RESOURCE_RPM_MAX,
+    ResourceAction,
+    ResourceKind,
+    Scope,
+    resource_scope,
+    validate_actions,
+)
 from zhiheng.shared.time import utcnow
 
 
@@ -56,18 +63,48 @@ class ApplicationInfo(BaseModel):
     source_byte_limit: int = 1073741824
 
 
+class KeyResourceGrant(StrictRequest):
+    kind: ResourceKind
+    resource_id: UUID
+    actions: tuple[ResourceAction, ...] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode='after')
+    def valid_actions(self) -> 'KeyResourceGrant':
+        validate_actions(self.kind, self.actions)
+        return self
+
+
 class KeyCreate(StrictRequest):
     name: str = Field(min_length=1, max_length=80)
     model_ids: list[UUID] = Field(default_factory=list, max_length=256)
-    scopes: tuple[Scope, ...] = INVOKE_SCOPES
+    agent_ids: list[UUID] = Field(default_factory=list, max_length=256)
+    resource_grants: list[KeyResourceGrant] = Field(default_factory=list, max_length=256)
+    create_resource_kinds: tuple[ResourceKind, ...] = Field(default=(), max_length=3)
+    scopes: tuple[Scope, ...]
     resource_rpm_limit: int = Field(default=120, strict=True, ge=1, le=RESOURCE_RPM_MAX)
 
     @model_validator(mode='after')
     def capabilities(self) -> 'KeyCreate':
         if not self.scopes or len(set(self.scopes)) != len(self.scopes):
             raise ValueError('Nonempty unique scopes are required')
-        if set(self.scopes).intersection(INVOKE_SCOPES) and not self.model_ids:
-            raise ValueError('Invoke scopes require models')
+        if ('models:invoke' in self.scopes) != bool(self.model_ids):
+            raise ValueError('Direct model access requires both models:invoke and selected models')
+        if ('agents:invoke' in self.scopes) != bool(self.agent_ids):
+            raise ValueError('Agent access requires both agents:invoke and selected agents')
+        objects = {(grant.kind, grant.resource_id) for grant in self.resource_grants}
+        if len(objects) != len(self.resource_grants) or len(set(self.create_resource_kinds)) != len(
+            self.create_resource_kinds
+        ):
+            raise ValueError('Resource selections must be unique')
+        required = {resource_scope(grant.kind, action) for grant in self.resource_grants for action in grant.actions}
+        required.update(resource_scope(kind, 'write') for kind in self.create_resource_kinds)
+        if not required.issubset(self.scopes):
+            raise ValueError('Selected actions require the corresponding resource scopes')
+        possible = required | {resource_scope(kind, 'read') for kind in self.create_resource_kinds}
+        if 'knowledge_base' in self.create_resource_kinds:
+            possible.add('knowledge:query')
+        if set(self.scopes).difference({'models:invoke', 'agents:invoke'}, possible):
+            raise ValueError('Select an existing resource or permission to create resources of this kind')
         return self
 
     rpm_limit: int | None = Field(default=None, strict=True, gt=0)
@@ -85,11 +122,11 @@ class KeyCreate(StrictRequest):
     def clean_name(cls, value: str) -> str:
         return ApplicationCreate.clean_name(value)
 
-    @field_validator('model_ids')
+    @field_validator('model_ids', 'agent_ids')
     @classmethod
     def unique_models(cls, value: list[UUID]) -> list[UUID]:
         if len(set(value)) != len(value):
-            raise ValueError('Duplicate models')
+            raise ValueError('Duplicate object IDs')
         return value
 
     @field_validator('monthly_budget', 'monthly_points_limit', mode='before')
@@ -118,6 +155,9 @@ class KeyInfo(BaseModel):
     prefix: str
     status: str
     model_ids: list[UUID]
+    agent_ids: list[UUID]
+    resource_grants: list[KeyResourceGrant]
+    create_resource_kinds: tuple[ResourceKind, ...]
     scopes: tuple[Scope, ...]
     resource_rpm_limit: int
     rpm_limit: int | None

@@ -23,6 +23,7 @@ from zhiheng.modules.developer.public import (
 from zhiheng.modules.developer.public import (
     scope_catalog as capabilities,
 )
+from zhiheng.shared.platform_permissions import require_capability
 
 router = APIRouter(prefix='/api/developer/applications', tags=['developer'])
 Page = Annotated[int, Query(ge=1)]
@@ -117,6 +118,19 @@ async def keys(
     return await container.keys.list(session, principal, application_id, page, page_size)
 
 
+@router.get('/{application_id}/agent-candidates')
+async def agent_candidates(
+    application_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> dict[str, list[dict[str, object]]]:
+    await container.applications.require(session, principal, application_id)
+    require_capability(principal, 'agents', 'use')
+    rows = await container.agents.application_candidates(session, principal.id, application_id)
+    return {'items': [{'id': agent_id, 'name': name} for agent_id, name in rows]}
+
+
 @router.post('/{application_id}/keys', status_code=201)
 async def issue(
     application_id: UUID,
@@ -126,7 +140,9 @@ async def issue(
     session: SessionDependency,
 ) -> IssuedKey:
     async with session.begin():
-        return await container.keys.create(session, principal, application_id, body)
+        key = await container.keys.create(session, principal, application_id, body)
+        await container.developer_resources.validate_selection(session, principal, application_id, body.resource_grants)
+        return key
 
 
 @router.get('/{application_id}/keys/{key_id}')

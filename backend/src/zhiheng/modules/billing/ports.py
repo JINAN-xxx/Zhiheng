@@ -131,6 +131,7 @@ class KeyMeteringPolicyPort(Protocol):
         key_id: UUID,
         application_id: UUID | None,
         model_id: UUID,
+        source: str,
     ) -> Decimal | None: ...
 
     async def lock(self, session: AsyncSession, key_id: UUID) -> None: ...

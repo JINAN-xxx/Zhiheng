@@ -96,7 +96,8 @@ async def test_embedding_and_rerank_use_worker_and_actual_usage(
         assert rate.status_code == 201, rate.text
         key = (
             await admin.post(
-                f'/api/developer/applications/{application["id"]}/keys', json={'name': kind, 'model_ids': [model['id']]}
+                f'/api/developer/applications/{application["id"]}/keys',
+                json={'name': kind, 'scopes': ['models:invoke'], 'model_ids': [model['id']]},
             )
         ).json()
         task = asyncio.create_task(
@@ -221,7 +222,8 @@ async def test_unbilled_structured_missing_usage_stays_unknown_without_reservati
     ).json()
     key = (
         await admin.post(
-            f'/api/developer/applications/{application["id"]}/keys', json={'name': 'SDK', 'model_ids': [model['id']]}
+            f'/api/developer/applications/{application["id"]}/keys',
+            json={'name': 'SDK', 'scopes': ['models:invoke'], 'model_ids': [model['id']]},
         )
     ).json()
     payload = (

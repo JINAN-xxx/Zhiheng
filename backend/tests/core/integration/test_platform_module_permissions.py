@@ -130,7 +130,7 @@ async def test_developer_switch_never_grants_other_users_apps_keys_or_governance
     key = (
         await admin.post(
             f'/api/developer/applications/{application["id"]}/keys',
-            json={'name': 'Private key', 'model_ids': [model_id]},
+            json={'name': 'Private key', 'scopes': ['models:invoke'], 'model_ids': [model_id]},
         )
     ).json()
     await grant(
@@ -153,7 +153,11 @@ async def test_developer_switch_never_grants_other_users_apps_keys_or_governance
         assert (await client.get('/api/developer/applications')).json()['items'] == []
         path = f'/api/developer/applications/{application["id"]}'
         assert (await client.get(path)).status_code == 404
-        assert (await client.post(path + '/keys', json={'name': 'steal', 'model_ids': [model_id]})).status_code == 404
+        assert (
+            await client.post(
+                path + '/keys', json={'name': 'steal', 'scopes': ['models:invoke'], 'model_ids': [model_id]}
+            )
+        ).status_code == 404
         assert (await client.post(path + f'/keys/{key["id"]}/rotate', json={})).status_code == 404
         assert (
             await client.delete(path + f'/keys/{key["id"]}', headers={'content-type': 'application/json'})
@@ -286,7 +290,20 @@ async def test_api_cannot_issue_scope_outside_enabled_modules_and_queued_key_is_
         application = (await client.post('/api/developer/applications', json={'name': 'API restrictions'})).json()
         path = f'/api/developer/applications/{application["id"]}/keys'
         for scope in ('knowledge:read', 'skills:read', 'agents:invoke'):
-            denied = await client.post(path, json={'name': 'forged', 'model_ids': [model_id], 'scopes': [scope]})
+            targets = (
+                {'agent_ids': [model_id]}
+                if scope == 'agents:invoke'
+                else {
+                    'resource_grants': [
+                        {
+                            'kind': 'skill' if scope == 'skills:read' else 'knowledge_base',
+                            'resource_id': model_id,
+                            'actions': ['read'],
+                        }
+                    ]
+                }
+            )
+            denied = await client.post(path, json={'name': 'forged', **targets, 'scopes': [scope]})
             assert denied.status_code == 403, (scope, denied.text)
         key = (
             await client.post(path, json={'name': 'Models only', 'model_ids': [model_id], 'scopes': ['models:invoke']})
@@ -341,7 +358,11 @@ async def test_api_resource_scope_and_model_allowlist_cannot_reach_foreign_ids(
         key = (
             await client.post(
                 f'/api/developer/applications/{application["id"]}/keys',
-                json={'name': 'Own key', 'scopes': RESOURCE_SCOPES, 'model_ids': [model_id]},
+                json={
+                    'name': 'Own key',
+                    'scopes': RESOURCE_SCOPES,
+                    'create_resource_kinds': ['file', 'skill', 'knowledge_base'],
+                },
             )
         ).json()
         headers = {'Authorization': 'Bearer ' + key['api_key']}
@@ -364,7 +385,11 @@ async def test_api_resource_scope_and_model_allowlist_cannot_reach_foreign_ids(
     second = (await admin.post('/api/developer/applications', json={'name': 'Same owner, different app'})).json()
     issued = await admin.post(
         f'/api/developer/applications/{second["id"]}/keys',
-        json={'name': 'Other application', 'scopes': RESOURCE_SCOPES, 'model_ids': [model_id]},
+        json={
+            'name': 'Other application',
+            'scopes': RESOURCE_SCOPES,
+            'create_resource_kinds': ['file', 'skill', 'knowledge_base'],
+        },
     )
     assert issued.status_code == 201, issued.text
     for path in (

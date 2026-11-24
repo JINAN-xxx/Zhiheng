@@ -74,7 +74,10 @@ async def test_key_creation_locks_all_models_before_shared_connection(admin: htt
         async with container.database.sessions.begin() as session:
             started.set_result(await session.scalar(text('SELECT pg_backend_pid()')))
             return await container.keys.create(
-                session, principal, application_id, KeyCreate(name='All models', model_ids=list(reversed(model_ids)))
+                session,
+                principal,
+                application_id,
+                KeyCreate(name='All models', scopes=('models:invoke',), model_ids=list(reversed(model_ids))),
             )
 
     task = None
@@ -131,7 +134,10 @@ async def test_key_creation_and_single_model_admission_do_not_form_lock_cycle(  
             monkeypatch.setattr(session, 'scalar', pause_after_connection(session.scalar))
             monkeypatch.setattr(session, 'execute', pause_after_connection(session.execute))
             return await container.keys.create(
-                session, principal, application_id, KeyCreate(name='Mixed models', model_ids=model_ids)
+                session,
+                principal,
+                application_id,
+                KeyCreate(name='Mixed models', scopes=('models:invoke',), model_ids=model_ids),
             )
 
     async def admit_one() -> None:

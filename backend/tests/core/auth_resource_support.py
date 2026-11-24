@@ -87,7 +87,7 @@ async def resource_world(
     else:
         # A personal-resource user need not have global model-configuration permission.
         owner_app = await application(admin)
-        create_key = await issue(admin, owner_app['id'], scopes=RESOURCE_SCOPES, model_ids=[existing_model_id])
+        create_key = await issue(admin, owner_app['id'], scopes=RESOURCE_SCOPES)
         created = await admin.post(
             '/api/v1/knowledge-bases',
             headers=auth(create_key),
@@ -105,7 +105,7 @@ async def resource_world(
         defaults = await session.get(KnowledgeDefaults, 1)
         assert defaults is not None and defaults.default_rerank_model_id is not None
         ranker = str(defaults.default_rerank_model_id)
-    key = await issue(admin, owner_app['id'], scopes=RESOURCE_SCOPES, model_ids=[base['embed_model_id'], ranker])
+    key = await issue(admin, owner_app['id'], scopes=RESOURCE_SCOPES)
     source = await post(admin, key)
     assert source.status_code == 201, source.text
     folder = await admin.post(
@@ -228,7 +228,7 @@ async def without_grants(app: FastAPI, application_id: str) -> AsyncIterator[Non
 
 async def other_key(client: httpx.AsyncClient, model_ids: list[str]) -> dict[str, Any]:
     owner_app = await application(client)
-    return await issue(client, owner_app['id'], scopes=RESOURCE_SCOPES, model_ids=model_ids)
+    return await issue(client, owner_app['id'], scopes=RESOURCE_SCOPES)
 
 
 def request_headers(key: dict[str, Any], *, etag: str | None = None) -> dict[str, str]:

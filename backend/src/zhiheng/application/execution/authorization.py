@@ -105,7 +105,7 @@ class ModelExecutionAuthorization:
             await self.assistant_agent.guard(claim)
             if claim.resource_type == 'agent_invocation':
                 async with self.database.sessions.begin() as session:
-                    await self.keys.authorize_run(session, claim.id, scope='agents:invoke')
+                    await self.keys.authorize_run(session, claim.id, scope='agents:invoke', agent_id=claim.resource_id)
             return
         guards = {
             'connection_test': self._require_test,
@@ -115,13 +115,9 @@ class ModelExecutionAuthorization:
         if guard := guards.get(claim.resource_type):
             await guard(claim)
             return
-        if claim.resource_type in {'public', 'agent_invocation'}:
+        if claim.resource_type == 'public':
             async with self.database.sessions.begin() as session:
-                await self.keys.authorize_run(
-                    session,
-                    claim.id,
-                    scope='agents:invoke' if claim.resource_type == 'agent_invocation' else 'models:invoke',
-                )
+                await self.keys.authorize_run(session, claim.id, scope='models:invoke')
             return
         if claim.resource_type == 'knowledge_graph':
             await self.graph_runs.guard(claim)
@@ -171,9 +167,7 @@ class ModelExecutionAuthorization:
             else:
                 if claim.resource_type == 'knowledge_rerank':
                     raise AppError('knowledge_execution_cancelled', '知识重排步骤已失效', 409)
-                origin = await self.knowledge_origin.job(
-                    session, claim.resource_id, model_ids=(ModelRequest.model_validate(claim.payload).binding.model_id,)
-                )
+                origin = await self.knowledge_origin.job(session, claim.resource_id)
                 owner_id, expected, file_id, sha256 = await self.knowledge_jobs.store.model_guard(
                     session, claim.resource_id, claim.id
                 )
@@ -194,9 +188,7 @@ class ModelExecutionAuthorization:
                     )
                 if origin is not None:
                     await self.knowledge_jobs.store.model_guard(session, claim.resource_id, claim.id, lock=True)
-                    await self.knowledge_origin.job(
-                        session, claim.resource_id, model_ids=(expected.model_id,), lock=True
-                    )
+                    await self.knowledge_origin.job(session, claim.resource_id, lock=True)
                     owner = self.resource_access.personal(owner)
                 source = await self.files.require(session, owner, file_id, active=True)
                 if binding_fingerprint(binding) != binding_fingerprint(expected) or source.sha256 != sha256:

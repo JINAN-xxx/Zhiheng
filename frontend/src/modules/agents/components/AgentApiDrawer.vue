@@ -36,14 +36,12 @@
         </div>
         <pre class="api-code">{{ requestExample }}</pre>
         <p class="api-contract">
-          使用此应用的 Bearer 密钥，需授权模型
-          {{ requiredModelIds.join('、') || access.modelId }}。多轮对话通过 messages 传入，stream 为
-          true 时返回 SSE。
+          使用已授权此智能体的应用 Bearer 密钥。多轮对话通过 messages 传入，stream 为 true 时返回
+          SSE。
         </p>
         <template v-if="knowledgeIds.length">
           <p class="api-contract">
-            知识检索需要同时授权向量和重排模型，并计入此密钥的配额与用量。每次请求提供稳定的
-            client_request_id；重试使用相同标识。
+            知识检索计入此密钥的配额与用量。重试时复用原 client_request_id。
           </p>
           <p class="api-contract">
             有知识库时，首次调用可能返回 HTTP 202。请使用同一 Bearer 密钥轮询
@@ -58,8 +56,23 @@
           <h3>应用访问密钥</h3>
           <RefreshButton label="刷新密钥" :loading="loading" @click="loadKeys" />
         </div>
+        <p>
+          快捷签发仅授权「{{ agent?.name }}」。<RouterLink
+            :to="{
+              path: '/developer',
+              query: { applicationId: access.applicationId, tab: 'keys' }
+            }"
+            >组合更多能力</RouterLink
+          >
+        </p>
         <a-alert v-if="error" class="api-alert" type="error" :message="error" show-icon />
-        <a-form class="api-key-form" :model="keyForm" layout="vertical" @finish="createKey">
+        <a-form
+          v-if="canUseCapability('developer', 'key_create')"
+          class="api-key-form"
+          :model="keyForm"
+          layout="vertical"
+          @finish="createKey"
+        >
           <a-form-item
             label="密钥名称"
             name="keyName"
@@ -82,7 +95,7 @@
             html-type="submit"
             aria-label="创建密钥"
             :loading="creating"
-            :disabled="!!issuedKey || !!revokingId || loading || !requirementsReady"
+            :disabled="!!issuedKey || !!revokingId || loading"
             ><template #icon><KeyOutlined /></template>创建密钥</a-button
           >
         </a-form>
@@ -106,18 +119,13 @@
             <div class="api-key-row__body">
               <strong>{{ item.keyName }}</strong
               ><code>{{ item.maskedKey }}</code
-              ><span
-                >{{ developerKeyStatusLabel(item.status)
-                }}<template v-if="hasModelGrant(item)">
-                  ·
-                  {{ knowledgeIds.length ? '已授权全部所需模型' : '已授权此模型' }}</template
-                ><template v-else-if="requirementsReady">
-                  · 模型授权不完整，请创建新密钥</template
-                ></span
-              >
+              ><span>{{ developerKeyStatusLabel(item.status) }} · {{ agentGrantLabel(item) }}</span>
             </div>
             <a-popconfirm
-              v-if="['active', 'retiring'].includes(item.status)"
+              v-if="
+                canUseCapability('developer', 'key_revoke') &&
+                ['active', 'retiring'].includes(item.status)
+              "
               title="撤销后，该密钥在整个应用中立即失效。继续？"
               ok-text="撤销"
               cancel-text="取消"
@@ -139,6 +147,8 @@
 
 <script setup lang="ts">
 import { copyText } from '../../../shared/clipboard.ts'
+import { RouterLink } from 'vue-router'
+import { canUseCapability } from '../../identity/public.ts'
 import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import { monthlyPointsLimit } from '../../billing/public.ts'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -166,13 +176,10 @@ import {
 import type { DeveloperKey, IssuedKey } from '../../developer/public.ts'
 import type { Agent } from '../api/index.ts'
 import { getAgentAccess } from '../presentation.ts'
-import { getAgentApiAccess } from '../api/index.ts'
 const props = defineProps<{ modelValue: boolean; agent: Agent | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const access = computed(() => getAgentAccess(props.agent))
 const knowledgeIds = computed(() => props.agent?.knowledgeBaseIds ?? [])
-const requiredModelIds = ref<string[]>([]),
-  requirementsReady = ref(false)
 const endpoint = computed(() =>
   props.agent
     ? `${window.location.origin}/v1/agents/${encodeURIComponent(props.agent.agentId)}/chat/completions`
@@ -197,32 +204,19 @@ const keyForm = reactive({ keyName: '', monthlyPointsLimit: '' }),
   error = ref('')
 const readScope = new RequestScope(),
   mutationScope = new RequestScope()
-const hasModelGrant = (key: DeveloperKey): boolean =>
-  requirementsReady.value &&
-  requiredModelIds.value.every((id) => key.grants.some((grant) => grant.modelId === id))
+function agentGrantLabel(key: DeveloperKey): string {
+  if (!key.scopes.includes('agents:invoke')) return '缺少智能体调用能力'
+  return key.agentIds.includes(props.agent?.agentId ?? '') ? '已授权此智能体' : '未授权此智能体'
+}
 async function loadKeys(): Promise<void> {
   const binding = access.value
   if (!props.modelValue || !binding) return
   const context = readScope.replace()
   loading.value = true
-  requirementsReady.value = false
   error.value = ''
   try {
-    const [result, requirements] = await Promise.all([
-      listDeveloperKeys(binding.applicationId, context.signal),
-      getAgentApiAccess(props.agent!.agentId, context.signal)
-    ])
-    if (
-      requirements.applicationId !== binding.applicationId ||
-      requirements.revision !== props.agent?.version
-    )
-      throw new Error('助手配置已变化，请刷新智能体后重试')
-    const required = requirements.modelIds
-    if (context.isCurrent()) {
-      keys.value = result
-      requiredModelIds.value = [...new Set(required)]
-      requirementsReady.value = true
-    }
+    const result = await listDeveloperKeys(binding.applicationId, context.signal)
+    if (context.isCurrent()) keys.value = result
   } catch (reason) {
     if (context.isCurrent() && !isAborted(reason)) error.value = errorMessage(reason)
   } finally {
@@ -231,13 +225,15 @@ async function loadKeys(): Promise<void> {
 }
 async function createKey(): Promise<void> {
   const binding = access.value
+  const id = props.agent?.agentId
   if (
     !binding ||
+    !id ||
+    !canUseCapability('developer', 'key_create') ||
     creating.value ||
     revokingId.value ||
     issuedKey.value ||
     loading.value ||
-    !requirementsReady.value ||
     !keyForm.keyName.trim()
   )
     return
@@ -252,20 +248,16 @@ async function createKey(): Promise<void> {
   creating.value = true
   error.value = ''
   try {
-    const latest = await getAgentApiAccess(props.agent!.agentId, context.signal)
-    if (!context.isCurrent()) return
-    if (latest.applicationId !== binding.applicationId || latest.revision !== props.agent?.version)
-      throw new Error('助手配置已变化，请刷新智能体后重试')
-    if (JSON.stringify(latest.modelIds) !== JSON.stringify(requiredModelIds.value)) {
-      requiredModelIds.value = latest.modelIds
-      throw new Error('所需模型已变化，请核对上方授权要求后再次创建密钥')
-    }
     const result = await createDeveloperKey(
       binding.applicationId,
       {
         name: keyForm.keyName.trim(),
         monthly_points_limit: pointLimit,
-        model_ids: [...requiredModelIds.value],
+        scopes: ['agents:invoke'],
+        agent_ids: [id],
+        model_ids: [],
+        resource_grants: [],
+        create_resource_kinds: [],
         rpm_limit: 60,
         tpm_limit: null,
         concurrency_limit: 2,
@@ -319,8 +311,6 @@ function reset(): void {
   mutationScope.replace()
   issuedKey.value = null
   keys.value = []
-  requiredModelIds.value = []
-  requirementsReady.value = false
   keyForm.keyName = ''
   keyForm.monthlyPointsLimit = ''
   error.value = ''

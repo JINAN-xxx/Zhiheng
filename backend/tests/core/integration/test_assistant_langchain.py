@@ -364,12 +364,14 @@ async def test_cancel_during_summary_cancels_child_without_starting_main_or_chan
 async def test_queued_public_call_rechecks_activation_and_preserves_original_key(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
 ) -> None:
+    from tests.core.integration.test_agents import issue_agent_key
     from tests.core.integration.test_public_protocol import provision
     from zhiheng.modules.agents.public import PreviewRequest
     from zhiheng.modules.billing.orm import Invocation
 
-    application, key = await provision(admin, model_id)
+    application, _ = await provision(admin, model_id)
     agent = await assistant(admin, model_id, application_id=application)
+    key = await issue_agent_key(admin, agent)
     async with app.state.container.database.sessions.begin() as session:
         queued, _, _ = await app.state.container.agent_runs.public(
             session,

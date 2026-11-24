@@ -6,7 +6,7 @@ import httpx
 from fastapi import FastAPI
 
 from tests.core.integration.test_knowledge import embedding_model
-from tests.core.integration.test_resource_key_scopes import application, issue
+from tests.core.integration.test_resource_key_scopes import application, file_reader, issue
 from tests.core.provider import ProviderServer
 
 
@@ -32,7 +32,7 @@ async def test_resource_catalog_and_console_only_summary(admin: httpx.AsyncClien
         'can_configure_quota': False,
         'items': [],
     }
-    key = await issue(admin, owner_app['id'], scopes=['files:read'])
+    key = await file_reader(admin, owner_app['id'])
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as anonymous:
         assert (await anonymous.get(endpoint, headers={'Authorization': 'Bearer ' + key['api_key']})).status_code == 401
 

@@ -8,7 +8,7 @@
     <WorkspaceState
       v-if="!canView"
       kind="forbidden"
-      title="无权查看模型授权"
+      title="无权查看模型直调授权"
       message="当前账号缺少访问密钥或模型目录权限。"
     />
     <WorkspaceState v-else-if="loading && !rows.length" kind="loading" />
@@ -18,12 +18,7 @@
       :message="error"
       @retry="$emit('retry')"
     />
-    <WorkspaceState
-      v-else-if="!rows.length"
-      kind="empty"
-      title="暂无模型授权"
-      message="创建访问密钥并选择模型后，授权关系会展示在这里。"
-    />
+    <WorkspaceState v-else-if="!rows.length" kind="empty" title="暂无模型直调授权" />
     <ResourceTable v-else :columns="columns" :rows="rows" row-key="modelId">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'model'">
@@ -68,7 +63,7 @@ const rows = computed(() => aggregateGrantedModels(props.keys, props.models))
 const columns = [
   { title: '模型', key: 'model' },
   { title: '状态', key: 'availability', width: 100 },
-  { title: '有效密钥 / 授权密钥', key: 'activeKeyCount', width: 180 }
+  { title: '有效直调密钥 / 直调密钥', key: 'activeKeyCount', width: 200 }
 ]
 </script>
 

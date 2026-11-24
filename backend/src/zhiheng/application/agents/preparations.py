@@ -9,7 +9,6 @@ from zhiheng.infrastructure.database import Database
 from zhiheng.modules.agents.public import AgentService
 from zhiheng.modules.developer.public import DeveloperIdentity, KeyService
 from zhiheng.modules.knowledge.public import PreparationInfo
-from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
 
@@ -23,11 +22,10 @@ class AgentPreparations:
         self, session: AsyncSession, token: str, agent_id: UUID, *, lock: bool = False
     ) -> DeveloperIdentity:
         identity = await self.keys.authenticate(session, token, lock=lock)
-        await self.keys.authorize_identity(session, identity, [], scope='agents:invoke')
-        agent = await self.agents.get(session, Principal(identity.owner_id, '', False), agent_id, lock=lock)
-        config = agent.configuration if agent.enabled else None
-        if config is None or config.application_id != identity.application_id:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404)
+        await self.keys.authorize_agent(session, identity, agent_id, lock=lock)
+        await self.agents.require_enabled_application(
+            session, Principal(identity.owner_id, '', False), agent_id, identity.application_id, lock=lock
+        )
         return identity
 
     async def get(self, token: str, agent_id: UUID, intent_id: UUID) -> PreparationInfo:

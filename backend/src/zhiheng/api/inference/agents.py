@@ -51,21 +51,14 @@ async def chat(
         request_id = header_id
     async with container.database.sessions.begin() as session:
         identity = await container.keys.authenticate(session, token, lock=True)
-        await container.keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
+        await container.keys.authorize_agent(session, identity, agent_id, lock=True)
         principal = Principal(identity.owner_id, '', False)
-        try:
-            agent = await container.agents.get(session, principal, agent_id)
-        except AppError:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404) from None
-        config = agent.configuration if agent.enabled else None
-        if config is None or config.application_id != identity.application_id:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404)
+        agent = await container.agents.require_enabled_application(
+            session, principal, agent_id, identity.application_id
+        )
         if request_id is None:
-            await container.models.bindings.resolve(session, config.model_id)
-            await container.keys.authorize_identity(
-                session, identity, [config.model_id], scope='agents:invoke', lock=True
-            )
-    if config.knowledge_base_ids or request_id is not None:
+            await container.models.bindings.resolve(session, agent.model_id)
+    if agent.knowledge_base_ids or request_id is not None:
         if request_id is None:
             raise AppError(
                 'stable_request_id_required', 'Knowledge calls require client_request_id or Idempotency-Key', 422

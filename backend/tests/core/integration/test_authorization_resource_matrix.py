@@ -189,7 +189,6 @@ async def test_resource_write_authority_precedes_version(
         admin,
         world.application['id'],
         scopes=[s for s in RESOURCE_SCOPES if s != operation.scope],
-        model_ids=[world.base['embed_model_id']],
     )
     sibling = await other_key(admin, [world.base['embed_model_id']])
     async with member_client(app) as member:
@@ -289,7 +288,7 @@ async def test_resource_creation_requires_write_scope_and_owns_only_current_app(
     rejected = await admin.post('/api/v1/' + resource, headers=auth(reader), **kwargs)
     assert rejected.status_code == 403, rejected.text
     assert await domain_facts(app) == before and provider.requests == []
-    writer = await issue(admin, owner_app['id'], scopes=[scope, 'files:read', 'knowledge:read'], model_ids=[embed])
+    writer = await issue(admin, owner_app['id'], scopes=[scope, 'files:read', 'knowledge:read'])
     created = await admin.post('/api/v1/' + resource, headers=auth(writer), **kwargs)
     assert created.status_code == 201, created.text
     assert created.json()['owner_id'] == owner_app['owner_id']
@@ -402,12 +401,6 @@ async def inference_context(
     ]:
         rated = await admin.post(f'/api/models/{identifier}/rate-cards', json=price)
         assert rated.status_code == 201, rated.text
-    key = await issue(
-        admin,
-        world.application['id'],
-        scopes=['models:invoke', 'agents:invoke'],
-        model_ids=list(dict.fromkeys([model_id, rerank_id, *world.key['model_ids']])),
-    )
     agent = await admin.post(
         '/api/agents',
         json=config(
@@ -419,6 +412,14 @@ async def inference_context(
     assert agent.status_code == 201, agent.text
     published = await admin.post(f'/api/agents/{agent.json()["id"]}/enable', json={'expected_version': 1})
     assert published.status_code == 200, published.text
+    from tests.core.integration.test_agents import issue_agent_key
+
+    key = await issue_agent_key(
+        admin,
+        agent.json(),
+        scopes=['agents:invoke', 'models:invoke'],
+        model_ids=list(dict.fromkeys([model_id, rerank_id, world.base['embed_model_id']])),
+    )
     target = model_id
     method, endpoint, body = 'GET', '/v1/models', None
     if operation in {'chat', 'embeddings', 'rerank'}:
@@ -456,7 +457,7 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
 ) -> None:
     owner_app, key, method, endpoint, body, target = await inference_context(admin, app, provider, model_id, operation)
     required = 'agents:invoke' if operation.startswith('agent_') else 'models:invoke'
-    insufficient = await issue(admin, owner_app['id'], scopes=['files:read'], model_ids=key['model_ids'])
+    insufficient = await issue(admin, owner_app['id'], scopes=['files:write'], create_resource_kinds=['file'])
     before, calls = await domain_facts(app), len(provider.requests)
     for headers, expected in [
         ({'X-Auth-Audit-Case': 'cookie-only'}, 401),
@@ -474,7 +475,7 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
         'application_disabled',
         'application_deleted',
         'owner_disabled',
-        'model_unlisted',
+        'object_unlisted',
     ):
         async with app.state.container.database.sessions.begin() as session:
             current = await session.get(DeveloperKey, UUID(key['id']))
@@ -493,18 +494,19 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
                 application_row.deleted_at = utcnow()
             elif state == 'owner_disabled':
                 owner.is_active = False
+            elif operation.startswith('agent_'):
+                current.agent_ids = []
             else:
-                # Simulate loss of the original allowlist, as existing replay tests do.
                 current.model_ids = [value for value in current.model_ids if value != target]
         response = await legacy_work_request(
             admin, method, endpoint, headers={**auth(key), 'X-Auth-Audit-Case': state}, json=body
         )
-        if state == 'model_unlisted' and operation == 'models':
+        if state == 'object_unlisted' and operation == 'models':
             assert response.status_code == 200, response.text
             assert target not in {item['id'] for item in response.json()['data']}
             assert all(set(item) == {'id', 'object', 'created', 'owned_by'} for item in response.json()['data'])
         else:
-            assert response.status_code == (404 if state == 'model_unlisted' else 401), (
+            assert response.status_code == (404 if state == 'object_unlisted' else 401), (
                 operation,
                 state,
                 response.text,
@@ -517,6 +519,7 @@ async def test_all_inference_operations_enforce_scope_identity_and_models(
             owner = await session.get(IdentityUser, UUID(owner_app['owner_id']))
             current.status, current.expires_at, current.retire_at = 'active', None, None
             current.model_ids = key['model_ids']
+            current.agent_ids = key['agent_ids']
             application_row.status, application_row.deleted_at, owner.is_active = 'active', None, True
 
 
@@ -578,7 +581,6 @@ async def test_resource_operation_observer_does_not_replace_original_execution_k
         admin,
         world.application['id'],
         scopes=['knowledge:read', 'knowledge:query', 'knowledge:write'],
-        model_ids=world.key['model_ids'] if kind == 'query' else [],
     )
     assert observer['model_ids'] == (world.key['model_ids'] if kind == 'query' else [])
     async with app.state.container.database.sessions.begin() as session:
@@ -603,7 +605,12 @@ async def test_public_preparation_is_bound_to_original_key_and_agent(
     admin: httpx.AsyncClient, app: FastAPI, provider: ProviderServer, model_id: str, operation: str
 ) -> None:
     owner_app, key, method, endpoint, body, _target = await inference_context(admin, app, provider, model_id, operation)
-    observer = await issue(admin, owner_app['id'], scopes=['agents:invoke'], model_ids=key['model_ids'])
+    observer_response = await admin.post(
+        f'/api/developer/applications/{owner_app["id"]}/keys',
+        json={'name': 'Other caller', 'scopes': ['agents:invoke'], 'agent_ids': key['agent_ids']},
+    )
+    assert observer_response.status_code == 201, observer_response.text
+    observer = observer_response.json()
     before, calls = await domain_facts(app), len(provider.requests)
     denied = await legacy_work_request(admin, method, endpoint, headers=auth(observer), json=body)
     assert denied.status_code == 404 and 'run' not in denied.json() and 'hits' not in denied.json(), denied.text
@@ -627,7 +634,7 @@ async def test_native_rebuild_scope_follows_material_policy(
 ) -> None:
     world = await make_world(admin, app, provider, legacy=legacy)
     key = await issue(
-        admin, world.application['id'], scopes=['knowledge:write'], model_ids=[world.base['embed_model_id']]
+        admin, world.application['id'], scopes=['knowledge:write']
     )
     selected = next(item for item in WRITE_OPERATIONS if item.name == operation)
     before, calls = await domain_facts(app), len(provider.requests)

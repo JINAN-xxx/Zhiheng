@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.application.access import ResourceAccessService
-from zhiheng.modules.developer.public import ApplicationService, ResourceAction, ResourceKind
+from zhiheng.modules.developer.public import ApplicationService, KeyResourceGrant, ResourceAction, ResourceKind
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import has_capability
 from zhiheng.shared.principal import Principal
@@ -42,6 +42,19 @@ class ResourceAccessInfo(BaseModel):
 class DeveloperResourceQueries:
     def __init__(self, applications: ApplicationService, access: ResourceAccessService) -> None:
         self.applications, self.access = applications, access
+
+    async def validate_selection(
+        self, session: AsyncSession, principal: Principal, application_id: UUID, selections: list[KeyResourceGrant]
+    ) -> None:
+        for item in selections:
+            ownership = await self.access.grants.require(
+                session, application_id, item.kind, item.resource_id, item.actions[0]
+            )
+            current = await self.access.domain_actions(
+                session, principal, item.kind, item.resource_id, lock=False, binding=True
+            )
+            if ownership != current.ownership or not set(item.actions).issubset(current.actions):
+                raise AppError('invalid_resource_grant', '当前账号或资源的授权状态已改变', 409)
 
     async def candidates(
         self, session: AsyncSession, principal: Principal, application_id: UUID, kind: ResourceKind

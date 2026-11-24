@@ -118,7 +118,7 @@ async def issue(admin: httpx.AsyncClient, model_id: str, **limits: object) -> di
     assert application.status_code == 201, application.text
     result = await admin.post(
         f'/api/developer/applications/{application.json()["id"]}/keys',
-        json={'name': 'Points SDK', 'model_ids': [model_id], **limits},
+        json={'name': 'Points SDK', 'scopes': ['models:invoke'], 'model_ids': [model_id], **limits},
     )
     assert result.status_code == 201, result.text
     return result.json()
@@ -548,6 +548,9 @@ async def test_public_agent_can_use_points_price_without_historical_money_rate(
     agent = created.json()
     published_agent = await admin.post(f'/api/agents/{agent["id"]}/enable', json={'expected_version': 1})
     assert published_agent.status_code == 200, published_agent.text
+    from tests.core.integration.test_agents import issue_agent_key
+
+    key = await issue_agent_key(admin, agent)
     response = await drive(
         app.state.container,
         asyncio.create_task(
@@ -562,6 +565,8 @@ async def test_public_agent_can_use_points_price_without_historical_money_rate(
     async with app.state.container.database.sessions() as session:
         hold = await session.scalar(select(CreditHold).where(CreditHold.source == 'agent_invocation'))
         assert hold.status == 'settled' and hold.charged_points == Decimal('0.0018')
+        invocation = await session.scalar(select(Invocation).where(Invocation.run_id == hold.run_id))
+        assert str(invocation.key_id) == key['id'] and str(invocation.model_id) == model_id
     assert len(provider.requests) == 1
 
 

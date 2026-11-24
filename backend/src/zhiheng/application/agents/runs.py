@@ -91,16 +91,9 @@ class AgentRunService:
     ) -> tuple[RunSnapshot, DeveloperIdentity, UUID]:
         await lock_billing_admission(session)
         identity = await self._keys.authenticate(session, token, lock=True)
-        await self._keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
+        await self._keys.authorize_agent(session, identity, agent_id, lock=True)
         principal = Principal(identity.owner_id, '', False)
-        try:
-            agent = await self._agents.get(session, principal, agent_id)
-        except AppError:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404) from None
-        config = agent.configuration if agent.enabled else None
-        key = await self._keys.info_for_identity(session, identity)
-        if config is None or config.application_id != identity.application_id or config.model_id not in key.model_ids:
-            raise AppError('agent_not_found', 'Agent is unavailable', 404)
+        agent = await self._agents.require_enabled_application(session, principal, agent_id, identity.application_id)
         try:
             run = await self._admit(
                 session,
@@ -121,7 +114,7 @@ class AgentRunService:
             }:
                 raise AppError('agent_not_found', 'Agent is unavailable', 404) from None
             raise
-        return run, identity, config.model_id
+        return run, identity, agent.model_id
 
     async def _admit(
         self,
@@ -174,7 +167,7 @@ class AgentRunService:
         if prepared and self.knowledge:
             knowledge_owner = await self.knowledge.knowledge.identity.principal_for_user(session, agent.owner_id)
             await self.knowledge.check(session, prepared, knowledge_owner)
-            messages = (prepared.agent_prefix(), *messages)
+            messages = prepared.apply_context(messages)
         if self.execution is None:
             raise AppError('assistant_execution_unavailable', '智能助手执行服务未装配', 503)
         metadata = self.execution.settings(
@@ -244,17 +237,13 @@ class AgentRunService:
         async with prep.database.sessions.begin() as session:
             await lock_billing_admission(session)
             if identity:
-                await self._keys.authorize_identity(session, identity, [], scope='agents:invoke', lock=True)
-            agent = await self._agents.get(session, principal, agent_id)
-            config = (
-                (agent.configuration if agent.enabled else None)
-                if identity
-                else AgentConfig.model_validate(agent.model_dump(include=set(AgentConfig.model_fields)))
-            )
-            if config is None:
-                raise AppError('agent_not_found', 'Agent is unavailable', 404)
-            if identity and config.application_id != identity.application_id:
-                raise AppError('agent_not_found', 'Agent is unavailable', 404)
+                await self._keys.authorize_agent(session, identity, agent_id, lock=True)
+                agent = await self._agents.require_enabled_application(
+                    session, principal, agent_id, identity.application_id
+                )
+            else:
+                agent = await self._agents.get(session, principal, agent_id)
+            config = agent.configuration
             await self._runs.lock_request(session, principal.id, request_id)
             existing = await self._runs.existing_request(session, principal.id, request_id, value)
             if existing:
@@ -264,13 +253,8 @@ class AgentRunService:
             intent = await prep.store.existing(session, namespace, request_id, value)
             if intent:
                 if identity:
-                    original = ModelRequest.model_validate(intent.dependencies['main_request']).binding.model_id
-                    await self._keys.authorize_identity(session, identity, [original], scope='agents:invoke', lock=True)
+                    return await prep.public_info(session, identity, agent_id, intent.id)
                 return prep.store.info(intent)
-            if identity:
-                await self._keys.authorize_identity(
-                    session, identity, [config.model_id], scope='agents:invoke', lock=True
-                )
             binding = await self._management.validate(session, owner(agent), config, publish=identity is not None)
             selection = await resolve_selection(session, agent.owner_id, config.skill_slugs)
             dependencies = {
