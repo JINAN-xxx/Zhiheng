@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.knowledge.graph.contracts import (
@@ -136,6 +136,7 @@ class GraphStore:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
+        now = utcnow()
         if (
             job is None
             or attempt is None
@@ -146,12 +147,13 @@ class GraphStore:
             or job.status in GRAPH_TERMINAL
             or job.request != claim.request
             or attempt.lease_until is None
-            or attempt.lease_until <= utcnow()
-            or attempt.deadline <= utcnow()
+            or attempt.lease_until <= now
         ):
             raise AppError('graph_execution_lost', '图谱执行权已失效', 409)
         if job.cancel_requested_at is not None:
             raise AppError('graph_cancelled', '图谱作业已取消', 409)
+        if attempt.deadline <= now:
+            raise AppError('graph_deadline_expired', '图谱作业已超过总执行期限', 504)
         owner = await self.service.knowledge.identity.principal_for_user(session, claim.owner_id)
         actor = await self.service.knowledge.identity.principal_for_user(session, claim.actor_id)
         require_capability(actor, 'knowledge', 'rebuild' if claim.operation in {'build', 'preview'} else 'query')
@@ -247,6 +249,25 @@ class GraphStore:
             previous.gc_after = utcnow() + timedelta(seconds=60)
         config.active_revision = claim.revision
         generation.status = 'active'
+
+    async def record_failure(self, session: AsyncSession, claim: GraphClaim, error: dict[str, object]) -> None:
+        # Preserve the failure before waiting for model runs and SDK writers to drain.
+        await session.execute(
+            update(GraphJob)
+            .where(
+                GraphJob.id == claim.job_id,
+                GraphJob.attempt_id == claim.attempt_id,
+                GraphJob.status.not_in(GRAPH_TERMINAL),
+                GraphJob.cancel_requested_at.is_(None),
+                exists().where(
+                    GraphAttempt.id == claim.attempt_id,
+                    GraphAttempt.owner_token == claim.token,
+                    GraphAttempt.epoch == claim.epoch,
+                    GraphAttempt.status == 'running',
+                ),
+            )
+            .values(status='draining', phase='draining', error=error, version=GraphJob.version + 1, updated_at=utcnow())
+        )
 
     async def finish(
         self,
@@ -368,12 +389,13 @@ class GraphStore:
         attempt.epoch += 1
         # No live-process/RPC ownership proof exists after lease loss. Retain
         # writer_stopped=False and forbid collection of the old namespace.
-        job.status = 'interrupted'
+        job.status = 'failed' if job.error else 'interrupted'
         job.phase = 'finished'
         job.finished_at = utcnow()
         job.updated_at = utcnow()
         job.version += 1
-        job.error = {'code': 'graph_worker_lost', 'message': '图谱执行进程失联，请显式发起新构建'}
+        if job.error is None:
+            job.error = {'code': 'graph_worker_lost', 'message': '图谱执行进程失联，请显式发起新构建'}
 
     async def gc_candidates(self, session: AsyncSession) -> list[UUID]:
         return list(

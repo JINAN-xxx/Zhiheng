@@ -119,6 +119,7 @@ class MessageInfo(Input):
     role: Literal['user', 'assistant']
     content: str
     knowledge_sources: list[Hit] = Field(default_factory=list)
+    input_file_ids: list[UUID] = Field(default_factory=list)
     reasoning: str
     run_id: UUID | None
     status: str
@@ -129,6 +130,13 @@ class MessageInfo(Input):
     agent_revision: int | None
     sequence: int
     created_at: datetime
+
+
+class TaskProgress(Input):
+    execution_state: ExecutionState
+    steps: list[WorkStepInfo]
+    artifacts: list[WorkArtifactInfo]
+    plan: list[WorkPlanItem]
 
 
 class TaskDetail(TaskSummary):

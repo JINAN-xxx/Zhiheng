@@ -36,12 +36,15 @@ const draft = ref<WorkDraft>({
   skillSlugs: [...props.initialDraft.skillSlugs]
 })
 const fileInput = ref<HTMLInputElement | null>(null)
+const composerSurface = ref<InstanceType<typeof ConversationComposer> | null>(null)
 const skillsOpen = ref(false)
+const canUseSkills = computed(() => canUseCapability('skills', 'use'))
 const blocked = computed(() => props.creating || props.uncertain)
 const hasModel = computed(
   () =>
     !!draft.value.modelId && props.options?.models.some((model) => model.id === draft.value.modelId)
 )
+const canAddFiles = computed(() => !blocked.value && !!hasModel.value)
 const canStart = computed(
   () => !props.creating && !!hasModel.value && validateWorkGoal(draft.value.goal).valid
 )
@@ -84,7 +87,7 @@ function keydown(event: KeyboardEvent): void {
   }
 }
 function chooseFiles(): void {
-  if (!blocked.value && hasModel.value) fileInput.value?.click()
+  if (canAddFiles.value) fileInput.value?.click()
 }
 function picked(event: Event): void {
   const input = event.target as HTMLInputElement
@@ -118,9 +121,10 @@ function selectModel(value: unknown): void {
     </div>
     <ConversationComposer
       v-if="canCreate"
+      ref="composerSurface"
       v-model="draft.goal"
       input-label="工作目标"
-      placeholder="描述你想完成的工作，或先添加资料"
+      :shortcuts="{ skills: canUseSkills && !blocked, attachments: canAddFiles }"
       :max-length="32000"
       :max-rows="9"
       :disabled="blocked"
@@ -129,6 +133,8 @@ function selectModel(value: unknown): void {
       :submit-disabled="!canStart"
       submit-label="开始工作"
       @keydown="keydown"
+      @select-skill="skillsOpen = true"
+      @add-attachment="chooseFiles"
       @send="start"
     >
       <template #notice>
@@ -161,9 +167,11 @@ function selectModel(value: unknown): void {
       /></template>
       <template #overlay>
         <SkillPicker
+          v-if="canUseSkills"
           v-model:open="skillsOpen"
           v-model:slugs="draft.skillSlugs"
           :disabled="blocked"
+          @dismiss="composerSurface?.focus()"
         />
       </template>
       <template #prefix>
@@ -175,13 +183,9 @@ function selectModel(value: unknown): void {
         />
       </template>
       <template #tools>
-        <AttachmentButton
-          aria-label="添加附件"
-          :disabled="blocked || !hasModel"
-          @click="chooseFiles"
-        />
+        <AttachmentButton aria-label="添加附件" :disabled="!canAddFiles" @click="chooseFiles" />
         <AButton
-          v-if="canUseCapability('skills', 'use')"
+          v-if="canUseSkills"
           type="text"
           aria-label="选择技能"
           :disabled="blocked"

@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     knowledge_embedding_timeout_seconds: float = Field(default=30, ge=0.1, le=600)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     worker_queue: str = Field(default='zhiheng:core:queue', min_length=1, max_length=100)
+    worker_generation_slots: int = Field(default=15, ge=1)
+    worker_workspace_slots: int = Field(default=2, ge=1)
 
     @property
     def model_first_response_seconds(self) -> float:
@@ -193,6 +195,10 @@ class Settings(BaseSettings):
     @property
     def worker_health_key(self) -> str:
         return f'{self.worker_queue}:heartbeat'
+
+    @property
+    def worker_heartbeats_key(self) -> str:
+        return f'{self.worker_queue}:heartbeats'
 
     @property
     def worker_short_queue(self) -> str:

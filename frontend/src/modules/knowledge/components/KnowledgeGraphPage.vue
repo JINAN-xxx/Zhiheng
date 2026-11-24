@@ -1,29 +1,19 @@
 <!-- Adapted from original knowledge graph page, MIT licensed. -->
 <template>
-  <section class="knowledge-graph-page">
-    <WorkspaceToolbar :title="database.name" subtitle="知识图谱">
-      <template #actions>
-        <a-button @click="emit('back')">
-          <template #icon><ArrowLeftOutlined /></template>
-          返回知识库
-        </a-button>
-        <RefreshButton
-          label="刷新知识图谱"
-          :loading="loading || buildLoading"
-          :disabled="starting || configSaving"
-          @click="emit('refresh')"
-        />
-      </template>
-    </WorkspaceToolbar>
-
+  <section
+    id="knowledge-graph-panel"
+    class="knowledge-graph-page"
+    role="tabpanel"
+    aria-label="知识图谱"
+  >
     <div class="knowledge-graph-page__content">
-      <KnowledgeSectionNav
-        active-view="graph"
-        :graph-available="available"
-        @navigate="emit('navigate', $event)"
+      <a-alert
+        v-if="error && !managementOpen"
+        class="graph-service-alert"
+        type="error"
+        :message="error"
+        show-icon
       />
-
-      <a-alert v-if="error" class="graph-service-alert" type="error" :message="error" show-icon />
       <a-alert
         v-if="!available && !buildLoading"
         class="graph-service-alert"
@@ -32,32 +22,127 @@
         show-icon
       />
       <a-alert
-        class="graph-service-alert"
-        type="info"
-        message="聚合图谱仅向可读取该版本全部原文的用户开放；原文撤权后会重新校验。"
-        show-icon
-      />
-      <a-alert
-        v-if="uncertain"
+        v-if="uncertain && !managementOpen"
         class="graph-service-alert"
         type="warning"
         message="提交结果尚未确认；确认会使用原请求标识。"
         show-icon
       />
-      <a-button v-if="uncertain || recoverable" @click="emit('recover')"
+      <a-button v-if="!managementOpen && (uncertain || recoverable)" @click="emit('recover')"
         >确认原请求或恢复查看</a-button
       >
-      <a-spin :spinning="buildLoading">
-        <div class="graph-setup-grid">
-          <section class="graph-panel" aria-label="图谱配置">
-            <div class="graph-panel__heading">
-              <h2>图谱配置</h2>
-              <span v-if="configState?.config" class="graph-version"
-                >v{{ configState.config.version }}</span
-              >
+      <section v-if="available" class="graph-canvas-section" aria-label="图谱浏览">
+        <div class="graph-canvas-section__header">
+          <div class="graph-canvas-section__title">
+            <div class="graph-canvas-section__heading">
+              <h2>图谱浏览</h2>
+              <a-tag v-if="usingPreview && !readable" color="cyan">抽取预览</a-tag>
             </div>
-            <p>选择对话模型，从文档中提取实体与关系。试构建和正式构建均会调用所选模型。</p>
-            <p v-if="!canEdit">当前为只读模式。如需调整配置或构建图谱，请联系有编辑权限的成员。</p>
+            <div v-if="displayGraph.nodes.length" class="graph-summary">
+              {{ displayGraph.nodes.length }} 个节点 · {{ displayGraph.links.length }} 个关系
+              <span v-if="displayGraph.truncated"> · 部分节点</span>
+            </div>
+          </div>
+          <div class="graph-canvas-section__actions">
+            <a-radio-group
+              v-if="readable && previewResult?.graph"
+              v-model:value="canvasMode"
+              aria-label="图谱展示模式"
+            >
+              <a-radio-button value="published">正式图谱</a-radio-button>
+              <a-radio-button value="preview">抽取预览</a-radio-button>
+            </a-radio-group>
+            <a-button v-if="canEdit" aria-label="构建管理" @click="managementOpen = true">
+              <template #icon><SettingOutlined /></template>
+              构建管理
+            </a-button>
+          </div>
+        </div>
+        <a-alert
+          v-if="taskNotice && !managementOpen"
+          class="graph-task-notice"
+          :type="taskNotice.type"
+          :message="taskNotice.title"
+          :description="taskNotice.detail"
+          show-icon
+        />
+        <form v-if="readable && !usingPreview" class="graph-controls" @submit.prevent="load">
+          <a-select
+            :value="form.node_label"
+            show-search
+            option-filter-prop="label"
+            :options="labelOptions"
+            aria-label="图谱实体"
+            @update:value="form.node_label = typeof $event === 'string' ? $event : '*'"
+          />
+          <label>
+            深度
+            <a-input-number
+              :value="form.max_depth"
+              :min="1"
+              :max="5"
+              :precision="0"
+              aria-label="图谱深度"
+              @update:value="form.max_depth = typeof $event === 'number' ? $event : 1"
+            />
+          </label>
+          <label>
+            节点上限
+            <a-input-number
+              :value="form.max_nodes"
+              :min="1"
+              :max="200"
+              :precision="0"
+              aria-label="图谱节点上限"
+              @update:value="form.max_nodes = typeof $event === 'number' ? $event : 1"
+            />
+          </label>
+          <a-button html-type="submit" :loading="loading">加载图谱</a-button>
+        </form>
+        <KnowledgeGraph v-if="displayGraph.nodes.length" :graph="displayGraph" />
+        <div v-else class="graph-empty">
+          <WorkspaceState
+            :kind="loading || buildLoading ? 'loading' : 'empty'"
+            :title="
+              loading || buildLoading
+                ? '正在加载图谱'
+                : readable
+                  ? '暂无图谱节点'
+                  : '尚无可展示的图谱'
+            "
+            :message="
+              !readable && !loading && !buildLoading && previewResult && !previewResult.graph
+                ? '重新试构建可查看节点和关系。'
+                : ''
+            "
+          />
+        </div>
+      </section>
+
+      <a-drawer
+        :open="managementOpen"
+        title="构建管理"
+        :width="'min(100%, 520px)'"
+        @close="managementOpen = false"
+      >
+        <template #extra>
+          <RefreshButton
+            label="刷新任务"
+            :loading="buildLoading"
+            :disabled="starting || configSaving"
+            @click="emit('refresh')"
+          />
+        </template>
+        <a-alert v-if="error" class="graph-service-alert" type="error" :message="error" show-icon />
+        <a-button
+          v-if="uncertain || recoverable"
+          class="graph-service-alert"
+          @click="emit('recover')"
+          >确认原请求或恢复查看</a-button
+        >
+        <a-spin :spinning="buildLoading">
+          <section class="graph-panel" aria-label="图谱配置">
+            <h2>图谱配置</h2>
             <a-form layout="vertical" :disabled="controlsDisabled">
               <a-form-item label="图谱对话模型" required>
                 <a-select
@@ -68,14 +153,16 @@
                   option-filter-prop="label"
                   placeholder="选择已启用的对话模型"
                   :disabled="controlsDisabled"
-                  @update:value="configForm.llm_model_id = typeof $event === 'string' ? $event : ''"
+                  @update:value="setGraphModel"
                 />
               </a-form-item>
-              <p v-if="canEdit && available && !buildLoading && !chatOptions.length">
-                暂无已启用的对话模型，请联系管理员配置。
-              </p>
-              <a-collapse ghost class="graph-advanced">
-                <a-collapse-panel key="advanced" header="高级选项">
+            </a-form>
+            <p v-if="canEdit && available && !buildLoading && !chatOptions.length">
+              暂无已启用的对话模型，请联系管理员配置。
+            </p>
+            <a-collapse ghost class="graph-advanced">
+              <a-collapse-panel key="advanced" header="高级选项">
+                <a-form layout="vertical" :disabled="controlsDisabled">
                   <a-form-item label="推理策略">
                     <a-select
                       :value="configForm.reasoning_strategy"
@@ -87,7 +174,7 @@
                     <p class="graph-field-hint">模型未声明推理参数能力时，额外推理策略不可选。</p>
                   </a-form-item>
                   <div class="graph-number-fields">
-                    <a-form-item label="响应超时（秒）">
+                    <a-form-item label="单次模型调用超时（秒）">
                       <a-input-number
                         :value="configForm.timeout_seconds"
                         :min="30"
@@ -127,9 +214,67 @@
                       />
                     </a-form-item>
                   </div>
-                </a-collapse-panel>
-              </a-collapse>
-            </a-form>
+                </a-form>
+                <section class="graph-preview" aria-label="图谱试构建" aria-live="polite">
+                  <h3>{{ previewTitle }}</h3>
+                  <p>抽取所选文档的一段内容验证配置，试构建不改变正式图谱。</p>
+                  <a-select
+                    v-if="canEdit"
+                    :value="previewDocumentId"
+                    class="graph-preview-select"
+                    :options="documentOptions"
+                    allow-clear
+                    show-search
+                    option-filter-prop="label"
+                    aria-label="试构建文档"
+                    placeholder="选择预览文档（可选）"
+                    :disabled="controlsDisabled"
+                    @update:value="
+                      previewDocumentId = typeof $event === 'string' ? $event : undefined
+                    "
+                  />
+                  <p v-if="previewBuilding && preview?.progress.total_chunks">
+                    已提取 {{ preview.progress.extracted_chunks ?? '—' }} /
+                    {{ preview.progress.total_chunks }} 个切片
+                  </p>
+                  <div v-if="previewResult" class="graph-preview-result">
+                    <span
+                      ><strong>{{ previewResult.entities }}</strong> 个实体</span
+                    >
+                    <span
+                      ><strong>{{ previewResult.relations }}</strong> 个关系</span
+                    >
+                    <span
+                      ><strong>{{ previewResult.chunks }}</strong> 个切片</span
+                    >
+                    <span
+                      >耗时 <strong>{{ previewResult.seconds.toFixed(1) }}</strong> 秒</span
+                    >
+                  </div>
+                  <a-alert
+                    v-if="preview?.error?.message"
+                    class="graph-alert"
+                    type="error"
+                    :message="preview?.error?.message"
+                    show-icon
+                  />
+                  <div v-if="canEdit" class="graph-actions">
+                    <a-button
+                      :loading="starting || previewBuilding"
+                      :disabled="controlsDisabled || !configForm.llm_model_id"
+                      @click="previewGraph"
+                      >{{ previewBuilding ? '试构建中' : '试构建' }}</a-button
+                    >
+                    <a-button
+                      v-if="preview?.cancel_allowed"
+                      :loading="stopping"
+                      @click="emit('cancel', preview)"
+                      >取消试构建</a-button
+                    >
+                  </div>
+                </section>
+              </a-collapse-panel>
+            </a-collapse>
             <a-alert
               v-if="formError"
               class="graph-alert"
@@ -155,266 +300,84 @@
             </div>
           </section>
 
-          <section class="graph-panel" aria-label="图谱试构建" aria-live="polite">
-            <h2>{{ previewTitle }}</h2>
-            <p>抽取所选文档的一段内容验证配置，试构建不改变正式图谱。</p>
-            <a-select
-              v-if="canEdit"
-              :value="previewDocumentId"
-              class="graph-preview-select"
-              :options="documentOptions"
-              allow-clear
-              show-search
-              option-filter-prop="label"
-              aria-label="试构建文档"
-              placeholder="自动选择一个文档"
-              :disabled="controlsDisabled"
-              @update:value="previewDocumentId = typeof $event === 'string' ? $event : undefined"
-            />
-            <p v-if="previewStage">
-              当前阶段：{{ previewStage
-              }}<span v-if="preview?.progress.total_chunks">
-                · 已提取 {{ preview?.progress.extracted_chunks ?? '—' }} /
-                {{ preview?.progress.total_chunks }} 个切片</span
-              >
+          <section class="graph-panel graph-build-panel" aria-label="图谱构建" aria-live="polite">
+            <h2>{{ buildTitle }}</h2>
+            <p v-if="job?.total_documents">
+              已处理 {{ job?.processed_documents ?? '—' }} / {{ job?.total_documents }} 个文档
             </p>
-            <div v-if="previewResult" class="graph-preview-result">
-              <span
-                ><strong>{{ previewResult.entities }}</strong> 个实体</span
-              >
-              <span
-                ><strong>{{ previewResult.relations }}</strong> 个关系</span
-              >
-              <span
-                ><strong>{{ previewResult.chunks }}</strong> 个切片</span
-              >
-              <span
-                >耗时 <strong>{{ previewResult.seconds.toFixed(1) }}</strong> 秒</span
-              >
-            </div>
-            <p v-if="previewBuilding">试构建正在后台进行，返回此页后会继续更新进度。</p>
+            <p v-else>构建范围：本知识库所有已入库文档。</p>
+            <a-progress
+              v-if="progress !== undefined"
+              v-bind="progress === undefined ? {} : { percent: progress }"
+              :status="
+                ['failed', 'interrupted'].includes(job?.status ?? '')
+                  ? 'exception'
+                  : building
+                    ? 'active'
+                    : 'normal'
+              "
+            />
+            <p v-if="building && progress === undefined" class="graph-muted">进度尚未确认</p>
+            <p v-if="building && job?.progress.total_chunks">
+              已提取 {{ job.progress.extracted_chunks ?? '—' }} /
+              {{ job.progress.total_chunks }} 个切片
+            </p>
+            <p v-if="configState?.requires_rebuild">当前配置需要构建新版本，完成后自动切换。</p>
             <a-alert
-              v-if="preview?.error?.message"
+              v-if="job?.error?.message"
               class="graph-alert"
               type="error"
-              :message="preview?.error?.message"
+              :message="job.error.message"
               show-icon
             />
             <div v-if="canEdit" class="graph-actions">
               <a-button
-                :loading="starting || previewBuilding"
+                type="primary"
+                :loading="starting"
                 :disabled="controlsDisabled || !configForm.llm_model_id"
-                @click="previewGraph"
-                >{{ previewBuilding ? '试构建中' : '试构建' }}</a-button
+                @click="startBuild()"
+                >{{ buildAction }}</a-button
+              >
+              <a-button
+                v-if="database.enable_knowledge_graph"
+                :disabled="controlsDisabled || !configForm.llm_model_id"
+                @click="startBuild(true)"
+                >重新构建</a-button
+              >
+              <a-button v-if="job?.cancel_allowed" :loading="stopping" @click="emit('cancel', job)"
+                >取消图谱任务</a-button
               >
             </div>
           </section>
-        </div>
-
-        <details v-if="jobs?.length" class="graph-panel graph-history" open>
-          <summary>图谱任务历史 · {{ jobs.length }}</summary>
-          <article v-for="history in jobs" :key="history.id" class="graph-history__item">
-            <div class="graph-actions">
-              <h3>
-                {{
-                  history.operation === 'preview'
-                    ? '试构建'
-                    : history.operation === 'build'
-                      ? '正式构建'
-                      : history.operation === 'query'
-                        ? '图谱检索'
-                        : '清理图谱'
-                }}
-              </h3>
-              <a-tag :color="history.status === 'failed' ? 'error' : 'default'">{{
-                history.status === 'completed'
-                  ? '已完成'
-                  : history.status === 'failed'
-                    ? '失败'
-                    : history.status === 'cancelled'
-                      ? '已取消'
-                      : history.status === 'interrupted'
-                        ? '已中断'
-                        : '处理中'
-              }}</a-tag
-              ><a-button
-                v-if="canEdit && history.cancel_allowed"
-                size="small"
-                :loading="stopping"
-                @click="emit('cancel', history)"
-                >取消任务</a-button
-              >
-            </div>
-            <p>
-              {{ history.processed_documents ?? '—' }}/{{ history.total_documents ?? '—' }} 个文档 ·
-              {{ history.progress.extracted_chunks ?? '—' }}/{{
-                history.progress.total_chunks ?? '—'
-              }}
-              个切片 · {{ history.progress.entities ?? '—' }} 个实体 ·
-              {{ history.progress.relations ?? '—' }} 个关系
-            </p>
-            <p v-if="history.error" class="graph-history__error">
-              {{ history.error.code }} · {{ history.error.message }}
-            </p>
-            <details>
-              <summary>任务标识与版本</summary>
-              <p>{{ history.id }} · {{ history.phase }}</p>
-              <p>
-                图谱版本：{{ history.graph_revision ?? '尚未发布' }} ·
-                {{ formatTime(history.created_at) }}
-              </p>
-            </details>
-          </article>
-        </details>
-        <section class="graph-panel graph-build-panel" aria-label="图谱构建" aria-live="polite">
-          <h2>{{ buildTitle }}</h2>
-          <p v-if="job?.total_documents">
-            已处理 {{ job?.processed_documents ?? '—' }} / {{ job?.total_documents }} 个文档
-          </p>
-          <p v-else>上传文档后可构建图谱，补建会处理尚未完成的文档。</p>
-          <a-progress
-            v-if="progress !== undefined"
-            v-bind="progress === undefined ? {} : { percent: progress }"
-            :status="
-              ['failed', 'interrupted'].includes(job?.status ?? '')
-                ? 'exception'
-                : building
-                  ? 'active'
-                  : 'normal'
-            "
-          />
-          <p v-if="building && progress === undefined" class="graph-muted">进度尚未确认</p>
-          <p v-if="buildStage">
-            当前阶段：{{ buildStage
-            }}<span v-if="job?.progress.total_chunks">
-              · 已提取 {{ job?.progress.extracted_chunks ?? '—' }} /
-              {{ job?.progress.total_chunks }} 个切片</span
-            >
-          </p>
-          <p v-if="building">任务将在后台继续，可切换页面查看文档或进行检索。</p>
-          <p v-if="configState?.requires_rebuild">当前配置需要构建新版本，完成后自动切换。</p>
-          <p v-if="readable && (building || ['failed', 'interrupted'].includes(job?.status ?? ''))">
-            下方仍可查看已完成的图谱版本。
-          </p>
-          <a-alert
-            v-if="job?.error?.message"
-            class="graph-alert"
-            type="error"
-            :message="job.error.message"
-            show-icon
-          />
-          <div v-if="canEdit" class="graph-actions">
-            <a-button
-              type="primary"
-              :loading="starting"
-              :disabled="controlsDisabled || !configForm.llm_model_id"
-              @click="startBuild()"
-              >{{ buildAction }}</a-button
-            >
-            <a-button
-              v-if="database.enable_knowledge_graph"
-              :disabled="controlsDisabled || !configForm.llm_model_id"
-              @click="startBuild(true)"
-              >重新构建</a-button
-            >
-            <span v-if="database.enable_knowledge_graph" class="graph-muted"
-              >重新构建会创建新版本，完成后自动切换。</span
-            >
-            <a-button v-if="job?.cancel_allowed" :loading="stopping" @click="emit('cancel', job)"
-              >取消图谱任务</a-button
-            >
-            <a-button
-              v-if="preview?.cancel_allowed"
-              :loading="stopping"
-              @click="emit('cancel', preview)"
-              >取消试构建</a-button
-            >
-          </div>
-        </section>
-      </a-spin>
-
-      <section v-if="readable && available" class="graph-panel graph-browser" aria-label="图谱浏览">
-        <h2>图谱浏览</h2>
-        <p>当前图谱版本：{{ configState?.active_revision }}</p>
-        <div class="graph-controls">
-          <a-select
-            :value="form.node_label"
-            show-search
-            option-filter-prop="label"
-            :options="labelOptions"
-            aria-label="图谱实体"
-            @update:value="form.node_label = typeof $event === 'string' ? $event : '*'"
-          />
-          <label>
-            深度
-            <a-input-number
-              :value="form.max_depth"
-              :min="1"
-              :max="5"
-              :precision="0"
-              aria-label="图谱深度"
-              @update:value="form.max_depth = typeof $event === 'number' ? $event : 1"
-            />
-          </label>
-          <label>
-            节点上限
-            <a-input-number
-              :value="form.max_nodes"
-              :min="1"
-              :max="200"
-              :precision="0"
-              aria-label="图谱节点上限"
-              @update:value="form.max_nodes = typeof $event === 'number' ? $event : 1"
-            />
-          </label>
-          <a-button type="primary" :loading="loading" @click="load">加载图谱</a-button>
-        </div>
-
-        <a-alert
-          v-if="graph.truncated"
-          class="graph-alert"
-          type="info"
-          message="当前展示部分节点。可选择具体实体或调整深度继续探索。"
-          show-icon
-        />
-        <div v-if="graph.nodes.length" class="graph-summary">
-          当前子图：{{ graph.nodes.length }} 个节点 · {{ graph.links.length }} 个关系 ·
-          {{ graph.categories.length }} 种实体类型
-        </div>
-        <KnowledgeGraph v-if="graph.nodes.length" :graph="graph" />
-        <WorkspaceState
-          v-else
-          :kind="loading ? 'loading' : 'empty'"
-          :title="loading ? '正在加载图谱' : '暂无图谱节点'"
-        />
-      </section>
+        </a-spin>
+      </a-drawer>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import RefreshButton from '../../../shared/components/RefreshButton.vue'
-import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { computed, reactive, ref, watch } from 'vue'
+import { SettingOutlined } from '@ant-design/icons-vue'
 import {
   Alert as AAlert,
   Button as AButton,
   Collapse as ACollapse,
   CollapsePanel as ACollapsePanel,
+  Drawer as ADrawer,
   Form as AForm,
   FormItem as AFormItem,
   InputNumber as AInputNumber,
   Progress as AProgress,
+  RadioGroup as ARadioGroup,
+  RadioButton as ARadioButton,
   Select as ASelect,
   Spin as ASpin,
   Tag as ATag
 } from 'ant-design-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
-import WorkspaceToolbar from '../../../shared/components/WorkspaceToolbar.vue'
-import { formatTime } from '../presentation.ts'
+import RefreshButton from '../../../shared/components/RefreshButton.vue'
 import KnowledgeGraph from './KnowledgeGraph.vue'
-import KnowledgeSectionNav from './KnowledgeSectionNav.vue'
-import { graphIsActive, graphProgress, graphStatusLabel } from '../graphPresentation.ts'
+import { chartGraph, graphIsActive, graphProgress, graphStatusLabel } from '../graphPresentation.ts'
 import type { ChartGraph } from '../graphPresentation.ts'
 import type { KnowledgeBase, KnowledgeDocument } from '../api/index.ts'
 import type {
@@ -447,8 +410,6 @@ const props = defineProps<{
   stopping: boolean
 }>()
 const emit = defineEmits<{
-  back: []
-  navigate: [view: string]
   load: [value: { node_label: string; max_depth: number; max_nodes: number }]
   refresh: []
   start: [value: { config: GraphConfigInput; rebuild: boolean }]
@@ -467,6 +428,7 @@ const defaults: GraphConfigInput = {
 const configForm = reactive({ ...defaults }),
   formError = ref(''),
   previewDocumentId = ref<string>()
+const managementOpen = ref(false)
 const building = computed(() => graphIsActive(props.job)),
   previewBuilding = computed(() => graphIsActive(props.preview))
 const controlsDisabled = computed(
@@ -491,10 +453,30 @@ const dirty = computed(
 const progress = computed(() => graphProgress(props.job))
 const buildTitle = computed(() => graphStatusLabel(props.job)),
   previewTitle = computed(() => graphStatusLabel(props.preview, true))
-const buildStage = computed(() => props.job?.phase ?? ''),
-  previewStage = computed(() => props.preview?.phase ?? '')
+const taskNotice = computed(() => {
+  const task = building.value
+    ? props.job
+    : previewBuilding.value
+      ? props.preview
+      : props.jobs?.find(({ operation }) => operation === 'build' || operation === 'preview')
+  if (!task) return null
+  const title = graphStatusLabel(task, task.operation === 'preview')
+  if (task.error) return { title, detail: task.error.message, type: 'error' as const }
+  if (!graphIsActive(task)) return null
+  const total = task.progress.total_chunks
+  const processed = task.progress.extracted_chunks
+  const detail = total && processed !== null ? `已提取 ${processed} / ${total} 个切片` : ''
+  return { title, detail, type: 'info' as const }
+})
 const previewResult = computed<GraphPreviewResult | null>(() =>
   props.preview?.result && 'seconds' in props.preview.result ? props.preview.result : null
+)
+const canvasMode = ref<'published' | 'preview'>('published')
+const usingPreview = computed(
+  () => !!previewResult.value?.graph && (!props.readable || canvasMode.value === 'preview')
+)
+const displayGraph = computed(() =>
+  usingPreview.value ? chartGraph(previewResult.value?.graph ?? null) : props.graph
 )
 const buildAction = computed(() =>
   building.value ? '构建中' : dirty.value ? '保存并构建图谱' : '构建图谱'
@@ -507,9 +489,10 @@ const strategyOptions = computed(() =>
     { value: 'disabled', label: '关闭推理' }
   ].map((option) => ({
     ...option,
-    disabled: !props.configState?.supported_reasoning_strategies.some(
-      (value) => value === option.value
-    )
+    disabled:
+      (option.value === 'low' &&
+        configForm.llm_model_id !== props.configState?.config?.llm_model_id) ||
+      !props.configState?.supported_reasoning_strategies.some((value) => value === option.value)
   }))
 )
 
@@ -550,6 +533,14 @@ function currentConfig(): GraphConfigInput | null {
   }
   return { ...configForm }
 }
+function setGraphModel(value: unknown): void {
+  configForm.llm_model_id = typeof value === 'string' ? value : ''
+  if (
+    configForm.reasoning_strategy === 'low' &&
+    configForm.llm_model_id !== props.configState?.config?.llm_model_id
+  )
+    configForm.reasoning_strategy = 'auto'
+}
 function setStrategy(value: unknown): void {
   if (value === 'auto' || value === 'default' || value === 'low' || value === 'disabled')
     configForm.reasoning_strategy = value
@@ -572,18 +563,23 @@ function load(): void {
 watch(
   () => props.database.id,
   () => {
+    managementOpen.value = false
     previewDocumentId.value = undefined
+    canvasMode.value = 'published'
     Object.assign(form, { node_label: '*', max_depth: 2, max_nodes: 100 })
   }
 )
 watch(
   () => [props.database.id, props.configState?.config],
   () => {
-    Object.assign(
-      configForm,
-      defaults,
-      props.configState?.config ?? { llm_model_id: props.database.llm_model_id ?? '' }
-    )
+    const saved = props.configState?.config
+    Object.assign(configForm, {
+      llm_model_id: saved?.llm_model_id ?? props.database.llm_model_id ?? defaults.llm_model_id,
+      reasoning_strategy: saved?.reasoning_strategy ?? defaults.reasoning_strategy,
+      timeout_seconds: saved?.timeout_seconds ?? defaults.timeout_seconds,
+      max_output_tokens: saved?.max_output_tokens ?? defaults.max_output_tokens,
+      concurrency: saved?.concurrency ?? defaults.concurrency
+    })
     formError.value = ''
   },
   { immediate: true }
@@ -604,66 +600,46 @@ watch(
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 20px 24px 28px;
+  padding: 20px 0 28px;
 }
 
-.graph-history {
-  margin-bottom: 18px;
+.graph-canvas-section {
+  min-width: 0;
+  margin-bottom: 20px;
 }
-.graph-history > summary {
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: 500;
-}
-.graph-history__item {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--gray-150);
-}
-.graph-history__item:last-child {
-  border: 0;
-  padding-bottom: 0;
-}
-.graph-history__item h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
-.graph-history__item details {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-.graph-history__item details summary {
-  cursor: pointer;
-}
-.graph-history__item p {
-  overflow-wrap: anywhere;
-}
-.graph-history__item .graph-history__error {
-  color: var(--color-error);
-}
-.graph-panel__heading {
+.graph-canvas-section__header {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
 }
-.graph-version {
-  margin-left: 8px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 400;
+.graph-canvas-section__heading,
+.graph-canvas-section__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
-.graph-setup-grid {
+.graph-canvas-section__title h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.graph-empty {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 18px;
-  margin-bottom: 18px;
+  min-height: 300px;
+  align-items: center;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: #fff;
 }
 .graph-panel {
   min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  margin: 0 0 18px;
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--gray-150);
 }
 .graph-panel h2 {
   margin: 0 0 10px;
@@ -677,12 +653,19 @@ watch(
 .graph-panel :deep(.ant-form-item) {
   margin-bottom: 14px;
 }
-.graph-build-panel {
-  margin-bottom: 18px;
-}
 .graph-preview-select {
   width: 100%;
   margin-top: 8px;
+}
+.graph-preview {
+  border-top: 1px solid var(--gray-150);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+.graph-preview h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
 }
 .graph-number-fields {
   display: grid;
@@ -723,30 +706,24 @@ watch(
   font-weight: 600;
 }
 .graph-service-alert {
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
-
-@media (max-width: 1100px) {
-  .graph-setup-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.graph-task-notice {
+  margin-bottom: 12px;
 }
 
 .graph-controls {
   display: flex;
-  min-height: 54px;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  background: var(--bg-container);
+  margin: 0 0 12px;
 }
 
 .graph-controls > :deep(.ant-select) {
-  min-width: 220px;
-  flex: 1;
+  min-width: 0;
+  flex: 1 1 180px;
+  max-width: 340px;
 }
 
 .graph-controls label {
@@ -766,27 +743,18 @@ watch(
 }
 
 .graph-summary {
-  margin: 16px 0 10px;
+  margin-top: 4px;
   color: var(--color-text-secondary);
   font-size: 13px;
 }
 
-.knowledge-graph-page :deep(.knowledge-graph__canvas) {
-  height: min(66vh, 680px);
-  min-height: 360px;
+.knowledge-graph-page :deep(.knowledge-graph:not(:fullscreen) .knowledge-graph__canvas) {
+  height: clamp(340px, calc(100dvh - 420px), 680px);
 }
 
 @media (max-width: 640px) {
-  .knowledge-graph-page__content {
-    padding: 16px;
-  }
-
   .graph-controls {
     align-items: stretch;
-  }
-
-  .graph-controls > :deep(.ant-select) {
-    width: 100%;
   }
 
   .graph-controls label {
@@ -794,12 +762,9 @@ watch(
     justify-content: space-between;
   }
 
-  .graph-controls > :deep(.ant-btn) {
-    width: 100%;
-  }
-
-  .knowledge-graph-page :deep(.knowledge-graph__canvas) {
-    min-height: 420px;
+  .graph-controls > :deep(.ant-select) {
+    flex-basis: 100%;
+    max-width: none;
   }
 }
 </style>

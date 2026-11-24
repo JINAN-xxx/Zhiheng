@@ -79,6 +79,7 @@ function createChatWorkspace() {
       const history = await messageHistory.readMessages(id, context.signal)
       if (!context.isCurrent() || selected.value?.id !== id) return
       messages.value = history
+      commands.reconcileHistory(id, history)
       await refreshConversationMetadata(id, context)
       if (context.isCurrent()) await scroll()
     }
@@ -104,6 +105,7 @@ function createChatWorkspace() {
     composer,
     runs,
     onConversationCreated,
+    scroll,
     acceptMainRun
   })
   const {
@@ -113,7 +115,6 @@ function createChatWorkspace() {
     modelOptions,
     generationSettings,
     draft,
-    queuedFiles,
     supportsVision,
     fileQueueReady,
     selectedSkills,
@@ -123,8 +124,7 @@ function createChatWorkspace() {
     retryFile,
     applyGenerationSettings,
     setModelId,
-    removeSkill,
-    handleSkillSelected
+    removeSkill
   } = composer
   const {
     messages,
@@ -225,6 +225,7 @@ function createChatWorkspace() {
     const history = await readMessages(conversation.id, context.signal)
     if (!context.isCurrent()) return
     messages.value = history
+    commands.reconcileHistory(conversation.id, history)
     void refreshConversationMetadata(conversation.id, context)
     sending.value = false
     await scroll(clearComposer)
@@ -497,7 +498,8 @@ function createChatWorkspace() {
     feedback,
     feedbackBusy,
     conversations,
-    queuedFiles,
+    queuedFiles: commands.composerFiles,
+    outgoing: commands.outgoing,
     addFiles,
     removeFile,
     retryFile,
@@ -518,7 +520,6 @@ function createChatWorkspace() {
     selectedSkills,
     skillPickerOpen,
     removeSkill,
-    handleSkillSelected,
     error,
     inputIssue,
     dismissInputIssue,

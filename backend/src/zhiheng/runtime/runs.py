@@ -1,9 +1,9 @@
 import hashlib
 from datetime import timedelta
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, select, text
+from sqlalchemy import ColumnElement, Row, String, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -23,6 +23,26 @@ from zhiheng.shared.time import utcnow
 
 ACTIVE_STATUSES = ('running', 'cancel_requested')
 PARENT_USAGE_REPAIR_LIMIT = 100
+SNAPSHOT_COLUMNS = (
+    Run.id,
+    Run.resource_type,
+    Run.resource_id,
+    Run.status,
+    Run.attempt_id,
+    Run.attempt_no,
+    Run.revision,
+    Run.projection_seq,
+    Run.text,
+    Run.reasoning,
+    Run.result,
+    Run.finish_reason,
+    Run.created_at,
+    Run.error_code,
+    Run.error_message,
+    Run.input_tokens,
+    Run.output_tokens,
+    Run.usage_status,
+)
 
 
 class RunStore:
@@ -128,29 +148,26 @@ class RunStore:
         return RunFacts.model_validate(row) if row is not None else None
 
     async def snapshot(self, session: AsyncSession, run_id: UUID, owner_id: UUID) -> RunSnapshot:
-        row = await session.scalar(select(Run).where(Run.id == run_id, Run.owner_id == owner_id))
-        if row is None:
-            raise AppError('run_not_found', '运行不存在', 404)
-        return self._snapshot(row)
+        return await self._read_snapshot(session, Run.id == run_id, Run.owner_id == owner_id)
 
     async def resource_snapshot(
         self, session: AsyncSession, run_id: UUID, resource_type: str, resource_id: UUID
     ) -> RunSnapshot:
         """Trusted application binding after the owning domain authorizes its resource."""
-        row = await session.scalar(
-            select(Run).where(Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id)
+        return await self._read_snapshot(
+            session, Run.id == run_id, Run.resource_type == resource_type, Run.resource_id == resource_id
         )
-        if row is None:
-            raise AppError('run_not_found', '运行不存在', 404)
-        return self._snapshot(row)
 
     async def resource_snapshot_one_of(
         self, session: AsyncSession, run_id: UUID, resource_types: tuple[str, ...], resource_id: UUID
     ) -> RunSnapshot:
         """在父业务已授权后读取指定类型集合中的子运行。"""
-        row = await session.scalar(
-            select(Run).where(Run.id == run_id, Run.resource_type.in_(resource_types), Run.resource_id == resource_id)
+        return await self._read_snapshot(
+            session, Run.id == run_id, Run.resource_type.in_(resource_types), Run.resource_id == resource_id
         )
+
+    async def _read_snapshot(self, session: AsyncSession, *criteria: ColumnElement[bool]) -> RunSnapshot:
+        row = (await session.execute(select(*SNAPSHOT_COLUMNS).where(*criteria))).one_or_none()
         if row is None:
             raise AppError('run_not_found', '运行不存在', 404)
         return self._snapshot(row)
@@ -191,8 +208,8 @@ class RunStore:
 
     async def child_snapshots(self, session: AsyncSession, parent_run_id: UUID) -> list[RunSnapshot]:
         """Trusted execution composition; the owning application authorizes its parent first."""
-        rows = await session.scalars(
-            select(Run)
+        rows = await session.execute(
+            select(*SNAPSHOT_COLUMNS)
             .where(Run.payload['parent_run_id'].astext == str(parent_run_id))
             .order_by(Run.created_at, Run.id)
         )
@@ -429,7 +446,7 @@ class RunStore:
         )
 
     @staticmethod
-    def _snapshot(row: Run) -> RunSnapshot:
+    def _snapshot(row: Run | Row[Any]) -> RunSnapshot:
         return RunSnapshot(
             id=row.id,
             resource_type=cast(

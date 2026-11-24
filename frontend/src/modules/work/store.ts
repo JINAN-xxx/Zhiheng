@@ -122,6 +122,7 @@ function createWorkWorkspace() {
     reconnect: observation.reconnect,
     cancelRun: observation.cancelRun,
     saveTask: commands.saveTask,
+    detachInput: commands.detachInput,
     uploadFiles: commands.uploadFiles
   })
 }

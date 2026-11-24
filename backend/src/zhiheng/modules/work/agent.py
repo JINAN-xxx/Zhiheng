@@ -9,7 +9,7 @@ from typing import TypeVar, cast, get_args
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import BigInteger, case, delete, func, select, update
+from sqlalchemy import BigInteger, case, func, select, update
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +28,7 @@ from zhiheng.modules.work.agent_contracts import (
     WorkStepInfo,
     WorkWorkspaceState,
 )
-from zhiheng.modules.work.contracts import TaskDetail
+from zhiheng.modules.work.contracts import TaskDetail, TaskProgress
 from zhiheng.modules.work.facts import normalize_work_fact
 from zhiheng.modules.work.facts import visible_work_text as _visible_text
 from zhiheng.modules.work.orm import WorkArtifact, WorkInput, WorkMessage, WorkSandboxLease, WorkStep, WorkTask
@@ -269,15 +269,40 @@ class WorkAgentStore:
     async def detail(self, session: AsyncSession, principal: Principal, task_id: UUID) -> TaskDetail:
         row = await self._task(session, principal, task_id)
         detail = await self.work.detail(session, principal, task_id)
+        inputs = await self.inputs(session, principal, task_id)
+        await self._assign_message_inputs(session, detail, inputs)
         return detail.model_copy(
             update={
                 'configuration': AgentTaskConfiguration.model_validate(row.configuration),
-                'inputs': await self.inputs(session, principal, task_id),
+                'inputs': inputs,
                 'steps': await self.steps(session, principal, task_id),
                 'artifacts': await self.artifacts(session, principal, task_id),
                 'plan': [WorkPlanItem.model_validate(item) for item in row.plan],
             }
         )
+
+    @staticmethod
+    async def _assign_message_inputs(session: AsyncSession, detail: TaskDetail, inputs: list[WorkInputInfo]) -> None:
+        if not inputs or not detail.messages:
+            return
+        result = await session.execute(
+            select(Run.id, Run.payload['inputs']).where(
+                Run.owner_id == detail.owner_id, Run.resource_id == detail.id, Run.resource_type == 'work_agent'
+            )
+        )
+        by_run = dict(result.tuples().all())
+        available = {str(item.file_id): item.file_id for item in inputs}
+        # A run freezes all task inputs. Associate each file with its first admitted message.
+        for message in detail.messages:
+            frozen = by_run.get(message.run_id) if message.run_id is not None else None
+            if not isinstance(frozen, list):
+                continue
+            for info in frozen:
+                file_id = available.pop(str(info.get('file_id')), None) if isinstance(info, dict) else None
+                if file_id is not None:
+                    message.input_file_ids.append(file_id)
+            if not available:
+                break
 
     async def update(
         self, session: AsyncSession, principal: Principal, task_id: UUID, body: UpdateAgentTask
@@ -342,10 +367,14 @@ class WorkAgentStore:
     ) -> TaskDetail:
         await self._task(session, principal, task_id)
         task = await self.work.editable(session, principal, task_id, expected_version)
+        item = await session.get(WorkInput, (task_id, file_id))
+        if item is None:
+            raise AppError('file_not_found', '任务资料不存在', 404)
         if await self.has_consumed_input(session, principal, task_id, file_id):
             raise AppError('work_input_referenced', '文件已用于任务历史，不能移除', 409)
-        await session.execute(delete(WorkInput).where(WorkInput.task_id == task_id, WorkInput.file_id == file_id))
+        await session.delete(item)
         self.work.touch(task)
+        await session.flush()
         return await self.detail(session, principal, task_id)
 
     async def has_consumed_input(
@@ -542,15 +571,29 @@ class WorkAgentStore:
 
     async def steps(self, session: AsyncSession, principal: Principal, task_id: UUID) -> list[WorkStepInfo]:
         await self._task(session, principal, task_id)
+        return await self._steps(session, task_id)
+
+    async def _steps(self, session: AsyncSession, task_id: UUID, run_id: UUID | None = None) -> list[WorkStepInfo]:
+        query = select(WorkStep).where(WorkStep.task_id == task_id)
+        if run_id is not None:
+            query = query.where(WorkStep.run_id == run_id)
         rows = list(
-            await session.scalars(
-                select(WorkStep)
-                .where(WorkStep.task_id == task_id)
-                .order_by(WorkStep.created_at.desc(), WorkStep.id.desc())
-                .limit(MAX_STEP_PAGE)
-            )
+            await session.scalars(query.order_by(WorkStep.created_at.desc(), WorkStep.id.desc()).limit(MAX_STEP_PAGE))
         )
         return [self._value(WorkStepInfo, row) for row in reversed(rows)]
+
+    async def progress(
+        self, session: AsyncSession, principal: Principal, task_id: UUID, run_id: UUID
+    ) -> TaskProgress | None:
+        row = await self._task(session, principal, task_id)
+        if row.current_run_id != run_id:
+            return None  # The terminal snapshot triggers a full task refresh.
+        return TaskProgress(
+            execution_state=cast('ExecutionState', row.execution_state),
+            steps=await self._steps(session, task_id, run_id),
+            artifacts=await self._artifacts(session, task_id, run_id),
+            plan=[WorkPlanItem.model_validate(item) for item in row.plan],
+        )
 
     async def _execution(
         self, session: AsyncSession, task_id: UUID, run_id: UUID, attempt_id: UUID, *, allow_cancel: bool = False
@@ -631,11 +674,16 @@ class WorkAgentStore:
 
     async def artifacts(self, session: AsyncSession, principal: Principal, task_id: UUID) -> list[WorkArtifactInfo]:
         await self._task(session, principal, task_id)
+        return await self._artifacts(session, task_id)
+
+    async def _artifacts(
+        self, session: AsyncSession, task_id: UUID, run_id: UUID | None = None
+    ) -> list[WorkArtifactInfo]:
+        query = select(WorkArtifact).where(WorkArtifact.task_id == task_id)
+        if run_id is not None:
+            query = query.where(WorkArtifact.run_id == run_id)
         rows = await session.scalars(
-            select(WorkArtifact)
-            .where(WorkArtifact.task_id == task_id)
-            .order_by(WorkArtifact.created_at.desc(), WorkArtifact.id.desc())
-            .limit(MAX_ARTIFACT_PAGE)
+            query.order_by(WorkArtifact.created_at.desc(), WorkArtifact.id.desc()).limit(MAX_ARTIFACT_PAGE)
         )
         return [self._artifact(row) for row in rows]
 

@@ -46,7 +46,34 @@ SummaryWriter = Callable[[tuple[ModelMessage, ...]], Awaitable[str]]
 ModelStart = Callable[[], Awaitable[None]]
 CheckpointCleanup = Callable[[UUID], Awaitable[None]]
 CHECKPOINT_CLEANUP_BUDGET_SECONDS = 30
+SKILL_CAPABILITY = ModelMessage(
+    'system',
+    '对话体验只读取所选技能的 SKILL.md 文字说明。当前没有可调用工具，无法读取或运行技能包里的脚本及配套文件。'
+    '请用说明完成可以直接回答的部分，不要发起工具调用或编造执行结果。'
+    '仅当本次任务必须运行脚本时，简短告知用户可到工作空间继续。'
+    '如果按文字说明就能完成，请直接回答，无需提示脚本限制。',
+)
 logger = logging.getLogger(__name__)
+
+
+def _restore_skill_capability(
+    messages: tuple[ModelMessage, ...], metadata: ChatExecutionSpec
+) -> tuple[tuple[ModelMessage, ...], ChatExecutionSpec]:
+    if SKILL_CAPABILITY in messages:
+        return messages, metadata
+    # Older runs have the skill text but not the capability message. Keep the question's identity.
+    original_ids = metadata.message_ids
+    return (
+        (*messages[:-1], SKILL_CAPABILITY, messages[-1]),
+        metadata.model_copy(
+            update={
+                'message_ids': (*original_ids[:-1], 'prefix:skill-capability', original_ids[-1]),
+                'reservation_input_tokens': metadata.reservation_input_tokens
+                + len(SKILL_CAPABILITY.content.encode())
+                + 16,
+            }
+        ),
+    )
 
 
 class ChatAgentFactory(Protocol):
@@ -87,8 +114,11 @@ class ChatAgentService:
         current: ModelMessage,
         client_request_id: UUID,
         original_run_id: UUID | None = None,
+        uses_skills: bool = False,
     ) -> PreparedContext:
         memory = self.context.memory
+        if uses_skills:
+            required = (*required, SKILL_CAPABILITY)
         state = await memory.state(session, conversation_id, principal.id, lock=True)
         if state.pending_task_id is not None:
             raise AppError('chat_summary_busy', '会话正在整理历史，请完成后再发送', 409)
@@ -151,6 +181,8 @@ class ChatAgentService:
                 regeneration_metadata = old.agent_context.regenerated(
                     expected_head=state.agent_checkpoint_id, input_budget=budget
                 )
+                if uses_skills:
+                    messages, regeneration_metadata = _restore_skill_capability(messages, regeneration_metadata)
                 self._require_image_capacity(
                     old.agent_context.chat_context_model_image_bytes
                     if old.agent_context.chat_context_model_image_bytes is not None

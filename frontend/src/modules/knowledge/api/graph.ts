@@ -78,6 +78,7 @@ export interface GraphPreviewResult {
   relations: number
   chunks: number
   seconds: number
+  graph?: GraphData | null
 }
 export interface GraphJob {
   id: string
@@ -167,7 +168,17 @@ function previewResult(value: unknown): GraphPreviewResult {
     entities: number(d.entities),
     relations: number(d.relations),
     chunks: number(d.chunks),
-    seconds: number(d.seconds)
+    seconds: number(d.seconds),
+    graph: d.graph == null ? null : parseGraphData(d.graph)
+  }
+}
+function parseGraphData(value: unknown): GraphData {
+  const d = object(value)
+  return {
+    revision: string(d.revision),
+    nodes: list(node)(d.nodes),
+    edges: list(edge)(d.edges),
+    is_truncated: boolean(d.is_truncated)
   }
 }
 function queryResult(value: unknown): GraphQueryResult {
@@ -279,15 +290,7 @@ export const getGraphData = (
       }).toString(),
     {
       signal,
-      decode(value): GraphData {
-        const d = object(value)
-        return {
-          revision: string(d.revision),
-          nodes: list(node)(d.nodes),
-          edges: list(edge)(d.edges),
-          is_truncated: boolean(d.is_truncated)
-        }
-      }
+      decode: parseGraphData
     }
   )
 export const queryGraph = (

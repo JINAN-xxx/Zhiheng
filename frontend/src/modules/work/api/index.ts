@@ -84,6 +84,7 @@ export interface WorkPlanItem {
 }
 export interface WorkMessage {
   knowledgeSources: KnowledgeHit[]
+  inputFileIds?: string[]
   messageId: string
   clientRequestId: string
   role: 'user' | 'assistant'
@@ -213,6 +214,7 @@ function parseMessage(value: unknown): WorkMessage {
   return {
     knowledgeSources:
       data.knowledge_sources == null ? [] : list(parseKnowledgeHit)(data.knowledge_sources),
+    inputFileIds: list(string)(data.input_file_ids ?? []),
     messageId: string(data.id),
     clientRequestId: string(data.client_request_id),
     role: data.role,
@@ -291,12 +293,9 @@ function parseArtifact(value: unknown): WorkArtifact {
     createdAt: string(data.created_at)
   }
 }
-function parseTask(value: unknown): WorkTask {
+function parseProgress(value: unknown): Pick<WorkTask, 'steps' | 'artifacts' | 'plan'> {
   const data = object(value)
   return {
-    ...parseSummary(data),
-    configuration: data.configuration == null ? null : parseConfiguration(data.configuration),
-    inputs: list(parseInput)(data.inputs ?? []),
     steps: list(parseStep)(data.steps ?? []),
     artifacts: list(parseArtifact)(data.artifacts ?? []),
     plan: list((value): WorkPlanItem => {
@@ -304,7 +303,17 @@ function parseTask(value: unknown): WorkTask {
       if (!['pending', 'in_progress', 'completed'].includes(string(item.status)))
         throw new Error('任务计划状态无效')
       return { content: string(item.content), status: item.status as WorkPlanItem['status'] }
-    })(data.plan ?? []),
+    })(data.plan ?? [])
+  }
+}
+
+function parseTask(value: unknown): WorkTask {
+  const data = object(value)
+  return {
+    ...parseSummary(data),
+    ...parseProgress(data),
+    configuration: data.configuration == null ? null : parseConfiguration(data.configuration),
+    inputs: list(parseInput)(data.inputs ?? []),
     members: list((value): WorkMember => {
       const item = object(value)
       return {
@@ -355,7 +364,7 @@ export const getWorkOptions = (signal: AbortSignal) =>
   })
 export const listTasks = (query: WorkFilters, signal: AbortSignal) =>
   http.request(
-    `/work/tasks?${new URLSearchParams({ search: query.keyword, page: String(query.pageNum), page_size: String(query.pageSize), ...(query.status ? { status: query.status } : {}) })}`,
+    `/work/tasks?${new URLSearchParams({ search: query.keyword, page: String(query.pageNum), page_size: String(query.pageSize), include_archived: 'false', ...(query.status ? { status: query.status } : {}) })}`,
     {
       signal,
       decode: (value) => {
@@ -395,6 +404,20 @@ export const uploadTaskFile = (taskId: string, file: File, signal: AbortSignal) 
     signal,
     decode: parseTask
   })
+export const detachTaskInput = (
+  taskId: string,
+  fileId: string,
+  version: number,
+  signal: AbortSignal
+) =>
+  http.request(
+    `${taskPath(taskId)}/inputs/${encodeURIComponent(fileId)}?expected_version=${version}`,
+    {
+      method: 'DELETE',
+      signal,
+      decode: parseTask
+    }
+  )
 export async function downloadInput(
   taskId: string,
   fileId: string,
@@ -419,6 +442,17 @@ export async function downloadArtifact(
 }
 export const getWorkRun = (taskId: string, runId: string, signal: AbortSignal) =>
   http.request(runPath(taskId, runId), { signal, decode: parseRunSnapshot })
+export const getWorkProgress = (taskId: string, runId: string, signal: AbortSignal) =>
+  http.request(`${runPath(taskId, runId)}/progress`, {
+    signal,
+    decode: (value) =>
+      value === null
+        ? null
+        : {
+            ...parseProgress(value),
+            executionState: parseExecutionState(object(value).execution_state)
+          }
+  })
 export const cancelWorkRun = (taskId: string, runId: string, signal: AbortSignal) =>
   http.request(`${runPath(taskId, runId)}/cancel`, {
     method: 'POST',

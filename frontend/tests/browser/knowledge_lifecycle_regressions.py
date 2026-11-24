@@ -170,9 +170,8 @@ class KnowledgeQuality(Evidence, KnowledgeUIRegressions):
     async def test_unavailable_graph_stays_disabled_for_retained_graph_settings(self):
         self.base.update(enable_knowledge_graph=True, graph_status='pending', llm_model_id='graph-model')
         await self.page.goto(self.origin + '/knowledge/base-1/documents')
-        await self.page.get_by_role('button', name='更多操作', exact=True).click()
-        graph = self.page.get_by_role('menuitem', name='高级：知识图谱', exact=True)
-        await expect(graph).to_have_attribute('aria-disabled', 'true')
+        graph = self.page.get_by_role('tab', name='知识图谱', exact=True)
+        await expect(graph).to_be_disabled()
         self.assertTrue(self.page.url.endswith('/documents'))
 
     async def test_query_graph_choice_stays_disabled_when_capability_unavailable(self):

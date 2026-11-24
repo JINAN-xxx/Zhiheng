@@ -1,7 +1,7 @@
 import asyncio
 import signal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from cryptography.fernet import Fernet
@@ -79,7 +79,7 @@ def process_fixture(monkeypatch: pytest.MonkeyPatch, failure: str = '') -> tuple
             raise RuntimeError(failure)
         return Pool('publisher')
 
-    async def delete(_key: str) -> None:
+    async def remove_heartbeat(_key: str, _member: str) -> None:
         events.append('heartbeat_delete')
         if failure == 'heartbeat_delete':
             raise RuntimeError(failure)
@@ -88,10 +88,14 @@ def process_fixture(monkeypatch: pytest.MonkeyPatch, failure: str = '') -> tuple
         if failure == 'dispatch':
             raise RuntimeError(failure)
 
+    pipeline = MagicMock()
+    pipeline.__aenter__.return_value = SimpleNamespace(
+        zremrangebyscore=MagicMock(), zadd=MagicMock(), expire=MagicMock(), execute=AsyncMock()
+    )
     container = SimpleNamespace(
         settings=settings(),
         database=SimpleNamespace(require_schema=AsyncMock()),
-        redis=SimpleNamespace(set=AsyncMock(), delete=delete),
+        redis=SimpleNamespace(pipeline=lambda: pipeline, zrem=remove_heartbeat),
         graph_jobs=object(),
     )
     monkeypatch.setattr(process, 'create_pool', create_pool)

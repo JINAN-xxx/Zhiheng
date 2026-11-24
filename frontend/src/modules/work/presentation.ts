@@ -1,4 +1,9 @@
-import type { WorkExecutionState } from './api/index.ts'
+import type { WorkExecutionState, WorkInput, WorkTask } from './api/index.ts'
+
+export function pendingWorkInputs(task: Pick<WorkTask, 'inputs' | 'messages'>): WorkInput[] {
+  const sent = new Set(task.messages.flatMap((message) => message.inputFileIds ?? []))
+  return task.inputs.filter((file) => !sent.has(file.fileId))
+}
 
 export interface WorkDraft {
   goal: string

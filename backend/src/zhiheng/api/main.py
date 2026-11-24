@@ -2,7 +2,6 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from time import time
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -17,8 +16,7 @@ from zhiheng.api.inference.router import router as inference_router
 from zhiheng.api.resources.router import router as resources_router
 from zhiheng.bootstrap.container import Container
 from zhiheng.bootstrap.settings import Settings
-
-WORKER_HEARTBEAT_MAX_AGE_SECONDS = 15
+from zhiheng.infrastructure.worker_heartbeat import worker_heartbeat_age
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -64,8 +62,10 @@ def create_app(settings: Settings) -> FastAPI:
             await container.database.require_schema()
             await container.redis.ping()
             await container.files.storage.check()
-            heartbeat = await container.redis.get(settings.worker_health_key)
-            if heartbeat is None or not 0 <= time() - float(heartbeat) <= WORKER_HEARTBEAT_MAX_AGE_SECONDS:
+            age = await worker_heartbeat_age(
+                container.redis, settings.worker_heartbeats_key, legacy_key=settings.worker_health_key
+            )
+            if age is None:
                 return JSONResponse({'status': 'unavailable', 'component': 'worker'}, status_code=503)
         except Exception:
             return JSONResponse({'status': 'unavailable'}, status_code=503)

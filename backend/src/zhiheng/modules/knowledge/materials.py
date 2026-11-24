@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, tuple_, update
 
 from zhiheng.modules.knowledge.build_admission import job_info
 from zhiheng.modules.knowledge.contracts import (
@@ -29,8 +29,10 @@ from zhiheng.shared.errors import AppError
 from zhiheng.shared.time import utcnow
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from uuid import UUID
 
+    from sqlalchemy import Select
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from zhiheng.modules.files.public import FileInfo, SourceSnapshot
@@ -362,48 +364,138 @@ class KnowledgeMaterials:
 
     async def documents(self, session: AsyncSession, principal: Principal, base_id: UUID) -> DocumentPage:
         base = await self.catalog.require(session, principal, base_id)
-        engines: dict[UUID | None, str] = dict(
-            (
-                await session.execute(
-                    select(ParsingJob.artifact_id, ParsingJob.engine)
-                    .join(KnowledgeJob, KnowledgeJob.id == ParsingJob.parent_id)
-                    .where(
-                        KnowledgeJob.base_id == base_id,
-                        ParsingJob.phase == 'completed',
-                        ParsingJob.artifact_id.is_not(None),
-                    )
-                    .distinct(ParsingJob.artifact_id)
-                    .order_by(ParsingJob.artifact_id, ParsingJob.updated_at.desc())
-                )
-            )
-            .tuples()
-            .all()
+        rows = (await session.execute(self._document_query(principal, base))).tuples().all()
+        visible = await self._visible_documents(session, principal, base, rows)
+        return DocumentPage(items=await self._document_info(session, base_id, visible), total=len(visible))
+
+    async def visible_document_ids(
+        self, session: AsyncSession, principal: Principal, base_id: UUID, document_ids: list[UUID]
+    ) -> list[UUID]:
+        base = await self.catalog.require(session, principal, base_id)
+        query = self._document_query(principal, base).where(
+            KnowledgeDocument.id.in_(document_ids), KnowledgeDocument.deleted_at.is_(None)
         )
-        items = []
-        for row in await session.scalars(
-            select(KnowledgeDocument).where(KnowledgeDocument.base_id == base_id).order_by(KnowledgeDocument.created_at)
-        ):
-            if row.migration_source_document_id is not None and base.document_policy == 'legacy':
-                continue
-            if row.deleted_at is not None and (not self.catalog.manages(principal, base) or row.status != 'deleting'):
-                continue
-            try:
-                await self.files.require(session, principal, row.file_id, active=True)
-            except AppError:
-                continue
-            if base.document_policy == 'library' or self.catalog.manages(principal, base) or row.active_revision:
-                items.append(
-                    DocumentInfo.model_validate(
-                        {
-                            **row.__dict__,
-                            'error': row.error,
-                            'parsing_engine': engines.get(
-                                row.artifact_file_id, 'native' if row.artifact_file_id is not None else None
-                            ),
-                        }
+        rows = (await session.execute(query)).tuples().all()
+        return [row.id for row in await self._visible_documents(session, principal, base, rows)]
+
+    async def document_page(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        base_id: UUID,
+        *,
+        folder_id: UUID | None,
+        search: str,
+        after: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[DocumentPage, tuple[datetime, UUID] | None]:
+        base = await self.catalog.require(session, principal, base_id)
+        query = self._document_query(principal, base).where(KnowledgeDocument.folder_id == folder_id)
+        if search:
+            pattern = '%' + search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+            query = query.where(KnowledgeDocument.file_name.ilike(pattern, escape='\\'))
+        visible: list[KnowledgeDocument] = []
+        scan_size = max(32, limit + 1)
+        while len(visible) <= limit:
+            batch = query
+            if after is not None:
+                batch = batch.where(tuple_(KnowledgeDocument.created_at, KnowledgeDocument.id) > after)
+            rows = (await session.execute(batch.limit(scan_size))).tuples().all()
+            visible.extend(await self._visible_documents(session, principal, base, rows))
+            if len(rows) < scan_size:
+                break
+            last = rows[-1][0]
+            after = (last.created_at, last.id)
+        next_position = (visible[limit - 1].created_at, visible[limit - 1].id) if len(visible) > limit else None
+        items = await self._document_info(session, base_id, visible[:limit])
+        return DocumentPage(items=items, total=len(items)), next_position
+
+    def _document_query(
+        self, principal: Principal, base: KnowledgeBase
+    ) -> Select[tuple[KnowledgeDocument, UUID | None, UUID | None]]:
+        query = (
+            select(KnowledgeDocument, KnowledgeMaterial.document_id, KnowledgeMaterial.base_id)
+            .outerjoin(KnowledgeMaterial, KnowledgeMaterial.file_id == KnowledgeDocument.file_id)
+            .where(KnowledgeDocument.base_id == base.id)
+            .order_by(KnowledgeDocument.created_at, KnowledgeDocument.id)
+        )
+        if base.document_policy != 'library':
+            query = query.where(KnowledgeDocument.migration_source_document_id.is_(None))
+        if self.catalog.manages(principal, base):
+            return query.where(or_(KnowledgeDocument.deleted_at.is_(None), KnowledgeDocument.status == 'deleting'))
+        query = query.where(KnowledgeDocument.deleted_at.is_(None))
+        if base.document_policy != 'library':
+            query = query.where(KnowledgeDocument.active_revision.is_not(None))
+        return query
+
+    async def _visible_documents(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        base: KnowledgeBase,
+        rows: Sequence[tuple[KnowledgeDocument, UUID | None, UUID | None]],
+    ) -> list[KnowledgeDocument]:
+        if not rows:
+            return []
+        library = base.document_policy == 'library'
+        # An attached original in this authorized library inherits the already-checked base ACL.
+        attached = (
+            {
+                row.file_id
+                for row, document_id, material_base_id in rows
+                if row.id == document_id and material_base_id == base.id and row.deleted_at is None
+            }
+            if library or self.catalog.manages(principal, base)
+            else set()
+        )
+        readable = await self.files.active_original_ids(session, attached)
+        visible = []
+        for row, document_id, material_base_id in rows:
+            if row.file_id not in readable or row.id != document_id or material_base_id != base.id:
+                try:
+                    await self.files.ensure_readable(session, principal, row.file_id)
+                except AppError:
+                    continue
+            visible.append(row)
+        return visible
+
+    async def _document_info(
+        self, session: AsyncSession, base_id: UUID, rows: Sequence[KnowledgeDocument]
+    ) -> list[DocumentInfo]:
+        artifact_ids = {row.artifact_file_id for row in rows if row.artifact_file_id is not None}
+        engines: dict[UUID | None, str] = (
+            dict(
+                (
+                    await session.execute(
+                        select(ParsingJob.artifact_id, ParsingJob.engine)
+                        .join(KnowledgeJob, KnowledgeJob.id == ParsingJob.parent_id)
+                        .where(
+                            KnowledgeJob.base_id == base_id,
+                            ParsingJob.phase == 'completed',
+                            ParsingJob.artifact_id.in_(artifact_ids),
+                        )
+                        .distinct(ParsingJob.artifact_id)
+                        .order_by(ParsingJob.artifact_id, ParsingJob.updated_at.desc())
                     )
                 )
-        return DocumentPage(items=items, total=len(items))
+                .tuples()
+                .all()
+            )
+            if artifact_ids
+            else {}
+        )
+        return [
+            DocumentInfo.model_validate(
+                {
+                    **row.__dict__,
+                    'error': row.error,
+                    'parsing_engine': engines.get(
+                        row.artifact_file_id, 'native' if row.artifact_file_id is not None else None
+                    ),
+                }
+            )
+            for row in rows
+        ]
 
     async def document_info(
         self, session: AsyncSession, base_id: UUID, document_id: UUID, *, include_deleted: bool = False

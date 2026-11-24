@@ -63,7 +63,8 @@ class ChatIdentityRegressions(DeveloperBoundary):
         await self.page.get_by_role('button', name='发送消息', exact=True).click()
         retry = self.page.get_by_role('button', name='使用原请求重试', exact=True)
         await expect(retry).to_be_visible()
-        await expect(draft).to_have_value('A账号的私有待确认问题')
+        await expect(draft).to_have_value('')
+        await expect(self.page.locator('.message-row.user').get_by_text('A账号的私有待确认问题', exact=True)).to_be_visible()
         await self.page.get_by_role('button', name='添加图片或附件', exact=True).click()
         await self.page.locator('input[type=file]').set_input_files({
             'name': 'A-private.txt', 'mimeType': 'text/plain', 'buffer': b'private bytes'})
@@ -78,6 +79,7 @@ class ChatIdentityRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='用户菜单', exact=True)).to_contain_text('owner-B')
         self.assertIn('owner-B', self.auth_reads)
         await expect(self.page.get_by_text('A账号的私有正文', exact=True)).to_have_count(0)
+        await expect(self.page.get_by_text('A账号的私有待确认问题', exact=True)).to_have_count(0)
         await expect(self.page.get_by_text('A的私有会话', exact=True)).to_have_count(0)
         await expect(draft).to_have_value('')
         await expect(self.page.get_by_role('button', name='移除附件：A-private.txt', exact=True)).to_have_count(0)

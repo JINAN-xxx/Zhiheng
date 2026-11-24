@@ -35,7 +35,7 @@ class WorkUIRegressions(DeveloperBoundary):
         self.options['skills'] = [{key: skill[key] for key in ('slug', 'name', 'description', 'version')}
                                   for skill in self.available_skills]
         self.task = self.make_task()
-        self.tasks, self.runs, self.uploads, self.chat_requests = [], [], [], []
+        self.tasks, self.runs, self.uploads, self.chat_requests, self.detaches = [], [], [], [], []
         self.run = {'id': 'work-run', 'resource_type': 'work_agent', 'resource_id': 'task-1',
                     'status': 'completed', 'attempt_id': 'attempt-1', 'attempt_no': 1,
                     'revision': 3, 'projection_seq': 2, 'text': '核实后的结论', 'reasoning': '',
@@ -81,7 +81,14 @@ class WorkUIRegressions(DeveloperBoundary):
                     self.task['messages'].append(self.message('user', {'client_request_id': body['client_request_id'], 'message': body['goal']}))
                 self.tasks = [self.task]
                 return await route.fulfill(status=201, json=self.task)
-            return await route.fulfill(json={'items': self.tasks, 'total': len(self.tasks), 'page': 1, 'page_size': 20})
+            params = parse_qs(parsed.query)
+            status = params.get('status', [None])[0]
+            items = self.tasks
+            if status:
+                items = [item for item in items if item['status'] == status]
+            elif params.get('include_archived') == ['false']:
+                items = [item for item in items if item['status'] != 'archived']
+            return await route.fulfill(json={'items': items, 'total': len(items), 'page': 1, 'page_size': 20})
         match = re.fullmatch(r'/api/work/tasks/([^/]+)(.*)', path)
         if match:
             task_id, suffix = match.groups()
@@ -110,6 +117,15 @@ class WorkUIRegressions(DeveloperBoundary):
                                           'acl_version': 1, 'file_version': 1, 'created_at': STAMP})
                 selected['version'] += 1
                 return await route.fulfill(status=201, json=selected)
+            if suffix.startswith('/inputs/') and method == 'DELETE':
+                file_id = suffix.removeprefix('/inputs/')
+                version = int(parse_qs(parsed.query)['expected_version'][0])
+                self.detaches.append((task_id, file_id, version))
+                if version != selected['version']:
+                    return await route.fulfill(status=409, json={'error': {'code': 'work_version_conflict', 'message': '任务已更新，请刷新后重试'}})
+                selected['inputs'] = [file for file in selected['inputs'] if file['file_id'] != file_id]
+                selected['version'] += 1
+                return await route.fulfill(json=selected)
             if suffix == '/runs' and method == 'POST':
                 body = route.request.post_data_json
                 self.runs.append(copy.deepcopy(body))
@@ -120,13 +136,19 @@ class WorkUIRegressions(DeveloperBoundary):
                 if not selected['goal']:
                     selected.update(goal=body['message'], title=body['message'][:40])
                 if not body.get('resume') and not any(item['client_request_id'] == body['client_request_id'] and item['role'] == 'user' for item in selected['messages']):
-                    selected['messages'].append(self.message('user', body))
+                    seen = {file_id for message in selected['messages'] for file_id in message.get('input_file_ids', [])}
+                    selected['messages'].append({
+                        **self.message('user', body),
+                        'input_file_ids': [file['file_id'] for file in selected['inputs'] if file['file_id'] not in seen],
+                    })
                 selected['messages'].append(self.message('assistant', body, self.run))
                 return await route.fulfill(status=202, json=self.run)
             if suffix == '/runs/work-run':
                 return await route.fulfill(json=self.run)
             if suffix == '/runs/work-run/events':
                 return await route.fulfill(content_type='text/event-stream', body='event: snapshot\ndata: '+json.dumps(self.run)+'\n\n')
+            if suffix == '/runs/work-run/progress':
+                return await route.fulfill(json={key: selected[key] for key in ('execution_state', 'steps', 'artifacts', 'plan')})
             if suffix == '/runs/work-run/cancel':
                 self.run.update(status='cancelled', revision=self.run['revision']+1)
                 selected.update(current_run_id=None, version=selected['version']+1, execution_state='cancelled')
@@ -180,21 +202,41 @@ class WorkUIRegressions(DeveloperBoundary):
         self.assertEqual(self.runs[0]['message'], '研究目标')
 
     async def test_upload_first_creates_draft_then_uses_refreshed_version(self):
+        admitted, release = asyncio.Event(), asyncio.Event()
+
+        async def held(route):
+            admitted.set()
+            await release.wait()
+            await self.respond(route)
+
         await self.page.goto(self.origin+'/work')
         await expect(self.page.get_by_role('button', name='添加附件', exact=True)).to_be_enabled()
+        goal = self.page.get_by_role('textbox', name='工作目标', exact=True)
+        await expect(goal).to_have_attribute('placeholder', '发送消息或开始任务… / 使用技能 @ 添加资料')
         async with self.page.expect_file_chooser() as chooser:
-            await self.page.get_by_role('button', name='添加附件', exact=True).click()
+            await goal.press('@')
         await (await chooser.value).set_files({'name': 'data.csv', 'mimeType': 'text/csv', 'buffer': b'amount\n42\n'})
         await expect(self.page.get_by_role('heading', name='新任务', exact=True)).to_be_visible()
-        await expect(self.page.get_by_text('data.csv', exact=True)).to_be_visible()
+        attachment = self.page.get_by_role('button', name='查看附件：data.csv', exact=True)
+        await expect(self.page.locator('.work-composer').get_by_text('data.csv', exact=True)).to_be_visible()
         self.assertEqual(self.posts[0]['goal'], '')
         self.assertEqual(self.runs, [])
         message = self.page.get_by_role('textbox', name='工作消息', exact=True)
         await message.fill('核对金额并给出结果')
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs', held)
         await self.page.get_by_role('button', name='发送', exact=True).click()
+        try:
+            await asyncio.wait_for(admitted.wait(), 3)
+            await expect(self.page.locator('.work-composer .attachment-card')).to_have_count(0)
+            await expect(self.page.locator('.work-message.user').get_by_text('data.csv', exact=True)).to_be_visible()
+        finally:
+            release.set()
         await expect(self.page.get_by_text('核实后的结论', exact=True)).to_be_visible()
         self.assertEqual(self.runs[0]['expected_version'], 2)
         self.assertNotEqual(self.runs[0]['client_request_id'], self.posts[0]['client_request_id'])
+        await self.page.reload()
+        await expect(attachment).to_be_visible()
+        await expect(self.page.locator('.work-composer .attachment-card')).to_have_count(0)
 
     async def test_submitting_places_question_in_timeline_and_clears_input_immediately(self):
         entered, release = asyncio.Event(), asyncio.Event()
@@ -274,7 +316,7 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.page.goto(self.origin+'/work')
         await expect(self.page.get_by_role('button', name='资源与能力', exact=True)).to_have_count(0)
         await expect(self.page.locator('.model-select')).to_be_visible()
-        await self.page.get_by_role('button', name='选择技能', exact=True).click()
+        await self.page.get_by_role('textbox', name='工作目标', exact=True).press('/')
         picker = self.page.locator('.skill-picker-panel')
         await expect(picker.get_by_text('预置技能', exact=True)).to_be_visible()
         await expect(picker.get_by_text('我的技能', exact=True)).to_be_visible()
@@ -297,9 +339,20 @@ class WorkUIRegressions(DeveloperBoundary):
         self.task['configuration']['skill_slugs'] = ['documents']
         await self.open_task()
         text = self.page.get_by_role('textbox', name='工作消息', exact=True)
-        await text.fill('尚未发送的修改要求')
+        await expect(text).to_have_attribute('placeholder', '发送消息或开始任务… / 使用技能 @ 添加资料')
+        await text.fill('请查看 demo')
+        await text.press('/')
+        await text.press('a')
+        await text.press('@')
+        await text.press('b')
+        await expect(text).to_have_value('请查看 demo/a@b')
+        await text.fill('尚未发送的修改要求 ')
+        async with self.page.expect_file_chooser() as chooser:
+            await text.press('@')
+        await (await chooser.value).set_files([])
+        await expect(text).to_have_value('尚未发送的修改要求 ')
         await expect(self.page.get_by_role('button', name='移除技能：文档制作', exact=True)).to_be_visible()
-        await self.page.get_by_role('button', name='选择技能', exact=True).click()
+        await text.press('/')
         picker = self.page.locator('.skill-picker-panel')
         await picker.get_by_role('option', name='报告检查', exact=True).click()
         await expect(self.page.get_by_role('button', name='移除技能：报告检查', exact=True)).to_be_visible()
@@ -308,7 +361,7 @@ class WorkUIRegressions(DeveloperBoundary):
         await picker.get_by_role('button', name='收起技能选择', exact=True).click()
         await self.page.get_by_role('button', name='移除技能：文档制作', exact=True).click()
         await expect(self.page.get_by_role('button', name='移除技能：文档制作', exact=True)).to_have_count(0)
-        await expect(text).to_have_value('尚未发送的修改要求')
+        await expect(text).to_have_value('尚未发送的修改要求 ')
         self.assertEqual(self.posts[-1], {'skill_slugs': ['report-check'], 'expected_version': 2})
         self.assertEqual(self.runs, [])
 
@@ -327,23 +380,62 @@ class WorkUIRegressions(DeveloperBoundary):
         await expect(self.page.get_by_role('button', name='添加附件', exact=True)).to_be_visible()
 
     async def test_running_tool_is_visible_without_expanding_nested_records(self):
-        self.task.update(current_run_id='work-run', execution_state='running')
+        self.task.update(current_run_id='work-run', execution_state='queued')
         self.run.update(status='running', text='', revision=1)
         self.task['messages'] = [self.message('assistant', {'client_request_id':'progress-intent'}, self.run)]
         self.task['messages'][0]['usage'] = {'status': 'pending'}
-        self.task['steps'] = [{
+        steps = [{
             'id':'step-python', 'run_id':'work-run', 'action_id':'call-python', 'kind':'tool',
             'name':'run_python', 'status':'running', 'summary':'正在绘制图片',
             'details':{'arguments':{'code':'print("drawing")','packages':['opencv-python-headless']}},
             'result':None, 'created_at':STAMP, 'updated_at':STAMP,
         }]
-        await self.open_task()
+        details, progress_reads = [], []
+        progress_started, release_progress = asyncio.Event(), asyncio.Event()
+        observed = 0
+
+        async def read_detail(route):
+            details.append(route.request.url)
+            await self.respond(route)
+
+        async def read_progress(route):
+            progress_reads.append(route.request.url)
+            if len(progress_reads) == 1:
+                progress_started.set()
+                await release_progress.wait()
+                await route.fulfill(json={'execution_state': 'queued', 'steps': [], 'artifacts': [], 'plan': []})
+            else:
+                await self.respond(route)
+
+        async def snapshots(route):
+            nonlocal observed
+            observed += 1
+            if observed == 1:
+                update = {**self.run, 'revision': 2, 'projection_seq': 3}
+            else:
+                await progress_started.wait()
+                self.task['steps'] = steps
+                self.task['execution_state'] = 'running'
+                update = {**self.run, 'revision': 3, 'projection_seq': 4, 'text': '阶段进度已更新'}
+            await route.fulfill(content_type='text/event-stream', body='event: snapshot\ndata: '+json.dumps(update)+'\n\n')
+
+        await self.page.route(self.origin+'/api/work/tasks/task-1', read_detail)
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/work-run/events', snapshots)
+        await self.page.route(self.origin+'/api/work/tasks/task-1/runs/work-run/progress', read_progress)
+        try:
+            await self.open_task()
+            await expect(self.page.get_by_text('阶段进度已更新', exact=True)).to_be_visible()
+            self.assertEqual(len(progress_reads), 1)
+        finally:
+            release_progress.set()
         progress=self.page.get_by_role('region',name='任务进度',exact=True)
         await expect(progress.get_by_text('run_python',exact=True)).to_be_visible()
         await expect(progress.get_by_text('正在绘制图片',exact=True)).to_be_visible()
         await expect(progress.get_by_text('正在执行',exact=True)).to_be_visible()
         await progress.get_by_text('查看处理代码',exact=True).click()
         await expect(progress.get_by_text('print("drawing")',exact=True)).to_be_visible()
+        self.assertEqual(len(details), 1)
+        self.assertEqual(len(progress_reads), 2)
 
     async def test_lost_admission_confirms_original_key_and_version(self):
         posted=[]
@@ -420,9 +512,45 @@ class WorkUIRegressions(DeveloperBoundary):
         await self.task_action('重新打开')
         await expect(self.page.get_by_role('textbox',name='工作消息',exact=True)).to_be_enabled()
         self.assertEqual(self.posts[-1]['expected_version'],1)
-        await self.task_action('归档任务')
-        await expect(self.page.get_by_text('任务已归档，资料和成果继续保留。',exact=True)).to_be_visible()
-        self.assertEqual(self.posts[-1]['expected_version'],2)
+        history = await self.open_work_history()
+        menu = history.locator('.recent-work__item').get_by_role('button', name='更多操作', exact=True)
+        await menu.click()
+        await self.page.get_by_role('menuitem', name='归档', exact=True).click()
+        await expect(history.get_by_text('暂无工作', exact=True)).to_be_visible()
+        self.assertEqual(self.posts[-1], {'expected_version': 2, 'status': 'archived'})
+        await history.locator('label').filter(has_text='已归档').click()
+        await expect(history.get_by_role('button', name='查看记录：研究目标', exact=True)).to_be_visible()
+        await self.close_work_history()
+        await expect(self.page.get_by_text('任务已归档，资料和成果继续保留。', exact=True)).to_be_visible()
+        history = await self.open_work_history()
+        await menu.click()
+        await self.page.get_by_role('menuitem', name='取消归档', exact=True).click()
+        await expect(history.get_by_text('暂无已归档工作', exact=True)).to_be_visible()
+        await self.close_work_history()
+        await expect(self.page.get_by_role('textbox', name='工作消息', exact=True)).to_be_enabled()
+        self.assertEqual(self.posts[-1], {'expected_version': 3, 'status': 'active'})
+
+    async def test_draft_inputs_can_be_removed_from_drawer_and_composer(self):
+        await self.open_task()
+        picker = self.page.get_by_label('选择工作资料', exact=True)
+        await picker.set_input_files([
+            {'name': 'draft.txt', 'mimeType': 'text/plain', 'buffer': b'draft'},
+            {'name': 'extra.txt', 'mimeType': 'text/plain', 'buffer': b'extra'},
+        ])
+        extra = self.page.get_by_role('button', name='移除附件：extra.txt', exact=True)
+        await expect(extra).to_be_enabled()
+        await self.page.get_by_role('button', name='查看资料与成果', exact=True).click()
+        drawer = self.page.locator('.ant-drawer-open .ant-drawer-content')
+        await drawer.get_by_role('button', name='移除资料：draft.txt', exact=True).click()
+        dialog = self.page.locator('.ant-modal-confirm')
+        await dialog.get_by_role('button', name=re.compile(r'^确\s*定$')).click()
+        await expect(drawer.get_by_text('draft.txt', exact=True)).to_have_count(0)
+        await expect(drawer.get_by_text('extra.txt', exact=True)).to_be_visible()
+        await drawer.locator('.ant-drawer-close').click()
+        await extra.click()
+        await dialog.get_by_role('button', name=re.compile(r'^确\s*定$')).click()
+        await expect(extra).to_have_count(0)
+        self.assertEqual(self.detaches, [('task-1', 'file-1', 3), ('task-1', 'file-2', 4)])
 
     async def test_ime_enter_does_not_send_a_work_message(self):
         await self.open_task()

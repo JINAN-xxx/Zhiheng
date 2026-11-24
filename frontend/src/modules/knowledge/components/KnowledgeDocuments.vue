@@ -34,10 +34,14 @@ const props = defineProps<{
   error: string
   observationError?: string
   busy: boolean
+  hasMore: boolean
+  loadingMore: boolean
 }>()
 const emit = defineEmits<{
   back: []
   refresh: []
+  search: [value: string]
+  'load-more': []
   navigate: [view: string]
   'select-folder': [id: string | null]
   'create-folder': []
@@ -108,6 +112,7 @@ function createFolder(): void {
 watch([() => props.database.id, () => props.folderId], () => {
   search.value = ''
 })
+watch(search, (value) => emit('search', value))
 </script>
 <template>
   <section class="knowledge-documents">
@@ -134,11 +139,19 @@ watch([() => props.database.id, () => props.folderId], () => {
         >
       </a-alert>
       <div class="document-controls">
-        <a-input v-model:value="search" allow-clear aria-label="搜索资料" placeholder="搜索当前目录"
+        <a-input
+          v-model:value="search"
+          :maxlength="255"
+          allow-clear
+          aria-label="搜索资料"
+          placeholder="搜索当前目录"
           ><template #prefix><SearchOutlined /></template
         ></a-input>
         <div class="document-controls__actions">
-          <span>{{ visibleFolders.length }} 个文件夹 · {{ visibleDocuments.length }} 份资料</span>
+          <span
+            >{{ visibleFolders.length }} 个文件夹 · {{ hasMore ? '已加载 ' : ''
+            }}{{ visibleDocuments.length }} 份资料</span
+          >
           <a-button
             v-if="owner && canUseCapability('knowledge', 'create')"
             :disabled="busy"
@@ -175,7 +188,7 @@ watch([() => props.database.id, () => props.folderId], () => {
         :rows="rows"
         row-key="rowKey"
         :scroll-x="720"
-        :pagination="{ pageSize: 15, hideOnSinglePage: true, showSizeChanger: false }"
+        :pagination="false"
         :empty-text="
           search.trim()
             ? '没有找到匹配的文件夹或资料'
@@ -307,6 +320,11 @@ watch([() => props.database.id, () => props.folderId], () => {
           >
         </template>
       </ResourceTable>
+      <div v-if="hasMore" class="document-pagination">
+        <a-button :loading="loadingMore" :disabled="loading" @click="emit('load-more')"
+          >加载更多</a-button
+        >
+      </div>
     </div>
   </section>
 </template>
@@ -323,6 +341,11 @@ watch([() => props.database.id, () => props.folderId], () => {
   min-height: 0;
   overflow: auto;
   padding: 18px 0 28px;
+}
+.document-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
 }
 .document-controls {
   display: flex;

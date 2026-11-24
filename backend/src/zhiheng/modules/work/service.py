@@ -92,10 +92,7 @@ class WorkService:
                 )
                 for row in members
             ],
-            messages=[
-                MessageInfo.model_validate({key: getattr(row, key) for key in MessageInfo.model_fields})
-                for row in messages
-            ],
+            messages=[MessageInfo.model_validate(row, from_attributes=True) for row in messages],
         )
 
     async def list_tasks(
@@ -107,6 +104,7 @@ class WorkService:
         page_size: int,
         search: str,
         status: TaskStatus | None,
+        include_archived: bool = True,
     ) -> TaskPage:
         try:
             safe_text(search)
@@ -119,6 +117,8 @@ class WorkService:
             query = query.where(or_(WorkTask.title.ilike(pattern), WorkTask.goal.ilike(pattern)))
         if status:
             query = query.where(WorkTask.status == status)
+        elif not include_archived:
+            query = query.where(WorkTask.status != 'archived')
         total = await session.scalar(select(func.count()).select_from(query.subquery()))
         rows = await session.scalars(
             query.order_by(WorkTask.updated_at.desc(), WorkTask.id).offset((page - 1) * page_size).limit(page_size)
@@ -330,14 +330,7 @@ class WorkService:
         rows = await session.scalars(
             select(WorkMessage).where(WorkMessage.task_id == task_id).order_by(WorkMessage.sequence.desc()).limit(96)
         )
-        return list(
-            reversed(
-                [
-                    MessageInfo.model_validate({key: getattr(row, key) for key in MessageInfo.model_fields})
-                    for row in rows
-                ]
-            )
-        )
+        return list(reversed([MessageInfo.model_validate(row, from_attributes=True) for row in rows]))
 
     async def admit(
         self,

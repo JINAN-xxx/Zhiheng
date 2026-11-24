@@ -121,6 +121,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
+  InboxOutlined,
   LoadingOutlined,
   SearchOutlined
 } from '@ant-design/icons-vue'
@@ -156,6 +157,7 @@ const props = defineProps<{
   status: WorkStatus | ''
 }>()
 const emit = defineEmits<{
+  archive: [task: WorkSummary]
   delete: [task: WorkSummary]
   filter: [query: WorkFilters]
   open: [id: string]
@@ -167,13 +169,15 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined
 const taskActions = (task: WorkSummary): MenuAction[] => {
   const actions: MenuAction[] = []
   if (!props.canManageTask(task, 'update') && !props.canManageTask(task, 'delete')) return actions
-  if (
-    props.canEdit &&
-    props.canManageTask(task, 'update') &&
-    task.status === 'active' &&
-    !task.currentRunId
-  )
-    actions.push({ command: 'rename', label: '重命名', icon: EditOutlined })
+  if (props.canEdit && props.canManageTask(task, 'update')) {
+    if (task.status === 'active')
+      actions.push({ command: 'rename', label: '重命名', icon: EditOutlined })
+    actions.push({
+      command: 'archive',
+      label: task.status === 'archived' ? '取消归档' : '归档',
+      icon: InboxOutlined
+    })
+  }
   if (props.canRemove && props.canManageTask(task, 'delete') && !task.currentRunId)
     actions.push({
       command: 'delete',
@@ -186,6 +190,7 @@ const taskActions = (task: WorkSummary): MenuAction[] => {
 }
 function handleCommand(command: string, task: WorkSummary): void {
   if (command === 'rename') emit('rename', task)
+  if (command === 'archive') emit('archive', task)
   if (command === 'delete') emit('delete', task)
 }
 const statusLabel = (value: WorkStatus) =>

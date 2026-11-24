@@ -59,7 +59,12 @@ async def main() -> None:
 
     GraphVectorRPC._invoke = registered_rpc
     settings = Settings.model_validate(json.loads(Path(sys.argv[1]).read_text()))  # noqa: ASYNC240 - load the one private local config synchronously before worker startup
-    for key in (*settings.worker_queues, settings.worker_health_key, *settings.worker_arq_health_keys):
+    for key in (
+        *settings.worker_queues,
+        settings.worker_health_key,
+        settings.worker_heartbeats_key,
+        *settings.worker_arq_health_keys,
+    ):
         resource('intent', 'redis_key', key)
     container = Container(settings)
     worker = build_worker(container, max_jobs=1)

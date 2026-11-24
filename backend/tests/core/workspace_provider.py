@@ -142,8 +142,8 @@ class WorkspaceProviderHandler(BaseHTTPRequestHandler):
         server: WorkspaceProvider = self.server
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         server.requests.append(body)
-        message = server.response(body)
-        finish = 'tool_calls' if message.get('tool_calls') else 'stop'
+        message = dict(server.response(body))
+        finish = message.pop('_finish_reason', 'tool_calls' if message.get('tool_calls') else 'stop')
         common = {'id': 'workspace-fixture', 'created': 1, 'model': body['model']}
         usage = {'prompt_tokens': 17, 'completion_tokens': 3, 'total_tokens': 20}
         self.send_response(200)

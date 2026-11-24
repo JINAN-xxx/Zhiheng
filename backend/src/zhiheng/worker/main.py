@@ -31,7 +31,10 @@ async def execute_knowledge(context: dict[str, object], job_id: str, kind: str) 
         await container.knowledge_preparation.tick(UUID(job_id))
 
 
-def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 10) -> WorkerProcess:
+def build_worker(container: Container, *, burst: bool = False, max_jobs: int | None = None) -> WorkerProcess:
+    settings = container.settings
+    generation_slots = settings.worker_generation_slots if max_jobs is None else max_jobs
+    limits = (generation_slots, 4, 2, 4, settings.worker_workspace_slots)
     consumers = tuple(
         ConsumerWorker(
             functions=[
@@ -62,7 +65,7 @@ def build_worker(container: Container, *, burst: bool = False, max_jobs: int = 1
             burst=False,
             poll_delay=0.05,
         )
-        for queue_name, limit in zip(container.settings.worker_queues, (max_jobs, 4, 2, 4, 2), strict=True)
+        for queue_name, limit in zip(settings.worker_queues, limits, strict=True)
     )
     return WorkerProcess(container, consumers, burst=burst)
 
@@ -74,7 +77,7 @@ async def run_worker(settings: Settings) -> None:
         worker = build_worker(container)
         await worker.async_run()
     finally:
-        cleanup = asyncio.create_task(_close_resources(container, settings, worker), name='worker-container-cleanup')
+        cleanup = asyncio.create_task(_close_resources(container, worker), name='worker-container-cleanup')
         cancelled = False
         while not cleanup.done():
             try:
@@ -86,12 +89,9 @@ async def run_worker(settings: Settings) -> None:
             raise asyncio.CancelledError
 
 
-async def _close_resources(container: Container, settings: Settings, worker: WorkerProcess | None) -> None:
+async def _close_resources(container: Container, worker: WorkerProcess | None) -> None:
     try:
         if worker is not None:
             await worker.close()
     finally:
-        try:
-            await container.redis.delete(settings.worker_health_key)
-        finally:
-            await container.close()
+        await container.close()

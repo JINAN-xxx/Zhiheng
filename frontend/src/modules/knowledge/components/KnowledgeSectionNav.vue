@@ -1,9 +1,9 @@
 <!-- Adapted from the original knowledge workspace, MIT licensed. -->
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
-import { FileTextOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { ApartmentOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { canUseCapability } from '../../identity/public.ts'
-const props = defineProps<{ activeView: string; graphAvailable?: boolean }>()
+const props = defineProps<{ activeView: string; graphAvailable: boolean }>()
 const emit = defineEmits<{ navigate: [view: string] }>()
 const root = ref<HTMLElement | null>(null),
   id = useId()
@@ -11,7 +11,13 @@ const items = computed(() => [
   { view: 'documents', label: '资料', icon: FileTextOutlined },
   ...(canUseCapability('knowledge', 'query')
     ? [{ view: 'query', label: '检索测试', icon: SearchOutlined }]
-    : [])
+    : []),
+  {
+    view: 'graph',
+    label: '知识图谱',
+    icon: ApartmentOutlined,
+    disabled: !props.graphAvailable && props.activeView !== 'graph'
+  }
 ])
 function select(view: string) {
   if (props.activeView !== view) emit('navigate', view)
@@ -19,19 +25,19 @@ function select(view: string) {
 function keydown(event: KeyboardEvent) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
+  const enabled = items.value.filter((item) => !item.disabled)
   const current = Math.max(
     0,
-    items.value.findIndex((item) => item.view === props.activeView)
+    enabled.findIndex((item) => item.view === props.activeView)
   )
   const index =
     event.key === 'Home'
       ? 0
       : event.key === 'End'
-        ? items.value.length - 1
-        : (current + (event.key === 'ArrowRight' ? 1 : -1) + items.value.length) %
-          items.value.length
-  const next = items.value[index]!
-  root.value?.querySelectorAll<HTMLButtonElement>('button')[index]?.focus()
+        ? enabled.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + enabled.length) % enabled.length
+  const next = enabled[index]!
+  root.value?.querySelectorAll<HTMLButtonElement>('button:enabled')[index]?.focus()
   select(next.view)
 }
 </script>
@@ -49,6 +55,7 @@ function keydown(event: KeyboardEvent) {
       :key="item.view"
       type="button"
       role="tab"
+      :disabled="item.disabled"
       :aria-label="item.label"
       :aria-controls="`knowledge-${item.view}-panel`"
       :aria-selected="item.view === activeView"
@@ -99,9 +106,21 @@ function keydown(event: KeyboardEvent) {
   background: transparent;
   content: '';
 }
-.knowledge-section-nav button:hover,
+.knowledge-section-nav button:enabled:hover,
 .knowledge-section-nav button.is-active {
   color: var(--main-color);
+}
+.knowledge-section-nav button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (max-width: 460px) {
+  .knowledge-section-nav {
+    gap: 14px;
+  }
+  .knowledge-section-nav button {
+    gap: 5px;
+  }
 }
 .knowledge-section-nav button.is-active {
   font-weight: 600;

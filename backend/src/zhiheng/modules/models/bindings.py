@@ -16,6 +16,8 @@ from zhiheng.modules.models.projections import binding_for, model_info
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
 
+DAIP_TOKEN_PLAN_URL = 'https://zhenze-huhehaote.cmecloud.cn/tokenplan/v1'
+
 
 class ModelBindings:
     def __init__(self, cipher: CredentialCipher, timeout_seconds: float, *, provider_factory: ProviderFactory) -> None:
@@ -94,6 +96,20 @@ class ModelBindings:
         if revision is None:
             raise AppError('connection_unavailable', '模型连接版本不可用', 503)
         return binding_for(model_info(model), model_id=model.id, revision_id=revision.id)
+
+    async def supports_low_reasoning(self, session: AsyncSession, binding: ModelBinding) -> bool:
+        if (
+            binding.model_type != 'chat'
+            or binding.upstream_model.casefold() != 'glm-5.3'
+            or binding.connection_revision_id is None
+        ):
+            return False
+        revision = await session.get(ConnectionRevision, binding.connection_revision_id)
+        return bool(
+            revision is not None
+            and revision.connection_id == binding.connection_id
+            and revision.base_url.rstrip('/') == DAIP_TOKEN_PLAN_URL
+        )
 
     async def provider(self, session: AsyncSession, binding: ModelBinding) -> ModelProvider:
         connection: ModelConnection | ConnectionRevision | None

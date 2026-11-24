@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Scope, Send
 
+from zhiheng.api.common.run_polling import RunPollInterval
 from zhiheng.api.inference.errors import error_payload
 from zhiheng.application.execution.timeouts import MODEL_TIMEOUT_CODES
 from zhiheng.bootstrap.container import Container
@@ -28,22 +29,25 @@ async def snapshots(
     container: Container, request: Request, run_id: UUID, owner_id: UUID, token: str, *, scope: KeyScope
 ) -> AsyncIterator[RunSnapshot]:
     terminal = False
+    interval = RunPollInterval(0.05)
     deadline = monotonic() + container.settings.provider_total_timeout_seconds + 60
     try:
         while True:
             async with container.database.sessions() as session:
-                identity = await container.keys.authenticate(session, token)
-                await container.keys.authorize_identity(session, identity, [], scope=scope)
+                await container.keys.authenticate(session, token, scope=scope)
                 snapshot = await container.runs.snapshot(session, run_id, owner_id)
             terminal = snapshot.status in TERMINAL_STATUSES
-            yield snapshot
+            changed = snapshot.revision != interval.revision
+            delay = interval.next_delay(snapshot)
+            if changed or terminal:
+                yield snapshot
             if terminal:
                 return
             if monotonic() > deadline:
                 raise AppError('request_wait_timeout', '等待运行结果超过时限，请查询原运行状态', 504)
             if await request.is_disconnected():
                 raise asyncio.CancelledError
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(min(delay, max(0, deadline - monotonic())))
     finally:
         # Cancellation must also release an admitted run when disconnect happens before provider start.
         if not terminal:

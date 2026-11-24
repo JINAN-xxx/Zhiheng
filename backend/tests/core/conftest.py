@@ -153,7 +153,12 @@ async def settings(  # noqa: PLR0912, PLR0915 - keep ownership registration and 
         provider_timeout_seconds=2,
         lease_seconds=3,
     )
-    exact_keys = {*instance.worker_queues, instance.worker_health_key, *instance.worker_arq_health_keys}
+    exact_keys = {
+        *instance.worker_queues,
+        instance.worker_health_key,
+        instance.worker_heartbeats_key,
+        *instance.worker_arq_health_keys,
+    }
     for key in exact_keys:
         resource('intent', 'redis_key', key)
 

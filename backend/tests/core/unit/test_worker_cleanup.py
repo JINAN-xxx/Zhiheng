@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet
 from zhiheng.bootstrap.settings import Settings
 
 
-@pytest.mark.parametrize('failure', ['construction', 'worker_close', 'heartbeat_delete'])
+@pytest.mark.parametrize('failure', ['construction', 'worker_close'])
 async def test_worker_always_releases_its_container(monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
     from zhiheng.worker import main
 
@@ -14,14 +14,8 @@ async def test_worker_always_releases_its_container(monkeypatch: pytest.MonkeyPa
         credential_key=Fernet.generate_key().decode(),
     )
 
-    class Redis:
-        async def delete(self, _key: str) -> None:
-            if failure == 'heartbeat_delete':
-                raise RuntimeError('heartbeat deletion failed')
-
     class Resources:
         closed = False
-        redis = Redis()
 
         async def close(self) -> None:
             self.closed = True

@@ -10,6 +10,7 @@ from sqlalchemy import update
 
 from tests.core.integration.test_chat_runs import admit
 from tests.core.integration.test_knowledge_failures import ready_base, source
+from zhiheng.infrastructure.worker_heartbeat import WORKER_HEARTBEAT_TTL_SECONDS, worker_heartbeat_age
 from zhiheng.runtime.orm import Outbox
 from zhiheng.shared.time import utcnow
 from zhiheng.worker.main import build_worker
@@ -156,18 +157,72 @@ async def test_blocked_reconciliation_does_not_stop_dispatch_or_heartbeat(
     running = asyncio.create_task(worker.async_run())
     try:
         await asyncio.wait_for(entered.wait(), timeout=3)
-        await container.redis.set(container.settings.worker_health_key, '0', ex=15)
+        key = container.settings.worker_heartbeats_key
+        async with asyncio.timeout(3):
+            while not (heartbeats := await container.redis.zrange(key, 0, -1, withscores=True)):  # noqa: ASYNC110 - observe Redis across independent tasks
+                await asyncio.sleep(0.02)
+        ((member, before),) = heartbeats
         _, chat = await admit(admin, model_id)
         await wait_status(admin, f'/api/runs/{chat["id"]}', 'completed')
         async with asyncio.timeout(4):
-            while float(await container.redis.get(container.settings.worker_health_key) or 0) == 0:  # noqa: ASYNC110 - observe the independently maintained Redis heartbeat
+            while (await container.redis.zscore(key, member) or 0) <= before:  # noqa: ASYNC110 - observe the independently maintained heartbeat
                 await asyncio.sleep(0.02)
-        heartbeat = float(await container.redis.get(container.settings.worker_health_key))
+        heartbeat = await container.redis.zscore(key, member)
+        assert heartbeat is not None
         assert 0 <= time() - heartbeat < 3 and not release.is_set()
     finally:
         release.set()
         await worker.close()
         await asyncio.gather(running, return_exceptions=True)
+
+
+async def test_worker_exit_leaves_other_worker_heartbeats_and_execution_available(
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    container = app.state.container
+    key = container.settings.worker_heartbeats_key
+    workers = [build_worker(container, max_jobs=1) for _ in range(4)]
+    monkeypatch.setattr(type(workers[0]), '_install_signals', lambda _: None)
+    tasks = [asyncio.create_task(worker.async_run()) for worker in workers]
+    try:
+        async with asyncio.timeout(5):
+            while await container.redis.zcard(key) != 4:  # noqa: ASYNC110 - wait for all workers to publish through Redis
+                await asyncio.sleep(0.02)
+        assert (await admin.get('/health/ready')).status_code == 200
+        await workers[0].close()
+        await asyncio.gather(tasks[0], return_exceptions=True)
+        assert await container.redis.zcard(key) == 3
+        assert all(not task.done() for task in tasks[1:])
+        assert (await admin.get('/health/ready')).status_code == 200
+        monitor = await admin.get('/api/admin/monitor')
+        assert monitor.status_code == 200
+        assert monitor.json()['worker']['status'] == 'ok'
+        _, chat = await admit(admin, model_id)
+        await wait_status(admin, f'/api/runs/{chat["id"]}', 'completed')
+    finally:
+        await asyncio.gather(*(worker.close() for worker in workers))
+        await asyncio.gather(*tasks, return_exceptions=True)
+    assert await container.redis.zcard(key) == 0
+    response = await admin.get('/health/ready')
+    assert response.status_code == 503 and response.json()['component'] == 'worker'
+
+
+async def test_health_filters_expired_workers_and_accepts_legacy_heartbeat(
+    admin: httpx.AsyncClient, app: FastAPI
+) -> None:
+    container = app.state.container
+    key = container.settings.worker_heartbeats_key
+    legacy = container.settings.worker_health_key
+    now = time()
+    await container.redis.zadd(key, {'expired:instance': now - WORKER_HEARTBEAT_TTL_SECONDS - 1, 'live:instance': now})
+    assert await worker_heartbeat_age(container.redis, key, hostname='live') is not None
+    assert await worker_heartbeat_age(container.redis, key, hostname='expired') is None
+    assert (await admin.get('/health/ready')).status_code == 200
+    await container.redis.zrem(key, 'live:instance')
+    assert (await admin.get('/health/ready')).status_code == 503
+    await container.redis.set(legacy, str(time()), ex=WORKER_HEARTBEAT_TTL_SECONDS)
+    assert await worker_heartbeat_age(container.redis, key, hostname='live', legacy_key=legacy) is None
+    assert (await admin.get('/health/ready')).status_code == 200
 
 
 async def test_burst_waits_for_lost_delivery_inside_outbox_resend_cooldown(

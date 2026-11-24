@@ -40,6 +40,7 @@ const {
   selectConversation,
   selected,
   queuedFiles,
+  outgoing,
   addFiles,
   removeFile,
   retryFile,
@@ -51,7 +52,6 @@ const {
   selectedSkills,
   skillPickerOpen,
   removeSkill,
-  handleSkillSelected,
   error,
   inputIssue,
   dismissInputIssue,
@@ -115,6 +115,10 @@ async function newConversation(): Promise<void> {
 }
 const fileInput = ref<HTMLInputElement | null>(null)
 const composerSurface = ref<InstanceType<typeof ConversationComposer> | null>(null)
+const canAddFiles = computed(
+  () => canUseChat.value && !sending.value && !running.value && !loading.value && !readOnly.value
+)
+const canUseSkills = computed(() => canUseChat.value && canUseCapability('skills', 'use'))
 const fileQueue = ref<HTMLElement | null>(null)
 const queuedFileBytes = computed(() =>
   queuedFiles.value.reduce((total, file) => total + file.sizeBytes, 0)
@@ -161,7 +165,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="platform-chat workspace-chat-page"
-    :class="{ 'is-empty': !messages.length && !activeRun && !selected }"
+    :class="{ 'is-empty': !messages.length && !activeRun && !selected && !outgoing }"
   >
     <ChatHistoryDialog v-model:open="historyOpen" />
     <ChatGenerationSettingsDialog
@@ -241,7 +245,7 @@ onBeforeUnmount(() => {
         </div>
         <ASpin v-if="loading" class="page-spinner" />
         <ChatEmptyState
-          v-else-if="!messages.length && !activeRun && !selected"
+          v-else-if="!messages.length && !activeRun && !selected && !outgoing"
           @prompt="draft = $event"
         />
         <article
@@ -252,6 +256,7 @@ onBeforeUnmount(() => {
           :class="row.message.role"
         >
           <div class="message-body">
+            <ChatMessageFiles v-if="row.message.role === 'user'" :files="row.message.attachments" />
             <div v-if="messageStatus(row.message)" class="message-meta">
               <span class="message-run-status">{{ messageStatus(row.message) }}</span>
             </div>
@@ -267,7 +272,10 @@ onBeforeUnmount(() => {
             <p v-if="isActive(row.message) && activeRun?.error" class="run-error">
               {{ activeRun.error.message }}
             </p>
-            <ChatMessageFiles :files="row.message.attachments" />
+            <ChatMessageFiles
+              v-if="row.message.role === 'assistant'"
+              :files="row.message.attachments"
+            />
             <div v-if="row.message.skill_snapshots.length" class="message-skills">
               <span
                 v-for="skill in row.message.skill_snapshots"
@@ -324,6 +332,21 @@ onBeforeUnmount(() => {
             />
           </div>
         </article>
+        <article v-if="outgoing" class="message-row user">
+          <div class="message-body">
+            <div v-if="outgoing.files.length" class="outgoing-files" aria-label="消息附件">
+              <AttachmentCard
+                v-for="file in outgoing.files"
+                :key="file.id"
+                :filename="file.fileName"
+                :size-label="formatFileSize(file.sizeBytes)"
+                :mime="file.kind === 'image' ? 'image/*' : ''"
+                :removable="false"
+              />
+            </div>
+            <p class="user-message">{{ outgoing.message }}</p>
+          </div>
+        </article>
         <article v-if="activeRun && !activeRunRepresented" class="message-row assistant">
           <div class="message-body">
             <div v-if="showRunStatus" class="message-meta">
@@ -359,6 +382,7 @@ onBeforeUnmount(() => {
         ref="composerSurface"
         v-model="draft"
         :disabled="!canUseChat || sending || readOnly"
+        :shortcuts="{ skills: canAddFiles && canUseSkills, attachments: canAddFiles }"
         :running="running"
         :sending="sending"
         :stopping="stopping"
@@ -376,6 +400,8 @@ onBeforeUnmount(() => {
           readOnly
         "
         @keydown="composerKeydown"
+        @select-skill="skillPickerOpen = true"
+        @add-attachment="fileInput?.click()"
         @send="send()"
         @stop="stop"
       >
@@ -434,12 +460,11 @@ onBeforeUnmount(() => {
         </template>
         <template #overlay>
           <SkillPicker
-            v-if="canUseChat && canUseCapability('skills', 'use')"
+            v-if="canUseSkills"
             ref="skillPicker"
             v-model="selectedSkills"
             v-model:open="skillPickerOpen"
-            :disabled="running || sending || loading || readOnly"
-            @selected="handleSkillSelected"
+            :disabled="!canAddFiles"
             @dismiss="focusDraft"
         /></template>
         <template #prefix>
@@ -512,20 +537,20 @@ onBeforeUnmount(() => {
         <template #tools>
           <AttachmentButton
             v-if="canUseChat"
-            :disabled="sending || running || loading || readOnly"
+            :disabled="!canAddFiles"
             aria-label="添加图片或附件"
             title="每条消息附件合计最多50MB，单个文件最大20MiB"
             @click="fileInput?.click()"
           />
           <button
-            v-if="canUseChat && canUseCapability('skills', 'use')"
+            v-if="canUseSkills"
             type="button"
             class="composer-skill-trigger"
             :class="{ 'is-active': skillPickerOpen }"
-            :disabled="running || sending || loading || readOnly"
+            :disabled="!canAddFiles"
             aria-label="选择技能"
             :aria-expanded="skillPickerOpen"
-            title="选择技能，也可输入 @"
+            title="选择技能，也可输入 /"
             @click="skillPickerOpen = !skillPickerOpen"
           >
             <AppstoreOutlined aria-hidden="true" /><span class="composer-tool-label">技能</span>
@@ -560,6 +585,15 @@ onBeforeUnmount(() => {
 @include conversation.toolbar;
 @include conversation.history;
 @include conversation.messages;
+
+.outgoing-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 8px;
+}
 
 .reply-versions {
   display: flex;

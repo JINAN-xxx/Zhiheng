@@ -1,8 +1,5 @@
 """Owned workspace tasks, durable execution and managed-file transport."""
 
-import asyncio
-from collections.abc import AsyncIterator
-from time import monotonic
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -11,6 +8,7 @@ from fastapi.responses import StreamingResponse
 
 from zhiheng.api.common.dependencies import COOKIE_NAME, ContainerDependency, PrincipalDependency, SessionDependency
 from zhiheng.api.common.file_content import file_content_response
+from zhiheng.api.common.run_polling import console_run_events
 from zhiheng.modules.agents.public import AgentSummary
 from zhiheng.modules.work.public import (
     AddMember,
@@ -18,16 +16,16 @@ from zhiheng.modules.work.public import (
     CreateAgentTask,
     TaskDetail,
     TaskPage,
+    TaskProgress,
     UpdateAgentTask,
     UpgradeMember,
     WorkOptions,
 )
-from zhiheng.runtime.contracts import TERMINAL_STATUSES, RunSnapshot
+from zhiheng.runtime.contracts import RunSnapshot
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 
 router = APIRouter(prefix='/api/work', tags=['work'])
-SSE_HEARTBEAT_SECONDS = 10
 PositiveDecimalQuery = Annotated[str, Query(pattern=r'^[1-9][0-9]{0,9}$')]
 PageSizeQuery = Annotated[str, Query(pattern=r'^(?:[1-9][0-9]?|100)$')]
 PREVIEW_MIMES = frozenset(
@@ -60,9 +58,16 @@ async def tasks(
     page_size: PageSizeQuery = '20',
     search: str = '',
     status: Literal['active', 'completed', 'archived'] | None = None,
+    include_archived: bool = True,
 ) -> TaskPage:
     value = await container.work.list_tasks(
-        session, principal, page=int(page), page_size=int(page_size), search=search, status=status
+        session,
+        principal,
+        page=int(page),
+        page_size=int(page_size),
+        search=search,
+        status=status,
+        include_archived=include_archived,
     )
     for item in value.items:
         if item.mode == 'legacy':
@@ -83,7 +88,7 @@ async def detail(
     task = await container.work.require(session, principal, task_id)
     if task.mode == 'legacy':
         return await container.work_runs.detail(session, principal, task_id)
-    return await container.work_agent.detail(principal, task_id)
+    return await container.work_agent.detail(session, principal, task_id)
 
 
 @router.patch('/tasks/{task_id}')
@@ -102,13 +107,12 @@ async def remove(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> Response:
-    task = await container.work.require(session, principal, task_id)
-    if task.mode == 'legacy':
-        await session.rollback()
-        async with session.begin():
+    async with session.begin():
+        task = await container.work.require(session, principal, task_id)
+        if task.mode == 'legacy':
             await container.work_runs.remove(session, principal, task_id, int(expected_version))
-    else:
-        await container.work_agent.remove(principal, task_id, int(expected_version))
+        else:
+            await container.work_agent.remove(session, principal, task_id, int(expected_version))
     return Response(status_code=204)
 
 
@@ -232,7 +236,7 @@ async def snapshot(
     task = await container.work.require(session, principal, task_id)
     if task.mode == 'legacy':
         return await container.work_runs.snapshot(session, principal, task_id, run_id)
-    return await container.work_agent.snapshot(principal, task_id, run_id)
+    return await container.work_agent.snapshot(session, principal, task_id, run_id)
 
 
 @router.post('/tasks/{task_id}/runs/{run_id}/cancel')
@@ -243,13 +247,23 @@ async def cancel(
     principal: PrincipalDependency,
     session: SessionDependency,
 ) -> RunSnapshot:
-    require_capability(principal, 'work', 'use')
-    task = await container.work.require(session, principal, task_id)
-    if task.mode == 'legacy':
-        await session.rollback()
-        async with session.begin():
+    async with session.begin():
+        task = await container.work.require(session, principal, task_id)
+        if task.mode == 'legacy':
+            require_capability(principal, 'work', 'use')
             return await container.work_runs.cancel(session, principal, task_id, run_id)
-    return await container.work_agent.cancel(principal, task_id, run_id)
+        return await container.work_agent.cancel(session, principal, task_id, run_id)
+
+
+@router.get('/tasks/{task_id}/runs/{run_id}/progress')
+async def progress(
+    task_id: UUID,
+    run_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+) -> TaskProgress | None:
+    return await container.work_agent.progress(session, principal, task_id, run_id)
 
 
 @router.get('/tasks/{task_id}/runs/{run_id}/events')
@@ -263,35 +277,12 @@ async def events(
         else:
             await container.work_agent.snapshot_in(session, principal, task_id, run_id)
 
-    async def snapshots() -> AsyncIterator[str]:
-        revision, last_emit = -1, monotonic()
-        while not await request.is_disconnected():
-            try:
-                async with container.database.sessions.begin() as session:
-                    current = await container.identity.authenticate(
-                        session, request.cookies.get(COOKIE_NAME), lock=True
-                    )
-                    require_capability(current, 'work', 'read')
-                    if task.mode == 'legacy':
-                        value = await container.work_runs.snapshot(session, current, task_id, run_id)
-                    else:
-                        value = await container.work_agent.snapshot_in(session, current, task_id, run_id)
-            except AppError as error:
-                if error.code == 'unauthenticated' or error.status_code in {403, 404}:
-                    return
-                raise
-            if value.revision != revision:
-                yield f'event: snapshot\ndata: {value.model_dump_json()}\n\n'
-                revision, last_emit = value.revision, monotonic()
-            if value.status in TERMINAL_STATUSES:
-                return
-            if monotonic() - last_emit > SSE_HEARTBEAT_SECONDS:
-                yield ': heartbeat\n\n'
-                last_emit = monotonic()
-            await asyncio.sleep(0.15)
+    async def read() -> RunSnapshot:
+        async with container.database.sessions.begin() as session:
+            current = await container.identity.authenticate(session, request.cookies.get(COOKIE_NAME), lock=True)
+            require_capability(current, 'work', 'read')
+            if task.mode == 'legacy':
+                return await container.work_runs.snapshot(session, current, task_id, run_id)
+            return await container.work_agent.snapshot_in(session, current, task_id, run_id)
 
-    return StreamingResponse(
-        snapshots(),
-        media_type='text/event-stream',
-        headers={'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no'},
-    )
+    return console_run_events(request, read)

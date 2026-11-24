@@ -1,9 +1,16 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from zhiheng.modules.knowledge.graph.contracts import GraphConfigPatch, GraphQueryRequest, GraphSubgraphRequest
+from zhiheng.modules.knowledge.graph.contracts import (
+    GraphConfigPatch,
+    GraphPreviewResult,
+    GraphQueryRequest,
+    GraphSubgraphRequest,
+)
 from zhiheng.modules.models.public import ModelBinding, ModelOptions, ModelRequest
 
 
@@ -18,6 +25,53 @@ def test_graph_requests_forbid_unknown_and_bound_paid_parameters() -> None:
             GraphQueryRequest.model_validate(request)
     with pytest.raises(ValidationError):
         GraphSubgraphRequest(max_depth=6)
+
+
+async def test_preview_persists_bounded_graph_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lightrag.types import KnowledgeGraph, KnowledgeGraphEdge, KnowledgeGraphNode
+
+    from zhiheng.modules.knowledge.adapters.lightrag import factory
+
+    nodes = [
+        KnowledgeGraphNode(
+            id=str(index),
+            labels=[str(index)],
+            properties={'entity_name': f'Node {index}', 'description': 'a' * 360},
+        )
+        for index in range(82)
+    ]
+    edges = [
+        KnowledgeGraphEdge(id=str(index), type='edge', source='0', target='1', properties={'description': 'b' * 360})
+        for index in range(161)
+    ]
+    edges.insert(0, KnowledgeGraphEdge(id='outside', type='edge', source='0', target='81', properties={}))
+    storage = SimpleNamespace(
+        get_knowledge_graph=AsyncMock(return_value=KnowledgeGraph(nodes=nodes, edges=edges, is_truncated=False)),
+        get_all_nodes=AsyncMock(return_value=nodes),
+        get_all_edges=AsyncMock(return_value=edges),
+    )
+    rag = SimpleNamespace(
+        chunk_entity_relation_graph=storage,
+        doc_status=SimpleNamespace(get_status_counts=AsyncMock(return_value={'processed': 1})),
+    )
+    frozen = SimpleNamespace(chunks=[SimpleNamespace(document_id=uuid4())])
+    manifest = SimpleNamespace(attempt_id=uuid4(), revision=uuid4())
+    monkeypatch.setattr(factory, 'insert_managed', AsyncMock())
+
+    raw = await factory.run_operation(rag, 'preview', frozen, manifest, {})
+    result = GraphPreviewResult.model_validate(raw)
+    storage.get_knowledge_graph.assert_awaited_once_with(node_label='*', max_depth=2, max_nodes=80)
+    assert (result.entities, result.relations, result.chunks) == (82, 162, 1)
+    graph = result.graph
+    assert graph is not None
+    assert graph.revision == manifest.revision
+    assert graph.is_truncated
+    assert len(graph.nodes) == 80 and len(graph.edges) == 160
+    assert graph.nodes[0].entity_name == 'Node 0'
+    assert graph.nodes[0].description == 'a' * 320
+    assert graph.edges[0].description == 'b' * 320
+    assert {edge.target for edge in graph.edges} == {'1'}
+    assert GraphPreviewResult.model_validate({key: value for key, value in raw.items() if key != 'graph'}).graph is None
 
 
 def test_typed_generation_controls_survive_snapshot_and_forbid_embedding() -> None:

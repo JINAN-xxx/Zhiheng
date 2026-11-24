@@ -2,6 +2,7 @@ import io
 import json
 import zipfile
 from collections import Counter
+from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from zhiheng.modules.work.public import ModelInvoker
 from zhiheng.runtime.orm import Run
 
 MARKERS = ('REPORT_HEAD', 'REPORT_MIDDLE', 'REPORT_TAIL')
+TRUNCATED_SUMMARY = '这段摘要没有结束'
 
 
 class ReportResponder:
@@ -167,6 +169,54 @@ async def test_empty_summary_pauses_without_discarding_report_and_explicit_conti
         )
         == 1
     )
+
+
+@pytest.mark.parametrize('fixed_cap', [False, True])
+async def test_truncated_summary_retries_without_replaying_reads(
+    admin: httpx.AsyncClient,
+    app: FastAPI,
+    workspace_provider: WorkspaceProvider,
+    monkeypatch: pytest.MonkeyPatch,
+    fixed_cap: bool,
+) -> None:
+    context = app.state.container.work_agent.context
+    if fixed_cap:
+        monkeypatch.setattr(
+            context, 'policy', replace(context.policy, summary=replace(context.policy.summary, output_tokens=1024))
+        )
+    responder = ReportResponder()
+    caps: list[object] = []
+
+    def respond(body: dict[str, object]) -> dict[str, object]:
+        if not body.get('tools') and body['messages'][0]['content'].startswith('用中文压缩历史'):
+            caps.append(body.get('max_completion_tokens'))
+            if len(caps) == 1:
+                return {'role': 'assistant', 'content': TRUNCATED_SUMMARY, '_finish_reason': 'length'}
+        return responder(body)
+
+    monkeypatch.setattr(workspace_provider, 'response', respond)
+    model_id = await workspace_model(admin, workspace_provider, 'workspace-greeting')
+    task = await report_task(admin, model_id)
+    run = await turn(admin, task, '阅读完整报告')
+    await consume(app, seconds=60)
+    url = f'/api/work/tasks/{task["id"]}'
+    if fixed_cap:
+        stopped = (await admin.get(f'{url}/runs/{run["id"]}')).json()
+        assert stopped['status'] == 'interrupted' and stopped['error']['code'] == 'work_summary_output_limit', stopped
+        assert TRUNCATED_SUMMARY not in stopped['text']
+        assert caps == [1024]
+        run = await continue_task(admin, task['id'])
+        await consume(app, seconds=60)
+    final = (await admin.get(f'{url}/runs/{run["id"]}')).json()
+    assert final['status'] == 'completed' and all(marker in final['text'] for marker in MARKERS), final
+    assert caps[:2] == ([1024, 1024] if fixed_cap else [2048, 4096])
+    assert all(TRUNCATED_SUMMARY not in text for text in responder.final_contexts)
+    detail = (await admin.get(url)).json()
+    steps = detail['steps']
+    summary_steps = [step for step in steps if step['name'] == 'summary']
+    assert [step['status'] for step in summary_steps][:2] == ['failed', 'succeeded']
+    starts = [step['details']['arguments'].get('start') for step in steps if step['name'] == 'read_document']
+    assert starts and len(starts) == len(set(starts)), starts
 
 
 async def test_legacy_poisoned_checkpoint_recovers_report_without_replaying_confirmed_reads(

@@ -6,7 +6,7 @@ import json
 import os
 from collections import Counter
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 import unittest
 
 from playwright.async_api import expect
@@ -19,6 +19,7 @@ class KnowledgeNavigationRegressions(KnowledgeRepairRegressions):
         self.counts = Counter()
         self.held_access = None
         self.access_denied = False
+        self.paginate_documents = False
         self.other_base = {**self.base, 'id':'base-2', 'name':'另一知识库'}
         self.bases.append(self.other_base)
         self.base.update(name='项目资料库',description='项目研究与技术文档',document_count=2)
@@ -42,6 +43,19 @@ class KnowledgeNavigationRegressions(KnowledgeRepairRegressions):
         if path == '/api/knowledge/bases/base-2': return await route.fulfill(json=self.other_base)
         if path == '/api/knowledge/bases/base-2/documents': return await route.fulfill(json={'items':[],'total':0})
         if path in ['/api/knowledge/bases/base-2/jobs','/api/knowledge/bases/base-2/folders']: return await route.fulfill(json=[])
+        if self.paginate_documents and path == '/api/knowledge/bases/base-1/documents' and method == 'GET':
+            params = parse_qs(parsed.query)
+            if params.get('folder') == ['root']:
+                search = params.get('search', [''])[0].lower()
+                rows = [doc for doc in self.documents if search in doc['file_name'].lower()]
+                offset = 30 if params.get('cursor') == ['next-page'] else 0
+                page = rows[offset:offset+30]
+                return await route.fulfill(
+                    headers={'X-Next-Cursor': 'next-page' if len(rows) > offset+30 else ''},
+                    json={'items': page, 'total': len(page)})
+        if path == '/api/knowledge/bases/base-1/documents/visibility':
+            ids = set(parse_qs(parsed.query).get('document_id', []))
+            return await route.fulfill(json=[doc['id'] for doc in self.documents if doc['id'] in ids])
         if path == '/api/knowledge/bases/base-1/query' and method == 'POST':
             self.query_submissions.append(route.request.post_data_json)
         await super().respond(route)
@@ -107,8 +121,12 @@ class KnowledgeNavigationRegressions(KnowledgeRepairRegressions):
         template=self.documents[0]
         self.documents=[{**template,'id':f'doc-{i}','file_id':f'file-{i}','file_name':f'项目研究资料 {i:02d}.docx'} for i in range(1,46)]
         self.base['document_count']=45
+        self.paginate_documents = True
         await self.open_documents()
-        await self.page.locator('.ant-pagination-item-2').click()
+        last = self.page.get_by_role('button', name='项目研究资料 45.docx', exact=True)
+        await expect(last).to_have_count(0)
+        await self.page.get_by_role('button',name='加载更多',exact=True).click()
+        await expect(last).to_be_visible()
         body=self.page.locator('.knowledge-documents__content')
         await body.evaluate('(element)=>element.scrollTop=180')
         scroll=await body.evaluate('(element)=>element.scrollTop')
@@ -117,8 +135,41 @@ class KnowledgeNavigationRegressions(KnowledgeRepairRegressions):
         await expect(self.page.get_by_role('tab',name='检索测试',exact=True)).to_be_focused()
         await expect(self.page.get_by_role('textbox',name='检索问题',exact=True)).to_be_visible()
         await self.page.get_by_role('tab',name='检索测试',exact=True).press('ArrowLeft')
-        await expect(self.page.locator('.ant-pagination-item-active')).to_have_text('2')
+        await expect(last).to_be_visible()
         self.assertEqual(await body.evaluate('(element)=>element.scrollTop'),scroll)
+        await self.page.get_by_role('textbox',name='搜索资料',exact=True).fill('45')
+        await expect(last).to_be_visible()
+        await expect(self.page.get_by_role('button',name='项目研究资料 01.docx',exact=True)).to_have_count(0)
+
+    async def test_off_page_citation_survives_refresh_and_clears_after_revocation(self):
+        template = self.documents[0]
+        self.documents = [
+            {**template, 'id': f'doc-{i}', 'file_id': f'file-{i}', 'file_name': f'项目资料 {i:02d}.txt'}
+            for i in range(1, 32)
+        ]
+        self.base['document_count'] = 31
+        self.paginate_documents = True
+        self.preparation['hits'][0].update(document_id='doc-31', file_id='file-31', source_id='doc-31')
+        await self.open_documents()
+        await expect(self.page.get_by_role('button', name='项目资料 31.txt', exact=True)).to_have_count(0)
+        await self.switch('检索测试')
+        await self.page.get_by_role('textbox', name='检索问题', exact=True).fill('工作时间？')
+        await self.page.get_by_role('button', name='检索', exact=True).click()
+        passage = self.page.locator('.query-passage')
+        await expect(passage).to_be_visible()
+
+        refresh = self.page.get_by_role('button', name='刷新资料', exact=True)
+        async with self.page.expect_response(lambda response: '/documents/visibility?' in response.url) as visible:
+            await refresh.click()
+        self.assertEqual(await (await visible.value).json(), ['doc-31'])
+        await expect(passage).to_be_visible()
+
+        self.documents.pop()
+        async with self.page.expect_response(lambda response: '/documents/visibility?' in response.url) as revoked:
+            await refresh.click()
+        self.assertEqual(await (await revoked.value).json(), [])
+        await expect(passage).to_have_count(0)
+        self.assertEqual(len(self.query_submissions), 1)
 
     async def test_browser_back_retains_state_but_another_library_starts_clean(self):
         await self.open_documents()

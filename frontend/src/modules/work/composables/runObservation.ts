@@ -91,15 +91,40 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
     if (refreshTimer !== null) clearTimeout(refreshTimer)
     refreshTimer = null
   }
-  function refreshProgress(taskId: string, context: ContextTicket): void {
+  function refreshProgress(taskId: string, runId: string, context: ContextTicket): void {
     if (refreshTimer !== null || !context.isCurrent()) return
-    refreshTimer = setTimeout(() => {
-      refreshTimer = null
-      if (context.isCurrent())
-        void tasks.refreshTask(taskId, context).catch(() => {
-          // The durable run stream remains authoritative; reconnect also reloads the task projection.
-        })
+    const timer = setTimeout(async () => {
+      const requestedRun = activeRun.value
+      try {
+        if (!context.isCurrent() || requestedRun?.id !== runId || isTerminal(requestedRun)) return
+        const progress = await api.getWorkProgress(taskId, runId, context.signal)
+        const task = tasks.currentTask.value
+        if (
+          !progress ||
+          !context.isCurrent() ||
+          task?.taskId !== taskId ||
+          activeRun.value?.id !== runId
+        )
+          return
+        task.steps = [...task.steps.filter((step) => step.runId !== runId), ...progress.steps]
+        task.artifacts = [
+          ...progress.artifacts,
+          ...task.artifacts.filter((item) => item.runId !== runId)
+        ]
+        task.plan = progress.plan
+        task.executionState = progress.executionState
+      } catch {
+        // Reconnect and terminal updates reload the task from its durable projection.
+      } finally {
+        if (refreshTimer === timer) {
+          refreshTimer = null
+          const latest = activeRun.value
+          if (requestedRun && latest && !isTerminal(latest) && acceptSnapshot(requestedRun, latest))
+            refreshProgress(taskId, runId, context)
+        }
+      }
     }, 400)
+    refreshTimer = timer
   }
   async function follow(run: RunSnapshot, taskId: string, parent: ContextTicket): Promise<void> {
     const current = tasks.currentTask.value
@@ -126,7 +151,8 @@ export function useWorkRunObservation(options: WorkRunObservationOptions) {
         taskId,
         run,
         (snapshot) => {
-          if (context.isCurrent() && applyRun(snapshot, taskId)) refreshProgress(taskId, context)
+          if (context.isCurrent() && applyRun(snapshot, taskId) && !isTerminal(snapshot))
+            refreshProgress(taskId, snapshot.id, context)
         },
         context.signal
       )

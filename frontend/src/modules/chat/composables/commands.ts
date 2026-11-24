@@ -15,6 +15,7 @@ import { groupMessageVersions, nextRegenerationIntent } from './messageVersions.
 import type { RegenerationIntent } from './messageVersions.ts'
 import { inputIssueFrom } from '../inputIssue.ts'
 import type { ChatInputIssue } from '../inputIssue.ts'
+import type { QueuedFile } from '../attachments.ts'
 import type { useChatComposer } from './composer.ts'
 import type { useChatRunObservation } from './runObservation.ts'
 
@@ -30,11 +31,19 @@ interface CommandOptions {
   composer: ReturnType<typeof useChatComposer>
   runs: ReturnType<typeof useChatRunObservation>
   onConversationCreated: (conversation: Conversation) => void
+  scroll: (force?: boolean) => Promise<void>
   acceptMainRun: (
     run: RunSnapshot,
     context: ContextTicket,
     clearComposer?: boolean
   ) => Promise<void>
+}
+
+interface OutgoingMessage {
+  message: string
+  draft: string
+  files: QueuedFile[]
+  runId: string | null
 }
 
 export function useChatCommands(options: CommandOptions) {
@@ -80,7 +89,8 @@ export function useChatCommands(options: CommandOptions) {
       () => queuedFiles.value.map((file) => file.fileId ?? file.id).join(','),
       () => selectedSkills.value.map((skill) => skill.skillSlug).join(',')
     ],
-    dismissInputIssue
+    dismissInputIssue,
+    { flush: 'sync' }
   )
 
   const sending = ref(false)
@@ -97,6 +107,12 @@ export function useChatCommands(options: CommandOptions) {
 
   const pendingSends = reactive(new Map<string, SendIntent>())
   const pendingKey = () => selected.value?.id ?? ''
+  const outgoingMessages = reactive(new Map<string, OutgoingMessage>())
+  const outgoing = computed(() => outgoingMessages.get(pendingKey()))
+  const composerFiles = computed(() => {
+    const submitted = new Set(outgoing.value?.files.map((file) => file.id))
+    return queuedFiles.value.filter((file) => !submitted.has(file.id))
+  })
 
   const canRetry = ref(false)
 
@@ -168,6 +184,17 @@ export function useChatCommands(options: CommandOptions) {
     if (!request) return
     pendingSends.set(targetKey, request)
     sending.value = true
+    const submitted = outgoingMessages.get(targetKey) ?? {
+      message: request.message,
+      draft: draft.value,
+      files: queuedFiles.value.filter(
+        (file) => file.fileId && request.file_ids?.includes(file.fileId)
+      ),
+      runId: null
+    }
+    outgoingMessages.set(targetKey, submitted)
+    if (!retry) draft.value = ''
+    void options.scroll(true)
     skillPickerOpen.value = false
     error.value = ''
     dismissInputIssue()
@@ -180,8 +207,10 @@ export function useChatCommands(options: CommandOptions) {
         onConversationCreated(conversation)
         conversationId = conversation.id
         pendingSends.delete(targetKey)
+        outgoingMessages.delete(targetKey)
         targetKey = conversationId
         pendingSends.set(targetKey, { ...request, conversationId })
+        outgoingMessages.set(targetKey, submitted)
       }
       const admission = await sendMessage(
         conversationId,
@@ -196,19 +225,29 @@ export function useChatCommands(options: CommandOptions) {
         context.signal
       )
       if (!isCurrent()) return
-      const clearComposer = composerSignature(composerInput()) === composerSignature(request)
+      const clearComposer =
+        !draft.value &&
+        composerSignature({ ...composerInput(), message: request.message }) ===
+          composerSignature(request)
       pendingSends.delete(targetKey)
+      outgoingMessages.set(targetKey, { ...submitted, runId: admission.id })
+      if (!clearComposer)
+        options.composer.removeSubmittedFiles(submitted.files.map((file) => file.id))
       await acceptMainRun(admission, context, clearComposer)
     } catch (reason) {
       if (isCurrent() && !isAborted(reason)) {
         const issue = inputIssueFrom(reason)
-        if (issue && !retry && isDefiniteRejection(reason)) {
-          inputIssue.value = issue
+        const rejected = pendingSends.has(targetKey) && !retry && isDefiniteRejection(reason)
+        if (rejected) {
           pendingSends.delete(targetKey)
+          outgoingMessages.delete(targetKey)
+          if (!draft.value) draft.value = submitted.draft
+        }
+        if (issue && rejected) {
+          inputIssue.value = issue
           canRetry.value = false
           error.value = ''
         } else {
-          if (isDefiniteRejection(reason) && !retry) pendingSends.delete(targetKey)
           error.value = errorMessage(reason)
           canRetry.value = pendingSends.has(targetKey)
         }
@@ -314,6 +353,12 @@ export function useChatCommands(options: CommandOptions) {
     pendingRegenerations.delete(conversationId)
   }
   function reconcileHistory(conversationId: string, history: ChatMessage[]): void {
+    const submitted = outgoingMessages.get(conversationId)
+    if (
+      submitted?.runId &&
+      history.some((message) => message.role === 'user' && message.run_id === submitted.runId)
+    )
+      outgoingMessages.delete(conversationId)
     const pending = pendingRegenerations.get(conversationId)
     if (
       pending &&
@@ -330,11 +375,14 @@ export function useChatCommands(options: CommandOptions) {
   onBeforeUnmount(() => {
     disposed = true
     pendingSends.clear()
+    outgoingMessages.clear()
     resetSelection()
     pendingRegenerations.clear()
   })
   return {
     sending,
+    outgoing,
+    composerFiles,
     canRetry,
     inputIssue,
     dismissInputIssue,

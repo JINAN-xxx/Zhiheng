@@ -67,6 +67,16 @@ python -m pytest tests/core/integration/test_workspace_sandbox.py -q
 
 这些用例分别验证真实任务队列、模型子调用计量、CSV→Excel/Word 与 PDF 预览、跨轮文件快照、旧成果字节不可变、空工作文件、控制字符、代码执行权限，以及多个文件对象登记的回滚、丢提交回执与取消。沙盒底层另覆盖实际隔离、超时、依赖和清理。测试服务应独立配置，不能复用生产任务环境；镜像及管理服务配置见[工作空间执行环境](deployment/workspace-sandbox.md)。测试通过不表示真实云端模型已完成兼容性与任务质量验证。
 
+### 并发压测
+
+在上述独立测试依赖就绪后，从 `backend/` 运行：
+
+```bash
+ZHIHENG_LOAD_TEST=1 python -m pytest tests/core/test_concurrent_runs_load.py -q -s
+```
+
+用例启动无热重载的 HTTP 服务、Worker 和确定性的测试模型，在临时数据库创建 50 个账号。对话、工作空间和混合场景均按 5、10、25、50 用户递增。每档输出 JSON，包含请求接纳、SSE 首次离开排队、首次收到文本、完成及数据库连接获取耗时的 P95。SSE 状态耗时包含观测延迟，连接获取耗时包含连接建立与校验。
+
 ## 可选的 schema 模板
 
 设置 `ZHIHENG_TEST_SCHEMA_TEMPLATE=1` 可减少反复应用同一组迁移的成本。每个 pytest 进程创建一个仅含当前迁移和默认目录数据的模板，并禁止连接修改；普通 app 用例从该模板创建各自的新数据库，随后照常检查迁移版本、初始化账号。数据库中的测试数据不跨用例复用。

@@ -12,7 +12,7 @@ import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { identity, canUseCapability } from '../../identity/public.ts'
 import { deleteTask, updateTask } from '../api/index.ts'
-import type { WorkSummary } from '../api/index.ts'
+import type { UpdateWorkBody, WorkSummary } from '../api/index.ts'
 import { validateWorkTitle } from '../presentation.ts'
 import { useWorkWorkspace } from '../store.ts'
 import RecentWorkTasks from './RecentWorkTasks.vue'
@@ -64,13 +64,23 @@ async function save(): Promise<void> {
     error.value = '标题须为1到100字'
     return
   }
+  await updateRecordedTask(task, { title: title.value.trim() })
+}
+async function toggleArchive(task: WorkSummary): Promise<void> {
+  if (!canManageTask(task)) return
+  await updateRecordedTask(task, { status: task.status === 'archived' ? 'active' : 'archived' })
+}
+async function updateRecordedTask(
+  task: WorkSummary,
+  changes: Omit<UpdateWorkBody, 'expected_version'>
+): Promise<void> {
   const context = scope.replace()
   working.value = true
   error.value = ''
   try {
     await updateTask(
       task.taskId,
-      { title: title.value.trim(), expected_version: task.version },
+      { ...changes, expected_version: task.version },
       context.signal
     )
     if (!context.isCurrent()) return
@@ -142,6 +152,7 @@ function canManageTask(task: WorkSummary, action: 'update' | 'delete' = 'update'
     :can-manage-task="canManageTask"
     @filter="state.loadTasks"
     @open="open"
+    @archive="toggleArchive"
     @rename="openRename"
     @delete="remove"
   />

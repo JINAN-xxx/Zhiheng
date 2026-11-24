@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Ref } from 'vue'
 import { message as toast } from 'ant-design-vue'
 import { canUseCapability } from '../../identity/public.ts'
@@ -110,21 +110,6 @@ export function useChatComposer(options: ComposerOptions) {
       selectedSkills.value = selectedSkills.value.filter((skill) => skill.skillSlug !== slug)
   }
 
-  function handleSkillSelected(): void {
-    draft.value = draft.value.replace(/(^|\s)@$/, '$1').trimEnd()
-  }
-
-  watch(draft, (value) => {
-    if (
-      canUseCapability('chat', 'use') &&
-      canUseCapability('skills', 'use') &&
-      !sending.value &&
-      !running.value &&
-      !loading.value &&
-      /(^|\s)@$/.test(value)
-    )
-      skillPickerOpen.value = true
-  })
   function clear(): void {
     queue.clear()
     draft.value = ''
@@ -172,11 +157,11 @@ export function useChatComposer(options: ComposerOptions) {
     skillPickerOpen,
     addFiles,
     removeFile,
+    removeSubmittedFiles: (ids: string[]) => ids.forEach((id) => queue.remove(id)),
     retryFile,
     applyGenerationSettings,
     setModelId,
     removeSkill,
-    handleSkillSelected,
     clear,
     prepareSelection,
     ensureModelSelection,

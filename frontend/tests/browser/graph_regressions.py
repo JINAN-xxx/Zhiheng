@@ -58,7 +58,12 @@ class GraphRegressions(KnowledgeUIRegressions):
     async def respond(self,route):
         path,method=urlparse(route.request.url).path,route.request.method
         if path=='/api/knowledge/capabilities':
-            await route.fulfill(json={'milvus_configured':True,'milvus_available':True,'native_formats':['txt'],'graph_available':True,'mineru_available':False});return
+            await route.fulfill(json={
+                'milvus_configured': True, 'milvus_available': True, 'native_formats': ['txt'],
+                'graph_available': True, 'mineru_available': False, 'default_embedding_configured': True,
+                'default_rerank_configured': True, 'default_rerank_model_id': 'rank-1',
+            })
+            return
         prefix='/api/knowledge/bases/base-1/graph'
         if not path.startswith(prefix):
             await super().respond(route);return
@@ -66,7 +71,16 @@ class GraphRegressions(KnowledgeUIRegressions):
         if method == 'GET': self.graph_reads[suffix] += 1
         if suffix=='/config':
             if method=='PATCH':
-                body=route.request.post_data_json;self.graph_posts.append((suffix,body));self.config={**body,'version':self.config['version']+1};self.config.pop('expected_version',None)
+                body = route.request.post_data_json
+                self.graph_posts.append((suffix, body))
+                if set(body) != {
+                    'expected_version', 'llm_model_id', 'reasoning_strategy',
+                    'timeout_seconds', 'max_output_tokens', 'concurrency',
+                }:
+                    await route.fulfill(status=422, json={'error': {'code': 'invalid_request', 'message': '请求字段无效'}})
+                    return
+                self.config = {**body, 'version': (self.config or {}).get('version', 0) + 1}
+                self.config.pop('expected_version')
             await route.fulfill(json={'config':self.config,'available':True,'active_revision':'graph-revision-1','requires_rebuild':False,'can_manage':True,'supported_reasoning_strategies':['auto','default']});return
         if suffix=='/jobs':await route.fulfill(json=[self.graph_job] if self.graph_admitted else []);return
         if suffix=='/labels':await route.fulfill(json={'items':['甲','乙'],'truncated':False});return
@@ -84,16 +98,37 @@ class GraphRegressions(KnowledgeUIRegressions):
         if suffix=='/jobs/graph-job-1':await route.fulfill(json=self.graph_job);return
         await route.fulfill(status=404,json={'error':{'code':'fixture_missing','message':path}})
 
+    async def open_graph_management(self):
+        await self.page.get_by_role('button', name='构建管理', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='图谱配置', exact=True)).to_be_visible()
+
+    async def open_graph_advanced(self):
+        await self.page.get_by_text('高级选项', exact=True).click()
+
+    async def close_graph_management(self):
+        await self.page.locator('.ant-drawer-open .ant-drawer-close').click()
+        await expect(self.page.get_by_role('heading', name='图谱配置', exact=True)).to_be_hidden()
+
     async def test_graph_route_restores_original_setup_and_canvas(self):
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
-        await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('heading',name='图谱试构建',exact=True)).to_be_visible()
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
         await expect(self.page.get_by_role('img',name='知识图谱，2 个节点，1 个关系',exact=True)).to_be_visible()
         self.assertEqual(await self.page.locator('img[src="x"]').count(),0)
+        await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_hidden()
+        await self.open_graph_management()
+        await expect(self.page.get_by_role('button', name='构建图谱', exact=True)).to_be_visible()
+        await expect(self.page.get_by_role('button', name='试构建', exact=True)).to_be_hidden()
+        await self.open_graph_advanced()
+        await expect(self.page.get_by_role('heading',name='图谱试构建',exact=True)).to_be_visible()
+        await self.page.get_by_role('button', name='试构建', exact=True).click()
+        await expect(self.page.get_by_role('heading', name='试构建完成', exact=True)).to_be_visible()
+        await expect(self.page.locator('.graph-preview-result')).to_be_visible()
+        self.assertEqual([path for path, _ in self.graph_posts], ['/preview'])
+        await self.close_graph_management()
 
     async def test_build_uses_frozen_config_version_and_stable_request(self):
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
+        await self.open_graph_management()
         await self.page.get_by_role('button',name='构建图谱',exact=True).click()
         await expect(self.page.get_by_text('图谱构建完成',exact=True)).to_be_visible()
         bodies=[body for path,body in self.graph_posts if path=='/build']
@@ -101,6 +136,24 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.assertEqual(bodies[0]['expected_version'],1)
         self.assertFalse(bodies[0]['rebuild'])
         self.assertTrue(bodies[0]['client_request_id'])
+
+    async def test_save_and_build_after_editing_existing_graph_config(self):
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await self.open_graph_management()
+        await self.page.get_by_text('高级选项', exact=True).click()
+        timeout = self.page.get_by_role('spinbutton', name='图谱响应超时秒数', exact=True)
+        await timeout.fill('330')
+        await timeout.press('Tab')
+        await self.page.get_by_role('button', name='保存配置', exact=True).click()
+        await expect(self.page.get_by_text('配置已保存', exact=True)).to_be_visible()
+        await timeout.fill('360')
+        await timeout.press('Tab')
+        await self.page.get_by_role('button', name='保存并构建图谱', exact=True).click()
+        await expect(self.page.get_by_text('图谱构建完成', exact=True)).to_be_visible()
+
+        self.assertEqual([path for path, _ in self.graph_posts], ['/config', '/config', '/build'])
+        self.assertEqual([body['expected_version'] for _, body in self.graph_posts], [1, 2, 3])
+        self.assertEqual([body['timeout_seconds'] for _, body in self.graph_posts[:2]], [330, 360])
 
 
     async def test_lost_build_response_restores_same_request_after_reload(self):
@@ -114,12 +167,14 @@ class GraphRegressions(KnowledgeUIRegressions):
                 await route.fulfill(status=202,json=job())
         await self.page.route('**/api/knowledge/bases/base-1/graph/build',submit)
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
+        await self.open_graph_management()
         await self.page.get_by_role('button',name='构建图谱',exact=True).click()
         await expect(self.page.get_by_role('button',name='确认原请求或恢复查看',exact=True)).to_be_visible()
         await self.page.reload()
         await expect(self.page.get_by_role('button',name='确认原请求或恢复查看',exact=True)).to_be_visible()
         self.assertEqual(len(accepted),1)
         await self.page.get_by_role('button',name='确认原请求或恢复查看',exact=True).click()
+        await self.open_graph_management()
         await expect(self.page.get_by_text('图谱构建完成',exact=True)).to_be_visible()
         self.assertEqual(accepted[0],accepted[1])
 
@@ -168,6 +223,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         try:
             await self.page.goto(self.origin+'/knowledge/base-1/graph')
             await asyncio.wait_for(entered.wait(),4)
+            await self.open_graph_management()
             await self.page.get_by_role('button',name='取消图谱任务',exact=True).click()
             await expect(self.page.get_by_text('图谱任务已取消',exact=True)).to_be_visible()
             release.set();await self.page.wait_for_timeout(900)
@@ -180,6 +236,8 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs',lambda route:route.fulfill(json=[self.graph_job]))
         await self.page.route('**/api/knowledge/bases/base-1/graph/subgraph?*',lambda route:route.fulfill(status=503,json={'error':{'code':'unavailable','message':'读取失败'}}))
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
+        await self.open_graph_management()
+        await self.open_graph_advanced()
         await expect(self.page.get_by_role('button',name='试构建',exact=True)).to_be_disabled()
         await expect(self.page.get_by_role('button',name='构建中',exact=True)).to_be_disabled()
         self.assertEqual([row for row in self.graph_posts if row[0] in ['/preview','/build']],[])
@@ -256,10 +314,22 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.config=None
         await self.page.goto(self.origin+'/knowledge')
         await self.page.get_by_role('button',name='打开知识库：业务知识',exact=True).click()
-        await self.page.get_by_role('button',name='更多操作',exact=True).click()
-        await self.page.get_by_role('menuitem',name='高级：知识图谱',exact=True).click()
-        await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_visible()
-        await expect(self.page.get_by_role('heading',name='图谱试构建',exact=True)).to_be_visible()
+        tabs = self.page.get_by_role('tablist', name='知识库功能导航')
+        await expect(tabs.get_by_role('tab')).to_have_text(['资料', '检索测试', '知识图谱'])
+        await tabs.get_by_role('tab', name='检索测试', exact=True).click()
+        question = self.page.get_by_role('textbox', name='检索问题', exact=True)
+        await question.fill('保留检索内容')
+        graph_tab = tabs.get_by_role('tab', name='知识图谱', exact=True)
+        await graph_tab.click()
+        await expect(graph_tab).to_have_attribute('aria-selected', 'true')
+        await expect(self.page.get_by_role('tabpanel', name='知识图谱', exact=True)).to_be_visible()
+        await self.open_graph_management()
+        await expect(self.page.get_by_role('button', name='试构建', exact=True)).to_be_hidden()
+        await self.page.keyboard.press('Escape')
+        await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_hidden()
+        await graph_tab.press('ArrowLeft')
+        await expect(tabs.get_by_role('tab', name='检索测试', exact=True)).to_be_focused()
+        await expect(question).to_have_value('保留检索内容')
 
     async def test_unpublished_graph_shows_configuration_failure_without_canvas(self):
         async def state(route):
@@ -269,9 +339,50 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/graph/config',state)
         await self.page.route('**/api/knowledge/bases/base-1/graph/build',fail)
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
+        await self.open_graph_management()
         await self.page.get_by_role('button',name='构建图谱',exact=True).click()
         await expect(self.page.get_by_text('图谱接纳结果未确认',exact=True)).to_be_visible()
         await expect(self.page.locator('.knowledge-graph__canvas')).to_have_count(0)
+
+    async def test_unpublished_preview_renders_and_clears_graph_with_history(self):
+        async def state(route):
+            await route.fulfill(json={
+                'config': self.config, 'available': True, 'active_revision': None,
+                'requires_rebuild': False, 'can_manage': True, 'supported_reasoning_strategies': ['auto', 'default'],
+            })
+
+        self.graph_job = job(operation='preview')
+        self.graph_admitted = True
+        await self.page.route('**/api/knowledge/bases/base-1/graph/config', state)
+        await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        section = self.page.get_by_role('region', name='图谱浏览')
+        await expect(section.get_by_text('重新试构建可查看节点和关系。', exact=True)).to_be_visible()
+        await expect(section.locator('canvas')).to_have_count(0)
+
+        self.graph_job['result']['graph'] = self.graph
+        await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
+        await expect(section.get_by_text('抽取预览', exact=True)).to_be_visible()
+        await expect(section.locator('canvas')).to_be_visible()
+        await expect(section.get_by_role('button', name='加载图谱', exact=True)).to_have_count(0)
+        self.assertEqual(self.graph_reads['/subgraph'], 0)
+
+        await section.get_by_text('实体列表 · 2', exact=True).click()
+        await section.get_by_role('button', name='查看实体：甲', exact=True).click()
+        detail = section.get_by_role('region', name='实体详情')
+        await expect(detail.get_by_text('合作', exact=True)).to_be_visible()
+        await detail.get_by_role('button', name='乙', exact=True).click()
+        await expect(detail.get_by_text('研发成员', exact=True)).to_be_visible()
+        self.assertEqual(await self.page.locator('img[src="x"]').count(), 0)
+
+        await section.get_by_role('button', name='全屏查看', exact=True).click()
+        await expect(section.get_by_role('button', name='退出全屏', exact=True)).to_be_visible()
+        await section.get_by_role('button', name='退出全屏', exact=True).click()
+        await expect(section.get_by_role('button', name='全屏查看', exact=True)).to_be_visible()
+
+        self.graph_admitted = False
+        await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
+        await expect(section.locator('canvas')).to_have_count(0)
+        await expect(detail).to_have_count(0)
 
 
     async def test_original_graph_layout_survives_mobile_and_system_dark_preference(self):
@@ -282,11 +393,11 @@ class GraphRegressions(KnowledgeUIRegressions):
             await self.page.wait_for_timeout(120)
             geometry=await self.page.locator('.knowledge-graph-page__content').evaluate('(node)=>({scroll:node.scrollWidth,width:node.clientWidth})')
             self.assertLessEqual(geometry['scroll'],geometry['width']+1)
-            await expect(self.page.get_by_role('button',name='构建图谱',exact=True)).to_be_visible()
+            await expect(self.page.get_by_role('button',name='构建管理',exact=True)).to_be_visible()
         await self.page.emulate_media(color_scheme='dark')
         await expect(self.page.locator('html')).not_to_have_class(re.compile(r'\bdark\b'))
         self.assertEqual(await self.page.locator('html').evaluate('(node)=>getComputedStyle(node).colorScheme'), 'light')
-        color=await self.page.locator('.graph-panel h2').first.evaluate('(node)=>getComputedStyle(node).color')
+        color=await self.page.get_by_role('heading', name='图谱浏览', exact=True).evaluate('(node)=>getComputedStyle(node).color')
         self.assertNotEqual(color,'rgb(0, 0, 0)')
 
     async def test_readonly_graph_viewer_cannot_submit_model_operations(self):
@@ -329,10 +440,12 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.graph_job=job(operation='preview')
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs',lambda route:route.fulfill(json=[self.graph_job]))
         await self.page.goto(self.origin+'/knowledge/base-1/graph')
+        await self.open_graph_management()
+        await self.open_graph_advanced()
         await expect(self.page.locator('.graph-preview-result')).to_be_visible()
         async def deny(route):await route.fulfill(status=403,json={'error':{'code':'forbidden','message':'来源权限已变化'}})
         await self.page.route('**/api/knowledge/bases/base-1/graph/config',deny)
-        await self.page.get_by_role('button',name='刷新知识图谱',exact=True).click()
+        await self.page.get_by_role('button',name='刷新任务',exact=True).click()
         await expect(self.page.get_by_text('来源权限已变化',exact=True)).to_be_visible()
         await expect(self.page.locator('.graph-preview-result')).to_have_count(0)
 
@@ -394,8 +507,9 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.graph_job.update(processed_documents=None, total_documents=None, progress={'extracted_chunks': None, 'total_chunks': None, 'entities': None, 'relations': None})
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs', lambda route: route.fulfill(json=[self.graph_job]))
         await self.page.goto(self.origin + '/knowledge/base-1/graph')
-        await expect(self.page.get_by_role('heading', name='正在构建图谱', exact=True)).to_be_visible()
+        await expect(self.page.locator('.graph-task-notice')).to_contain_text('正在构建图谱')
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+        await self.open_graph_management()
         text = await self.page.locator('.graph-build-panel').inner_text()
         self.assertNotIn('0%', text, 'Unknown server progress must not be projected as 0%')
 
@@ -454,10 +568,14 @@ class GraphRegressions(KnowledgeUIRegressions):
         try:
             await self.page.goto(self.origin + '/knowledge/base-1/graph')
             await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+            await self.open_graph_management()
+            await self.open_graph_advanced()
+            await self.close_graph_management()
             await asyncio.wait_for(entered.wait(), 4)
             await self.page.route('**/api/knowledge/bases/base-1/graph/subgraph?*', lambda route: route.fulfill(status=403, json={'error': {'code': 'graph_sources_unavailable', 'message': '质量探针：全集来源撤权'}}))
             await self.page.get_by_role('button', name='加载图谱', exact=True).click()
-            await expect(self.page.get_by_text('质量探针：全集来源撤权', exact=True)).to_be_visible()
+            panel = self.page.get_by_role('tabpanel', name='知识图谱')
+            await expect(panel.get_by_text('质量探针：全集来源撤权', exact=True)).to_be_visible()
             await expect(self.page.locator('.knowledge-graph__canvas')).to_have_count(0)
 
             async def pending_config(route):
@@ -519,6 +637,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(canvas).to_be_visible()
         await self.page.wait_for_timeout(250)
         self.assertEqual({path: self.graph_reads[path] for path in ['/config', '/jobs', '/labels', '/subgraph']}, {'/config': 1, '/jobs': 1, '/labels': 1, '/subgraph': 1})
+        await self.open_graph_management()
         await self.page.get_by_text('高级选项', exact=True).click()
         timeout = self.page.get_by_role('spinbutton', name='图谱响应超时秒数', exact=True)
         await timeout.fill('330')
@@ -526,7 +645,7 @@ class GraphRegressions(KnowledgeUIRegressions):
         await expect(self.page.get_by_role('button', name='保存配置', exact=True)).to_be_enabled()
         await canvas.evaluate('(el) => { window.keptGraphCanvas = el }')
         await timeout.evaluate('(el) => { window.keptGraphTimeout = el }')
-        await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
+        await self.page.get_by_role('button', name='刷新任务', exact=True).click()
         await expect(timeout).to_have_value('330')
         await self.page.wait_for_timeout(250)
         self.assertTrue(await canvas.evaluate('(el) => el === window.keptGraphCanvas'))
@@ -536,14 +655,23 @@ class GraphRegressions(KnowledgeUIRegressions):
 
     async def test_background_canonical_history_removes_permission_filtered_preview(self):
         self.graph_job = job(operation='preview')
+        self.graph_job['result']['graph'] = {**self.graph, 'nodes': self.graph['nodes'][:1], 'edges': []}
         self.graph_admitted = True
         await self.page.goto(self.origin + '/knowledge/base-1/graph')
+        await self.open_graph_management()
+        await self.open_graph_advanced()
         await expect(self.page.locator('.graph-preview-result')).to_be_visible()
+        await expect(self.page.get_by_text(re.compile('图谱任务历史'))).to_have_count(0)
+        await self.page.keyboard.press('Escape')
+        await expect(self.page.get_by_role('heading',name='图谱配置',exact=True)).to_be_hidden()
+        section = self.page.get_by_role('region', name='图谱浏览')
+        await expect(section.get_by_role('img', name='知识图谱，2 个节点，1 个关系')).to_be_visible()
+        await section.locator('label').filter(has_text='抽取预览').click()
+        await expect(section.get_by_role('img', name='知识图谱，1 个节点，0 个关系')).to_be_visible()
         self.graph_admitted = False
         await self.page.get_by_role('button', name='刷新知识图谱', exact=True).click()
         await expect(self.page.locator('.graph-preview-result')).to_have_count(0)
-        await expect(self.page.locator('.graph-history')).to_have_count(0)
-        await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+        await expect(section.get_by_role('img', name='知识图谱，2 个节点，1 个关系')).to_be_visible()
 
     async def test_background_progress_pauses_when_hidden_and_retains_the_canvas(self):
         self.graph_job = job('running', 'preview')
@@ -564,6 +692,8 @@ class GraphRegressions(KnowledgeUIRegressions):
         self.assertTrue(await canvas.evaluate('(el) => el === window.keptGraphCanvas'))
         self.assertEqual(self.graph_reads['/subgraph'], 1)
         self.graph_job = job('completed', 'preview', 3)
+        await self.open_graph_management()
+        await self.open_graph_advanced()
         await expect(self.page.locator('.graph-preview-result')).to_be_visible(timeout=5000)
         async def synchronized():
             while self.graph_reads['/subgraph'] < 2:
@@ -611,6 +741,8 @@ class GraphRegressions(KnowledgeUIRegressions):
         await self.page.route('**/api/knowledge/bases/base-1/graph/jobs/graph-job-1', poll)
         await self.page.goto(self.origin + '/knowledge/base-1/graph')
         await expect(self.page.locator('.knowledge-graph__canvas canvas')).to_be_visible()
+        await self.open_graph_management()
+        await self.open_graph_advanced()
         await self.page.get_by_role('button', name='取消试构建', exact=True).click()
         await expect(self.page.get_by_text(message, exact=True)).to_be_visible()
         async def recovered():

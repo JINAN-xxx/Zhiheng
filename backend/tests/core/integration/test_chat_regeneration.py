@@ -1,4 +1,6 @@
 import asyncio
+from typing import Any
+from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import httpx
@@ -10,6 +12,7 @@ from tests.core.integration.test_chat_runs import admit
 from tests.core.integration.test_knowledge_failures import source
 from tests.core.integration.test_skills import install
 from tests.core.provider import ProviderServer
+from zhiheng.application.chat.context import PreparedContext
 from zhiheng.modules.chat.orm import ChatMessage
 from zhiheng.runtime.orm import Run
 from zhiheng.shared.principal import Principal
@@ -250,22 +253,30 @@ async def test_cancelled_regeneration_keeps_its_slot_and_can_regenerate_again(
     assert [row['generation_index'] for row in messages[1:]] == [1, 2, 3]
 
 
+@pytest.mark.parametrize('legacy', [False, True])
 async def test_regeneration_preserves_skill_and_attachment_selections_and_rechecks_availability(
-    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer
+    admin: httpx.AsyncClient, app: FastAPI, model_id: str, provider: ProviderServer, legacy: bool
 ) -> None:
     skill = await install(admin, 'regen-instruction', 'REGENERATION INSTRUCTION')
     file = await source(admin, 'context.txt', b'attachment context for regeneration')
     conversation_id = (await admin.post('/api/chat/conversations', json={})).json()['id']
-    sent = await admin.post(
-        f'/api/chat/conversations/{conversation_id}/runs',
-        json={
-            'model_id': model_id,
-            'message': 'read it',
-            'client_request_id': str(uuid4()),
-            'skill_slugs': [skill['slug']],
-            'file_ids': [file['id']],
-        },
-    )
+    agent = app.state.container.chat_agent
+    prepare = agent.prepare
+
+    async def prepare_original(*args: Any, **kwargs: Any) -> PreparedContext:
+        return await prepare(*args, **{**kwargs, 'uses_skills': not legacy})
+
+    with patch.object(agent, 'prepare', side_effect=prepare_original):
+        sent = await admin.post(
+            f'/api/chat/conversations/{conversation_id}/runs',
+            json={
+                'model_id': model_id,
+                'message': 'read it',
+                'client_request_id': str(uuid4()),
+                'skill_slugs': [skill['slug']],
+                'file_ids': [file['id']],
+            },
+        )
     assert sent.status_code == 202, sent.text
     await execute_run(app.state.container, UUID(sent.json()['id']))
     original = (await admin.get(f'/api/chat/conversations/{conversation_id}/messages')).json()
@@ -273,7 +284,14 @@ async def test_regeneration_preserves_skill_and_attachment_selections_and_rechec
     regenerated = await admin.post(endpoint, json={'client_request_id': str(uuid4())})
     assert regenerated.status_code == 202, regenerated.text
     await execute_run(app.state.container, UUID(regenerated.json()['id']))
-    assert provider.requests[-1]['messages'] == provider.requests[-2]['messages']
+    before, after = (request['messages'] for request in provider.requests[-2:])
+    policy = '仅当本次任务必须运行脚本时'
+    assert sum(policy in item['content'] for item in before) == (0 if legacy else 1)
+    assert sum(policy in item['content'] for item in after) == 1
+    assert 'tools' not in provider.requests[-1]
+    assert [item for item in after if policy not in item['content']] == [
+        item for item in before if policy not in item['content']
+    ]
     references = (await admin.get(f'/api/files/{file["id"]}/references')).json()
     assert {row['resource_id'] for row in references if row['resource_type'] == 'chat'} == {
         sent.json()['id'],

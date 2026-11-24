@@ -201,6 +201,7 @@ onBeforeUnmount(() => workStore.stopLocalActivity())
           :options-error="workStore.optionsError"
           :uploading="workStore.uploading"
           :mutating="workStore.mutating"
+          :detach-input="workStore.detachInput"
           :initial-message="draftMessage"
           @retry-options="workStore.loadOptions"
           @send="sendMessage"

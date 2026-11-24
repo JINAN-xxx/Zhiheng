@@ -29,6 +29,7 @@ from zhiheng.modules.knowledge.public import (
 )
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.principal import Principal
+from zhiheng.shared.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -82,16 +83,22 @@ class GraphJobs:
             status = 'interrupted'
             error = {'code': 'graph_worker_stopped', 'message': '图谱执行进程停止'}
         except Exception as exc:
+            if utcnow() >= claim.deadline and (
+                isinstance(exc, TimeoutError) or (isinstance(exc, AppError) and exc.code == 'knowledge_timeout')
+            ):
+                error = {'code': 'graph_deadline_expired', 'message': '图谱作业已超过总执行期限'}
+            else:
+                error = (
+                    {'code': exc.code, 'message': exc.message}
+                    if isinstance(exc, AppError)
+                    else {'code': 'graph_failed', 'message': '图谱构建或查询失败'}
+                )
             logger.error(
-                'Graph execution failed job_id=%s attempt_id=%s error_type=%s',
+                'Graph execution failed job_id=%s attempt_id=%s error_type=%s code=%s',
                 claim.job_id,
                 claim.attempt_id,
                 type(exc).__name__,
-            )
-            error = (
-                {'code': exc.code, 'message': exc.message}
-                if isinstance(exc, AppError)
-                else {'code': 'graph_failed', 'message': '图谱构建或查询失败'}
+                error['code'],
             )
         finally:
             control.cancel()
@@ -130,6 +137,12 @@ class GraphJobs:
         result: dict[str, object] | None,
         error: dict[str, object] | None,
     ) -> None:
+        if status == 'failed' and error is not None:
+            try:
+                async with self.database.sessions.begin() as session:
+                    await self.store.record_failure(session, claim, error)
+            except Exception as exc:
+                logger.warning('Graph failure record delayed job_id=%s error_type=%s', claim.job_id, type(exc).__name__)
         await asyncio.gather(work, observer, return_exceptions=True)
         await self.runs.drain(claim)
         self.runs.release(claim.attempt_id)

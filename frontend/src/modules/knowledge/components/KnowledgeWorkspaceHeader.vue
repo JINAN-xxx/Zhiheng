@@ -21,7 +21,8 @@ const props = defineProps<{
   database: KnowledgeBase
   loading: boolean
   busy: boolean
-  graphAvailable: boolean
+  refreshLabel: string
+  refreshDisabled: boolean
 }>()
 const emit = defineEmits<{
   back: []
@@ -30,7 +31,6 @@ const emit = defineEmits<{
   acl: []
   upload: []
   rebuild: []
-  graph: []
   migration: []
   remove: []
 }>()
@@ -60,7 +60,12 @@ const sharing = computed(() => (props.database.sharing_scope === 'users' ? '成�
         </div>
       </div>
       <div class="knowledge-header-actions">
-        <RefreshButton label="刷新资料" :loading="loading" @click="emit('refresh')" />
+        <RefreshButton
+          :label="refreshLabel"
+          :loading="loading"
+          :disabled="refreshDisabled"
+          @click="emit('refresh')"
+        />
         <AButton
           v-if="owner && canUseCapability('knowledge', 'update')"
           type="text"
@@ -116,9 +121,6 @@ const sharing = computed(() => (props.database.sharing_scope === 'users' ? '成�
                 :disabled="busy"
                 @click="emit('rebuild')"
                 >重新处理全部资料</AMenuItem
-              >
-              <AMenuItem key="graph" :disabled="!graphAvailable" @click="emit('graph')"
-                >高级：知识图谱</AMenuItem
               >
               <AMenuItem
                 v-if="

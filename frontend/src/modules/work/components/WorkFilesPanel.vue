@@ -11,7 +11,12 @@ import {
   TabPane as ATabPane,
   Tag as ATag
 } from 'ant-design-vue'
-import { DownloadOutlined, EyeOutlined, HistoryOutlined } from '@ant-design/icons-vue'
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  EyeOutlined,
+  HistoryOutlined
+} from '@ant-design/icons-vue'
 import { formatFileSize, saveBlob } from '../../files/public.ts'
 import { canPreviewArtifact } from '../artifacts.ts'
 import { useWorkFileAccess } from '../composables/fileAccess.ts'
@@ -25,8 +30,18 @@ const props = defineProps<{
   artifacts: WorkArtifact[]
   uploading: boolean
   canUpload: boolean
+  canRemove: boolean
+  locked: boolean
+  pendingInputIds: ReadonlySet<string>
+  removingInputId: string
+  removeError: string
 }>()
-const emit = defineEmits<{ upload: [files: File[]]; preview: [artifact: WorkArtifact] }>()
+const emit = defineEmits<{
+  upload: [files: File[]]
+  preview: [artifact: WorkArtifact]
+  remove: [file: WorkInput]
+  dismissRemoveError: []
+}>()
 const tab = ref(props.artifacts.length ? 'artifacts' : 'inputs')
 const fileInput = ref<HTMLInputElement | null>(null)
 const { pending, error, read } = useWorkFileAccess(() => props.taskId)
@@ -91,6 +106,14 @@ async function open(item: FileVersion, preview = false): Promise<void> {
       />
     </div>
     <AAlert v-if="error" :message="error" type="error" show-icon closable @close="error = ''" />
+    <AAlert
+      v-if="removeError"
+      :message="removeError"
+      type="error"
+      show-icon
+      closable
+      @close="emit('dismissRemoveError')"
+    />
     <ATabs :active-key="tab" size="small" @update:active-key="tab = String($event)"
       ><ATabPane key="inputs" :tab="`资料 ${inputGroups.length}`" /><ATabPane
         key="artifacts"
@@ -139,6 +162,19 @@ async function open(item: FileVersion, preview = false): Promise<void> {
             :loading="pending === entry.latest.id"
             @click="open(entry.latest)"
             ><DownloadOutlined />下载</AButton
+          ><AButton
+            v-if="entry.latest.kind === 'input' && canRemove"
+            size="small"
+            type="text"
+            danger
+            :aria-label="'移除资料：' + entry.name"
+            :title="
+              pendingInputIds.has(entry.latest.fileId) ? '从任务中移除' : '文件已用于任务历史'
+            "
+            :disabled="locked || !pendingInputIds.has(entry.latest.fileId)"
+            :loading="removingInputId === entry.latest.fileId"
+            @click="emit('remove', entry.latest)"
+            ><DeleteOutlined />移除</AButton
           ><ADropdown v-if="entry.versions.length > 1" :trigger="['click']"
             ><AButton size="small" type="text" aria-label="查看文件版本"
               ><HistoryOutlined />版本</AButton

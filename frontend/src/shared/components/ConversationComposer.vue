@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Button as AButton, Textarea as ATextarea } from 'ant-design-vue'
 import { ArrowUpOutlined, BorderOutlined } from '@ant-design/icons-vue'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     modelValue: string
     inputLabel?: string
-    placeholder?: string
+    placeholder?: string | undefined
+    shortcuts?: { skills: boolean; attachments: boolean } | null
     maxLength?: number
     maxRows?: number
     disabled?: boolean
@@ -22,7 +23,8 @@ withDefaults(
   }>(),
   {
     inputLabel: '消息内容',
-    placeholder: '输入消息，或选择技能开始',
+    placeholder: undefined,
+    shortcuts: null,
     maxLength: 16000,
     maxRows: 6,
     disabled: false,
@@ -39,6 +41,8 @@ withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   keydown: [event: KeyboardEvent]
+  'select-skill': []
+  'add-attachment': []
   dragover: [event: DragEvent]
   drop: [event: DragEvent]
   paste: [event: ClipboardEvent]
@@ -46,6 +50,44 @@ const emit = defineEmits<{
   stop: []
 }>()
 const surface = ref<HTMLElement | null>(null)
+const inputPlaceholder = computed(() => {
+  if (!props.shortcuts) return props.placeholder ?? '输入消息，或选择技能开始'
+  const base = props.placeholder ?? '发送消息或开始任务…'
+  const skills = !props.disabled && props.shortcuts.skills ? ' / 使用技能' : ''
+  const attachments = !props.disabled && props.shortcuts.attachments ? ' @ 添加资料' : ''
+  return base + skills + attachments
+})
+
+function onKeydown(event: KeyboardEvent): void {
+  const { key, target } = event
+  const shortcutAvailable =
+    key === '/' ? props.shortcuts?.skills : key === '@' && props.shortcuts?.attachments
+  if (
+    shortcutAvailable &&
+    !props.disabled &&
+    !event.defaultPrevented &&
+    !event.isComposing &&
+    event.keyCode !== 229 &&
+    !event.repeat &&
+    !event.metaKey &&
+    (!(event.ctrlKey || event.altKey) || event.getModifierState('AltGraph')) &&
+    target instanceof HTMLTextAreaElement
+  ) {
+    const { value, selectionStart, selectionEnd } = target
+    if (
+      selectionStart === selectionEnd &&
+      (selectionStart === 0 || /\s/.test(value[selectionStart - 1] ?? '')) &&
+      (selectionEnd === value.length || /\s/.test(value[selectionEnd] ?? ''))
+    ) {
+      event.preventDefault()
+      if (key === '/') emit('select-skill')
+      else emit('add-attachment')
+      return
+    }
+  }
+  emit('keydown', event)
+}
+
 defineExpose({
   focus: () => surface.value?.querySelector('textarea')?.focus(),
   contains: (node: Node) => surface.value?.contains(node) ?? false
@@ -69,12 +111,12 @@ defineExpose({
         <ATextarea
           :value="modelValue"
           :aria-label="inputLabel"
-          :placeholder="placeholder"
+          :placeholder="inputPlaceholder"
           :maxlength="maxLength"
           :auto-size="{ minRows: 2, maxRows }"
           :disabled="disabled"
           @update:value="emit('update:modelValue', $event)"
-          @keydown="emit('keydown', $event)"
+          @keydown="onKeydown"
         />
       </div>
       <div class="composer-actions">

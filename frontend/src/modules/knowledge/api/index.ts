@@ -543,14 +543,34 @@ export const deleteFolder = (folder: KnowledgeFolder, key: string, signal: Abort
     signal,
     decode: parseJob
   })
-export const listDocuments = (id: string, signal: AbortSignal) =>
-  http.request(`${basePath(id)}/documents`, {
+export const listDocuments = (
+  id: string,
+  signal: AbortSignal,
+  page?: { folderId: string | null; search: string; cursor?: string }
+) => {
+  const params = new URLSearchParams()
+  if (page) {
+    params.set('folder', page.folderId ?? 'root')
+    if (page.search) params.set('search', page.search)
+    if (page.cursor) params.set('cursor', page.cursor)
+  }
+  return http.request(`${basePath(id)}/documents${page ? `?${params}` : ''}`, {
     signal,
-    decode: (value) => {
+    decode: (value, response) => {
       const d = object(value)
-      return { items: list(parseDocument)(d.items), total: number(d.total) }
+      return {
+        items: list(parseDocument)(d.items),
+        total: number(d.total),
+        nextCursor: response.headers.get('X-Next-Cursor') || null
+      }
     }
   })
+}
+export const visibleDocumentIds = (id: string, documentIds: string[], signal: AbortSignal) =>
+  http.request(
+    `${basePath(id)}/documents/visibility?${new URLSearchParams(documentIds.map((doc) => ['document_id', doc]))}`,
+    { signal, decode: list(string) }
+  )
 export const previewDocument = (id: string, document: string, signal: AbortSignal) =>
   http.request(`${docPath(id, document)}/preview`, {
     signal,

@@ -51,8 +51,9 @@
 | --- | --- |
 | `POST /api/work/tasks/{task_id}/runs` | 使用权限；提交 `client_request_id`、`expected_version`、`message`，可附 `file_ids` |
 | `GET /api/work/tasks/{task_id}/runs/{run_id}` | 查看权限；读取原生 `RunSnapshot` |
+| `GET /api/work/tasks/{task_id}/runs/{run_id}/progress` | 查看权限；返回当前任务的执行状态、步骤、成果和计划。运行已离开当前任务时返回 `null` |
 | `GET /api/work/tasks/{task_id}/runs/{run_id}/events` | 查看权限；SSE `snapshot` 事件及心跳，直到终态 |
-| `POST /api/work/tasks/{task_id}/runs/{run_id}/cancel` | 使用权限；持久记录取消意图并通知子调用与沙盒 |
+| `POST /api/work/tasks/{task_id}/runs/{run_id}/cancel` | Agent 任务所有者有查看权限即可停止已有运行；旧版任务要求使用权限。持久记录取消意图并通知子调用与沙盒 |
 
 创建时填写目标的首轮请求可复用任务的 `create_client_request_id`，`message` 与目标一致，避免重复写入首条消息。网络响应未知时使用原请求编号和相同内容确认，不另建请求。编号相同但内容不同返回 `idempotency_conflict`。
 

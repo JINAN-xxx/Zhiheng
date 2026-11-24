@@ -163,6 +163,7 @@ class ChatRunService:
             current=messages[-1],
             client_request_id=client_request_id,
             original_run_id=target.context_run_id if target else None,
+            uses_skills=bool(skill_slugs),
         )
         messages = prepared_context.messages
         if target:

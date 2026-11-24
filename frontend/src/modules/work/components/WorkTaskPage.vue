@@ -23,12 +23,14 @@ import {
 import type {
   UpdateWorkBody,
   WorkArtifact,
+  WorkInput,
   WorkOptions,
   WorkStatus,
   WorkTask
 } from '../api/index.ts'
 import type { WorkTurnInput } from '../composables/turns.ts'
 import {
+  pendingWorkInputs,
   validateWorkGoal,
   validateWorkMessage,
   validateWorkTitle,
@@ -43,6 +45,8 @@ import WorkExecutionPanel from './WorkExecutionPanel.vue'
 import WorkFilesPanel from './WorkFilesPanel.vue'
 import WorkArtifactPreview from './WorkArtifactPreview.vue'
 import { canUseCapability } from '../../identity/public.ts'
+import { errorMessage } from '../../../shared/http.ts'
+import { useConfirmation } from '../../../shared/composables/useConfirmation.ts'
 import { SkillPicker } from '../../skills/public.ts'
 import WorkSelectedSkills from './WorkSelectedSkills.vue'
 
@@ -61,6 +65,7 @@ const props = defineProps<{
   optionsError: string
   uploading: boolean
   mutating: boolean
+  detachInput: (fileId: string) => Promise<boolean>
   initialMessage?: string
 }>()
 const emit = defineEmits<{
@@ -74,6 +79,7 @@ const emit = defineEmits<{
 }>()
 const message = ref(props.initialMessage ?? ''),
   fileInput = ref<HTMLInputElement | null>(null)
+const composerSurface = ref<InstanceType<typeof ConversationComposer> | null>(null)
 const editorOpen = ref(false),
   skillsOpen = ref(false),
   modelOpen = ref(false),
@@ -82,6 +88,9 @@ const editorOpen = ref(false),
 const editingTitle = ref(''),
   editingGoal = ref('')
 const previewArtifact = ref<WorkArtifact | null>(null)
+const confirmation = useConfirmation()
+const removingInputId = ref('')
+const inputError = ref('')
 watch(
   () => props.task.taskId,
   () => {
@@ -91,9 +100,14 @@ watch(
   { flush: 'sync' }
 )
 const isAgent = computed(() => props.task.mode === 'agent')
+const pendingInputs = computed(() => pendingWorkInputs(props.task))
+const pendingInputIds = computed(() => new Set(pendingInputs.value.map((file) => file.fileId)))
+const canRemoveInputs = computed(() => props.canEdit && props.task.status === 'active')
 const showComposer = computed(
   () => isAgent.value && props.task.status === 'active' && (props.canRun || props.stoppable)
 )
+const canAddFiles = computed(() => props.canRun && !props.locked)
+const canUseSkills = computed(() => props.canEdit && canUseCapability('skills', 'use'))
 const skillSlugs = computed(() => props.task.configuration?.skillSlugs ?? [])
 const legacyMembers = computed(() => [
   ...new Set(props.task.members.map((member) => member.agentNameSnapshot))
@@ -223,6 +237,24 @@ function picked(event: Event): void {
   input.value = ''
   if (files.length && props.canRun && !props.locked) emit('upload', files)
 }
+async function removeInput(file: WorkInput): Promise<void> {
+  if (!canRemoveInputs.value || props.locked || removingInputId.value) return
+  const name =
+    props.task.inputs.filter((item) => item.name === file.name).length > 1
+      ? `${file.name}（v${file.version}）`
+      : file.name
+  if (!(await confirmation.confirm(`从任务中移除“${name}”？`))) return
+  if (!canRemoveInputs.value || props.locked || !pendingInputIds.value.has(file.fileId)) return
+  removingInputId.value = file.fileId
+  inputError.value = ''
+  try {
+    await props.detachInput(file.fileId)
+  } catch (reason) {
+    inputError.value = errorMessage(reason)
+  } finally {
+    removingInputId.value = ''
+  }
+}
 </script>
 <template>
   <section class="work-task-page">
@@ -242,7 +274,8 @@ function picked(event: Event): void {
           @click="filesOpen = true"
           ><FileTextOutlined /><span>资料与成果</span
           ><span v-if="artifactCount" class="work-file-count">{{ artifactCount }}</span></AButton
-        ><ADropdown :trigger="['click']"
+        >
+        <ADropdown :trigger="['click']"
           ><AButton type="text" aria-label="更多任务操作"><MoreOutlined /></AButton
           ><template #overlay
             ><AMenu
@@ -265,15 +298,10 @@ function picked(event: Event): void {
                 @click="emit('status', 'completed')"
                 >结束任务</AMenuItem
               ><AMenuItem
-                v-if="isAgent && canEdit && task.status !== 'active'"
+                v-if="isAgent && canEdit && task.status === 'completed'"
                 :disabled="locked"
                 @click="emit('status', 'active')"
                 >重新打开</AMenuItem
-              ><AMenuItem
-                v-if="isAgent && canEdit && task.status !== 'archived'"
-                :disabled="locked"
-                @click="emit('status', 'archived')"
-                >归档任务</AMenuItem
               ></AMenu
             ></template
           ></ADropdown
@@ -339,10 +367,12 @@ function picked(event: Event): void {
         <WorkMessageTimeline
           :task-id="task.taskId"
           :messages="task.messages"
+          :inputs="task.inputs"
           :artifacts="task.artifacts"
           :legacy="!isAgent"
           :show-progress="showProgress"
           @preview="previewArtifact = $event"
+          @open-input="filesOpen = true"
         >
           <template #progress
             ><WorkExecutionPanel
@@ -354,14 +384,12 @@ function picked(event: Event): void {
         </WorkMessageTimeline>
         <ConversationComposer
           v-if="showComposer"
+          ref="composerSurface"
           v-model="message"
           class="work-composer"
           input-label="工作消息"
-          :placeholder="
-            task.executionState === 'waiting_input'
-              ? '补充所需信息，或上传资料后继续'
-              : '描述目标，或继续修改已有成果'
-          "
+          :placeholder="task.executionState === 'waiting_input' ? '补充所需信息后继续' : undefined"
+          :shortcuts="{ skills: canUseSkills && !locked && !mutating, attachments: canAddFiles }"
           :max-length="32000"
           :max-rows="7"
           :disabled="locked || !canRun"
@@ -372,6 +400,8 @@ function picked(event: Event): void {
           :submit-disabled="!canSend"
           :submit-label="task.executionState === 'paused' && !message.trim() ? '继续执行' : '发送'"
           @keydown="keydown"
+          @select-skill="skillsOpen = true"
+          @add-attachment="fileInput?.click()"
           @send="send"
           @stop="emit('cancel')"
         >
@@ -393,24 +423,28 @@ function picked(event: Event): void {
           /></template>
           <template #overlay>
             <SkillPicker
+              v-if="canUseSkills"
               v-model:open="skillsOpen"
               :slugs="skillSlugs"
               :disabled="(locked && !mutating) || !canEdit"
               :busy="mutating"
               @update:slugs="selectSkills"
+              @dismiss="composerSurface?.focus()"
             />
           </template>
           <template #prefix>
-            <div v-if="task.inputs.length" class="work-inputs" aria-label="任务资料">
+            <div v-if="pendingInputs.length" class="work-inputs" aria-label="待发送附件">
               <AttachmentCard
-                v-for="file in task.inputs"
+                v-for="file in pendingInputs"
                 :key="file.fileId"
                 :filename="file.name"
                 :size-label="formatFileSize(file.size)"
                 :mime="file.mime"
-                :removable="false"
+                :removable="canRemoveInputs"
+                :disabled="locked"
                 openable
                 @open="filesOpen = true"
+                @remove="removeInput(file)"
               />
             </div>
             <WorkSelectedSkills
@@ -423,12 +457,12 @@ function picked(event: Event): void {
           <template #tools>
             <AttachmentButton
               aria-label="添加附件"
-              :disabled="locked || !canRun"
+              :disabled="!canAddFiles"
               :loading="uploading"
               @click="fileInput?.click()"
             />
             <AButton
-              v-if="canEdit && canUseCapability('skills', 'use')"
+              v-if="canUseSkills"
               type="text"
               aria-label="选择技能"
               :disabled="locked || mutating"
@@ -473,7 +507,14 @@ function picked(event: Event): void {
         :artifacts="task.artifacts"
         :uploading="uploading"
         :can-upload="canRun && !locked && task.status === 'active'"
+        :can-remove="canRemoveInputs"
+        :locked="locked"
+        :pending-input-ids="pendingInputIds"
+        :removing-input-id="removingInputId"
+        :remove-error="inputError"
         @upload="emit('upload', $event)"
+        @remove="removeInput"
+        @dismiss-remove-error="inputError = ''"
         @preview="previewArtifact = $event"
     /></ADrawer>
     <WorkArtifactPreview

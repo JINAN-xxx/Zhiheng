@@ -52,6 +52,10 @@ const {
   selected,
   folders,
   documents,
+  nextDocumentCursor,
+  loadingMoreDocuments,
+  loadMoreDocuments,
+  searchDocuments,
   jobs,
   folderId,
   selectFolder,
@@ -256,10 +260,7 @@ function queueUploadFile(file: File): boolean {
 </script>
 <template>
   <KnowledgeSettings ref="settings" @saved="settingsSaved" />
-  <main
-    class="app-container ai-knowledge-center"
-    :class="{ 'is-detail': !!baseId && view !== 'graph' }"
-  >
+  <main class="app-container ai-knowledge-center" :class="{ 'is-detail': !!baseId }">
     <a-alert
       v-if="capabilities && !capabilities.milvus_available"
       type="warning"
@@ -294,23 +295,29 @@ function queueUploadFile(file: File): boolean {
       />
     </section>
     <template v-else>
-      <section v-show="view !== 'graph'" class="knowledge-detail">
+      <section class="knowledge-detail">
         <KnowledgeWorkspaceHeader
           :database="selected"
-          :loading="detailLoading"
+          :loading="view === 'graph' ? graphWorkspace.loading.value : detailLoading"
           :busy="busy"
-          :graph-available="capabilities?.graph_available === true"
+          :refresh-label="view === 'graph' ? '刷新知识图谱' : '刷新资料'"
+          :refresh-disabled="
+            view === 'graph' && (graphWorkspace.starting.value || graphWorkspace.saving.value)
+          "
           @back="back"
-          @refresh="refresh"
+          @refresh="view === 'graph' ? graphWorkspace.load() : refresh()"
           @settings="settings?.open(selected)"
           @acl="acl?.open(selected)"
           @upload="requestUpload"
           @rebuild="askDelete('rebuild', selected)"
-          @graph="navigate(selected, 'graph')"
           @migration="migration?.open(selected)"
           @remove="askDelete('base', selected)"
         />
-        <KnowledgeSectionNav :active-view="view" @navigate="navigate(selected, $event)" />
+        <KnowledgeSectionNav
+          :active-view="view"
+          :graph-available="capabilities?.graph_available === true"
+          @navigate="navigate(selected, $event)"
+        />
         <div class="knowledge-panels">
           <div
             v-show="view === 'documents'"
@@ -329,8 +336,12 @@ function queueUploadFile(file: File): boolean {
               :error="detailError"
               :observation-error="observationError"
               :busy="busy"
+              :has-more="!!nextDocumentCursor"
+              :loading-more="loadingMoreDocuments"
               @back="back"
               @refresh="refresh"
+              @search="searchDocuments"
+              @load-more="loadMoreDocuments"
               @navigate="navigate(selected, $event)"
               @select-folder="selectFolder"
               @create-folder="openEditor('createFolder')"
@@ -398,47 +409,46 @@ function queueUploadFile(file: File): boolean {
               "
             />
           </div>
+          <KnowledgeGraphPage
+            v-if="view === 'graph'"
+            :database="selected"
+            :labels="graphWorkspace.labels.value"
+            :graph="chart"
+            :loading="graphWorkspace.loading.value"
+            :error="graphWorkspace.error.value"
+            :job="graphWorkspace.build.value"
+            :jobs="graphWorkspace.jobs.value"
+            :available="capabilities?.graph_available === true && graphState?.available === true"
+            :build-loading="graphWorkspace.loading.value"
+            :starting="graphWorkspace.starting.value"
+            :can-edit="
+              (canUseCapability('knowledge', 'update') ||
+                canUseCapability('knowledge', 'rebuild')) &&
+              selected.can_manage &&
+              graphState?.can_manage === true
+            "
+            :chat-options="chatOptions"
+            :config-state="graphState"
+            :config-ready="!!graphState"
+            :config-saving="graphWorkspace.saving.value"
+            :documents="documents"
+            :preview="graphWorkspace.preview.value"
+            :readable="!!graphState?.active_revision && !graphState.requires_rebuild"
+            :uncertain="graphWorkspace.uncertain.value || graphWorkspace.configUncertain.value"
+            :recoverable="graphWorkspace.recoverable.value"
+            :stopping="graphWorkspace.stopping.value"
+            @load="graphWorkspace.loadGraph"
+            @refresh="graphWorkspace.load"
+            @save-config="graphWorkspace.save"
+            @start="graphWorkspace.start($event.config, 'build', { rebuild: $event.rebuild })"
+            @preview="
+              graphWorkspace.start($event.config, 'preview', { document_id: $event.document_id })
+            "
+            @cancel="graphWorkspace.cancel"
+            @recover="graphWorkspace.recover"
+          />
         </div>
       </section>
-      <KnowledgeGraphPage
-        v-if="view === 'graph'"
-        :database="selected"
-        :labels="graphWorkspace.labels.value"
-        :graph="chart"
-        :loading="graphWorkspace.loading.value"
-        :error="graphWorkspace.error.value"
-        :job="graphWorkspace.build.value"
-        :jobs="graphWorkspace.jobs.value"
-        :available="capabilities?.graph_available === true && graphState?.available === true"
-        :build-loading="graphWorkspace.loading.value"
-        :starting="graphWorkspace.starting.value"
-        :can-edit="
-          (canUseCapability('knowledge', 'update') || canUseCapability('knowledge', 'rebuild')) &&
-          selected.can_manage &&
-          graphState?.can_manage === true
-        "
-        :chat-options="chatOptions"
-        :config-state="graphState"
-        :config-ready="!!graphState"
-        :config-saving="graphWorkspace.saving.value"
-        :documents="documents"
-        :preview="graphWorkspace.preview.value"
-        :readable="!!graphState?.active_revision && !graphState.requires_rebuild"
-        :uncertain="graphWorkspace.uncertain.value || graphWorkspace.configUncertain.value"
-        :recoverable="graphWorkspace.recoverable.value"
-        :stopping="graphWorkspace.stopping.value"
-        @back="back"
-        @navigate="navigate(selected, $event)"
-        @load="graphWorkspace.loadGraph"
-        @refresh="graphWorkspace.load"
-        @save-config="graphWorkspace.save"
-        @start="graphWorkspace.start($event.config, 'build', { rebuild: $event.rebuild })"
-        @preview="
-          graphWorkspace.start($event.config, 'preview', { document_id: $event.document_id })
-        "
-        @cancel="graphWorkspace.cancel"
-        @recover="graphWorkspace.recover"
-      />
     </template>
     <a-modal
       :open="editor.open"

@@ -5,7 +5,6 @@ import os
 import platform
 import shutil
 from pathlib import Path
-from time import time
 from typing import Literal
 
 from fastapi import APIRouter
@@ -15,10 +14,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
+from zhiheng.infrastructure.worker_heartbeat import worker_heartbeat_age
 
 router = APIRouter(prefix='/api/admin', tags=['admin-monitor'])
 Health = Literal['ok', 'unavailable']
-WORKER_HEARTBEAT_MAX_AGE_SECONDS = 15
 
 
 class PlatformInfo(BaseModel):
@@ -113,13 +112,11 @@ async def monitor(
             uptime_seconds=_number(server.get('uptime_in_seconds')),
             db_keys=keys,
         )
-        heartbeat = await container.redis.get(container.settings.worker_health_key)
-        if heartbeat is not None:
-            age = max(0.0, time() - float(heartbeat))
-            worker = WorkerInfo(
-                status='ok' if age <= WORKER_HEARTBEAT_MAX_AGE_SECONDS else 'unavailable',
-                heartbeat_age_seconds=age,
-            )
+        age = await worker_heartbeat_age(
+            container.redis, container.settings.worker_heartbeats_key, legacy_key=container.settings.worker_health_key
+        )
+        if age is not None:
+            worker = WorkerInfo(status='ok', heartbeat_age_seconds=age)
     except (RedisError, ValueError, TypeError):
         pass
     return MonitorInfo(

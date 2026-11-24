@@ -3,14 +3,17 @@
 import asyncio
 import logging
 import signal
+from socket import gethostname
 from time import time
 from typing import TYPE_CHECKING, cast
+from uuid import uuid4
 
 from arq import Worker
 from arq.connections import ArqRedis, RedisSettings, create_pool
 
 from zhiheng.application.execution.failures import database_sqlstate, exception_frames
 from zhiheng.bootstrap.container import Container
+from zhiheng.infrastructure.worker_heartbeat import WORKER_HEARTBEAT_INTERVAL_SECONDS, WORKER_HEARTBEAT_TTL_SECONDS
 from zhiheng.worker.consumer import ConsumerWorker
 from zhiheng.worker.graph_runner import GraphRunner
 from zhiheng.worker.maintenance import file_maintenance, maintain
@@ -37,6 +40,7 @@ class WorkerProcess:
         self._dispatch_passes = self._maintenance_passes = 0
         self._signals: list[tuple[signal.Signals, object, object]] = []
         self._closing = False
+        self._heartbeat_member = f'{gethostname()}:{uuid4().hex}'
 
     async def async_run(self) -> None:
         if self._stop.is_set():
@@ -110,9 +114,15 @@ class WorkerProcess:
             await asyncio.sleep(0.5)
 
     async def _heartbeat(self) -> None:
+        key = self.container.settings.worker_heartbeats_key
         while True:
-            await self.container.redis.set(self.container.settings.worker_health_key, str(time()), ex=15)
-            await asyncio.sleep(2)
+            now = time()
+            async with self.container.redis.pipeline() as commands:
+                commands.zremrangebyscore(key, '-inf', now - WORKER_HEARTBEAT_TTL_SECONDS)
+                commands.zadd(key, {self._heartbeat_member: now})
+                commands.expire(key, WORKER_HEARTBEAT_TTL_SECONDS)
+                await commands.execute()
+            await asyncio.sleep(WORKER_HEARTBEAT_INTERVAL_SECONDS)
 
     async def _maintenance(self) -> None:
         # Preserve the old quarter-hour plus twenty seconds file sweep schedule.
@@ -243,7 +253,7 @@ class WorkerProcess:
             except BaseException as error:
                 errors.append(error)
         try:
-            await self.container.redis.delete(self.container.settings.worker_health_key)
+            await self.container.redis.zrem(self.container.settings.worker_heartbeats_key, self._heartbeat_member)
         except BaseException as error:
             errors.append(error)
         if self._publisher_pool is not None:

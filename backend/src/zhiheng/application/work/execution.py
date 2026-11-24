@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid5
@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from zhiheng.application.work.agent import WorkAgentService
 
 logger = logging.getLogger(__name__)
+SUMMARY_INITIAL_OUTPUT_TOKENS = 2048
+SUMMARY_MAX_AUTO_OUTPUT_TOKENS = 4096
+SUMMARY_OUTPUT_LIMIT = 'work_summary_output_limit'
 PROMPT = """你是智衡工作空间的任务助手，直接帮助用户理解资料、查询信息、处理文件并自然交流。
 
 【回应当前问题】
@@ -89,11 +92,19 @@ class ExecutionProgress:
     model_calls: int = 0
     tool_calls: int = 0
     state: str = 'completed'
-    summary_output_tokens: int = 1024
+    summary_output_tokens: int = SUMMARY_INITIAL_OUTPUT_TOKENS
     summary_input_tokens: int = 65536
     tool_context_id: str = ''
     tool_result_tokens: int = 65536
     code_execution_started: bool = False
+
+
+def _model_completed(result: RunSnapshot, purpose: str) -> bool:
+    return (
+        result.status == 'completed'
+        and result.finish_reason == 'stop'
+        and (purpose != 'summary' or valid_work_summary(result.text))
+    )
 
 
 class WorkAgentExecutor:
@@ -139,6 +150,7 @@ class WorkAgentExecutor:
                 'insufficient_credits',
                 'work_sandbox_busy',
                 'work_summary_failed',
+                SUMMARY_OUTPUT_LIMIT,
                 'work_summary_too_large',
                 'work_summary_context_unavailable',
             }
@@ -221,14 +233,19 @@ class WorkAgentExecutor:
             context_window_tokens=binding.context_window_tokens,
             max_output_tokens=binding.output_reservation_tokens,
         )
-        summary = self.context.policy.summary.resolve(
+        policy = self.context.policy.summary
+        summary = replace(policy, output_tokens=policy.output_tokens or SUMMARY_MAX_AUTO_OUTPUT_TOKENS).resolve(
             input_budget=input_budget,
             model_window_tokens=binding.context_window_tokens,
             model_max_output_tokens=binding.max_output_tokens,
             prefix_tokens=estimate_messages((ModelMessage('system', system),)),
             current_tokens=estimate_messages((ModelMessage('user', str(claim.payload.get('message', ''))),)),
         )
-        progress.summary_output_tokens = summary.output_tokens
+        progress.summary_output_tokens = (
+            min(summary.output_tokens, SUMMARY_INITIAL_OUTPUT_TOKENS)
+            if policy.output_tokens is None and input_budget is None and not claim.payload.get('resume')
+            else summary.output_tokens
+        )
         progress.summary_input_tokens = summary.input_tokens
 
         async def progress_writer(plan: tuple[dict[str, object], ...]) -> None:
@@ -249,9 +266,19 @@ class WorkAgentExecutor:
         async def invoke(
             messages: tuple[AgentModelMessage, ...], schemas: tuple[dict[str, object], ...], key: str, purpose: str
         ) -> ModelTurn:
-            return await self.model_call(
-                claim, progress, messages, schemas, key, purpose, project_text=purpose == 'agent'
-            )
+            try:
+                return await self.model_call(
+                    claim, progress, messages, schemas, key, purpose, project_text=purpose == 'agent'
+                )
+            except AppError as error:
+                if (
+                    purpose != 'summary'
+                    or error.code != SUMMARY_OUTPUT_LIMIT
+                    or progress.summary_output_tokens >= summary.output_tokens
+                ):
+                    raise
+            progress.summary_output_tokens = summary.output_tokens
+            return await self.model_call(claim, progress, messages, schemas, key, purpose)
 
         def tool_context(
             identity: str,
@@ -378,7 +405,7 @@ class WorkAgentExecutor:
                 child is not None
                 and (
                     child.status in {'failed', 'interrupted', 'cancelled'}
-                    or (purpose == 'summary' and child.status == 'completed' and not valid_work_summary(child.text))
+                    or (purpose == 'summary' and child.status == 'completed' and not _model_completed(child, purpose))
                 )
                 and claim.payload.get('resume')
             ):
@@ -408,7 +435,7 @@ class WorkAgentExecutor:
                 action_id='model:' + action_key,
                 kind='model',
                 name=purpose,
-                status='succeeded' if child.status == 'completed' else 'running',
+                status='succeeded' if _model_completed(child, purpose) else 'running',
                 summary='整理历史' if purpose == 'summary' else '组织答复' if purpose == 'final' else '分析与规划',
                 details={'run_id': str(child.id)},
             )
@@ -466,9 +493,11 @@ class WorkAgentExecutor:
         child, action_key = await self._admit_model(claim, progress, request, key, purpose)
         await self._project(claim, progress)
         result = await self._wait_model(claim, progress, child, project_text=project_text)
-        okay = result.status == 'completed' and result.finish_reason == 'stop'
-        invalid_summary = okay and purpose == 'summary' and not valid_work_summary(result.text)
-        okay = okay and not invalid_summary
+        okay = _model_completed(result, purpose)
+        truncated_summary = purpose == 'summary' and result.status == 'completed' and result.finish_reason == 'length'
+        invalid_summary = (
+            purpose == 'summary' and result.status == 'completed' and result.finish_reason == 'stop' and not okay
+        )
         async with self.context.database.sessions.begin() as session:
             await self.context.tasks.record_step(
                 session,
@@ -479,16 +508,30 @@ class WorkAgentExecutor:
                 kind='model',
                 name=purpose,
                 status='succeeded' if okay else 'failed',
-                summary='摘要内容无效，原文已保留' if invalid_summary else '模型调用完成' if okay else '模型调用未完成',
+                summary=(
+                    '历史摘要达到输出上限，原文已保留'
+                    if truncated_summary
+                    else '摘要内容无效，原文已保留'
+                    if invalid_summary
+                    else '模型调用完成'
+                    if okay
+                    else '模型调用未完成'
+                ),
                 details={'run_id': str(child.id)},
                 result={'usage': result.usage.model_dump(mode='json')},
             )
         if not okay:
+            if truncated_summary:
+                raise AppError(
+                    SUMMARY_OUTPUT_LIMIT,
+                    '历史摘要达到输出上限，已保存原始上下文和执行步骤，可以继续任务',
+                    502,
+                )
             if invalid_summary:
                 raise AppError(
                     'work_summary_failed', '任务历史摘要未能有效生成，原始资料和执行记录已保留，可以继续任务', 502
                 )
-            if result.text and not progress.text:
+            if purpose != 'summary' and result.text and not progress.text:
                 progress.text = result.text
             if result.error and result.error.code in MODEL_TIMEOUT_CODES:
                 raise AppError(result.error.code, result.error.message, 504)

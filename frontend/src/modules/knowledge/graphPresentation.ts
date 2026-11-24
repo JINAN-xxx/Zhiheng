@@ -1,5 +1,21 @@
 import type { GraphData, GraphJob } from './api/graph.ts'
 
+const entityTypeLabels = new Map([
+  ['person', '人物'],
+  ['creature', '生物'],
+  ['organization', '组织'],
+  ['location', '地点'],
+  ['event', '事件'],
+  ['concept', '概念'],
+  ['method', '方法'],
+  ['content', '内容'],
+  ['data', '数据'],
+  ['artifact', '人造物'],
+  ['naturalobject', '自然物'],
+  ['other', '其他'],
+  ['unknown', '未分类']
+])
+
 export function graphIsActive(job: GraphJob | null): boolean {
   return !!job && !['completed', 'failed', 'cancelled', 'interrupted'].includes(job.status)
 }
@@ -21,18 +37,32 @@ export function graphProgress(job: GraphJob | null): number | undefined {
   return Math.min(100, Math.round((job.processed_documents / job.total_documents) * 100))
 }
 export function chartGraph(graph: GraphData | null) {
-  const categories = [...new Set(graph?.nodes.map((node) => node.entity_type) ?? [])].map(
-    (name) => ({ name })
-  )
+  const categoryIndices = new Map<string, number>()
+  const degree = new Map<string, number>()
+  for (const { source, target } of graph?.edges ?? []) {
+    degree.set(source, (degree.get(source) ?? 0) + 1)
+    degree.set(target, (degree.get(target) ?? 0) + 1)
+  }
+  const nodes = (graph?.nodes ?? []).map((node) => {
+    const rawType = node.entity_type.trim()
+    const typeKey = rawType.toLowerCase().replace(/[\s_-]+/g, '')
+    const label = entityTypeLabels.get(typeKey) ?? (rawType || '未分类')
+    let category = categoryIndices.get(label)
+    if (category === undefined) {
+      category = categoryIndices.size
+      categoryIndices.set(label, category)
+    }
+    return {
+      id: node.id,
+      name: node.entity_name,
+      category,
+      symbolSize: Math.min(38, 16 + 5 * Math.sqrt(degree.get(node.id) ?? 0)),
+      description: node.description,
+      tooltipText: `${node.entity_name}\n${label}\n${node.description}`
+    }
+  })
   return {
-    nodes:
-      graph?.nodes.map((node) => ({
-        id: node.id,
-        name: node.entity_name,
-        category: categories.findIndex((item) => item.name === node.entity_type),
-        symbolSize: 34,
-        tooltipText: `${node.entity_name}\n${node.entity_type}\n${node.description}`
-      })) ?? [],
+    nodes,
     links:
       graph?.edges.map((edge) => ({
         id: edge.id,
@@ -40,7 +70,7 @@ export function chartGraph(graph: GraphData | null) {
         target: edge.target,
         tooltipText: edge.description
       })) ?? [],
-    categories,
+    categories: [...categoryIndices.keys()].map((name) => ({ name })),
     truncated: graph?.is_truncated ?? false
   }
 }

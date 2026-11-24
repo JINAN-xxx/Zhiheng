@@ -15,6 +15,9 @@ from zhiheng.modules.knowledge.graph.contracts import GraphFrozen, GraphVectorMa
 from zhiheng.shared.errors import AppError
 
 LABEL_LIMIT = 200
+PREVIEW_NODE_LIMIT = 80
+PREVIEW_EDGE_LIMIT = 160
+PREVIEW_DESCRIPTION_LIMIT = 320
 
 
 def create_rag(
@@ -95,6 +98,29 @@ async def run_operation(
             'chunks': len(selected),
             'seconds': 0.0,
         }
+        if operation == 'preview':
+            raw = await rag.chunk_entity_relation_graph.get_knowledge_graph(
+                node_label='*', max_depth=2, max_nodes=PREVIEW_NODE_LIMIT
+            )
+            graph = subgraph_result(raw, manifest.revision)
+            nodes = graph.nodes[:PREVIEW_NODE_LIMIT]
+            node_ids = {node.id for node in nodes}
+            edges = [edge for edge in graph.edges if edge.source in node_ids and edge.target in node_ids]
+            result['graph'] = graph.model_copy(
+                update={
+                    'nodes': [
+                        node.model_copy(update={'description': node.description[:PREVIEW_DESCRIPTION_LIMIT]})
+                        for node in nodes
+                    ],
+                    'edges': [
+                        edge.model_copy(update={'description': edge.description[:PREVIEW_DESCRIPTION_LIMIT]})
+                        for edge in edges[:PREVIEW_EDGE_LIMIT]
+                    ],
+                    'is_truncated': graph.is_truncated
+                    or len(nodes) < len(graph.nodes)
+                    or len(graph.edges) > min(len(edges), PREVIEW_EDGE_LIMIT),
+                }
+            ).model_dump(mode='json')
     elif operation == 'query':
         if request.get('_rerank_binding') is None:
             raise AppError('knowledge_rerank_required', '图谱检索必须配置重排模型', 409)

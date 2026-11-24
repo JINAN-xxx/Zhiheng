@@ -1,17 +1,22 @@
+import asyncio
 import hashlib
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
+from httpx import AsyncClient
 from sqlalchemy import text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.core.permission_support import account, grants
 from zhiheng.modules.files.public import FileInfo
 from zhiheng.modules.work.orm import WorkTask
 from zhiheng.modules.work.public import (
     AgentTurn,
     CreateAgentTask,
     TaskDetail,
+    UpdateAgentTask,
     WorkAgentStore,
     WorkbenchWork,
     WorkPlanItem,
@@ -97,10 +102,16 @@ async def test_same_name_input_versions_preserve_both_managed_objects(app: FastA
     assert (await container.file_queries.read(principal, first.id))[1] == b'amount\n1\n'
 
 
-async def test_pending_cancel_projects_without_a_live_attempt_and_reuses_initial_message(app: FastAPI) -> None:
+async def test_pending_cancel_projects_without_a_live_attempt_and_reuses_initial_message(
+    app: FastAPI, admin: AsyncClient
+) -> None:
     container = app.state.container
     store, principal, task = await owned_task(app)
     run_id, _ = await admitted_run(app, store, principal, task, claim=False)
+    progress_path = f'/api/work/tasks/{task.id}/runs/{run_id}/progress'
+    progress = await admin.get(progress_path)
+    assert progress.status_code == 200
+    assert progress.json() == {'execution_state': 'queued', 'steps': [], 'artifacts': [], 'plan': []}
     async with container.database.sessions.begin() as session:
         snapshot, release = await container.runs.cancel(session, run_id, principal.id)
         assert release and snapshot.attempt_id is None
@@ -110,6 +121,66 @@ async def test_pending_cancel_projects_without_a_live_attempt_and_reuses_initial
         assert current.current_run_id is None and current.execution_state == 'cancelled'
         assert [message.role for message in current.messages] == ['user', 'assistant']
         assert current.messages[-1].status == 'cancelled'
+    finished = await admin.get(progress_path)
+    assert finished.status_code == 200 and finished.json() is None
+
+
+async def test_work_routes_share_one_database_connection(
+    app: FastAPI, admin: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, principal, task = await owned_task(app)
+    run_id, _ = await admitted_run(app, store, principal, task, claim=False)
+    _, _, draft = await owned_task(app, '')
+    database = app.state.container.database
+    engine = create_async_engine(database.engine.url, pool_size=1, max_overflow=0, pool_timeout=2)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(database, 'engine', engine)
+            patch.setattr(database, 'sessions', async_sessionmaker(engine, expire_on_commit=False))
+            run_path = f'/api/work/tasks/{task.id}/runs/{run_id}'
+            snapshots, stopped, deleted = await asyncio.gather(
+                asyncio.gather(*(admin.get(run_path) for _ in range(4))),
+                admin.post(run_path + '/cancel', json={}),
+                admin.delete(
+                    f'/api/work/tasks/{draft.id}',
+                    params={'expected_version': draft.version},
+                    headers={'Content-Type': 'application/json'},
+                ),
+            )
+        assert all(response.status_code == 200 for response in snapshots)
+        assert stopped.status_code == 200 and stopped.json()['status'] == 'cancelled'
+        assert deleted.status_code == 204
+    finally:
+        await engine.dispose()
+
+
+async def test_work_owner_can_stop_after_losing_use_permission(app: FastAPI, admin: AsyncClient, model_id: str) -> None:
+    async with account(admin, app, *grants('platform:work', 'use', 'create')) as (owner, role, _):
+        response = await owner.post(
+            '/api/work/tasks', json={'goal': '处理资料', 'model_id': model_id, 'client_request_id': str(uuid4())}
+        )
+        assert response.status_code == 201, response.text
+        task = response.json()
+        path = f'/api/work/tasks/{task["id"]}/runs'
+        body = {
+            'message': task['goal'],
+            'expected_version': task['version'],
+            'client_request_id': task['create_client_request_id'],
+        }
+        admitted = await owner.post(path, json=body)
+        assert admitted.status_code == 202, admitted.text
+        run_path = path + '/' + admitted.json()['id']
+        role_update = await admin.patch(
+            f'/api/admin/roles/{role["id"]}',
+            json={'expected_version': role['version'], 'permissions': sorted(grants('platform:work'))},
+        )
+        assert role_update.status_code == 200, role_update.text
+        async with account(admin, app, *grants('platform:work')) as (other, _, _):
+            assert (await other.post(run_path + '/cancel', json={})).status_code == 404
+        stopped = await owner.post(run_path + '/cancel', json={})
+        assert stopped.status_code == 200 and stopped.json()['status'] == 'cancelled'
+        assert (await owner.post(path, json={**body, 'client_request_id': str(uuid4())})).status_code == 403
+        assert (await owner.get(run_path)).json()['status'] == 'cancelled'
 
 
 async def test_step_facts_reject_stale_attempts_and_expired_leases(app: FastAPI) -> None:
@@ -271,6 +342,7 @@ async def test_inputs_frozen_in_run_history_cannot_be_detached_but_drafts_can(ap
     used = await managed_file(app, principal, b'used input', 'used.txt')
     async with container.database.sessions.begin() as session:
         await store.attach_input(session, principal, task.id, used)
+        await container.work_agent.bind_file(session, principal, task.id, used)
         task = await store.detail(session, principal, task.id)
         assert not await store.has_consumed_input(session, principal, task.id, used.id)
     run_id, _ = await admitted_run(app, store, principal, task, claim=False)
@@ -282,17 +354,48 @@ async def test_inputs_frozen_in_run_history_cannot_be_detached_but_drafts_can(ap
         await store.project_snapshot(session, snapshot)
         task = await store.detail(session, principal, task.id)
         assert await store.has_consumed_input(session, principal, task.id, used.id)
+        assert [(message.role, message.input_file_ids) for message in task.messages] == [
+            ('user', [used.id]),
+            ('assistant', []),
+        ]
     with pytest.raises(AppError) as error:
-        async with container.database.sessions.begin() as session:
-            await store.detach_input(session, principal, task.id, used.id, task.version)
+        await container.work_agent.detach_input(principal, task.id, used.id, task.version)
     assert error.value.code == 'work_input_referenced'
     unused = await managed_file(app, principal, b'unused input', 'unused.txt')
     async with container.database.sessions.begin() as session:
         await store.attach_input(session, principal, task.id, unused)
+        await container.work_agent.bind_file(session, principal, task.id, unused)
         task = await store.detail(session, principal, task.id)
         assert not await store.has_consumed_input(session, principal, task.id, unused.id)
-        current = await store.detach_input(session, principal, task.id, unused.id, task.version)
-        assert [item.file_id for item in current.inputs] == [used.id]
+        assert task.messages[0].input_file_ids == [used.id]
+    current = await container.work_agent.detach_input(principal, task.id, unused.id, task.version)
+    assert [item.file_id for item in current.inputs] == [used.id]
+    async with container.database.sessions() as session:
+        assert await container.files.references.list(session, principal, unused.id) == []
+        assert [item.resource_id for item in await container.files.references.list(session, principal, used.id)] == [
+            task.id
+        ]
+
+
+async def test_archive_and_restore_work_with_unavailable_model(app: FastAPI) -> None:
+    container = app.state.container
+    _, principal, task = await owned_task(app)
+    archived = await container.work_agent.update(
+        principal, task.id, UpdateAgentTask(expected_version=task.version, status='archived')
+    )
+    async with container.database.sessions() as session:
+        recent = await container.work.list_tasks(
+            session, principal, page=1, page_size=20, search='', status=None, include_archived=False
+        )
+        history = await container.work.list_tasks(
+            session, principal, page=1, page_size=20, search='', status='archived', include_archived=False
+        )
+        assert recent.items == [] and [item.id for item in history.items] == [task.id]
+    restored = await container.work_agent.update(
+        principal, task.id, UpdateAgentTask(expected_version=archived.version, status='active')
+    )
+    assert restored.status == 'active'
+    assert [item.content for item in restored.messages] == [task.goal]
 
 
 async def test_empty_intermediate_snapshots_are_preserved_without_managed_empty_files(app: FastAPI) -> None:

@@ -627,6 +627,30 @@ async def test_repeated_multi_source_import_does_not_duplicate_materials_or_mode
     documents = (await admin.get(f'/api/knowledge/bases/{base["id"]}/documents')).json()['items']
     assert len(documents) == 2 and len({item['file_id'] for item in documents}) == 2
     assert len(provider.requests) == previous_calls
+    member = await reader(app)
+    try:
+        base = await share(admin, base, member)
+        endpoint = f'/api/knowledge/bases/{base["id"]}/documents'
+        first_page = await member.get(endpoint, params={'folder': 'root', 'limit': 1})
+        assert first_page.status_code == 200, first_page.text
+        cursor = first_page.headers['X-Next-Cursor']
+        assert cursor and len(first_page.json()['items']) == 1
+        second_page = await member.get(endpoint, params={'folder': 'root', 'limit': 1, 'cursor': cursor})
+        assert second_page.status_code == 200, second_page.text
+        assert len(second_page.json()['items']) == 1 and not second_page.headers['X-Next-Cursor']
+        assert first_page.json()['items'] + second_page.json()['items'] == documents
+        assert (
+            await member.get(endpoint, params={'folder': 'root', 'search': 'one', 'cursor': cursor})
+        ).status_code == 422
+        search = await member.get(endpoint, params={'folder': 'root', 'search': 'two'})
+        assert [item['file_name'] for item in search.json()['items']] == ['two.txt']
+        second_id = second_page.json()['items'][0]['id']
+        status = await member.get(endpoint + '/visibility', params={'document_id': [second_id, str(uuid4())]})
+        assert status.status_code == 200 and status.json() == [second_id]
+        assert (await remove_share(admin, base, member)).status_code == 204
+        assert (await member.get(endpoint + '/visibility', params={'document_id': second_id})).status_code == 404
+    finally:
+        await member.aclose()
 
 
 @pytest.mark.parametrize('revocation', ['library_acl', 'source_acl'])

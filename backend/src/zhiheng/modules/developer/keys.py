@@ -154,7 +154,9 @@ class KeyService:
             row.retire_at = None
             row.deleted_at = utcnow()
 
-    async def authenticate(self, session: AsyncSession, token: str, *, lock: bool = False) -> DeveloperIdentity:
+    async def authenticate(
+        self, session: AsyncSession, token: str, *, lock: bool = False, scope: Scope | None = None
+    ) -> DeveloperIdentity:
         query = select(DeveloperKey).where(DeveloperKey.digest == hashlib.sha256(token.encode()).hexdigest())
         if lock:
             query = query.with_for_update().execution_options(populate_existing=True)
@@ -172,7 +174,12 @@ class KeyService:
             or not await self._identity.is_active(session, app.owner_id)
         ):
             raise AppError('invalid_api_key', 'Invalid API key', 401)
-        require_key_capabilities(await self._identity.principal_for_user(session, app.owner_id))
+        principal = await self._identity.principal_for_user(session, app.owner_id)
+        require_key_capabilities(principal)
+        if scope is not None:
+            if scope not in key.scopes:
+                raise AppError('insufficient_scope', 'Key lacks the required scope', 403)
+            require_key_capabilities(principal, (scope,))
         return DeveloperIdentity(app.id, key.id, app.owner_id)
 
     async def revalidate(self, session: AsyncSession, identity: DeveloperIdentity, *, lock: bool = False) -> KeyInfo:

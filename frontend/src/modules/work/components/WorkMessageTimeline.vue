@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import MessageActions from '../../../shared/components/MessageActions.vue'
+import AttachmentCard from '../../../shared/components/AttachmentCard.vue'
 import { AiMessage, ChatEmptyState } from '../../chat/public.ts'
+import { formatFileSize } from '../../files/public.ts'
 import { formatKnowledgeCitations } from '../../knowledge/public.ts'
-import type { WorkArtifact, WorkMessage } from '../api/index.ts'
+import type { WorkArtifact, WorkInput, WorkMessage } from '../api/index.ts'
 import { runStatusLabel } from '../../../shared/stream.ts'
 
 import { artifactsByRun, formatArtifactLinks } from '../artifacts.ts'
@@ -13,13 +15,18 @@ const props = withDefaults(
   defineProps<{
     taskId: string
     messages: WorkMessage[]
+    inputs: WorkInput[]
     artifacts: WorkArtifact[]
     legacy?: boolean
     showProgress?: boolean
   }>(),
   { legacy: false, showProgress: false }
 )
-const emit = defineEmits<{ preview: [artifact: WorkArtifact] }>()
+const emit = defineEmits<{ preview: [artifact: WorkArtifact]; 'open-input': [] }>()
+const inputsById = computed(() => new Map(props.inputs.map((input) => [input.fileId, input])))
+function messageInputs(message: WorkMessage): WorkInput[] {
+  return (message.inputFileIds ?? []).flatMap((id) => inputsById.value.get(id) ?? [])
+}
 const linkPrefix = `#work-artifact-${useId().replace(/[^a-z0-9_-]/gi, '')}-`
 const byRun = computed(() => artifactsByRun(props.artifacts))
 const availableFiles = computed(() => {
@@ -93,6 +100,18 @@ watch(
         >
           {{ message.agentNameSnapshot }}
         </div>
+        <div v-if="message.inputFileIds?.length" class="work-message__inputs" aria-label="消息附件">
+          <AttachmentCard
+            v-for="file in messageInputs(message)"
+            :key="file.fileId"
+            :filename="file.name"
+            :size-label="formatFileSize(file.size)"
+            :mime="file.mime"
+            :removable="false"
+            openable
+            @open="emit('open-input')"
+          />
+        </div>
         <template v-if="message.role === 'assistant'">
           <slot v-if="showProgress && index === lastAssistant" name="progress" />
           <div
@@ -160,6 +179,15 @@ watch(
   justify-content: center;
 }
 .message-row.user :deep(.message-actions) {
+  justify-content: flex-end;
+}
+.work-message__inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.message-row.user .work-message__inputs {
   justify-content: flex-end;
 }
 </style>

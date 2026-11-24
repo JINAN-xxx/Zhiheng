@@ -8,7 +8,8 @@ import {
   emptyWorkDraft,
   MAX_WORK_FILE_BYTES,
   nextCreateIntent,
-  nextWorkIntent
+  nextWorkIntent,
+  pendingWorkInputs
 } from '../presentation.ts'
 import type { CreateIntent, WorkDraft, WorkIntent } from '../presentation.ts'
 import type { WorkTasks } from './tasks.ts'
@@ -182,6 +183,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
   }
   function showPending(task: WorkTask, intent: WorkIntent): void {
     const now = new Date().toISOString()
+    const inputFileIds = pendingWorkInputs(task).map((file) => file.fileId)
     const base = {
       clientRequestId: intent.clientRequestId,
       reasoningContent: '',
@@ -206,6 +208,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
         messageId: 'local:user:' + intent.clientRequestId,
         role: 'user',
         content: intent.message,
+        inputFileIds,
         sequence: task.messages.length + 1
       })
     if (
@@ -219,6 +222,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
         messageId: 'local:assistant:' + intent.clientRequestId,
         role: 'assistant',
         content: '',
+        inputFileIds: intent.resume ? inputFileIds : [],
         sequence: task.messages.length + 1
       })
   }
@@ -351,8 +355,12 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     tasks.detailError.value = ''
     try {
       const result = await operation(task, AbortSignal.any([context.signal, parent.signal]))
-      if (!context.isCurrent() || !parent.isCurrent() || !tasks.acceptTask(result, parent))
-        return false
+      if (!context.isCurrent() || !parent.isCurrent()) return false
+      const current = tasks.acceptTask(result, parent)
+      if (!current) return false
+      const unstarted = intents.get(task.taskId)
+      if (unstarted && retryKind.value === 'unstarted')
+        intents.set(task.taskId, { ...unstarted, expectedVersion: current.version })
       void tasks.loadTasks()
       return true
     } catch (reason) {
@@ -369,6 +377,8 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     mutate((task, signal) =>
       api.updateTask(task.taskId, { expected_version: task.version, ...changes }, signal)
     )
+  const detachInput = (fileId: string) =>
+    mutate((task, signal) => api.detachTaskInput(task.taskId, fileId, task.version, signal))
   async function uploadFiles(files: File[]): Promise<void> {
     const task = tasks.currentTask.value
     if (!task || task.mode !== 'agent' || !options.canRun(task) || submissionBlocked.value) return
@@ -447,6 +457,7 @@ export function useWorkTurnCommands(options: WorkTurnCommandsOptions) {
     runMessage,
     retryRun,
     saveTask,
+    detachInput,
     uploadFiles,
     stopLocalActivity,
     clear,

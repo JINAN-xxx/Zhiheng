@@ -48,6 +48,10 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     jobs = ref<KnowledgeJob[]>([])
   const folderId = ref<string | null>(null),
     models = ref<ChatModel[]>([])
+  const documentSearch = ref(''),
+    nextDocumentCursor = ref<string | null>(null),
+    loadingMoreDocuments = ref(false)
+  let documentSearchTimer: ReturnType<typeof setTimeout> | undefined
   const loading = ref(false),
     detailLoading = ref(false),
     listError = ref(''),
@@ -190,6 +194,8 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     writeScope.replace()
     selected.value = null
     documents.value = []
+    nextDocumentCursor.value = null
+    loadingMoreDocuments.value = false
     folders.value = []
     jobs.value = []
     const unavailable = error instanceof ApiError && error.code === 'knowledge_owner_unavailable'
@@ -223,7 +229,10 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
   ): Promise<boolean> {
     const id = baseId.value
     if (!id) return false
+    clearTimeout(documentSearchTimer)
     const ticket = detailScope.replace()
+    loadingMoreDocuments.value = false
+    nextDocumentCursor.value = null
     const signal = observer ? AbortSignal.any([ticket.signal, observer.signal]) : ticket.signal
     const isCurrent = () => ticket.isCurrent() && (!observer || observer.isCurrent())
     if (!silent) {
@@ -232,23 +241,42 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     }
     try {
       const base = checkedBase?.id === id ? checkedBase : await api.getBase(id, signal)
-      const [docs, dirs, taskRows] = await Promise.all([
-        api.listDocuments(id, signal),
+      const [dirs, taskRows] = await Promise.all([
         api.listFolders(id, signal),
         base.can_manage ? api.listJobs(id, signal) : Promise.resolve([])
       ])
       if (!isCurrent() || id !== baseId.value) return false
+      const directory = folderFromRoute(dirs)
+      const docs = await api.listDocuments(
+        id,
+        signal,
+        view.value === 'graph'
+          ? undefined
+          : {
+              folderId: directory,
+              search: directory === folderId.value ? documentSearch.value : ''
+            }
+      )
+      if (!isCurrent() || id !== baseId.value) return false
       const previous = selected.value
-      const readableDocuments = new Set(
+      const vectorResult = query.queryResult.value
+      const graphResult = query.graphQuery.result.value
+      const onPage = new Set(
         docs.items.filter((doc) => doc.status !== 'deleting').map((doc) => doc.id)
       )
+      const sources = new Set([
+        ...(vectorResult?.items
+          .filter((hit) => hit.knowledge_base_id === id)
+          .map((hit) => hit.document_id) ?? []),
+        ...(graphResult?.sources.map((source) => source.document_id) ?? [])
+      ])
+      const missing = [...sources].filter((documentId) => !onPage.has(documentId))
+      const visible = missing.length ? await api.visibleDocumentIds(id, missing, signal) : []
+      if (!isCurrent() || id !== baseId.value) return false
       const lostSource =
-        query.queryResult.value?.items.some(
-          (hit) => hit.knowledge_base_id === id && !readableDocuments.has(hit.document_id)
-        ) ||
-        query.graphQuery.result.value?.sources.some(
-          (source) => !readableDocuments.has(source.document_id)
-        )
+        visible.length < missing.length &&
+        vectorResult === query.queryResult.value &&
+        graphResult === query.graphQuery.result.value
       if (
         previous?.id === base.id &&
         (previous.acl_version !== base.acl_version ||
@@ -258,6 +286,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
         query.resetQuery()
       selected.value = base
       documents.value = docs.items
+      nextDocumentCursor.value = docs.nextCursor
       folders.value = dirs
       jobs.value = taskRows
       synchronizeFolderLocation()
@@ -272,6 +301,44 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       return false
     } finally {
       if (ticket.isCurrent()) detailLoading.value = false
+    }
+  }
+  function searchDocuments(value: string): void {
+    const search = value.trim()
+    if (search === documentSearch.value) return
+    documentSearch.value = search
+    if (view.value === 'graph') return
+    detailScope.replace()
+    loadingMoreDocuments.value = false
+    nextDocumentCursor.value = null
+    clearTimeout(documentSearchTimer)
+    documentSearchTimer = setTimeout(() => {
+      if (selected.value?.id === baseId.value && view.value !== 'graph') void loadDetail(true)
+    }, 250)
+  }
+  async function loadMoreDocuments(): Promise<void> {
+    const id = baseId.value
+    const cursor = nextDocumentCursor.value
+    if (!cursor || loadingMoreDocuments.value || selected.value?.id !== id) return
+    const ticket = detailScope.current()
+    loadingMoreDocuments.value = true
+    try {
+      const page = await api.listDocuments(id, ticket.signal, {
+        folderId: folderId.value,
+        search: documentSearch.value,
+        cursor
+      })
+      if (!ticket.isCurrent() || id !== baseId.value) return
+      const loaded = new Set(documents.value.map((doc) => doc.id))
+      documents.value = [...documents.value, ...page.items.filter((doc) => !loaded.has(doc.id))]
+      nextDocumentCursor.value = page.nextCursor
+      detailError.value = ''
+    } catch (error) {
+      if (!ticket.isCurrent() || isAborted(error)) return
+      if (permissionDenied(error)) denyProtectedDetail(error)
+      else detailError.value = errorMessage(error)
+    } finally {
+      if (ticket.isCurrent()) loadingMoreDocuments.value = false
     }
   }
   async function pollJobs(): Promise<void> {
@@ -365,15 +432,23 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     await refresh()
   }
   const invalidFolderLocations = new Set<string>()
+  function folderFromRoute(available: KnowledgeFolder[]): string | null {
+    const value = route.query.folder
+    return typeof value === 'string' &&
+      available.some((folder) => folder.id === value && folder.base_id === baseId.value)
+      ? value
+      : null
+  }
   function synchronizeFolderLocation(): void {
     if (selected.value?.id !== baseId.value) return
     const value = route.query.folder
-    const valid =
-      typeof value === 'string' &&
-      value.length > 0 &&
-      value.length <= 64 &&
-      folders.value.some((folder) => folder.id === value && folder.base_id === baseId.value)
-    folderId.value = valid ? value : null
+    const previous = folderId.value
+    const valid = folderFromRoute(folders.value)
+    folderId.value = valid
+    if (previous !== valid) {
+      documentSearch.value = ''
+      clearTimeout(documentSearchTimer)
+    }
     if (value === undefined) return
     if (!valid) {
       const key = `${baseId.value}:${JSON.stringify(value)}`
@@ -400,10 +475,20 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     const query = { ...route.query }
     if (id) query.folder = id
     else delete query.folder
-    folderId.value = id
     await router.push({ path: route.path, query, hash: route.hash })
   }
-  watch(() => route.query.folder, synchronizeFolderLocation)
+  watch(
+    () => route.query.folder,
+    () => {
+      const previous = folderId.value
+      synchronizeFolderLocation()
+      if (folderId.value !== previous && view.value !== 'graph') {
+        documents.value = []
+        nextDocumentCursor.value = null
+        void loadDetail()
+      }
+    }
+  )
   async function navigate(base: KnowledgeBase, destination: string): Promise<void> {
     const query: Record<string, string> = {}
     if (base.id === baseId.value && folderId.value) query.folder = folderId.value
@@ -707,6 +792,9 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       selected.value = null
       folders.value = []
       documents.value = []
+      nextDocumentCursor.value = null
+      documentSearch.value = ''
+      clearTimeout(documentSearchTimer)
       jobs.value = []
       notifiedJobs.clear()
       folderId.value = null
@@ -725,7 +813,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     },
     { immediate: true }
   )
-  async function revalidateAccess(): Promise<void> {
+  async function revalidateAccess(refreshDetails = false): Promise<void> {
     const id = baseId.value,
       ticket = accessScope.replace()
     if (!id || selected.value?.id !== id) return
@@ -747,7 +835,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
           fresh.active_revision !== current.active_revision
         )
           query.resetQuery()
-        if (changed || fresh.document_policy === 'legacy') {
+        if (refreshDetails || changed || fresh.document_policy === 'legacy') {
           if (!(await loadDetail(true, ticket, fresh))) {
             if (!ticket.isCurrent()) return
             throw new Error('知识库状态暂未同步')
@@ -772,8 +860,8 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
       }
     }
   }
-  watch(view, () => {
-    void revalidateAccess()
+  watch(view, (next, previous) => {
+    void revalidateAccess(next === 'graph' || previous === 'graph')
   })
   const initial = optionsScope.current()
   void Promise.allSettled([
@@ -799,6 +887,7 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
   void loadList()
   onBeforeUnmount(() => {
     disposed = true
+    clearTimeout(documentSearchTimer)
     if (typeof window !== 'undefined') window.removeEventListener('focus', resumeAccess)
     if (typeof document !== 'undefined')
       document.removeEventListener('visibilitychange', resumeAccess)
@@ -823,6 +912,10 @@ export function useKnowledgeWorkspace(onJobCompleted?: (job: KnowledgeJob) => vo
     selected,
     folders,
     documents,
+    nextDocumentCursor,
+    loadingMoreDocuments,
+    loadMoreDocuments,
+    searchDocuments,
     jobs,
     folderId,
     selectFolder,

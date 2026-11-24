@@ -81,7 +81,11 @@ class ChatFilesUIRegressions(DeveloperBoundary):
     async def test_attachment_only_message_freezes_ids_for_retry(self):
         await self.page.goto(self.origin+'/chat')
         await self.select_conversation('附件会话')
-        await self.page.locator('input[type=file]').set_input_files({'name':'note.txt','mimeType':'text/plain','buffer':b'test fact'})
+        composer = self.page.get_by_role('textbox', name='消息内容', exact=True)
+        async with self.page.expect_file_chooser() as chooser:
+            await composer.press('@')
+        await (await chooser.value).set_files({'name':'note.txt','mimeType':'text/plain','buffer':b'test fact'})
+        await expect(composer).to_have_value('')
         await expect(self.page.locator('.queued-file-status')).to_contain_text('TXT')
         await expect(self.page.get_by_role('button',name='发送消息',exact=True)).to_be_enabled()
         await self.page.get_by_role('button',name='发送消息',exact=True).click()
@@ -141,8 +145,11 @@ class ChatFilesUIRegressions(DeveloperBoundary):
 
     async def test_capacity_error_stays_by_composer_and_preserves_attachment_and_draft(self):
         submissions = []
+        received, release = asyncio.Event(), asyncio.Event()
         async def reject(route):
             submissions.append(route.request.post_data_json)
+            received.set()
+            await release.wait()
             await route.fulfill(status=422, json={'error': {
                 'code': 'context_input_too_long', 'message': '本次内容超过已配置的模型输入容量',
                 'details': {'estimated_input_tokens': 12000, 'input_budget': 8192}}})
@@ -153,12 +160,20 @@ class ChatFilesUIRegressions(DeveloperBoundary):
         draft = self.page.get_by_role('textbox', name='消息内容', exact=True)
         await draft.fill('阅读这份附件')
         await self.page.get_by_role('button', name='发送消息', exact=True).click()
+        try:
+            await asyncio.wait_for(received.wait(), timeout=5)
+            await expect(draft).to_have_value('')
+            await expect(self.page.locator('.composer .attachment-card')).to_have_count(0)
+            await expect(self.page.locator('.message-row.user')).to_contain_text('note.txt')
+        finally:
+            release.set()
         notice = self.page.get_by_role('alert', name='发送提示', exact=True)
         await expect(notice).to_contain_text('附件和草稿已保留')
         await expect(notice).to_contain_text('12,000')
         await expect(notice).to_contain_text('8,192')
         await expect(self.page.locator('.composer .composer-notice')).to_be_visible()
-        await expect(self.page.locator('.queued-file')).to_have_count(1)
+        await expect(self.page.locator('.composer .attachment-card')).to_have_count(1)
+        await expect(self.page.locator('.message-row.user')).to_have_count(0)
         await expect(draft).to_have_value('阅读这份附件')
         await expect(self.page.get_by_role('button', name='使用原请求重试', exact=True)).to_have_count(0)
         await expect(self.page.locator('.chat-alert')).to_have_count(0)

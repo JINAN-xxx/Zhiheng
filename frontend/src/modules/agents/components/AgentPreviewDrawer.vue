@@ -44,15 +44,16 @@
       <RobotOutlined /><span>{{ agent ? '已保存草稿' : '保存后可开始调试' }}</span
       ><span v-if="disabled && agent" class="preview-save-hint">保存后调试</span>
     </div>
-    <div ref="historyRef" class="preview-history" aria-live="polite" :aria-busy="sending">
-      <article
-        v-if="welcomeMessage"
-        class="preview-welcome preview-message preview-message--assistant"
-      >
-        <div class="preview-message__label">
-          <RobotOutlined /><strong>{{ agent?.name }}</strong>
+    <div
+      ref="historyRef"
+      class="preview-history message-history"
+      aria-live="polite"
+      :aria-busy="sending"
+    >
+      <article v-if="welcomeMessage" class="preview-welcome message-row assistant">
+        <div class="message-body">
+          <AiMessage :content="welcomeMessage" />
         </div>
-        <div class="preview-message__content">{{ welcomeMessage }}</div>
       </article>
       <WorkspaceState
         v-else-if="!messages.length && !sending"
@@ -63,31 +64,20 @@
       <article
         v-for="(item, index) in messages"
         :key="index"
-        class="preview-message"
-        :class="`preview-message--${item.role}`"
+        class="message-row"
+        :class="item.role"
       >
-        <div class="preview-message__label">
-          <UserOutlined v-if="item.role === 'user'" /><RobotOutlined v-else /><strong>{{
-            item.role === 'user' ? '我' : agent?.name
-          }}</strong>
+        <div class="message-body">
+          <p v-if="item.role === 'user'" class="user-message">{{ item.content }}</p>
+          <AiMessage
+            v-else
+            :content="item.content"
+            :reasoning-content="item.reasoning ?? ''"
+            :sources="item.sources ?? []"
+            :loading="sending && index === messages.length - 1"
+          />
+          <div v-if="item.status === 'cancelled'" class="message-meta">已停止</div>
         </div>
-        <details
-          v-if="item.reasoning"
-          class="preview-reasoning"
-          :open="sending && index === messages.length - 1"
-        >
-          <summary>思考过程</summary>
-          <div>{{ item.reasoning }}</div>
-        </details>
-        <div v-if="item.content" class="preview-message__content">
-          {{
-            item.role === 'assistant'
-              ? formatKnowledgeCitations(item.content, item.sources ?? [])
-              : item.content
-          }}
-        </div>
-        <div v-if="item.status === 'cancelled'" class="preview-message__status">已停止</div>
-        <KnowledgeSources v-if="item.sources" :sources="item.sources" />
       </article>
       <div v-if="sending" class="preview-pending">
         <a-spin size="small" /><span>{{ phase }}</span>
@@ -100,36 +90,23 @@
         </a-collapse-panel></a-collapse
       >
     </div>
-    <div class="preview-composer">
-      <a-textarea
-        v-model:value="draft"
-        aria-label="调试消息"
-        placeholder="输入消息"
-        :auto-size="{ minRows: 3, maxRows: 7 }"
-        :maxlength="32000"
-        :disabled="sending || disabled"
-        @keydown.enter.exact.prevent="send"
-      />
-      <div class="preview-composer__actions">
-        <span>Enter 发送 · Shift + Enter 换行</span>
-        <a-tooltip v-if="sending" title="停止生成"
-          ><a-button
-            aria-label="停止生成"
-            :loading="stopping"
-            :disabled="stopAcknowledged"
-            @click="cancel"
-            ><template #icon><StopOutlined /></template></a-button
-        ></a-tooltip>
-        <a-button
-          v-else
-          type="primary"
-          :disabled="disabled || !draft.trim() || !agent?.agentId || recoverable || stopping"
-          aria-label="发送"
-          @click="send"
-          ><template #icon><SendOutlined /></template>发送</a-button
-        >
-      </div>
-    </div>
+    <ConversationComposer
+      v-model="draft"
+      class="preview-composer"
+      input-label="调试消息"
+      placeholder="输入消息"
+      submit-label="发送"
+      :max-length="32000"
+      :max-rows="7"
+      :disabled="sending || disabled"
+      :running="sending"
+      :stopping="stopping"
+      :stop-disabled="stopAcknowledged"
+      :submit-disabled="disabled || !draft.trim() || !agent?.agentId || recoverable || stopping"
+      @keydown="keydown"
+      @send="send"
+      @stop="cancel"
+    />
   </component>
 </template>
 
@@ -143,19 +120,12 @@ import {
   CollapsePanel as ACollapsePanel,
   Drawer as ADrawer,
   Spin as ASpin,
-  Textarea as ATextarea,
   Tooltip as ATooltip
 } from 'ant-design-vue'
-import {
-  ClearOutlined,
-  CloseOutlined,
-  MessageOutlined,
-  RobotOutlined,
-  SendOutlined,
-  StopOutlined,
-  UserOutlined
-} from '@ant-design/icons-vue'
+import { ClearOutlined, CloseOutlined, MessageOutlined, RobotOutlined } from '@ant-design/icons-vue'
 import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
+import ConversationComposer from '../../../shared/components/ConversationComposer.vue'
+import { AiMessage } from '../../chat/public.ts'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import { acceptSnapshot, isTerminal } from '../../../shared/stream.ts'
 import type { RunSnapshot } from '../../../shared/stream.ts'
@@ -163,8 +133,6 @@ import { cancelRun, getRun, observeRun } from '../../../shared/runs.ts'
 import { admitPreview, nextPreviewIntent } from '../api/index.ts'
 import type { Agent, PreviewIntent, PreviewMessage } from '../api/index.ts'
 import {
-  KnowledgeSources,
-  formatKnowledgeCitations,
   cancelPreparation,
   getPreparation,
   isPreparation,
@@ -302,8 +270,21 @@ async function followKnowledge(
   else if (final.status !== 'cancelled') error.value = final.error?.message ?? '知识检索未完成'
   recoverable.value = false
 }
-async function send(event?: Event): Promise<void> {
-  if (event instanceof KeyboardEvent && event.isComposing) return
+function keydown(event: KeyboardEvent): void {
+  if (
+    event.key !== 'Enter' ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    event.shiftKey ||
+    event.ctrlKey ||
+    event.altKey ||
+    event.metaKey
+  )
+    return
+  event.preventDefault()
+  void send()
+}
+async function send(): Promise<void> {
   const agent = props.agent,
     content = draft.value.trim()
   if (!agent || props.disabled || sending.value || cancelPending || recoverable.value || !content)
@@ -496,7 +477,10 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+@use '../../../shared/styles/conversation' as conversation;
+@include conversation.messages;
+
 .agent-preview-panel {
   display: flex;
   min-width: 0;
@@ -545,37 +529,7 @@ onBeforeUnmount(() => {
   padding: 20px 16px;
 }
 .agent-preview-panel .preview-composer {
-  margin: 0 12px 12px;
-  padding: 10px;
-  border: 1px solid var(--gray-150);
-  border-radius: 7px;
-}
-.agent-preview-panel .preview-composer :deep(textarea) {
-  border: 0;
-  box-shadow: none;
-  padding: 0;
-  font-size: 14px;
-}
-.agent-preview-panel .preview-message__content {
-  margin-left: 22px;
-  padding: 10px 12px;
-  border-radius: 0 7px 7px 7px;
-  background: var(--gray-50);
-  font-size: 14px;
-}
-.agent-preview-panel .preview-message--user .preview-message__content {
-  background: var(--main-50);
-}
-.preview-composer__actions > span {
-  margin-right: auto;
-  align-self: center;
-  color: var(--color-text-secondary);
-  font-size: 11px;
-}
-
-.agent-drawer-title {
-  display: block;
-  overflow-wrap: anywhere;
+  --chat-gutter: 12px;
 }
 .preview-version {
   padding: 10px 24px;
@@ -589,50 +543,8 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 20px 24px;
 }
-.preview-message {
-  padding-bottom: 24px;
-}
-.preview-message__label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 9px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-.preview-message__label strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.preview-message--assistant .preview-message__label {
-  color: var(--main-700);
-}
-.preview-message__content {
-  padding-left: 22px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-size: var(--workspace-font-size-chat);
-  line-height: var(--workspace-line-height-chat);
-}
-.preview-reasoning {
-  margin: 0 0 12px 22px;
-  color: var(--color-text-secondary);
-  font-size: var(--workspace-font-size-body);
-}
-.preview-reasoning summary {
-  cursor: pointer;
-}
-.preview-reasoning div {
-  padding-top: 8px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: var(--workspace-line-height);
-}
-.preview-message__status {
-  padding: 8px 0 0 22px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+.preview-history .message-row {
+  margin-bottom: 18px;
 }
 .preview-pending {
   display: flex;
@@ -654,22 +566,9 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   font-size: 12px;
 }
-.preview-composer {
-  flex: 0 0 auto;
-  padding: 16px 24px;
-  border-top: 1px solid var(--gray-150);
-}
-.preview-composer__actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-}
 @media (max-width: 520px) {
   .preview-history {
     padding: 16px;
-  }
-  .preview-composer {
-    padding: 12px 16px;
   }
 }
 </style>

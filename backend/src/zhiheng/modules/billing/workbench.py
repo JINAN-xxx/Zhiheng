@@ -65,15 +65,17 @@ class WorkbenchBilling:
 
     async def credits(self, session: AsyncSession, owner_id: UUID | None, now: datetime) -> WorkbenchCredits:
         start = now.astimezone(REPORT_ZONE).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        enabled = select(CreditControl.enabled).where(CreditControl.id == 1).scalar_subquery()
         query = select(
-            func.coalesce(func.sum(CreditHold.charged_points), 0), func.count().filter(CreditHold.status == 'unknown')
+            func.coalesce(func.sum(CreditHold.charged_points), 0),
+            func.count().filter(CreditHold.status == 'unknown'),
+            enabled,
         ).where(CreditHold.created_at >= start, CreditHold.created_at <= now)
         if owner_id is not None:
             query = query.where(CreditHold.user_id == owner_id)
-        points, unknown = (await session.execute(query)).one()
-        enabled = await session.scalar(select(CreditControl.enabled).where(CreditControl.id == 1))
+        points, unknown, is_enabled = (await session.execute(query)).one()
         return WorkbenchCredits(
-            enabled=bool(enabled), monthly_points=format(Decimal(points), 'f'), unconfirmed_calls=unknown
+            enabled=bool(is_enabled), monthly_points=format(Decimal(points), 'f'), unconfirmed_calls=unknown
         )
 
     async def recent_failures(self, session: AsyncSession, owner_id: UUID, now: datetime) -> int:

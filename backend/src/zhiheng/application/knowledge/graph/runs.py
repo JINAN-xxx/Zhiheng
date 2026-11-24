@@ -110,7 +110,10 @@ class GraphRuns:
             binding = binding.model_copy(
                 update={
                     'max_output_tokens': maximum,
-                    'options': ModelOptions(response_format='json_object' if call.json_object else None),
+                    'options': ModelOptions(
+                        response_format='json_object' if call.json_object else None,
+                        reasoning_effort='low' if claim.frozen.config.reasoning_strategy == 'low' else None,
+                    ),
                 }
             )
         return binding

@@ -1,3 +1,4 @@
+import hashlib
 from typing import Annotated, Literal
 from urllib.parse import quote
 from uuid import UUID
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Query, Request, Response
 
 from zhiheng.api.common.contracts import EmptyRequest
 from zhiheng.api.common.dependencies import ContainerDependency, PrincipalDependency, SessionDependency
+from zhiheng.api.common.pagination import MAX_CURSOR_LENGTH, decode_cursor, encode_cursor
 from zhiheng.modules.knowledge.public import (
     NATIVE_FORMATS,
     AttachmentImport,
@@ -30,6 +32,7 @@ from zhiheng.modules.knowledge.public import (
     UnavailableBaseInfo,
 )
 from zhiheng.shared.errors import AppError
+from zhiheng.shared.text import storage_text
 
 router = APIRouter(prefix='/api/knowledge', tags=['knowledge'])
 
@@ -185,11 +188,58 @@ async def upload_status(
     return await container.knowledge_documents.upload_status(principal, base_id, request_id)
 
 
-@router.get('/bases/{base_id}/documents')
+@router.get(
+    '/bases/{base_id}/documents',
+    responses={
+        200: {
+            'headers': {
+                'X-Next-Cursor': {'description': '下一批资料的游标，空值表示末页', 'schema': {'type': 'string'}}
+            }
+        }
+    },
+)
 async def documents(
-    base_id: UUID, container: ContainerDependency, principal: PrincipalDependency, session: SessionDependency
+    base_id: UUID,
+    response: Response,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    folder: Annotated[UUID | Literal['root'] | None, Query()] = None,
+    search: Annotated[str, Query(max_length=255)] = '',
+    cursor: Annotated[str | None, Query(max_length=MAX_CURSOR_LENGTH)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
 ) -> DocumentPage:
-    return await container.knowledge.materials.documents(session, principal, base_id)
+    materials = container.knowledge.materials
+    if folder is None:
+        if cursor is not None or search:
+            raise AppError('invalid_document_filter', '资料分页需要指定目录', 422)
+        return await materials.documents(session, principal, base_id)
+    search = search.strip()
+    if storage_text(search) != search:
+        raise AppError('invalid_document_filter', '搜索条件无效', 422)
+    binding = hashlib.sha256(f'knowledge-documents:{principal.id}:{base_id}:{folder}:{search}'.encode()).hexdigest()
+    page, next_position = await materials.document_page(
+        session,
+        principal,
+        base_id,
+        folder_id=None if folder == 'root' else folder,
+        search=search,
+        after=decode_cursor(cursor, binding),
+        limit=limit,
+    )
+    response.headers['X-Next-Cursor'] = encode_cursor(binding, *next_position) if next_position else ''
+    return page
+
+
+@router.get('/bases/{base_id}/documents/visibility')
+async def document_visibility(
+    base_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    document_id: Annotated[list[UUID], Query(min_length=1, max_length=200)],
+) -> list[UUID]:
+    return await container.knowledge.materials.visible_document_ids(session, principal, base_id, document_id)
 
 
 @router.delete('/bases/{base_id}/uploads/{upload_id}', status_code=204)

@@ -43,17 +43,17 @@ class AgentsUIRegressions(DeveloperBoundary):
                 await drawer.get_by_role('button', name='停止生成', exact=True).click()
                 release_admission.set()
             else:
-                await expect(drawer.locator('.preview-reasoning')).to_contain_text('先核实资料')
+                await expect(drawer.locator('.reasoning-section')).to_contain_text('先核实资料')
                 await drawer.get_by_role('button', name='停止生成', exact=True).click()
             await asyncio.wait_for(requested.wait(), timeout=5)
             await drawer.get_by_role('button', name='关闭调试' if action == 'close' else '清空对话', exact=True).click()
             await self.page.wait_for_timeout(200)
             await expect(drawer).to_be_visible()
-            await expect(drawer.locator('.preview-reasoning')).to_contain_text('先核实资料')
+            await expect(drawer.locator('.reasoning-section')).to_contain_text('先核实资料')
             self.assertEqual(failures, [])
             release.set()
             if action == 'close': await expect(drawer).not_to_be_visible()
-            else: await expect(drawer.locator('.preview-reasoning')).to_have_count(0)
+            else: await expect(drawer.locator('.reasoning-section')).to_have_count(0)
             self.assertEqual(calls, 1)
         finally:
             release.set()
@@ -245,7 +245,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await editor.get_by_role('button', name='保存', exact=True).click()
         await expect(editor.get_by_text('所有更改已保存', exact=True)).to_be_visible()
         self.assertNotIn('history_rounds', self.posts[-1])
-        await expect(preview.locator('.preview-message--user')).to_have_count(2)
+        await expect(preview.locator('.message-row.user')).to_have_count(2)
         await preview.get_by_role('textbox', name='调试消息', exact=True).fill('继续问题')
         await preview.get_by_role('button', name='发送', exact=True).click()
         await expect(preview.get_by_role('button', name='发送', exact=True)).to_be_visible()
@@ -377,7 +377,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await expect(drawer.get_by_text('你好，我是助手', exact=True)).to_be_visible()
         await drawer.get_by_role('textbox', name='调试消息', exact=True).fill('请回答')
         await drawer.get_by_role('button', name='发送', exact=True).click()
-        await expect(drawer.locator('.preview-reasoning')).to_contain_text('先核实资料')
+        await expect(drawer.locator('.reasoning-section')).to_contain_text('先核实资料')
         self.assertEqual(self.previews[0]['messages'], [{'role': 'user', 'content': '请回答'}])
         await drawer.get_by_role('button', name='停止生成', exact=True).click()
         await expect(drawer.get_by_text('已停止', exact=True)).to_be_visible()
@@ -398,7 +398,7 @@ class AgentsUIRegressions(DeveloperBoundary):
         await drawer.get_by_role('button', name='关闭调试' if action == 'close' else '清空对话', exact=True).click()
         if action == 'close': await expect(drawer).not_to_be_visible()
         else:
-            await expect(drawer.locator('.preview-reasoning')).to_have_count(0)
+            await expect(drawer.locator('.reasoning-section')).to_have_count(0)
             await expect(drawer.get_by_role('button', name='恢复查看', exact=True)).to_have_count(0)
 
     async def test_close_accepts_confirmed_stop_after_subscription_failure(self):

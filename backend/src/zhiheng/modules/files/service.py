@@ -6,7 +6,8 @@ from datetime import timedelta
 from typing import Literal, cast
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Uuid, any_, bindparam, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.files.contracts import (
@@ -257,6 +258,26 @@ class FileService:
         self, session: AsyncSession, principal: Principal, file_id: UUID, *, active: bool = False, lock: bool = False
     ) -> FileInfo:
         return await self.info(session, await self._require(session, principal, file_id, active=active, lock=lock))
+
+    async def ensure_readable(self, session: AsyncSession, principal: Principal, file_id: UUID) -> None:
+        await self._require(session, principal, file_id, active=True)
+
+    async def active_original_ids(self, session: AsyncSession, file_ids: set[UUID]) -> set[UUID]:
+        """Check file lifecycle after the caller has checked the owning resource's ACL."""
+        if not file_ids:
+            return set()
+        ids = bindparam('authorized_file_ids', list(file_ids), type_=ARRAY(Uuid()))
+        return set(
+            await session.scalars(
+                select(FileRecord.id).where(
+                    FileRecord.id == any_(ids),
+                    FileRecord.source_file_id.is_(None),
+                    FileRecord.status == 'active',
+                    FileRecord.storage_status.not_in(('missing', 'quarantined', 'invalid')),
+                    or_(FileRecord.expires_at.is_(None), FileRecord.expires_at > utcnow()),
+                )
+            )
+        )
 
     async def info(self, session: AsyncSession, row: FileRecord) -> FileInfo:
         count = await session.scalar(

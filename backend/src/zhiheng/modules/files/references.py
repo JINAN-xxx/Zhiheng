@@ -161,17 +161,24 @@ class FileReferences:
         await session.flush()
 
     async def release_resources(
-        self, session: AsyncSession, *, resource_type: str, resource_ids: tuple[UUID, ...], actor_id: UUID
+        self,
+        session: AsyncSession,
+        *,
+        resource_type: str,
+        resource_ids: tuple[UUID, ...],
+        actor_id: UUID,
+        file_ids: tuple[UUID, ...] | None = None,
     ) -> None:
         if not resource_ids:
             return
-        file_ids = select(FileReference.file_id).where(
-            FileReference.resource_type == resource_type, FileReference.resource_id.in_(resource_ids)
-        )
+        scope = [FileReference.resource_type == resource_type, FileReference.resource_id.in_(resource_ids)]
+        if file_ids is not None:
+            scope.append(FileReference.file_id.in_(file_ids))
+        referenced_files = select(FileReference.file_id).where(*scope)
         rows = list(
             await session.scalars(
                 select(FileRecord)
-                .where(FileRecord.id.in_(file_ids))
+                .where(FileRecord.id.in_(referenced_files))
                 .order_by(
                     func.coalesce(FileRecord.source_file_id, FileRecord.id),
                     FileRecord.source_file_id.nullsfirst(),
@@ -180,10 +187,6 @@ class FileReferences:
                 .with_for_update()
             )
         )
-        await session.execute(
-            delete(FileReference).where(
-                FileReference.resource_type == resource_type, FileReference.resource_id.in_(resource_ids)
-            )
-        )
+        await session.execute(delete(FileReference).where(*scope))
         for row in rows:
             self.files.audit(session, row.id, actor_id, 'references_released', {'resource_type': resource_type})

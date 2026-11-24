@@ -53,7 +53,7 @@ class GraphConfigInfo(GraphValue):
     active_revision: UUID | None
     requires_rebuild: bool
     can_manage: bool
-    supported_reasoning_strategies: tuple[Literal['auto', 'default'], ...]
+    supported_reasoning_strategies: tuple[Literal['auto', 'default', 'low'], ...]
 
 
 class GraphBuildRequest(GraphValue):
@@ -152,6 +152,7 @@ class GraphPreviewResult(GraphValue):
     relations: int = Field(strict=True, ge=0)
     chunks: int = Field(strict=True, ge=0)
     seconds: float = Field(ge=0, allow_inf_nan=False)
+    graph: GraphSubgraph | None = None
 
 
 class GraphProgress(GraphValue):

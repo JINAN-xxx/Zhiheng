@@ -21,6 +21,7 @@ from zhiheng.modules.work.public import (
     AgentTurn,
     CreateAgentTask,
     TaskDetail,
+    TaskProgress,
     UpdateAgentTask,
     WorkModelOption,
     WorkOptions,
@@ -135,28 +136,34 @@ class WorkAgentService:
                 await self.bind_file(session, principal, task.id, info)
             return await self.context.tasks.detail(session, principal, task.id)
 
-    async def detail(self, principal: Principal, task_id: UUID) -> TaskDetail:
-        async with self.context.database.sessions() as session:
-            principal = await self.current(session, principal, 'read')
-            return await self.context.tasks.detail(session, principal, task_id)
+    async def detail(self, session: AsyncSession, principal: Principal, task_id: UUID) -> TaskDetail:
+        principal = await self.current(session, principal, 'read')
+        return await self.context.tasks.detail(session, principal, task_id)
+
+    async def progress(
+        self, session: AsyncSession, principal: Principal, task_id: UUID, run_id: UUID
+    ) -> TaskProgress | None:
+        principal = await self.current(session, principal, 'read')
+        return await self.context.tasks.progress(session, principal, task_id, run_id)
 
     async def update(self, principal: Principal, task_id: UUID, body: UpdateAgentTask) -> TaskDetail:
         async with self.context.database.sessions.begin() as session:
             principal = await self.current(session, principal, 'update')
+            if body.model_fields_set == {'expected_version', 'status'}:
+                return await self.context.tasks.update(session, principal, task_id, body)
             current = await self.context.tasks.configuration(session, principal, task_id)
             fields = body.model_dump(exclude_unset=True, include=set(AgentTaskConfiguration.model_fields))
             candidate = AgentTaskConfiguration.model_validate({**current.model_dump(), **fields})
             await self._configuration(session, principal, candidate)
             return await self.context.tasks.update(session, principal, task_id, body)
 
-    async def remove(self, principal: Principal, task_id: UUID, expected_version: int) -> None:
-        async with self.context.database.sessions.begin() as session:
-            principal = await self.current(session, principal, 'delete')
-            await self.context.tasks.configuration(session, principal, task_id)
-            await self.context.tasks.work.remove(session, principal, task_id, expected_version)
-            await self.context.files.references.release_resources(
-                session, resource_type='work_agent_task', resource_ids=(task_id,), actor_id=principal.id
-            )
+    async def remove(self, session: AsyncSession, principal: Principal, task_id: UUID, expected_version: int) -> None:
+        principal = await self.current(session, principal, 'delete')
+        await self.context.tasks.configuration(session, principal, task_id)
+        await self.context.tasks.work.remove(session, principal, task_id, expected_version)
+        await self.context.files.references.release_resources(
+            session, resource_type='work_agent_task', resource_ids=(task_id,), actor_id=principal.id
+        )
 
     async def bind_file(self, session: AsyncSession, principal: Principal, task_id: UUID, info: FileInfo) -> None:
         snapshot = await self.context.files.source_snapshot(session, principal.personal(), info.id)
@@ -192,7 +199,15 @@ class WorkAgentService:
     ) -> TaskDetail:
         async with self.context.database.sessions.begin() as session:
             principal = await self.current(session, principal, 'update')
-            return await self.context.tasks.detach_input(session, principal, task_id, file_id, expected_version)
+            task = await self.context.tasks.detach_input(session, principal, task_id, file_id, expected_version)
+            await self.context.files.references.release_resources(
+                session,
+                resource_type='work_agent_task',
+                resource_ids=(task_id,),
+                actor_id=principal.id,
+                file_ids=(file_id,),
+            )
+            return task
 
     async def download_input(self, principal: Principal, task_id: UUID, file_id: UUID) -> tuple[FileInfo, bytes]:
         async with self.context.database.sessions() as session:
@@ -314,22 +329,20 @@ class WorkAgentService:
         await self.context.tasks.configuration(session, principal, task_id)
         return await self.context.runs.resource_snapshot(session, run_id, 'work_agent', task_id)
 
-    async def snapshot(self, principal: Principal, task_id: UUID, run_id: UUID) -> RunSnapshot:
-        async with self.context.database.sessions() as session:
-            principal = await self.current(session, principal, 'read')
-            return await self.snapshot_in(session, principal, task_id, run_id)
+    async def snapshot(self, session: AsyncSession, principal: Principal, task_id: UUID, run_id: UUID) -> RunSnapshot:
+        principal = await self.current(session, principal, 'read')
+        return await self.snapshot_in(session, principal, task_id, run_id)
 
-    async def cancel(self, principal: Principal, task_id: UUID, run_id: UUID) -> RunSnapshot:
-        async with self.context.database.sessions.begin() as session:
-            principal = await self.current(session, principal)
-            await self.context.tasks.configuration(session, principal, task_id)
-            run, _ = await self.context.runs.resource_cancel(session, run_id, 'work_agent', task_id)
-            for child in await self.context.runs.child_snapshots(session, run_id):
-                current, release = await self.context.runs.cancel(session, child.id, principal.id)
-                if release:
-                    await self.context.usage.settle(session, current.id, rejected_before_execution=True)
-            await self.context.tasks.project_snapshot(session, run)
-            return run
+    async def cancel(self, session: AsyncSession, principal: Principal, task_id: UUID, run_id: UUID) -> RunSnapshot:
+        principal = await self.current(session, principal, 'read')
+        await self.context.tasks.configuration(session, principal, task_id)
+        run, _ = await self.context.runs.resource_cancel(session, run_id, 'work_agent', task_id)
+        for child in await self.context.runs.child_snapshots(session, run_id):
+            current, release = await self.context.runs.cancel(session, child.id, principal.id)
+            if release:
+                await self.context.usage.settle(session, current.id, rejected_before_execution=True)
+        await self.context.tasks.project_snapshot(session, run)
+        return run
 
     async def guard(self, claim: ClaimedRun, *, code: bool = False) -> Principal:
         async with self.context.database.sessions.begin() as session:

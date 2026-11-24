@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import exists, func, or_, select, union_all
+from sqlalchemy import exists, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from zhiheng.modules.knowledge.orm import (
@@ -66,27 +66,22 @@ class WorkbenchKnowledge:
     async def activities(self, session: AsyncSession, actor: Principal) -> list[WorkbenchResource]:
         if not actor.has_any_permission('platform:knowledge:read'):
             return []
-        bases = list(
-            await session.scalars(
-                select(KnowledgeBase)
-                .where(KnowledgeBase.owner_id == actor.id, KnowledgeBase.deleted_at.is_(None))
-                .order_by(KnowledgeBase.created_at.desc())
-                .limit(6)
+        bases = (
+            select(
+                KnowledgeBase.id.label('resource_id'),
+                KnowledgeBase.name.label('name'),
+                KnowledgeBase.created_at.label('occurred_at'),
+                literal('ready').label('status'),
+                literal(False).label('from_job'),
             )
+            .where(KnowledgeBase.owner_id == actor.id, KnowledgeBase.deleted_at.is_(None))
+            .order_by(KnowledgeBase.created_at.desc())
+            .limit(6)
         )
-        items = [
-            WorkbenchResource(
-                kind='knowledge',
-                id=base.id,
-                name=base.name,
-                occurred_at=base.created_at,
-                status='ready',
-                action='created',
+        jobs = (
+            select(
+                KnowledgeJob.base_id, KnowledgeBase.name, KnowledgeJob.finished_at, KnowledgeJob.status, literal(True)
             )
-            for base in bases
-        ]
-        rows = await session.execute(
-            select(KnowledgeJob, KnowledgeBase.name)
             .join(KnowledgeBase, KnowledgeBase.id == KnowledgeJob.base_id)
             .where(
                 KnowledgeBase.owner_id == actor.id,
@@ -97,19 +92,21 @@ class WorkbenchKnowledge:
             .order_by(KnowledgeJob.finished_at.desc())
             .limit(6)
         )
-        items.extend(
+        activities = union_all(bases, jobs).subquery()
+        rows = await session.execute(
+            select(activities).order_by(activities.c.from_job, activities.c.occurred_at.desc())
+        )
+        return [
             WorkbenchResource(
                 kind='knowledge',
-                id=job.base_id,
+                id=identifier,
                 name=name,
-                occurred_at=job.finished_at,
-                status=job.status,
-                action='indexed' if job.status in {'completed', 'partial'} else 'failed',
+                occurred_at=occurred_at,
+                status=status,
+                action=('indexed' if status in {'completed', 'partial'} else 'failed') if from_job else 'created',
             )
-            for job, name in rows
-            if job.finished_at is not None
-        )
-        return items
+            for identifier, name, occurred_at, status, from_job in rows
+        ]
 
     async def alerts(self, session: AsyncSession, actor: Principal, now: datetime) -> list[WorkbenchAlert]:
         if not actor.has_any_permission('platform:knowledge:read'):

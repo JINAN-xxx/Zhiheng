@@ -1,7 +1,8 @@
 """Graph admission and full-source authorization owned by the knowledge domain."""
 
 from datetime import timedelta
-from typing import cast
+from math import ceil
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, or_, select, text
@@ -37,6 +38,9 @@ from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.principal import Principal
 from zhiheng.shared.time import utcnow
 
+GRAPH_BUILD_MAX_SECONDS = 2 * 60 * 60
+GRAPH_INDEXING_ALLOWANCE_SECONDS = 300
+
 
 class GraphService:
     def __init__(self, knowledge: KnowledgeService) -> None:
@@ -54,13 +58,22 @@ class GraphService:
                 await self._active_generation(session, owner, base_id)
             except AppError:
                 stale = True
+        strategies: tuple[Literal['auto', 'default', 'low'], ...] = ('auto', 'default')
+        if row is not None:
+            try:
+                binding = await self.knowledge.models.bindings.resolve(session, row.llm_model_id, lock=False)
+            except AppError:
+                pass
+            else:
+                if await self.knowledge.models.bindings.supports_low_reasoning(session, binding):
+                    strategies = ('auto', 'default', 'low')
         return GraphConfigInfo(
             config=GraphConfig.model_validate(row, from_attributes=True) if row else None,
             available=available,
             active_revision=row.active_revision if row else None,
             requires_rebuild=stale or bool(row and not row.active_revision),
             can_manage=self.knowledge.manages(principal, base),
-            supported_reasoning_strategies=('auto', 'default'),
+            supported_reasoning_strategies=strategies,
         )
 
     async def patch(self, session: AsyncSession, principal: Principal, base_id: UUID, body: GraphConfigPatch) -> None:
@@ -69,10 +82,7 @@ class GraphService:
         await self.knowledge.require(session, principal, base_id, manage=True, lock=True)
         if binding.model_type != 'chat':
             raise AppError('graph_chat_required', '图谱抽取需要聊天模型', 422)
-        if body.reasoning_strategy in {'low', 'disabled'}:
-            # No model capability declaration exists for these policies yet.
-            # Reject rather than infer vendor options from a model name.
-            raise AppError('unsupported_capability', '该模型未声明所选推理参数能力', 422)
+        await self._require_reasoning_strategy(session, binding, body.reasoning_strategy)
         row = await session.scalar(
             select(GraphConfiguration)
             .where(GraphConfiguration.base_id == base_id)
@@ -89,6 +99,12 @@ class GraphService:
                 setattr(row, name, value)
             row.version += 1
             row.updated_at = utcnow()
+
+    async def _require_reasoning_strategy(self, session: AsyncSession, binding: ModelBinding, strategy: str) -> None:
+        if strategy == 'disabled' or (
+            strategy == 'low' and not await self.knowledge.models.bindings.supports_low_reasoning(session, binding)
+        ):
+            raise AppError('unsupported_capability', '当前模型连接不支持所选图谱推理策略', 422)
 
     async def _freeze_source(
         self, session: AsyncSession, principal: Principal, owner: Principal, base_id: UUID, document: KnowledgeDocument
@@ -174,6 +190,7 @@ class GraphService:
         llm, embedding = bindings[config.llm_model_id], bindings[base.embed_model_id]
         if llm.model_type != 'chat' or embedding.model_type != 'embedding':
             raise AppError('unsupported_graph_models', '图谱需要聊天和Embedding模型的明确绑定', 422)
+        await self._require_reasoning_strategy(session, llm, config.reasoning_strategy)
         generation = await session.get(IndexGeneration, base.active_revision)
         if generation is None or generation.status != 'active' or generation.base_id != base.id:
             raise AppError('graph_source_stale', '知识索引不可用，请重新构建', 409)
@@ -423,6 +440,14 @@ class GraphService:
         return self._info(job)
 
     @staticmethod
+    def _job_timeout_seconds(config: GraphConfig, total_chunks: int | None) -> int:
+        if total_chunks is None:
+            return config.timeout_seconds
+        # LightRAG can extract and glean once per chunk; leave time for vector writes.
+        rounds = ceil(total_chunks / config.concurrency)
+        return min(GRAPH_BUILD_MAX_SECONDS, 2 * rounds * config.timeout_seconds + GRAPH_INDEXING_ALLOWANCE_SECONDS)
+
+    @staticmethod
     def _selection_counts(
         body: GraphBuildRequest | GraphPreviewRequest | GraphQueryRequest,
         frozen: GraphFrozen,
@@ -505,6 +530,7 @@ class GraphService:
             if reused is not None:
                 return reused
         total_documents, total_chunks = self._selection_counts(body, frozen, operation)
+        job_timeout = self._job_timeout_seconds(frozen.config, total_chunks)
         request = await self._request(session, body, operation, base_id)
         attempt_id, job_id = uuid4(), uuid4()
         job = GraphJob(
@@ -530,7 +556,7 @@ class GraphService:
                 id=attempt_id,
                 job_id=job_id,
                 workspace='g_' + attempt_id.hex,
-                deadline=utcnow() + timedelta(seconds=frozen.config.timeout_seconds),
+                deadline=utcnow() + timedelta(seconds=job_timeout),
             )
         )
         await session.flush()
