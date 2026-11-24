@@ -10,6 +10,7 @@ from zhiheng.api.common.cors import ResourceCORSMiddleware
 from zhiheng.api.common.errors import install_error_handlers
 from zhiheng.api.common.middleware import PublicTransportMiddleware, RequestOriginMiddleware
 from zhiheng.api.common.openapi import install_openapi
+from zhiheng.api.common.public_request_log import PublicRequestLogMiddleware
 from zhiheng.api.common.resource_protocol import ResourceProtocolMiddleware
 from zhiheng.api.console.router import router as console_router
 from zhiheng.api.inference.router import router as inference_router
@@ -49,6 +50,7 @@ def create_app(settings: Settings) -> FastAPI:
             expose_headers=['ETag', 'Location', 'Retry-After', 'X-Request-ID', 'Content-Range', 'Accept-Ranges'],
         )
 
+    app.add_middleware(PublicRequestLogMiddleware)
     app.add_middleware(ResourceProtocolMiddleware)
 
     @app.get('/health/live')

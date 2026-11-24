@@ -95,7 +95,7 @@ class UsageFactsPort(Protocol):
     async def key_usage(
         self,
         session: AsyncSession,
-        key_id: UUID,
+        key_ids: tuple[UUID, ...],
         *,
         month: str,
         currency: str,

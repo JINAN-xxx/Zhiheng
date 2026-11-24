@@ -216,6 +216,7 @@ REQUIRED_MEMBERS = (
             'versions/0042_workspace_merge.py',
             'versions/0043_workspace_execution.py',
             'versions/0044_key_object_grants.py',
+            'versions/0045_developer_key_controls.py',
         )
     ),
 )
@@ -334,6 +335,7 @@ def test_rejects_a_wheel_missing_the_cli(verify_wheel: Callable[[Path], Path], t
         '0042_workspace_merge.py',
         '0043_workspace_execution.py',
         '0044_key_object_grants.py',
+        '0045_developer_key_controls.py',
     ],
 )
 def test_requires_all_database_migration_revisions(

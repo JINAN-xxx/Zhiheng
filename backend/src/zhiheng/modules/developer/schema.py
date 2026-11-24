@@ -8,6 +8,7 @@ from zhiheng.modules.developer.orm import (
     DeveloperApplication,
     DeveloperKey,
     KeyMinuteBucket,
+    PublicRequestLog,
     ResourceGrant,
     ResourceMinuteBucket,
     SourceEnrollment,
@@ -22,6 +23,6 @@ def schema_tables() -> tuple[Table, ...]:
         Base.metadata.tables[KeyMinuteBucket.__tablename__],
         *(
             Base.metadata.tables[row.__tablename__]
-            for row in (APIRequest, ResourceGrant, ResourceMinuteBucket, SourceEnrollment)
+            for row in (APIRequest, ResourceGrant, ResourceMinuteBucket, SourceEnrollment, PublicRequestLog)
         ),
     )

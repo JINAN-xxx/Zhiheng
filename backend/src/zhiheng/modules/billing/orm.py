@@ -168,6 +168,7 @@ class Invocation(Base):
     source: Mapped[str] = mapped_column(String(24))
     status: Mapped[str] = mapped_column(String(16), default='pending')
     reserved_tokens: Mapped[int] = mapped_column(Integer)
+    quota_reserved_tokens: Mapped[int | None] = mapped_column(Integer)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     charged_tokens: Mapped[int | None] = mapped_column(Integer)

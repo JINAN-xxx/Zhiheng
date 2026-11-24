@@ -11,7 +11,13 @@ from sqlalchemy import func, select
 
 from zhiheng.modules.developer.contracts import IssuedKey, KeyCreate, KeyInfo
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey, ResourceGrant
-from zhiheng.modules.developer.scopes import ResourceAction, ResourceKind, require_key_capabilities, resource_scope
+from zhiheng.modules.developer.scopes import (
+    ResourceAction,
+    ResourceKind,
+    require_creation_capability,
+    require_key_capabilities,
+    resource_scope,
+)
 from zhiheng.shared.errors import AppError
 from zhiheng.shared.platform_permissions import require_capability
 from zhiheng.shared.references import ResourceReference
@@ -57,6 +63,22 @@ class KeyService:
         if app.status != 'active' or not app.platform_enabled:
             raise AppError('application_conflict', '应用已停用', 409)
         require_key_capabilities(principal, body.scopes, operation='key_create')
+        if body.issue_request_id is not None:
+            issued = await session.scalar(
+                select(DeveloperKey).where(
+                    DeveloperKey.application_id == application_id,
+                    DeveloperKey.issue_request_id == body.issue_request_id,
+                )
+            )
+            if issued is not None:
+                raise AppError(
+                    'key_issue_already_processed',
+                    '此签发请求已处理。请在列表核对原密钥。若未收到明文，请撤销后重新签发',
+                    409,
+                    details={'key_id': str(issued.id), 'name': issued.name},
+                )
+        for kind in body.create_resource_kinds:
+            require_creation_capability(principal, kind)
         await self._models.bindings.resolve_many(session, body.model_ids)
         if body.agent_ids:
             candidates = await self._agent_candidates(session, principal.id, application_id)
@@ -135,7 +157,7 @@ class KeyService:
         replacement = DeveloperKey(
             application_id=application_id,
             grant_family_id=row.grant_family_id or row.id,
-            **{field: getattr(row, field) for field in KeyCreate.model_fields},
+            **{field: getattr(row, field) for field in KeyCreate.model_fields if field != 'issue_request_id'},
         )
         return await self._issue(session, replacement)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, text
 
 from zhiheng.modules.billing.public import reserved_cost
 from zhiheng.modules.developer.orm import DeveloperKey, KeyMinuteBucket
@@ -21,6 +21,25 @@ if TYPE_CHECKING:
     from zhiheng.modules.models.public import RateInfo
 
 
+async def quota_members(session: AsyncSession, key: DeveloperKey) -> tuple[UUID, ...]:
+    root = key.grant_family_id or key.id
+    return tuple(
+        await session.scalars(
+            select(DeveloperKey.id).where(
+                DeveloperKey.application_id == key.application_id,
+                or_(DeveloperKey.id == root, DeveloperKey.grant_family_id == root),
+            )
+        )
+    )
+
+
+async def lock_quota(session: AsyncSession, key: DeveloperKey) -> None:
+    await session.execute(
+        text('SELECT pg_advisory_xact_lock(hashtextextended(:family, 0))'),
+        {'family': f'developer-quota:{key.grant_family_id or key.id}'},
+    )
+
+
 async def reserve_limits(
     session: AsyncSession,
     key: DeveloperKey,
@@ -30,7 +49,7 @@ async def reserve_limits(
     facts: UsageFactsPort,
     enforce_usage_limits: bool = True,
 ) -> tuple[int, str, Decimal | None]:
-    tokens = tokens if enforce_usage_limits else 0
+    await lock_quota(session, key)
     minute, month, cost = await check_limits(
         session, key, tokens, rate, facts=facts, enforce_usage_limits=enforce_usage_limits
     )
@@ -61,19 +80,20 @@ async def check_limits(
     cost = reserved_cost(rate, tokens) if enforce_usage_limits and rate is not None else None
     if enforce_usage_limits and rate is None and key.monthly_budget is not None:
         raise AppError('money_rate_required', '此密钥设有金额预算，模型必须配置同币种金额费率', 409)
-    if enforce_usage_limits and rate is not None and rate.currency != key.currency:
+    if enforce_usage_limits and key.monthly_budget is not None and rate is not None and rate.currency != key.currency:
         raise AppError('currency_mismatch', 'Rate and budget currencies differ', 409)
-    bucket = await session.scalar(
-        select(KeyMinuteBucket).where(KeyMinuteBucket.key_id == key.id, KeyMinuteBucket.minute == minute)
-    )
-    usage = await facts.key_usage(session, key.id, month=month, currency=key.currency)
-    if (
-        (key.rpm_limit is not None and (bucket.requests if bucket else 0) >= key.rpm_limit)
-        or (
-            enforce_usage_limits
-            and key.tpm_limit is not None
-            and (bucket.tokens if bucket else 0) + tokens > key.tpm_limit
+    members = await quota_members(session, key)
+    requests, used_tokens = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(KeyMinuteBucket.requests), 0), func.coalesce(func.sum(KeyMinuteBucket.tokens), 0)
+            ).where(KeyMinuteBucket.key_id.in_(members), KeyMinuteBucket.minute == minute)
         )
+    ).one()
+    usage = await facts.key_usage(session, members, month=month, currency=key.currency)
+    if (
+        (key.rpm_limit is not None and requests >= key.rpm_limit)
+        or (key.tpm_limit is not None and used_tokens + tokens > key.tpm_limit)
         or (key.concurrency_limit is not None and usage.active >= key.concurrency_limit)
         or (
             enforce_usage_limits

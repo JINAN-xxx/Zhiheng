@@ -65,7 +65,7 @@ async def test_console_calls_work_without_price_or_balance_and_beyond_the_old_to
 
 
 @pytest.mark.parametrize('kind', ['chat', 'embedding', 'rerank'])
-async def test_public_api_ignores_token_points_and_currency_budgets_but_preserves_rpm(
+async def test_public_api_ignores_billing_budgets_but_preserves_capacity_limits(
     admin: httpx.AsyncClient, app: FastAPI, model_id: str, kind: str
 ) -> None:
     user = await exhausted_accounts(admin, app)
@@ -89,7 +89,6 @@ async def test_public_api_ignores_token_points_and_currency_budgets_but_preserve
         selected_model,
         monthly_budget='0',
         monthly_points_limit='0',
-        tpm_limit=1,
         currency='CNY',
         rpm_limit=1,
         concurrency_limit=1,
@@ -131,7 +130,7 @@ async def test_unknown_provider_usage_does_not_hold_balance_or_block_the_next_ca
     user = await exhausted_accounts(admin, app)
     changed = await admin.patch(f'/api/models/{model_id}', json={'upstream_model': 'no-usage'})
     assert changed.status_code == 200, changed.text
-    key = await issue(admin, model_id, monthly_budget='0', monthly_points_limit='0', tpm_limit=1, concurrency_limit=1)
+    key = await issue(admin, model_id, monthly_budget='0', monthly_points_limit='0', concurrency_limit=1)
     for _ in range(2):
         task = asyncio.create_task(
             admin.post(

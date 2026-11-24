@@ -62,6 +62,13 @@ def validate_actions(kind: ResourceKind, actions: tuple[ResourceAction, ...]) ->
         raise ValueError('Invalid resource actions')
 
 
+def require_creation_capability(principal: Principal, kind: ResourceKind) -> None:
+    if kind == 'knowledge_base':
+        require_capability(principal, 'knowledge', 'create')
+    elif kind == 'skill':
+        require_capability(principal, 'skills', 'create')
+
+
 def require_key_capabilities(principal: Principal, scopes: Sequence[str] = (), *, operation: str = 'invoke') -> None:
     """The same functional gate applies to catalog projection, issuance and use."""
     require_capability(principal, 'developer', operation)
@@ -89,8 +96,17 @@ def scope_catalog(principal: Principal) -> dict[str, object]:
         except AppError:
             reason = f'当前账号没有签发“{item.label}”的权限'
         definitions.append({**asdict(item), 'grantable': reason is None, 'reason': reason})
+    create_kinds: list[ResourceKind] = []
+    for kind in ('file', 'knowledge_base', 'skill'):
+        try:
+            require_key_capabilities(principal, (resource_scope(kind, 'write'),), operation='key_create')
+            require_creation_capability(principal, kind)
+        except AppError:
+            continue
+        create_kinds.append(kind)
     return {
         'scopes': SCOPES,
         'definitions': definitions,
+        'create_resource_kinds': create_kinds,
         'caps': {'resource_rpm_min': 1, 'resource_rpm_max': RESOURCE_RPM_MAX},
     }

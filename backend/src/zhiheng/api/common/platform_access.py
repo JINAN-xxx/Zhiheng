@@ -66,6 +66,7 @@ ROUTE_CAPABILITIES: dict[str, dict[str, str]] = {
                 'keys',
                 'key',
                 'usage',
+                'request_logs',
                 'resource_access_info',
                 'resource_candidates',
                 'resource_grants',

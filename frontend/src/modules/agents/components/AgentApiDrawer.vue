@@ -90,6 +90,10 @@
               placeholder="可选的十进制积分数"
             />
           </a-form-item>
+          <p class="api-contract">
+            每分钟 {{ defaultInferenceKeyLimits.rpmLimit }} 次推理请求 · 并发
+            {{ defaultInferenceKeyLimits.concurrencyLimit }} · 长期有效
+          </p>
           <a-button
             type="primary"
             html-type="submit"
@@ -169,6 +173,7 @@ import WorkspaceState from '../../../shared/components/WorkspaceState.vue'
 import { errorMessage, isAborted, RequestScope } from '../../../shared/http.ts'
 import {
   createDeveloperKey,
+  defaultInferenceKeyLimits,
   listDeveloperKeys,
   revokeDeveloperKey,
   developerKeyStatusLabel
@@ -258,9 +263,9 @@ async function createKey(): Promise<void> {
         model_ids: [],
         resource_grants: [],
         create_resource_kinds: [],
-        rpm_limit: 60,
+        rpm_limit: defaultInferenceKeyLimits.rpmLimit,
         tpm_limit: null,
-        concurrency_limit: 2,
+        concurrency_limit: defaultInferenceKeyLimits.concurrencyLimit,
         expires_at: null
       },
       context.signal

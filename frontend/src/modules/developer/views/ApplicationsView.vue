@@ -186,6 +186,7 @@
               <a-tab-pane key="models" tab="模型直调授权" />
               <a-tab-pane key="resources" tab="资源授权" />
               <a-tab-pane key="usage" tab="调用记录" />
+              <a-tab-pane key="requests" tab="请求诊断" />
             </a-tabs>
 
             <ApplicationOverviewPanel
@@ -226,6 +227,11 @@
               v-else-if="activeTab === 'resources'"
               :application="selectedApplication"
               @version-change="updateResourceApplication"
+            />
+            <ApplicationRequestLogs
+              v-else-if="activeTab === 'requests'"
+              :application-id="selectedApplication.applicationId"
+              :can-query="canQueryUsage"
             />
             <ApplicationUsagePanel
               v-else
@@ -508,6 +514,7 @@ import ApplicationKeysPanel from '../components/ApplicationKeysPanel.vue'
 import ApplicationModelsPanel from '../components/ApplicationModelsPanel.vue'
 import ApplicationOverviewPanel from '../components/ApplicationOverviewPanel.vue'
 import ApplicationUsagePanel from '../components/ApplicationUsagePanel.vue'
+import ApplicationRequestLogs from '../components/ApplicationRequestLogs.vue'
 import ApplicationApiDocs from '../components/ApplicationApiDocs.vue'
 import ApplicationResourcesPanel from '../components/ApplicationResourcesPanel.vue'
 const {

@@ -21,7 +21,7 @@ class UsageFactsService:
     async def key_usage(
         self,
         session: AsyncSession,
-        key_id: UUID,
+        key_ids: tuple[UUID, ...],
         *,
         month: str,
         currency: str,
@@ -30,12 +30,12 @@ class UsageFactsService:
             select(func.count())
             .select_from(Invocation)
             .join(Run, Run.id == Invocation.run_id)
-            .where(Invocation.key_id == key_id, Run.status.in_(('pending', 'running', 'cancel_requested')))
+            .where(Invocation.key_id.in_(key_ids), Run.status.in_(('pending', 'running', 'cancel_requested')))
         )
         # Unknown usage keeps the original money reservation; confirmed costs replace it.
         spent = await session.scalar(
             select(func.coalesce(func.sum(func.coalesce(Invocation.billable_cost, Invocation.reserved_cost)), 0)).where(
-                Invocation.key_id == key_id, Invocation.quota_month == month, Invocation.currency == currency
+                Invocation.key_id.in_(key_ids), Invocation.quota_month == month, Invocation.currency == currency
             )
         )
         return KeyUsageFacts(active=active or 0, spent=spent or Decimal(0))

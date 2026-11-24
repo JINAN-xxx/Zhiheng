@@ -192,6 +192,7 @@ class MeterReservation:
     points_enforced: bool
     key_id: UUID | None = None
     key_limit: Decimal | None = None
+    quota_members: tuple[UUID, ...] = ()
 
 
 class UsageRecord(BaseModel):

@@ -48,11 +48,11 @@ class MeteringService:
         key = await self._keys.preflight(
             session,
             key_id,
-            tokens if points_enforced else 0,
+            tokens,
             rate if points_enforced else None,
             enforce_usage_limits=points_enforced,
         )
-        return MeterReservation(points_enforced, key.key_id, key.key_limit)
+        return MeterReservation(points_enforced, key.key_id, key.key_limit, key.quota_members)
 
     async def require_reservation(
         self,
@@ -99,7 +99,7 @@ class MeteringService:
         reserved_tokens = tokens if points_enforced else 0
         rate = rate if points_enforced else None
         key = (
-            await self._keys.reserve(session, key_id, reserved_tokens, rate, enforce_usage_limits=points_enforced)
+            await self._keys.reserve(session, key_id, tokens, rate, enforce_usage_limits=points_enforced)
             if key_id is not None
             else None
         )
@@ -127,6 +127,7 @@ class MeteringService:
                 model_id=model_id,
                 source=source,
                 reserved_tokens=reserved_tokens,
+                quota_reserved_tokens=tokens if key else None,
                 application_id=key.application_id if key else None,
                 key_id=key.key_id if key else None,
                 operation=operation,
@@ -145,7 +146,12 @@ class MeteringService:
             )
         )
         await session.flush()
-        return MeterReservation(points_enforced, key.key_id if key else None, key.key_limit if key else None)
+        return MeterReservation(
+            points_enforced,
+            key.key_id if key else None,
+            key.key_limit if key else None,
+            key.quota_members if key else (),
+        )
 
     async def settle(
         self,
@@ -303,7 +309,9 @@ class MeteringService:
                 session,
                 key_id=invocation.key_id,
                 quota_minute=invocation.quota_minute,
-                reserved_tokens=invocation.reserved_tokens,
+                reserved_tokens=invocation.reserved_tokens
+                if invocation.quota_reserved_tokens is None
+                else invocation.quota_reserved_tokens,
                 tokens=input_tokens + output_tokens,
             )
         # The waiver already released this estimate; late real usage can still

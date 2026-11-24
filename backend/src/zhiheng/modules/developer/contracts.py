@@ -81,6 +81,7 @@ class KeyCreate(StrictRequest):
     resource_grants: list[KeyResourceGrant] = Field(default_factory=list, max_length=256)
     create_resource_kinds: tuple[ResourceKind, ...] = Field(default=(), max_length=3)
     scopes: tuple[Scope, ...]
+    issue_request_id: UUID | None = None
     resource_rpm_limit: int = Field(default=120, strict=True, ge=1, le=RESOURCE_RPM_MAX)
 
     @model_validator(mode='after')
@@ -105,6 +106,8 @@ class KeyCreate(StrictRequest):
             possible.add('knowledge:query')
         if set(self.scopes).difference({'models:invoke', 'agents:invoke'}, possible):
             raise ValueError('Select an existing resource or permission to create resources of this kind')
+        if 'skill' in self.create_resource_kinds and 'files:read' not in self.scopes:
+            raise ValueError('Importing skills requires read access to the uploaded package')
         return self
 
     rpm_limit: int | None = Field(default=None, strict=True, gt=0)
@@ -213,6 +216,7 @@ class KeyMeteringReservation:
     quota_minute: int | None = None
     quota_month: str | None = None
     reserved_cost: Decimal | None = None
+    quota_members: tuple[UUID, ...] = ()
 
 
 class ApplicationGovernanceInfo(BaseModel):

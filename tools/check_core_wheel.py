@@ -297,6 +297,7 @@ def verify_core_wheel(directory: Path, *, source_root: Path | None = None) -> Pa
         "versions/0042_workspace_merge.py",
         "versions/0043_workspace_execution.py",
         "versions/0044_key_object_grants.py",
+        "versions/0045_developer_key_controls.py",
     )
     if any(
         not any(

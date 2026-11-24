@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(_request: Request, error: AppError) -> JSONResponse:
+        _request.state.public_error_code = error.code
         if is_resource(_request.scope):
             return resource_error(_request, error.code, error.message, error.status_code, error.details)
         if _request.url.path.startswith('/v1/'):
@@ -38,6 +39,9 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_error_handler(request: Request, error: HTTPException) -> JSONResponse:
+        request.state.public_error_code = (
+            'not_found' if error.status_code == status.HTTP_404_NOT_FOUND else 'invalid_request'
+        )
         if is_resource(request.scope):
             return resource_error(
                 request,
@@ -60,6 +64,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(_request: Request, _error: RequestValidationError) -> JSONResponse:
+        _request.state.public_error_code = 'invalid_request'
         if is_resource(_request.scope):
             return resource_error(_request, 'invalid_request', '请求字段无效', 422)
         if _request.url.path.startswith('/v1/'):

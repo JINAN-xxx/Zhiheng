@@ -19,6 +19,7 @@ from zhiheng.modules.developer.contracts import (
 )
 from zhiheng.modules.developer.keys import DeveloperIdentity, KeyService
 from zhiheng.modules.developer.metering import KeyMeteringPolicy
+from zhiheng.modules.developer.request_log import list_public_requests, record_public_request
 from zhiheng.modules.developer.resource_grants import (
     ResourceGrantInfo,
     ResourceGrantService,
@@ -62,6 +63,8 @@ __all__ = [
     'Scope',
     'SourceFileFact',
     'WorkbenchDeveloper',
+    'list_public_requests',
+    'record_public_request',
     'resource_scope',
     'scope_catalog',
 ]

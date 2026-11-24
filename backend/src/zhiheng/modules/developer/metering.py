@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from zhiheng.modules.developer.contracts import KeyMeteringReservation
 from zhiheng.modules.developer.keys import KeyService
-from zhiheng.modules.developer.limits import check_limits, reserve_limits, settle_minute
+from zhiheng.modules.developer.limits import check_limits, lock_quota, quota_members, reserve_limits, settle_minute
 from zhiheng.modules.developer.orm import DeveloperApplication, DeveloperKey
 from zhiheng.shared.errors import AppError
 
@@ -40,7 +40,9 @@ class KeyMeteringPolicy:
         if key is None:
             raise AppError('invalid_api_key', 'Invalid API key', 401)
         await check_limits(session, key, tokens, rate, facts=self._facts, enforce_usage_limits=enforce_usage_limits)
-        return KeyMeteringReservation(key.id, key.application_id, key.monthly_points_limit)
+        return KeyMeteringReservation(
+            key.id, key.application_id, key.monthly_points_limit, quota_members=await quota_members(session, key)
+        )
 
     async def reserve(
         self,
@@ -62,7 +64,9 @@ class KeyMeteringPolicy:
         minute, month, cost = await reserve_limits(
             session, key, tokens, rate, facts=self._facts, enforce_usage_limits=enforce_usage_limits
         )
-        return KeyMeteringReservation(key.id, key.application_id, key.monthly_points_limit, minute, month, cost)
+        return KeyMeteringReservation(
+            key.id, key.application_id, key.monthly_points_limit, minute, month, cost, await quota_members(session, key)
+        )
 
     async def require_reservation(
         self,
@@ -91,7 +95,9 @@ class KeyMeteringPolicy:
         return key.monthly_points_limit
 
     async def lock(self, session: AsyncSession, key_id: UUID) -> None:
-        await session.scalar(select(DeveloperKey).where(DeveloperKey.id == key_id).with_for_update())
+        key = await session.scalar(select(DeveloperKey).where(DeveloperKey.id == key_id).with_for_update())
+        if key is not None:
+            await lock_quota(session, key)
 
     async def settle_minute(
         self,

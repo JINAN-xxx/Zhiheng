@@ -244,6 +244,7 @@ class CreditService:
         key_id: UUID,
         key_limit: Decimal | None,
         input_tokens: int,
+        quota_members: tuple[UUID, ...] = (),
     ) -> None:
         rate = await self.rates.quote(session, model_id)
         if rate is None:
@@ -256,8 +257,7 @@ class CreditService:
             raise AppError('credits_insufficient', '可用积分不足', 429)
         if key_limit is not None:
             month = utcnow().astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
-            monthly = await session.get(CreditKeyMonth, (key_id, month))
-            used = sum_points(monthly.used_points, monthly.reserved_points) if monthly else ZERO
+            used = await self._key_points(session, quota_members or (key_id,), month)
             if key_limit == 0 or sum_points(used, held) > key_limit:
                 raise AppError('key_points_limit_exceeded', 'API Key 月度积分上限不足', 429)
 
@@ -275,6 +275,7 @@ class CreditService:
         estimated_search_units: int = 0,
         key_id: UUID | None = None,
         key_limit: Decimal | None = None,
+        quota_members: tuple[UUID, ...] = (),
     ) -> CreditReservation:
         self._usage(estimated_input_tokens, max_output_tokens, estimated_search_units)
         if not source or len(source) > MAX_SOURCE_LENGTH or not operation or len(operation) > MAX_OPERATION_LENGTH:
@@ -316,7 +317,10 @@ class CreditService:
                 raise AppError('key_points_limit_exceeded', 'API Key 月度积分上限不足', 429)
             month = utcnow().astimezone(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m')
             monthly = await self._key_month(session, key_id, month, user_id)
-            if limit is not None and sum_points(monthly.used_points, monthly.reserved_points, held) > limit:
+            if (
+                limit is not None
+                and sum_points(await self._key_points(session, quota_members or (key_id,), month), held) > limit
+            ):
                 raise AppError('key_points_limit_exceeded', 'API Key 月度积分上限不足', 429)
             # The row is only mutated after the parent wallet has also passed.
         if available_points(account) < held:
@@ -570,6 +574,13 @@ class CreditService:
         if row is None:
             raise RuntimeError('Credit account invariant failed')
         return row
+
+    @staticmethod
+    async def _key_points(session: AsyncSession, members: tuple[UUID, ...], month: str) -> Decimal:
+        rows = await session.scalars(
+            select(CreditKeyMonth).where(CreditKeyMonth.key_id.in_(members), CreditKeyMonth.month == month)
+        )
+        return sum_points(*(value for row in rows for value in (row.used_points, row.reserved_points)))
 
     async def _key_month(self, session: AsyncSession, key_id: UUID, month: str, user_id: UUID) -> CreditKeyMonth:
         await session.execute(

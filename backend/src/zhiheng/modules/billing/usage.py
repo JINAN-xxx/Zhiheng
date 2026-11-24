@@ -72,7 +72,7 @@ class UsageService:
                 run_id=run_id,
                 model_id=model_id,
                 source=source,
-                tokens=tokens if enabled else 0,
+                tokens=tokens,
                 key_id=key_id,
                 rate=rate if enabled else None,
                 operation=operation,
@@ -91,6 +91,7 @@ class UsageService:
                     estimated_search_units=estimated_search_units,
                     key_id=reservation.key_id,
                     key_limit=reservation.key_limit,
+                    quota_members=reservation.quota_members,
                 )
 
     async def require_model_price(self, session: AsyncSession, models: ModelService, model_id: UUID) -> None:
@@ -115,7 +116,7 @@ class UsageService:
             session,
             user_id=user_id,
             key_id=key_id,
-            tokens=input_tokens if enabled else 0,
+            tokens=input_tokens,
             rate=rate,
             points_enforced=enabled,
         )
@@ -126,6 +127,7 @@ class UsageService:
                 model_id=model_id,
                 key_id=key_id,
                 key_limit=reservation.key_limit,
+                quota_members=reservation.quota_members,
                 input_tokens=input_tokens,
             )
 

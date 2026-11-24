@@ -29,6 +29,7 @@ def resource_caller(scope: Scope | None) -> Callable[..., Awaitable[CallerContex
         # Commit the resource bucket independently so a downstream 4xx/rollback still counts.
         async with container.database.sessions.begin() as admission:
             identity = await container.keys.authenticate(admission, token, lock=True)
+            request.state.public_resource_identity = identity
             await container.resource_limits.consume(admission, identity)
         async with container.database.sessions() as authorization:
             if scope is None:

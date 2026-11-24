@@ -474,7 +474,7 @@ async def test_concurrency_release_and_original_minute_settlement(
         assert len(rows) == 2
         assert rows[0].tokens == 10
         current = await session.scalar(select(Invocation).where(Invocation.run_id == third.id))
-        assert rows[1].tokens == current.reserved_tokens
+        assert rows[1].tokens == current.quota_reserved_tokens
         assert current.quota_month == future.strftime('%Y-%m')
         await container.runs.cancel(session, third.id, identity.owner_id)
         await container.usage.settle(session, third.id, rejected_before_execution=True)

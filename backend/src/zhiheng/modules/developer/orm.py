@@ -44,6 +44,7 @@ class DeveloperApplication(Base):
 class DeveloperKey(Base):
     __tablename__ = 'developer_keys'
     __table_args__ = (
+        UniqueConstraint('application_id', 'issue_request_id', name='uq_developer_key_issue_request'),
         CheckConstraint("status IN ('active','retiring','revoked')"),
         CheckConstraint('resource_rpm_limit > 0 AND resource_rpm_limit <= 120', name='ck_key_resource_rpm'),
         CheckConstraint(
@@ -65,6 +66,7 @@ class DeveloperKey(Base):
     resource_grants: Mapped[list[dict[str, object]]] = mapped_column(JSONB, default=list, server_default='[]')
     create_resource_kinds: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
     grant_family_id: Mapped[UUID | None] = mapped_column(Uuid)
+    issue_request_id: Mapped[UUID | None] = mapped_column(Uuid)
     scopes: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default='[]')
     resource_rpm_limit: Mapped[int] = mapped_column(Integer, default=120, server_default='120')
     rpm_limit: Mapped[int | None] = mapped_column(Integer)
@@ -78,6 +80,18 @@ class DeveloperKey(Base):
     retire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PublicRequestLog(Base):
+    __tablename__ = 'developer_public_request_logs'
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    application_id: Mapped[UUID] = mapped_column(ForeignKey('developer_applications.id'), index=True)
+    key_id: Mapped[UUID] = mapped_column(ForeignKey('developer_keys.id'))
+    method: Mapped[str] = mapped_column(String(12))
+    route: Mapped[str] = mapped_column(String(200))
+    status: Mapped[int] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class KeyMinuteBucket(Base):

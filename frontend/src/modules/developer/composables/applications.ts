@@ -19,6 +19,7 @@ import {
   changeApplicationStatus,
   createApplication,
   createDeveloperKey,
+  defaultInferenceKeyLimits,
   deleteApplication,
   deleteDeveloperKey,
   getApplication,
@@ -47,9 +48,13 @@ import type {
   ScopeCatalog
 } from '../api/index.ts'
 
-type Tab = 'overview' | 'keys' | 'models' | 'resources' | 'usage'
+type Tab = 'overview' | 'keys' | 'models' | 'resources' | 'usage' | 'requests'
 const tabValue = (value: unknown): Tab =>
-  value === 'keys' || value === 'models' || value === 'resources' || value === 'usage'
+  value === 'keys' ||
+  value === 'models' ||
+  value === 'resources' ||
+  value === 'usage' ||
+  value === 'requests'
     ? value
     : 'overview'
 const defaultKeyForm = () => ({
@@ -62,9 +67,9 @@ const defaultKeyForm = () => ({
   resourceActions: [] as string[],
   createKinds: [] as ResourceKind[],
   expiresAt: null as string | null,
-  rpmLimit: null as number | null,
+  rpmLimit: defaultInferenceKeyLimits.rpmLimit as number | null,
   tpmLimit: null as number | null,
-  concurrencyLimit: null as number | null
+  concurrencyLimit: defaultInferenceKeyLimits.concurrencyLimit as number | null
 })
 function confirm(text: string): Promise<boolean> {
   return new Promise((resolve) =>
@@ -174,7 +179,11 @@ export function useApplications() {
   )
   const createOptions = computed(() =>
     resourceKinds
-      .filter((kind) => keyForm.scopes.includes(resourceActionScope(kind, 'write')))
+      .filter(
+        (kind) =>
+          (scopeCatalog.value?.createResourceKinds ?? resourceKinds).includes(kind) &&
+          keyForm.scopes.includes(resourceActionScope(kind, 'write'))
+      )
       .map((kind) => ({ value: kind, label: resourceCreationLabels[kind] }))
   )
   const resourceOptions = computed(() =>
@@ -739,7 +748,11 @@ export function useApplications() {
       keyFormOpen.value = false
       await loadKeys()
     } catch (reason) {
-      if (context.isCurrent() && !isAborted(reason)) formError.value = errorMessage(reason)
+      if (context.isCurrent() && !isAborted(reason)) {
+        formError.value = errorMessage(reason)
+        if (reason instanceof ApiError && reason.code === 'key_issue_already_processed')
+          void loadKeys()
+      }
     } finally {
       if (context.isCurrent()) saving.value = false
     }

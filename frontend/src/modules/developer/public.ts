@@ -8,3 +8,4 @@ export {
 } from './api/index.ts'
 export type { Application, DeveloperKey, IssuedKey } from './api/index.ts'
 export { developerKeyStatusLabel } from './presentation.ts'
+export { defaultInferenceKeyLimits } from './api/index.ts'

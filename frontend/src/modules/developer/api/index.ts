@@ -1,5 +1,6 @@
 import { parsePoints } from '../../billing/public.ts'
-import { decodeVoid, http } from '../../../shared/http.ts'
+import { decodeVoid, http, isDefiniteRejection } from '../../../shared/http.ts'
+import { createRequestId } from '../../../shared/requestId.ts'
 import {
   boolean,
   list,
@@ -74,6 +75,7 @@ export interface KeyInput {
   monthly_points_limit?: string | null
   expires_at: string | null
 }
+export const defaultInferenceKeyLimits = { rpmLimit: 60, concurrencyLimit: 2 } as const
 const root = '/developer/applications'
 const path = (id: string) => `${root}/${encodeURIComponent(id)}`
 const nullableString = (value: unknown) => (value === null ? null : string(value))
@@ -208,8 +210,28 @@ export async function listDeveloperKeys(id: string, signal: AbortSignal): Promis
   } while ((pageNumber - 1) * pageSize < total)
   return [...keys.values()]
 }
-export const createDeveloperKey = (id: string, body: KeyInput, signal: AbortSignal) =>
-  http.request(`${path(id)}/keys`, { method: 'POST', body, signal, decode: parseIssued })
+export async function createDeveloperKey(
+  id: string,
+  body: KeyInput,
+  signal: AbortSignal
+): Promise<IssuedKey> {
+  const slot = `zhiheng:developer-key-issue:${id}`
+  const issueRequestId = sessionStorage.getItem(slot) ?? createRequestId()
+  sessionStorage.setItem(slot, issueRequestId)
+  try {
+    const result = await http.request(`${path(id)}/keys`, {
+      method: 'POST',
+      body: { ...body, issue_request_id: issueRequestId },
+      signal,
+      decode: parseIssued
+    })
+    sessionStorage.removeItem(slot)
+    return result
+  } catch (error) {
+    if (isDefiniteRejection(error)) sessionStorage.removeItem(slot)
+    throw error
+  }
+}
 export const listAgentCandidates = (id: string, signal: AbortSignal) =>
   http.request(`${path(id)}/agent-candidates`, {
     signal,
@@ -262,6 +284,7 @@ export interface ScopeCatalog {
   definitions: ScopeDefinition[]
   resourceRpmMin: number
   resourceRpmMax: number
+  createResourceKinds?: ResourceKind[]
 }
 export function parseScopeCatalog(value: unknown): ScopeCatalog {
   const data = object(value),
@@ -288,12 +311,35 @@ export function parseScopeCatalog(value: unknown): ScopeCatalog {
   return {
     scopes,
     definitions,
+    ...(data.create_resource_kinds === undefined
+      ? {}
+      : {
+          createResourceKinds: resourceKinds.filter((kind) =>
+            list(string)(data.create_resource_kinds).includes(kind)
+          )
+        }),
     resourceRpmMin: number(caps.resource_rpm_min),
     resourceRpmMax: number(caps.resource_rpm_max)
   }
 }
 export const getScopeCatalog = (signal: AbortSignal) =>
   http.request(`${root}/scope-catalog`, { signal, decode: parseScopeCatalog })
+
+export const listPublicRequestLogs = (id: string, pageNumber: number, signal: AbortSignal) =>
+  http.request(`${path(id)}/request-logs?page=${pageNumber}`, {
+    signal,
+    decode: page((value) => {
+      const row = object(value)
+      return {
+        id: string(row.id),
+        method: string(row.method),
+        route: string(row.route),
+        status: number(row.status),
+        errorCode: nullableString(row.error_code),
+        createdAt: string(row.created_at)
+      }
+    })
+  })
 export function keySelectionError(
   scopes: string[],
   models: string[],
@@ -312,6 +358,13 @@ export function keySelectionError(
     return '所选操作能力的签发权限已变化，请重新选择'
   if (scopes.includes('models:invoke') && !models.length) return '请选择可直接调用的模型'
   if (scopes.includes('agents:invoke') && !agents.length) return '请选择可调用的智能体'
+  if (
+    catalog.createResourceKinds &&
+    createKinds.some((kind) => !catalog.createResourceKinds?.includes(kind))
+  )
+    return '当前账号无权签发所选的新建资源能力'
+  if (createKinds.includes('skill') && !scopes.includes('files:read'))
+    return '导入新技能需要勾选读取文件，并授权技能包文件或允许上传新文件'
   for (const kind of resourceKinds) {
     for (const scope of scopes.filter((item) => item.startsWith(resourceNamespaces[kind] + ':'))) {
       if (

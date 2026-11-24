@@ -19,6 +19,7 @@ from zhiheng.modules.developer.public import (
     ResourceGrantRequest,
     ResourceKind,
     ResourceQuotaRequest,
+    list_public_requests,
 )
 from zhiheng.modules.developer.public import (
     scope_catalog as capabilities,
@@ -210,6 +211,19 @@ async def usage(
 ) -> dict[str, object]:
     await container.applications.require(session, principal, application_id)
     return await container.usage.application_usage(session, application_id, page, page_size, operation, status)
+
+
+@router.get('/{application_id}/request-logs')
+async def request_logs(
+    application_id: UUID,
+    container: ContainerDependency,
+    principal: PrincipalDependency,
+    session: SessionDependency,
+    page: Page = 1,
+    page_size: PageSize = 20,
+) -> dict[str, object]:
+    await container.applications.require(session, principal, application_id)
+    return await list_public_requests(session, application_id, page, page_size)
 
 
 @router.get('/{application_id}/resource-access')
